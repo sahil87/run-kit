@@ -1,0 +1,4 @@
+projects:
+  run-kit:
+    path: ~/code/sahil-weaver/run-kit
+    fab_kit: true

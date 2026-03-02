@@ -1,0 +1,1 @@
+- [ ] [9c1f] 2026-03-02: Setup project scaffold

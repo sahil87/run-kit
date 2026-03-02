@@ -1,0 +1,24 @@
+project:
+  name: "{PROJECT_NAME}"
+  description: "{PROJECT_DESCRIPTION}"
+
+# Directories containing implementation code (relative to repo root).
+source_paths:
+  - {SOURCE_PATHS}
+
+# Project-specific categories appended to default checklist categories.
+# Defaults: functional_completeness, behavioral_correctness, scenario_coverage, edge_cases, security
+checklist:
+  extra_categories: []
+
+# Per-stage directives for artifact generation.
+# Each stage key accepts a list of instructions the agent follows during generation.
+stage_directives:
+  intake: []
+  spec:
+    - Use GIVEN/WHEN/THEN for scenarios
+    - "Mark ambiguities with [NEEDS CLARIFICATION]"
+  tasks: []
+  apply: []
+  review: []
+  hydrate: []

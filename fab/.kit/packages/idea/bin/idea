@@ -1,0 +1,353 @@
+#!/bin/bash
+# idea - Full CRUD for fab/backlog.md in current git repo
+#
+# Usage:
+#   idea "some cool idea"          Add a new idea
+#   idea list                      List open ideas
+#   idea show <query>              Show a single idea
+#   idea done <query>              Mark an idea as done
+#   idea reopen <query>            Reopen a completed idea
+#   idea edit <query> <new-text>   Modify an idea's text
+#   idea rm <query>                Delete an idea
+#
+# Override ideas file location with IDEAS_FILE env var or --file flag
+set -e
+
+# --- helpers ---
+
+usage() {
+    echo "usage: idea <command>"
+    echo ""
+    echo "  idea \"some cool idea\"          Add a new idea"
+    echo "  idea list                      List open ideas"
+    echo "  idea show <query>              Show a single idea"
+    echo "  idea done <query>              Mark as done"
+    echo "  idea reopen <query>            Reopen a completed idea"
+    echo "  idea edit <query> <new-text>   Modify an idea's text"
+    echo "  idea rm <query>                Delete an idea"
+    echo ""
+    echo "Options:"
+    echo "  --file <path>   Override backlog file (relative to git root)"
+    echo "  -h, --help      Show this help"
+    echo ""
+    echo "Set IDEAS_FILE to override the default location (fab/backlog.md in git root)."
+    echo ""
+    echo "Backlog format:"
+    echo "  - [ ] [a1b2] 2025-06-15: Add dark mode to settings page"
+    echo "  - [ ] [c3d4] 2025-06-10: DES-123 Link to a Linear ticket"
+    echo "  - [x] [e5f6] 2025-06-08: Fix login redirect bug"
+}
+
+# Cross-platform sed -i
+sedi() {
+    if [[ "$OSTYPE" == darwin* ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
+# Find ideas matching a query. Searches all ideas (open and done).
+# Sets: matches (line_num:line content), match_count
+find_ideas() {
+    local query="$1" filter="${2:-all}"
+    local pattern
+    case "$filter" in
+        open) pattern='^\- \[ \]' ;;
+        done) pattern='^\- \[x\]' ;;
+        all)  pattern='^\- \[[ x]\]' ;;
+    esac
+    matches=$(grep -n "$pattern" "$ideas_file" | grep -i "$query" || true)
+    if [ -z "$matches" ]; then
+        match_count=0
+    else
+        match_count=$(echo "$matches" | wc -l | tr -d ' ')
+    fi
+}
+
+# Require exactly one match, or exit with disambiguation message
+require_single_match() {
+    local query="$1" filter="${2:-all}"
+    find_ideas "$query" "$filter"
+    if [ "$match_count" -eq 0 ]; then
+        echo "No idea matching '$query'" >&2
+        exit 1
+    fi
+    if [ "$match_count" -gt 1 ]; then
+        echo "Multiple matches:"
+        echo "$matches" | while IFS=: read -r _ line; do echo "  $line"; done
+        echo ""
+        echo "Be more specific or use the exact ID."
+        exit 1
+    fi
+    matched_line_num=$(echo "$matches" | cut -d: -f1)
+    matched_line=$(sed -n "${matched_line_num}p" "$ideas_file")
+}
+
+# Parse a backlog line into id/date/text fields
+parse_line() {
+    local line="$1"
+    parsed_id=$(echo "$line" | sed -n 's/.*\[\([a-z0-9]*\)\].*/\1/p')
+    parsed_date=$(echo "$line" | sed -n 's/.*\] \([0-9-]*\):.*/\1/p')
+    parsed_text=$(echo "$line" | sed -n 's/.*[0-9]\{4\}-[0-9][0-9]-[0-9][0-9]: //p')
+    parsed_status="open"
+    echo "$line" | grep -q '^\- \[x\]' && parsed_status="done" || true
+}
+
+to_json_object() {
+    parse_line "$1"
+    printf '{"id":"%s","date":"%s","status":"%s","text":"%s"}' \
+        "$parsed_id" "$parsed_date" "$parsed_status" "$parsed_text"
+}
+
+# --- parse global options ---
+
+file_override=""
+args=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --file) file_override="$2"; shift 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]}"
+
+# No args or help
+if [ $# -eq 0 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    usage
+    exit 0
+fi
+
+# --- resolve ideas file ---
+
+git_common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+    echo "error: not in a git repository" >&2
+    exit 1
+}
+repo_root=$(dirname "$git_common_dir")
+
+if [ -n "$file_override" ]; then
+    ideas_file="$repo_root/$file_override"
+elif [ -n "${IDEAS_FILE:-}" ]; then
+    ideas_file="$repo_root/$IDEAS_FILE"
+else
+    ideas_file="$repo_root/fab/backlog.md"
+fi
+
+require_file() {
+    if [ ! -f "$ideas_file" ]; then
+        echo "error: no ideas file found at $ideas_file" >&2
+        exit 1
+    fi
+}
+
+# --- commands ---
+
+cmd="$1"
+
+# list
+if [ "$cmd" = "list" ]; then
+    shift
+    filter="open"
+    json=false
+    sort_field="date"
+    reverse=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -a)        filter="all"; shift ;;
+            --done)    filter="done"; shift ;;
+            --json)    json=true; shift ;;
+            --sort)    sort_field="$2"; shift 2 ;;
+            --reverse) reverse=true; shift ;;
+            *) echo "unknown option: $1" >&2; exit 1 ;;
+        esac
+    done
+    if [ ! -f "$ideas_file" ]; then
+        if $json; then echo "[]"; else echo "No ideas file yet. Add one with: idea \"your idea\""; fi
+        exit 0
+    fi
+    case "$filter" in
+        open) lines=$(grep '^\- \[ \]' "$ideas_file" || true) ;;
+        done) lines=$(grep '^\- \[x\]' "$ideas_file" || true) ;;
+        all)  lines=$(grep '^\- \[[ x]\]' "$ideas_file" || true) ;;
+    esac
+    if [ -z "$lines" ]; then
+        if $json; then echo "[]"; else echo "No ideas found."; fi
+        exit 0
+    fi
+    # Sort
+    case "$sort_field" in
+        id)   lines=$(echo "$lines" | sort -t'[' -k3) ;;
+        date) lines=$(echo "$lines" | sort -t']' -k2) ;;
+    esac
+    if $reverse; then
+        lines=$(echo "$lines" | tac 2>/dev/null || echo "$lines" | tail -r)
+    fi
+    if $json; then
+        total=$(echo "$lines" | wc -l | tr -d ' ')
+        i=0
+        echo "["
+        while IFS= read -r line; do
+            i=$((i + 1))
+            printf "  "
+            to_json_object "$line"
+            if [ "$i" -lt "$total" ]; then printf ","; fi
+            echo
+        done <<< "$lines"
+        echo "]"
+    else
+        echo "$lines"
+    fi
+    exit 0
+fi
+
+# show
+if [ "$cmd" = "show" ]; then
+    shift
+    json=false
+    query_args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --json) json=true; shift ;;
+            *) query_args+=("$1"); shift ;;
+        esac
+    done
+    query="${query_args[*]}"
+    if [ -z "$query" ]; then echo "usage: idea show <query>" >&2; exit 1; fi
+    require_file
+    require_single_match "$query"
+    if $json; then
+        to_json_object "$matched_line"
+        echo
+    else
+        echo "$matched_line"
+    fi
+    exit 0
+fi
+
+# done
+if [ "$cmd" = "done" ]; then
+    shift
+    query="$*"
+    if [ -z "$query" ]; then echo "usage: idea done <query>" >&2; exit 1; fi
+    require_file
+    require_single_match "$query" "open"
+    sedi "${matched_line_num}s/- \[ \]/- [x]/" "$ideas_file"
+    echo "Done: $(sed -n "${matched_line_num}p" "$ideas_file")"
+    exit 0
+fi
+
+# reopen
+if [ "$cmd" = "reopen" ]; then
+    shift
+    query="$*"
+    if [ -z "$query" ]; then echo "usage: idea reopen <query>" >&2; exit 1; fi
+    require_file
+    require_single_match "$query" "done"
+    sedi "${matched_line_num}s/- \[x\]/- [ ]/" "$ideas_file"
+    echo "Reopened: $(sed -n "${matched_line_num}p" "$ideas_file")"
+    exit 0
+fi
+
+# edit
+if [ "$cmd" = "edit" ]; then
+    shift
+    new_date=""
+    new_id=""
+    edit_args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --date) new_date="$2"; shift 2 ;;
+            --id)   new_id="$2"; shift 2 ;;
+            *) edit_args+=("$1"); shift ;;
+        esac
+    done
+    if [ ${#edit_args[@]} -lt 2 ]; then
+        echo "usage: idea edit <query> <new-text> [--date YYYY-MM-DD] [--id slug]" >&2
+        exit 1
+    fi
+    query="${edit_args[0]}"
+    new_text="${edit_args[*]:1}"
+    require_file
+    require_single_match "$query"
+    parse_line "$matched_line"
+    use_id="${new_id:-$parsed_id}"
+    use_date="${new_date:-$parsed_date}"
+    # Check ID conflict if changing
+    if [ -n "$new_id" ] && [ "$new_id" != "$parsed_id" ]; then
+        if grep -q "\[$new_id\]" "$ideas_file"; then
+            echo "error: ID '$new_id' already exists" >&2
+            exit 1
+        fi
+    fi
+    # Reconstruct the line preserving status
+    if [ "$parsed_status" = "done" ]; then
+        replacement="- [x] [$use_id] $use_date: $new_text"
+    else
+        replacement="- [ ] [$use_id] $use_date: $new_text"
+    fi
+    sedi "${matched_line_num}s|.*|$replacement|" "$ideas_file"
+    echo "Updated: $replacement"
+    exit 0
+fi
+
+# rm
+if [ "$cmd" = "rm" ]; then
+    shift
+    force=false
+    query_args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force) force=true; shift ;;
+            *) query_args+=("$1"); shift ;;
+        esac
+    done
+    query="${query_args[*]}"
+    if [ -z "$query" ]; then echo "usage: idea rm <query> [--force]" >&2; exit 1; fi
+    require_file
+    require_single_match "$query"
+    if ! $force; then
+        echo "Will delete: $matched_line"
+        printf "Confirm? [y/N] "
+        read -r confirm
+        if [[ "$confirm" != [yY]* ]]; then
+            echo "Cancelled."
+            exit 0
+        fi
+    fi
+    sedi "${matched_line_num}d" "$ideas_file"
+    echo "Removed: $matched_line"
+    exit 0
+fi
+
+# Default: add a new idea
+# Parse add-specific flags
+custom_id=""
+custom_date=""
+add_args=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --id)   custom_id="$2"; shift 2 ;;
+        --date) custom_date="$2"; shift 2 ;;
+        *) add_args+=("$1"); shift ;;
+    esac
+done
+
+id="${custom_id:-$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 4)}"
+today="${custom_date:-$(date +%Y-%m-%d)}"
+text="${add_args[*]}"
+
+if [ -z "$text" ]; then
+    echo "usage: idea \"some cool idea\"" >&2
+    exit 1
+fi
+
+# Check ID conflict
+if [ -n "$custom_id" ] && [ -f "$ideas_file" ] && grep -q "\[$custom_id\]" "$ideas_file"; then
+    echo "error: ID '$custom_id' already exists" >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname "$ideas_file")"
+echo "- [ ] [$id] $today: $text" >> "$ideas_file"
+echo "Added: [$id] $today: $text"

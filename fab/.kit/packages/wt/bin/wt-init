@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+#
+# wt-init - Run worktree init script
+#
+# Usage: wt-init
+#        wt-init help
+#
+# Runs the worktree init script for the current repository.
+# If the init script doesn't exist, exits with a message.
+#
+# Environment variables:
+#   WORKTREE_INIT_SCRIPT - Path to init script (default: fab/.kit/worktree-init.sh)
+
+set -euo pipefail
+
+# ============================================================================
+# Initialization
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/wt-common.sh"
+
+# ============================================================================
+# Setup Execution
+# ============================================================================
+
+wt_run_setup_scripts() {
+    # Resolve main repo root (not worktree root) using git-common-dir
+    local git_common_dir repo_root
+    git_common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+    git_common_dir=$(cd "$git_common_dir" && pwd)
+    repo_root="${git_common_dir%/.git}"
+
+    local init_script="$repo_root/$WORKTREE_INIT_SCRIPT"
+
+    if [[ ! -f "$init_script" ]]; then
+        echo "No init script found at: $init_script"
+        echo ""
+        echo "To add an init script:"
+        echo "  mkdir -p $(dirname "$WORKTREE_INIT_SCRIPT")"
+        echo "  touch $WORKTREE_INIT_SCRIPT"
+        exit "$WT_EXIT_SUCCESS"
+    fi
+
+    # Run the init script from the current toplevel (worktree or main repo)
+    local current_root
+    current_root=$(git rev-parse --show-toplevel 2>/dev/null)
+
+    echo "Running worktree init..."
+    echo ""
+    (cd "$current_root" && bash "$init_script")
+    echo ""
+    echo "Worktree init complete."
+}
+
+# ============================================================================
+# Help
+# ============================================================================
+
+wt_show_help() {
+    cat <<EOF
+Usage: wt-init
+       wt-init help
+
+Runs the init script for the current worktree or repository.
+If the init script doesn't exist, exits with a message.
+
+Init script: \$WORKTREE_INIT_SCRIPT (default: fab/.kit/worktree-init.sh)
+
+Options:
+  help           Show this help message
+
+Environment:
+  WORKTREE_INIT_SCRIPT   Path to init script (default: fab/.kit/worktree-init.sh)
+
+Examples:
+  wt-init   # Run init script
+EOF
+}
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            help|--help|-h)
+                wt_show_help
+                exit "$WT_EXIT_SUCCESS"
+                ;;
+            *)
+                wt_error_with_code "$WT_EXIT_INVALID_ARGS" \
+                    "Unknown argument: $1" \
+                    "This argument is not recognized" \
+                    "Run 'wt-init help' for usage information"
+                ;;
+        esac
+    done
+
+    wt_validate_git_repo
+    wt_run_setup_scripts
+}
+
+main "$@"

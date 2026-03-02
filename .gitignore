@@ -137,3 +137,23 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+fab/current
+
+fab/.kit-sync-version
+
+fab/pipelines/.series-*.yaml
+
+fab/changes/**/.pr-done
+
+/.agents
+
+/.claude
+
+/.cursor
+
+/.opencode
+
+/.codex
+
+/.ralph

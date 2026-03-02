@@ -144,9 +144,9 @@ export function TerminalClient({ projectName, windowIndex }: Props) {
   }, [projectName, windowIndex]);
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col bg-black">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-bg-primary shrink-0">
+      <div className="mx-auto w-full max-w-[900px] flex items-center justify-between px-4 py-2 shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push(`/p/${projectName}`)}
@@ -162,7 +162,7 @@ export function TerminalClient({ projectName, windowIndex }: Props) {
       </div>
 
       {/* Terminal */}
-      <div ref={terminalRef} className="flex-1 bg-bg-primary" />
+      <div ref={terminalRef} className="mx-auto w-full max-w-[900px] flex-1" />
     </div>
   );
 }

@@ -11,5 +11,14 @@
 > **Ownership**: Specs are written and maintained by humans. No automated tooling creates or
 > enforces structure here — organize files however makes sense for your project.
 
+## Spec Locations
+
+| Spec | Location |
+|------|----------|
+| Agent Orchestrator | [`docs/ao/`](../ao/) |
+| fab-kit | `~/code/sahil-weaver/fab-kit/docs/` (source: `~/code/sahil-weaver/fab-kit/fab/.kit/`) |
+
+## Project Specs
+
 | Spec | Description |
 |------|-------------|

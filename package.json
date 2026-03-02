@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -n next,relay -c blue,green \"next dev\" \"tsx src/terminal-relay/server.ts\"",
     "build": "next build",
     "start": "next start",
     "relay": "tsx src/terminal-relay/server.ts",
@@ -22,7 +22,10 @@
     "yaml": "^2.7.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["node-pty", "esbuild"]
+    "onlyBuiltDependencies": [
+      "node-pty",
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
@@ -30,6 +33,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/ws": "^8.5.0",
+    "concurrently": "^9.2.1",
     "postcss": "^8.5.0",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.19.0",

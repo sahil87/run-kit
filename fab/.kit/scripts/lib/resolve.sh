@@ -78,11 +78,12 @@ resolve_to_folder() {
       return 1
     fi
   else
-    # --- Default mode: read fab/current ---
+    # --- Default mode: read fab/current line 2 (folder name) ---
     local current_file="$FAB_ROOT/current"
     local name=""
     if [ -f "$current_file" ]; then
-      name=$(tr -d '[:space:]' < "$current_file")
+      # Two-line format: line 1 = 4-char ID, line 2 = full folder name
+      name=$(sed -n '2p' "$current_file" | tr -d '[:space:]')
     fi
 
     if [ -n "$name" ]; then

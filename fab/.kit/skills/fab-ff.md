@@ -89,7 +89,7 @@ Dispatch review to a **sub-agent** per `/fab-continue` Review Behavior — the s
 
 **Pass**: run `fab/.kit/scripts/lib/statusman.sh finish <change> review fab-ff`. Proceed to Step 7.
 
-**Fail**: Auto-rework loop with bounded retry, then interactive fallback. Run `fab/.kit/scripts/lib/statusman.sh fail <change> review` then `fab/.kit/scripts/lib/statusman.sh start <change> apply fab-ff`.
+**Fail**: Auto-rework loop with bounded retry, then interactive fallback. Run `fab/.kit/scripts/lib/statusman.sh fail <change> review` then `fab/.kit/scripts/lib/statusman.sh reset <change> apply fab-ff`.
 
 #### Auto-Rework Loop (up to 3 cycles)
 

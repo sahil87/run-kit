@@ -89,6 +89,9 @@ fi
 
 # --- All validations passed — emit structured YAML to stdout ---
 
+# Extract 4-char change ID from folder name
+id=$(echo "$name" | cut -d'-' -f2)
+
 # Extract progress via statusman CLI
 declare -A progress
 while IFS=: read -r s val; do
@@ -117,6 +120,7 @@ done < <("$STATUSMAN" confidence "$status_file")
 
 # Emit YAML output with dynamic stage progress
 cat <<EOF
+id: $id
 name: $name
 change_dir: fab/changes/$name
 stage: $stage

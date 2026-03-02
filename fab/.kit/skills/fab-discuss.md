@@ -37,8 +37,8 @@ Do **not** run preflight. Do **not** load change-specific artifacts.
 
 After loading the always-load layer, check for an active change:
 
-1. Read `fab/current` — if the file does not exist or is empty, note "No active change"
-2. If `fab/current` contains a change name, read `fab/changes/{name}/.status.yaml` to get the current stage
+1. Run `bash fab/.kit/scripts/lib/resolve.sh --folder 2>/dev/null` — if it exits non-zero, note "No active change"
+2. If resolution succeeds, use the returned folder name to read `fab/changes/{name}/.status.yaml` for the current stage
 3. Do **not** load change artifacts (intake, spec, tasks)
 
 ---
@@ -58,7 +58,7 @@ This is best-effort — logman resolves the active change via `fab/current` if o
 ## Behavior
 
 1. Read all 7 always-load files (skip optional files gracefully)
-2. Read `fab/current` for active change awareness
+2. Resolve active change via `resolve.sh`
 3. Output the **Orientation Summary** (see format below)
 
 ---

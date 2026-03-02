@@ -54,8 +54,8 @@ Resolve the active change and load its state by running the preflight script:
 
 1. **Run preflight**: Execute `fab/.kit/scripts/lib/preflight.sh [change-name]` via Bash — pass the optional change-name argument if the skill received one
 2. **Check exit code**: If the script exits non-zero, STOP and surface the stderr message to the user (it contains the specific error and suggested fix)
-3. **Parse stdout YAML**: On success, parse the YAML output for `name`, `change_dir`, `stage`, `progress`, `checklist`, and `confidence` fields — use these for all subsequent change context instead of re-reading `.status.yaml`
-4. **Log command**: Call `bash fab/.kit/scripts/lib/logman.sh command "<skill-name>" "<name>" 2>/dev/null || true` where `<skill-name>` is the invoking skill (e.g., `fab-continue`) and `<name>` is the `name` field from the preflight YAML output. This is best-effort — failures are silently ignored.
+3. **Parse stdout YAML**: On success, parse the YAML output for `id`, `name`, `change_dir`, `stage`, `progress`, `checklist`, and `confidence` fields — use these for all subsequent change context instead of re-reading `.status.yaml`. Use `id` (4-char change ID) for script invocations; use `name` for display, path construction, and artifact metadata.
+4. **Log command**: Call `bash fab/.kit/scripts/lib/logman.sh command "<skill-name>" "<id>" 2>/dev/null || true` where `<skill-name>` is the invoking skill (e.g., `fab-continue`) and `<id>` is the `id` field from the preflight YAML output. This is best-effort — failures are silently ignored.
 5. Load all completed artifacts in the change folder (e.g., `intake.md`, `spec.md`, `tasks.md`) — read each file that exists so you have full context of what has been decided so far
 
 > **Change-name override**: When a `[change-name]` argument is passed to the preflight script, it resolves the change using case-insensitive substring matching against `fab/changes/` folder names (excluding `archive/`) instead of reading `fab/current`. The override is **transient** — `fab/current` is never modified. This enables parallel workflows where multiple tabs target different changes concurrently. Supports full folder names, partial slugs, or 4-char IDs (e.g., `r3m7`).
@@ -325,3 +325,11 @@ Confidence is computed by `fab/.kit/scripts/lib/calc-score.sh`, invoked by `/fab
 ### Template
 
 `fab/.kit/templates/status.yaml` includes the confidence block initialized to zero counts and score 0.0. Template defaults persist until `/fab-continue` generates the spec and invokes `fab/.kit/scripts/lib/calc-score.sh`.
+
+### Bulk Confirm (Confident Assumptions)
+
+When the confidence score is low primarily due to many Confident (not Tentative/Unresolved) assumptions, `/fab-clarify` offers a bulk confirm flow. This displays all Confident assumptions in a numbered list and lets the user confirm, change, or request explanation in a single conversational turn — typically 10x faster than individual question/answer cycles.
+
+Detection: triggered when `confident >= 3` and `confident > tentative + unresolved`.
+
+This flow runs as Step 1.5 in Suggest Mode, before the standard taxonomy scan (Step 2). Items confirmed are upgraded to Certain (Rationale: `Clarified — user confirmed`, S dimension → 95); items changed are updated and upgraded; items not mentioned remain Confident. Auto Mode does not trigger bulk confirm.

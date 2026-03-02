@@ -91,7 +91,7 @@ Dispatch review to a **sub-agent** per `/fab-continue` Review Behavior — the s
 
 **Pass**: run `fab/.kit/scripts/lib/statusman.sh finish <change> review fab-fff`. Proceed to Step 8.
 
-**Fail**: Autonomous rework with bounded retry. Run `fab/.kit/scripts/lib/statusman.sh fail <change> review` then `fab/.kit/scripts/lib/statusman.sh start <change> apply fab-fff`. The agent triages the sub-agent's prioritized findings and autonomously selects the rework path — no user interaction. Must-fix items are always addressed; should-fix items when clear and low-effort; nice-to-have items may be skipped.
+**Fail**: Autonomous rework with bounded retry. Run `fab/.kit/scripts/lib/statusman.sh fail <change> review` then `fab/.kit/scripts/lib/statusman.sh reset <change> apply fab-fff`. The agent triages the sub-agent's prioritized findings and autonomously selects the rework path — no user interaction. Must-fix items are always addressed; should-fix items when clear and low-effort; nice-to-have items may be skipped.
 
 **Decision heuristics** (applied to prioritized findings):
 - **Must-fix: test failures, spec mismatches, checklist violations** → "Fix code" — uncheck affected tasks with `<!-- rework: reason -->`, re-run apply, then spawn a **fresh sub-agent** for re-review

@@ -223,8 +223,10 @@ run_pipeline() {
   sleep 0.5
   tmux send-keys -t "$pane_id" Enter 2>/dev/null || true
 
-  # Step 3: Poll fab/current until it matches the expected change ID
+  # Step 3: Poll fab/current line 1 (4-char ID) until it matches the expected change
   local fab_current_file="$wt_path/fab/current"
+  local expected_id
+  expected_id=$(echo "$CHANGE_ID" | cut -d'-' -f2)
   local elapsed=0
   local switch_ok=false
   while [[ "$elapsed" -lt "$SWITCH_POLL_TIMEOUT" ]]; do
@@ -238,11 +240,11 @@ run_pipeline() {
       return 0
     fi
 
-    # Check fab/current content
+    # Check fab/current line 1 (4-char ID)
     if [[ -f "$fab_current_file" ]]; then
-      local current_content
-      current_content=$(tr -d '[:space:]' < "$fab_current_file" 2>/dev/null)
-      if [[ "$current_content" == "$CHANGE_ID" ]]; then
+      local current_id
+      current_id=$(sed -n '1p' "$fab_current_file" 2>/dev/null | tr -d '[:space:]')
+      if [[ "$current_id" == "$expected_id" ]]; then
         switch_ok=true
         break
       fi

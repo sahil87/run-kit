@@ -181,8 +181,10 @@ cmd_switch() {
   local resolved
   resolved=$(cmd_resolve "$name") || exit 1
 
-  # 2. Write fab/current
-  printf '%s' "$resolved" > "$FAB_ROOT/current"
+  # 2. Write fab/current (two-line format: ID on line 1, folder name on line 2)
+  local change_id
+  change_id=$(echo "$resolved" | cut -d'-' -f2)
+  printf '%s\n%s' "$change_id" "$resolved" > "$FAB_ROOT/current"
 
   # 3. Derive display stage and routing stage
   local display_stage="unknown" display_state="pending" routing_stage="unknown"
@@ -391,13 +393,16 @@ cmd_rename() {
   # Update .status.yaml name field
   yq -i ".name = \"${new_name}\"" "$changes_dir/$new_name/.status.yaml"
 
-  # Update fab/current if it points to the old folder
+  # Update fab/current if it points to the old folder (two-line format)
   local current_file="$FAB_ROOT/current"
   if [ -f "$current_file" ]; then
-    local current_val
-    current_val=$(cat "$current_file")
-    if [ "$current_val" = "$folder" ]; then
-      printf '%s' "$new_name" > "$current_file"
+    local current_folder
+    current_folder=$(sed -n '2p' "$current_file" | tr -d '[:space:]')
+    if [ "$current_folder" = "$folder" ]; then
+      # Line 1 (ID) stays the same — prefix is immutable across renames
+      local current_id
+      current_id=$(sed -n '1p' "$current_file" | tr -d '[:space:]')
+      printf '%s\n%s' "$current_id" "$new_name" > "$current_file"
     fi
   fi
 

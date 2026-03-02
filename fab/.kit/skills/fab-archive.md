@@ -40,7 +40,7 @@ Archive a completed change after hydrate, or restore an archived change back to 
 
 ## Context Loading
 
-Minimal: `intake.md` (for backlog ID + keywords), `.status.yaml`, `fab/backlog.md` (if exists), `fab/current`.
+Minimal: `intake.md` (for backlog ID + keywords), `.status.yaml`, `fab/backlog.md` (if exists). Active change check delegated to `changeman.sh resolve` in Step 5.
 
 ---
 
@@ -86,7 +86,7 @@ Mark as done? (comma-separated numbers, or "none")
 
 ### Step 5: Clear Pointer (Conditional)
 
-If `fab/current` contains the archived change → delete `fab/current`. Otherwise no-op.
+Check the active change via `bash fab/.kit/scripts/lib/changeman.sh resolve 2>/dev/null`. If it matches the archived change name → run `bash fab/.kit/scripts/lib/changeman.sh switch --blank` to clear the pointer. Otherwise no-op.
 
 Steps execute 1→5 for safety. If interrupted, re-run completes remaining.
 
@@ -173,7 +173,7 @@ Remove the entry for `{name}` from `fab/changes/archive/index.md`. If the index 
 
 ### Step 3: Update Pointer (Conditional)
 
-If `--switch` flag is provided → write `{name}` to `fab/current`. Otherwise no-op — `fab/current` is not modified.
+If `--switch` flag is provided → run `bash fab/.kit/scripts/lib/changeman.sh switch {name}` to activate the restored change. Otherwise no-op — `fab/current` is not modified.
 
 Steps execute 1→3 for safety. If interrupted, re-run completes remaining.
 

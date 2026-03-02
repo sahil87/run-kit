@@ -183,7 +183,7 @@ Each finding includes: severity tier, description, and file:line reference where
 
 **Pass**: Run `fab/.kit/scripts/lib/statusman.sh finish <change> review fab-continue` (auto-activates hydrate). Update checklist via `fab/.kit/scripts/lib/statusman.sh set-checklist <change> completed <N>`. Output report + `Next: {per state table}`.
 
-**Fail** (manual rework — `/fab-continue` only): Run `fab/.kit/scripts/lib/statusman.sh fail <change> review` then `fab/.kit/scripts/lib/statusman.sh start <change> apply fab-continue`. Update checklist via `fab/.kit/scripts/lib/statusman.sh set-checklist <change> completed <N>`. Present findings with priority annotations, then offer rework options:
+**Fail** (manual rework — `/fab-continue` only): Run `fab/.kit/scripts/lib/statusman.sh fail <change> review` then `fab/.kit/scripts/lib/statusman.sh reset <change> apply fab-continue`. Update checklist via `fab/.kit/scripts/lib/statusman.sh set-checklist <change> completed <N>`. Present findings with priority annotations, then offer rework options:
 
 | Option | When | Action |
 |--------|------|--------|

@@ -138,8 +138,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-run-kit.yaml
-
 fab/current
 
 fab/.kit-sync-version

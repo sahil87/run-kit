@@ -13,9 +13,8 @@ The tmux server is an external dependency — never started or stopped by run-ki
 ## Data Model
 
 **No database.** State derived at request time from:
-- **tmux server** — `tmux list-sessions`, `tmux list-windows` via `lib/tmux.ts`
-- **Filesystem** — `fab/current`, `.status.yaml` via `lib/fab.ts`
-- **Config** — `run-kit.yaml` via `lib/config.ts`
+- **tmux server** — `tmux list-sessions`, `tmux list-windows` via `lib/tmux.ts`. Project roots derived from window 0's `pane_current_path`
+- **Filesystem** — `fab/current`, `.status.yaml` via `lib/fab.ts`. Fab-kit projects auto-detected via `fs.access()` on `fab/project/config.yaml` at the derived project root
 
 ## Backend Libraries
 
@@ -24,8 +23,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 | `src/lib/tmux.ts` | All tmux operations via `execFile` with argument arrays + timeouts |
 | `src/lib/worktree.ts` | Wraps fab-kit `wt-*` scripts (never reimplements) |
 | `src/lib/fab.ts` | Reads fab state (progress-line, current change, change list) |
-| `src/lib/config.ts` | Loads/validates `run-kit.yaml`, caches singleton |
-| `src/lib/sessions.ts` | Fetches all sessions, maps to projects, enriches with fab state |
+| `src/lib/sessions.ts` | Derives project roots from tmux, auto-detects fab-kit, enriches with fab state |
 | `src/lib/validate.ts` | Input validation for names/paths before subprocess calls |
 | `src/lib/types.ts` | Shared TypeScript types + named constants |
 
@@ -34,7 +32,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/health` | GET | Returns `200 { "status": "ok" }` for supervisor health checks |
-| `/api/sessions` | GET | Returns `ProjectSession[]` with project mapping + fab enrichment |
+| `/api/sessions` | GET | Returns `ProjectSession[]` — one per tmux session, with auto-detected fab enrichment |
 | `/api/sessions` | POST | Actions: `createSession`, `createWindow`, `killWindow`, `sendKeys` |
 | `/api/sessions/stream` | GET | SSE — polls tmux every 2.5s, emits full snapshot on change |
 
@@ -61,7 +59,7 @@ Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 - **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
 - **Independent panes per browser client** — no cursor fights, agent pane untouched
-- **Exact name matching for session-to-project mapping** — predictable, unmatched → "Other"
+- **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
 
 ## Security
 
@@ -74,3 +72,4 @@ Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 | Date | Change | Reference |
 |------|--------|-----------|
 | 2026-03-02 | Initial architecture — greenfield v1 | `260302-fl88-web-agent-dashboard` |
+| 2026-03-03 | Removed `run-kit.yaml` config — derive project state from tmux | `260303-yohq-drop-config-derive-from-tmux` |

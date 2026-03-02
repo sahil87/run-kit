@@ -105,9 +105,7 @@ export function DashboardClient({ initialSessions }: Props) {
         shortcut: "/",
         onSelect: () => setShowFilter(true),
       },
-      ...sessions
-        .filter((s) => s.name !== "Other")
-        .map((s) => ({
+      ...sessions.map((s) => ({
           id: `project-${s.name}`,
           label: `Go to ${s.name}`,
           onSelect: () => navigateToProject(s.name),
@@ -171,8 +169,7 @@ export function DashboardClient({ initialSessions }: Props) {
           <p className="text-sm">No active sessions</p>
           <p className="text-xs mt-2">
             Press <kbd className="px-1 border border-border rounded">c</kbd> to
-            create one, or start a tmux session matching a project key in
-            run-kit.yaml
+            create one, or start a tmux session to get started
           </p>
         </div>
       ) : (
@@ -183,9 +180,6 @@ export function DashboardClient({ initialSessions }: Props) {
           );
 
           if (sessionWindows.length === 0 && filterQuery) return null;
-          if (session.windows.length === 0 && session.name === "Other")
-            return null;
-
           return (
             <section key={session.name} className="mb-6">
               <button

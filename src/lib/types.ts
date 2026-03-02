@@ -1,4 +1,4 @@
-/** A tmux session mapped to a configured project (or "Other"). */
+/** A tmux session with its windows and optional fab enrichment. */
 export type ProjectSession = {
   name: string;
   windows: WindowInfo[];
@@ -12,17 +12,6 @@ export type WindowInfo = {
   activity: "active" | "idle";
   fabStage?: string;
   fabProgress?: string;
-};
-
-/** A single project entry from run-kit.yaml. */
-export type ProjectConfig = {
-  path: string;
-  fab_kit?: boolean;
-};
-
-/** Top-level run-kit.yaml config. */
-export type Config = {
-  projects: Record<string, ProjectConfig>;
 };
 
 /** Options for execFile-based tmux calls. */

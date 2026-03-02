@@ -1,5 +1,0 @@
-# Copy to run-kit.yaml and customize project paths
-projects:
-  my-project:
-    path: ~/code/my-project
-    fab_kit: true

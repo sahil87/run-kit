@@ -1,10 +1,10 @@
 project:
-  name: "{PROJECT_NAME}"
-  description: "{PROJECT_DESCRIPTION}"
+  name: "run-kit"
+  description: "Web based agent orchestration framework"
 
 # Directories containing implementation code (relative to repo root).
 source_paths:
-  - {SOURCE_PATHS}
+  - src/
 
 # Project-specific categories appended to default checklist categories.
 # Defaults: functional_completeness, behavioral_correctness, scenario_coverage, edge_cases, security

@@ -1,0 +1,27 @@
+name: 260302-fl88-web-agent-dashboard
+created: 2026-03-02T20:10:46+05:30
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+  intake: ready
+  spec: pending
+  tasks: pending
+  apply: pending
+  review: pending
+  hydrate: pending
+checklist:
+  generated: false
+  path: checklist.md
+  completed: 0
+  total: 0
+confidence:
+  certain: 0
+  confident: 0
+  tentative: 0
+  unresolved: 0
+  score: 0.0
+stage_metrics:
+  intake: {started_at: "2026-03-02T20:10:46+05:30", driver: fab-new, iterations: 1}
+prs: []
+last_updated: "2026-03-02T20:12:46+05:30"

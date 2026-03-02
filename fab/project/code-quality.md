@@ -1,28 +1,29 @@
 # Code Quality
 
-<!-- Optional coding standards consumed during apply and review.
-     Projects opt in by creating this file. All sections are independently optional.
-     Delete or leave empty any section that doesn't apply to your project. -->
-
 ## Principles
-
-<!-- Positive coding standards to follow during implementation. -->
 
 - Readability and maintainability over cleverness
 - Follow existing project patterns unless there's compelling reason to deviate
 - Prefer composition over inheritance
+- `execFile` with argument arrays for all subprocess calls — never `exec` or backtick shell strings
+- Server Components by default; Client Components only when interactivity requires it (keyboard handlers, xterm.js, SSE consumers)
+- Type narrowing over type assertions — prefer `if` guards and discriminated unions over `as` casts
+- Derive state from tmux + filesystem — no in-memory caches unless explicitly justified by performance measurement
+- Wrap fab-kit scripts in typed async functions (`lib/*.ts`) — never call shell scripts directly from components or API routes
 
 ## Anti-Patterns
 
-<!-- Patterns to avoid. Flagged during review with file:line references on violation. -->
-
 - God functions (>50 lines without clear reason)
-- Duplicating existing utilities instead of reusing them
+- Duplicating existing utilities instead of reusing them — check `lib/tmux.ts`, `lib/worktree.ts`, `lib/fab.ts` first
 - Magic strings or numbers without named constants
+- `exec()` or `execSync()` anywhere — always `execFile` / `execFileSync` with argument arrays
+- Inline tmux command construction — all tmux interaction goes through `lib/tmux.ts`
+- `useEffect` for data fetching — use Server Components or server actions
+- Client-side state for data that should come from the server (session lists, window status)
+- Adding pages beyond the three-route structure without explicit spec justification
+- Polling from the client — use the SSE stream (`/api/sessions/stream`), not `setInterval` + fetch
+- Database/ORM/migration imports — this project has no database by constitution
 
 ## Test Strategy
-
-<!-- How tests relate to implementation.
-     Values: test-alongside (default) | test-after | tdd -->
 
 test-alongside

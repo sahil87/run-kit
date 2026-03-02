@@ -1,35 +1,19 @@
 # Code Review
 
-<!-- Optional review policy consumed by the validation sub-agent during review.
-     Projects opt in by creating this file. All sections are independently optional.
-     Delete or leave empty any section that doesn't apply to your project.
-
-     This file guides the REVIEWING agent (critic). For the WRITING agent (author),
-     see code-quality.md. Different cognitive modes, different concerns. -->
-
 ## Severity Definitions
 
-<!-- How findings are prioritized. The review sub-agent classifies each finding
-     into one of these tiers. Override the defaults below to match your project's
-     quality bar. -->
-
-- **Must-fix**: Spec mismatches, failing tests, checklist violations — always addressed during rework
-- **Should-fix**: Code quality issues, pattern inconsistencies — addressed when clear and low-effort
-- **Nice-to-have**: Style suggestions, minor improvements — may be skipped
+- **Must-fix**: Spec mismatches, failing tests, checklist violations, security issues (exec/injection), tmux session leaks (panes not cleaned up on disconnect)
+- **Should-fix**: Code quality issues, pattern inconsistencies, missing keyboard shortcuts for new actions, Client Component that could be a Server Component
+- **Nice-to-have**: Style suggestions, minor improvements, additional type narrowing
 
 ## Review Scope
 
-<!-- What the review sub-agent inspects. Adjust to exclude generated code,
-     vendor directories, or other paths that shouldn't be reviewed. -->
-
 - Changed files only (files touched during apply)
-- Skip generated code and vendor directories
+- Skip generated code: `node_modules/`, `.next/`, `components/ui/` (shadcn/ui generated)
 - Skip binary files and assets
+- Skip `fab/.kit/` (upstream fab-kit, not project code)
 
 ## False Positive Policy
-
-<!-- How to suppress or override findings the reviewer flags incorrectly.
-     Use inline comments in source code to mark intentional deviations. -->
 
 - Inline `<!-- review-ignore: {reason} -->` in markdown files
 - Inline `// review-ignore: {reason}` or `# review-ignore: {reason}` in code files
@@ -37,16 +21,15 @@
 
 ## Rework Budget
 
-<!-- Max auto-rework cycles before escalating to the user.
-     Applies to /fab-fff and /fab-ff auto-rework loops. -->
-
 - Max cycles: 3
 - After 2 consecutive "fix code" attempts on the same issue, escalate to "revise tasks" or "revise spec"
 
 ## Project-Specific Review Rules
 
-<!-- Add project-specific review rules here. Examples:
-     - All public APIs need integration tests
-     - No new dependencies without justification in the spec
-     - Database migrations must be reversible
-     - All user-facing strings must be internationalized -->
+- All `execFile` calls must include a timeout parameter
+- No `exec()`, `execSync()`, or template-string shell commands — flag as must-fix security issue
+- WebSocket connections must have corresponding cleanup (pane kill on disconnect)
+- New keyboard shortcuts must be documented in the command palette registration
+- API routes must not block on tmux operations longer than 5 seconds — use timeouts
+- Terminal relay code must handle connection drops gracefully (no orphaned panes)
+- SSE endpoints must handle client disconnection without throwing

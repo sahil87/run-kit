@@ -122,11 +122,12 @@ export function DashboardClient({ initialSessions }: Props) {
     [sessions, flatWindows, navigateToProject, router],
   );
 
-  // Build a set for quick lookup of which global indices are in filtered results
-  const filteredGlobalIndices = useMemo(
-    () => new Set(filteredWindows.map((fw) => fw.globalIndex)),
-    [filteredWindows],
-  );
+  // Precompute O(1) lookup: globalIndex → filteredIndex for focused state
+  const globalToFilteredIndex = useMemo(() => {
+    const map = new Map<number, number>();
+    filteredWindows.forEach((fw, i) => map.set(fw.globalIndex, i));
+    return map;
+  }, [filteredWindows]);
 
   return (
     <div className="max-w-4xl mx-auto p-6">
@@ -198,16 +199,10 @@ export function DashboardClient({ initialSessions }: Props) {
                 </span>
               </button>
               <div className="grid gap-2">
-                {(filterQuery ? sessionWindows : session.windows.map((w, i) => {
-                  // Find the flatWindow for this window to get globalIndex
-                  const fw = flatWindows.find(
-                    (f) => f.projectName === session.name && f.window.index === w.index,
-                  );
-                  return fw ?? { projectName: session.name, window: w, globalIndex: i };
-                })).map((fw) => {
-                  const filteredIdx = filteredWindows.findIndex(
-                    (f) => f.globalIndex === fw.globalIndex,
-                  );
+                {(filterQuery ? sessionWindows : flatWindows.filter(
+                  (f) => f.projectName === session.name,
+                )).map((fw) => {
+                  const filteredIdx = globalToFilteredIndex.get(fw.globalIndex) ?? -1;
                   return (
                     <SessionCard
                       key={`${fw.projectName}-${fw.window.index}`}

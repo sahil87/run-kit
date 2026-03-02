@@ -37,10 +37,18 @@ export async function listSessions(): Promise<string[]> {
   }
 }
 
+// Tab delimiter avoids ambiguity with colons in paths and window names
+const LIST_WINDOWS_DELIM = "\t";
+
 /** List windows for a given session. Returns [] if session does not exist. */
 export async function listWindows(session: string): Promise<WindowInfo[]> {
-  const format =
-    "#{window_index}:#{window_name}:#{pane_current_path}:#{window_activity}";
+  const format = [
+    "#{window_index}",
+    "#{window_name}",
+    "#{pane_current_path}",
+    "#{window_activity}",
+  ].join(LIST_WINDOWS_DELIM);
+
   let lines: string[];
   try {
     lines = await tmuxExec(["list-windows", "-t", session, "-F", format]);
@@ -51,14 +59,10 @@ export async function listWindows(session: string): Promise<WindowInfo[]> {
   const now = Math.floor(Date.now() / 1000);
 
   return lines.map((line) => {
-    const parts = line.split(":");
-    // window_activity is a unix timestamp — the last field
-    // pane_current_path may contain colons (e.g., /home/user), so rejoin middle parts
-    const index = parseInt(parts[0], 10);
-    const activityTs = parseInt(parts[parts.length - 1], 10);
-    const name = parts[1];
-    // Everything between name and activity timestamp is the path
-    const worktreePath = parts.slice(2, -1).join(":");
+    const [indexStr, name, worktreePath, activityStr] =
+      line.split(LIST_WINDOWS_DELIM);
+    const index = parseInt(indexStr, 10);
+    const activityTs = parseInt(activityStr, 10);
 
     const activity: WindowInfo["activity"] =
       now - activityTs <= ACTIVITY_THRESHOLD_SECONDS ? "active" : "idle";
@@ -104,7 +108,7 @@ export async function sendKeys(
   ]);
 }
 
-/** Split a window to create an independent pane. Returns the new pane ID. */
+/** Split a window to create an independent pane (-d to avoid changing focus). Returns the new pane ID. */
 export async function splitPane(
   session: string,
   window: number,
@@ -113,6 +117,7 @@ export async function splitPane(
     "split-window",
     "-t",
     `${session}:${window}`,
+    "-d",
     "-P",
     "-F",
     "#{pane_id}",

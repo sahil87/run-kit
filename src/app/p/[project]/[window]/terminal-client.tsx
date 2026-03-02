@@ -70,8 +70,10 @@ export function TerminalClient({ projectName, windowIndex }: Props) {
       terminal.open(terminalRef.current);
       fitAddon.fit();
 
-      // Connect WebSocket
-      const wsUrl = `ws://localhost:${RELAY_PORT}/${projectName}/${windowIndex}`;
+      // Connect WebSocket — derive from current host, use correct protocol
+      const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsHost = window.location.hostname;
+      const wsUrl = `${wsProto}//${wsHost}:${RELAY_PORT}/${projectName}/${windowIndex}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 

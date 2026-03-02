@@ -20,9 +20,9 @@ export function validateName(name: string, label: string): string | null {
   if (FORBIDDEN_CHARS.test(name)) {
     return `${label} contains forbidden characters`;
   }
-  // tmux rejects names containing colons and periods in some contexts
-  if (name.includes(":")) {
-    return `${label} cannot contain colons`;
+  // tmux uses colons in target syntax (session:window.pane), reject to avoid ambiguity
+  if (name.includes(":") || name.includes(".")) {
+    return `${label} cannot contain colons or periods`;
   }
   return null;
 }

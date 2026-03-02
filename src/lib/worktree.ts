@@ -22,7 +22,7 @@ export async function list(): Promise<string> {
 }
 
 /** Delete a worktree via wt-delete. */
-export async function remove(name: string): Promise<string> {
+export async function deleteWorktree(name: string): Promise<string> {
   const { stdout } = await execFile("wt-delete", [name], {
     timeout: BUILD_TIMEOUT,
   });

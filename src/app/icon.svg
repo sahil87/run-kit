@@ -2,12 +2,12 @@
   <!-- Favicon — flat-top hexagon, no transform, pre-computed coordinates -->
 
   <!-- Border segments — wide contrast range -->
-  <polygon points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#c0c0c0"/>
+  <polygon points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#a0a0a0"/>
   <polygon points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#a0a0a0"/>
-  <polygon points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#585858"/>
+  <polygon points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#383838"/>
   <polygon points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#383838"/>
   <polygon points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#383838"/>
-  <polygon points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#888"/>
+  <polygon points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#a0a0a0"/>
 
   <!-- Inner cube faces — contrasts with adjacent border segments -->
   <polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#7a7a7a"/>

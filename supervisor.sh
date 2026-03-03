@@ -31,7 +31,7 @@ trap 'echo "[supervisor] Shutting down..."; stop_services; exit 0' SIGINT SIGTER
 
 start_services() {
   echo "[supervisor] Starting Next.js on ${RK_HOST}:${RK_PORT}..."
-  NEXT_PUBLIC_RELAY_PORT="$RK_RELAY_PORT" pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
+  pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
   nextjs_pid=$!
 
   echo "[supervisor] Starting terminal relay on ${RK_HOST}:${RK_RELAY_PORT}..."
@@ -131,7 +131,7 @@ while true; do
   # Check if individual processes died — restart only the dead one
   if [[ -n "$nextjs_pid" ]] && ! kill -0 "$nextjs_pid" 2>/dev/null; then
     echo "[supervisor] Next.js process died — restarting..."
-    NEXT_PUBLIC_RELAY_PORT="$RK_RELAY_PORT" pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
+    pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
     nextjs_pid=$!
   fi
   if [[ -n "$relay_pid" ]] && ! kill -0 "$relay_pid" 2>/dev/null; then

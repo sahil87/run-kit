@@ -1,3 +1,4 @@
+import { config } from "@/lib/config";
 import { TerminalClient } from "./terminal-client";
 
 type Props = {
@@ -14,6 +15,7 @@ export default async function TerminalPage({ params, searchParams }: Props) {
       projectName={project}
       windowIndex={windowIndex}
       windowName={name ?? windowIndex}
+      relayPort={config.relayPort}
     />
   );
 }

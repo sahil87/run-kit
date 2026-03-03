@@ -11,15 +11,14 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 /** Double-Esc detection window (milliseconds). */
 const DOUBLE_ESC_TIMEOUT_MS = 300;
 
-const RELAY_PORT = process.env.NEXT_PUBLIC_RELAY_PORT ?? "3001";
-
 type Props = {
   projectName: string;
   windowIndex: string;
   windowName: string;
+  relayPort: number;
 };
 
-export function TerminalClient({ projectName, windowIndex, windowName }: Props) {
+export function TerminalClient({ projectName, windowIndex, windowName, relayPort }: Props) {
   const router = useRouter();
   const terminalRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -90,7 +89,7 @@ export function TerminalClient({ projectName, windowIndex, windowName }: Props) 
       // Connect WebSocket — derive from current host, use correct protocol
       const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsHost = window.location.hostname;
-      const wsUrl = `${wsProto}//${wsHost}:${RELAY_PORT}/${projectName}/${windowIndex}`;
+      const wsUrl = `${wsProto}//${wsHost}:${relayPort}/${projectName}/${windowIndex}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 

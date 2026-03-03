@@ -3,7 +3,8 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { WebSocketServer, WebSocket } from "ws";
 import * as pty from "node-pty";
-import { RELAY_PORT, TMUX_TIMEOUT } from "../lib/types";
+import { TMUX_TIMEOUT } from "../lib/types";
+import { config } from "../lib/config";
 import { validateName } from "../lib/validate";
 
 const execFile = promisify(execFileCb);
@@ -18,7 +19,7 @@ const server = createServer((_req, res) => {
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", async (ws, req) => {
-  const url = new URL(req.url ?? "/", `http://localhost:${RELAY_PORT}`);
+  const url = new URL(req.url ?? "/", `http://localhost:${config.relayPort}`);
   const parts = url.pathname.split("/").filter(Boolean);
 
   if (parts.length < 2) {
@@ -211,7 +212,7 @@ wss.on("connection", async (ws, req) => {
   ws.on("error", cleanup);
 });
 
-// Bind to localhost only — terminal access should not be exposed to the network
-server.listen(RELAY_PORT, "127.0.0.1", () => {
-  console.log(`Terminal relay listening on 127.0.0.1:${RELAY_PORT}`);
+// Default: 127.0.0.1 (localhost only). Set host to 0.0.0.0 to expose to network.
+server.listen(config.relayPort, config.host, () => {
+  console.log(`Terminal relay listening on ${config.host}:${config.relayPort}`);
 });

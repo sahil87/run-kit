@@ -24,6 +24,15 @@
 - Polling from the client — use the SSE stream (`/api/sessions/stream`), not `setInterval` + fetch
 - Database/ORM/migration imports — this project has no database by constitution
 
+## Verification
+
+Before considering a change complete, run these gates in order:
+
+1. **Type check** — `npx tsc --noEmit` (must exit 0, no errors)
+2. **Production build** — `pnpm build` (must succeed — catches SSR issues, missing imports, and build-time env var problems that tsc alone misses)
+
+When a test runner is configured, add `pnpm test` between steps 1 and 2.
+
 ## Test Strategy
 
 test-alongside

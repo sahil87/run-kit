@@ -3,7 +3,6 @@
 import "@xterm/xterm/css/xterm.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
-import { RELAY_PORT } from "@/lib/types";
 import { useSessions } from "@/hooks/use-sessions";
 import { TopBar } from "@/components/top-bar";
 import { Dialog } from "@/components/dialog";
@@ -11,6 +10,8 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 
 /** Double-Esc detection window (milliseconds). */
 const DOUBLE_ESC_TIMEOUT_MS = 300;
+
+const RELAY_PORT = process.env.NEXT_PUBLIC_RELAY_PORT ?? "3001";
 
 type Props = {
   projectName: string;

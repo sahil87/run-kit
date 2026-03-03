@@ -1,0 +1,39 @@
+name: 260303-q8a9-configurable-port-host
+created: 2026-03-03T10:52:10+05:30
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+  intake: done
+  spec: done
+  tasks: done
+  apply: done
+  review: done
+  hydrate: done
+checklist:
+  generated: false
+  path: checklist.md
+  completed: 0
+  total: 0
+confidence:
+  certain: 4
+  confident: 5
+  tentative: 0
+  unresolved: 0
+  score: 3.5
+  fuzzy: true
+  dimensions:
+    signal: 79.4
+    reversibility: 86.7
+    competence: 87.2
+    disambiguation: 86.7
+stage_metrics:
+  intake: {started_at: "2026-03-03T10:52:10+05:30", driver: fab-new, iterations: 1, completed_at: "2026-03-03T10:53:16+05:30"}
+  spec: {started_at: "2026-03-03T10:53:16+05:30", driver: fab-new, iterations: 1, completed_at: "2026-03-03T10:54:30+05:30"}
+  tasks: {started_at: "2026-03-03T10:54:30+05:30", driver: fab-continue, iterations: 1, completed_at: "2026-03-03T10:54:30+05:30"}
+  apply: {started_at: "2026-03-03T10:54:30+05:30", driver: fab-continue, iterations: 1, completed_at: "2026-03-03T10:54:30+05:30"}
+  review: {started_at: "2026-03-03T10:54:30+05:30", driver: fab-continue, iterations: 1, completed_at: "2026-03-03T10:54:30+05:30"}
+  hydrate: {started_at: "2026-03-03T10:54:30+05:30", driver: fab-continue, iterations: 1, completed_at: "2026-03-03T10:57:06+05:30"}
+prs:
+  - https://github.com/sahil-weaver/run-kit/pull/4
+last_updated: "2026-03-03T11:04:12+05:30"

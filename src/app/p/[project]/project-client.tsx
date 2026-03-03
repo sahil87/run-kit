@@ -6,6 +6,8 @@ import { useSessions } from "@/hooks/use-sessions";
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav";
 import { SessionCard } from "@/components/session-card";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
+import { TopBar } from "@/components/top-bar";
+import { Dialog } from "@/components/dialog";
 import type { WindowInfo } from "@/lib/types";
 
 type Props = {
@@ -15,10 +17,13 @@ type Props = {
 
 export function ProjectClient({ projectName, initialWindows }: Props) {
   const router = useRouter();
-  const { sessions } = useSessions();
+  const { sessions, isConnected } = useSessions();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showSendDialog, setShowSendDialog] = useState(false);
   const [showKillConfirm, setShowKillConfirm] = useState(false);
+  const [killWindowTarget, setKillWindowTarget] = useState<WindowInfo | null>(
+    null,
+  );
   const [createName, setCreateName] = useState("");
   const [sendMessage, setSendMessage] = useState("");
 
@@ -32,7 +37,9 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
     (index: number) => {
       const win = windows[index];
       if (win) {
-        router.push(`/p/${projectName}/${win.index}`);
+        router.push(
+          `/p/${projectName}/${win.index}?name=${encodeURIComponent(win.name)}`,
+        );
       }
     },
     [windows, projectName, router],
@@ -43,7 +50,13 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
     onSelect: navigateToTerminal,
     shortcuts: {
       n: () => setShowCreateDialog(true),
-      x: () => windows.length > 0 && setShowKillConfirm(true),
+      x: () => {
+        const win = windows[focusedIndex];
+        if (win) {
+          setKillWindowTarget(win);
+          setShowKillConfirm(true);
+        }
+      },
       s: () => windows.length > 0 && setShowSendDialog(true),
     },
   });
@@ -68,7 +81,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
   }
 
   async function handleKill() {
-    const win = windows[focusedIndex];
+    const win = killWindowTarget ?? windows[focusedIndex];
     if (!win) return;
     try {
       await fetch("/api/sessions", {
@@ -84,6 +97,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       // SSE will reflect actual state
     }
     setShowKillConfirm(false);
+    setKillWindowTarget(null);
   }
 
   async function handleSend() {
@@ -119,7 +133,13 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
         id: "kill-window",
         label: "Kill focused window",
         shortcut: "x",
-        onSelect: () => windows.length > 0 && setShowKillConfirm(true),
+        onSelect: () => {
+          const win = windows[focusedIndex];
+          if (win) {
+            setKillWindowTarget(win);
+            setShowKillConfirm(true);
+          }
+        },
       },
       {
         id: "send-message",
@@ -135,36 +155,45 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       ...windows.map((w) => ({
         id: `terminal-${w.index}`,
         label: `Open terminal: ${w.name}`,
-        onSelect: () => router.push(`/p/${projectName}/${w.index}`),
+        onSelect: () =>
+          router.push(
+            `/p/${projectName}/${w.index}?name=${encodeURIComponent(w.name)}`,
+          ),
       })),
     ],
-    [windows, projectName, router],
+    [windows, focusedIndex, projectName, router],
   );
+
+  const killTarget = killWindowTarget ?? windows[focusedIndex];
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <header className="flex items-center justify-between mb-8">
+      <TopBar
+        breadcrumbs={[
+          { label: "Dashboard", href: "/" },
+          { label: `project: ${projectName}` },
+        ]}
+        isConnected={isConnected}
+      >
         <div className="flex items-center gap-3">
           <button
-            onClick={() => router.push("/")}
-            className="text-text-secondary hover:text-text-primary text-sm"
+            onClick={() => setShowCreateDialog(true)}
+            className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
           >
-            ←
+            + New Window
           </button>
-          <h1 className="text-lg font-medium">{projectName}</h1>
-          <span className="text-xs text-text-secondary">
-            {windows.length} window{windows.length !== 1 ? "s" : ""}
-          </span>
+          <button
+            onClick={() => windows.length > 0 && setShowSendDialog(true)}
+            disabled={windows.length === 0}
+            className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Send Message
+          </button>
         </div>
-        <div className="flex items-center gap-2 text-xs text-text-secondary">
-          <kbd className="px-1.5 py-0.5 rounded border border-border">n</kbd>
-          <span>new</span>
-          <kbd className="px-1.5 py-0.5 rounded border border-border">x</kbd>
-          <span>kill</span>
-          <kbd className="px-1.5 py-0.5 rounded border border-border">s</kbd>
-          <span>send</span>
-        </div>
-      </header>
+        <span className="text-xs text-text-secondary">
+          {windows.length} window{windows.length !== 1 ? "s" : ""}
+        </span>
+      </TopBar>
 
       {windows.length === 0 ? (
         <div className="text-center text-text-secondary py-16">
@@ -183,6 +212,10 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
               projectName={projectName}
               focused={i === focusedIndex}
               onClick={() => navigateToTerminal(i)}
+              onKill={() => {
+                setKillWindowTarget(win);
+                setShowKillConfirm(true);
+              }}
             />
           ))}
         </div>
@@ -213,15 +246,24 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       )}
 
       {/* Kill confirmation */}
-      {showKillConfirm && (
-        <Dialog title="Kill window?" onClose={() => setShowKillConfirm(false)}>
+      {showKillConfirm && killTarget && (
+        <Dialog
+          title="Kill window?"
+          onClose={() => {
+            setShowKillConfirm(false);
+            setKillWindowTarget(null);
+          }}
+        >
           <p className="text-sm text-text-secondary mb-3">
-            Kill window &quot;{windows[focusedIndex]?.name}&quot;? This cannot
-            be undone.
+            Kill window <strong>{killTarget.name}</strong>? This cannot be
+            undone.
           </p>
           <div className="flex gap-2">
             <button
-              onClick={() => setShowKillConfirm(false)}
+              onClick={() => {
+                setShowKillConfirm(false);
+                setKillWindowTarget(null);
+              }}
               className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
             >
               Cancel
@@ -261,32 +303,6 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       )}
 
       <CommandPalette actions={paletteActions} />
-    </div>
-  );
-}
-
-function Dialog({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center"
-      onClick={onClose}
-    >
-      <div className="fixed inset-0 bg-black/50" />
-      <div
-        className="relative bg-bg-primary border border-border rounded-lg p-4 w-full max-w-sm shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-sm font-medium mb-3">{title}</h2>
-        {children}
-      </div>
     </div>
   );
 }

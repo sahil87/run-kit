@@ -9,7 +9,7 @@ progress:
   tasks: done
   apply: done
   review: done
-  hydrate: active
+  hydrate: done
 checklist:
   generated: false
   path: checklist.md
@@ -33,6 +33,6 @@ stage_metrics:
   tasks: {started_at: "2026-03-03T10:54:30+05:30", driver: fab-continue, iterations: 1, completed_at: "2026-03-03T10:54:30+05:30"}
   apply: {started_at: "2026-03-03T10:54:30+05:30", driver: fab-continue, iterations: 1, completed_at: "2026-03-03T10:54:30+05:30"}
   review: {started_at: "2026-03-03T10:54:30+05:30", driver: fab-continue, iterations: 1, completed_at: "2026-03-03T10:54:30+05:30"}
-  hydrate: {started_at: "2026-03-03T10:54:30+05:30", driver: fab-continue, iterations: 1}
+  hydrate: {started_at: "2026-03-03T10:54:30+05:30", driver: fab-continue, iterations: 1, completed_at: "2026-03-03T10:57:06+05:30"}
 prs: []
-last_updated: "2026-03-03T10:54:30+05:30"
+last_updated: "2026-03-03T10:57:06+05:30"

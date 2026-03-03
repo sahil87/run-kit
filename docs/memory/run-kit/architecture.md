@@ -33,7 +33,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 |----------|--------|---------|
 | `/api/health` | GET | Returns `200 { "status": "ok" }` for supervisor health checks |
 | `/api/sessions` | GET | Returns `ProjectSession[]` — one per tmux session, with auto-detected fab enrichment |
-| `/api/sessions` | POST | Actions: `createSession`, `createWindow`, `killWindow`, `sendKeys` |
+| `/api/sessions` | POST | Actions: `createSession`, `createWindow`, `killSession`, `killWindow`, `sendKeys` |
 | `/api/sessions/stream` | GET | SSE — polls tmux every 2.5s, emits full snapshot on change |
 
 ## Terminal Relay
@@ -73,3 +73,4 @@ Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 |------|--------|-----------|
 | 2026-03-02 | Initial architecture — greenfield v1 | `260302-fl88-web-agent-dashboard` |
 | 2026-03-03 | Removed `run-kit.yaml` config — derive project state from tmux | `260303-yohq-drop-config-derive-from-tmux` |
+| 2026-03-03 | Added `killSession` API action — kills entire tmux session | `260303-vag8-unified-top-bar` |

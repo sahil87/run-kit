@@ -2,19 +2,35 @@
 
 import "@xterm/xterm/css/xterm.css";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { RELAY_PORT } from "@/lib/types";
+import { useSessions } from "@/hooks/use-sessions";
+import { TopBar } from "@/components/top-bar";
+import { Dialog } from "@/components/dialog";
+import { CommandPalette, type PaletteAction } from "@/components/command-palette";
+
+/** Double-Esc detection window (milliseconds). */
+const DOUBLE_ESC_TIMEOUT_MS = 300;
 
 type Props = {
   projectName: string;
   windowIndex: string;
+  windowName: string;
 };
 
-export function TerminalClient({ projectName, windowIndex }: Props) {
+export function TerminalClient({ projectName, windowIndex, windowName }: Props) {
   const router = useRouter();
   const terminalRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const escTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { sessions, isConnected } = useSessions();
+  const [showKillConfirm, setShowKillConfirm] = useState(false);
+
+  // Look up current window's status from session data
+  const currentWindow = useMemo(() => {
+    const session = sessions.find((s) => s.name === projectName);
+    return session?.windows.find((w) => String(w.index) === windowIndex);
+  }, [sessions, projectName, windowIndex]);
 
   // Double-Esc detection
   const handleKeyDown = useCallback(
@@ -29,7 +45,7 @@ export function TerminalClient({ projectName, windowIndex }: Props) {
           // First Esc — start timer
           escTimerRef.current = setTimeout(() => {
             escTimerRef.current = null;
-          }, 300);
+          }, DOUBLE_ESC_TIMEOUT_MS);
         }
       }
     },
@@ -143,26 +159,114 @@ export function TerminalClient({ projectName, windowIndex }: Props) {
     };
   }, [projectName, windowIndex]);
 
+  async function handleKillWindow() {
+    try {
+      await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "killWindow",
+          session: projectName,
+          index: parseInt(windowIndex, 10),
+        }),
+      });
+    } catch {
+      // Best effort
+    }
+    setShowKillConfirm(false);
+    router.push(`/p/${projectName}`);
+  }
+
+  const paletteActions: PaletteAction[] = useMemo(
+    () => [
+      {
+        id: "kill-window",
+        label: "Kill this window",
+        onSelect: () => setShowKillConfirm(true),
+      },
+      {
+        id: "back-project",
+        label: "Back to project",
+        onSelect: () => router.push(`/p/${projectName}`),
+      },
+      {
+        id: "back-dashboard",
+        label: "Back to dashboard",
+        onSelect: () => router.push("/"),
+      },
+    ],
+    [projectName, router],
+  );
+
   return (
     <div className="h-screen flex flex-col bg-black">
       {/* Top bar */}
-      <div className="mx-auto w-full max-w-[900px] flex items-center justify-between px-4 py-2 shrink-0">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push(`/p/${projectName}`)}
-            className="text-text-secondary hover:text-text-primary text-sm"
-          >
-            ←
-          </button>
-          <span className="text-sm">
-            {projectName}/{windowIndex}
-          </span>
-        </div>
-        <span className="text-xs text-text-secondary">Esc Esc to go back</span>
+      <div className="mx-auto w-full max-w-[900px] px-4 shrink-0">
+        <TopBar
+          breadcrumbs={[
+            { label: "Dashboard", href: "/" },
+            { label: `project: ${projectName}`, href: `/p/${projectName}` },
+            { label: `window: ${windowName}` },
+          ]}
+          isConnected={isConnected}
+        >
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowKillConfirm(true)}
+              className="text-sm px-3 py-1 border border-border rounded hover:border-red-400 hover:text-red-400 transition-colors"
+            >
+              Kill Window
+            </button>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-text-secondary">
+            {currentWindow && (
+              <>
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    currentWindow.activity === "active"
+                      ? "bg-accent-green"
+                      : "bg-text-secondary"
+                  }`}
+                />
+                <span>{currentWindow.activity}</span>
+                {currentWindow.fabProgress && (
+                  <span className="text-accent px-1.5 py-0.5 rounded bg-accent/10">
+                    fab: {currentWindow.fabProgress}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </TopBar>
       </div>
 
       {/* Terminal */}
       <div ref={terminalRef} className="mx-auto w-full max-w-[900px] flex-1" />
+
+      {/* Kill confirmation dialog */}
+      {showKillConfirm && (
+        <Dialog title="Kill window?" onClose={() => setShowKillConfirm(false)}>
+          <p className="text-sm text-text-secondary mb-3">
+            Kill window <strong>{windowName}</strong>? This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowKillConfirm(false)}
+              className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleKillWindow}
+              className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+            >
+              Kill
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      <CommandPalette actions={paletteActions} />
     </div>
   );
 }

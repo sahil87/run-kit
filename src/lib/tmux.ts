@@ -85,6 +85,11 @@ export async function createWindow(
   await tmuxExec(["new-window", "-t", session, "-n", name, "-c", cwd]);
 }
 
+/** Kill an entire tmux session. */
+export async function killSession(session: string): Promise<void> {
+  await tmuxExec(["kill-session", "-t", session]);
+}
+
 /** Kill a window by session and index. */
 export async function killWindow(
   session: string,

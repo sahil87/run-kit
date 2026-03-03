@@ -7,6 +7,7 @@ type SessionCardProps = {
   projectName: string;
   focused: boolean;
   onClick: () => void;
+  onKill?: (e: React.MouseEvent) => void;
 };
 
 export function SessionCard({
@@ -14,11 +15,12 @@ export function SessionCard({
   projectName,
   focused,
   onClick,
+  onKill,
 }: SessionCardProps) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left p-3 rounded border transition-colors ${
+      className={`group w-full text-left p-3 rounded border transition-colors ${
         focused
           ? "border-accent bg-bg-card/80"
           : "border-border bg-bg-card hover:border-text-secondary"
@@ -40,6 +42,20 @@ export function SessionCard({
             }`}
             title={win.activity}
           />
+          {onKill && (
+            <span
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onKill(e);
+              }}
+              className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-text-primary transition-opacity ml-1 text-xs"
+              title="Kill window"
+            >
+              ✕
+            </span>
+          )}
         </div>
       </div>
       <div className="text-xs text-text-secondary mt-1 truncate">

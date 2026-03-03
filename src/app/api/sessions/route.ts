@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchSessions } from "@/lib/sessions";
-import { createSession, createWindow, killWindow, sendKeys } from "@/lib/tmux";
+import { createSession, createWindow, killSession, killWindow, sendKeys } from "@/lib/tmux";
 import { validateName, validatePath } from "@/lib/validate";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +49,13 @@ export async function POST(request: Request) {
         if (cwdErr) return badRequest(cwdErr);
 
         await createWindow(session, name, cwd);
+        break;
+      }
+      case "killSession": {
+        const session = String(body.session ?? "");
+        const sessionErr = validateName(session, "Session name");
+        if (sessionErr) return badRequest(sessionErr);
+        await killSession(session);
         break;
       }
       case "killWindow": {

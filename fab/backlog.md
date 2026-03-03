@@ -5,3 +5,5 @@
 - [ ] [c1ro] 2026-03-03: While creating a new window (a new session/project), how do we specify the CWD?
 - [ ] [6bdn] 2026-03-03: Buttongs to control the 'wt-* workflow' - using wt-create to create a new worktree etc
 - [ ] 2026-03-03: Add vitest tests for tmux session-group filtering — `listSessions()` must filter byobu-created derived sessions (e.g. `devshell-82` in group `devshell`) while keeping primaries and standalone sessions. Test cases: (1) standalone session (grouped=0) kept, (2) primary group member (name=group) kept, (3) derived copy (name≠group) filtered, (4) multiple groups with multiple copies, (5) empty/no sessions. Requires vitest framework setup first. See `docs/memory/run-kit/tmux-sessions.md`
+- [ ] [qeuz] 2026-03-03: while typing an input - is there a way to overcome the latency? Make user input super smooth
+- [ ] [bj8j] 2026-03-03: can reserve the bottom bar for input - Ctrl, Alt, Cmd, Fn keys etc

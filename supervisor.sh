@@ -10,7 +10,7 @@ RK_PORT=3000
 RK_RELAY_PORT=3001
 RK_HOST="127.0.0.1"
 if [[ -f run-kit.yaml ]]; then
-  _val() { grep "^[[:space:]]\+$1:" run-kit.yaml 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | tr -d '"'"'" ; }
+  _val() { grep "^[[:space:]]\+$1:" run-kit.yaml 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | sed 's/ *#.*//' | tr -d '"'"'" ; }
   _valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
   _p=$(_val port);        [[ -n "$_p" ]] && _valid_port "$_p" && RK_PORT="$_p"
   _r=$(_val relay_port);  [[ -n "$_r" ]] && _valid_port "$_r" && RK_RELAY_PORT="$_r"

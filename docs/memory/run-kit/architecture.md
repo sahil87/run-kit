@@ -41,7 +41,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 
 ## Terminal Relay
 
-WebSocket server (default port 3001, configurable via `config.relayPort`). Binds to `config.host` (default `127.0.0.1`). Clients connect via URL path: `ws://{host}:{relayPort}/:session/:window`. The client reads the relay port from `NEXT_PUBLIC_RELAY_PORT` env var (baked into the Next.js client bundle at build time).
+WebSocket server (default port 3001, configurable via `config.relayPort`). Binds to `config.host` (default `127.0.0.1`). Clients connect via URL path: `ws://{host}:{relayPort}/:session/:window`. The relay port is passed from the server component (`page.tsx` imports `config`) as a prop to `TerminalClient` — never via build-time env vars.
 
 Per connection:
 1. Creates independent pane via `tmux split-window` (agent pane 0 untouched)
@@ -63,7 +63,8 @@ Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
 - **Independent panes per browser client** — no cursor fights, agent pane untouched
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
-- **Config resolution: CLI > YAML > defaults** — `src/lib/config.ts` reads `run-kit.yaml` (optional, gitignored) and CLI args. Relay port delivered to client via `NEXT_PUBLIC_RELAY_PORT` env var (Next.js build-time injection)
+- **Config resolution: CLI > YAML > defaults** — `src/lib/config.ts` reads `run-kit.yaml` (optional, gitignored) and CLI args. Relay port delivered to client via server component prop (runtime, not build-time)
+- **Byobu session-group filtering** — `listSessions()` filters out derived session-group copies to avoid duplicate projects. See `docs/memory/run-kit/tmux-sessions.md`
 
 ## Security
 
@@ -79,3 +80,5 @@ Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 | 2026-03-03 | Removed `run-kit.yaml` config — derive project state from tmux | `260303-yohq-drop-config-derive-from-tmux` |
 | 2026-03-03 | Added `killSession` API action — kills entire tmux session | `260303-vag8-unified-top-bar` |
 | 2026-03-03 | Configurable port/host binding via `config.ts` + `run-kit.yaml` | `260303-q8a9-configurable-port-host` |
+| 2026-03-03 | Relay port via server component prop (replaced build-time env var) | — |
+| 2026-03-03 | Filter byobu session-group copies from `listSessions()` | — |

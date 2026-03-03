@@ -27,10 +27,22 @@ async function tmuxExecRaw(
   return stdout;
 }
 
-/** List all tmux session names. Returns [] if tmux server is not running. */
+/** List all tmux session names. Returns [] if tmux server is not running.
+ *  Filters out byobu/tmux session-group copies (e.g. devshell-82 derived from devshell). */
 export async function listSessions(): Promise<string[]> {
   try {
-    return await tmuxExec(["list-sessions", "-F", "#{session_name}"]);
+    const lines = await tmuxExec([
+      "list-sessions",
+      "-F",
+      `#{session_name}${LIST_WINDOWS_DELIM}#{session_grouped}${LIST_WINDOWS_DELIM}#{session_group}`,
+    ]);
+    return lines
+      .map((line) => {
+        const [name, grouped, group] = line.split(LIST_WINDOWS_DELIM);
+        return { name, grouped, group };
+      })
+      .filter((s) => s.grouped === "0" || s.name === s.group)
+      .map((s) => s.name);
   } catch {
     // tmux not running or no sessions — return empty
     return [];

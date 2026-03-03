@@ -10,21 +10,15 @@ Web-based agent orchestration dashboard. Monitor and interact with tmux sessions
 
 ## Getting Started
 
-1. **Install dependencies**
+1. **Start in development mode**
 
    ```sh
-   pnpm install
-   ```
-
-2. **Start in development mode**
-
-   ```sh
-   pnpm dev
+   pnpm install && pnpm dev
    ```
 
    This starts both the Next.js dev server ([http://localhost:3000](http://localhost:3000)) and the terminal relay (port 3001). Ctrl+C stops both.
 
-3. **Start in production mode**
+2. **Start in production mode**
 
    Build and run both services with the supervisor:
 

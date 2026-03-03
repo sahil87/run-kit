@@ -24,9 +24,11 @@ function readYamlConfig(): Partial<ServerConfig> {
     const doc = parse(raw) as { server?: { port?: unknown; relay_port?: unknown; host?: unknown } };
     const s = doc?.server;
     if (!s) return {};
+    const port = validPort(s.port);
+    const relayPort = validPort(s.relay_port);
     return {
-      ...(validPort(s.port) != null && { port: validPort(s.port) }),
-      ...(validPort(s.relay_port) != null && { relayPort: validPort(s.relay_port) }),
+      ...(port != null && { port }),
+      ...(relayPort != null && { relayPort }),
       ...(typeof s.host === "string" && s.host.length > 0 && { host: s.host }),
     };
   } catch (err: unknown) {

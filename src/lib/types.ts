@@ -27,9 +27,5 @@ export const BUILD_TIMEOUT = 30_000;
 /** Activity threshold: window active if last activity within this many seconds. */
 export const ACTIVITY_THRESHOLD_SECONDS = 10;
 
-/** Ports. */
-export const NEXTJS_PORT = 3000;
-export const RELAY_PORT = 3001;
-
 /** SSE polling interval (milliseconds). */
 export const SSE_POLL_INTERVAL = 2500;

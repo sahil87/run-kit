@@ -5,7 +5,20 @@ set -euo pipefail
 # Monitors .restart-requested file for signal-based restarts.
 # Rolls back via git revert HEAD on build or health failure.
 
-HEALTH_URL="http://localhost:3000/api/health"
+# Read port/host config from run-kit.yaml (optional)
+RK_PORT=3000
+RK_RELAY_PORT=3001
+RK_HOST="127.0.0.1"
+if [[ -f run-kit.yaml ]]; then
+  _val() { grep "^  $1:" run-kit.yaml 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | tr -d '"'"'" ; }
+  _valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
+  _p=$(_val port);        [[ -n "$_p" ]] && _valid_port "$_p" && RK_PORT="$_p"
+  _r=$(_val relay_port);  [[ -n "$_r" ]] && _valid_port "$_r" && RK_RELAY_PORT="$_r"
+  _h=$(_val host);        [[ -n "$_h" ]] && [[ "$_h" =~ ^[a-zA-Z0-9._:-]+$ ]] && RK_HOST="$_h"
+  unset _val _valid_port _p _r _h
+fi
+
+HEALTH_URL="http://${RK_HOST}:${RK_PORT}/api/health"
 HEALTH_TIMEOUT=10
 POLL_INTERVAL=2
 RESTART_SIGNAL=".restart-requested"
@@ -17,12 +30,12 @@ relay_pid=""
 trap 'echo "[supervisor] Shutting down..."; stop_services; exit 0' SIGINT SIGTERM
 
 start_services() {
-  echo "[supervisor] Starting Next.js..."
-  pnpm start &
+  echo "[supervisor] Starting Next.js on ${RK_HOST}:${RK_PORT}..."
+  NEXT_PUBLIC_RELAY_PORT="$RK_RELAY_PORT" pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
   nextjs_pid=$!
 
-  echo "[supervisor] Starting terminal relay..."
-  pnpm relay &
+  echo "[supervisor] Starting terminal relay on ${RK_HOST}:${RK_RELAY_PORT}..."
+  pnpm relay --port "$RK_RELAY_PORT" --host "$RK_HOST" &
   relay_pid=$!
 }
 
@@ -118,12 +131,12 @@ while true; do
   # Check if individual processes died — restart only the dead one
   if [[ -n "$nextjs_pid" ]] && ! kill -0 "$nextjs_pid" 2>/dev/null; then
     echo "[supervisor] Next.js process died — restarting..."
-    pnpm start &
+    NEXT_PUBLIC_RELAY_PORT="$RK_RELAY_PORT" pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
     nextjs_pid=$!
   fi
   if [[ -n "$relay_pid" ]] && ! kill -0 "$relay_pid" 2>/dev/null; then
     echo "[supervisor] Relay process died — restarting relay..."
-    pnpm relay &
+    pnpm relay --port "$RK_RELAY_PORT" --host "$RK_HOST" &
     relay_pid=$!
   fi
 

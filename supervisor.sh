@@ -50,6 +50,10 @@ stop_services() {
     kill "$relay_pid" 2>/dev/null || true
     wait "$relay_pid" 2>/dev/null || true
   fi
+  # Kill any orphaned children still holding our ports (pnpm spawns grandchildren
+  # that can survive parent PID kill)
+  fuser -k "${RK_PORT}/tcp" 2>/dev/null || true
+  fuser -k "${RK_RELAY_PORT}/tcp" 2>/dev/null || true
   nextjs_pid=""
   relay_pid=""
 }
@@ -107,6 +111,9 @@ do_restart() {
   rm -f "$RESTART_SIGNAL"
   return 0
 }
+
+# Clear stale restart signal from before supervisor started
+rm -f "$RESTART_SIGNAL"
 
 # Initial build + start
 echo "[supervisor] Initial build..."

@@ -3,3 +3,4 @@
 - [ ] [w70w] 2026-03-03: Double esc - could have side effects - need a better shortcut
 - [ ] [63td] 2026-03-03: We would need buttons to delete this worktree and at the project level to delete all unused worktrees.
 - [ ] [ar9l] 2026-03-03: Buttons to send Git PR and a way to keep checking its status.
+- [ ] [c1ro] 2026-03-03: While creating a new window (a new session/project), how do we specify the CWD?

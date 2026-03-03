@@ -1,35 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Favicon — hexagon mark only, no text -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 9 52 46">
+  <!-- Favicon — flat-top hexagon, no transform, pre-computed coordinates -->
 
-  <!-- Background circle for contrast -->
-  <rect width="64" height="64" rx="12" fill="#1c1c1c"/>
+  <!-- Border segments — wide contrast range -->
+  <polygon points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#c0c0c0"/>
+  <polygon points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#a0a0a0"/>
+  <polygon points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#585858"/>
+  <polygon points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#383838"/>
+  <polygon points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#383838"/>
+  <polygon points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#888"/>
 
-  <!-- Hexagonal border ring -->
-  <polygon points="25.6,11.2 38.4,11.2 44.8,22.4 44.8,41.6 38.4,52.8 25.6,52.8 19.2,41.6 19.2,22.4"
-           fill="none"/>
-  <!-- Using flat-top hex for better favicon readability at small sizes -->
-  <!-- Outer hex vertices (R=24, flat-top): center (32,32) -->
-  <!-- v0(32,8) v1(52.8,20) v2(52.8,44) v3(32,56) v4(11.2,44) v5(11.2,20) -->
-
-  <!-- Border segments -->
-  <polygon points="11.2,20 32,8 32,16.5 17.2,24.5" fill="#b0b0b0"/>
-  <polygon points="32,8 52.8,20 46.8,24.5 32,16.5" fill="#909090"/>
-  <polygon points="52.8,20 52.8,44 46.8,39.5 46.8,24.5" fill="#666"/>
-  <polygon points="52.8,44 32,56 32,47.5 46.8,39.5" fill="#4e4e4e"/>
-  <polygon points="32,56 11.2,44 17.2,39.5 32,47.5" fill="#4e4e4e"/>
-  <polygon points="11.2,44 11.2,20 17.2,24.5 17.2,39.5" fill="#8a8a8a"/>
-
-  <!-- Inner cube faces -->
-  <polygon points="17.2,39.5 17.2,24.5 32,16.5 32,32" fill="#7a7a7a"/>
-  <polygon points="32,16.5 46.8,24.5 46.8,39.5 32,32" fill="#5a5a5a"/>
-  <polygon points="46.8,39.5 32,47.5 17.2,39.5 32,32" fill="#3a3a3a"/>
-
-  <!-- Subtle edge lines -->
-  <polygon points="32,8 52.8,20 52.8,44 32,56 11.2,44 11.2,20"
-           fill="none" stroke="#1c1c1c" stroke-width="0.8" stroke-linejoin="round"/>
-  <polygon points="32,16.5 46.8,24.5 46.8,39.5 32,47.5 17.2,39.5 17.2,24.5"
-           fill="none" stroke="#1c1c1c" stroke-width="0.6" stroke-linejoin="round"/>
-  <line x1="32" y1="16.5" x2="32" y2="32" stroke="#1c1c1c" stroke-width="0.5"/>
-  <line x1="46.8" y1="39.5" x2="32" y2="32" stroke="#1c1c1c" stroke-width="0.5"/>
-  <line x1="17.2" y1="39.5" x2="32" y2="32" stroke="#1c1c1c" stroke-width="0.5"/>
+  <!-- Inner cube faces — contrasts with adjacent border segments -->
+  <polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#7a7a7a"/>
+  <polygon points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#6e6e6e"/>
+  <polygon points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#606060"/>
 </svg>

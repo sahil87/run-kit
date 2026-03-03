@@ -1,41 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="57 40 286 320" width="286" height="320">
-  <defs>
-    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
-      <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#252525" stroke-width="0.5"/>
-    </pattern>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Logo — flat-top hexagon, no transform, pre-computed coordinates -->
 
-  <!-- Background -->
-  <rect x="57" y="40" width="286" height="320" fill="#1c1c1c"/>
-  <rect x="57" y="40" width="286" height="320" fill="url(#grid)" opacity="0.4"/>
+  <!-- Border segments — wide contrast range -->
+  <polygon points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#c0c0c0"/>
+  <polygon points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#a0a0a0"/>
+  <polygon points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#585858"/>
+  <polygon points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#383838"/>
+  <polygon points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#383838"/>
+  <polygon points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#888"/>
 
-  <!-- Hexagonal border ring — 6 trapezoids, shaded for 3D bevel -->
-  <!-- Light from upper-left -->
-  <polygon points="87,135 200,70 200,112 124,156" fill="#b0b0b0"/>
-  <polygon points="200,70 313,135 276,156 200,112" fill="#909090"/>
-  <polygon points="313,135 313,265 276,244 276,156" fill="#666"/>
-  <polygon points="313,265 200,330 200,288 276,244" fill="#4e4e4e"/>
-  <polygon points="200,330 87,265 124,244 200,288" fill="#4e4e4e"/>
-  <polygon points="87,265 87,135 124,156 124,244" fill="#8a8a8a"/>
-
-  <!-- Inner cube — 3 isometric faces -->
-  <polygon points="124,244 124,156 200,112 200,200" fill="#7a7a7a"/>
-  <polygon points="200,112 276,156 276,244 200,200" fill="#5a5a5a"/>
-  <polygon points="276,244 200,288 124,244 200,200" fill="#3a3a3a"/>
-
-  <!-- Edge lines -->
-  <polygon points="200,70 313,135 313,265 200,330 87,265 87,135"
-           fill="none" stroke="#1c1c1c" stroke-width="1.5" stroke-linejoin="round"/>
-  <polygon points="200,112 276,156 276,244 200,288 124,244 124,156"
-           fill="none" stroke="#1c1c1c" stroke-width="1.2" stroke-linejoin="round"/>
-  <line x1="200" y1="112" x2="200" y2="200" stroke="#1c1c1c" stroke-width="1"/>
-  <line x1="276" y1="244" x2="200" y2="200" stroke="#1c1c1c" stroke-width="1"/>
-  <line x1="124" y1="244" x2="200" y2="200" stroke="#1c1c1c" stroke-width="1"/>
-  <!-- Border segment separators -->
-  <line x1="200" y1="70" x2="200" y2="112" stroke="#1c1c1c" stroke-width="1"/>
-  <line x1="313" y1="135" x2="276" y2="156" stroke="#1c1c1c" stroke-width="1"/>
-  <line x1="313" y1="265" x2="276" y2="244" stroke="#1c1c1c" stroke-width="1"/>
-  <line x1="200" y1="330" x2="200" y2="288" stroke="#1c1c1c" stroke-width="1"/>
-  <line x1="87" y1="265" x2="124" y2="244" stroke="#1c1c1c" stroke-width="1"/>
-  <line x1="87" y1="135" x2="124" y2="156" stroke="#1c1c1c" stroke-width="1"/>
+  <!-- Inner cube faces — contrasts with adjacent border segments -->
+  <polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#7a7a7a"/>
+  <polygon points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#6e6e6e"/>
+  <polygon points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#606060"/>
 </svg>

@@ -20,7 +20,7 @@ up:
     pnpm supervisor
 
 # Start supervisor in a detached tmux session
-up-bg:
+bg:
     tmux new-session -d -s runK 'pnpm supervisor'
     @echo "Supervisor running in tmux session 'runK'"
     @echo "  Attach: just logs"

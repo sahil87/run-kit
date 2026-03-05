@@ -155,7 +155,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
             {FN_KEYS.map((fk) => (
               <button
                 key={fk.label}
-                className="px-2 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded text-center"
+                className="px-2 py-1.5 min-h-[44px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded"
                 onClick={() => {
                   sendWithMods(fk.plain, fk.mod);
                   setFnOpen(false);

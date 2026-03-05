@@ -5,21 +5,25 @@ set -euo pipefail
 # Monitors .restart-requested file for signal-based restarts.
 # Rolls back via git revert HEAD on build or health failure.
 
-# Read port/host config from run-kit.yaml (optional)
+# Read port/host/tls config from run-kit.yaml (optional)
 RK_PORT=3000
 RK_RELAY_PORT=3001
 RK_HOST="127.0.0.1"
+RK_TLS_CERT="certs/localhost.pem"
+RK_TLS_KEY="certs/localhost-key.pem"
 if [[ -f run-kit.yaml ]]; then
   _val() { grep "^[[:space:]]\+$1:" run-kit.yaml 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | sed 's/ *#.*//' | tr -d '"'"'" ; }
   _valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
   _p=$(_val port);        [[ -n "$_p" ]] && _valid_port "$_p" && RK_PORT="$_p"
   _r=$(_val relay_port);  [[ -n "$_r" ]] && _valid_port "$_r" && RK_RELAY_PORT="$_r"
   _h=$(_val host);        [[ -n "$_h" ]] && [[ "$_h" =~ ^[a-zA-Z0-9._:-]+$ ]] && RK_HOST="$_h"
-  unset _val _valid_port _p _r _h
+  _tc=$(_val cert);       [[ -n "$_tc" ]] && RK_TLS_CERT="$_tc"
+  _tk=$(_val key);        [[ -n "$_tk" ]] && RK_TLS_KEY="$_tk"
+  unset _val _valid_port _p _r _h _tc _tk
 fi
 
-# Detect TLS certs for HTTPS
-if [[ -f certs/localhost.pem && -f certs/localhost-key.pem ]]; then
+# Detect TLS certs for HTTPS (using resolved paths from config)
+if [[ -f "$RK_TLS_CERT" && -f "$RK_TLS_KEY" ]]; then
   HEALTH_PROTO="https"
   CURL_FLAGS="-k"
   HAS_CERTS=1

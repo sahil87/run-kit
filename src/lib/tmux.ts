@@ -83,9 +83,11 @@ export async function listWindows(session: string): Promise<WindowInfo[]> {
   });
 }
 
-/** Create a new detached tmux session. */
-export async function createSession(name: string): Promise<void> {
-  await tmuxExec(["new-session", "-d", "-s", name]);
+/** Create a new detached tmux session, optionally in a specific directory. */
+export async function createSession(name: string, cwd?: string): Promise<void> {
+  const args = ["new-session", "-d", "-s", name];
+  if (cwd) args.push("-c", cwd);
+  await tmuxExec(args);
 }
 
 /** Create a new window in an existing session. */

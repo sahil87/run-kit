@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { validateName, validatePath } from "@/lib/validate";
+import { describe, it, expect, vi } from "vitest";
+import { validateName, validatePath, expandTilde } from "@/lib/validate";
 
 describe("validateName", () => {
   it("returns null for a valid name", () => {
@@ -68,5 +68,70 @@ describe("validatePath", () => {
   it("rejects paths exceeding max length", () => {
     const longPath = "/" + "a".repeat(1024);
     expect(validatePath(longPath, "Path")).toContain("maximum length");
+  });
+});
+
+describe("expandTilde", () => {
+  // Use the actual homedir for assertions since expandTilde calls os.homedir() internally
+  const home = require("node:os").homedir();
+
+  it("expands ~ alone to home directory", () => {
+    const result = expandTilde("~");
+    expect(result.path).toBe(home);
+    expect(result.error).toBeNull();
+  });
+
+  it("expands ~/path to home + path", () => {
+    const result = expandTilde("~/code/project");
+    expect(result.path).toBe(`${home}/code/project`);
+    expect(result.error).toBeNull();
+  });
+
+  it("resolves bare relative paths under home", () => {
+    const result = expandTilde("code/project");
+    expect(result.path).toBe(`${home}/code/project`);
+    expect(result.error).toBeNull();
+  });
+
+  it("accepts absolute paths under home", () => {
+    const result = expandTilde(`${home}/code/project`);
+    expect(result.path).toBe(`${home}/code/project`);
+    expect(result.error).toBeNull();
+  });
+
+  it("rejects .. traversal that escapes home", () => {
+    const result = expandTilde("~/../../etc");
+    expect(result.path).toBeNull();
+    expect(result.error).toContain("under home directory");
+  });
+
+  it("rejects absolute path outside home", () => {
+    const result = expandTilde("/etc/passwd");
+    expect(result.path).toBeNull();
+    expect(result.error).toContain("under home directory");
+  });
+
+  it("rejects ~username syntax", () => {
+    const result = expandTilde("~root");
+    expect(result.path).toBeNull();
+    expect(result.error).toContain("~user expansion is not supported");
+  });
+
+  it("rejects ~otheruser/path syntax", () => {
+    const result = expandTilde("~otheruser/secret");
+    expect(result.path).toBeNull();
+    expect(result.error).toContain("~user expansion is not supported");
+  });
+
+  it("allows home directory itself", () => {
+    const result = expandTilde(home);
+    expect(result.path).toBe(home);
+    expect(result.error).toBeNull();
+  });
+
+  it("collapses .. segments within home", () => {
+    const result = expandTilde("~/code/../code/project");
+    expect(result.path).toBe(`${home}/code/project`);
+    expect(result.error).toBeNull();
   });
 });

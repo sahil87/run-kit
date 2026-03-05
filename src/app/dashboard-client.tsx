@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useSessions } from "@/hooks/use-sessions";
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav";
 import { SessionCard } from "@/components/session-card";
@@ -25,7 +25,10 @@ export function DashboardClient({ initialSessions }: Props) {
   const { sessions, isConnected } = useSessions(initialSessions);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createSessionName, setCreateSessionName] = useState("");
+  const [createSessionPath, setCreateSessionPath] = useState("");
+  const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<string[]>([]);
   const [filterQuery, setFilterQuery] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Kill window state
@@ -86,21 +89,79 @@ export function DashboardClient({ initialSessions }: Props) {
     },
   });
 
+  // Quick picks: deduplicated project root paths from existing sessions
+  // Paths are absolute (from tmux pane_current_path) — server accepts both absolute and ~/... forms
+  const quickPicks = useMemo(() => {
+    const paths = new Set<string>();
+    for (const s of sessions) {
+      const root = s.windows[0]?.worktreePath;
+      if (root) paths.add(root);
+    }
+    return [...paths].sort();
+  }, [sessions]);
+
+  // Derive session name from last path segment
+  function deriveNameFromPath(path: string): string {
+    const trimmed = path.replace(/\/+$/, "");
+    const lastSegment = trimmed.split("/").pop() ?? "";
+    return lastSegment;
+  }
+
+  function selectPath(path: string) {
+    setCreateSessionPath(path);
+    setCreateSessionName(deriveNameFromPath(path));
+    setAutocompleteSuggestions([]);
+  }
+
+  // Debounced autocomplete fetch
+  function handlePathChange(value: string) {
+    setCreateSessionPath(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!value) {
+      setAutocompleteSuggestions([]);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/directories?prefix=${encodeURIComponent(value)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setAutocompleteSuggestions(data.directories ?? []);
+        }
+      } catch {
+        // Ignore fetch errors
+      }
+    }, 300);
+  }
+
+  // Clean up debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   async function handleCreateSession() {
     if (!createSessionName.trim()) return;
     try {
+      const payload: Record<string, string> = {
+        action: "createSession",
+        name: createSessionName.trim(),
+      };
+      if (createSessionPath.trim()) {
+        payload.cwd = createSessionPath.trim();
+      }
       await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "createSession",
-          name: createSessionName.trim(),
-        }),
+        body: JSON.stringify(payload),
       });
     } catch {
       // SSE will reflect actual state
     }
     setCreateSessionName("");
+    setCreateSessionPath("");
+    setAutocompleteSuggestions([]);
     setShowCreateDialog(false);
   }
 
@@ -290,20 +351,81 @@ export function DashboardClient({ initialSessions }: Props) {
       {showCreateDialog && (
         <Dialog
           title="Create session"
-          onClose={() => setShowCreateDialog(false)}
+          onClose={() => {
+            setShowCreateDialog(false);
+            setCreateSessionName("");
+            setCreateSessionPath("");
+            setAutocompleteSuggestions([]);
+          }}
         >
-          <input
-            autoFocus
-            type="text"
-            value={createSessionName}
-            onChange={(e) => setCreateSessionName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreateSession()}
-            placeholder="Session name..."
-            className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
-          />
+          {/* Quick picks from existing sessions */}
+          {quickPicks.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs text-text-secondary mb-1.5">Recent:</p>
+              <div className="flex flex-col gap-0.5">
+                {quickPicks.map((path) => (
+                  <button
+                    key={path}
+                    onClick={() => selectPath(path)}
+                    className="text-left text-sm px-2 py-2.5 min-h-[44px] flex items-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary transition-colors"
+                  >
+                    {path}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Path input with autocomplete */}
+          <div className="relative mb-3">
+            <p className="text-xs text-text-secondary mb-1.5">
+              {quickPicks.length > 0 ? "Or type a path:" : "Path:"}
+            </p>
+            <input
+              autoFocus
+              type="text"
+              value={createSessionPath}
+              onChange={(e) => handlePathChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setAutocompleteSuggestions([]);
+                }
+              }}
+              placeholder="~/code/..."
+              className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+            />
+            {autocompleteSuggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-bg-primary border border-border rounded shadow-lg max-h-48 overflow-y-auto z-50">
+                {autocompleteSuggestions.map((dir) => (
+                  <button
+                    key={dir}
+                    onClick={() => selectPath(dir)}
+                    className="w-full text-left text-sm px-2 py-2.5 min-h-[44px] flex items-center hover:bg-bg-card text-text-secondary hover:text-text-primary transition-colors"
+                  >
+                    {dir}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Session name */}
+          <div className="mb-3">
+            <p className="text-xs text-text-secondary mb-1.5">Session name:</p>
+            <input
+              type="text"
+              value={createSessionName}
+              onChange={(e) => setCreateSessionName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateSession()}
+              placeholder="Session name..."
+              className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+            />
+          </div>
+
           <button
             onClick={handleCreateSession}
-            className="mt-3 w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+            disabled={!createSessionName.trim()}
+            className="w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Create
           </button>

@@ -26,7 +26,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 | `src/lib/worktree.ts` | Wraps fab-kit `wt-*` scripts (never reimplements) |
 | `src/lib/fab.ts` | Reads fab state (progress-line, current change, change list) |
 | `src/lib/sessions.ts` | Derives project roots from tmux, auto-detects fab-kit, enriches with fab state |
-| `src/lib/validate.ts` | Input validation for names/paths before subprocess calls |
+| `src/lib/validate.ts` | Input validation for names/paths + tilde expansion with `$HOME` security boundary |
 | `src/lib/config.ts` | Server config (port, relayPort, host) — reads CLI args > `run-kit.yaml` > defaults |
 | `src/lib/types.ts` | Shared TypeScript types + named constants |
 
@@ -36,7 +36,8 @@ The tmux server is an external dependency — never started or stopped by run-ki
 |----------|--------|---------|
 | `/api/health` | GET | Returns `200 { "status": "ok" }` for supervisor health checks |
 | `/api/sessions` | GET | Returns `ProjectSession[]` — one per tmux session, with auto-detected fab enrichment |
-| `/api/sessions` | POST | Actions: `createSession`, `createWindow`, `killSession`, `killWindow`, `sendKeys` |
+| `/api/sessions` | POST | Actions: `createSession` (with optional `cwd`), `createWindow`, `killSession`, `killWindow`, `sendKeys` |
+| `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
 | `/api/sessions/stream` | GET | SSE — polls tmux every 2.5s, emits full snapshot on change |
 
 ## Terminal Relay
@@ -74,13 +75,14 @@ Test scripts: `pnpm test` (single run), `pnpm test:watch` (watch mode).
 
 Test files co-located with source using `.test.{ts,tsx}` suffix (test-alongside strategy per `code-quality.md`). Path alias `@/` resolves to `src/` in both app and test contexts.
 
-Current coverage: `validate.ts` (input validation), `config.ts` (CLI arg parsing, port validation, defaults), `command-palette.tsx` (keyboard interaction, filtering, open/close), `tmux.ts` (listSessions parsing + byobu filtering, listWindows activity computation), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts), `api/sessions/route.ts` POST handler (5-action dispatch, validation, error propagation).
+Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts` (CLI arg parsing, port validation, defaults), `command-palette.tsx` (keyboard interaction, filtering, open/close), `tmux.ts` (listSessions parsing + byobu filtering, listWindows activity computation), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts), `api/sessions/route.ts` POST handler (5-action dispatch, validation, error propagation).
 
 ## Security
 
 - All subprocess calls use `execFile` with argument arrays (never `exec` or shell strings)
 - All `execFile` calls include timeout (10s tmux, 30s build)
 - User input validated via `lib/validate.ts` before reaching any subprocess
+- Directory listing restricted to `$HOME` via `expandTilde()` — rejects `..` traversal, absolute paths outside home, and `~username` syntax. Symlinks under `$HOME` are not resolved (accepted risk for local dev tool)
 
 ## Changelog
 
@@ -94,3 +96,4 @@ Current coverage: `validate.ts` (input validation), `config.ts` (CLI arg parsing
 | 2026-03-03 | Filter byobu session-group copies from `listSessions()` | — |
 | 2026-03-05 | Added Vitest testing infrastructure with validate, config, and command-palette tests | `260303-07iq-setup-vitest` |
 | 2026-03-05 | Added feature tests for tmux.ts, use-keyboard-nav.ts, and api/sessions POST handler | `260305-vq7h-feature-tests-tmux-keyboard-api` |
+| 2026-03-05 | Added `/api/directories` endpoint, `createSession` CWD support, `expandTilde` security boundary | `260305-zkem-session-folder-picker` |

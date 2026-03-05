@@ -3,6 +3,9 @@
  * Prevents potentially dangerous characters from reaching subprocess calls.
  */
 
+import { homedir } from "node:os";
+import { resolve } from "node:path";
+
 /** Characters that are never valid in tmux session/window names. */
 const FORBIDDEN_CHARS = /[;&|`$(){}[\]<>!#*?\n\r\t]/;
 
@@ -25,6 +28,34 @@ export function validateName(name: string, label: string): string | null {
     return `${label} cannot contain colons or periods`;
   }
   return null;
+}
+
+/**
+ * Expand leading ~ to the server user's home directory and resolve the path.
+ * Returns the expanded absolute path, or null with an error message if invalid.
+ */
+export function expandTilde(raw: string): { path: string; error: null } | { path: null; error: string } {
+  const home = homedir();
+  let expanded: string;
+
+  if (raw.startsWith("~/") || raw === "~") {
+    expanded = resolve(home, raw.slice(2) || ".");
+  } else if (raw.startsWith("~")) {
+    // Reject ~username syntax — only ~/path is supported
+    return { path: null, error: "~user expansion is not supported; use ~/path" };
+  } else if (raw.startsWith("/")) {
+    expanded = resolve(raw);
+  } else {
+    // Bare relative path — resolve relative to $HOME
+    expanded = resolve(home, raw);
+  }
+
+  // Reject .. traversal that escapes $HOME
+  if (!expanded.startsWith(home + "/") && expanded !== home) {
+    return { path: null, error: "Path must be under home directory" };
+  }
+
+  return { path: expanded, error: null };
 }
 
 /** Validate a file path. Returns null if valid, error message if invalid. */

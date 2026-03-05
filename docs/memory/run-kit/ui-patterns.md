@@ -85,6 +85,18 @@ Dark theme only. Linear/Raycast aesthetic.
 - **SSE via `useSessions` hook** — replaces entire state on each event, auto-reconnects. Used on all three pages (terminal page added for connection indicator + window status)
 - **Shared `Dialog` component** (`src/components/dialog.tsx`) — reusable modal with title, backdrop, close-on-click. Used for create, kill, send dialogs across all pages
 
+## Create Session Dialog
+
+The "Create session" dialog (dashboard, `c` shortcut) has three sections:
+
+1. **Quick picks ("Recent:")** — Deduplicated project root paths from existing tmux sessions (window 0's `pane_current_path`). Tappable list items with 44px min height for mobile. Selecting fills path + auto-derives session name.
+
+2. **Path input with autocomplete** — Text input that calls `GET /api/directories?prefix=...` with ~300ms debounce. Results appear as a dropdown below the input. Selecting a result fills the path and triggers a new autocomplete for children. Hidden directories (`.`-prefixed) are excluded from results.
+
+3. **Session name** — Auto-derived from the last segment of the selected path (e.g., `~/code/wvrdz/run-kit` yields `run-kit`). Editable — auto-derivation is a convenience, not a lock.
+
+On submit, the dialog sends `{ action: "createSession", name, cwd }` to `POST /api/sessions`. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior.
+
 ## Session-to-Project Mapping
 
 Every tmux session is a project — derived from tmux, no config file needed. Project root derived from window 0's `pane_current_path`.
@@ -99,3 +111,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 |------|--------|-----------|
 | 2026-03-02 | Initial UI patterns — three pages, keyboard-first, dark theme | `260302-fl88-web-agent-dashboard` |
 | 2026-03-03 | Unified top bar — shared breadcrumb + action bar, inline kill controls, command palette on terminal, always-visible search | `260303-vag8-unified-top-bar` |
+| 2026-03-05 | Create Session dialog with folder picker — quick picks, server-side autocomplete, name auto-derivation | `260305-zkem-session-folder-picker` |

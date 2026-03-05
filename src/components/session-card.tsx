@@ -50,7 +50,7 @@ export function SessionCard({
                 e.stopPropagation();
                 onKill(e);
               }}
-              className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-text-primary transition-opacity ml-1 text-xs"
+              className="text-text-secondary hover:text-text-primary transition-colors ml-1 text-xs"
               title="Kill window"
             >
               ✕

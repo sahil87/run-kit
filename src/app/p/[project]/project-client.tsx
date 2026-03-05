@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useSessions } from "@/hooks/use-sessions";
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav";
+import { useChrome } from "@/contexts/chrome-context";
 import { SessionCard } from "@/components/session-card";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
-import { TopBar } from "@/components/top-bar";
 import { Dialog } from "@/components/dialog";
 import type { WindowInfo } from "@/lib/types";
 
@@ -18,6 +18,7 @@ type Props = {
 export function ProjectClient({ projectName, initialWindows }: Props) {
   const router = useRouter();
   const { sessions, isConnected } = useSessions();
+  const { setBreadcrumbs, setLine2Left, setLine2Right, setIsConnected } = useChrome();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showSendDialog, setShowSendDialog] = useState(false);
   const [showKillConfirm, setShowKillConfirm] = useState(false);
@@ -60,6 +61,48 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       s: () => windows.length > 0 && setShowSendDialog(true),
     },
   });
+
+  // Set chrome slots
+  useEffect(() => {
+    setBreadcrumbs([{ icon: "⬡", label: projectName }]);
+    return () => {
+      setBreadcrumbs([]);
+      setLine2Left(null);
+      setLine2Right(null);
+    };
+  }, [projectName, setBreadcrumbs, setLine2Left, setLine2Right]);
+
+  useEffect(() => {
+    setIsConnected(isConnected);
+  }, [isConnected, setIsConnected]);
+
+  useEffect(() => {
+    setLine2Left(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setShowCreateDialog(true)}
+          className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
+        >
+          + New Window
+        </button>
+        <button
+          onClick={() => windows.length > 0 && setShowSendDialog(true)}
+          disabled={windows.length === 0}
+          className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Send Message
+        </button>
+      </div>,
+    );
+  }, [windows.length, setLine2Left]);
+
+  useEffect(() => {
+    setLine2Right(
+      <span className="text-xs text-text-secondary">
+        {windows.length} window{windows.length !== 1 ? "s" : ""}
+      </span>,
+    );
+  }, [windows.length, setLine2Right]);
 
   async function handleCreate() {
     if (!createName.trim()) return;
@@ -167,34 +210,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
   const killTarget = killWindowTarget ?? windows[focusedIndex];
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <TopBar
-        breadcrumbs={[
-          { label: "Dashboard", href: "/" },
-          { label: `project: ${projectName}` },
-        ]}
-        isConnected={isConnected}
-      >
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowCreateDialog(true)}
-            className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
-          >
-            + New Window
-          </button>
-          <button
-            onClick={() => windows.length > 0 && setShowSendDialog(true)}
-            disabled={windows.length === 0}
-            className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Send Message
-          </button>
-        </div>
-        <span className="text-xs text-text-secondary">
-          {windows.length} window{windows.length !== 1 ? "s" : ""}
-        </span>
-      </TopBar>
-
+    <>
       {windows.length === 0 ? (
         <div className="text-center text-text-secondary py-16">
           <p className="text-sm">No windows in this session</p>
@@ -303,6 +319,6 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       )}
 
       <CommandPalette actions={paletteActions} />
-    </div>
+    </>
   );
 }

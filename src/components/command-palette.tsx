@@ -68,6 +68,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
 
   return (
     <div
+      data-testid="palette-overlay"
       className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
       onClick={() => setOpen(false)}
     >

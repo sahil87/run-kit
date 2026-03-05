@@ -66,6 +66,16 @@ Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 - **Config resolution: CLI > YAML > defaults** — `src/lib/config.ts` reads `run-kit.yaml` (optional, gitignored) and CLI args. Relay port delivered to client via server component prop (runtime, not build-time)
 - **Byobu session-group filtering** — `listSessions()` filters out derived session-group copies to avoid duplicate projects. See `docs/memory/run-kit/tmux-sessions.md`
 
+## Testing
+
+Vitest with jsdom environment. Config at `vitest.config.ts` (repo root). Setup file at `src/test-setup.ts` imports `@testing-library/jest-dom/vitest` for extended DOM matchers.
+
+Test scripts: `pnpm test` (single run), `pnpm test:watch` (watch mode).
+
+Test files co-located with source using `.test.{ts,tsx}` suffix (test-alongside strategy per `code-quality.md`). Path alias `@/` resolves to `src/` in both app and test contexts.
+
+Current coverage: `validate.ts` (input validation), `config.ts` (CLI arg parsing, port validation, defaults), `command-palette.tsx` (keyboard interaction, filtering, open/close).
+
 ## Security
 
 - All subprocess calls use `execFile` with argument arrays (never `exec` or shell strings)
@@ -82,3 +92,4 @@ Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 | 2026-03-03 | Configurable port/host binding via `config.ts` + `run-kit.yaml` | `260303-q8a9-configurable-port-host` |
 | 2026-03-03 | Relay port via server component prop (replaced build-time env var) | — |
 | 2026-03-03 | Filter byobu session-group copies from `listSessions()` | — |
+| 2026-03-05 | Added Vitest testing infrastructure with validate, config, and command-palette tests | `260303-07iq-setup-vitest` |

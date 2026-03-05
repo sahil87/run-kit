@@ -22,3 +22,4 @@
 
 | Spec | Description |
 |------|-------------|
+| [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |

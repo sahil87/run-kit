@@ -11,7 +11,7 @@ description: "Archive a completed change or restore an archived change — move 
 
 ## Purpose
 
-Archive a completed change after hydrate, or restore an archived change back to active. Archive mode delegates mechanical operations (clean, move, index, pointer) to `archiveman.sh` and handles only backlog matching in the skill. Restore mode delegates entirely to `archiveman.sh`. Both modes are safe to re-run after interruption.
+Archive a completed change after hydrate, or restore an archived change back to active. Archive mode delegates mechanical operations (clean, move, index, pointer) to `fab archive` and handles only backlog matching in the skill. Restore mode delegates entirely to `fab archive`. Both modes are safe to re-run after interruption.
 
 ---
 
@@ -52,7 +52,7 @@ Read the intake's **Why** section and extract a 1-2 sentence description summari
 
 ### Step 2: Run Archive Script
 
-Call `archiveman.sh` in a single invocation:
+Call `fab archive` in a single invocation:
 
 ```bash
 fab/.kit/bin/fab archive <change> --description "<extracted description>"
@@ -60,7 +60,7 @@ fab/.kit/bin/fab archive <change> --description "<extracted description>"
 
 Where `<change>` is the change ID or name from preflight. Parse the structured YAML output for the report.
 
-The script handles:
+The command handles:
 - **Clean**: Delete `.pr-done` if present
 - **Move**: `fab/changes/{name}/` → `fab/changes/archive/yyyy/mm/{name}/` (date-bucketed)
 - **Index**: Create/update `fab/changes/archive/index.md` with entry + backfill
@@ -138,13 +138,13 @@ Next: {per state table — initialized}
 
 ## Purpose
 
-Restore an archived change back to the active changes folder. Inverse of the archive operation. Delegates entirely to `archiveman.sh`. Preserves all artifacts and status as-is — no status reset, no artifact regeneration.
+Restore an archived change back to the active changes folder. Inverse of the archive operation. Delegates entirely to `fab archive restore`. Preserves all artifacts and status as-is — no status reset, no artifact regeneration.
 
 ---
 
 ## Arguments
 
-- **`<change-name>`** *(required)* — name or substring of the archived change to restore. Resolved by `archiveman.sh` via case-insensitive substring matching against `fab/changes/archive/`.
+- **`<change-name>`** *(required)* — name or substring of the archived change to restore. Resolved by `fab archive restore` via case-insensitive substring matching against `fab/changes/archive/`.
 - **`--switch`** *(optional)* — activate the restored change by writing its name to `fab/current`.
 
 ---
@@ -166,15 +166,15 @@ None required — the script handles all file operations.
 
 ### Step 1: Resolve and Restore
 
-Call `archiveman.sh` in a single invocation:
+Call `fab archive restore` in a single invocation:
 
 ```bash
 fab/.kit/bin/fab archive restore <change-name> [--switch]
 ```
 
-Parse the structured YAML output for the report. If the script exits non-zero:
+Parse the structured YAML output for the report. If the command exits non-zero:
 - **"Multiple archives match"** → list the matches from stderr, ask user to pick, re-run with the selected name
-- **"No archive matches"** → call `archiveman.sh list`, display available archives, inform user
+- **"No archive matches"** → call `fab/.kit/bin/fab archive list`, display available archives, inform user
 
 ### Step 2: Format Report
 
@@ -213,7 +213,7 @@ Next: {per state table — if --switch: restored change's state; otherwise: acti
 |-----------|--------|
 | Script exits 1: "No archive folder found" | Display error |
 | Script exits 1: "No archived changes found" | Display error |
-| Script exits 1: "No archive matches" | List available archives via `archiveman.sh list` |
+| Script exits 1: "No archive matches" | List available archives via `fab/.kit/bin/fab archive list` |
 | Script exits 1: "Multiple archives match" | Parse matches from stderr, ask user to pick |
 | Folder already in `fab/changes/` | Script handles — reports `already_in_changes` |
 | Index entry not found | Script handles — reports `not_found` |

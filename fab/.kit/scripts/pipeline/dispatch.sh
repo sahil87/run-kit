@@ -151,15 +151,15 @@ validate_prerequisites() {
     return 2
   fi
 
-  # calc-score.sh path is relative to the worktree's kit directory
-  local wt_calc_score="$wt_path/fab/.kit/scripts/lib/calc-score.sh"
-  if [[ ! -f "$wt_calc_score" ]]; then
-    log "Failed: $CHANGE_ID — infrastructure failure: calc-score.sh not found at $wt_calc_score"
+  # Confidence gate via fab dispatcher
+  local wt_fab="$wt_path/fab/.kit/bin/fab"
+  if [[ ! -x "$wt_fab" ]]; then
+    log "Failed: $CHANGE_ID — infrastructure failure: fab dispatcher not found at $wt_fab"
     exit 1
   fi
 
   local gate_result
-  gate_result=$(bash "$wt_calc_score" --check-gate "$change_dir" 2>/dev/null) || true
+  gate_result=$("$wt_fab" score --check-gate "$CHANGE_ID" 2>/dev/null) || true
   local gate_status
   gate_status=$(echo "$gate_result" | grep "^gate:" | sed 's/gate: //')
   if [[ "$gate_status" == "fail" ]]; then

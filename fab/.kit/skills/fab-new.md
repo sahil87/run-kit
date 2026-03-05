@@ -36,7 +36,7 @@ Detect input type (check in order):
 
 ### Step 1: Generate Slug
 
-Generate a 2-6 word slug (lowercase, hyphen-joined, no articles/prepositions) from the description. The slug SHALL NOT include the Linear issue ID — it contains only the descriptive portion (e.g., `add-oauth`). This slug is passed to `changeman.sh` as the `--slug` value.
+Generate a 2-6 word slug (lowercase, hyphen-joined, no articles/prepositions) from the description. The slug SHALL NOT include the Linear issue ID — it contains only the descriptive portion (e.g., `add-oauth`). This slug is passed to `fab change new` as the `--slug` value.
 
 ### Step 2: Gap Analysis
 
@@ -44,12 +44,12 @@ Check for existing mechanisms or scope concerns covering the idea. If covered: p
 
 ### Step 3: Create Change
 
-Run `lib/changeman.sh new` with appropriate flags:
+Run `fab/.kit/bin/fab change new` with appropriate flags:
 - `--slug <slug>` — the slug from Step 1 (descriptive only, no issue ID)
 - `--change-id <4char>` — only if a backlog ID was detected in Step 0 (the 4-char backlog ID becomes the change ID)
 - `--log-args <description>` — the original description text
 
-Capture the folder name from stdout. The script handles date generation, random ID generation (if no `--change-id`), collision detection, directory creation, `created_by` detection, `.status.yaml` initialization, `statusman.sh` integration, and command logging via logman (when `--log-args` is provided).
+Capture the folder name from stdout. The command handles date generation, random ID generation (if no `--change-id`), collision detection, directory creation, `created_by` detection, `.status.yaml` initialization, and command logging (when `--log-args` is provided).
 
 If a Linear ticket was detected in Step 0, record the issue ID via statusman:
 `fab/.kit/bin/fab status add-issue fab/changes/{name}/.status.yaml DEV-988` (using the actual detected ID).
@@ -98,7 +98,7 @@ After generating `intake.md` and inferring the change type, persist and display 
 
 Output format: `Indicative confidence: {score} / 5.0 ({N} decisions)`
 
-The indicative score is persisted to `.status.yaml` so that consumers (`/fab-switch`, `/fab-status`, `changeman.sh list`) can display it without recomputation. The authoritative spec-stage score overwrites it (clearing `indicative: true`) when `calc-score.sh` runs at the spec stage.
+The indicative score is persisted to `.status.yaml` so that consumers (`/fab-switch`, `/fab-status`, `fab change list`) can display it without recomputation. The authoritative spec-stage score overwrites it (clearing `indicative: true`) when `fab score` runs at the spec stage.
 
 ### Step 8: SRAD-Based Question Selection
 
@@ -145,7 +145,7 @@ Next: {per state table — activation preamble + intake state}
 | Config/constitution missing | Abort: "Run /fab-setup first." |
 | No description | Ask for one |
 | Intake template missing | Abort: "Kit may be corrupted." |
-| `changeman.sh` failure | Surface stderr output to user and stop |
+| `fab change new` failure | Surface stderr output to user and stop |
 | Linear ticket not found / API error | Warn, treat as natural language |
 | Backlog ID not found | Abort with guidance |
 | `fab/backlog.md` missing | Abort: "Use natural language or Linear ID instead." |

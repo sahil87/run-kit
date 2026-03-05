@@ -1,6 +1,6 @@
 ---
 name: _scripts
-description: "Kit script invocation guide — calling conventions for the fab dispatcher and shell scripts."
+description: "Kit script invocation guide — calling conventions for the fab dispatcher and Go binary."
 user-invocable: false
 disable-model-invocation: true
 metadata:
@@ -14,7 +14,7 @@ metadata:
 
 ## Calling Convention
 
-`fab/.kit/bin/fab` is a shell dispatcher that serves as the sole entry point for all fab CLI operations. It checks for compiled backends in priority order (`fab-rust` → `fab-go` → shell scripts) and delegates accordingly. Shell scripts in `fab/.kit/scripts/lib/` are pure implementations — no shims, no delegation logic.
+`fab/.kit/bin/fab` is a shell dispatcher that serves as the sole entry point for all fab CLI operations. It checks for compiled backends in priority order (`fab-rust` → `fab-go`) and delegates accordingly. All commands are implemented in the Go binary via Cobra.
 
 ```
 fab/.kit/bin/fab <command> <subcommand> [args...]
@@ -24,21 +24,24 @@ fab/.kit/bin/fab <command> <subcommand> [args...]
 
 1. `fab/.kit/bin/fab-rust` — if present and executable, all commands delegate here
 2. `fab/.kit/bin/fab-go` — if present and executable, all commands delegate here
-3. Shell scripts — dispatcher routes to `fab/.kit/scripts/lib/` via `case` statement
+3. Error — exits 1 with message directing user to install a backend
 
-When falling back to shell scripts, the dispatcher prints `[fab] using shell backend` to stderr.
+### Help
 
-### Command Mapping
+`fab -h`, `fab --help`, and `fab <subcommand> --help` work via Cobra's built-in help system.
 
-| Command | Shell script | Purpose |
-|---------|-------------|---------|
-| `fab resolve` | `resolve.sh` | Change reference resolution |
-| `fab status` | `statusman.sh` | Stage state machine + metadata |
-| `fab log` | `logman.sh` | Append-only history logging |
-| `fab preflight` | `preflight.sh` | Validation + structured YAML output |
-| `fab change` | `changeman.sh` | Change lifecycle (new, rename, switch, list) |
-| `fab score` | `calc-score.sh` | Confidence scoring |
-| `fab archive` | `archiveman.sh` | Archive/restore operations |
+### Command Reference
+
+| Command | Purpose |
+|---------|---------|
+| `fab resolve` | Change reference resolution |
+| `fab status` | Stage state machine + metadata |
+| `fab status show` | Worktree fab pipeline status |
+| `fab log` | Append-only history logging |
+| `fab preflight` | Validation + structured YAML output |
+| `fab change` | Change lifecycle (new, rename, switch, list) |
+| `fab score` | Confidence scoring |
+| `fab archive` | Archive/restore operations |
 
 ---
 
@@ -85,6 +88,7 @@ fab/.kit/bin/fab status <subcommand> <change> [args...]
 
 | Subcommand | Usage | Purpose |
 |------------|-------|---------|
+| `show` | `show [--all] [--json] [<name>]` | Worktree fab pipeline status |
 | `finish` | `finish <change> <stage> [driver]` | Mark stage done, auto-activate next. Review stage auto-logs "passed" |
 | `start` | `start <change> <stage> [driver] [from] [reason]` | pending/failed → active |
 | `advance` | `advance <change> <stage> [driver]` | active → ready |
@@ -95,6 +99,10 @@ fab/.kit/bin/fab status <subcommand> <change> [args...]
 | `set-checklist` | `set-checklist <change> <field> <value>` | Update checklist field |
 | `set-confidence` | `set-confidence <change> <counts...> <score> [--indicative]` | Set confidence block (with optional indicative flag) |
 | `set-confidence-fuzzy` | `set-confidence-fuzzy <change> <counts...> <score> <dims...> [--indicative]` | Set confidence with dimensions (with optional indicative flag) |
+| `add-issue` | `add-issue <change> <id>` | Append issue ID to issues array (idempotent) |
+| `get-issues` | `get-issues <change>` | List issue IDs (one per line) |
+| `add-pr` | `add-pr <change> <url>` | Append PR URL to prs array (idempotent) |
+| `get-prs` | `get-prs <change>` | List PR URLs (one per line) |
 | `progress-line` | `progress-line <change>` | Single-line visual progress |
 | `current-stage` | `current-stage <change>` | Detect active stage |
 
@@ -119,7 +127,7 @@ finish hydrate → pipeline complete
 - `fail <change> review [driver] [rework]` → auto-logs review "failed"
 - Any event that sets a stage to `active` → auto-logs transition (best-effort)
 
-Skills do NOT need to call `fab log review` or `fab log transition` manually — it's handled by statusman.
+Skills do NOT need to call `fab log review` or `fab log transition` manually — it's handled by `fab status` internally.
 
 ---
 

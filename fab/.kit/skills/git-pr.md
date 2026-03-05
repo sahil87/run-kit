@@ -34,7 +34,7 @@ Determine the PR type before gathering state. The type controls the PR title pre
 
 2. **Read from `.status.yaml`**: Run `fab/.kit/bin/fab change resolve 2>/dev/null`. If resolution succeeds, read `change_type` from `fab/changes/{name}/.status.yaml`. If non-null and one of the 7 valid types (`feat`, `fix`, `refactor`, `docs`, `test`, `ci`, `chore`), use it. Fall through if resolution fails, `change_type` is null, or `change_type` is not a valid type.
 
-3. **Infer from fab change intake**: If `changeman.sh resolve` succeeded (from step 2) and `fab/changes/{name}/intake.md` exists, read the intake content and pattern-match (case-insensitive). Keyword lists are evaluated in order — first match wins:
+3. **Infer from fab change intake**: If `fab change resolve` succeeded (from step 2) and `fab/changes/{name}/intake.md` exists, read the intake content and pattern-match (case-insensitive). Keyword lists are evaluated in order — first match wins:
    - Contains any of: "fix", "bug", "broken", "regression" → type = `fix`
    - Contains any of: "refactor", "restructure", "consolidate", "split", "rename" → type = `refactor`
    - Otherwise → type = `feat`
@@ -65,14 +65,14 @@ git log --oneline @{u}..HEAD 2>/dev/null || echo "NO_UPSTREAM"
 gh pr view --json number,state,url 2>/dev/null || echo "NO_PR"
 ```
 
-If an active change is resolved (via `changeman.sh resolve`), read issues via `fab/.kit/bin/fab status get-issues fab/changes/{name}/.status.yaml` and capture the output (one ID per line, may be empty).
+If an active change is resolved (via `fab/.kit/bin/fab change resolve`), read issues via `fab/.kit/bin/fab status get-issues <change>` and capture the output (one ID per line, may be empty).
 
 Determine:
 - **branch** — current branch name
 - **has_uncommitted** — whether `git status --porcelain` has output
 - **has_unpushed** — whether there are commits ahead of upstream (or no upstream at all)
 - **has_pr** — whether a PR already exists
-- **issues** — the issue IDs from `statusman.sh get-issues` (space-joined), or empty if none
+- **issues** — the issue IDs from `fab status get-issues` (space-joined), or empty if none
 
 ### Step 1b: Branch Mismatch Nudge
 
@@ -227,11 +227,10 @@ Print: `  ✓ pr     — <PR URL>`
 After the PR URL is known (from step 3c or from the existing PR in step 1), attempt to record it in the active change's `.status.yaml`:
 
 1. Resolve the active change: `fab/.kit/bin/fab change resolve 2>/dev/null`
-2. If resolution succeeds (exit 0), derive the status file path: `fab/changes/{name}/.status.yaml`
-3. Call: `fab/.kit/bin/fab status add-pr <status_file> <pr_url>`
-4. If resolution fails (exit non-zero) or `changeman.sh` is not found, skip silently — do not print any error or warning
+2. If resolution succeeds (exit 0), call: `fab/.kit/bin/fab status add-pr <name> <pr_url>`
+3. If resolution fails (exit non-zero), skip silently — do not print any error or warning
 
-This step MUST NOT block or fail the PR workflow. Any error from changeman or statusman is silently ignored.
+This step MUST NOT block or fail the PR workflow. Any error is silently ignored.
 
 ### Step 4b: Commit and Push Status Update
 

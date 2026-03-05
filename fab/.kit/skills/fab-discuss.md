@@ -58,7 +58,7 @@ This is best-effort — logman resolves the active change via `fab/current` if o
 ## Behavior
 
 1. Read all 7 always-load files (skip optional files gracefully)
-2. Resolve active change via `resolve.sh`
+2. Resolve active change via `fab resolve`
 3. Output the **Orientation Summary** (see format below)
 
 ---

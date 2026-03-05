@@ -26,7 +26,7 @@
 #   1. A folder under fab/changes/<id>/
 #   2. intake.md and spec.md generated (human has done the thinking)
 #   3. A confidence score above the fab-ff gate threshold
-#      (spec stage computes this via calc-score.sh)
+#      (spec stage computes this via fab score)
 #
 # Changes that don't meet prerequisites are marked stage: invalid.
 #

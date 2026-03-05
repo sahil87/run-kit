@@ -252,22 +252,22 @@ validation:
     rule: "done stages can only transition back to active via explicit reset"
 
 # issues — External tracker ID tracking (side-band, not a pipeline stage).
-# Managed exclusively by `statusman.sh add-issue` (append) and `statusman.sh get-issues` (query).
+# Managed exclusively by `fab status add-issue` (append) and `fab status get-issues` (query).
 # Not part of the stage/state progression — exists alongside the progress map.
 issues:
   type: "string[]"
   description: "External tracker IDs associated with this change (e.g., DEV-123). Append-only."
   initial_value: "[]"
-  managed_by: "statusman.sh add-issue / get-issues"
+  managed_by: "fab status add-issue / get-issues"
 
 # prs — PR URL tracking (side-band, not a pipeline stage).
-# Managed exclusively by `statusman.sh add-pr` (append) and `statusman.sh get-prs` (query).
+# Managed exclusively by `fab status add-pr` (append) and `fab status get-prs` (query).
 # Not part of the stage/state progression — exists alongside the progress map.
 prs:
   type: "string[]"
   description: "PR URLs associated with this change. Append-only list of bare URL strings."
   initial_value: "[]"
-  managed_by: "statusman.sh add-pr / get-prs"
+  managed_by: "fab status add-pr / get-prs"
 
 # metadata — Schema versioning and compatibility.
 metadata:

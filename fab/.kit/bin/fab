@@ -3,13 +3,12 @@ set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 KIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="$KIT_DIR/scripts/lib"
 
 # --version: handled by dispatcher (not delegated to backend)
 if [ "${1:-}" = "--version" ]; then
   version="unknown"
   [ -f "$KIT_DIR/VERSION" ] && version=$(cat "$KIT_DIR/VERSION")
-  backend="shell"
+  backend="none"
   if [ -x "$SCRIPT_DIR/fab-rust" ]; then
     backend="rust"
   elif [ -x "$SCRIPT_DIR/fab-go" ]; then
@@ -19,7 +18,7 @@ if [ "${1:-}" = "--version" ]; then
   exit 0
 fi
 
-# Backend priority: rust > go > shell
+# Backend priority: rust > go
 if [ -x "$SCRIPT_DIR/fab-rust" ]; then
   exec "$SCRIPT_DIR/fab-rust" "$@"
 fi
@@ -27,23 +26,6 @@ if [ -x "$SCRIPT_DIR/fab-go" ]; then
   exec "$SCRIPT_DIR/fab-go" "$@"
 fi
 
-# Shell fallback
-echo "[fab] using shell backend" >&2
-
-cmd="${1:-}"
-if [ -z "$cmd" ]; then
-  echo "Usage: fab <command> [args...]" >&2
-  echo "Commands: resolve, status, log, preflight, change, score, archive" >&2
-  exit 1
-fi
-
-case "$cmd" in
-  resolve)    shift; exec bash "$LIB_DIR/resolve.sh" "$@" ;;
-  status)     shift; exec bash "$LIB_DIR/statusman.sh" "$@" ;;
-  log)        shift; exec bash "$LIB_DIR/logman.sh" "$@" ;;
-  preflight)  shift; exec bash "$LIB_DIR/preflight.sh" "$@" ;;
-  change)     shift; exec bash "$LIB_DIR/changeman.sh" "$@" ;;
-  score)      shift; exec bash "$LIB_DIR/calc-score.sh" "$@" ;;
-  archive)    shift; exec bash "$LIB_DIR/archiveman.sh" "archive" "$@" ;;
-  *)          echo "Unknown command: $cmd" >&2; exit 1 ;;
-esac
+echo "Error: no fab backend found (expected fab-go or fab-rust in $SCRIPT_DIR)" >&2
+echo "Fix: run fab-sync.sh or download a platform-specific kit archive" >&2
+exit 1

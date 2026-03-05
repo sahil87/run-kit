@@ -1,20 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(fab/.kit/scripts/lib/changeman.sh:*)",
-      "Bash(fab/.kit/scripts/lib/statusman.sh:*)",
-      "Bash(fab/.kit/scripts/lib/preflight.sh:*)",
-      "Bash(fab/.kit/scripts/lib/calc-score.sh:*)",
+      "Bash(fab/.kit/bin/fab:*)",
       "Bash(fab/.kit/scripts/fab-sync.sh:*)",
       "Bash(fab/.kit/scripts/fab-upgrade.sh:*)",
       "Bash(fab/.kit/scripts/fab-help.sh:*)",
       "Bash(fab/.kit/scripts/batch-fab-new-backlog.sh:*)",
       "Bash(fab/.kit/scripts/batch-fab-archive-change.sh:*)",
       "Bash(fab/.kit/scripts/batch-fab-switch-change.sh:*)",
-      "Bash(bash fab/.kit/scripts/lib/changeman.sh:*)",
-      "Bash(bash fab/.kit/scripts/lib/statusman.sh:*)",
-      "Bash(bash fab/.kit/scripts/lib/preflight.sh:*)",
-      "Bash(bash fab/.kit/scripts/lib/calc-score.sh:*)",
       "Bash(git:*)",
       "Bash(gh pr:*)",
       "Bash(gh issue:*)",

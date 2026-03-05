@@ -63,7 +63,7 @@
 
 ## Assumptions
 
-<!-- SCORING SOURCE: calc-score.sh reads only this table — intake.md assumptions are
+<!-- SCORING SOURCE: fab score reads only this table — intake.md assumptions are
      state transfer, not scored. This is the authoritative decision record for confidence
      scoring.
 

@@ -54,7 +54,7 @@ Read these files first — they define the project's identity, constraints, and 
 
 > **Note**: If the skill runs `fab/.kit/bin/fab preflight` (Section 2 above), the init check (config.yaml and constitution.md existence) is already covered by the script. Skills using preflight don't need separate existence checks for these files — they only need to read them for content.
 
-Also read **`fab/.kit/skills/_scripts.md`** — script invocation conventions (argument formats, stage transitions, error patterns). This is the authoritative reference for calling `statusman.sh`, `changeman.sh`, `calc-score.sh`, and `preflight.sh`.
+Also read **`fab/.kit/skills/_scripts.md`** — script invocation conventions (argument formats, stage transitions, error patterns). This is the authoritative reference for calling `fab status`, `fab change`, `fab score`, and `fab preflight`.
 
 ### 2. Change Context (when operating on an active change)
 
@@ -311,15 +311,15 @@ else:
   score = base * cover
 ```
 
-Where `total_decisions = certain + confident + tentative + unresolved` and `expected_min` is looked up by `{stage, change_type}` from embedded tables in `calc-score.sh`. The `cover` factor prevents thin specs from getting inflated scores. When `total_decisions >= expected_min`, `cover = 1.0` and the formula degenerates to the base penalty. Range: 0.0 to 5.0. See `docs/specs/change-types.md` for the full `expected_min` threshold tables.
+Where `total_decisions = certain + confident + tentative + unresolved` and `expected_min` is looked up by `{stage, change_type}` from embedded tables in `fab score`. The `cover` factor prevents thin specs from getting inflated scores. When `total_decisions >= expected_min`, `cover = 1.0` and the formula degenerates to the base penalty. Range: 0.0 to 5.0. See `docs/specs/change-types.md` for the full `expected_min` threshold tables.
 
 ### Gate Thresholds
 
 `/fab-ff` has two confidence gates. `/fab-fff` has no confidence gates.
 
-**Intake gate** (fixed threshold): `/fab-ff` computes an indicative score from `intake.md` via `calc-score.sh --check-gate --stage intake`. Threshold: **3.0** (fixed, not per-type).
+**Intake gate** (fixed threshold): `/fab-ff` computes an indicative score from `intake.md` via `fab score --check-gate --stage intake`. Threshold: **3.0** (fixed, not per-type).
 
-**Spec gate** (dynamic per-type thresholds): `/fab-ff` checks the spec confidence score via `calc-score.sh --check-gate`.
+**Spec gate** (dynamic per-type thresholds): `/fab-ff` checks the spec confidence score via `fab score --check-gate`.
 
 | Type | Spec Gate Threshold |
 |------|---------------------|
@@ -336,11 +336,11 @@ Confidence is computed by `fab/.kit/bin/fab score`, invoked by:
 - `/fab-new` (intake stage, normal mode with `--stage intake`) — persists indicative score with `indicative: true`
 - `/fab-continue` (spec stage) and `/fab-clarify` (suggest mode) — persists spec score, clears `indicative` flag
 
-`/fab-ff` gates at two points: (1) intake gate via `calc-score.sh --check-gate --stage intake` before starting, and (2) spec gate via `calc-score.sh --check-gate` after spec generation. `/fab-fff` does not gate or recompute.
+`/fab-ff` gates at two points: (1) intake gate via `fab score --check-gate --stage intake` before starting, and (2) spec gate via `fab score --check-gate` after spec generation. `/fab-fff` does not gate or recompute.
 
 ### Indicative vs Spec Scores
 
-When `confidence.indicative` is `true`, the score was computed from `intake.md` Assumptions (less authoritative, fewer decisions). When absent or `false`, the score is from `spec.md` (authoritative). Consumers (`/fab-status`, `/fab-switch`, `changeman.sh`) read uniformly from `.status.yaml` and use the `indicative` flag to label the display (e.g., `4.1 of 5.0 (indicative)`).
+When `confidence.indicative` is `true`, the score was computed from `intake.md` Assumptions (less authoritative, fewer decisions). When absent or `false`, the score is from `spec.md` (authoritative). Consumers (`/fab-status`, `/fab-switch`, `fab change list`) read uniformly from `.status.yaml` and use the `indicative` flag to label the display (e.g., `4.1 of 5.0 (indicative)`).
 
 ### Template
 

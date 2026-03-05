@@ -12,7 +12,7 @@ Create or check out a git branch named `{change-name}` for the active or specifi
 
 ## Arguments
 
-- **`<change-name>`** *(optional)* — target a specific change. If omitted, uses the active change from `fab/current`. Supports full folder names, partial slug matches, or any substring (resolved via `changeman.sh resolve`).
+- **`<change-name>`** *(optional)* — target a specific change. If omitted, uses the active change from `fab/current`. Supports full folder names, partial slug matches, or any substring (resolved via `fab change resolve`).
 
 ---
 

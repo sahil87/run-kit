@@ -1,3 +1,12 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-05T20:27:13+05:30"}
 {"args":"Add feature tests for tmux.ts, use-keyboard-nav.ts, and api/sessions/route.ts POST handler","cmd":"fab-new","event":"command","ts":"2026-03-05T20:27:13+05:30"}
 {"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-05T20:28:01+05:30"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-05T23:21:12+05:30"}
+{"cmd":"fab-ff","event":"command","ts":"2026-03-05T23:25:14+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"spec","ts":"2026-03-05T23:26:55+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"tasks","ts":"2026-03-05T23:27:12+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-03-05T23:27:49+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-03-05T23:33:24+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-03-05T23:37:23+05:30"}
+{"event":"review","result":"passed","ts":"2026-03-05T23:37:23+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-03-05T23:38:02+05:30"}

@@ -74,7 +74,7 @@ Test scripts: `pnpm test` (single run), `pnpm test:watch` (watch mode).
 
 Test files co-located with source using `.test.{ts,tsx}` suffix (test-alongside strategy per `code-quality.md`). Path alias `@/` resolves to `src/` in both app and test contexts.
 
-Current coverage: `validate.ts` (input validation), `config.ts` (CLI arg parsing, port validation, defaults), `command-palette.tsx` (keyboard interaction, filtering, open/close).
+Current coverage: `validate.ts` (input validation), `config.ts` (CLI arg parsing, port validation, defaults), `command-palette.tsx` (keyboard interaction, filtering, open/close), `tmux.ts` (listSessions parsing + byobu filtering, listWindows activity computation), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts), `api/sessions/route.ts` POST handler (5-action dispatch, validation, error propagation).
 
 ## Security
 
@@ -93,3 +93,4 @@ Current coverage: `validate.ts` (input validation), `config.ts` (CLI arg parsing
 | 2026-03-03 | Relay port via server component prop (replaced build-time env var) | — |
 | 2026-03-03 | Filter byobu session-group copies from `listSessions()` | — |
 | 2026-03-05 | Added Vitest testing infrastructure with validate, config, and command-palette tests | `260303-07iq-setup-vitest` |
+| 2026-03-05 | Added feature tests for tmux.ts, use-keyboard-nav.ts, and api/sessions POST handler | `260305-vq7h-feature-tests-tmux-keyboard-api` |

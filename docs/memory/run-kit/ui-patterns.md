@@ -10,21 +10,27 @@
 
 The terminal page accepts an optional `name` query parameter for the window name (used in breadcrumb). Falls back to the numeric window index if not provided. Navigation from dashboard/project cards always includes the `name` param.
 
-## Top Bar
+## Chrome (Top Bar)
 
-All three pages render a shared `TopBar` component (`src/components/top-bar.tsx`) with two lines:
+The root layout renders `TopBarChrome` (`src/components/top-bar-chrome.tsx`) which reads slot content from `ChromeProvider` context. Pages inject their content via `useChrome()` setters — they do NOT render their own top bar.
 
-**Line 1**: Breadcrumb navigation + connection indicator + `⌘K` hint badge.
+**Line 1** (fixed height): Icon breadcrumbs + connection indicator + ⌘K hint badge.
 
 | Page | Breadcrumb |
 |------|-----------|
-| Dashboard | `Dashboard` |
-| Project | `Dashboard › project: {name}` |
-| Terminal | `Dashboard › project: {name} › window: {name}` |
+| Dashboard | `RK` (logo placeholder only) |
+| Project | `RK > ⬡ {name}` |
+| Terminal | `RK > ⬡ {name} > ❯ {window}` |
 
-Segments are separated by `›`. All segments except the last are clickable links navigating to their respective routes. Connection indicator shows a green/gray dot with "live"/"disconnected" label, driven by `useSessions.isConnected`.
+- `RK` — logo placeholder, always links to `/`
+- ⬡ — Unicode hexagon (U+2B21), `text-text-secondary`, precedes project name
+- ❯ — Unicode heavy right angle (U+276F), `text-text-secondary`, precedes window name
+- All segments except the last are clickable links
+- No text prefixes like "project:" or "window:"
 
-**Line 2**: Contextual action bar (varies per page, passed as `children`).
+Connection indicator: green/gray dot with "live"/"disconnected" label, driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
+
+**Line 2** (fixed height, ALWAYS rendered with `min-h-[36px]`): Contextual action bar. Slots set via `setLine2Left` / `setLine2Right` from ChromeProvider.
 
 | Page | Left content | Right content |
 |------|-------------|---------------|
@@ -32,10 +38,12 @@ Segments are separated by `›`. All segments except the last are clickable link
 | Project | "+ New Window" button, "Send Message" button (disabled when no windows) | `{N} windows` |
 | Terminal | "Kill Window" button (red hover) | Activity dot + fab stage badge |
 
+Line 2 renders even when empty — prevents layout shift during navigation and before `useEffect` fires.
+
 ### Inline Kill Controls
 
-- **Window card `✕`**: Every `SessionCard` has a hover-reveal `✕` button. Click opens confirmation dialog. Click uses `stopPropagation` to prevent card navigation.
-- **Session group `✕`** (dashboard only): Always-visible button on session group headers with red hover. Click opens confirmation dialog: "Kill session **{name}** and all {N} windows?"
+- **Window card ✕**: Every `SessionCard` has an always-visible ✕ button (no hover-reveal — accessible on touch devices). Click opens confirmation dialog. Click uses `stopPropagation` to prevent card navigation.
+- **Session group ✕** (dashboard only): Always-visible button on session group headers with red hover. Click opens confirmation dialog: "Kill session **{name}** and all {N} windows?"
 
 ## Keyboard Shortcuts
 
@@ -83,6 +91,7 @@ Dark theme only. Linear/Raycast aesthetic.
 - **No loading spinners** — SSE keeps data fresh, pages render with whatever data is available
 - **No `useEffect` for data fetching** — Server Components fetch initial data, passed to Client Components
 - **SSE via `useSessions` hook** — replaces entire state on each event, auto-reconnects. Used on all three pages (terminal page added for connection indicator + window status)
+- **ChromeProvider context** (`src/contexts/chrome-context.tsx`) — slot injection for top bar content (breadcrumbs, line2Left, line2Right, isConnected) and bottom bar. Pages set slots via `useEffect` with cleanup on unmount. Context value memoized.
 - **Shared `Dialog` component** (`src/components/dialog.tsx`) — reusable modal with title, backdrop, close-on-click. Used for create, kill, send dialogs across all pages
 
 ## Create Session Dialog
@@ -112,3 +121,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-02 | Initial UI patterns — three pages, keyboard-first, dark theme | `260302-fl88-web-agent-dashboard` |
 | 2026-03-03 | Unified top bar — shared breadcrumb + action bar, inline kill controls, command palette on terminal, always-visible search | `260303-vag8-unified-top-bar` |
 | 2026-03-05 | Create Session dialog with folder picker — quick picks, server-side autocomplete, name auto-derivation | `260305-zkem-session-folder-picker` |
+| 2026-03-06 | Chrome architecture — layout-owned skeleton, ChromeProvider context, TopBarChrome, icon breadcrumbs, always-visible kill buttons | `260305-emla-fixed-chrome-architecture` |

@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useSessions } from "@/hooks/use-sessions";
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav";
+import { useChrome } from "@/contexts/chrome-context";
 import { SessionCard } from "@/components/session-card";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
-import { TopBar } from "@/components/top-bar";
 import { Dialog } from "@/components/dialog";
 import type { ProjectSession, WindowInfo } from "@/lib/types";
 
@@ -23,6 +23,7 @@ type FlatWindow = {
 export function DashboardClient({ initialSessions }: Props) {
   const router = useRouter();
   const { sessions, isConnected } = useSessions(initialSessions);
+  const { setBreadcrumbs, setLine2Left, setLine2Right, setIsConnected } = useChrome();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createSessionName, setCreateSessionName] = useState("");
   const [createSessionPath, setCreateSessionPath] = useState("");
@@ -89,8 +90,62 @@ export function DashboardClient({ initialSessions }: Props) {
     },
   });
 
+  // Counts for summary
+  const totalWindows = useMemo(
+    () => sessions.reduce((sum, s) => sum + s.windows.length, 0),
+    [sessions],
+  );
+
+  // Set chrome slots
+  useEffect(() => {
+    setBreadcrumbs([]);
+    return () => {
+      setBreadcrumbs([]);
+      setLine2Left(null);
+      setLine2Right(null);
+    };
+  }, [setBreadcrumbs, setLine2Left, setLine2Right]);
+
+  useEffect(() => {
+    setIsConnected(isConnected);
+  }, [isConnected, setIsConnected]);
+
+  useEffect(() => {
+    setLine2Left(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setShowCreateDialog(true)}
+          className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
+        >
+          + New Session
+        </button>
+        <input
+          ref={searchInputRef}
+          type="text"
+          value={filterQuery}
+          onChange={(e) => setFilterQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setFilterQuery("");
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          placeholder="Search windows..."
+          className="bg-bg-card text-text-primary text-sm px-3 py-1 border border-border rounded outline-none placeholder:text-text-secondary w-48 focus:border-text-secondary"
+        />
+      </div>,
+    );
+  }, [filterQuery, setLine2Left]);
+
+  useEffect(() => {
+    setLine2Right(
+      <span className="text-xs text-text-secondary">
+        {sessions.length} session{sessions.length !== 1 ? "s" : ""}, {totalWindows} window{totalWindows !== 1 ? "s" : ""}
+      </span>,
+    );
+  }, [sessions.length, totalWindows, setLine2Right]);
+
   // Quick picks: deduplicated project root paths from existing sessions
-  // Paths are absolute (from tmux pane_current_path) — server accepts both absolute and ~/... forms
   const quickPicks = useMemo(() => {
     const paths = new Set<string>();
     for (const s of sessions) {
@@ -200,12 +255,6 @@ export function DashboardClient({ initialSessions }: Props) {
     setKillSessionTarget(null);
   }
 
-  // Counts for summary
-  const totalWindows = useMemo(
-    () => sessions.reduce((sum, s) => sum + s.windows.length, 0),
-    [sessions],
-  );
-
   // Command palette actions — all shortcuts registered
   const paletteActions: PaletteAction[] = useMemo(
     () => [
@@ -244,38 +293,7 @@ export function DashboardClient({ initialSessions }: Props) {
   }, [filteredWindows]);
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <TopBar
-        breadcrumbs={[{ label: "Dashboard" }]}
-        isConnected={isConnected}
-      >
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowCreateDialog(true)}
-            className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
-          >
-            + New Session
-          </button>
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setFilterQuery("");
-                (e.target as HTMLInputElement).blur();
-              }
-            }}
-            placeholder="Search windows..."
-            className="bg-bg-card text-text-primary text-sm px-3 py-1 border border-border rounded outline-none placeholder:text-text-secondary w-48 focus:border-text-secondary"
-          />
-        </div>
-        <span className="text-xs text-text-secondary">
-          {sessions.length} session{sessions.length !== 1 ? "s" : ""}, {totalWindows} window{totalWindows !== 1 ? "s" : ""}
-        </span>
-      </TopBar>
-
+    <>
       {filteredWindows.length === 0 && flatWindows.length === 0 ? (
         <div className="text-center text-text-secondary py-16">
           <p className="text-sm">No active sessions</p>
@@ -489,6 +507,6 @@ export function DashboardClient({ initialSessions }: Props) {
       )}
 
       <CommandPalette actions={paletteActions} />
-    </div>
+    </>
   );
 }

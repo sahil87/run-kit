@@ -58,6 +58,22 @@ On detection: `pnpm build` → kill both processes → start both with configure
 On failure: `git revert HEAD` → rebuild → restart prior version.
 Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 
+## Chrome Architecture
+
+The root layout (`src/app/layout.tsx`) owns a fixed `h-screen flex-col` skeleton with three zones:
+
+1. **Top chrome** (`shrink-0`) — `TopBarChrome` component, always-rendered two-line top bar
+2. **Content** (`flex-1 overflow-y-auto min-h-0`) — page content, scrollable
+3. **Bottom slot** (`shrink-0`) — `BottomSlot` component for future bottom bar injection
+
+All three zones use `max-w-4xl mx-auto w-full px-6` for identical width/padding — pages cannot override this.
+
+**ChromeProvider** (`src/contexts/chrome-context.tsx`) — React Context for slot injection. Pages set breadcrumbs, line2Left, line2Right, bottomBar, and isConnected via `useChrome()` setters in `useEffect`, with cleanup on unmount. Context value is memoized to prevent unnecessary re-renders.
+
+**TopBarChrome** (`src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Line 1: icon breadcrumbs + connection indicator + ⌘K badge. Line 2: always rendered with `min-h-[36px]`, even when slots are empty (prevents layout shift).
+
+Pages do NOT render their own top bar or outer containers — they set chrome slots and render only their content area.
+
 ## Design Decisions
 
 - **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient
@@ -66,6 +82,7 @@ Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
 - **Config resolution: CLI > YAML > defaults** — `src/lib/config.ts` reads `run-kit.yaml` (optional, gitignored) and CLI args. Relay port delivered to client via server component prop (runtime, not build-time)
 - **Byobu session-group filtering** — `listSessions()` filters out derived session-group copies to avoid duplicate projects. See `docs/memory/run-kit/tmux-sessions.md`
+- **Layout-owned chrome (not per-page TopBar)** — React Context for slot injection. Pages inject content via `useEffect` setters; layout renders it in fixed positions. Prevents layout shift and ensures consistent width/padding across all pages. Old `TopBar` component deleted.
 
 ## Testing
 
@@ -97,3 +114,4 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 | 2026-03-05 | Added Vitest testing infrastructure with validate, config, and command-palette tests | `260303-07iq-setup-vitest` |
 | 2026-03-05 | Added feature tests for tmux.ts, use-keyboard-nav.ts, and api/sessions POST handler | `260305-vq7h-feature-tests-tmux-keyboard-api` |
 | 2026-03-05 | Added `/api/directories` endpoint, `createSession` CWD support, `expandTilde` security boundary | `260305-zkem-session-folder-picker` |
+| 2026-03-06 | Chrome architecture — layout-owned flex-col skeleton, ChromeProvider context, TopBarChrome, icon breadcrumbs, always-visible kill buttons | `260305-emla-fixed-chrome-architecture` |

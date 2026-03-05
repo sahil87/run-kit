@@ -1,3 +1,13 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-05T22:41:48+05:30"}
 {"args":"1/3 Fixed Chrome Architecture — root layout owns flex-col skeleton, ChromeProvider context, icon breadcrumbs, consistent max-width, always-visible kill buttons","cmd":"fab-new","event":"command","ts":"2026-03-05T22:41:48+05:30"}
 {"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-05T22:42:52+05:30"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-06T02:32:19+05:30"}
+{"cmd":"fab-ff","event":"command","ts":"2026-03-06T02:33:36+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"spec","ts":"2026-03-06T02:34:09+05:30"}
+{"delta":"-0.3","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-06T02:35:34+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"tasks","ts":"2026-03-06T02:42:04+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-03-06T02:43:01+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-03-06T02:52:25+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-03-06T02:56:16+05:30"}
+{"event":"review","result":"passed","ts":"2026-03-06T02:56:16+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-03-06T02:58:19+05:30"}

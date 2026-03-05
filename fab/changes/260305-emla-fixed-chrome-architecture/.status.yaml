@@ -4,33 +4,40 @@ created_by: sahil-weaver
 change_type: refactor
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    tasks: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 checklist:
-    generated: false
+    generated: true
     path: checklist.md
-    completed: 0
-    total: 0
+    completed: 10
+    total: 31
 confidence:
-    certain: 6
-    confident: 2
+    certain: 8
+    confident: 3
     tentative: 0
     unresolved: 0
-    score: 4.4
-    indicative: true
+    score: 4.1
     fuzzy: true
     dimensions:
-        signal: 83.8
-        reversibility: 86.9
-        competence: 88.8
-        disambiguation: 90.0
+        signal: 84.5
+        reversibility: 88.2
+        competence: 89.5
+        disambiguation: 90.9
 stage_metrics:
-    intake: {started_at: "2026-03-05T22:41:48+05:30", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-03-05T22:41:48+05:30", driver: fab-new, iterations: 1, completed_at: "2026-03-06T02:34:09+05:30"}
+    spec: {started_at: "2026-03-06T02:34:09+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-06T02:42:04+05:30"}
+    tasks: {started_at: "2026-03-06T02:42:04+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-06T02:43:01+05:30"}
+    apply: {started_at: "2026-03-06T02:43:01+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-06T02:52:25+05:30"}
+    review: {started_at: "2026-03-06T02:52:25+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-06T02:56:16+05:30"}
+    hydrate: {started_at: "2026-03-06T02:56:16+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-06T02:58:19+05:30"}
+    ship: {started_at: "2026-03-06T02:58:19+05:30", driver: fab-ff, iterations: 1}
 prs: []
-last_updated: 2026-03-05T22:42:56+05:30
+last_updated: 2026-03-06T02:58:19+05:30
+agent:
+    idle_since: 1772744956

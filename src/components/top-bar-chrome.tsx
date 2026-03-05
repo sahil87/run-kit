@@ -1,28 +1,27 @@
 "use client";
 
 import Link from "next/link";
+import { useChrome } from "@/contexts/chrome-context";
 
-type Breadcrumb = {
-  label: string;
-  href?: string;
-};
+export function TopBarChrome() {
+  const { breadcrumbs, line2Left, line2Right, isConnected } = useChrome();
 
-type TopBarProps = {
-  breadcrumbs: Breadcrumb[];
-  isConnected: boolean;
-  children?: React.ReactNode;
-};
-
-export function TopBar({ breadcrumbs, isConnected, children }: TopBarProps) {
   return (
-    <div className="mb-6">
-      {/* Line 1: Breadcrumb + Global Status */}
+    <div>
+      {/* Line 1: Breadcrumbs + Status */}
       <div className="flex items-center justify-between py-2">
         <nav className="flex items-center gap-1.5 text-sm">
+          <Link
+            href="/"
+            className="font-bold text-text-primary hover:text-accent transition-colors"
+          >
+            RK
+          </Link>
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1.5">
-              {i > 0 && (
-                <span className="text-text-secondary">›</span>
+              <span className="text-text-secondary">›</span>
+              {crumb.icon && (
+                <span className="text-text-secondary">{crumb.icon}</span>
               )}
               {crumb.href ? (
                 <Link
@@ -52,12 +51,11 @@ export function TopBar({ breadcrumbs, isConnected, children }: TopBarProps) {
         </div>
       </div>
 
-      {/* Line 2: Contextual Action Bar */}
-      {children && (
-        <div className="flex items-center justify-between py-2">
-          {children}
-        </div>
-      )}
+      {/* Line 2: Always rendered, fixed height */}
+      <div className="flex items-center justify-between py-2 min-h-[36px]">
+        <div>{line2Left}</div>
+        <div>{line2Right}</div>
+      </div>
     </div>
   );
 }

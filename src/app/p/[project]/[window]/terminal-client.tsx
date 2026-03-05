@@ -4,7 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useSessions } from "@/hooks/use-sessions";
-import { TopBar } from "@/components/top-bar";
+import { useChrome } from "@/contexts/chrome-context";
 import { Dialog } from "@/components/dialog";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 
@@ -24,6 +24,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
   const wsRef = useRef<WebSocket | null>(null);
   const escTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { sessions, isConnected } = useSessions();
+  const { setBreadcrumbs, setLine2Left, setLine2Right, setIsConnected } = useChrome();
   const [showKillConfirm, setShowKillConfirm] = useState(false);
 
   // Look up current window's status from session data
@@ -31,6 +32,60 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     const session = sessions.find((s) => s.name === projectName);
     return session?.windows.find((w) => String(w.index) === windowIndex);
   }, [sessions, projectName, windowIndex]);
+
+  // Set chrome slots
+  useEffect(() => {
+    setBreadcrumbs([
+      { icon: "⬡", label: projectName, href: `/p/${projectName}` },
+      { icon: "❯", label: windowName },
+    ]);
+    return () => {
+      setBreadcrumbs([]);
+      setLine2Left(null);
+      setLine2Right(null);
+    };
+  }, [projectName, windowName, setBreadcrumbs, setLine2Left, setLine2Right]);
+
+  useEffect(() => {
+    setIsConnected(isConnected);
+  }, [isConnected, setIsConnected]);
+
+  useEffect(() => {
+    setLine2Left(
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setShowKillConfirm(true)}
+          className="text-sm px-3 py-1 border border-border rounded hover:border-red-400 hover:text-red-400 transition-colors"
+        >
+          Kill Window
+        </button>
+      </div>,
+    );
+  }, [setLine2Left]);
+
+  useEffect(() => {
+    setLine2Right(
+      <div className="flex items-center gap-2 text-xs text-text-secondary">
+        {currentWindow && (
+          <>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                currentWindow.activity === "active"
+                  ? "bg-accent-green"
+                  : "bg-text-secondary"
+              }`}
+            />
+            <span>{currentWindow.activity}</span>
+            {currentWindow.fabProgress && (
+              <span className="text-accent px-1.5 py-0.5 rounded bg-accent/10">
+                fab: {currentWindow.fabProgress}
+              </span>
+            )}
+          </>
+        )}
+      </div>,
+    );
+  }, [currentWindow, setLine2Right]);
 
   // Double-Esc detection
   const handleKeyDown = useCallback(
@@ -54,7 +109,10 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
 
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (escTimerRef.current) clearTimeout(escTimerRef.current);
+    };
   }, [handleKeyDown]);
 
   useEffect(() => {
@@ -157,7 +215,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       }
       terminal?.dispose();
     };
-  }, [projectName, windowIndex]);
+  }, [projectName, windowIndex, relayPort]);
 
   async function handleKillWindow() {
     try {
@@ -199,49 +257,8 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
   );
 
   return (
-    <div className="h-screen flex flex-col bg-black">
-      {/* Top bar */}
-      <div className="mx-auto w-full max-w-[900px] px-4 shrink-0">
-        <TopBar
-          breadcrumbs={[
-            { label: "Dashboard", href: "/" },
-            { label: `project: ${projectName}`, href: `/p/${projectName}` },
-            { label: `window: ${windowName}` },
-          ]}
-          isConnected={isConnected}
-        >
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowKillConfirm(true)}
-              className="text-sm px-3 py-1 border border-border rounded hover:border-red-400 hover:text-red-400 transition-colors"
-            >
-              Kill Window
-            </button>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-text-secondary">
-            {currentWindow && (
-              <>
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    currentWindow.activity === "active"
-                      ? "bg-accent-green"
-                      : "bg-text-secondary"
-                  }`}
-                />
-                <span>{currentWindow.activity}</span>
-                {currentWindow.fabProgress && (
-                  <span className="text-accent px-1.5 py-0.5 rounded bg-accent/10">
-                    fab: {currentWindow.fabProgress}
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-        </TopBar>
-      </div>
-
-      {/* Terminal */}
-      <div ref={terminalRef} className="mx-auto w-full max-w-[900px] flex-1" />
+    <>
+      <div ref={terminalRef} className="flex-1 min-h-0" />
 
       {/* Kill confirmation dialog */}
       {showKillConfirm && (
@@ -267,6 +284,6 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       )}
 
       <CommandPalette actions={paletteActions} />
-    </div>
+    </>
   );
 }

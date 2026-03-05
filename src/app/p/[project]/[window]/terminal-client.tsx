@@ -4,7 +4,10 @@ import "@xterm/xterm/css/xterm.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useSessions } from "@/hooks/use-sessions";
+import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { useChrome } from "@/contexts/chrome-context";
+import { BottomBar } from "@/components/bottom-bar";
+import { ComposeBuffer } from "@/components/compose-buffer";
 import { Dialog } from "@/components/dialog";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 
@@ -24,8 +27,11 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
   const wsRef = useRef<WebSocket | null>(null);
   const escTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { sessions, isConnected } = useSessions();
-  const { setBreadcrumbs, setLine2Left, setLine2Right, setIsConnected } = useChrome();
+  const { setBreadcrumbs, setLine2Left, setLine2Right, setBottomBar, setIsConnected } = useChrome();
   const [showKillConfirm, setShowKillConfirm] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+
+  useVisualViewport();
 
   // Look up current window's status from session data
   const currentWindow = useMemo(() => {
@@ -86,6 +92,33 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       </div>,
     );
   }, [currentWindow, setLine2Right]);
+
+  // Bottom bar injection
+  useEffect(() => {
+    setBottomBar(
+      <BottomBar
+        wsRef={wsRef}
+        onOpenCompose={() => setComposeOpen(true)}
+      />,
+    );
+    return () => setBottomBar(null);
+  }, [setBottomBar]);
+
+  // Desktop `i` key → open compose (capture phase to intercept before xterm)
+  useEffect(() => {
+    function handleIKey(e: KeyboardEvent) {
+      if (composeOpen) return;
+      if (e.key !== "i") return;
+      // Only intercept when focus is within the terminal (xterm's internal elements)
+      const target = e.target as HTMLElement;
+      if (!terminalRef.current?.contains(target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setComposeOpen(true);
+    }
+    document.addEventListener("keydown", handleIKey, { capture: true });
+    return () => document.removeEventListener("keydown", handleIKey, { capture: true });
+  }, [composeOpen]);
 
   // Double-Esc detection
   const handleKeyDown = useCallback(
@@ -258,7 +291,14 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
 
   return (
     <>
-      <div ref={terminalRef} className="flex-1 min-h-0" />
+      <div
+        ref={terminalRef}
+        className={`flex-1 min-h-0 transition-opacity ${composeOpen ? "opacity-50" : ""}`}
+      />
+
+      {composeOpen && (
+        <ComposeBuffer wsRef={wsRef} onClose={() => setComposeOpen(false)} />
+      )}
 
       {/* Kill confirmation dialog */}
       {showKillConfirm && (

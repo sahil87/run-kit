@@ -45,6 +45,33 @@ Line 2 renders even when empty — prevents layout shift during navigation and b
 - **Window card ✕**: Every `SessionCard` has an always-visible ✕ button (no hover-reveal — accessible on touch devices). Click opens confirmation dialog. Click uses `stopPropagation` to prevent card navigation.
 - **Session group ✕** (dashboard only): Always-visible button on session group headers with red hover. Click opens confirmation dialog: "Kill session **{name}** and all {N} windows?"
 
+## Bottom Bar (Terminal Page Only)
+
+Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBottomBar()` from ChromeProvider. Layout: `Ctrl Alt Cmd | <- -> up down | Fn Esc Tab compose`.
+
+**Modifier toggles** (Ctrl, Alt, Cmd): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously.
+
+**Arrow keys**: Send ANSI escape sequences (`[A/B/C/D`). With modifiers, use xterm parameter encoding (`[1;{mod}X`). Modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) + (cmd?8:0).
+
+**Function key dropdown** (Fn): Opens a grid dropdown above the button. Contains F1-F12, PgUp, PgDn, Home, End. Closes after each selection, on outside click, or on Escape.
+
+**Special keys** (Esc, Tab): Direct send. Ctrl is not consumed for Esc/Tab (Esc IS Ctrl+[, Tab IS Ctrl+I in terminal semantics) — Ctrl stays armed for the next key. Alt/Cmd prefix with ESC (Meta convention).
+
+**All buttons**: 44px minimum height (Apple HIG touch target). `<kbd>` element styling consistent with the existing `Cmd+K` badge.
+
+### Compose Buffer
+
+Native `<textarea>` overlay triggered by the compose button. Appears above the bottom bar inside the content area. Terminal dims (`opacity-50`) while compose is open.
+
+- **Open**: Tap compose button, or press `i` on desktop (intercepted in capture phase before xterm)
+- **Send**: Click Send button or press Cmd/Ctrl+Enter — entire text transmitted as one WebSocket message
+- **Dismiss**: Press Escape — closes without sending, text discarded
+- **Why**: xterm is a `<canvas>`, not a native text input. iOS dictation, autocorrect, paste, IME all require a real DOM element. Also useful on desktop for pasting large text blocks over a laggy WebSocket.
+
+### iOS Keyboard Support
+
+`useVisualViewport` hook sets `--app-height` CSS custom property from `window.visualViewport.height`. Layout flex container uses `var(--app-height, 100vh)`. When the iOS keyboard appears, the bottom bar stays pinned above it, the terminal shrinks, and xterm refits via the existing `ResizeObserver`.
+
 ## Keyboard Shortcuts
 
 ### Global
@@ -54,6 +81,7 @@ Line 2 renders even when empty — prevents layout shift during navigation and b
 | `j` / `k` | Navigate cards down/up | Dashboard, Project view |
 | `Enter` | Drill into focused item | Dashboard, Project view |
 | `Esc Esc` | Navigate back | Terminal view (300ms window) |
+| `i` | Open compose buffer | Terminal view (capture phase, prevents xterm from receiving) |
 
 ### Dashboard
 | Key | Action |
@@ -122,3 +150,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-03 | Unified top bar — shared breadcrumb + action bar, inline kill controls, command palette on terminal, always-visible search | `260303-vag8-unified-top-bar` |
 | 2026-03-05 | Create Session dialog with folder picker — quick picks, server-side autocomplete, name auto-derivation | `260305-zkem-session-folder-picker` |
 | 2026-03-06 | Chrome architecture — layout-owned skeleton, ChromeProvider context, TopBarChrome, icon breadcrumbs, always-visible kill buttons | `260305-emla-fixed-chrome-architecture` |
+| 2026-03-06 | Bottom bar with modifier toggles, arrow keys, Fn dropdown, compose buffer, iOS keyboard support | `260305-fjh1-bottom-bar-compose-buffer` |

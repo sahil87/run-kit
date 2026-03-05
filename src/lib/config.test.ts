@@ -105,10 +105,10 @@ describe("config CLI arg parsing", () => {
     expect(config.port).toBe(3000);
   });
 
-  it("rejects float --port", async () => {
-    process.argv = ["node", "script.js", "--port", "3000.5"];
+  it("truncates float --port to integer", async () => {
+    process.argv = ["node", "script.js", "--port", "5000.5"];
     const config = await loadConfig();
-    expect(config.port).toBe(3000);
+    expect(config.port).toBe(5000);
   });
 
   it("ignores --port without a following value", async () => {

@@ -38,6 +38,8 @@ Load per `_preamble.md` Sections 1-3 (config, constitution, intake, memory index
 ## Behavior
 
 > **Note**: All `.status.yaml` mutations in this skill use `fab/.kit/bin/fab status` event commands (`start`, `advance`, `finish`, `reset`, `fail`, `set-checklist`) rather than direct file edits. The driver argument is optional, but this skill always passes `fab-ff`.
+>
+> **Dispatch**: All sub-skill invocations use the Agent tool (`general-purpose` subagent) per `_preamble.md` § Subagent Dispatch. Each subagent reads the target skill file, follows the specified behavior, and returns a structured result to the pipeline.
 
 ### Resumability
 
@@ -51,7 +53,7 @@ Follow **Spec Generation Procedure** (`_generation.md`). No frontloaded question
 
 **Spec gate**: After spec generation, run `fab/.kit/bin/fab score --check-gate <change>`. If the gate fails → **STOP**: `Confidence is {score} of 5.0 (need > {threshold} for {change_type}). Run /fab-clarify to resolve, then retry /fab-ff.`
 
-**Auto-Clarify**: Invoke `/fab-clarify` with `[AUTO-MODE]` prefix on the generated spec. If `blocking: 0` → continue. If `blocking > 0` → **BAIL**: report issues, suggest `/fab-clarify` then `/fab-ff`.
+**Auto-Clarify**: Dispatch `/fab-clarify` as subagent — `[AUTO-MODE]`, target: `spec.md`, change: `{id}`. Returns `{resolved, blocking, non_blocking}`. If `blocking: 0` → continue. If `blocking > 0` → **BAIL**: report blocking issues, suggest `/fab-clarify` then `/fab-ff`.
 
 ### Step 2: Generate `tasks.md`
 
@@ -59,7 +61,7 @@ Follow **Spec Generation Procedure** (`_generation.md`). No frontloaded question
 
 Follow **Tasks Generation Procedure** (`_generation.md`).
 
-**Auto-Clarify**: Invoke `/fab-clarify` with `[AUTO-MODE]` prefix on the generated tasks. If `blocking: 0` → continue. If `blocking > 0` → **BAIL**: report issues, suggest `/fab-clarify` then `/fab-ff`.
+**Auto-Clarify**: Dispatch `/fab-clarify` as subagent — `[AUTO-MODE]`, target: `tasks.md`, change: `{id}`. Same bail logic as Step 1.
 
 ### Step 3: Generate Quality Checklist
 
@@ -75,7 +77,7 @@ Run `fab/.kit/bin/fab status finish <change> tasks fab-ff`. Then set checklist f
 
 *(Skip if `progress.apply` is `done`.)*
 
-Invoke `/fab-continue` using the Skill tool — follow its Apply Behavior exactly (parse unchecked tasks, execute in dependency order, run tests, mark `[x]` on completion).
+Dispatch `/fab-continue` as subagent — Apply Behavior, change: `{id}`. The subagent parses unchecked tasks, executes in dependency order, runs tests, and marks `[x]` on completion. Returns completion status or failure with task ID and reason.
 
 **If task fails**: STOP with `Task {ID} failed: {reason}. Investigate and re-run /fab-ff.`
 
@@ -85,7 +87,7 @@ On success: run `fab/.kit/bin/fab status finish <change> apply fab-ff`.
 
 *(Skip if `progress.review` is `done`.)*
 
-Invoke `/fab-continue` using the Skill tool — follow its Review Behavior exactly (dispatch to a sub-agent in a separate execution context, perform all validation checks, return structured findings with three-tier priority: must-fix / should-fix / nice-to-have).
+Dispatch `/fab-continue` as subagent — Review Behavior, change: `{id}`. The subagent dispatches validation to a review sub-agent, performs all checks, and returns structured findings (must-fix / should-fix / nice-to-have) with pass/fail status.
 
 **Pass**: run `fab/.kit/bin/fab status finish <change> review fab-ff`. Proceed to Step 7.
 
@@ -120,13 +122,13 @@ The user can run `/fab-continue` for interactive rework, or `/fab-clarify` to de
 
 *(Skip if `progress.hydrate` is `done`.)*
 
-Invoke `/fab-continue` using the Skill tool — follow its Hydrate Behavior exactly (validate review passed, hydrate into `docs/memory/`, run `fab/.kit/bin/fab status finish <change> hydrate fab-ff`).
+Dispatch `/fab-continue` as subagent — Hydrate Behavior, change: `{id}`. The subagent validates review passed, hydrates into `docs/memory/`, and runs `fab/.kit/bin/fab status finish <change> hydrate fab-ff`. Returns completion status.
 
 ### Step 8: Ship
 
 *(Skip if `progress.ship` is `done`.)*
 
-Invoke `/git-pr` using the Skill tool — follow its procedure exactly (commit, push, and create a GitHub PR). The git-pr skill handles statusman integration internally (start/finish ship stage).
+Dispatch `/git-pr` as subagent — change: `{id}`. The subagent commits, pushes, and creates a GitHub PR. Handles statusman integration internally (start/finish ship stage). Returns PR URL or error.
 
 **If git-pr fails**: STOP with the error from git-pr. The ship stage remains `active` for user retry.
 
@@ -136,7 +138,7 @@ On success: `progress.ship` becomes `done` (handled by git-pr's statusman calls)
 
 *(Skip if `progress.review-pr` is `done`.)*
 
-Invoke `/git-pr-review` using the Skill tool — follow its procedure exactly (detect reviews, triage comments, apply fixes, push; request Copilot as reviewer if no reviews exist, then poll for up to 8 minutes). The git-pr-review skill handles statusman integration internally (start/finish/fail review-pr stage).
+Dispatch `/git-pr-review` as subagent — change: `{id}`. The subagent detects reviews, triages comments, applies fixes, and pushes; requests Copilot as reviewer if no reviews exist, then polls for up to 8 minutes. Handles statusman integration internally (start/finish/fail review-pr stage). Returns completion status.
 
 **If review-pr fails** (no PR found, processing error): STOP with the error. The user can re-run `/fab-ff` or `/git-pr-review` directly.
 

@@ -171,6 +171,24 @@ To add new mode signals, define new bracketed prefixes (e.g., `[BATCH-MODE]`) he
 
 ---
 
+## Subagent Dispatch (Orchestrator Skills)
+
+Orchestrator skills (`/fab-ff`, `/fab-fff`) run multi-stage pipelines that invoke other skills as sub-operations. To preserve the orchestrator's pipeline context, sub-skills are dispatched as **subagents** using the Agent tool (`subagent_type: "general-purpose"`) — never the Skill tool.
+
+**Why not the Skill tool?** The Skill tool expands the sub-skill's prompt into the orchestrator's execution context. After the sub-skill completes, the pipeline context is lost and execution halts. The Agent tool runs the sub-skill in a **separate context** and returns a structured result, keeping the pipeline intact.
+
+**Dispatch pattern** — each subagent prompt includes:
+
+1. The skill file path to read (`fab/.kit/skills/{skill}.md`)
+2. The specific behavior section to follow (e.g., "Apply Behavior", "Auto Mode")
+3. The change ID for resolution
+4. Any mode prefix (`[AUTO-MODE]`)
+5. The expected return format
+
+`general-purpose` subagents have full tool access (Read, Edit, Write, Bash, Agent) and can execute any skill behavior including file modifications and nested subagent dispatch.
+
+---
+
 ## SRAD Autonomy Framework
 
 When generating artifacts, planning skills encounter decision points not explicitly addressed by user input. The SRAD framework provides a principled method for deciding when to ask, when to assume, and when to surface assumptions.

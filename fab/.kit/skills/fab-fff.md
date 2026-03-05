@@ -1,17 +1,17 @@
 ---
 name: fab-fff
-description: "Full pipeline — planning, implementation, sub-agent review, and hydrate — with frontloaded questions, auto-clarify, and autonomous rework with bounded retry."
+description: "Full pipeline — planning, implementation, sub-agent review, hydrate, and PR — with frontloaded questions, auto-clarify, and autonomous rework with bounded retry."
 ---
 
 # /fab-fff [<change-name>]
 
-> Read and follow the instructions in `./fab/.kit/skills/_preamble.md` before proceeding.
+> Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.
 
 ---
 
 ## Purpose
 
-Run the entire Fab pipeline from the current stage through hydrate in a single invocation. No confidence gates — forces through all stages regardless of scores. Frontloads questions, interleaves auto-clarify between planning stages, and autonomously reworks on review failure with bounded retry (3 cycles max, escalation after 2 consecutive fix-code failures). Resumable — re-running picks up from the first incomplete stage. Compare with `/fab-ff`, which has the same pipeline but with safety gates (intake score >= 3.0, spec confidence >= threshold, review 3-cycle stop).
+Run the entire Fab pipeline from the current stage through PR review in a single invocation. No confidence gates — forces through all stages regardless of scores. Frontloads questions, interleaves auto-clarify between planning stages, and autonomously reworks on review failure with bounded retry (3 cycles max, escalation after 2 consecutive fix-code failures). Resumable — re-running picks up from the first incomplete stage. Compare with `/fab-ff`, which has the same pipeline but with safety gates (intake score >= 3.0, spec confidence >= threshold, review 3-cycle stop). Both pipelines extend through ship and review-pr.
 
 ---
 
@@ -36,11 +36,11 @@ Load per `_preamble.md` Sections 1-3 (config, constitution, intake, memory index
 
 ## Behavior
 
-> **Note**: All `.status.yaml` mutations in this skill use `fab/.kit/scripts/lib/statusman.sh` event commands (`start`, `advance`, `finish`, `reset`, `fail`, `set-checklist`) rather than direct file edits. Driver is optional in the CLI but this skill always passes `fab-fff`.
+> **Note**: All `.status.yaml` mutations in this skill use `fab/.kit/bin/fab status` event commands (`start`, `advance`, `finish`, `reset`, `fail`, `set-checklist`) rather than direct file edits. Driver is optional in the CLI but this skill always passes `fab-fff`.
 
 ### Resumability
 
-Check `progress` from preflight. Skip stages already `done`. If `hydrate: done`, pipeline is already complete.
+Check `progress` from preflight. Skip stages already `done`. If `review-pr: done`, pipeline is already complete.
 
 ### Step 1: Frontload All Questions
 
@@ -55,7 +55,7 @@ At most one Q&A round.
 
 *(Skip if `progress.spec` is `done`.)*
 
-Follow **Spec Generation Procedure** (`_generation.md`). Incorporate answers from Step 1 — no `[NEEDS CLARIFICATION]` markers. Update `.status.yaml` via `fab/.kit/scripts/lib/statusman.sh finish <change> spec fab-fff`.
+Follow **Spec Generation Procedure** (`_generation.md`). Incorporate answers from Step 1 — no `[NEEDS CLARIFICATION]` markers. Update `.status.yaml` via `fab/.kit/bin/fab status finish <change> spec fab-fff`.
 
 **Auto-Clarify**: Invoke `/fab-clarify` with `[AUTO-MODE]` prefix. If `blocking: 0` → continue. If `blocking > 0` → **BAIL**: report issues, suggest `/fab-clarify` then `/fab-fff`.
 
@@ -71,27 +71,27 @@ Follow **Checklist Generation Procedure** (`_generation.md`).
 
 ### Step 5: Update `.status.yaml` (Planning Complete)
 
-Run `fab/.kit/scripts/lib/statusman.sh finish <change> tasks fab-fff`. Then set checklist fields via `fab/.kit/scripts/lib/statusman.sh set-checklist <change> generated true`, `fab/.kit/scripts/lib/statusman.sh set-checklist <change> total <count>`, `fab/.kit/scripts/lib/statusman.sh set-checklist <change> completed 0`.
+Run `fab/.kit/bin/fab status finish <change> tasks fab-fff`. Then set checklist fields via `fab/.kit/bin/fab status set-checklist <change> generated true`, `fab/.kit/bin/fab status set-checklist <change> total <count>`, `fab/.kit/bin/fab status set-checklist <change> completed 0`.
 
 ### Step 6: Implementation
 
 *(Skip if `progress.apply` is `done`.)*
 
-Execute apply behavior per `/fab-continue` — parse unchecked tasks, execute in dependency order, run tests, mark `[x]` on completion.
+Invoke `/fab-continue` using the Skill tool — follow its Apply Behavior exactly (parse unchecked tasks, execute in dependency order, run tests, mark `[x]` on completion).
 
 **If task fails**: STOP with `Task {ID} failed: {reason}. Investigate and re-run /fab-fff.`
 
-On success: run `fab/.kit/scripts/lib/statusman.sh finish <change> apply fab-fff`.
+On success: run `fab/.kit/bin/fab status finish <change> apply fab-fff`.
 
 ### Step 7: Review
 
 *(Skip if `progress.review` is `done`.)*
 
-Dispatch review to a **sub-agent** per `/fab-continue` Review Behavior — the sub-agent runs in a separate execution context, performs all validation checks, and returns structured findings with three-tier priority (must-fix / should-fix / nice-to-have).
+Invoke `/fab-continue` using the Skill tool — follow its Review Behavior exactly (dispatch to a sub-agent in a separate execution context, perform all validation checks, return structured findings with three-tier priority: must-fix / should-fix / nice-to-have).
 
-**Pass**: run `fab/.kit/scripts/lib/statusman.sh finish <change> review fab-fff`. Proceed to Step 8.
+**Pass**: run `fab/.kit/bin/fab status finish <change> review fab-fff`. Proceed to Step 8.
 
-**Fail**: Autonomous rework with bounded retry. Run `fab/.kit/scripts/lib/statusman.sh fail <change> review` then `fab/.kit/scripts/lib/statusman.sh reset <change> apply fab-fff`. The agent triages the sub-agent's prioritized findings and autonomously selects the rework path — no user interaction. Must-fix items are always addressed; should-fix items when clear and low-effort; nice-to-have items may be skipped.
+**Fail**: Autonomous rework with bounded retry. Run `fab/.kit/bin/fab status fail <change> review` then `fab/.kit/bin/fab status reset <change> apply fab-fff`. The agent triages the sub-agent's prioritized findings and autonomously selects the rework path — no user interaction. Must-fix items are always addressed; should-fix items when clear and low-effort; nice-to-have items may be skipped.
 
 **Decision heuristics** (applied to prioritized findings):
 - **Must-fix: test failures, spec mismatches, checklist violations** → "Fix code" — uncheck affected tasks with `<!-- rework: reason -->`, re-run apply, then spawn a **fresh sub-agent** for re-review
@@ -114,7 +114,29 @@ Run /fab-continue for manual rework options.
 
 *(Skip if `progress.hydrate` is `done`.)*
 
-Execute hydrate behavior per `/fab-continue` — validate review passed, hydrate into `docs/memory/`, run `fab/.kit/scripts/lib/statusman.sh finish <change> hydrate fab-fff`.
+Invoke `/fab-continue` using the Skill tool — follow its Hydrate Behavior exactly (validate review passed, hydrate into `docs/memory/`, run `fab/.kit/bin/fab status finish <change> hydrate fab-fff`).
+
+### Step 9: Ship
+
+*(Skip if `progress.ship` is `done`.)*
+
+Invoke `/git-pr` using the Skill tool — follow its procedure exactly (commit, push, and create a GitHub PR). The git-pr skill handles statusman integration internally (start/finish ship stage).
+
+**If git-pr fails**: STOP with the error from git-pr. The ship stage remains `active` for user retry.
+
+On success: `progress.ship` becomes `done`, `progress.review-pr` auto-activates.
+
+### Step 10: Review-PR
+
+*(Skip if `progress.review-pr` is `done`.)*
+
+Invoke `/git-pr-review` using the Skill tool — follow its procedure exactly (detect reviews, triage comments, apply fixes, push; request Copilot as reviewer if no reviews exist, then poll for up to 8 minutes). The git-pr-review skill handles statusman integration internally (start/finish/fail review-pr stage).
+
+**If review-pr fails** (no PR found, processing error): STOP with the error.
+
+**If no reviews arrive** (Copilot unavailable or timeout): the stage completes as `done` — this is a successful no-op.
+
+On success: `progress.review-pr` becomes `done`.
 
 ---
 
@@ -138,7 +160,13 @@ Execute hydrate behavior per `/fab-continue` — validate review passed, hydrate
 --- Hydrate ---
 {hydrate output}
 
-Pipeline complete. Change hydrated.
+--- Ship ---
+{git-pr output}
+
+--- Review-PR ---
+{git-pr-review output}
+
+Pipeline complete.
 
 Next: {per state table}
 ```
@@ -156,3 +184,5 @@ Resuming shows `(resuming)...` header and `Skipping {stage} — already done.` f
 | Auto-clarify bails | Stop, report blocking issues, suggest `/fab-clarify` then `/fab-fff` |
 | Task fails | Stop: "Task {ID} failed: {reason}. Investigate and re-run /fab-fff." |
 | Review fails | Autonomous rework: agent triages sub-agent's prioritized findings, selects path, 3-cycle retry cap (each re-review by fresh sub-agent), escalation after 2 consecutive fix-code. Bail after 3 cycles with summary. |
+| Ship fails | Stop with git-pr error. User retries /fab-fff or /git-pr. |
+| Review-PR fails | Stop with git-pr-review error. User retries /fab-fff or /git-pr-review. |

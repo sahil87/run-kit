@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 fab_root="$(dirname "$0")/../../.."
 scripts_dir="$(cd "$(dirname "$0")/.." && pwd)"
 kit_dir="$fab_root/.kit"
@@ -138,4 +137,5 @@ confidence:
   tentative: ${confidence[tentative]}
   unresolved: ${confidence[unresolved]}
   score: ${confidence[score]}
+  indicative: ${confidence[indicative]:-false}
 EOF

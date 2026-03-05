@@ -9,23 +9,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KIT_DIR="$(dirname "$SCRIPT_DIR")"
 FAB_DIR="$(dirname "$KIT_DIR")"
 CHANGES_DIR="${FAB_DIR}/changes"
-CHANGEMAN="${SCRIPT_DIR}/lib/changeman.sh"
+FAB_BIN="$KIT_DIR/bin/fab"
 
 usage() {
   cat <<'EOF'
-Usage: batch-fab-archive-change <change> [<change>...]
+Usage: batch-fab-archive-change [<change>...] [--list] [--all]
 
 Archives multiple completed changes (hydrate done|skipped) by running
 /fab-archive for each one sequentially.
 
+With no arguments, archives all eligible changes (same as --all).
+
 Options:
-  --list    Show archivable changes (hydrate done|skipped)
-  --all     Archive all archivable changes
+  --list    Show archivable changes without archiving
+  --all     Archive all archivable changes (default when no arguments)
 
 Examples:
-  batch-fab-archive-change v3rn
-  batch-fab-archive-change v3rn ab12
-  batch-fab-archive-change --all
+  batch-fab-archive-change            # archive all eligible
+  batch-fab-archive-change --list     # preview first
+  batch-fab-archive-change v3rn ab12  # archive specific changes
 EOF
 }
 
@@ -80,7 +82,7 @@ if [[ ! -d "$CHANGES_DIR" ]]; then
 fi
 
 if [[ $# -eq 0 ]]; then
-  set -- --list
+  set -- --all
 fi
 
 # ---------------------------------------------------------------------------
@@ -108,7 +110,7 @@ esac
 
 resolved=()
 for change in "${changes[@]}"; do
-  if ! match=$("$CHANGEMAN" resolve "$change"); then
+  if ! match=$("$FAB_BIN" change resolve "$change"); then
     continue
   fi
 

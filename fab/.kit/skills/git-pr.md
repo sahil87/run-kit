@@ -12,7 +12,17 @@ Autonomously ship local changes to a GitHub PR. No questions, no prompts — jus
 
 ## Behavior
 
-### Step 0: Resolve PR Type
+### Step 0a: Start Ship Stage
+
+If an active change resolves (`fab/.kit/bin/fab change resolve 2>/dev/null`) and `progress.ship` is not `done`, attempt to start the `ship` stage:
+
+```bash
+fab/.kit/bin/fab status start <change> ship git-pr 2>/dev/null || true
+```
+
+This is best-effort — failures are silently ignored. If the stage is already `active`, the call is a no-op. If no active change, skip entirely.
+
+### Step 0b: Resolve PR Type
 
 Determine the PR type before gathering state. The type controls the PR title prefix and body template.
 
@@ -22,7 +32,7 @@ Determine the PR type before gathering state. The type controls the PR title pre
 
 1. **Explicit argument**: If the user invoked `/git-pr {type}` where `{type}` is one of the 7 valid types (case-insensitive), normalize to lowercase and use it. If the argument is not a valid type, ignore it and fall through to step 2.
 
-2. **Read from `.status.yaml`**: Run `fab/.kit/scripts/lib/changeman.sh resolve 2>/dev/null`. If resolution succeeds, read `change_type` from `fab/changes/{name}/.status.yaml`. If non-null and one of the 7 valid types (`feat`, `fix`, `refactor`, `docs`, `test`, `ci`, `chore`), use it. Fall through if resolution fails, `change_type` is null, or `change_type` is not a valid type.
+2. **Read from `.status.yaml`**: Run `fab/.kit/bin/fab change resolve 2>/dev/null`. If resolution succeeds, read `change_type` from `fab/changes/{name}/.status.yaml`. If non-null and one of the 7 valid types (`feat`, `fix`, `refactor`, `docs`, `test`, `ci`, `chore`), use it. Fall through if resolution fails, `change_type` is null, or `change_type` is not a valid type.
 
 3. **Infer from fab change intake**: If `changeman.sh resolve` succeeded (from step 2) and `fab/changes/{name}/intake.md` exists, read the intake content and pattern-match (case-insensitive). Keyword lists are evaluated in order — first match wins:
    - Contains any of: "fix", "bug", "broken", "regression" → type = `fix`
@@ -55,7 +65,7 @@ git log --oneline @{u}..HEAD 2>/dev/null || echo "NO_UPSTREAM"
 gh pr view --json number,state,url 2>/dev/null || echo "NO_PR"
 ```
 
-If an active change is resolved (via `changeman.sh resolve`), read issues via `fab/.kit/scripts/lib/statusman.sh get-issues fab/changes/{name}/.status.yaml` and capture the output (one ID per line, may be empty).
+If an active change is resolved (via `changeman.sh resolve`), read issues via `fab/.kit/bin/fab status get-issues fab/changes/{name}/.status.yaml` and capture the output (one ID per line, may be empty).
 
 Determine:
 - **branch** — current branch name
@@ -66,7 +76,7 @@ Determine:
 
 ### Step 1b: Branch Mismatch Nudge
 
-If there is an active change (resolve via `fab/.kit/scripts/lib/changeman.sh resolve 2>/dev/null`), compare the current branch against the change name.
+If there is an active change (resolve via `fab/.kit/bin/fab change resolve 2>/dev/null`), compare the current branch against the change name.
 
 A match is: (1) exact string equality between current branch and change name, or (2) the change name appears as a substring of the current branch.
 
@@ -146,62 +156,62 @@ Print: `  ✓ push   — origin/<branch>`
    - If missing → print `gh CLI not found — cannot create PR` and STOP
 
 2. **Derive PR title**: Compute `{pr_title}` where:
-   - **Fab-linked** (type is `feat`, `fix`, or `refactor` AND intake exists): `{title}` = first `# ` heading from `intake.md`, stripping `Intake: ` prefix if present
-   - **Lightweight** (type is `docs`, `test`, `ci`, or `chore`, OR no intake): `{title}` = commit message subject line from `git log -1 --format=%s`
+   - If `fab/.kit/bin/fab change resolve 2>/dev/null` succeeds AND `fab/changes/{name}/intake.md` exists: `{title}` = first `# ` heading from `fab/changes/{name}/intake.md`, stripping `Intake: ` prefix if present
+   - Otherwise: `{title}` = commit message subject line from `git log -1 --format=%s`
 
    If `issues` (from Step 1) is non-empty: `{pr_title}` = `{type}: {issues} {title}` (e.g., `feat: DEV-123 DEV-456 Add OAuth support`), where `{issues}` is space-joined.
    If `issues` is empty: `{pr_title}` = `{type}: {title}`.
 
    The `{pr_title}` variable (already prefixed) is used as-is in step 4's `gh pr create --title`.
 
-3. **Generate PR body** using the template tier matching the resolved type:
+3. **Generate PR body** using a single unified template with conditional field population based on artifact availability:
 
-   **Tier 1 — Fab-Linked** (type is `feat`, `fix`, or `refactor` AND `changeman.sh resolve` succeeds AND `intake.md` exists):
+   **Resolve fab context** (attempt once, used for all conditional fields):
+   - Run `fab/.kit/bin/fab change resolve 2>/dev/null`. If it succeeds, set `{has_fab} = true` and `{name}` = resolved change name
+   - Check if `fab/changes/{name}/intake.md` exists → `{has_intake}`
+   - Check if `fab/changes/{name}/spec.md` exists → `{has_spec}`
+   - Check if `fab/changes/{name}/tasks.md` exists → `{has_tasks}`
+   - Read `fab/changes/{name}/.status.yaml` for `confidence`, `checklist`, `progress`, and `stage_metrics` fields
 
-   First, construct blob URLs:
+   **Construct blob URLs** (only when `{has_fab}`):
    - `{owner_repo}` = `gh repo view --json nameWithOwner -q '.nameWithOwner'`
    - `{branch}` = `git branch --show-current`
-   - Intake URL = `https://github.com/{owner_repo}/blob/{branch}/fab/changes/{name}/intake.md`
-   - Spec URL = `https://github.com/{owner_repo}/blob/{branch}/fab/changes/{name}/spec.md` (only if `spec.md` exists)
+   - If `{has_intake}`: Intake URL = `https://github.com/{owner_repo}/blob/{branch}/fab/changes/{name}/intake.md`
+   - If `{has_spec}`: Spec URL = `https://github.com/{owner_repo}/blob/{branch}/fab/changes/{name}/spec.md`
 
-   Then read `.status.yaml` from the change directory to extract:
-   - `{confidence_score}` = `confidence.score` (e.g., `3.5`)
-   - `{pipeline_stages}` = stage names from `progress` map whose value is `done`, joined with ` → `, in fixed order: intake, spec, tasks, apply, review, hydrate
+   **Generate body sections**:
 
-   Then generate the body:
    ```
    ## Summary
-   {1-3 sentences derived from intake's ## Why section}
+   {if has_fab AND has_intake: 1-3 sentences derived from intake's ## Why section}
+   {otherwise: 1-3 sentences auto-generated from commit messages or git diff --stat}
 
    ## Changes
-   {bulleted list of subsection headings from intake's ## What Changes section}
+   {if has_fab AND has_intake: bulleted list of subsection headings from intake's ## What Changes section}
+   {otherwise: omit this section entirely}
 
-   ## Context
-   | Field | Detail |
-   |---|---|
-   | Type | {type} |
-   | Change | `{change_name}` |
-   | Confidence | {confidence_score} / 5.0 |
-   | Pipeline | {pipeline_stages} |
-   | Intake | [{change_name}/intake.md]({intake_url}) |
-   | Spec | [{change_name}/spec.md]({spec_url}) |
+   ## Stats
+   | Type | Confidence | Checklist | Tasks | Review |
+   |------|-----------|-----------|-------|--------|
+   | {type} | {confidence} | {checklist} | {tasks} | {review} |
    ```
 
-   If `spec.md` does not exist, omit the Spec row entirely.
+   **Stats column population**:
+   - **Type**: Always populated from the resolved PR type
+   - **Confidence**: `{confidence.score} / 5.0` from `.status.yaml`. Show `—` if no fab change or confidence data absent
+   - **Checklist**: `{checklist.completed}/{checklist.total}` from `.status.yaml`. Append ` ✓` when `completed == total` AND `total > 0`. Show `—` if not available
+   - **Tasks**: Parse `tasks.md` for checkbox counts (`- [x]` vs `- [ ]`), formatted as `{done}/{total}`. Show `—` if `tasks.md` doesn't exist
+   - **Review**: Derive from `.status.yaml` `progress.review` state and `stage_metrics.review.iterations`. Show `Pass ({N} iterations)` if review is `done`, `Fail ({N} iterations)` if review is `failed`, `—` if review not yet reached. If `iterations` is not populated, omit the parenthetical
 
-   **Tier 2 — Lightweight** (type is `docs`, `test`, `ci`, or `chore`, OR no fab change, OR intake missing):
+   **Pipeline progress line** (only when `{has_fab}`):
 
-   ```
-   ## Summary
-   {1-3 sentences auto-generated from commit messages or git diff --stat}
+   Below the Stats table, show a pipeline progress line. Stages with `done` status from `.status.yaml`'s `progress` map are listed in fixed order: intake, spec, tasks, apply, review, hydrate, ship, review-pr — joined with ` → `.
 
-   ## Context
-   | Field | Detail |
-   |---|---|
-   | Type | {type} |
+   - If `{has_intake}`: "intake" is a hyperlink → `[intake]({intake_url})`
+   - If `{has_spec}`: "spec" is a hyperlink → `[spec]({spec_url})`
+   - All other stage names are plain text
 
-   No design artifacts — housekeeping change.
-   ```
+   If no fab change exists (`{has_fab}` is false), the pipeline line is omitted entirely.
 
 4. Create PR: `gh pr create --title "{pr_title}" --body "<body>"` (where `{pr_title}` is the already-prefixed title from step 2)
    - If PR creation fails → report the error and STOP
@@ -216,9 +226,9 @@ Print: `  ✓ pr     — <PR URL>`
 
 After the PR URL is known (from step 3c or from the existing PR in step 1), attempt to record it in the active change's `.status.yaml`:
 
-1. Resolve the active change: `fab/.kit/scripts/lib/changeman.sh resolve 2>/dev/null`
+1. Resolve the active change: `fab/.kit/bin/fab change resolve 2>/dev/null`
 2. If resolution succeeds (exit 0), derive the status file path: `fab/changes/{name}/.status.yaml`
-3. Call: `fab/.kit/scripts/lib/statusman.sh add-pr <status_file> <pr_url>`
+3. Call: `fab/.kit/bin/fab status add-pr <status_file> <pr_url>`
 4. If resolution fails (exit non-zero) or `changeman.sh` is not found, skip silently — do not print any error or warning
 
 This step MUST NOT block or fail the PR workflow. Any error from changeman or statusman is silently ignored.
@@ -246,6 +256,16 @@ This file is gitignored and never committed. It provides a race-free filesystem 
 
 If Step 4 was skipped, skip this step silently.
 
+### Step 4d: Finish Ship Stage
+
+If an active change was resolved in Step 0a and `progress.ship` was started (not already `done`):
+
+```bash
+fab/.kit/bin/fab status finish <change> ship git-pr 2>/dev/null || true
+```
+
+This marks `ship` as `done` and auto-activates `review-pr`. Best-effort — failures silently ignored.
+
 ### Step 5: Report
 
 Print:
@@ -253,19 +273,6 @@ Print:
 
 Shipped.
 ```
-
-### Step 6: Auto-Fix Copilot Review
-
-**Condition**: Only runs if a PR URL is known (from Step 3c creation or from the existing PR in Step 1).
-
-After printing "Shipped.", execute `/git-pr-fix` behavior inline with **wait mode** enabled (the PR was just created or just confirmed — the Copilot review may not have arrived yet).
-
-1. From the known PR URL, resolve `{owner}`, `{repo}`, and `{number}` (e.g., by parsing the URL path or reusing values from earlier steps).
-2. Using those values, execute Step 2 of `/git-pr-fix` in **wait mode**: poll `gh api repos/{owner}/{repo}/pulls/{number}/reviews` for `copilot-pull-request-reviewer[bot]` every 30 seconds, max 12 attempts (6 minutes).
-3. If a Copilot review is found, execute Steps 3-4 of `/git-pr-fix` (fetch comments, triage, fix, commit, push) against that same PR.
-4. Print outcome (fixes applied, no actionable comments, timeout, or error).
-
-**Best-effort**: Any failure in Step 6 (timeout, API error, commit failure) is printed but does NOT change the exit status of `/git-pr`. The "Shipped." output has already been printed — Step 6 is a follow-up action.
 
 ---
 
@@ -276,20 +283,19 @@ After printing "Shipped.", execute `/git-pr-fix` behavior inline with **wait mod
 - Skip steps that are already done (no uncommitted → skip commit, PR exists → skip create)
 - Always operate on CWD — no repo detection
 - No merge support — stop at PR creation
-- Step 6 (Copilot fix) is best-effort — never blocks shipping
 
 ---
 
 ## PR Type Reference
 
-| Type | Description | Fab Pipeline? | Template Tier |
-|------|-------------|---------------|---------------|
-| `feat` | New feature or capability | Yes | 1 (fab-linked) |
-| `fix` | Bug fix | Yes | 1 (fab-linked) |
-| `refactor` | Restructure without behavior change | Yes | 1 (fab-linked) |
-| `docs` | Documentation-only changes | No | 2 (lightweight) |
-| `test` | Adding/fixing tests only | No | 2 (lightweight) |
-| `ci` | CI/CD and build system changes | No | 2 (lightweight) |
-| `chore` | Maintenance, cleanup, housekeeping | No | 2 (lightweight) |
+| Type | Description |
+|------|-------------|
+| `feat` | New feature or capability |
+| `fix` | Bug fix |
+| `refactor` | Restructure without behavior change |
+| `docs` | Documentation-only changes |
+| `test` | Adding/fixing tests only |
+| `ci` | CI/CD and build system changes |
+| `chore` | Maintenance, cleanup, housekeeping |
 
 Derived from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), consolidated: `style` → `refactor`, `perf` → `feat`/`refactor`, `build` → `ci`.

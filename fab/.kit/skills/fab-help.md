@@ -18,7 +18,7 @@ Orient the user in the fab workflow. Show how the stages fit together and list e
 When invoked, log the command and execute the help script:
 
 ```bash
-bash fab/.kit/scripts/lib/logman.sh command "fab-help" 2>/dev/null || true
+fab/.kit/bin/fab log command "fab-help" 2>/dev/null || true
 bash fab/.kit/scripts/fab-help.sh
 ```
 

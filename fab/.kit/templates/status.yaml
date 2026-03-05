@@ -10,6 +10,8 @@ progress:
   apply: pending
   review: pending
   hydrate: pending
+  ship: pending
+  review-pr: pending
 checklist:
   generated: false
   path: checklist.md

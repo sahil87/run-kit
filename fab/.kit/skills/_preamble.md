@@ -1,7 +1,15 @@
+---
+name: _preamble
+description: "Shared context preamble loaded by every Fab skill — defines path conventions, context loading, SRAD framework, and confidence scoring."
+user-invocable: false
+disable-model-invocation: true
+metadata:
+  internal: true
+---
 # Shared Context Preamble
 
 > This file defines shared conventions for all Fab skills. Each skill file should begin with:
-> `Read and follow the instructions in ./fab/.kit/skills/_preamble.md before proceeding.`
+> ``Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.``
 
 ---
 
@@ -11,10 +19,10 @@ All script and file paths in skills are **relative to the repo root** (the agent
 
 ```
 # correct
-bash fab/.kit/scripts/lib/preflight.sh
+fab/.kit/bin/fab preflight
 
 # wrong
-bash /home/user/project/fab/.kit/scripts/lib/preflight.sh
+bash /home/user/project/fab/.kit/bin/fab preflight
 ```
 
 ---
@@ -24,7 +32,7 @@ bash /home/user/project/fab/.kit/scripts/lib/preflight.sh
 Before doing anything else, read `fab/.kit/kit.conf` and check the `build-type` value:
 
 - If `build-type=production` (or the file is missing), proceed normally.
-- If `build-type=test`, run `bash fab/.kit/scripts/lib/preflight.sh` via Bash, display its full output to the user, and **STOP** — do not proceed with any further steps.
+- If `build-type=test`, run `fab/.kit/bin/fab preflight` via Bash, display its full output to the user, and **STOP** — do not proceed with any further steps.
 
 ---
 
@@ -44,7 +52,7 @@ Read these files first — they define the project's identity, constraints, and 
 - **`docs/memory/index.md`** — memory landscape (which domains and memory files exist)
 - **`docs/specs/index.md`** — specifications landscape (pre-implementation design intent, human-curated)
 
-> **Note**: If the skill runs `fab/.kit/scripts/lib/preflight.sh` (Section 2 above), the init check (config.yaml and constitution.md existence) is already covered by the script. Skills using preflight don't need separate existence checks for these files — they only need to read them for content.
+> **Note**: If the skill runs `fab/.kit/bin/fab preflight` (Section 2 above), the init check (config.yaml and constitution.md existence) is already covered by the script. Skills using preflight don't need separate existence checks for these files — they only need to read them for content.
 
 Also read **`fab/.kit/skills/_scripts.md`** — script invocation conventions (argument formats, stage transitions, error patterns). This is the authoritative reference for calling `statusman.sh`, `changeman.sh`, `calc-score.sh`, and `preflight.sh`.
 
@@ -52,10 +60,10 @@ Also read **`fab/.kit/skills/_scripts.md`** — script invocation conventions (a
 
 Resolve the active change and load its state by running the preflight script:
 
-1. **Run preflight**: Execute `fab/.kit/scripts/lib/preflight.sh [change-name]` via Bash — pass the optional change-name argument if the skill received one
+1. **Run preflight**: Execute `fab/.kit/bin/fab preflight [change-name]` via Bash — pass the optional change-name argument if the skill received one
 2. **Check exit code**: If the script exits non-zero, STOP and surface the stderr message to the user (it contains the specific error and suggested fix)
 3. **Parse stdout YAML**: On success, parse the YAML output for `id`, `name`, `change_dir`, `stage`, `progress`, `checklist`, and `confidence` fields — use these for all subsequent change context instead of re-reading `.status.yaml`. Use `id` (4-char change ID) for script invocations; use `name` for display, path construction, and artifact metadata.
-4. **Log command**: Call `bash fab/.kit/scripts/lib/logman.sh command "<skill-name>" "<id>" 2>/dev/null || true` where `<skill-name>` is the invoking skill (e.g., `fab-continue`) and `<id>` is the `id` field from the preflight YAML output. This is best-effort — failures are silently ignored.
+4. **Log command**: Call `fab/.kit/bin/fab log command "<skill-name>" "<id>" 2>/dev/null || true` where `<skill-name>` is the invoking skill (e.g., `fab-continue`) and `<id>` is the `id` field from the preflight YAML output. This is best-effort — failures are silently ignored.
 5. Load all completed artifacts in the change folder (e.g., `intake.md`, `spec.md`, `tasks.md`) — read each file that exists so you have full context of what has been decided so far
 
 > **Change-name override**: When a `[change-name]` argument is passed to the preflight script, it resolves the change using case-insensitive substring matching against `fab/changes/` folder names (excluding `archive/`) instead of reading `fab/current`. The override is **transient** — `fab/current` is never modified. This enables parallel workflows where multiple tabs target different changes concurrently. Supports full folder names, partial slugs, or 4-char IDs (e.g., `r3m7`).
@@ -107,6 +115,9 @@ Every skill MUST end its output with a `Next:` line derived from the State Table
 | review (pass) | /fab-continue | /fab-continue |
 | review (fail) | *(rework menu)* | — |
 | hydrate | /git-pr, /fab-archive | /git-pr |
+| ship | /git-pr-review | /git-pr-review |
+| review-pr (pass) | /fab-archive | /fab-archive |
+| review-pr (fail) | /git-pr-review | /git-pr-review |
 
 **State derivation**:
 - **(none)**: `fab/project/config.yaml` does not exist
@@ -177,7 +188,7 @@ For each decision point, evaluate four dimensions on a **continuous 0–100 scal
 
 **Aggregation**: Compute a composite score via weighted mean: `composite = 0.25*S + 0.30*R + 0.25*A + 0.20*D`. Map to grade using thresholds: Certain (85–100), Confident (60–84), Tentative (30–59), Unresolved (0–29). Critical Rule override: R < 25 AND A < 25 → always Unresolved.
 
-Record per-dimension scores in the Assumptions table's required `Scores` column (e.g., `S:75 R:80 A:65 D:70`). The Scores column is mandatory for every row. `fab/.kit/scripts/lib/calc-score.sh` parses these and writes aggregate dimension statistics to `.status.yaml`.
+Record per-dimension scores in the Assumptions table's required `Scores` column (e.g., `S:75 R:80 A:65 D:70`). The Scores column is mandatory for every row. `fab/.kit/bin/fab score` parses these and writes aggregate dimension statistics to `.status.yaml`.
 
 ### Confidence Grades
 
@@ -286,6 +297,7 @@ confidence:
   tentative: 2     # count of Tentative-graded decisions
   unresolved: 0    # count of Unresolved-graded decisions
   score: 2.1       # derived score (see formula below)
+  indicative: true # present (true) when score is from intake.md, absent when from spec.md
 ```
 
 ### Formula
@@ -320,11 +332,19 @@ See `docs/specs/change-types.md` for the full taxonomy.
 
 ### Invocation
 
-Confidence is computed by `fab/.kit/scripts/lib/calc-score.sh`, invoked by `/fab-continue` (spec stage) and `/fab-clarify` (suggest mode). `/fab-ff` gates at two points: (1) intake gate via `calc-score.sh --check-gate --stage intake` before starting, and (2) spec gate via `calc-score.sh --check-gate` after spec generation. `/fab-fff` does not gate or recompute.
+Confidence is computed by `fab/.kit/bin/fab score`, invoked by:
+- `/fab-new` (intake stage, normal mode with `--stage intake`) — persists indicative score with `indicative: true`
+- `/fab-continue` (spec stage) and `/fab-clarify` (suggest mode) — persists spec score, clears `indicative` flag
+
+`/fab-ff` gates at two points: (1) intake gate via `calc-score.sh --check-gate --stage intake` before starting, and (2) spec gate via `calc-score.sh --check-gate` after spec generation. `/fab-fff` does not gate or recompute.
+
+### Indicative vs Spec Scores
+
+When `confidence.indicative` is `true`, the score was computed from `intake.md` Assumptions (less authoritative, fewer decisions). When absent or `false`, the score is from `spec.md` (authoritative). Consumers (`/fab-status`, `/fab-switch`, `changeman.sh`) read uniformly from `.status.yaml` and use the `indicative` flag to label the display (e.g., `4.1 of 5.0 (indicative)`).
 
 ### Template
 
-`fab/.kit/templates/status.yaml` includes the confidence block initialized to zero counts and score 0.0. Template defaults persist until `/fab-continue` generates the spec and invokes `fab/.kit/scripts/lib/calc-score.sh`.
+`fab/.kit/templates/status.yaml` includes the confidence block initialized to zero counts and score 0.0. `/fab-new` writes the indicative score after intake generation. `/fab-continue` overwrites with the spec score at the spec stage.
 
 ### Bulk Confirm (Confident Assumptions)
 

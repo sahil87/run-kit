@@ -20,7 +20,7 @@ if [[ "${1:-}" == "--porcelain" ]]; then
 fi
 
 failures=0
-total=8
+total=6
 
 if [[ "$porcelain" == false ]]; then
   echo "fab-doctor: checking prerequisites..."
@@ -109,27 +109,7 @@ else
   hint "Install: brew install gh"
 fi
 
-# ── 6. bats ─────────────────────────────────────────────────────────
-
-if command -v bats &>/dev/null; then
-  ver=$(bats --version | sed 's/.*Bats //' | sed 's/ .*//')
-  pass "bats $ver"
-else
-  fail "bats — not found"
-  hint "Install: brew install bats-core"
-fi
-
-# ── 7. parallel ────────────────────────────────────────────────────
-
-if command -v parallel &>/dev/null; then
-  ver=$(parallel --version | head -1 | sed 's/.*parallel //' | sed 's/ .*//')
-  pass "parallel $ver"
-else
-  fail "parallel — not found"
-  hint "Install: brew install parallel"
-fi
-
-# ── 8. direnv ───────────────────────────────────────────────────────
+# ── 6. direnv ───────────────────────────────────────────────────────
 
 if command -v direnv &>/dev/null; then
   ver=$(direnv version)

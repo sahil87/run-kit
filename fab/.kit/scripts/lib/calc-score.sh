@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 # calc-score.sh — Compute confidence score from Assumptions table
 #
 # Internal library script invoked by /fab-continue (spec stage) and
@@ -334,12 +333,18 @@ delta=$(awk "BEGIN {
   else printf \"%.1f\", d
 }")
 
+# Determine --indicative flag: set for intake scoring, omit for spec scoring
+indicative_flag=""
+if [ "$SCORE_STAGE" = "intake" ]; then
+  indicative_flag="--indicative"
+fi
+
 # Write to .status.yaml and log
 if [ -f "$status_file" ]; then
   if [ "$has_fuzzy" = true ]; then
-    "$STATUSMAN" set-confidence-fuzzy "$status_file" "$table_certain" "$table_confident" "$table_tentative" "$table_unresolved" "$score" "$mean_s" "$mean_r" "$mean_a" "$mean_d"
+    "$STATUSMAN" set-confidence-fuzzy "$status_file" "$table_certain" "$table_confident" "$table_tentative" "$table_unresolved" "$score" "$mean_s" "$mean_r" "$mean_a" "$mean_d" $indicative_flag
   else
-    "$STATUSMAN" set-confidence "$status_file" "$table_certain" "$table_confident" "$table_tentative" "$table_unresolved" "$score"
+    "$STATUSMAN" set-confidence "$status_file" "$table_certain" "$table_confident" "$table_tentative" "$table_unresolved" "$score" $indicative_flag
   fi
   change_folder=$(basename "$change_dir")
   "$LOGMAN" confidence "$change_folder" "$score" "$delta" "calc-score"

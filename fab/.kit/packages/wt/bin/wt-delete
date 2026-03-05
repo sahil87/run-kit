@@ -399,7 +399,7 @@ wt_select_worktree_menu() {
     # Get list of worktrees (excluding main repo)
     local worktrees=()
     local names=()
-    local default_idx=1
+    local default_idx=2  # Default to first individual worktree (after "All")
 
     # Find most recently modified worktree
     local newest_path=""
@@ -433,21 +433,30 @@ wt_select_worktree_menu() {
     if [[ -n "$newest_path" ]]; then
         for i in "${!worktrees[@]}"; do
             if [[ "${worktrees[$i]}" == "$newest_path" ]]; then
-                default_idx=$((i + 1))
+                default_idx=$((i + 2))  # +2: +1 for 1-based, +1 for "All" entry
                 break
             fi
         done
     fi
 
-    wt_show_menu "Select worktree to delete:" "$default_idx" "${names[@]}"
+    # Prepend "All" option
+    local all_label="All (${#worktrees[@]} worktrees)"
+    local menu_names=("$all_label" "${names[@]}")
+
+    wt_show_menu "Select worktree to delete:" "$default_idx" "${menu_names[@]}"
 
     if [[ "$WT_MENU_CHOICE" == "0" ]]; then
         echo "Cancelled."
         exit "$WT_EXIT_SUCCESS"
     fi
 
+    if [[ "$WT_MENU_CHOICE" == "1" ]]; then
+        wt_delete_all_worktrees "$non_interactive" "$delete_branch" "$delete_remote" "$stash_flag"
+        return
+    fi
+
     local selected_name
-    selected_name=$(basename "${worktrees[$((WT_MENU_CHOICE - 1))]}")
+    selected_name=$(basename "${worktrees[$((WT_MENU_CHOICE - 2))]}")
     wt_delete_worktree_by_name "$selected_name" "$non_interactive" "$delete_branch" "$delete_remote" "$stash_flag"
 }
 
@@ -539,7 +548,7 @@ Exit Codes:
   3    Git operation failed
 
 Examples:
-  wt-delete                                    # Delete current worktree (interactive)
+  wt-delete                                    # Current worktree, or menu with "All" option
   wt-delete --worktree-name london             # Delete worktree named 'london'
   wt-delete --non-interactive                  # Delete current worktree, no prompts
   wt-delete --delete-branch false              # Delete worktree, keep branch

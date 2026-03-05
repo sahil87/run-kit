@@ -8,11 +8,10 @@
 #   statusman.sh --help               Show usage
 #   statusman.sh all-stages           List all stage IDs
 #   statusman.sh progress-map <change>  Extract stage:state pairs
-#   statusman.sh start <change> <stage> [driver]
+#   statusman.sh start <change> <stage> [driver] [from] [reason]
 #   statusman.sh finish <change> <stage> [driver]
 
 set -euo pipefail
-
 # Locate workflow schema and sibling scripts relative to this script
 STATUSMAN_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 WORKFLOW_SCHEMA="$STATUSMAN_DIR/../../schemas/workflow.yaml"
@@ -186,14 +185,15 @@ get_checklist() {
 }
 
 # get_confidence <status_file> — Extract confidence fields
-# Outputs: certain:{val}, confident:{val}, tentative:{val}, unresolved:{val}, score:{val}
+# Outputs: certain:{val}, confident:{val}, tentative:{val}, unresolved:{val}, score:{val}, indicative:{true|false}
 get_confidence() {
   local status_file="$1"
   echo "certain:$(yq '.confidence.certain // 0' "$status_file")"
   echo "confident:$(yq '.confidence.confident // 0' "$status_file")"
   echo "tentative:$(yq '.confidence.tentative // 0' "$status_file")"
   echo "unresolved:$(yq '.confidence.unresolved // 0' "$status_file")"
-  echo "score:$(yq '.confidence.score // "5.0"' "$status_file")"
+  echo "score:$(yq '.confidence.score // "0.0"' "$status_file")"
+  echo "indicative:$(yq '.confidence.indicative // false' "$status_file")"
 }
 
 # get_progress_line <status_file> — Single-line visual pipeline progress
@@ -234,14 +234,17 @@ get_progress_line() {
   echo "$line"
 }
 
-# _apply_metrics_side_effect <tmpfile> <stage> <state> [driver]
+# _apply_metrics_side_effect <tmpfile> <stage> <state> [driver] [from] [reason]
 # Internal helper: apply stage_metrics side-effects for a state change.
 # Operates on tmpfile (caller handles atomicity).
+# On active: also emits a stage-transition event via logman (best-effort).
 _apply_metrics_side_effect() {
   local tmpfile="$1"
   local stage="$2"
   local state="$3"
   local driver="${4:-}"
+  local from="${5:-}"
+  local reason="${6:-}"
   local now
   now=$(date -Iseconds)
 
@@ -252,6 +255,18 @@ _apply_metrics_side_effect() {
       iterations=$((iterations + 1))
       yq -i ".stage_metrics.${stage} = {\"started_at\": \"${now}\", \"driver\": \"${driver}\", \"iterations\": ${iterations}}" "$tmpfile"
       yq -i "(.stage_metrics.${stage}) style=\"flow\"" "$tmpfile"
+
+      # Emit stage-transition event via logman (best-effort)
+      local change_dir folder action
+      change_dir="$(dirname "$tmpfile")"
+      folder="$(basename "$change_dir")"
+      if [ "$iterations" -eq 1 ]; then
+        action="enter"
+        "$LOGMAN" transition "$folder" "$stage" "$action" "" "" "$driver" 2>/dev/null || true
+      else
+        action="re-entry"
+        "$LOGMAN" transition "$folder" "$stage" "$action" "$from" "$reason" "$driver" 2>/dev/null || true
+      fi
       ;;
     done)
       yq -i ".stage_metrics.${stage}.completed_at = \"${now}\"" "$tmpfile"
@@ -309,7 +324,7 @@ get_current_stage() {
   fi
 
   # Final fallback: all done (workflow complete)
-  echo "hydrate"
+  echo "review-pr"
 }
 
 # get_display_stage <status_file> — Determine "where you are" stage for display
@@ -458,9 +473,10 @@ set_checklist_field() {
   mv "$tmpfile" "$status_file"
 }
 
-# set_confidence_block <status_file> <certain> <confident> <tentative> <unresolved> <score>
+# set_confidence_block <status_file> <certain> <confident> <tentative> <unresolved> <score> [--indicative]
 # Replace the entire confidence block in .status.yaml.
 # Validates counts are non-negative integers and score is a non-negative float.
+# When --indicative is passed, writes confidence.indicative: true. Otherwise removes the key.
 # Returns 0 on success, 1 on validation failure.
 set_confidence_block() {
   local status_file="$1"
@@ -469,6 +485,10 @@ set_confidence_block() {
   local tentative="$4"
   local unresolved="$5"
   local score="$6"
+  local indicative=false
+  if [ "${7:-}" = "--indicative" ]; then
+    indicative=true
+  fi
 
   if [ ! -f "$status_file" ]; then
     echo "ERROR: Status file not found: $status_file" >&2
@@ -506,12 +526,22 @@ set_confidence_block() {
     .last_updated = \"${now}\"
   " "$tmpfile"
 
+  if [ "$indicative" = true ]; then
+    yq -i '.confidence.indicative = true' "$tmpfile"
+  else
+    yq -i 'del(.confidence.indicative)' "$tmpfile"
+  fi
+
+  # Clear stale fuzzy metadata (non-fuzzy writer should not leave orphaned dimensions)
+  yq -i 'del(.confidence.fuzzy) | del(.confidence.dimensions)' "$tmpfile"
+
   mv "$tmpfile" "$status_file"
 }
 
-# set_confidence_block_fuzzy <status_file> <certain> <confident> <tentative> <unresolved> <score> <mean_s> <mean_r> <mean_a> <mean_d>
+# set_confidence_block_fuzzy <status_file> <certain> <confident> <tentative> <unresolved> <score> <mean_s> <mean_r> <mean_a> <mean_d> [--indicative]
 # Replace the entire confidence block in .status.yaml, including fuzzy dimension data.
 # Extends set_confidence_block with fuzzy: true flag and dimensions sub-block.
+# When --indicative is passed, writes confidence.indicative: true. Otherwise omits the key.
 set_confidence_block_fuzzy() {
   local status_file="$1"
   local certain="$2"
@@ -523,6 +553,10 @@ set_confidence_block_fuzzy() {
   local mean_r="$8"
   local mean_a="$9"
   local mean_d="${10}"
+  local indicative=false
+  if [ "${11:-}" = "--indicative" ]; then
+    indicative=true
+  fi
 
   if [ ! -f "$status_file" ]; then
     echo "ERROR: Status file not found: $status_file" >&2
@@ -559,6 +593,7 @@ set_confidence_block_fuzzy() {
       -v mean_r="$mean_r" \
       -v mean_a="$mean_a" \
       -v mean_d="$mean_d" \
+      -v is_indicative="$indicative" \
       -v ts="$now" '
     /^confidence:/ {
       in_block = 1
@@ -568,6 +603,9 @@ set_confidence_block_fuzzy() {
       print "  tentative: " tentative
       print "  unresolved: " unresolved
       print "  score: " score
+      if (is_indicative == "true") {
+        print "  indicative: true"
+      }
       print "  fuzzy: true"
       print "  dimensions:"
       print "    signal: " mean_s
@@ -590,12 +628,14 @@ set_confidence_block_fuzzy() {
 # Event Functions
 # ─────────────────────────────────────────────────────────────────────────────
 
-# event_start <status_file> <stage> [driver]
+# event_start <status_file> <stage> [driver] [from] [reason]
 # {pending,failed} → active. Validates via lookup_transition.
 event_start() {
   local status_file="$1"
   local stage="$2"
   local driver="${3:-}"
+  local from="${4:-}"
+  local reason="${5:-}"
 
   if [ ! -f "$status_file" ]; then
     echo "ERROR: Status file not found: $status_file" >&2
@@ -621,7 +661,7 @@ event_start() {
 
   cp "$status_file" "$tmpfile"
   yq -i ".progress.${stage} = \"${target_state}\" | .last_updated = \"${now}\"" "$tmpfile"
-  _apply_metrics_side_effect "$tmpfile" "$stage" "$target_state" "$driver"
+  _apply_metrics_side_effect "$tmpfile" "$stage" "$target_state" "$driver" "$from" "$reason"
 
   mv "$tmpfile" "$status_file"
 }
@@ -664,7 +704,7 @@ event_advance() {
 
 # event_finish <status_file> <stage> [driver]
 # {active,ready} → done. Side-effect: if next stage is pending, activate it.
-# Auto-log: if stage is review, logs "passed" via logman.
+# Auto-log: if stage is review or review-pr, logs "passed" via logman.
 event_finish() {
   local status_file="$1"
   local stage="$2"
@@ -709,8 +749,8 @@ event_finish() {
 
   mv "$tmpfile" "$status_file"
 
-  # Auto-log review pass via logman
-  if [ "$stage" = "review" ]; then
+  # Auto-log review/review-pr pass via logman
+  if [ "$stage" = "review" ] || [ "$stage" = "review-pr" ]; then
     local change_dir
     change_dir="$(dirname "$status_file")"
     local folder
@@ -719,12 +759,14 @@ event_finish() {
   fi
 }
 
-# event_reset <status_file> <stage> [driver]
+# event_reset <status_file> <stage> [driver] [from] [reason]
 # {done,ready,skipped} → active. Cascade: all downstream stages → pending.
 event_reset() {
   local status_file="$1"
   local stage="$2"
   local driver="${3:-}"
+  local from="${4:-}"
+  local reason="${5:-}"
 
   if [ ! -f "$status_file" ]; then
     echo "ERROR: Status file not found: $status_file" >&2
@@ -750,7 +792,7 @@ event_reset() {
 
   cp "$status_file" "$tmpfile"
   yq -i ".progress.${stage} = \"${target_state}\" | .last_updated = \"${now}\"" "$tmpfile"
-  _apply_metrics_side_effect "$tmpfile" "$stage" "$target_state" "$driver"
+  _apply_metrics_side_effect "$tmpfile" "$stage" "$target_state" "$driver" "$from" "$reason"
 
   # Cascade: set all downstream stages to pending, remove their metrics
   local found_target=false
@@ -821,8 +863,8 @@ event_skip() {
 }
 
 # event_fail <status_file> <stage> [driver] [rework]
-# active → failed. Review stage only. No metrics side-effect.
-# Auto-log: if stage is review, logs "failed" with optional rework via logman.
+# active → failed. Review or review-pr stage only. No metrics side-effect.
+# Auto-log: if stage is review or review-pr, logs "failed" with optional rework via logman.
 event_fail() {
   local status_file="$1"
   local stage="$2"
@@ -857,8 +899,8 @@ event_fail() {
 
   mv "$tmpfile" "$status_file"
 
-  # Auto-log review failure via logman
-  if [ "$stage" = "review" ]; then
+  # Auto-log review/review-pr failure via logman
+  if [ "$stage" = "review" ] || [ "$stage" = "review-pr" ]; then
     local change_dir
     change_dir="$(dirname "$status_file")"
     local folder
@@ -958,10 +1000,9 @@ validate_status_file() {
     local state
     state=$(yq ".progress.${stage} // \"\"" "$status_file")
 
+    # Tolerate missing stages — default to pending (backward compat for old 6-stage changes)
     if [ -z "$state" ]; then
-      echo "ERROR: Missing progress.$stage in $status_file" >&2
-      errors=$((errors + 1))
-      continue
+      state="pending"
     fi
 
     if ! validate_state "$state"; then
@@ -1019,18 +1060,18 @@ SUBCOMMANDS:
     validate-status-file <change>      Validate .status.yaml against schema
 
   Event commands:
-    start <change> <stage> [driver]            {pending,failed} → active
-    advance <change> <stage> [driver]          active → ready
-    finish <change> <stage> [driver]           {active,ready} → done (+next)
-    reset <change> <stage> [driver]            {done,ready,skipped} → active (+cascade)
-    skip <change> <stage> [driver]            {pending,active} → skipped (+cascade)
-    fail <change> <stage> [driver] [rework]    active → failed (review only)
+    start <change> <stage> [driver] [from] [reason]    {pending,failed} → active
+    advance <change> <stage> [driver]                  active → ready
+    finish <change> <stage> [driver]                   {active,ready} → done (+next)
+    reset <change> <stage> [driver] [from] [reason]    {done,ready,skipped} → active (+cascade)
+    skip <change> <stage> [driver]                     {pending,active} → skipped (+cascade)
+    fail <change> <stage> [driver] [rework]            active → failed (review only)
 
   Write commands:
     set-change-type <change> <type>            Set change_type (feat/fix/refactor/docs/test/ci/chore)
     set-checklist <change> <field> <value>      Update checklist field
-    set-confidence <change> <certain> <confident> <tentative> <unresolved> <score>
-    set-confidence-fuzzy <change> <certain> <confident> <tentative> <unresolved> <score> <mean_s> <mean_r> <mean_a> <mean_d>
+    set-confidence <change> <certain> <confident> <tentative> <unresolved> <score> [--indicative]
+    set-confidence-fuzzy <change> <certain> <confident> <tentative> <unresolved> <score> <mean_s> <mean_r> <mean_a> <mean_d> [--indicative]
     add-issue <change> <id>            Append issue ID to issues array (idempotent)
     get-issues <change>                List issue IDs (one per line)
     add-pr <change> <url>              Append PR URL to prs array (idempotent)
@@ -1129,12 +1170,12 @@ case "${1:-}" in
 
   # ── Event Commands ────────────────────────────────────────────────────
   start)
-    if [ $# -lt 3 ] || [ $# -gt 4 ]; then
-      echo "Usage: statusman.sh start <change> <stage> [driver]" >&2
+    if [ $# -lt 3 ] || [ $# -gt 6 ]; then
+      echo "Usage: statusman.sh start <change> <stage> [driver] [from] [reason]" >&2
       exit 1
     fi
     _resolved_file=$(resolve_to_status "$2") || exit 1
-    event_start "$_resolved_file" "$3" "${4:-}"
+    event_start "$_resolved_file" "$3" "${4:-}" "${5:-}" "${6:-}"
     ;;
   advance)
     if [ $# -lt 3 ] || [ $# -gt 4 ]; then
@@ -1153,12 +1194,12 @@ case "${1:-}" in
     event_finish "$_resolved_file" "$3" "${4:-}"
     ;;
   reset)
-    if [ $# -lt 3 ] || [ $# -gt 4 ]; then
-      echo "Usage: statusman.sh reset <change> <stage> [driver]" >&2
+    if [ $# -lt 3 ] || [ $# -gt 6 ]; then
+      echo "Usage: statusman.sh reset <change> <stage> [driver] [from] [reason]" >&2
       exit 1
     fi
     _resolved_file=$(resolve_to_status "$2") || exit 1
-    event_reset "$_resolved_file" "$3" "${4:-}"
+    event_reset "$_resolved_file" "$3" "${4:-}" "${5:-}" "${6:-}"
     ;;
   skip)
     if [ $# -lt 3 ] || [ $# -gt 4 ]; then
@@ -1195,20 +1236,22 @@ case "${1:-}" in
     set_checklist_field "$_resolved_file" "$3" "$4"
     ;;
   set-confidence)
-    if [ $# -ne 7 ]; then
-      echo "Usage: statusman.sh set-confidence <change> <certain> <confident> <tentative> <unresolved> <score>" >&2
+    # Usage: set-confidence <change> <certain> <confident> <tentative> <unresolved> <score> [--indicative]
+    if [ $# -lt 7 ] || [ $# -gt 8 ]; then
+      echo "Usage: statusman.sh set-confidence <change> <certain> <confident> <tentative> <unresolved> <score> [--indicative]" >&2
       exit 1
     fi
     _resolved_file=$(resolve_to_status "$2") || exit 1
-    set_confidence_block "$_resolved_file" "$3" "$4" "$5" "$6" "$7"
+    set_confidence_block "$_resolved_file" "$3" "$4" "$5" "$6" "$7" "${8:-}"
     ;;
   set-confidence-fuzzy)
-    if [ $# -ne 11 ]; then
-      echo "Usage: statusman.sh set-confidence-fuzzy <change> <certain> <confident> <tentative> <unresolved> <score> <mean_s> <mean_r> <mean_a> <mean_d>" >&2
+    # Usage: set-confidence-fuzzy <change> ... <mean_d> [--indicative]
+    if [ $# -lt 11 ] || [ $# -gt 12 ]; then
+      echo "Usage: statusman.sh set-confidence-fuzzy <change> <certain> <confident> <tentative> <unresolved> <score> <mean_s> <mean_r> <mean_a> <mean_d> [--indicative]" >&2
       exit 1
     fi
     _resolved_file=$(resolve_to_status "$2") || exit 1
-    set_confidence_block_fuzzy "$_resolved_file" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}"
+    set_confidence_block_fuzzy "$_resolved_file" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12:-}"
     ;;
   add-issue)
     if [ $# -ne 3 ]; then

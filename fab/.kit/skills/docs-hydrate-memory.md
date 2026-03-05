@@ -5,7 +5,7 @@ description: "Hydrate memory from external sources or generate from codebase ana
 
 # /docs-hydrate-memory [sources...|folders...]
 
-> Read and follow the instructions in `./fab/.kit/skills/_preamble.md` before proceeding.
+> Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.
 
 ---
 

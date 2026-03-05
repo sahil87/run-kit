@@ -5,7 +5,7 @@ description: "Prime the agent with project context for a discussion session — 
 
 # /fab-discuss
 
-> Read and follow the instructions in `./fab/.kit/skills/_preamble.md` before proceeding.
+> Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.
 
 ---
 
@@ -37,7 +37,7 @@ Do **not** run preflight. Do **not** load change-specific artifacts.
 
 After loading the always-load layer, check for an active change:
 
-1. Run `bash fab/.kit/scripts/lib/resolve.sh --folder 2>/dev/null` — if it exits non-zero, note "No active change"
+1. Run `fab/.kit/bin/fab resolve --folder 2>/dev/null` — if it exits non-zero, note "No active change"
 2. If resolution succeeds, use the returned folder name to read `fab/changes/{name}/.status.yaml` for the current stage
 3. Do **not** load change artifacts (intake, spec, tasks)
 
@@ -48,7 +48,7 @@ After loading the always-load layer, check for an active change:
 After context loading, log the command invocation:
 
 ```bash
-bash fab/.kit/scripts/lib/logman.sh command "fab-discuss" 2>/dev/null || true
+fab/.kit/bin/fab log command "fab-discuss" 2>/dev/null || true
 ```
 
 This is best-effort — logman resolves the active change via `fab/current` if one exists. Failures are silently ignored.

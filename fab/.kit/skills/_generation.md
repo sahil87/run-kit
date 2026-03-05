@@ -1,3 +1,11 @@
+---
+name: _generation
+description: "Artifact generation procedures — shared logic for intake, spec, and tasks generation used by fab-continue and fab-ff."
+user-invocable: false
+disable-model-invocation: true
+metadata:
+  internal: true
+---
 # Artifact Generation Procedures
 
 > This file defines the shared artifact generation logic used by both `/fab-continue` and `/fab-ff`.
@@ -47,7 +55,7 @@
 4. Include a **Deprecated Requirements** section if the change removes existing requirements
 5. Mark any unresolved ambiguities with `[NEEDS CLARIFICATION]` inline
 5b. **Design Decisions** (optional): If the change involves architectural choices, technology selection, or non-obvious approaches, include a `## Design Decisions` section after the domain requirement sections. Each decision entry SHALL include: decision summary, rationale (why this choice), and rejected alternatives. Omit this section for straightforward changes.
-6. Append an `## Assumptions` section. Read `intake.md`'s `## Assumptions` table as the starting point — confirm, upgrade, or override each intake assumption based on spec-level analysis (note the action in Rationale, e.g., "Confirmed from intake #1", "Upgraded from intake Tentative"). Add new assumptions discovered during spec generation. Include all four SRAD grades (Certain, Confident, Tentative, Unresolved) with required Scores column. The spec's Assumptions table is the sole scoring source for `fab/.kit/scripts/lib/calc-score.sh` (see Assumptions Summary Block in `_preamble.md`)
+6. Append an `## Assumptions` section. Read `intake.md`'s `## Assumptions` table as the starting point — confirm, upgrade, or override each intake assumption based on spec-level analysis (note the action in Rationale, e.g., "Confirmed from intake #1", "Upgraded from intake Tentative"). Add new assumptions discovered during spec generation. Include all four SRAD grades (Certain, Confident, Tentative, Unresolved) with required Scores column. The spec's Assumptions table is the sole scoring source for `fab/.kit/bin/fab score` (see Assumptions Summary Block in `_preamble.md`)
 7. Write the completed spec to `fab/changes/{name}/spec.md`
 
 ---
@@ -92,6 +100,6 @@
    - Additional categories from `fab/project/config.yaml` `checklist.extra_categories` (if any)
 5. Use sequential IDs: CHK-001, CHK-002, ...
 6. Update `.status.yaml` via CLI:
-   - `fab/.kit/scripts/lib/statusman.sh set-checklist <change> generated true`
-   - `fab/.kit/scripts/lib/statusman.sh set-checklist <change> total <count>` (number of checklist items generated)
-   - `fab/.kit/scripts/lib/statusman.sh set-checklist <change> completed 0`
+   - `fab/.kit/bin/fab status set-checklist <change> generated true`
+   - `fab/.kit/bin/fab status set-checklist <change> total <count>` (number of checklist items generated)
+   - `fab/.kit/bin/fab status set-checklist <change> completed 0`

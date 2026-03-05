@@ -10,7 +10,7 @@ KIT_DIR="$(dirname "$SCRIPT_DIR")"
 FAB_DIR="$(dirname "$KIT_DIR")"
 CHANGES_DIR="${FAB_DIR}/changes"
 CONFIG_FILE="${FAB_DIR}/project/config.yaml"
-CHANGEMAN="${SCRIPT_DIR}/lib/changeman.sh"
+FAB_BIN="$KIT_DIR/bin/fab"
 
 usage() {
   cat <<'EOF'
@@ -109,7 +109,7 @@ esac
 # ---------------------------------------------------------------------------
 
 for change in "${changes[@]}"; do
-  if ! match=$("$CHANGEMAN" resolve "$change"); then
+  if ! match=$("$FAB_BIN" change resolve "$change"); then
     continue
   fi
 

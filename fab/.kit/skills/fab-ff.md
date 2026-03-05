@@ -1,17 +1,17 @@
 ---
 name: fab-ff
-description: "Full pipeline with safety gates — confidence-gated pipeline from intake through hydrate, with sub-agent review, auto-rework loop, and stop on exhaustion."
+description: "Full pipeline with safety gates — confidence-gated pipeline from intake through PR review, with sub-agent review, auto-rework loop, and stop on exhaustion."
 ---
 
 # /fab-ff [<change-name>]
 
-> Read and follow the instructions in `./fab/.kit/skills/_preamble.md` before proceeding.
+> Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.
 
 ---
 
 ## Purpose
 
-Full pipeline with safety gates: intake → spec → tasks → apply → review → hydrate. Three gates where execution can stop: (1) intake gate — indicative confidence >= 3.0, (2) spec gate — confidence >= per-type threshold via `fab/.kit/scripts/lib/calc-score.sh --check-gate`, (3) review gate — stops after 3 autonomous rework cycles. On any gate stop, the user can intervene then re-run. Resumable — re-running picks up from the first incomplete stage.
+Full pipeline with safety gates: intake → spec → tasks → apply → review → hydrate → ship → review-pr. Three gates where execution can stop: (1) intake gate — indicative confidence >= 3.0, (2) spec gate — confidence >= per-type threshold via `fab/.kit/bin/fab score --check-gate`, (3) review gate — stops after 3 autonomous rework cycles. On any gate stop, the user can intervene then re-run. Resumable — re-running picks up from the first incomplete stage.
 
 ---
 
@@ -25,7 +25,7 @@ Full pipeline with safety gates: intake → spec → tasks → apply → review 
 
 1. Run preflight per `_preamble.md` Section 2. Pass `<change-name>` if provided.
 2. **Intake prerequisite**: Verify `intake.md` exists. If not, STOP: `Intake not found. Run /fab-new to create the intake first.`
-3. **Intake gate**: Run `fab/.kit/scripts/lib/calc-score.sh --check-gate --stage intake <change>`. If the gate fails → STOP: `Indicative confidence is {score} of 5.0 (need >= 3.0). Run /fab-clarify to resolve, then retry.`
+3. **Intake gate**: Run `fab/.kit/bin/fab score --check-gate --stage intake <change>`. If the gate fails → STOP: `Indicative confidence is {score} of 5.0 (need >= 3.0). Run /fab-clarify to resolve, then retry.`
 
 ---
 
@@ -37,19 +37,19 @@ Load per `_preamble.md` Sections 1-3 (config, constitution, intake, memory index
 
 ## Behavior
 
-> **Note**: All `.status.yaml` mutations in this skill use `fab/.kit/scripts/lib/statusman.sh` event commands (`start`, `advance`, `finish`, `reset`, `fail`, `set-checklist`) rather than direct file edits. The driver argument is optional, but this skill always passes `fab-ff`.
+> **Note**: All `.status.yaml` mutations in this skill use `fab/.kit/bin/fab status` event commands (`start`, `advance`, `finish`, `reset`, `fail`, `set-checklist`) rather than direct file edits. The driver argument is optional, but this skill always passes `fab-ff`.
 
 ### Resumability
 
-Check `progress` from preflight. Skip stages already `done`. If `hydrate: done`, pipeline is already complete.
+Check `progress` from preflight. Skip stages already `done`. If `review-pr: done`, pipeline is already complete.
 
 ### Step 1: Generate `spec.md`
 
 *(Skip if `progress.spec` is `done`.)*
 
-Follow **Spec Generation Procedure** (`_generation.md`). No frontloaded questions. Update `.status.yaml` via `fab/.kit/scripts/lib/statusman.sh finish <change> intake fab-ff`.
+Follow **Spec Generation Procedure** (`_generation.md`). No frontloaded questions. Update `.status.yaml` via `fab/.kit/bin/fab status finish <change> intake fab-ff`.
 
-**Spec gate**: After spec generation, run `fab/.kit/scripts/lib/calc-score.sh --check-gate <change>`. If the gate fails → **STOP**: `Confidence is {score} of 5.0 (need > {threshold} for {change_type}). Run /fab-clarify to resolve, then retry /fab-ff.`
+**Spec gate**: After spec generation, run `fab/.kit/bin/fab score --check-gate <change>`. If the gate fails → **STOP**: `Confidence is {score} of 5.0 (need > {threshold} for {change_type}). Run /fab-clarify to resolve, then retry /fab-ff.`
 
 **Auto-Clarify**: Invoke `/fab-clarify` with `[AUTO-MODE]` prefix on the generated spec. If `blocking: 0` → continue. If `blocking > 0` → **BAIL**: report issues, suggest `/fab-clarify` then `/fab-ff`.
 
@@ -69,27 +69,27 @@ Follow **Checklist Generation Procedure** (`_generation.md`).
 
 ### Step 4: Update `.status.yaml` (Planning Complete)
 
-Run `fab/.kit/scripts/lib/statusman.sh finish <change> tasks fab-ff`. Then set checklist fields via `fab/.kit/scripts/lib/statusman.sh set-checklist <change> generated true`, `fab/.kit/scripts/lib/statusman.sh set-checklist <change> total <count>`, `fab/.kit/scripts/lib/statusman.sh set-checklist <change> completed 0`.
+Run `fab/.kit/bin/fab status finish <change> tasks fab-ff`. Then set checklist fields via `fab/.kit/bin/fab status set-checklist <change> generated true`, `fab/.kit/bin/fab status set-checklist <change> total <count>`, `fab/.kit/bin/fab status set-checklist <change> completed 0`.
 
 ### Step 5: Implementation
 
 *(Skip if `progress.apply` is `done`.)*
 
-Execute apply behavior per `/fab-continue` — parse unchecked tasks, execute in dependency order, run tests, mark `[x]` on completion.
+Invoke `/fab-continue` using the Skill tool — follow its Apply Behavior exactly (parse unchecked tasks, execute in dependency order, run tests, mark `[x]` on completion).
 
 **If task fails**: STOP with `Task {ID} failed: {reason}. Investigate and re-run /fab-ff.`
 
-On success: run `fab/.kit/scripts/lib/statusman.sh finish <change> apply fab-ff`.
+On success: run `fab/.kit/bin/fab status finish <change> apply fab-ff`.
 
 ### Step 6: Review
 
 *(Skip if `progress.review` is `done`.)*
 
-Dispatch review to a **sub-agent** per `/fab-continue` Review Behavior — the sub-agent runs in a separate execution context, performs all validation checks, and returns structured findings with three-tier priority (must-fix / should-fix / nice-to-have).
+Invoke `/fab-continue` using the Skill tool — follow its Review Behavior exactly (dispatch to a sub-agent in a separate execution context, perform all validation checks, return structured findings with three-tier priority: must-fix / should-fix / nice-to-have).
 
-**Pass**: run `fab/.kit/scripts/lib/statusman.sh finish <change> review fab-ff`. Proceed to Step 7.
+**Pass**: run `fab/.kit/bin/fab status finish <change> review fab-ff`. Proceed to Step 7.
 
-**Fail**: Auto-rework loop with bounded retry, then interactive fallback. Run `fab/.kit/scripts/lib/statusman.sh fail <change> review` then `fab/.kit/scripts/lib/statusman.sh reset <change> apply fab-ff`.
+**Fail**: Auto-rework loop with bounded retry, then interactive fallback. Run `fab/.kit/bin/fab status fail <change> review` then `fab/.kit/bin/fab status reset <change> apply fab-ff`.
 
 #### Auto-Rework Loop (up to 3 cycles)
 
@@ -120,7 +120,29 @@ The user can run `/fab-continue` for interactive rework, or `/fab-clarify` to de
 
 *(Skip if `progress.hydrate` is `done`.)*
 
-Execute hydrate behavior per `/fab-continue` — validate review passed, hydrate into `docs/memory/`, run `fab/.kit/scripts/lib/statusman.sh finish <change> hydrate fab-ff`.
+Invoke `/fab-continue` using the Skill tool — follow its Hydrate Behavior exactly (validate review passed, hydrate into `docs/memory/`, run `fab/.kit/bin/fab status finish <change> hydrate fab-ff`).
+
+### Step 8: Ship
+
+*(Skip if `progress.ship` is `done`.)*
+
+Invoke `/git-pr` using the Skill tool — follow its procedure exactly (commit, push, and create a GitHub PR). The git-pr skill handles statusman integration internally (start/finish ship stage).
+
+**If git-pr fails**: STOP with the error from git-pr. The ship stage remains `active` for user retry.
+
+On success: `progress.ship` becomes `done` (handled by git-pr's statusman calls), `progress.review-pr` auto-activates.
+
+### Step 9: Review-PR
+
+*(Skip if `progress.review-pr` is `done`.)*
+
+Invoke `/git-pr-review` using the Skill tool — follow its procedure exactly (detect reviews, triage comments, apply fixes, push; request Copilot as reviewer if no reviews exist, then poll for up to 8 minutes). The git-pr-review skill handles statusman integration internally (start/finish/fail review-pr stage).
+
+**If review-pr fails** (no PR found, processing error): STOP with the error. The user can re-run `/fab-ff` or `/git-pr-review` directly.
+
+**If no reviews arrive** (Copilot unavailable or timeout): the stage completes as `done` — this is a successful no-op.
+
+On success: `progress.review-pr` becomes `done`.
 
 ---
 
@@ -141,7 +163,13 @@ Execute hydrate behavior per `/fab-continue` — validate review passed, hydrate
 --- Hydrate ---
 {hydrate output}
 
-Pipeline complete. Change hydrated.
+--- Ship ---
+{git-pr output}
+
+--- Review-PR ---
+{git-pr-review output}
+
+Pipeline complete.
 
 Next: {per state table}
 ```
@@ -161,3 +189,5 @@ Resuming shows `(resuming)...` header and `Skipping {stage} — already done.` f
 | Auto-clarify bails | Stop, report blocking issues, suggest `/fab-clarify` then `/fab-ff` |
 | Task fails | Stop: "Task {ID} failed: {reason}. Investigate and re-run /fab-ff." |
 | Review fails | Auto-rework loop: 3 cycles (each re-review by fresh sub-agent), escalation after 2 consecutive fix-code. Stops after 3 cycles with summary. |
+| Ship fails | Stop with git-pr error. User retries /fab-ff or /git-pr. |
+| Review-PR fails | Stop with git-pr-review error. User retries /fab-ff or /git-pr-review. |

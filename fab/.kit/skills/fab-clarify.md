@@ -5,7 +5,7 @@ description: "Refine the current stage artifact — resolve gaps, ambiguities, o
 
 # /fab-clarify [<change-name>] [<target-artifact>]
 
-> Read and follow the instructions in `./fab/.kit/skills/_preamble.md` before proceeding.
+> Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.
 
 ---
 
@@ -171,7 +171,7 @@ Next: {per state table — current state, since clarify is non-advancing}
 
 ### Step 7: Recompute Confidence
 
-Run `fab/.kit/scripts/lib/calc-score.sh <change>` if `spec.md` exists in the change directory. Skip this step if at intake stage (no spec yet). Auto mode does not invoke this script.
+Run `fab/.kit/bin/fab score <change>` if `spec.md` exists in the change directory. Skip this step if at intake stage (no spec yet). Auto mode does not invoke this script.
 
 ### Step 8: Do NOT Advance Stage
 

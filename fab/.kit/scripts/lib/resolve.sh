@@ -9,7 +9,6 @@
 #   resolve.sh --help
 
 set -euo pipefail
-
 LIB_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 FAB_ROOT="$(cd "$LIB_DIR/../../.." && pwd)"
 

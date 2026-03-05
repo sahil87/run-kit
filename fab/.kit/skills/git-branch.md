@@ -39,13 +39,13 @@ STOP.
 If `<change-name>` provided:
 
 ```bash
-bash fab/.kit/scripts/lib/changeman.sh resolve "<change-name>"
+fab/.kit/bin/fab change resolve "<change-name>"
 ```
 
 If not provided, resolve from `fab/current`:
 
 ```bash
-bash fab/.kit/scripts/lib/changeman.sh resolve
+fab/.kit/bin/fab change resolve
 ```
 
 If resolution fails:

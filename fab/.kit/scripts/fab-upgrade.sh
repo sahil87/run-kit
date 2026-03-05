@@ -5,9 +5,9 @@ set -euo pipefail
 #
 # Usage: fab-upgrade.sh [<tag>]
 #
-# Downloads kit.tar.gz from the specified release tag (e.g. v0.24.0) or the
-# latest release if no tag is given. Atomically replaces fab/.kit/, displays
-# the version change, and re-runs fab-sync.sh to repair directories and agents.
+# Downloads the platform-specific kit archive (or generic kit.tar.gz as fallback)
+# from the specified release tag or latest release. Atomically replaces fab/.kit/,
+# displays the version change, and re-runs fab-sync.sh to repair directories and agents.
 #
 # Requires: gh CLI (https://cli.github.com/)
 # Safe to re-run. Existing project files (config.yaml, memory/, etc.) are never touched.
@@ -33,10 +33,22 @@ fi
 current_version=$(cat "$kit_dir/VERSION" | tr -d '[:space:]')
 echo "Current version: $current_version"
 
-# ── Determine repo ───────────────────────────────────────────────────
+# ── Determine repo and platform ─────────────────────────────────────
 
 repo=$(grep -E '^repo=' "$kit_dir/kit.conf" | cut -d= -f2 | tr -d '[:space:]')
 tag="${1:-}"
+
+# Detect platform
+detect_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+detect_arch=$(uname -m)
+case "$detect_arch" in
+  x86_64)  detect_arch="amd64" ;;
+  aarch64) detect_arch="arm64" ;;
+  # arm64 stays as-is
+esac
+
+platform_archive="kit-${detect_os}-${detect_arch}.tar.gz"
+echo "Platform: ${detect_os}/${detect_arch}"
 
 # ── Download ─────────────────────────────────────────────────────────
 
@@ -53,27 +65,41 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [ -n "$tag" ]; then
-  echo "Downloading release $tag from $repo..."
-  if ! gh release download "$tag" --repo "$repo" --pattern 'kit.tar.gz' --dir "$tmp_dir" 2>/dev/null; then
-    echo "ERROR: Failed to download kit.tar.gz for tag '$tag' from $repo."
-    echo "       Check that the tag exists: gh release view $tag --repo $repo"
-    exit 1
+download_archive() {
+  local pattern="$1"
+  local label="$2"
+  if [ -n "$tag" ]; then
+    echo "Downloading $label ($tag) from $repo..."
+    gh release download "$tag" --repo "$repo" --pattern "$pattern" --dir "$tmp_dir" 2>/dev/null
+  else
+    echo "Downloading $label (latest) from $repo..."
+    gh release download --repo "$repo" --pattern "$pattern" --dir "$tmp_dir" 2>/dev/null
   fi
+}
+
+# Try platform-specific archive first, fall back to generic
+archive_file=""
+if download_archive "$platform_archive" "$platform_archive"; then
+  archive_file="$tmp_dir/$platform_archive"
+elif download_archive "kit.tar.gz" "kit.tar.gz (generic fallback)"; then
+  echo "Platform ${detect_os}/${detect_arch} not available, using generic archive"
+  archive_file="$tmp_dir/kit.tar.gz"
 else
-  echo "Downloading latest release from $repo..."
-  if ! gh release download --repo "$repo" --pattern 'kit.tar.gz' --dir "$tmp_dir" 2>/dev/null; then
-    echo "ERROR: Failed to download kit.tar.gz from $repo. Check network and repo access."
-    exit 1
+  if [ -n "$tag" ]; then
+    echo "ERROR: Failed to download kit archive for tag '$tag' from $repo."
+    echo "       Check that the tag exists: gh release view $tag --repo $repo"
+  else
+    echo "ERROR: Failed to download kit archive from $repo. Check network and repo access."
   fi
+  exit 1
 fi
 
 # ── Extract to temp ──────────────────────────────────────────────────
 
 echo "Extracting..."
 
-if ! tar xzf "$tmp_dir/kit.tar.gz" -C "$tmp_dir" 2>/dev/null; then
-  echo "ERROR: Failed to extract kit.tar.gz."
+if ! tar xzf "$archive_file" -C "$tmp_dir" 2>/dev/null; then
+  echo "ERROR: Failed to extract kit archive."
   exit 1
 fi
 
@@ -88,7 +114,7 @@ new_version=$(cat "$tmp_dir/.kit/VERSION" | tr -d '[:space:]')
 
 # ── Already up to date? ─────────────────────────────────────────────
 
-if [ "$current_version" = "$new_version" ]; then
+if [ "$current_version" = "$new_version" ] && [ -x "$kit_dir/bin/fab-go" ]; then
   if [ -n "$tag" ]; then
     echo "Already on $tag ($current_version). No update needed."
   else
@@ -105,6 +131,13 @@ rm -rf "$kit_dir"
 mv "$tmp_dir/.kit" "$kit_dir"
 
 echo "fab/.kit/ updated successfully."
+
+# Report if binary is included
+if [ -x "$kit_dir/bin/fab-go" ]; then
+  echo "Go binary: included (${detect_os}/${detect_arch})"
+else
+  echo "Go binary: not included (shell scripts only)"
+fi
 
 # ── Re-run setup ─────────────────────────────────────────────────────
 

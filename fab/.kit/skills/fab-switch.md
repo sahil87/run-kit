@@ -5,7 +5,7 @@ description: "Switch the active change to a different one. Lists available chang
 
 # /fab-switch [change-name] [--blank]
 
-> Read `fab/.kit/skills/_preamble.md` first. Only after that Read completes, proceed with any Bash calls.
+> Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Only after that Read completes, proceed with any Bash calls.
 
 ---
 
@@ -20,7 +20,7 @@ If no argument (and no `--blank`): list all active changes and ask user to pick.
 
 ## Context Loading
 
-Loads matched change's `.status.yaml`. Name resolution and switch logic are delegated to `fab/.kit/scripts/lib/changeman.sh`. Does NOT load constitution, memory, or specs.
+Loads matched change's `.status.yaml`. Name resolution and switch logic are delegated to `fab/.kit/bin/fab change`. Does NOT load constitution, memory, or specs.
 
 ---
 
@@ -37,18 +37,18 @@ Loads matched change's `.status.yaml`. Name resolution and switch logic are dele
 Delegate to `changeman.sh switch` via a single Bash call:
 
 ```bash
-bash fab/.kit/scripts/lib/changeman.sh switch "<change-name>"
+fab/.kit/bin/fab change switch "<change-name>"
 ```
 
 If changeman exits 0: display the stdout output (contains name, stage, next command).
 
-If changeman exits 1 and stderr contains "Multiple changes match": parse the comma-separated folder names from stderr, list them with stages as numbered options, ask user to pick. After selection, run `bash fab/.kit/scripts/lib/changeman.sh switch "<selected>"`.
+If changeman exits 1 and stderr contains "Multiple changes match": parse the comma-separated folder names from stderr, list them with stages as numbered options, ask user to pick. After selection, run `fab/.kit/bin/fab change switch "<selected>"`.
 
 If changeman exits 1 and stderr contains "No change matches": list all available changes, inform user.
 
 ### Deactivation Flow (`--blank`)
 
-Run `bash fab/.kit/scripts/lib/changeman.sh switch --blank`. Display changeman's stdout output.
+Run `fab/.kit/bin/fab change switch --blank`. Display changeman's stdout output.
 
 ### Switch Flow
 
@@ -64,7 +64,7 @@ The skill displays changeman's stdout directly.
 After a successful switch (not `--blank`), log the command invocation:
 
 ```bash
-bash fab/.kit/scripts/lib/logman.sh command "fab-switch" 2>/dev/null || true
+fab/.kit/bin/fab log command "fab-switch" 2>/dev/null || true
 ```
 
 This is best-effort — logman resolves the active change via `fab/current` (just written by changeman). Failures are silently ignored.
@@ -86,12 +86,15 @@ Canonical format (from `changeman.sh switch` + skill hint):
 ```
 fab/current → {name}
 
-Stage:  {display_stage} ({N}/6) — {state}
-Next:   {routing_stage} (via {default_command})
+Stage:       {display_stage} ({N}/8) — {state}
+Confidence:  {score} of 5.0{indicative_suffix}
+Next:        {routing_stage} (via {default_command})
 Tip: run /git-branch to create or switch to the matching branch
 ```
 
-Where `{display_stage}` is "where you are" (last active or last done stage) and `{routing_stage}` is "what's next" (what `/fab-continue` will produce). The `{state}` qualifier is `done`, `active`, or `pending`. When all stages are done, `Next:` shows only `/fab-archive`.
+Where `{display_stage}` is "where you are" (last active or last done stage) and `{routing_stage}` is "what's next" (what `/fab-continue` will produce). The `{state}` qualifier is `done`, `active`, or `pending`. When all stages are done, `Next:` shows only `/fab-archive`. The `{indicative_suffix}` is ` (indicative)` when `confidence.indicative` is true, empty otherwise. When score is `0.0` and no assumptions exist, shows `not yet scored`.
+
+For the no-argument flow (listing changes), the skill reads `changeman.sh list` output (format `name:display_stage:display_state:score:indicative`) and displays confidence info alongside stage info in the numbered list.
 
 Tip line omitted for `--blank`. Deactivation shows `No active change.`. Already-blank shows `No active change (already blank).`
 

@@ -10,4 +10,5 @@ fab/changes/**/.pr-done
 /.cursor
 /.opencode
 /.codex
+/.gemini
 /.ralph

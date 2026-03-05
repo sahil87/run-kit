@@ -217,11 +217,10 @@ if [ -d "$scaffold_dir" ]; then
 fi
 
 # ── 3. Skill deployment ────────────────────────────────────────────
-# Canonical list: every *.md in .kit/skills/ except _preamble.md
+# Canonical list: every *.md in .kit/skills/ (including _underscore partials)
 skills=()
 for f in "$kit_dir"/skills/*.md; do
   [ -f "$f" ] || continue
-  [[ "$(basename "$f")" == _*.md ]] && continue
   skills+=("$(basename "$f" .md)")
 done
 
@@ -361,17 +360,57 @@ clean_stale_skills() {
   fi
 }
 
+# agent_available <command>
+#   Returns 0 if the given CLI command is available, 1 otherwise.
+#   When FAB_AGENTS is set (space-separated list of CLI command names), checks membership instead of PATH.
+#   This enables testing and CI overrides without PATH manipulation.
+if [ "${FAB_AGENTS+set}" = "set" ]; then
+  agent_available() { [[ " $FAB_AGENTS " == *" $1 "* ]]; }
+else
+  agent_available() { command -v "$1" >/dev/null 2>&1; }
+fi
+
+agents_found=0
+
 # Claude Code: .claude/skills/<name>/SKILL.md (directory-based, copies)
-sync_agent_skills "Claude Code" "$repo_root/.claude/skills" "directory" "copy"
-clean_stale_skills "$repo_root/.claude/skills" "directory"
+if agent_available "claude"; then
+  sync_agent_skills "Claude Code" "$repo_root/.claude/skills" "directory" "copy"
+  clean_stale_skills "$repo_root/.claude/skills" "directory"
+  agents_found=$((agents_found + 1))
+else
+  echo "Skipping Claude Code: claude not found in PATH"
+fi
 
 # OpenCode: .opencode/commands/<name>.md (flat file, symlinks)
-sync_agent_skills "OpenCode" "$repo_root/.opencode/commands" "flat" "symlink" "../../"
-clean_stale_skills "$repo_root/.opencode/commands" "flat"
+if agent_available "opencode"; then
+  sync_agent_skills "OpenCode" "$repo_root/.opencode/commands" "flat" "symlink" "../../"
+  clean_stale_skills "$repo_root/.opencode/commands" "flat"
+  agents_found=$((agents_found + 1))
+else
+  echo "Skipping OpenCode: opencode not found in PATH"
+fi
 
 # Codex: .agents/skills/<name>/SKILL.md (directory-based, copies — Codex ignores symlinks)
-sync_agent_skills "Codex" "$repo_root/.agents/skills" "directory" "copy"
-clean_stale_skills "$repo_root/.agents/skills" "directory"
+if agent_available "codex"; then
+  sync_agent_skills "Codex" "$repo_root/.agents/skills" "directory" "copy"
+  clean_stale_skills "$repo_root/.agents/skills" "directory"
+  agents_found=$((agents_found + 1))
+else
+  echo "Skipping Codex: codex not found in PATH"
+fi
+
+# Gemini CLI: .gemini/skills/<name>/SKILL.md (directory-based, copies)
+if agent_available "gemini"; then
+  sync_agent_skills "Gemini" "$repo_root/.gemini/skills" "directory" "copy"
+  clean_stale_skills "$repo_root/.gemini/skills" "directory"
+  agents_found=$((agents_found + 1))
+else
+  echo "Skipping Gemini: gemini not found in PATH"
+fi
+
+if [ "$agents_found" -eq 0 ]; then
+  echo "Warning: No agent CLIs found in PATH. Skills were not deployed to any agent."
+fi
 
 # ── 4. Transitional agent cleanup ──────────────────────────────────
 # Remove .claude/agents/ files matching known skill names (legacy from

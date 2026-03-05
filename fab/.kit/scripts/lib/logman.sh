@@ -8,10 +8,10 @@
 #   logman.sh command <cmd> [change] [args]
 #   logman.sh confidence <change> <score> <delta> <trigger>
 #   logman.sh review <change> <result> [rework]
+#   logman.sh transition <change> <stage> <action> [from] [reason] [driver]
 #   logman.sh --help
 
 set -euo pipefail
-
 LIB_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 RESOLVE="$LIB_DIR/resolve.sh"
 
@@ -23,12 +23,14 @@ USAGE:
   logman.sh command <cmd> [change] [args]
   logman.sh confidence <change> <score> <delta> <trigger>
   logman.sh review <change> <result> [rework]
+  logman.sh transition <change> <stage> <action> [from] [reason] [driver]
   logman.sh --help
 
 SUBCOMMANDS:
   command     Log a skill invocation (change optional — resolves via fab/current)
   confidence  Log a confidence score change
   review      Log a review outcome
+  transition  Log a stage transition (enter or re-entry)
 
 ARGS:
   <cmd>     Skill or command name (always required for command subcommand)
@@ -40,6 +42,8 @@ EXAMPLES:
   logman.sh confidence 9fg2 4.1 "+0.5" "calc-score"
   logman.sh review 9fg2 "passed"
   logman.sh review 9fg2 "failed" "fix-code"
+  logman.sh transition 9fg2 spec enter "" "" "fab-ff"
+  logman.sh transition 9fg2 apply re-entry review fix-code "fab-ff"
 EOF
 }
 
@@ -116,6 +120,33 @@ case "${1:-}" in
     json="{\"ts\":\"${now}\",\"event\":\"review\",\"result\":\"${result}\""
     if [ -n "$rework" ]; then
       json="${json},\"rework\":\"${rework}\""
+    fi
+    json="${json}}"
+
+    echo "$json" >> "${change_dir}/.history.jsonl"
+    ;;
+  transition)
+    if [ $# -lt 4 ] || [ $# -gt 7 ]; then
+      echo "Usage: logman.sh transition <change> <stage> <action> [from] [reason] [driver]" >&2
+      exit 1
+    fi
+    change_dir=$(resolve_change_dir "$2") || exit 1
+    stage="$3"
+    action="$4"
+    from="${5:-}"
+    reason="${6:-}"
+    driver="${7:-}"
+    now=$(date -Iseconds)
+
+    json="{\"ts\":\"${now}\",\"event\":\"stage-transition\",\"stage\":\"${stage}\",\"action\":\"${action}\""
+    if [ -n "$from" ]; then
+      json="${json},\"from\":\"${from}\""
+    fi
+    if [ -n "$reason" ]; then
+      json="${json},\"reason\":\"${reason}\""
+    fi
+    if [ -n "$driver" ]; then
+      json="${json},\"driver\":\"${driver}\""
     fi
     json="${json}}"
 

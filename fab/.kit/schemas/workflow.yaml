@@ -31,7 +31,7 @@ states:
 
   - id: failed
     symbol: "✗"
-    description: "Stage attempted but failed validation (review only)"
+    description: "Stage attempted but failed validation (review and review-pr)"
     terminal: false
 
   - id: skipped
@@ -113,6 +113,26 @@ stages:
     allowed_states: [pending, active, ready, done, skipped]
     commands: [fab-continue]
 
+  - id: ship
+    name: "Ship"
+    generates: null
+    description: "Commit, push, and create PR"
+    requires: [hydrate]
+    required: true
+    initial_state: pending
+    allowed_states: [pending, active, done, skipped]
+    commands: [git-pr]
+
+  - id: review-pr
+    name: "PR Review"
+    generates: null
+    description: "Process PR review feedback"
+    requires: [ship]
+    required: true
+    initial_state: pending
+    allowed_states: [pending, active, done, failed, skipped]
+    commands: [git-pr-review]
+
 # transitions — Valid state transitions for each stage, keyed by event.
 # Each entry: event name, valid from-states, resulting to-state.
 # Stage-specific overrides (e.g., review) extend the default set.
@@ -161,13 +181,35 @@ transitions:
       from: [active]
       to: failed
 
+  # Stage-specific overrides (review-pr adds fail event and start-from-failed, same as review)
+  review-pr:
+    - event: start
+      from: [pending, failed]
+      to: active
+
+    - event: advance
+      from: [active]
+      to: ready
+
+    - event: finish
+      from: [active, ready]
+      to: done
+
+    - event: reset
+      from: [done, ready, skipped]
+      to: active
+
+    - event: fail
+      from: [active]
+      to: failed
+
 # progression — Stage advancement rules.
 # Defines how to determine current stage and next stage.
 progression:
   # current_stage — How to identify which stage is currently active
   current_stage:
-    rule: "First stage with state=active or state=ready; if no active/ready, first pending stage after last done or skipped; if all done/skipped, hydrate"
-    fallback: hydrate
+    rule: "First stage with state=active or state=ready; if no active/ready, first pending stage after last done or skipped; if all done/skipped, review-pr"
+    fallback: review-pr
 
   # next_stage — How to determine which stage comes next
   next_stage:
@@ -175,7 +217,7 @@ progression:
 
   # completion — When is the entire workflow complete?
   completion:
-    rule: "hydrate stage has state=done or state=skipped"
+    rule: "review-pr stage has state=done or state=skipped"
 
 # stage_numbers — Display numbering for status output.
 # Maps stage ID to its position in the workflow (1-indexed).
@@ -186,6 +228,8 @@ stage_numbers:
   apply: 4
   review: 5
   hydrate: 6
+  ship: 7
+  review-pr: 8
 
 # validation — Rules for .status.yaml validation.
 validation:
@@ -229,4 +273,4 @@ prs:
 metadata:
   version: "1.0.0"
   compatible_with: "fab-kit >= 0.1.0"
-  last_updated: "2026-02-26"
+  last_updated: "2026-03-04"

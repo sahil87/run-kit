@@ -5,13 +5,13 @@ description: "Archive a completed change or restore an archived change — move 
 
 # /fab-archive [<change-name>] | restore <change-name> [--switch]
 
-> Read and follow the instructions in `./fab/.kit/skills/_preamble.md` before proceeding.
+> Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.
 
 ---
 
 ## Purpose
 
-Archive a completed change after hydrate, or restore an archived change back to active. Archive mode moves to archive, updates index, marks backlog items done, clears active pointer. Restore mode moves from archive back to changes, removes the index entry, and optionally activates. Both modes are safe to re-run after interruption.
+Archive a completed change after hydrate, or restore an archived change back to active. Archive mode delegates mechanical operations (clean, move, index, pointer) to `archiveman.sh` and handles only backlog matching in the skill. Restore mode delegates entirely to `archiveman.sh`. Both modes are safe to re-run after interruption.
 
 ---
 
@@ -33,48 +33,48 @@ Archive a completed change after hydrate, or restore an archived change back to 
 
 ## Pre-flight
 
-1. Run `fab/.kit/scripts/lib/preflight.sh [change-name]` per `_preamble.md`
+1. Run `fab/.kit/bin/fab preflight [change-name]` per `_preamble.md`
 2. **Hydrate Guard**: If `progress.hydrate` is not `done`, STOP: `Hydrate has not completed. Run /fab-continue to hydrate memory first.`
 
 ---
 
 ## Context Loading
 
-Minimal: `intake.md` (for backlog ID + keywords), `.status.yaml`, `fab/backlog.md` (if exists). Active change check delegated to `changeman.sh resolve` in Step 5.
+Minimal: `intake.md` (for backlog ID + keywords and description extraction), `.status.yaml`, `fab/backlog.md` (if exists).
 
 ---
 
 ## Behavior
 
-### Resumability
+### Step 1: Extract Description
 
-If folder already at `fab/changes/archive/{name}/`, skip move and complete remaining steps.
+Read the intake's **Why** section and extract a 1-2 sentence description summarizing the change. This becomes the `--description` argument for the script.
 
-### Step 1: Clean Temporary Files
+### Step 2: Run Archive Script
 
-Delete `.pr-done` from the change folder if it exists (gitignored temporary file from `/git-pr`). No error if absent.
+Call `archiveman.sh` in a single invocation:
 
-### Step 2: Move Change Folder
+```bash
+fab/.kit/bin/fab archive <change> --description "<extracted description>"
+```
 
-`fab/changes/{name}/` → `fab/changes/archive/{name}/`. Create `archive/` if needed. Do NOT rename.
+Where `<change>` is the change ID or name from preflight. Parse the structured YAML output for the report.
 
-### Step 3: Update Archive Index
+The script handles:
+- **Clean**: Delete `.pr-done` if present
+- **Move**: `fab/changes/{name}/` → `fab/changes/archive/yyyy/mm/{name}/` (date-bucketed)
+- **Index**: Create/update `fab/changes/archive/index.md` with entry + backfill
+- **Pointer**: Clear `fab/current` if this was the active change
 
-Maintain `fab/changes/archive/index.md`:
-- Doesn't exist → create with header, backfill all existing archived folders
-- Exists → prepend entry (most-recent-first)
-
-Entry format: `- **{folder-name}** — {1-2 sentence description from intake Why}`
-
-### Step 4: Mark Backlog Items Done
+### Step 3: Mark Backlog Items Done
 
 Skip silently if `fab/backlog.md` doesn't exist.
 
-**4a — Exact-ID**: If intake has backlog ID, find and mark done (`- [ ]` → `- [x]`), move to Done section.
+**3a — Exact-ID**: If intake has backlog ID, find and mark done (`- [ ]` → `- [x]`), move to Done section.
 
-**4b — Keyword Scan**: Extract keywords from intake title/Why (filter stop words). Match against unchecked items — candidate when ≥2 significant keywords overlap (exclude 4a matches). No candidates → proceed silently.
+**3b — Keyword Scan**: Extract keywords from intake title/Why (filter stop words). Match against unchecked items — candidate when ≥2 significant keywords overlap (exclude 3a matches). No candidates → proceed silently.
 
-**4c — Interactive Confirmation** (if 4b found candidates):
+**3c — Interactive Confirmation** (if 3b found candidates):
 
 ```
 Backlog matches found:
@@ -84,11 +84,21 @@ Backlog matches found:
 Mark as done? (comma-separated numbers, or "none")
 ```
 
-### Step 5: Clear Pointer (Conditional)
+### Step 4: Format Report
 
-Check the active change via `bash fab/.kit/scripts/lib/changeman.sh resolve 2>/dev/null`. If it matches the archived change name → run `bash fab/.kit/scripts/lib/changeman.sh switch --blank` to clear the pointer. Otherwise no-op.
+Construct the user-facing report from the script's YAML output fields:
 
-Steps execute 1→5 for safety. If interrupted, re-run completes remaining.
+| YAML field | Report line |
+|------------|-------------|
+| `clean: removed` | `Cleaned:  ✓ .pr-done removed` |
+| `clean: not_present` | `Cleaned:  — not present` |
+| `move: moved` | `Moved:    ✓ fab/changes/archive/yyyy/mm/{name}/` |
+| `index: created` | `Index:    ✓ fab/changes/archive/index.md created` |
+| `index: updated` | `Index:    ✓ fab/changes/archive/index.md updated` |
+| `pointer: cleared` | `Pointer:  ✓ fab/current cleared` |
+| `pointer: skipped` | `Pointer:  — skipped, not active` |
+
+Backlog and Scan lines come from Step 3 (agent-driven), not from the script.
 
 ---
 
@@ -98,8 +108,8 @@ Steps execute 1→5 for safety. If interrupted, re-run completes remaining.
 Archive: {change name}
 
 Cleaned:  ✓ .pr-done removed                    (or: — not present)
-Moved:    ✓ fab/changes/archive/{name}/        (or: ✓ already in archive)
-Index:    ✓ fab/changes/archive/index.md updated
+Moved:    ✓ fab/changes/archive/yyyy/mm/{name}/
+Index:    ✓ fab/changes/archive/index.md updated (or: created)
 Backlog:  ✓ [ID] marked done                   (or: — no backlog file)
 Scan:     ✓ {N} candidates, {M} marked done    (or: ✓ no matches)
 Pointer:  ✓ fab/current cleared                 (or: — skipped, not active)
@@ -116,9 +126,9 @@ Next: {per state table — initialized}
 | Property | Value |
 |----------|-------|
 | Advances stage? | No — post-pipeline housekeeping |
-| Idempotent? | Yes — detects already-moved folders |
+| Idempotent? | Yes — script detects state, backlog matching is idempotent |
 | Modifies `.status.yaml`? | No (may update `last_updated`) |
-| Modifies `fab/current`? | Yes — conditionally clears |
+| Modifies `fab/current`? | Yes — conditionally clears (via script) |
 | Modifies `docs/memory/`? | No |
 | Requires hydrate done? | Yes |
 
@@ -128,54 +138,56 @@ Next: {per state table — initialized}
 
 ## Purpose
 
-Restore an archived change back to the active changes folder. Inverse of the archive operation. Preserves all artifacts and status as-is — no status reset, no artifact regeneration.
+Restore an archived change back to the active changes folder. Inverse of the archive operation. Delegates entirely to `archiveman.sh`. Preserves all artifacts and status as-is — no status reset, no artifact regeneration.
 
 ---
 
 ## Arguments
 
-- **`<change-name>`** *(required)* — name or substring of the archived change to restore. Resolved via case-insensitive substring matching against folder names in `fab/changes/archive/` (excluding `index.md`).
+- **`<change-name>`** *(required)* — name or substring of the archived change to restore. Resolved by `archiveman.sh` via case-insensitive substring matching against `fab/changes/archive/`.
 - **`--switch`** *(optional)* — activate the restored change by writing its name to `fab/current`.
 
 ---
 
 ## Pre-flight
 
-1. Verify `fab/changes/archive/` exists. If not, STOP: `No archive folder found.`
-2. Scan `fab/changes/archive/` for folders (excluding `index.md`).
-3. If no folders found, STOP: `No archived changes found.`
-4. Match `<change-name>` against archived folder names (case-insensitive substring):
-   - **Exact/single match** → use that folder
-   - **Multiple matches** → list matches, ask user to pick
-   - **No match** → list all archived changes, inform user no match was found
+1. No standard preflight needed (no active change required).
+2. The script handles archive folder validation internally.
 
 ---
 
 ## Context Loading
 
-Minimal: the matched archive folder's `.status.yaml` (for output), `fab/changes/archive/index.md`.
+None required — the script handles all file operations.
 
 ---
 
 ## Behavior
 
-### Resumability
+### Step 1: Resolve and Restore
 
-If the folder already exists at `fab/changes/{name}/` (not in archive), skip the move and complete remaining steps (index cleanup, optional pointer update).
+Call `archiveman.sh` in a single invocation:
 
-### Step 1: Move Change Folder
+```bash
+fab/.kit/bin/fab archive restore <change-name> [--switch]
+```
 
-`fab/changes/archive/{name}/` → `fab/changes/{name}/`. Do NOT rename. All artifacts (`.status.yaml`, `intake.md`, `spec.md`, `tasks.md`, `checklist.md`, etc.) are preserved without modification.
+Parse the structured YAML output for the report. If the script exits non-zero:
+- **"Multiple archives match"** → list the matches from stderr, ask user to pick, re-run with the selected name
+- **"No archive matches"** → call `archiveman.sh list`, display available archives, inform user
 
-### Step 2: Remove Archive Index Entry
+### Step 2: Format Report
 
-Remove the entry for `{name}` from `fab/changes/archive/index.md`. If the index becomes empty (header only), preserve the file — do not delete it. If the entry is not found, skip silently.
+Construct the user-facing report from the script's YAML output fields:
 
-### Step 3: Update Pointer (Conditional)
-
-If `--switch` flag is provided → run `bash fab/.kit/scripts/lib/changeman.sh switch {name}` to activate the restored change. Otherwise no-op — `fab/current` is not modified.
-
-Steps execute 1→3 for safety. If interrupted, re-run completes remaining.
+| YAML field | Report line |
+|------------|-------------|
+| `move: restored` | `Moved:    ✓ fab/changes/{name}/` |
+| `move: already_in_changes` | `Moved:    ✓ already in changes` |
+| `index: removed` | `Index:    ✓ entry removed from archive/index.md` |
+| `index: not_found` | `Index:    — entry not found` |
+| `pointer: switched` | `Pointer:  ✓ fab/current updated` |
+| `pointer: skipped` | `Pointer:  — not requested` |
 
 ---
 
@@ -199,12 +211,12 @@ Next: {per state table — if --switch: restored change's state; otherwise: acti
 
 | Condition | Action |
 |-----------|--------|
-| `fab/changes/archive/` doesn't exist | `No archive folder found.` |
-| No archived folders | `No archived changes found.` |
-| No match for `<change-name>` | List all archived changes, inform user |
-| Multiple matches | List matches, ask user to pick |
-| Folder already in `fab/changes/` | Skip move, complete remaining steps |
-| Index entry not found | Skip index removal silently |
+| Script exits 1: "No archive folder found" | Display error |
+| Script exits 1: "No archived changes found" | Display error |
+| Script exits 1: "No archive matches" | List available archives via `archiveman.sh list` |
+| Script exits 1: "Multiple archives match" | Parse matches from stderr, ask user to pick |
+| Folder already in `fab/changes/` | Script handles — reports `already_in_changes` |
+| Index entry not found | Script handles — reports `not_found` |
 
 ---
 
@@ -213,8 +225,8 @@ Next: {per state table — if --switch: restored change's state; otherwise: acti
 | Property | Value |
 |----------|-------|
 | Advances stage? | No — post-archive housekeeping |
-| Idempotent? | Yes — detects already-restored folders |
+| Idempotent? | Yes — script detects already-restored folders |
 | Modifies `.status.yaml`? | No |
-| Modifies `fab/current`? | Only with `--switch` flag |
+| Modifies `fab/current`? | Only with `--switch` flag (via script) |
 | Modifies `docs/memory/`? | No |
 | Requires hydrate done? | No — restores any archived change regardless of state |

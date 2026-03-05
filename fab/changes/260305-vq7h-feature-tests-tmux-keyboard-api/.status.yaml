@@ -4,19 +4,19 @@ created_by: sahil-weaver
 change_type: test
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    tasks: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 checklist:
-    generated: false
+    generated: true
     path: checklist.md
     completed: 0
-    total: 0
+    total: 27
 confidence:
     certain: 5
     confident: 1
@@ -31,6 +31,12 @@ confidence:
         competence: 88.3
         disambiguation: 88.3
 stage_metrics:
-    intake: {started_at: "2026-03-05T20:27:13+05:30", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-03-05T20:27:13+05:30", driver: fab-new, iterations: 1, completed_at: "2026-03-05T23:26:55+05:30"}
+    spec: {started_at: "2026-03-05T23:26:55+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-05T23:27:12+05:30"}
+    tasks: {started_at: "2026-03-05T23:27:12+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-05T23:27:49+05:30"}
+    apply: {started_at: "2026-03-05T23:27:49+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-05T23:33:24+05:30"}
+    review: {started_at: "2026-03-05T23:33:24+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-05T23:37:23+05:30"}
+    hydrate: {started_at: "2026-03-05T23:37:23+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-05T23:38:02+05:30"}
+    ship: {started_at: "2026-03-05T23:38:02+05:30", driver: fab-ff, iterations: 1}
 prs: []
-last_updated: 2026-03-05T20:28:04+05:30
+last_updated: 2026-03-05T23:38:02+05:30

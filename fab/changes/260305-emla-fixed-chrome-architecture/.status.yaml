@@ -1,0 +1,36 @@
+name: 260305-emla-fixed-chrome-architecture
+created: 2026-03-05T22:41:48+05:30
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 6
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 83.8
+        reversibility: 86.9
+        competence: 88.8
+        disambiguation: 90.0
+stage_metrics:
+    intake: {started_at: "2026-03-05T22:41:48+05:30", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-03-05T22:42:56+05:30

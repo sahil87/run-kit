@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-05T22:44:06+05:30"}
+{"args":"3/3 Mobile Responsive Polish — Line 2 mobile collapse with ⋯ button, 44px touch target audit, terminal font scaling, full-width on narrow screens","cmd":"fab-new","event":"command","ts":"2026-03-05T22:44:06+05:30"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-05T22:45:00+05:30"}

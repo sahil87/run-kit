@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-05T22:43:01+05:30"}
+{"args":"2/3 Bottom Bar + Compose Buffer — modifier keys, arrow keys, Fn dropdown, sticky states, compose textarea overlay, visualViewport iOS keyboard detection","cmd":"fab-new","event":"command","ts":"2026-03-05T22:43:01+05:30"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-05T22:44:01+05:30"}

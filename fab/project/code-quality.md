@@ -35,4 +35,17 @@ When a test runner is configured, add `pnpm test` between steps 1 and 2.
 
 ## Test Strategy
 
-test-alongside
+Tests live in `__tests__/` folders adjacent to the code they test. Each code directory has at most one `__tests__/` folder. Test files use the `.test.ts` or `.test.tsx` extension.
+
+```
+src/lib/
+  validate.ts
+  config.ts
+  __tests__/
+    validate.test.ts
+    config.test.ts
+src/components/
+  session-card.tsx
+  __tests__/
+    session-card.test.tsx
+```

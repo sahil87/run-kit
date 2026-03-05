@@ -109,9 +109,9 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     function handleIKey(e: KeyboardEvent) {
       if (composeOpen) return;
       if (e.key !== "i") return;
+      // Only intercept when focus is within the terminal (xterm's internal elements)
       const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.isContentEditable) return;
-      if (target.tagName === "TEXTAREA" && !terminalRef.current?.contains(target)) return;
+      if (!terminalRef.current?.contains(target)) return;
       e.preventDefault();
       e.stopPropagation();
       setComposeOpen(true);

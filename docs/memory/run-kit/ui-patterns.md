@@ -19,8 +19,8 @@ The root layout renders `TopBarChrome` (`src/components/top-bar-chrome.tsx`) whi
 | Page | Breadcrumb |
 |------|-----------|
 | Dashboard | `RK` (logo placeholder only) |
-| Project | `RK > ⬡ {name}` |
-| Terminal | `RK > ⬡ {name} > ❯ {window}` |
+| Project | `RK › ⬡ {name}` |
+| Terminal | `RK › ⬡ {name} › ❯ {window}` |
 
 - `RK` — logo placeholder, always links to `/`
 - ⬡ — Unicode hexagon (U+2B21), `text-text-secondary`, precedes project name

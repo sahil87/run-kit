@@ -129,12 +129,12 @@ Breadcrumbs SHALL use a compact icon-driven format:
 - **WHEN** they click the `⬡ run-kit` breadcrumb segment
 - **THEN** they SHALL navigate to `/p/run-kit`
 
-### Requirement: TopBarChrome Needs Connection Status
+### Requirement: TopBarChrome Reads Connection Status from Context
 
-TopBarChrome SHALL accept an `isConnected` prop (boolean) for the connection indicator. This prop is passed by the root layout or provided via context — it is NOT read from ChromeProvider (connection status is a global concern, not a page-set slot).
+TopBarChrome SHALL read the `isConnected` value (boolean) from ChromeProvider context for the connection indicator. Pages set this value via `setIsConnected` from their `useSessions` hook — it is a global concern routed through context, not a per-page prop.
 
-#### Scenario: isConnected Prop Drives Indicator
-- **GIVEN** TopBarChrome receives `isConnected={true}`
+#### Scenario: isConnected Value Drives Indicator
+- **GIVEN** the `isConnected` value in ChromeProvider is `true`
 - **WHEN** it renders the connection indicator
 - **THEN** it SHALL show `bg-accent-green` dot + "live" label
 
@@ -154,7 +154,7 @@ Each page client component SHALL remove its own `<TopBar>` rendering and its wra
 #### Scenario: Project Rewiring
 - **GIVEN** `ProjectClient` mounts
 - **WHEN** it renders
-- **THEN** it SHALL call `setBreadcrumbs([{ icon: '⬡', label: projectName, href: '/p/' + projectName }])`
+- **THEN** it SHALL call `setBreadcrumbs([{ icon: '⬡', label: projectName }])`
 - **AND** `setLine2Left(...)` with "+ New Window" and "Send Message" buttons
 - **AND** `setLine2Right(...)` with window count
 

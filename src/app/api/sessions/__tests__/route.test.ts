@@ -49,7 +49,7 @@ describe("POST /api/sessions", () => {
       });
       expect(status).toBe(200);
       expect(data).toEqual({ ok: true });
-      expect(createSession).toHaveBeenCalledWith("my-session");
+      expect(createSession).toHaveBeenCalledWith("my-session", undefined);
     });
 
     it("rejects empty name with 400", async () => {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchSessions } from "@/lib/sessions";
 import { createSession, createWindow, killSession, killWindow, sendKeys } from "@/lib/tmux";
-import { validateName, validatePath } from "@/lib/validate";
+import { validateName, validatePath, expandTilde } from "@/lib/validate";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +33,18 @@ export async function POST(request: Request) {
         const name = String(body.name ?? "");
         const nameErr = validateName(name, "Session name");
         if (nameErr) return badRequest(nameErr);
-        await createSession(name);
+
+        let resolvedCwd: string | undefined;
+        if (body.cwd) {
+          const cwd = String(body.cwd);
+          const cwdErr = validatePath(cwd, "Working directory");
+          if (cwdErr) return badRequest(cwdErr);
+          const expanded = expandTilde(cwd);
+          if (expanded.path === null) return badRequest(expanded.error);
+          resolvedCwd = expanded.path;
+        }
+
+        await createSession(name, resolvedCwd);
         break;
       }
       case "createWindow": {

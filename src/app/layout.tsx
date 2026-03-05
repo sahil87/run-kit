@@ -17,7 +17,7 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="h-screen antialiased">
         <ChromeProvider>
-          <div className="h-screen flex flex-col">
+          <div className="flex flex-col" style={{ height: 'var(--app-height, 100vh)' }}>
             {/* Top chrome — fixed height, shrink-0 */}
             <div className="shrink-0">
               <div className="max-w-4xl mx-auto w-full px-6">

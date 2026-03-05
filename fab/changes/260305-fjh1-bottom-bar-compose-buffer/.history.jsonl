@@ -1,3 +1,17 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-05T22:43:01+05:30"}
 {"args":"2/3 Bottom Bar + Compose Buffer — modifier keys, arrow keys, Fn dropdown, sticky states, compose textarea overlay, visualViewport iOS keyboard detection","cmd":"fab-new","event":"command","ts":"2026-03-05T22:43:01+05:30"}
 {"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-05T22:44:01+05:30"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-06T03:32:29+05:30"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"spec","ts":"2026-03-06T03:33:51+05:30"}
+{"cmd":"fab-continue","event":"command","ts":"2026-03-06T03:33:52+05:30"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-06T03:36:04+05:30"}
+{"cmd":"fab-ff","event":"command","ts":"2026-03-06T03:37:29+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"tasks","ts":"2026-03-06T03:37:37+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-03-06T03:38:52+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-03-06T03:47:06+05:30"}
+{"event":"review","result":"failed","ts":"2026-03-06T03:50:45+05:30"}
+{"action":"re-entry","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-03-06T03:50:45+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-03-06T03:52:10+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-03-06T03:53:59+05:30"}
+{"event":"review","result":"passed","ts":"2026-03-06T03:53:59+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-03-06T03:56:08+05:30"}

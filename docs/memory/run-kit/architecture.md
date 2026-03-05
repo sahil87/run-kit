@@ -60,17 +60,23 @@ Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
 
 ## Chrome Architecture
 
-The root layout (`src/app/layout.tsx`) owns a fixed `h-screen flex-col` skeleton with three zones:
+The root layout (`src/app/layout.tsx`) owns a flex-col skeleton (height: `var(--app-height, 100vh)`) with three zones:
 
 1. **Top chrome** (`shrink-0`) — `TopBarChrome` component, always-rendered two-line top bar
 2. **Content** (`flex-1 overflow-y-auto min-h-0`) — page content, scrollable
-3. **Bottom slot** (`shrink-0`) — `BottomSlot` component for future bottom bar injection
+3. **Bottom slot** (`shrink-0`) — `BottomSlot` component, renders bottom bar on terminal page via ChromeProvider
 
 All three zones use `max-w-4xl mx-auto w-full px-6` for identical width/padding — pages cannot override this.
 
 **ChromeProvider** (`src/contexts/chrome-context.tsx`) — React Context for slot injection. Pages set breadcrumbs, line2Left, line2Right, bottomBar, and isConnected via `useChrome()` setters in `useEffect`, with cleanup on unmount. Context value is memoized to prevent unnecessary re-renders.
 
 **TopBarChrome** (`src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Line 1: icon breadcrumbs + connection indicator + ⌘K badge. Line 2: always rendered with `min-h-[36px]`, even when slots are empty (prevents layout shift).
+
+**BottomBar** (`src/components/bottom-bar.tsx`) — injected by `TerminalClient` via `setBottomBar()`. Single row of `<kbd>` buttons: modifier toggles (Ctrl/Alt/Cmd with sticky armed state), arrow keys, Fn dropdown (F1-F12, PgUp/PgDn, Home/End), Esc, Tab, and compose toggle. All buttons 44px min-height for mobile touch targets. Sends ANSI escape sequences through the WebSocket ref. Modifier state managed by `useModifierState` hook.
+
+**ComposeBuffer** (`src/components/compose-buffer.tsx`) — native `<textarea>` overlay triggered by the compose button. Supports iOS dictation, autocorrect, paste, multiline. Send button (or Cmd/Ctrl+Enter) transmits entire text as a single WebSocket message. Terminal dims (`opacity-50`) while compose is open. Escape dismisses without sending.
+
+**iOS Keyboard Support** — `useVisualViewport` hook (`src/hooks/use-visual-viewport.ts`) sets `--app-height` CSS custom property from `window.visualViewport.height`. The layout flex container uses `var(--app-height, 100vh)`, constraining the app to the visible viewport when the iOS keyboard is open. The bottom bar stays pinned above the keyboard; the terminal shrinks via `flex-1` and xterm refits via `ResizeObserver`.
 
 Pages do NOT render their own top bar or outer containers — they set chrome slots and render only their content area.
 
@@ -83,6 +89,9 @@ Pages do NOT render their own top bar or outer containers — they set chrome sl
 - **Config resolution: CLI > YAML > defaults** — `src/lib/config.ts` reads `run-kit.yaml` (optional, gitignored) and CLI args. Relay port delivered to client via server component prop (runtime, not build-time)
 - **Byobu session-group filtering** — `listSessions()` filters out derived session-group copies to avoid duplicate projects. See `docs/memory/run-kit/tmux-sessions.md`
 - **Layout-owned chrome (not per-page TopBar)** — React Context for slot injection. Pages inject content via `useEffect` setters; layout renders it in fixed positions. Prevents layout shift and ensures consistent width/padding across all pages. Old `TopBar` component deleted.
+- **Sticky modifier state via useRef + forceUpdate** — `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders. Ensures `consume()` reads the latest value atomically without stale closure issues.
+- **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.
+- **`i` key intercepted in capture phase** — Must prevent xterm from receiving the keystroke. Capture phase handler fires before xterm's internal textarea, allowing `stopPropagation()` to block it.
 
 ## Testing
 
@@ -115,3 +124,4 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 | 2026-03-05 | Added feature tests for tmux.ts, use-keyboard-nav.ts, and api/sessions POST handler | `260305-vq7h-feature-tests-tmux-keyboard-api` |
 | 2026-03-05 | Added `/api/directories` endpoint, `createSession` CWD support, `expandTilde` security boundary | `260305-zkem-session-folder-picker` |
 | 2026-03-06 | Chrome architecture — layout-owned flex-col skeleton, ChromeProvider context, TopBarChrome, icon breadcrumbs, always-visible kill buttons | `260305-emla-fixed-chrome-architecture` |
+| 2026-03-06 | Bottom bar (modifier toggles, arrow keys, Fn dropdown, Esc/Tab, compose buffer), iOS keyboard support via visualViewport, `i` key compose toggle | `260305-fjh1-bottom-bar-compose-buffer` |

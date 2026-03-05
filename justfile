@@ -52,6 +52,10 @@ restart:
 
 # ─── Quality ──────────────────────────────────────────────────
 
+# Run all tests
+test:
+    pnpm test
+
 # Type-check without emitting
 check:
     npx tsc --noEmit

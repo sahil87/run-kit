@@ -5,12 +5,16 @@ const DEFAULTS = {
   port: 3000,
   relayPort: 3001,
   host: "127.0.0.1",
+  tlsCert: "certs/localhost.pem",
+  tlsKey: "certs/localhost-key.pem",
 } as const;
 
 type ServerConfig = {
   port: number;
   relayPort: number;
   host: string;
+  tlsCert: string;
+  tlsKey: string;
 };
 
 function validPort(v: unknown): number | undefined {
@@ -21,7 +25,7 @@ function validPort(v: unknown): number | undefined {
 function readYamlConfig(): Partial<ServerConfig> {
   try {
     const raw = readFileSync("run-kit.yaml", "utf8");
-    const doc = parse(raw) as { server?: { port?: unknown; relay_port?: unknown; host?: unknown } };
+    const doc = parse(raw) as { server?: { port?: unknown; relay_port?: unknown; host?: unknown; tls?: { cert?: unknown; key?: unknown } } };
     const s = doc?.server;
     if (!s) return {};
     const port = validPort(s.port);
@@ -30,6 +34,8 @@ function readYamlConfig(): Partial<ServerConfig> {
       ...(port != null && { port }),
       ...(relayPort != null && { relayPort }),
       ...(typeof s.host === "string" && s.host.length > 0 && { host: s.host }),
+      ...(typeof s.tls?.cert === "string" && s.tls.cert.length > 0 && { tlsCert: s.tls.cert }),
+      ...(typeof s.tls?.key === "string" && s.tls.key.length > 0 && { tlsKey: s.tls.key }),
     };
   } catch (err: unknown) {
     const code = (err as NodeJS.ErrnoException).code;
@@ -56,6 +62,12 @@ function readCliArgs(): Partial<ServerConfig> {
     } else if (args[i] === "--host" && next) {
       result.host = next;
       i++;
+    } else if (args[i] === "--tls-cert" && next) {
+      result.tlsCert = next;
+      i++;
+    } else if (args[i] === "--tls-key" && next) {
+      result.tlsKey = next;
+      i++;
     }
   }
   return result;
@@ -69,4 +81,6 @@ export const config: ServerConfig = {
   port: cli.port ?? yaml.port ?? DEFAULTS.port,
   relayPort: cli.relayPort ?? yaml.relayPort ?? DEFAULTS.relayPort,
   host: cli.host ?? yaml.host ?? DEFAULTS.host,
+  tlsCert: cli.tlsCert ?? yaml.tlsCert ?? DEFAULTS.tlsCert,
+  tlsKey: cli.tlsKey ?? yaml.tlsKey ?? DEFAULTS.tlsKey,
 };

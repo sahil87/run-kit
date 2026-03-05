@@ -11,6 +11,12 @@ if [[ -f run-kit.yaml ]]; then
   unset _val _p _h
 fi
 
+# If TLS certs exist, enable HTTPS for next dev
+NEXT_HTTPS=""
+if [[ -f certs/localhost.pem && -f certs/localhost-key.pem ]]; then
+  NEXT_HTTPS="--experimental-https --experimental-https-cert certs/localhost.pem --experimental-https-key certs/localhost-key.pem"
+fi
+
 exec pnpm concurrently -n next,relay -c blue,green \
-  "next dev --port $RK_PORT --hostname $RK_HOST" \
+  "next dev --port $RK_PORT --hostname $RK_HOST $NEXT_HTTPS" \
   "tsx src/terminal-relay/server.ts"

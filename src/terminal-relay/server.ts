@@ -1,4 +1,6 @@
-import { createServer } from "node:http";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { existsSync, readFileSync } from "node:fs";
 import { WebSocketServer, WebSocket } from "ws";
 import * as pty from "node-pty";
 import { config } from "../lib/config";
@@ -6,10 +8,19 @@ import { validateName } from "../lib/validate";
 
 const PING_INTERVAL = 30_000;
 
-const server = createServer((_req, res) => {
+const hasCerts = existsSync(config.tlsCert) && existsSync(config.tlsKey);
+
+const handler = (_req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("run-kit terminal relay");
-});
+};
+
+const server = hasCerts
+  ? createHttpsServer(
+      { cert: readFileSync(config.tlsCert), key: readFileSync(config.tlsKey) },
+      handler,
+    )
+  : createHttpServer(handler);
 
 const wss = new WebSocketServer({ server });
 
@@ -133,6 +144,7 @@ wss.on("connection", async (ws, req) => {
 });
 
 // Default: 127.0.0.1 (localhost only). Set host to 0.0.0.0 to expose to network.
+const proto = hasCerts ? "https" : "http";
 server.listen(config.relayPort, config.host, () => {
-  console.log(`Terminal relay listening on ${config.host}:${config.relayPort}`);
+  console.log(`Terminal relay listening on ${proto}://${config.host}:${config.relayPort}`);
 });

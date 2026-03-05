@@ -40,6 +40,16 @@ describe("config defaults (no run-kit.yaml)", () => {
     const config = await loadConfig();
     expect(config.host).toBe("127.0.0.1");
   });
+
+  it("uses default tlsCert certs/localhost.pem", async () => {
+    const config = await loadConfig();
+    expect(config.tlsCert).toBe("certs/localhost.pem");
+  });
+
+  it("uses default tlsKey certs/localhost-key.pem", async () => {
+    const config = await loadConfig();
+    expect(config.tlsKey).toBe("certs/localhost-key.pem");
+  });
 });
 
 describe("config CLI arg parsing", () => {
@@ -115,5 +125,24 @@ describe("config CLI arg parsing", () => {
     process.argv = ["node", "script.js", "--port"];
     const config = await loadConfig();
     expect(config.port).toBe(3000);
+  });
+
+  it("--tls-cert overrides default", async () => {
+    process.argv = ["node", "script.js", "--tls-cert", "custom/cert.pem"];
+    const config = await loadConfig();
+    expect(config.tlsCert).toBe("custom/cert.pem");
+  });
+
+  it("--tls-key overrides default", async () => {
+    process.argv = ["node", "script.js", "--tls-key", "custom/key.pem"];
+    const config = await loadConfig();
+    expect(config.tlsKey).toBe("custom/key.pem");
+  });
+
+  it("--tls-cert and --tls-key together", async () => {
+    process.argv = ["node", "script.js", "--tls-cert", "/etc/ssl/cert.pem", "--tls-key", "/etc/ssl/key.pem"];
+    const config = await loadConfig();
+    expect(config.tlsCert).toBe("/etc/ssl/cert.pem");
+    expect(config.tlsKey).toBe("/etc/ssl/key.pem");
   });
 });

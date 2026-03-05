@@ -18,7 +18,17 @@ if [[ -f run-kit.yaml ]]; then
   unset _val _valid_port _p _r _h
 fi
 
-HEALTH_URL="http://${RK_HOST}:${RK_PORT}/api/health"
+# Detect TLS certs for HTTPS
+if [[ -f certs/localhost.pem && -f certs/localhost-key.pem ]]; then
+  HEALTH_PROTO="https"
+  CURL_FLAGS="-k"
+  HAS_CERTS=1
+else
+  HEALTH_PROTO="http"
+  CURL_FLAGS=""
+  HAS_CERTS=0
+fi
+HEALTH_URL="${HEALTH_PROTO}://${RK_HOST}:${RK_PORT}/api/health"
 HEALTH_TIMEOUT=10
 POLL_INTERVAL=2
 RESTART_SIGNAL=".restart-requested"
@@ -30,8 +40,13 @@ relay_pid=""
 trap 'echo "[supervisor] Shutting down..."; stop_services; exit 0' SIGINT SIGTERM
 
 start_services() {
-  echo "[supervisor] Starting Next.js on ${RK_HOST}:${RK_PORT}..."
-  pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
+  if (( HAS_CERTS )); then
+    echo "[supervisor] Starting Next.js (HTTPS) on ${RK_HOST}:${RK_PORT}..."
+    pnpm tsx src/https-server.ts --port "$RK_PORT" --host "$RK_HOST" &
+  else
+    echo "[supervisor] Starting Next.js on ${RK_HOST}:${RK_PORT}..."
+    pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
+  fi
   nextjs_pid=$!
 
   echo "[supervisor] Starting terminal relay on ${RK_HOST}:${RK_RELAY_PORT}..."
@@ -61,7 +76,7 @@ stop_services() {
 check_health() {
   local elapsed=0
   while (( elapsed < HEALTH_TIMEOUT )); do
-    if curl -sf "$HEALTH_URL" > /dev/null 2>&1; then
+    if curl -sf $CURL_FLAGS "$HEALTH_URL" > /dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -138,7 +153,11 @@ while true; do
   # Check if individual processes died — restart only the dead one
   if [[ -n "$nextjs_pid" ]] && ! kill -0 "$nextjs_pid" 2>/dev/null; then
     echo "[supervisor] Next.js process died — restarting..."
-    pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
+    if (( HAS_CERTS )); then
+      pnpm tsx src/https-server.ts --port "$RK_PORT" --host "$RK_HOST" &
+    else
+      pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
+    fi
     nextjs_pid=$!
   fi
   if [[ -n "$relay_pid" ]] && ! kill -0 "$relay_pid" 2>/dev/null; then

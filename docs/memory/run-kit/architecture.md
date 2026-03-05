@@ -27,7 +27,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 | `src/lib/fab.ts` | Reads fab state (progress-line, current change, change list) |
 | `src/lib/sessions.ts` | Derives project roots from tmux, auto-detects fab-kit, enriches with fab state |
 | `src/lib/validate.ts` | Input validation for names/paths + tilde expansion with `$HOME` security boundary |
-| `src/lib/config.ts` | Server config (port, relayPort, host) — reads CLI args > `run-kit.yaml` > defaults |
+| `src/lib/config.ts` | Server config (port, relayPort, host, tlsCert, tlsKey) — reads CLI args > `run-kit.yaml` > defaults |
 | `src/lib/types.ts` | Shared TypeScript types + named constants |
 
 ## API Layer
@@ -42,7 +42,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 
 ## Terminal Relay
 
-WebSocket server (default port 3001, configurable via `config.relayPort`). Binds to `config.host` (default `127.0.0.1`). Clients connect via URL path: `ws://{host}:{relayPort}/:session/:window`. The relay port is passed from the server component (`page.tsx` imports `config`) as a prop to `TerminalClient` — never via build-time env vars.
+WebSocket server (default port 3001, configurable via `config.relayPort`). Binds to `config.host` (default `127.0.0.1`). When TLS certs exist at `config.tlsCert`/`config.tlsKey`, the relay creates an HTTPS server (WSS); otherwise falls back to HTTP (WS). Clients connect via URL path: `ws[s]://{host}:{relayPort}/:session/:window`. The relay port is passed from the server component (`page.tsx` imports `config`) as a prop to `TerminalClient` — never via build-time env vars. The client (`terminal-client.tsx`) auto-detects `wss:`/`ws:` from `window.location.protocol`.
 
 Per connection:
 1. Creates independent pane via `tmux split-window` (agent pane 0 untouched)
@@ -52,7 +52,9 @@ Per connection:
 
 ## Supervisor
 
-~130-line bash script. Reads `run-kit.yaml` at startup via grep-based parsing (no `yq` dependency) for port/host config. Polling loop checks for `.restart-requested` file.
+~160-line bash script. Reads `run-kit.yaml` at startup via grep-based parsing (no `yq` dependency) for port/host config. Detects TLS certs (`certs/localhost.pem`, `certs/localhost-key.pem`) at startup. Polling loop checks for `.restart-requested` file.
+
+When certs exist: starts Next.js via `tsx src/https-server.ts` (custom HTTPS server) instead of `pnpm start`, uses `curl -k` for health checks over HTTPS. When certs absent: standard `pnpm start` + HTTP health checks (unchanged).
 
 On detection: `pnpm build` → kill both processes → start both with configured ports/host → `GET /api/health` (10s timeout).
 On failure: `git revert HEAD` → rebuild → restart prior version.
@@ -80,7 +82,8 @@ Pages do NOT render their own top bar or outer containers — they set chrome sl
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
 - **Independent panes per browser client** — no cursor fights, agent pane untouched
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
-- **Config resolution: CLI > YAML > defaults** — `src/lib/config.ts` reads `run-kit.yaml` (optional, gitignored) and CLI args. Relay port delivered to client via server component prop (runtime, not build-time)
+- **Config resolution: CLI > YAML > defaults** — `src/lib/config.ts` reads `run-kit.yaml` (optional, gitignored) and CLI args. Includes `tlsCert`/`tlsKey` paths (default: `certs/localhost.pem`/`certs/localhost-key.pem`). Relay port delivered to client via server component prop (runtime, not build-time)
+- **Optional HTTPS via `mkcert`** — run `just certs` to generate locally-trusted TLS certs. When certs exist, both Next.js and relay serve over HTTPS/WSS; when absent, HTTP/WS (no breaking change). Dev mode uses `--experimental-https-cert`/`--experimental-https-key` flags; production mode uses `src/https-server.ts` (custom HTTPS server wrapping Next.js)
 - **Byobu session-group filtering** — `listSessions()` filters out derived session-group copies to avoid duplicate projects. See `docs/memory/run-kit/tmux-sessions.md`
 - **Layout-owned chrome (not per-page TopBar)** — React Context for slot injection. Pages inject content via `useEffect` setters; layout renders it in fixed positions. Prevents layout shift and ensures consistent width/padding across all pages. Old `TopBar` component deleted.
 
@@ -92,7 +95,7 @@ Test scripts: `pnpm test` (single run), `pnpm test:watch` (watch mode).
 
 Test files co-located with source using `.test.{ts,tsx}` suffix (test-alongside strategy per `code-quality.md`). Path alias `@/` resolves to `src/` in both app and test contexts.
 
-Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts` (CLI arg parsing, port validation, defaults), `command-palette.tsx` (keyboard interaction, filtering, open/close), `tmux.ts` (listSessions parsing + byobu filtering, listWindows activity computation), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts), `api/sessions/route.ts` POST handler (5-action dispatch, validation, error propagation).
+Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts` (CLI arg parsing, port validation, defaults, TLS cert paths), `command-palette.tsx` (keyboard interaction, filtering, open/close), `tmux.ts` (listSessions parsing + byobu filtering, listWindows activity computation), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts), `api/sessions/route.ts` POST handler (5-action dispatch, validation, error propagation).
 
 ## Security
 
@@ -100,6 +103,7 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 - All `execFile` calls include timeout (10s tmux, 30s build)
 - User input validated via `lib/validate.ts` before reaching any subprocess
 - Directory listing restricted to `$HOME` via `expandTilde()` — rejects `..` traversal, absolute paths outside home, and `~username` syntax. Symlinks under `$HOME` are not resolved (accepted risk for local dev tool)
+- TLS private keys stored in `certs/` (gitignored), never committed or embedded in config values
 
 ## Changelog
 
@@ -115,3 +119,4 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 | 2026-03-05 | Added feature tests for tmux.ts, use-keyboard-nav.ts, and api/sessions POST handler | `260305-vq7h-feature-tests-tmux-keyboard-api` |
 | 2026-03-05 | Added `/api/directories` endpoint, `createSession` CWD support, `expandTilde` security boundary | `260305-zkem-session-folder-picker` |
 | 2026-03-06 | Chrome architecture — layout-owned flex-col skeleton, ChromeProvider context, TopBarChrome, icon breadcrumbs, always-visible kill buttons | `260305-emla-fixed-chrome-architecture` |
+| 2026-03-06 | Optional HTTPS/WSS via `mkcert` — TLS config in `config.ts`, conditional HTTPS relay, custom production server, `just certs` recipe | `260306-m42a-https-dev-server` |

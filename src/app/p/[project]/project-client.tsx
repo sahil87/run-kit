@@ -25,6 +25,9 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
   const [killWindowTarget, setKillWindowTarget] = useState<WindowInfo | null>(
     null,
   );
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<WindowInfo | null>(null);
+  const [renameName, setRenameName] = useState("");
   const [createName, setCreateName] = useState("");
   const [sendMessage, setSendMessage] = useState("");
 
@@ -36,6 +39,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
 
   const windowsRef = useRef(windows);
   windowsRef.current = windows;
+  const focusedIndexRef = useRef(0);
 
   const navigateToTerminal = useCallback(
     (index: number) => {
@@ -58,6 +62,16 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       s: () => {
         if (windowsRef.current.length > 0) setShowSendDialog(true);
       },
+      r: () => {
+        if (windowsRef.current.length > 0) {
+          const win = windowsRef.current[focusedIndexRef.current];
+          if (win) {
+            setRenameTarget(win);
+            setRenameName(win.name);
+            setShowRenameDialog(true);
+          }
+        }
+      },
     }),
     [],
   );
@@ -67,6 +81,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
     onSelect: navigateToTerminal,
     shortcuts,
   });
+  focusedIndexRef.current = focusedIndex;
 
   // Set chrome slots
   useEffect(() => {
@@ -94,9 +109,25 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
         >
           Send Message
         </button>
+        <button
+          onClick={() => {
+            if (windows.length > 0) {
+              const win = windows[focusedIndex];
+              if (win) {
+                setRenameTarget(win);
+                setRenameName(win.name);
+                setShowRenameDialog(true);
+              }
+            }
+          }}
+          disabled={windows.length === 0}
+          className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Rename
+        </button>
       </div>,
     );
-  }, [windows.length, setLine2Left]);
+  }, [windows.length, focusedIndex, windows, setLine2Left]);
 
   useEffect(() => {
     setLine2Right(
@@ -105,6 +136,27 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       </span>,
     );
   }, [windows.length, setLine2Right]);
+
+  async function handleRename() {
+    const win = renameTarget;
+    if (!win || !renameName.trim()) return;
+    try {
+      await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "renameWindow",
+          session: projectName,
+          index: win.index,
+          name: renameName.trim(),
+        }),
+      });
+    } catch {
+      // SSE will reflect actual state
+    }
+    setShowRenameDialog(false);
+    setRenameTarget(null);
+  }
 
   async function handleCreate() {
     if (!createName.trim()) return;
@@ -191,6 +243,19 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
         label: "Send message to agent",
         shortcut: "s",
         onSelect: () => windows.length > 0 && setShowSendDialog(true),
+      },
+      {
+        id: "rename-window",
+        label: "Rename focused window",
+        shortcut: "r",
+        onSelect: () => {
+          const win = windows[focusedIndex];
+          if (win) {
+            setRenameTarget(win);
+            setRenameName(win.name);
+            setShowRenameDialog(true);
+          }
+        },
       },
       {
         id: "back",
@@ -318,6 +383,35 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
             className="mt-3 w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
           >
             Send
+          </button>
+        </Dialog>
+      )}
+
+      {/* Rename dialog */}
+      {showRenameDialog && renameTarget && (
+        <Dialog
+          title="Rename window"
+          onClose={() => {
+            setShowRenameDialog(false);
+            setRenameTarget(null);
+          }}
+        >
+          <input
+            autoFocus
+            type="text"
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleRename()}
+            onFocus={(e) => e.target.select()}
+            aria-label="Window name"
+            placeholder="Window name..."
+            className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+          />
+          <button
+            onClick={handleRename}
+            className="mt-3 w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+          >
+            Rename
           </button>
         </Dialog>
       )}

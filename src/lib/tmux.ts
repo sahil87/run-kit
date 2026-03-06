@@ -112,6 +112,15 @@ export async function killWindow(
   await tmuxExec(["kill-window", "-t", `${session}:${index}`]);
 }
 
+/** Rename a window by session and index. */
+export async function renameWindow(
+  session: string,
+  index: number,
+  name: string,
+): Promise<void> {
+  await tmuxExec(["rename-window", "-t", `${session}:${index}`, name]);
+}
+
 /** Send keystrokes to a tmux window. */
 export async function sendKeys(
   session: string,

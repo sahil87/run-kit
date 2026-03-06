@@ -22,7 +22,7 @@ vi.mock("node:child_process", async (importOriginal) => {
   };
 });
 
-import { listSessions, listWindows } from "@/lib/tmux";
+import { listSessions, listWindows, renameWindow } from "@/lib/tmux";
 
 describe("listSessions", () => {
   beforeEach(() => {
@@ -130,5 +130,31 @@ describe("listWindows", () => {
 
     const result = await listWindows("nonexistent");
     expect(result).toEqual([]);
+  });
+});
+
+describe("renameWindow", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("calls tmux rename-window with correct args", async () => {
+    mockExecFile.mockResolvedValueOnce({ stdout: "", stderr: "" });
+
+    await renameWindow("my-session", 2, "new-name");
+
+    expect(mockExecFile).toHaveBeenCalledWith(
+      "tmux",
+      ["rename-window", "-t", "my-session:2", "new-name"],
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+  });
+
+  it("propagates tmux errors", async () => {
+    mockExecFile.mockRejectedValueOnce(new Error("session not found"));
+
+    await expect(renameWindow("bad", 0, "name")).rejects.toThrow(
+      "session not found",
+    );
   });
 });

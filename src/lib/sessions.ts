@@ -42,22 +42,22 @@ export async function fetchSessions(): Promise<ProjectSession[]> {
     })),
   );
 
-  // Build result in tmux natural order — enrich fab-kit projects
-  const result: ProjectSession[] = [];
+  // Enrich all sessions in parallel, preserve tmux ordering via indexed assignment
+  const result: ProjectSession[] = new Array(sessionWindows.length);
 
-  for (const { sessionName, windows } of sessionWindows) {
-    // Derive project root from window 0's pane_current_path
-    const projectRoot = windows[0]?.worktreePath ?? "";
+  await Promise.all(
+    sessionWindows.map(async ({ sessionName, windows }, i) => {
+      const projectRoot = windows[0]?.worktreePath ?? "";
 
-    // Auto-enrich if fab-kit project detected
-    if (projectRoot && (await hasFabKit(projectRoot))) {
-      await Promise.all(
-        windows.map((win) => enrichWindow(win, projectRoot)),
-      );
-    }
+      if (projectRoot && (await hasFabKit(projectRoot))) {
+        await Promise.all(
+          windows.map((win) => enrichWindow(win, projectRoot)),
+        );
+      }
 
-    result.push({ name: sessionName, windows });
-  }
+      result[i] = { name: sessionName, windows };
+    }),
+  );
 
   return result;
 }

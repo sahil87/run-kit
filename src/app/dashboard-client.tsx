@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useSessions } from "@/hooks/use-sessions";
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav";
-import { useChrome } from "@/contexts/chrome-context";
+import { useChromeDispatch } from "@/contexts/chrome-context";
 import { SessionCard } from "@/components/session-card";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
@@ -22,8 +22,9 @@ type FlatWindow = {
 
 export function DashboardClient({ initialSessions }: Props) {
   const router = useRouter();
-  const { sessions, isConnected } = useSessions(initialSessions);
-  const { setBreadcrumbs, setLine2Left, setLine2Right, setIsConnected } = useChrome();
+  const { sessions: liveSessions, isConnected } = useSessions();
+  const sessions = isConnected ? liveSessions : initialSessions;
+  const { setBreadcrumbs, setLine2Left, setLine2Right } = useChromeDispatch();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createSessionName, setCreateSessionName] = useState("");
   const [createSessionPath, setCreateSessionPath] = useState("");
@@ -81,13 +82,18 @@ export function DashboardClient({ initialSessions }: Props) {
     [router],
   );
 
+  const shortcuts = useMemo(
+    () => ({
+      c: () => setShowCreateDialog(true),
+      "/": () => searchInputRef.current?.focus(),
+    }),
+    [],
+  );
+
   const { focusedIndex } = useKeyboardNav({
     itemCount: filteredWindows.length,
     onSelect: navigateToWindow,
-    shortcuts: {
-      c: () => setShowCreateDialog(true),
-      "/": () => searchInputRef.current?.focus(),
-    },
+    shortcuts,
   });
 
   // Counts for summary
@@ -99,44 +105,20 @@ export function DashboardClient({ initialSessions }: Props) {
   // Set chrome slots
   useEffect(() => {
     setBreadcrumbs([]);
+    setLine2Left(
+      <button
+        onClick={() => setShowCreateDialog(true)}
+        className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
+      >
+        + New Session
+      </button>,
+    );
     return () => {
       setBreadcrumbs([]);
       setLine2Left(null);
       setLine2Right(null);
     };
   }, [setBreadcrumbs, setLine2Left, setLine2Right]);
-
-  useEffect(() => {
-    setIsConnected(isConnected);
-  }, [isConnected, setIsConnected]);
-
-  useEffect(() => {
-    setLine2Left(
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => setShowCreateDialog(true)}
-          className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
-        >
-          + New Session
-        </button>
-        <input
-          ref={searchInputRef}
-          type="text"
-          value={filterQuery}
-          onChange={(e) => setFilterQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setFilterQuery("");
-              (e.target as HTMLInputElement).blur();
-            }
-          }}
-          aria-label="Search windows"
-          placeholder="Search windows..."
-          className="bg-bg-card text-text-primary text-sm px-3 py-1 border border-border rounded outline-none placeholder:text-text-secondary w-48 focus:border-text-secondary"
-        />
-      </div>,
-    );
-  }, [filterQuery, setLine2Left]);
 
   useEffect(() => {
     setLine2Right(
@@ -295,6 +277,27 @@ export function DashboardClient({ initialSessions }: Props) {
 
   return (
     <>
+      {/* Inline search — avoids per-keystroke chrome context updates */}
+      {flatWindows.length > 0 && (
+        <div className="mb-4">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setFilterQuery("");
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+            aria-label="Search windows"
+            placeholder="Search windows..."
+            className="bg-bg-card text-text-primary text-sm px-3 py-1 border border-border rounded outline-none placeholder:text-text-secondary w-48 focus:border-text-secondary"
+          />
+        </div>
+      )}
+
       {filteredWindows.length === 0 && flatWindows.length === 0 ? (
         <div className="text-center text-text-secondary py-16">
           <p className="text-sm">No active sessions</p>

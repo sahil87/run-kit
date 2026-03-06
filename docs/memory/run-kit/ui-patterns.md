@@ -34,7 +34,7 @@ Connection indicator: green/gray dot with "live"/"disconnected" label, driven by
 
 | Page | Left content | Right content |
 |------|-------------|---------------|
-| Dashboard | "+ New Session" button, always-visible search input | `{N} sessions, {M} windows` |
+| Dashboard | "+ New Session" button (via chrome slot) | `{N} sessions, {M} windows` |
 | Project | "+ New Window" button, "Send Message" button (disabled when no windows) | `{N} windows` |
 | Terminal | "Kill Window" button (red hover) | Activity dot + fab stage badge |
 
@@ -118,8 +118,9 @@ Dark theme only. Linear/Raycast aesthetic.
 - **Server Components by default** — Client Components only for keyboard handlers, xterm.js, SSE consumers
 - **No loading spinners** — SSE keeps data fresh, pages render with whatever data is available
 - **No `useEffect` for data fetching** — Server Components fetch initial data, passed to Client Components
-- **SSE via `useSessions` hook** — replaces entire state on each event, auto-reconnects. Used on all three pages (terminal page added for connection indicator + window status)
-- **ChromeProvider context** (`src/contexts/chrome-context.tsx`) — slot injection for top bar content (breadcrumbs, line2Left, line2Right, isConnected) and bottom bar. Pages set slots via `useEffect` with cleanup on unmount. Context value memoized.
+- **SSE via `useSessions` hook** — thin wrapper over `SessionProvider` context. Single `EventSource` at layout level, shared across all pages. Replaces entire state on each event, auto-reconnects via `EventSource` built-in. Server-side SSE uses a module-level singleton that deduplicates polling across browser tabs
+- **ChromeProvider context** (`src/contexts/chrome-context.tsx`) — split into state/dispatch contexts. `useChrome()` for components reading state (TopBarChrome, BottomSlot, ContentSlot). `useChromeDispatch()` for setter-only consumers (page components) — stable reference, no re-renders from state changes. Pages set slots via `useEffect` with cleanup on unmount.
+- **SessionProvider context** (`src/contexts/session-context.tsx`) — layout-level provider owning the single `EventSource`. All pages consume session data via `useSessions()` hook. Connection status forwarded to ChromeProvider internally.
 - **Shared `Dialog` component** (`src/components/dialog.tsx`) — reusable modal with title, backdrop, close-on-click. Used for create, kill, send dialogs across all pages
 
 ## Create Session Dialog
@@ -151,3 +152,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-05 | Create Session dialog with folder picker — quick picks, server-side autocomplete, name auto-derivation | `260305-zkem-session-folder-picker` |
 | 2026-03-06 | Chrome architecture — layout-owned skeleton, ChromeProvider context, TopBarChrome, icon breadcrumbs, always-visible kill buttons | `260305-emla-fixed-chrome-architecture` |
 | 2026-03-06 | Bottom bar with modifier toggles, arrow keys, Fn dropdown, compose buffer, iOS keyboard support | `260305-fjh1-bottom-bar-compose-buffer` |
+| 2026-03-06 | Performance: split ChromeContext (state/dispatch), layout-level SessionProvider, inline dashboard search, memoized shortcuts | `260306-0ahl-perf-sse-chrome-sessions` |

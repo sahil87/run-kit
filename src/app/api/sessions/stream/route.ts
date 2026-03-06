@@ -3,46 +3,115 @@ import { SSE_POLL_INTERVAL } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const encoder = new TextEncoder();
-  let previousJson = "";
-  let closed = false;
+/** Max connection lifetime before forcing reconnect (30 minutes). */
+const MAX_LIFETIME_MS = 30 * 60 * 1000;
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      const poll = async () => {
-        if (closed) return;
+// --- Module-level singleton: shared poll loop for all SSE clients ---
 
-        try {
-          const sessions = await fetchSessions();
-          const json = JSON.stringify(sessions);
+type Client = {
+  controller: ReadableStreamController<Uint8Array>;
+  lifetimeTimer: ReturnType<typeof setTimeout>;
+};
 
-          // Only emit when state has changed
-          if (json !== previousJson && !closed) {
-            previousJson = json;
-            const event = `event: sessions\ndata: ${json}\n\n`;
-            try {
-              controller.enqueue(encoder.encode(event));
-            } catch {
-              // Controller may be closed between our check and enqueue
-              closed = true;
-              return;
-            }
+const clients = new Set<Client>();
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let previousJson = "";
+let isPolling = false;
+const encoder = new TextEncoder();
+
+function startPolling() {
+  if (pollTimer || isPolling) return;
+
+  async function poll() {
+    if (clients.size === 0) {
+      pollTimer = null;
+      isPolling = false;
+      return;
+    }
+
+    isPolling = true;
+
+    try {
+      const sessions = await fetchSessions();
+      const json = JSON.stringify(sessions);
+
+      if (json !== previousJson) {
+        previousJson = json;
+        const event = encoder.encode(`event: sessions\ndata: ${json}\n\n`);
+
+        for (const client of clients) {
+          try {
+            client.controller.enqueue(event);
+          } catch {
+            removeClient(client);
           }
+        }
+      }
+    } catch {
+      // Polling error — skip this cycle
+    }
+
+    isPolling = false;
+    if (clients.size > 0) {
+      pollTimer = setTimeout(poll, SSE_POLL_INTERVAL);
+    } else {
+      pollTimer = null;
+    }
+  }
+
+  poll();
+}
+
+function removeClient(client: Client) {
+  clearTimeout(client.lifetimeTimer);
+  clients.delete(client);
+
+  if (clients.size === 0 && pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+    // Keep previousJson so next connecting client gets an instant cached snapshot
+  }
+}
+
+// --- Route handler ---
+
+export async function GET() {
+  let client: Client | null = null;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      // Send cached snapshot immediately if available
+      if (previousJson) {
+        try {
+          controller.enqueue(
+            encoder.encode(`event: sessions\ndata: ${previousJson}\n\n`),
+          );
         } catch {
-          // Polling error — skip this cycle, try again next interval
+          return;
         }
+      }
 
-        if (!closed) {
-          setTimeout(poll, SSE_POLL_INTERVAL);
+      const lifetimeTimer = setTimeout(() => {
+        if (client) {
+          try {
+            client.controller.close();
+          } catch {
+            // Already closed
+          }
+          removeClient(client);
+          client = null;
         }
-      };
+      }, MAX_LIFETIME_MS);
 
-      // Send initial snapshot immediately
-      await poll();
+      client = { controller, lifetimeTimer };
+      clients.add(client);
+      startPolling();
     },
     cancel() {
-      closed = true;
+      if (client) {
+        removeClient(client);
+        client = null;
+      }
     },
   });
 

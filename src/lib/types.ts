@@ -10,6 +10,7 @@ export type WindowInfo = {
   name: string;
   worktreePath: string;
   activity: "active" | "idle";
+  isActiveWindow: boolean;
   fabStage?: string;
   fabProgress?: string;
 };

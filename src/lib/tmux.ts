@@ -59,6 +59,7 @@ export async function listWindows(session: string): Promise<WindowInfo[]> {
     "#{window_name}",
     "#{pane_current_path}",
     "#{window_activity}",
+    "#{window_active}",
   ].join(LIST_WINDOWS_DELIM);
 
   let lines: string[];
@@ -71,15 +72,16 @@ export async function listWindows(session: string): Promise<WindowInfo[]> {
   const now = Math.floor(Date.now() / 1000);
 
   return lines.map((line) => {
-    const [indexStr, name, worktreePath, activityStr] =
+    const [indexStr, name, worktreePath, activityStr, activeStr] =
       line.split(LIST_WINDOWS_DELIM);
     const index = parseInt(indexStr, 10);
     const activityTs = parseInt(activityStr, 10);
 
     const activity: WindowInfo["activity"] =
       now - activityTs <= ACTIVITY_THRESHOLD_SECONDS ? "active" : "idle";
+    const isActiveWindow = activeStr === "1";
 
-    return { index, name, worktreePath, activity };
+    return { index, name, worktreePath, activity, isActiveWindow };
   });
 }
 

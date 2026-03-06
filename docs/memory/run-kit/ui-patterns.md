@@ -20,7 +20,7 @@ The root layout renders `TopBarChrome` (`src/components/top-bar-chrome.tsx`) whi
 |------|-----------|
 | Dashboard | `{logo}` (SVG logo only) |
 | Project | `{logo} › ⬡ {name}` |
-| Terminal | `{logo} › ⬡ {name} › ❯ {window}` |
+| Terminal | `{logo} › ⬡ {name} › ❯ {window}` (syncs with tmux active window via SSE) |
 
 - Logo SVG (`logo.svg`) — always links to `/`
 - ⬡ — Unicode hexagon (U+2B21), `text-text-secondary`, precedes project name
@@ -117,7 +117,7 @@ The terminal container div has `touch-none` (CSS `touch-action: none`) to preven
 ### Terminal View
 | Key | Action |
 |-----|--------|
-| `r` | Rename window |
+| `r` | Rename active window (follows byobu switches) |
 
 All keyboard shortcuts are registered in the command palette.
 
@@ -180,3 +180,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-07 | iOS touch scroll fix — `touch-none` on terminal container, fullbleed class toggle for body overflow/overscroll prevention | `260307-8n60-fix-ios-terminal-touch-scroll` |
 | 2026-03-07 | File upload: clipboard paste, drag-and-drop, file picker button, compose buffer path insertion, command palette action | `260307-kqio-image-upload-claude-terminal` |
 | 2026-03-07 | iOS keyboard viewport overlap fix — scroll+resize listeners on visualViewport, fixed positioning for app-shell in fullbleed | `260307-f3o9-ios-keyboard-viewport-overlap` |
+| 2026-03-07 | Active window sync — breadcrumb, URL, rename/kill targets follow byobu/tmux window switches via SSE + `history.replaceState` | `260307-f3li-sync-byobu-active-tab` |

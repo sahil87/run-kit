@@ -22,7 +22,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 
 | Module | Responsibility |
 |--------|---------------|
-| `src/lib/tmux.ts` | All tmux operations via `execFile` with argument arrays + timeouts |
+| `src/lib/tmux.ts` | All tmux operations via `execFile` with argument arrays + timeouts. `listWindows()` includes `isActiveWindow` flag from `#{window_active}` |
 | `src/lib/worktree.ts` | Wraps fab-kit `wt-*` scripts (never reimplements) |
 | `src/lib/fab.ts` | Reads fab state (progress-line, current change, change list) |
 | `src/lib/sessions.ts` | Derives project roots from tmux, auto-detects fab-kit, enriches with fab state. Session enrichment runs in parallel via `Promise.all` with indexed assignment to preserve tmux ordering |
@@ -89,14 +89,15 @@ Pages do NOT render their own top bar or outer containers — they set chrome sl
 
 ## Design Decisions
 
-- **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient. Module-level singleton deduplicates polling across tabs (one `fetchSessions()` per interval regardless of client count)
+- **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient. Module-level singleton deduplicates polling across tabs (one `fetchSessions()` per interval regardless of client count). SSE data includes `isActiveWindow` per window, enabling UI sync when users switch tmux/byobu windows via terminal shortcuts
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
-- **Independent panes per browser client** — no cursor fights, agent pane untouched
+- **Independent panes per browser client** — no cursor fights, agent pane untouched. The relay pty follows byobu window switches natively (runs `tmux attach-session`)
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
 - **Config resolution: CLI > YAML > defaults** — `src/lib/config.ts` reads `run-kit.yaml` (optional, gitignored) and CLI args. Relay port delivered to client via server component prop (runtime, not build-time)
 - **Byobu session-group filtering** — `listSessions()` filters out derived session-group copies to avoid duplicate projects. See `docs/memory/run-kit/tmux-sessions.md`
 - **Layout-owned chrome (not per-page TopBar)** — Split React Context for slot injection: state context (re-renders readers) and dispatch context (stable setters, no re-renders). Pages inject content via `useChromeDispatch()` setters in `useEffect`; layout renders it in fixed positions. Prevents both layout shift and cascade re-renders.
 - **Layout-level SessionProvider (not per-page SSE)** — Single `EventSource` connection at layout level, shared across all pages. Eliminates redundant connections and per-page `isConnected` forwarding boilerplate.
+- **Active window sync via `history.replaceState` (not `router.replace()`)** — When byobu switches windows, the terminal relay pty already shows the correct content. The UI syncs breadcrumb, URL, and action targets via SSE polling (2.5s). URL updates use `window.history.replaceState()` which is invisible to Next.js — no server component re-render, no terminal reinitialization. `router.replace()` would change the `[window]` dynamic segment, causing a full remount and xterm flash.
 - **Sticky modifier state via useRef + forceUpdate** — `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders. Ensures `consume()` reads the latest value atomically without stale closure issues.
 - **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.
 - **Armed modifiers bridge to physical keyboard** — When bottom-bar modifiers (Ctrl/Alt/Cmd) are armed, a capture-phase `keydown` listener intercepts physical keypresses, translates them to terminal escape sequences (Ctrl+letter → control characters, Alt/Cmd → ESC prefix), and sends via WebSocket. Prevents xterm from receiving the unmodified key. Ignores real Cmd/Ctrl/Alt held by the OS.
@@ -139,3 +140,4 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 | 2026-03-07 | iOS touch scroll prevention — fullbleed class toggle on html, touch-none on terminal container | `260307-8n60-fix-ios-terminal-touch-scroll` |
 | 2026-03-07 | File upload: `/api/upload` endpoint, clipboard paste/drag-drop/file picker triggers, compose buffer integration, `.uploads/` auto-gitignore | `260307-kqio-image-upload-claude-terminal` |
 | 2026-03-07 | iOS keyboard viewport overlap fix — visualViewport scroll listener, fixed positioning in fullbleed mode | `260307-f3o9-ios-keyboard-viewport-overlap` |
+| 2026-03-07 | Sync byobu active tab — `isActiveWindow` on `WindowInfo`, breadcrumb/URL/action sync via SSE + `history.replaceState` | `260307-f3li-sync-byobu-active-tab` |

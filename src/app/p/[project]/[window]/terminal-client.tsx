@@ -36,33 +36,56 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
 
   useVisualViewport();
 
-  // Look up current window's status from session data
-  const currentWindow = useMemo(() => {
+  // Look up active window from session data (follows byobu/tmux switches)
+  const activeWindow = useMemo(() => {
     const session = sessions.find((s) => s.name === projectName);
-    return session?.windows.find((w) => String(w.index) === windowIndex);
+    if (!session) return undefined;
+    // Prefer the tmux-active window; fall back to URL-based lookup
+    return session.windows.find((w) => w.isActiveWindow)
+      ?? session.windows.find((w) => String(w.index) === windowIndex);
   }, [sessions, projectName, windowIndex]);
 
-  // Set chrome slots
+  // Track active window index and name (initialized from URL params, updated by SSE)
+  const activeIndexRef = useRef(windowIndex);
+  const activeNameRef = useRef(windowName);
+  useEffect(() => {
+    if (activeWindow) {
+      activeIndexRef.current = String(activeWindow.index);
+      activeNameRef.current = activeWindow.name;
+    }
+  }, [activeWindow]);
+
+  // Set chrome slots + sync breadcrumb/URL with active window
+  const displayName = activeWindow?.name ?? windowName;
+  const displayIndex = activeWindow ? String(activeWindow.index) : windowIndex;
+
   useEffect(() => {
     setFullbleed(true);
-    setBreadcrumbs([
-      { icon: "⬡", label: projectName, href: `/p/${projectName}` },
-      { icon: "❯", label: windowName },
-    ]);
     return () => {
       setFullbleed(false);
       setBreadcrumbs([]);
       setLine2Left(null);
       setLine2Right(null);
     };
-  }, [projectName, windowName, setBreadcrumbs, setLine2Left, setLine2Right, setFullbleed]);
+  }, [setBreadcrumbs, setLine2Left, setLine2Right, setFullbleed]);
+
+  // Update breadcrumb and URL when active window changes
+  useEffect(() => {
+    setBreadcrumbs([
+      { icon: "⬡", label: projectName, href: `/p/${projectName}` },
+      { icon: "❯", label: displayName },
+    ]);
+    // Sync URL without triggering Next.js routing
+    const newUrl = `/p/${encodeURIComponent(projectName)}/${displayIndex}?name=${encodeURIComponent(displayName)}`;
+    window.history.replaceState(null, "", newUrl);
+  }, [projectName, displayName, displayIndex, setBreadcrumbs]);
 
   useEffect(() => {
     setLine2Left(
       <div className="flex items-center gap-3">
         <button
           onClick={() => {
-            setRenameName(windowName);
+            setRenameName(activeNameRef.current);
             setShowRenameDialog(true);
           }}
           className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
@@ -77,31 +100,31 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         </button>
       </div>,
     );
-  }, [setLine2Left, windowName]);
+  }, [setLine2Left]);
 
   useEffect(() => {
     setLine2Right(
       <div className="flex items-center gap-2 text-xs text-text-secondary">
-        {currentWindow && (
+        {activeWindow && (
           <>
             <span
               className={`w-2 h-2 rounded-full ${
-                currentWindow.activity === "active"
+                activeWindow.activity === "active"
                   ? "bg-accent-green"
                   : "bg-text-secondary"
               }`}
             />
-            <span>{currentWindow.activity}</span>
-            {currentWindow.fabProgress && (
+            <span>{activeWindow.activity}</span>
+            {activeWindow.fabProgress && (
               <span className="text-accent px-1.5 py-0.5 rounded bg-accent/10">
-                fab: {currentWindow.fabProgress}
+                fab: {activeWindow.fabProgress}
               </span>
             )}
           </>
         )}
       </div>,
     );
-  }, [currentWindow, setLine2Right]);
+  }, [activeWindow, setLine2Right]);
 
   // Bottom bar injection
   useEffect(() => {
@@ -148,11 +171,11 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
       if (e.key === "r") {
-        setRenameName(windowName);
+        setRenameName(activeNameRef.current);
         setShowRenameDialog(true);
       }
     },
-    [projectName, windowName, router],
+    [projectName, router],
   );
 
   useEffect(() => {
@@ -303,7 +326,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         body: JSON.stringify({
           action: "renameWindow",
           session: projectName,
-          index: parseInt(windowIndex, 10),
+          index: parseInt(activeIndexRef.current, 10),
           name: renameName.trim(),
         }),
       });
@@ -322,7 +345,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         body: JSON.stringify({
           action: "killWindow",
           session: projectName,
-          index: parseInt(windowIndex, 10),
+          index: parseInt(activeIndexRef.current, 10),
         }),
       });
     } catch {
@@ -339,7 +362,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         label: "Rename window",
         shortcut: "r",
         onSelect: () => {
-          setRenameName(windowName);
+          setRenameName(activeNameRef.current);
           setShowRenameDialog(true);
         },
       },
@@ -359,7 +382,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         onSelect: () => router.push("/"),
       },
     ],
-    [projectName, windowName, router],
+    [projectName, router],
   );
 
   return (
@@ -367,7 +390,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       <div
         ref={terminalRef}
         role="application"
-        aria-label={`Terminal: ${projectName}/${windowName}`}
+        aria-label={`Terminal: ${projectName}/${displayName}`}
         className={`flex-1 min-h-0 transition-opacity ${composeOpen ? "opacity-50" : ""}`}
       />
 
@@ -402,7 +425,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       {showKillConfirm && (
         <Dialog title="Kill window?" onClose={() => setShowKillConfirm(false)}>
           <p className="text-sm text-text-secondary mb-3">
-            Kill window <strong>{windowName}</strong>? This cannot be undone.
+            Kill window <strong>{displayName}</strong>? This cannot be undone.
           </p>
           <div className="flex gap-2">
             <button

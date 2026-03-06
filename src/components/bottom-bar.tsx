@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-state";
+import { ArrowPad } from "@/components/arrow-pad";
 
 type BottomBarProps = {
   wsRef: React.RefObject<WebSocket | null>;
@@ -20,13 +21,6 @@ function modParam(mods: ModifierSnapshot): number {
 function hasModifiers(mods: ModifierSnapshot): boolean {
   return mods.ctrl || mods.alt || mods.cmd;
 }
-
-const ARROWS = [
-  { label: "\u2190", name: "Left", code: "D" },
-  { label: "\u2192", name: "Right", code: "C" },
-  { label: "\u2191", name: "Up", code: "A" },
-  { label: "\u2193", name: "Down", code: "B" },
-] as const;
 
 const FN_KEYS = [
   { label: "F1", plain: "\x1bOP", mod: (p: number) => `\x1b[1;${p}P` },
@@ -137,17 +131,8 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
 
       <div className="w-px h-6 bg-border mx-1" aria-hidden="true" />
 
-      {/* Arrow keys */}
-      {ARROWS.map(({ label, name, code }) => (
-        <button
-          key={code}
-          aria-label={`${name} arrow`}
-          className={`${KBD_CLASS} text-text-secondary`}
-          onClick={() => sendArrow(code)}
-        >
-          <kbd aria-hidden="true">{label}</kbd>
-        </button>
-      ))}
+      {/* Arrow keys — combined pad: drag to send, tap to open popup */}
+      <ArrowPad onArrow={sendArrow} />
 
       <div className="w-px h-6 bg-border mx-1" aria-hidden="true" />
 

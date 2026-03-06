@@ -11,7 +11,7 @@ type ArrowPadProps = {
 };
 
 const ARROW_BTN =
-  "min-h-[40px] min-w-[40px] flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none active:bg-bg-card hover:border-text-secondary focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-[34px] min-w-[34px] flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none active:bg-bg-card hover:border-text-secondary focus-visible:outline-2 focus-visible:outline-accent";
 
 /**
  * Combined arrow key control:
@@ -102,14 +102,14 @@ export function ArrowPad({ onArrow, className }: ArrowPadProps) {
         aria-label="Arrow keys"
         aria-haspopup="true"
         aria-expanded={open}
-        className="min-h-[44px] px-2.5 py-1.5 text-sm border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent text-text-secondary touch-none"
+        className="min-h-[36px] px-2 py-1 text-sm border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent text-text-secondary touch-none"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onClick={handleClick}
       >
-        <kbd aria-hidden="true">{"\u2BC6"}</kbd>
+        <kbd aria-hidden="true">{"\u25B2"}</kbd>
       </button>
 
       {/* Arrow popup — inverted-T layout like physical keyboard */}

@@ -5,6 +5,7 @@ vi.mock("@/lib/tmux", () => ({
   createWindow: vi.fn(),
   killSession: vi.fn(),
   killWindow: vi.fn(),
+  renameWindow: vi.fn(),
   sendKeys: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ import {
   createWindow,
   killSession,
   killWindow,
+  renameWindow,
   sendKeys,
 } from "@/lib/tmux";
 
@@ -135,6 +137,53 @@ describe("POST /api/sessions", () => {
         action: "killWindow",
         session: "s",
         index: -1,
+      });
+      expect(status).toBe(400);
+      expect(data.error).toContain("Invalid window index");
+    });
+  });
+
+  describe("renameWindow", () => {
+    it("succeeds with valid params", async () => {
+      const { status, data } = await postJson({
+        action: "renameWindow",
+        session: "s",
+        index: 1,
+        name: "new-name",
+      });
+      expect(status).toBe(200);
+      expect(data).toEqual({ ok: true });
+      expect(renameWindow).toHaveBeenCalledWith("s", 1, "new-name");
+    });
+
+    it("rejects empty name with 400", async () => {
+      const { status, data } = await postJson({
+        action: "renameWindow",
+        session: "s",
+        index: 1,
+        name: "",
+      });
+      expect(status).toBe(400);
+      expect(data.error).toContain("cannot be empty");
+    });
+
+    it("rejects forbidden characters in name with 400", async () => {
+      const { status, data } = await postJson({
+        action: "renameWindow",
+        session: "s",
+        index: 0,
+        name: "bad;name",
+      });
+      expect(status).toBe(400);
+      expect(data.error).toContain("forbidden characters");
+    });
+
+    it("rejects invalid index with 400", async () => {
+      const { status, data } = await postJson({
+        action: "renameWindow",
+        session: "s",
+        index: -1,
+        name: "valid",
       });
       expect(status).toBe(400);
       expect(data.error).toContain("Invalid window index");

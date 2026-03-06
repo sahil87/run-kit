@@ -139,6 +139,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 run-kit.yaml
+Caddyfile
 
 fab/current
 fab/.kit-sync-version

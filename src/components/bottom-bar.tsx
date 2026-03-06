@@ -87,6 +87,52 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
     return () => document.removeEventListener("keydown", handleKey);
   }, [fnOpen, extOpen]);
 
+  // Intercept physical keyboard input when modifiers are armed.
+  // Builds the correct terminal escape sequence and sends via WebSocket,
+  // preventing xterm from receiving the unmodified key.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!mods.isArmed()) return;
+
+      // Ignore modifier keys themselves
+      if (["Control", "Alt", "Meta", "Shift", "CapsLock"].includes(e.key)) return;
+      // Don't intercept if real Cmd/Ctrl/Alt is held (browser/OS handles those)
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const snapshot = mods.consume();
+      const key = e.key;
+      let seq = "";
+
+      if (snapshot.ctrl && key.length === 1 && /[a-zA-Z]/.test(key)) {
+        // Ctrl+letter → control character (A=0x01, ..., Z=0x1a)
+        const ctrlChar = String.fromCharCode(key.toUpperCase().charCodeAt(0) - 64);
+        seq = (snapshot.alt || snapshot.cmd ? "\x1b" : "") + ctrlChar;
+      } else if (snapshot.ctrl && key.length === 1) {
+        // Ctrl+special chars: [ ] \ ^ _ @ etc.
+        const c = key.charCodeAt(0);
+        if (c >= 0x40 && c <= 0x7f) {
+          seq = (snapshot.alt || snapshot.cmd ? "\x1b" : "") + String.fromCharCode(c & 0x1f);
+        } else {
+          seq = (snapshot.alt || snapshot.cmd ? "\x1b" : "") + key;
+        }
+      } else if (snapshot.alt || snapshot.cmd) {
+        // Alt/Cmd only → ESC prefix + key
+        seq = "\x1b" + key;
+      }
+
+      if (seq) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(seq);
+        }
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [mods, wsRef]);
+
   const send = useCallback(
     (data: string) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {

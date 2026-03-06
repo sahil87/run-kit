@@ -30,6 +30,15 @@ export function useModifierState() {
     return snapshot;
   }, []);
 
+  /** Read current state without consuming — safe in event handlers. */
+  const peek = useCallback((): ModifierSnapshot => ({ ...stateRef.current }), []);
+
+  /** True if any modifier is currently armed. */
+  const isArmed = useCallback((): boolean => {
+    const s = stateRef.current;
+    return s.ctrl || s.alt || s.cmd;
+  }, []);
+
   return useMemo(
     () => ({
       ctrl: stateRef.current.ctrl,
@@ -39,6 +48,8 @@ export function useModifierState() {
       disarm,
       toggle,
       consume,
+      peek,
+      isArmed,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [stateRef.current.ctrl, stateRef.current.alt, stateRef.current.cmd, arm, disarm, toggle, consume],

@@ -4,7 +4,8 @@ set -euo pipefail
 # fab/.kit/sync/5-sync-hooks.sh — Register hook scripts into .claude/settings.local.json
 #
 # Discovers on-*.sh files in fab/.kit/hooks/, maps filenames to Claude Code
-# hook events, and merges entries into .claude/settings.local.json. Idempotent.
+# hook events (with optional matchers), and merges entries into
+# .claude/settings.local.json. Idempotent.
 
 sync_dir="$(cd "$(dirname "$0")" && pwd)"
 kit_dir="$(dirname "$sync_dir")"
@@ -32,24 +33,35 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-# ── Map filenames to events ──────────────────────────────────────────
-# Returns the Claude Code hook event name for a given filename.
-# Unknown filenames return empty string (skipped).
-map_event() {
-  case "$1" in
-    on-session-start.sh) echo "SessionStart" ;;
-    on-stop.sh)          echo "Stop" ;;
-    *)                   echo "" ;;
-  esac
-}
+# ── Mapping table: filename → event:matcher pairs ────────────────────
+# Each entry is "filename|event|matcher". A single script can appear
+# multiple times with different matchers.
+HOOK_MAPPINGS=(
+  "on-session-start.sh|SessionStart|"
+  "on-stop.sh|Stop|"
+  "on-artifact-write.sh|PostToolUse|Write"
+  "on-artifact-write.sh|PostToolUse|Edit"
+)
 
 # ── Build desired hooks JSON ─────────────────────────────────────────
-# Construct a JSON object: { "EventName": [{"matcher":"","hooks":[{"type":"command","command":"..."}]}], ... }
+# Construct a JSON object: { "EventName": [{"matcher":"...","hooks":[{"type":"command","command":"..."}]}], ... }
 desired='{}'
-for hook_file in "${hooks[@]}"; do
-  event="$(map_event "$hook_file")"
-  [ -n "$event" ] || continue
-  entry=$(jq -n --arg cmd "bash fab/.kit/hooks/$hook_file" '{"matcher":"","hooks":[{"type":"command","command":$cmd}]}')
+
+for mapping in "${HOOK_MAPPINGS[@]}"; do
+  IFS='|' read -r hook_file event matcher <<< "$mapping"
+
+  # Only register if the script actually exists in the hooks directory
+  found=false
+  for h in "${hooks[@]}"; do
+    if [ "$h" = "$hook_file" ]; then
+      found=true
+      break
+    fi
+  done
+  $found || continue
+
+  entry=$(jq -n --arg cmd "bash fab/.kit/hooks/$hook_file" --arg matcher "$matcher" \
+    '{"matcher":$matcher,"hooks":[{"type":"command","command":$cmd}]}')
   desired=$(echo "$desired" | jq --arg ev "$event" --argjson entry "$entry" \
     '.[$ev] = ((.[$ev] // []) + [$entry])')
 done
@@ -62,14 +74,15 @@ fi
 
 # ── Merge hooks into settings ────────────────────────────────────────
 # For each event in desired hooks, append matcher entries that don't already exist
-# (duplicate detection by hooks[].command field inside each matcher entry).
+# (duplicate detection by matcher + hooks[].command pair).
 merged=$(jq --argjson desired "$desired" '
   reduce ($desired | to_entries[]) as $ev (
     .;
     reduce $ev.value[] as $new_entry (
       .;
       ($new_entry.hooks[0].command) as $cmd |
-      if ((.hooks[$ev.key] // []) | [.[].hooks[].command] | index($cmd)) then
+      ($new_entry.matcher) as $mat |
+      if ((.hooks[$ev.key] // []) | map(select(.matcher == $mat)) | [.[].hooks[].command] | index($cmd)) then
         .
       else
         .hooks[$ev.key] = ((.hooks[$ev.key] // []) + [$new_entry])

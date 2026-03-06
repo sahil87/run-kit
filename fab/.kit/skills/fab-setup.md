@@ -58,7 +58,7 @@ This is best-effort — logman resolves the active change via `fab/current` if o
 
 ## Bootstrap Behavior
 
-When invoked with no arguments, perform the full structural bootstrap. `/fab-setup` delegates directory/symlink/skeleton creation to `fab/.kit/scripts/fab-sync.sh` (step 1f) while handling interactive config/constitution generation itself.
+When invoked with no arguments, perform the full structural bootstrap. `/fab-setup` delegates directory/symlink/skeleton creation to `fab/.kit/scripts/fab-sync.sh` (step 1j) while handling interactive config/constitution generation itself.
 
 ### Phase 0: Prerequisite Check
 
@@ -80,36 +80,36 @@ If exists and not a raw template: report "config.yaml already exists — skippin
 If missing or raw template (contains `{Project Name}`): execute **Constitution Behavior** (below) in create mode.
 If exists and not a raw template: report "constitution.md already exists — skipping".
 
-#### 1b2. `fab/project/context.md`
+#### 1c. `fab/project/context.md`
 
 If missing: copy `fab/.kit/scaffold/fab/project/context.md` to `fab/project/context.md`. Report "Created: fab/project/context.md".
 If exists: skip.
 
-#### 1b3. `fab/project/code-quality.md`
+#### 1d. `fab/project/code-quality.md`
 
 If missing: copy `fab/.kit/scaffold/fab/project/code-quality.md` to `fab/project/code-quality.md`. Report "Created: fab/project/code-quality.md".
 If exists: skip.
 
-#### 1b4. `fab/project/code-review.md`
+#### 1e. `fab/project/code-review.md`
 
 If missing: copy `fab/.kit/scaffold/fab/project/code-review.md` to `fab/project/code-review.md`. Report "Created: fab/project/code-review.md".
 If exists: skip.
 
-#### 1c. `docs/memory/index.md`
+#### 1f. `docs/memory/index.md`
 
 If missing, create `docs/memory/` directory and copy `fab/.kit/scaffold/docs/memory/index.md` to `docs/memory/index.md`.
 
 If exists: skip.
 
-#### 1d. `docs/specs/index.md`
+#### 1g. `docs/specs/index.md`
 
 If missing, create `docs/specs/` directory and copy `fab/.kit/scaffold/docs/specs/index.md` to `docs/specs/index.md`.
 
 If exists: skip.
 
-#### 1e. `fab/.kit-migration-version`
+#### 1h. `fab/.kit-migration-version`
 
-Handled by `fab-sync.sh` (step 1f). The scaffold script creates `fab/.kit-migration-version` with version logic based on project state:
+Handled by `fab-sync.sh` (step 1j). The scaffold script creates `fab/.kit-migration-version` with version logic based on project state:
 
 - **New project** (no `fab/project/config.yaml`): copies `fab/.kit/VERSION` value (engine version)
 - **Existing project** (has `fab/project/config.yaml`, no `fab/.kit-migration-version`): writes `0.1.0` (base version, run `/fab-setup migrations` to migrate)
@@ -120,12 +120,12 @@ On bootstrap output:
 - Existing project: `Created: fab/.kit-migration-version (0.1.0 — existing project, run "/fab-setup migrations" to migrate)`
 - Re-run: `fab/.kit-migration-version` reported as part of scaffold output (no modification)
 
-#### 1f. `fab/changes/`
+#### 1i. `fab/changes/`
 
 If missing: create `fab/changes/`, `fab/changes/archive/`, and `fab/changes/.gitkeep`.
 If exists: ensure `fab/changes/archive/` exists, then skip.
 
-#### 1g. `.claude/skills/` Symlinks
+#### 1j. `.claude/skills/` Symlinks
 
 Run `fab/.kit/scripts/fab-sync.sh` to create or repair all skill symlinks, directories, and `fab/.kit-migration-version`. The script discovers skills by globbing `fab/.kit/skills/fab-*.md` and creates:
 
@@ -141,7 +141,7 @@ If the script cannot execute, perform the equivalent manually:
 
 Report how many symlinks were created, repaired, or already valid.
 
-#### 1h. `.gitignore` — append `fab/current`
+#### 1k. `.gitignore` — append `fab/current`
 
 Read `.gitignore` (create if missing). If `fab/current` is not listed, append it.
 

@@ -6,13 +6,16 @@ project:
 source_paths:
   - {SOURCE_PATHS}
 
-# Project-specific categories appended to default checklist categories.
-# Defaults: functional_completeness, behavioral_correctness, scenario_coverage, edge_cases, security
+# The review stage validates code against a quality checklist.
+# Built-in categories: functional_completeness, behavioral_correctness,
+# scenario_coverage, edge_cases, security.
+# Add your own — each becomes an extra section in the checklist.
+# Example: [accessibility, performance, i18n]
 checklist:
   extra_categories: []
 
-# Per-stage directives for artifact generation.
-# Each stage key accepts a list of instructions the agent follows during generation.
+# Extra instructions the agent follows when generating each stage's artifact.
+# Add directives to shape how the agent writes specs, plans tasks, writes code, etc.
 stage_directives:
   intake: []
   spec:

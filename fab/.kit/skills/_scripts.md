@@ -42,6 +42,7 @@ fab/.kit/bin/fab <command> <subcommand> [args...]
 | `fab change` | Change lifecycle (new, rename, switch, list) |
 | `fab score` | Confidence scoring |
 | `fab archive` | Archive/restore operations |
+| `fab runtime` | Runtime state management (.fab-runtime.yaml) |
 
 ---
 
@@ -226,6 +227,23 @@ fab/.kit/bin/fab archive list
 **Resolution**: archive resolves `<change>` via standard resolution (active changes). `restore` uses internal archive-folder resolution. Both support 4-char ID, substring, and full folder name.
 
 **Output**: Both archive and restore output structured YAML to stdout. Skills parse this YAML to construct user-facing reports.
+
+---
+
+## fab runtime
+
+Runtime State Manager — manages `.fab-runtime.yaml` at the repo root. Used by hooks to track agent idle state per change.
+
+```
+fab/.kit/bin/fab runtime <subcommand> <change>
+```
+
+| Subcommand | Usage | Purpose |
+|------------|-------|---------|
+| `set-idle` | `set-idle <change>` | Write `agent.idle_since` Unix timestamp for the resolved change |
+| `clear-idle` | `clear-idle <change>` | Delete the `agent` block for the resolved change (no-op if file missing) |
+
+Both subcommands accept the standard `<change>` argument (4-char ID, substring, or full folder name). The runtime file is `.fab-runtime.yaml` at the repo root, keyed by the change's full folder name.
 
 ---
 

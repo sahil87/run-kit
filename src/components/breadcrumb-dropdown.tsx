@@ -88,7 +88,7 @@ export function BreadcrumbDropdown({ items, label, icon }: Props) {
         onClick={toggle}
         className="text-text-secondary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[44px] coarse:min-h-[44px] flex items-center justify-center"
       >
-        {icon}
+        {icon ?? "▾"}
       </button>
       {open && (
         <div

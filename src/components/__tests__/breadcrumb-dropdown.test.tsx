@@ -26,24 +26,34 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("renders a chevron button", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     expect(screen.getByRole("button", { name: /switch/i })).toBeInTheDocument();
   });
 
-  it("dropdown is hidden by default", () => {
+  it("renders icon as button content", () => {
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
+    expect(screen.getByRole("button", { name: /switch/i }).textContent).toBe("⬡");
+  });
+
+  it("falls back to ▾ when icon is omitted", () => {
     render(<BreadcrumbDropdown items={items} />);
+    expect(screen.getByRole("button", { name: /switch/i }).textContent).toBe("▾");
+  });
+
+  it("dropdown is hidden by default", () => {
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("opens dropdown on chevron click", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     expect(screen.getByRole("menu")).toBeInTheDocument();
     expect(screen.getAllByRole("menuitem")).toHaveLength(3);
   });
 
   it("closes dropdown on second chevron click", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     expect(screen.getByRole("menu")).toBeInTheDocument();
     clickChevron();
@@ -51,7 +61,7 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("closes dropdown on Escape", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     expect(screen.getByRole("menu")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
@@ -62,7 +72,7 @@ describe("BreadcrumbDropdown", () => {
     const { container } = render(
       <div>
         <span data-testid="outside">outside</span>
-        <BreadcrumbDropdown items={items} />
+        <BreadcrumbDropdown items={items} icon="⬡" />
       </div>,
     );
     clickChevron();
@@ -72,21 +82,21 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("highlights current item with accent color", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     const currentItem = screen.getByText("project-a");
     expect(currentItem.className).toContain("text-accent");
   });
 
   it("non-current items have secondary color", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     const otherItem = screen.getByText("project-b");
     expect(otherItem.className).toContain("text-text-secondary");
   });
 
   it("renders correct hrefs on menu items", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     const links = screen.getAllByRole("menuitem");
     expect(links[0]).toHaveAttribute("href", "/p/project-a");
@@ -95,7 +105,7 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("auto-focuses current item on open", async () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     // item 0 has current: true, should be auto-focused (via rAF)
     const currentItem = screen.getAllByRole("menuitem")[0];
@@ -103,7 +113,7 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("navigates items with ArrowDown", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     // Auto-focused on item 0 (current). ArrowDown → item 1
     fireEvent.keyDown(document, { key: "ArrowDown" });
@@ -116,7 +126,7 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("navigates items with ArrowUp", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     // Auto-focused on item 0. ArrowDown → item 1
     fireEvent.keyDown(document, { key: "ArrowDown" });
@@ -127,7 +137,7 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("ArrowDown wraps from last to first", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     // Auto-focused on item 0. Navigate to last item (2 ArrowDowns)
     fireEvent.keyDown(document, { key: "ArrowDown" });
@@ -139,7 +149,7 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("ArrowUp wraps from first to last", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     // Auto-focused on item 0. ArrowUp → wrap to last
     fireEvent.keyDown(document, { key: "ArrowUp" });
@@ -148,17 +158,17 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("uses contextual aria-label when label prop provided", () => {
-    render(<BreadcrumbDropdown items={items} label="project" />);
+    render(<BreadcrumbDropdown items={items} label="project" icon="⬡" />);
     expect(screen.getByRole("button", { name: "Switch project" })).toBeInTheDocument();
   });
 
   it("uses generic aria-label when no label prop", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     expect(screen.getByRole("button", { name: "Switch" })).toBeInTheDocument();
   });
 
   it("sets aria-expanded correctly", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     const button = screen.getByRole("button", { name: /switch/i });
     expect(button).toHaveAttribute("aria-expanded", "false");
     clickChevron();
@@ -166,7 +176,7 @@ describe("BreadcrumbDropdown", () => {
   });
 
   it("closes dropdown when item is clicked", () => {
-    render(<BreadcrumbDropdown items={items} />);
+    render(<BreadcrumbDropdown items={items} icon="⬡" />);
     clickChevron();
     fireEvent.click(screen.getByText("project-b"));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
@@ -174,7 +184,7 @@ describe("BreadcrumbDropdown", () => {
 
   it("handles single item list", () => {
     const singleItem = [{ label: "only-project", href: "/p/only-project", current: true }];
-    render(<BreadcrumbDropdown items={singleItem} />);
+    render(<BreadcrumbDropdown items={singleItem} icon="⬡" />);
     clickChevron();
     expect(screen.getAllByRole("menuitem")).toHaveLength(1);
     expect(screen.getByText("only-project").className).toContain("text-accent");

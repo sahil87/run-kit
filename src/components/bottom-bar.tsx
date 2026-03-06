@@ -171,7 +171,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
           className={`${KBD_CLASS} text-text-secondary`}
           onClick={() => setFnOpen((v) => !v)}
         >
-          <kbd aria-hidden="true">Fn</kbd>
+          <kbd aria-hidden="true">F&#x25B4;</kbd>
         </button>
         {fnOpen && (
           <div
@@ -232,12 +232,10 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
         )}
       </div>
 
-      <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
-
-      {/* Compose toggle */}
+      {/* Compose toggle — right-aligned */}
       <button
         aria-label="Compose text"
-        className={`${KBD_CLASS} text-text-secondary`}
+        className={`${KBD_CLASS} text-text-secondary ml-auto`}
         onClick={onOpenCompose}
       >
         <kbd aria-hidden="true">&#x270E;</kbd>

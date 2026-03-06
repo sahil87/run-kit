@@ -130,6 +130,7 @@ export function DashboardClient({ initialSessions }: Props) {
               (e.target as HTMLInputElement).blur();
             }
           }}
+          aria-label="Search windows"
           placeholder="Search windows..."
           className="bg-bg-card text-text-primary text-sm px-3 py-1 border border-border rounded outline-none placeholder:text-text-secondary w-48 focus:border-text-secondary"
         />
@@ -330,8 +331,8 @@ export function DashboardClient({ initialSessions }: Props) {
                       windowCount: session.windows.length,
                     })
                   }
+                  aria-label={`Kill session ${session.name}`}
                   className="text-text-secondary hover:text-red-400 transition-colors text-sm px-1"
-                  title="Kill session"
                 >
                   ✕
                 </button>
@@ -409,11 +410,12 @@ export function DashboardClient({ initialSessions }: Props) {
                   setAutocompleteSuggestions([]);
                 }
               }}
+              aria-label="Project path"
               placeholder="~/code/..."
               className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
             />
             {autocompleteSuggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1 bg-bg-primary border border-border rounded shadow-lg max-h-48 overflow-y-auto z-50">
+              <div role="listbox" aria-label="Directory suggestions" className="absolute left-0 right-0 top-full mt-1 bg-bg-primary border border-border rounded shadow-lg max-h-48 overflow-y-auto z-50">
                 {autocompleteSuggestions.map((dir) => (
                   <button
                     key={dir}
@@ -435,6 +437,7 @@ export function DashboardClient({ initialSessions }: Props) {
               value={createSessionName}
               onChange={(e) => setCreateSessionName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreateSession()}
+              aria-label="Session name"
               placeholder="Session name..."
               className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
             />

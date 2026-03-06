@@ -58,11 +58,11 @@ export function useChrome() {
 export function ContentSlot({ children }: { children: React.ReactNode }) {
   const { fullbleed } = useChrome();
   return (
-    <div className={`flex-1 min-h-0 overflow-x-hidden ${fullbleed ? "overflow-hidden" : "overflow-y-auto"}`}>
+    <main id="main-content" className={`flex-1 min-h-0 overflow-x-hidden ${fullbleed ? "overflow-hidden" : "overflow-y-auto"}`}>
       <div className={`max-w-4xl mx-auto w-full px-6 min-w-0 min-h-full flex flex-col ${fullbleed ? "overflow-hidden" : ""}`}>
         {children}
       </div>
-    </div>
+    </main>
   );
 }
 

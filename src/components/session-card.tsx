@@ -20,7 +20,8 @@ export function SessionCard({
   return (
     <button
       onClick={onClick}
-      className={`group w-full text-left p-3 rounded border transition-colors ${
+      aria-label={`${win.name} — ${projectName}, ${win.activity}`}
+      className={`group w-full text-left p-3 rounded border transition-colors focus-visible:outline-2 focus-visible:outline-accent ${
         focused
           ? "border-accent bg-bg-card/80"
           : "border-border bg-bg-card hover:border-text-secondary"
@@ -40,21 +41,20 @@ export function SessionCard({
             className={`w-2 h-2 rounded-full ${
               win.activity === "active" ? "bg-accent-green" : "bg-text-secondary"
             }`}
-            title={win.activity}
+            aria-label={win.activity}
           />
           {onKill && (
-            <span
-              role="button"
-              tabIndex={-1}
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onKill(e);
               }}
-              className="text-text-secondary hover:text-text-primary transition-colors ml-1 text-xs"
-              title="Kill window"
+              aria-label={`Kill window ${win.name}`}
+              className="text-text-secondary hover:text-text-primary transition-colors ml-1 text-xs focus-visible:outline-2 focus-visible:outline-accent"
             >
               ✕
-            </span>
+            </button>
           )}
         </div>
       </div>

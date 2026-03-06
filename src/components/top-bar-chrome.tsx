@@ -7,10 +7,10 @@ export function TopBarChrome() {
   const { breadcrumbs, line2Left, line2Right, isConnected } = useChrome();
 
   return (
-    <div>
+    <header>
       {/* Line 1: Breadcrumbs + Status */}
       <div className="flex items-center justify-between py-2">
-        <nav className="flex items-center gap-1.5 text-sm">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
           <Link
             href="/"
             className="font-bold text-text-primary hover:text-accent transition-colors"
@@ -19,9 +19,9 @@ export function TopBarChrome() {
           </Link>
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1.5">
-              <span className="text-text-secondary">›</span>
+              <span className="text-text-secondary" aria-hidden="true">›</span>
               {crumb.icon && (
-                <span className="text-text-secondary">{crumb.icon}</span>
+                <span className="text-text-secondary" aria-hidden="true">{crumb.icon}</span>
               )}
               {crumb.href ? (
                 <Link
@@ -31,18 +31,19 @@ export function TopBarChrome() {
                   {crumb.label}
                 </Link>
               ) : (
-                <span className="text-text-primary font-medium">
+                <span className="text-text-primary font-medium" aria-current="page">
                   {crumb.label}
                 </span>
               )}
             </span>
           ))}
         </nav>
-        <div className="flex items-center gap-3 text-xs text-text-secondary">
+        <div className="flex items-center gap-3 text-xs text-text-secondary" role="status" aria-live="polite">
           <span
             className={`w-2 h-2 rounded-full ${
               isConnected ? "bg-accent-green" : "bg-text-secondary"
             }`}
+            aria-hidden="true"
           />
           <span>{isConnected ? "live" : "disconnected"}</span>
           <kbd className="px-1.5 py-0.5 rounded border border-border text-text-secondary">
@@ -56,6 +57,6 @@ export function TopBarChrome() {
         <div>{line2Left}</div>
         <div>{line2Right}</div>
       </div>
-    </div>
+    </header>
   );
 }

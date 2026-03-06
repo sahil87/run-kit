@@ -295,6 +295,8 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     <>
       <div
         ref={terminalRef}
+        role="application"
+        aria-label={`Terminal: ${projectName}/${windowName}`}
         className={`flex-1 min-h-0 transition-opacity ${composeOpen ? "opacity-50" : ""}`}
       />
 

@@ -357,6 +357,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         resizeRafId = requestAnimationFrame(() => {
           resizeRafId = null;
           fitAddon?.fit();
+          terminal?.scrollToBottom();
           if (wsRef.current?.readyState === WebSocket.OPEN && terminal) {
             wsRef.current.send(
               JSON.stringify({

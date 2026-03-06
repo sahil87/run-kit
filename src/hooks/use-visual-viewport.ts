@@ -9,14 +9,19 @@ export function useVisualViewport() {
 
     let rafId: number | null = null;
     let lastHeight = 0;
+    let lastOffsetTop = 0;
 
     function apply() {
       rafId = null;
       if (!vv) return;
       const h = vv.height;
-      if (h === lastHeight) return;
+      const ot = vv.offsetTop;
+      const changed = h !== lastHeight || ot !== lastOffsetTop;
+      if (!changed) return;
       lastHeight = h;
+      lastOffsetTop = ot;
       document.documentElement.style.setProperty("--app-height", `${h}px`);
+      document.documentElement.style.setProperty("--app-offset-top", `${ot}px`);
     }
 
     function onViewportChange() {
@@ -26,7 +31,9 @@ export function useVisualViewport() {
 
     // Initial sync (no rAF — run immediately)
     lastHeight = vv.height;
+    lastOffsetTop = vv.offsetTop;
     document.documentElement.style.setProperty("--app-height", `${vv.height}px`);
+    document.documentElement.style.setProperty("--app-offset-top", `${vv.offsetTop}px`);
 
     vv.addEventListener("resize", onViewportChange);
     vv.addEventListener("scroll", onViewportChange);
@@ -36,6 +43,7 @@ export function useVisualViewport() {
       vv.removeEventListener("scroll", onViewportChange);
       if (rafId) cancelAnimationFrame(rafId);
       document.documentElement.style.removeProperty("--app-height");
+      document.documentElement.style.removeProperty("--app-offset-top");
     };
   }, []);
 }

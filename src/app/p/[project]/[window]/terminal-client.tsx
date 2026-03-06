@@ -114,7 +114,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     return () => setBottomBar(null);
   }, [setBottomBar]);
 
-  // Double-Esc detection
+  // Keyboard shortcuts (double-Esc + rename)
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -129,9 +129,20 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
             escTimerRef.current = null;
           }, DOUBLE_ESC_TIMEOUT_MS);
         }
+        return;
+      }
+
+      // Guard: skip shortcuts when typing in inputs, dialogs, or palette
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (e.key === "r") {
+        setRenameName(windowName);
+        setShowRenameDialog(true);
       }
     },
-    [projectName, router],
+    [projectName, windowName, router],
   );
 
   useEffect(() => {

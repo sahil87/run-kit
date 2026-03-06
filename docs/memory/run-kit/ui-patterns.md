@@ -35,7 +35,7 @@ Connection indicator: green/gray dot with "live"/"disconnected" label, driven by
 | Page | Left content | Right content |
 |------|-------------|---------------|
 | Dashboard | "+ New Session" button (via chrome slot) | `{N} sessions, {M} windows` |
-| Project | "+ New Window" button, "Send Message" button, "Rename" button (disabled when no windows) | `{N} windows` |
+| Project | "+ New Window" button, "Send Message" button (disabled when no windows), "Rename" button (disabled when no windows) | `{N} windows` |
 | Terminal | "Rename" button, "Kill" button (red hover) | Activity dot + fab stage badge |
 
 Line 2 renders even when empty — prevents layout shift during navigation and before `useEffect` fires.

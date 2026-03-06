@@ -27,7 +27,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
   const wsRef = useRef<WebSocket | null>(null);
   const escTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { sessions, isConnected } = useSessions();
-  const { setBreadcrumbs, setLine2Left, setLine2Right, setBottomBar, setIsConnected } = useChrome();
+  const { setBreadcrumbs, setLine2Left, setLine2Right, setBottomBar, setIsConnected, setFullbleed } = useChrome();
   const [showKillConfirm, setShowKillConfirm] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
 
@@ -41,16 +41,18 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
 
   // Set chrome slots
   useEffect(() => {
+    setFullbleed(true);
     setBreadcrumbs([
       { icon: "⬡", label: projectName, href: `/p/${projectName}` },
       { icon: "❯", label: windowName },
     ]);
     return () => {
+      setFullbleed(false);
       setBreadcrumbs([]);
       setLine2Left(null);
       setLine2Right(null);
     };
-  }, [projectName, windowName, setBreadcrumbs, setLine2Left, setLine2Right]);
+  }, [projectName, windowName, setBreadcrumbs, setLine2Left, setLine2Right, setFullbleed]);
 
   useEffect(() => {
     setIsConnected(isConnected);

@@ -132,6 +132,16 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         return;
       }
 
+      // Ctrl/Cmd+Enter toggles compose buffer (unless already inside it)
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag !== "TEXTAREA") {
+          e.preventDefault();
+          setComposeOpen((v) => !v);
+          return;
+        }
+      }
+
       // Guard: skip shortcuts when typing in inputs, dialogs, or palette
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = (e.target as HTMLElement)?.tagName;
@@ -358,7 +368,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         ref={terminalRef}
         role="application"
         aria-label={`Terminal: ${projectName}/${windowName}`}
-        className={`flex-1 min-h-0 touch-none transition-opacity ${composeOpen ? "opacity-50" : ""}`}
+        className={`flex-1 min-h-0 transition-opacity ${composeOpen ? "opacity-50" : ""}`}
       />
 
       {composeOpen && (

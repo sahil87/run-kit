@@ -52,3 +52,8 @@ html.fullbleed body {
   overflow: hidden;
   overscroll-behavior: none;
 }
+
+/* Prevent xterm scroll from chaining to the page on iOS */
+.xterm .xterm-viewport {
+  overscroll-behavior: none;
+}

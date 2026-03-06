@@ -22,18 +22,13 @@ If we don't fix it, the terminal page is effectively unusable for text input on 
 
 ## What Changes
 
-### Fix `useVisualViewport` hook to account for viewport scroll offset
+### Fix `useVisualViewport` hook to handle scroll events
 
-The hook at `src/hooks/use-visual-viewport.ts` needs two changes:
+The hook at `src/hooks/use-visual-viewport.ts` needs to listen to both `resize` AND `scroll` events on `window.visualViewport`. The `scroll` event fires when iOS pans the viewport for the keyboard. Updates are throttled via `requestAnimationFrame` with a value-change guard to avoid unnecessary style recalcs.
 
-1. **Listen to both `resize` AND `scroll` events** on `window.visualViewport`
-2. **Set `--app-offset-top`** CSS custom property from `visualViewport.offsetTop` in addition to `--app-height` from `visualViewport.height`
+### Pin the layout container via fixed positioning in fullbleed mode
 
-### Pin the layout container to the visual viewport
-
-The flex container in `src/app/layout.tsx` (line 25) currently uses only `height: var(--app-height, 100vh)`. It needs to also apply a `translateY` or `top` offset derived from `--app-offset-top` so the container stays pinned to the actual visible area when iOS scrolls the page.
-
-Approach: use `position: fixed` with `top: var(--app-offset-top, 0px)` and `height: var(--app-height, 100vh)` on the outer container, or apply `transform: translateY(var(--app-offset-top, 0px))` to keep it in flow. The fixed-position approach is more reliable for this use case since it completely decouples from document scroll.
+The flex container in `src/app/layout.tsx` gets an `app-shell` class. In `globals.css`, when `html.fullbleed` is active (terminal page), the `.app-shell` container uses `position: fixed; inset: 0; width: 100%; height: var(--app-height, 100vh)`. This decouples the container from document scroll entirely — no `--app-offset-top` or `translateY` needed because fixed positioning pins to the viewport origin regardless of page scroll.
 <!-- assumed: fixed positioning approach — eliminates document scroll dependency entirely, more robust than translateY for iOS keyboard scenarios -->
 
 ## Affected Memory
@@ -43,9 +38,9 @@ Approach: use `position: fixed` with `top: var(--app-offset-top, 0px)` and `heig
 
 ## Impact
 
-- **`src/hooks/use-visual-viewport.ts`** — add `scroll` listener, set `--app-offset-top` property
-- **`src/app/layout.tsx`** — update flex container styling to use offset
-- **`src/app/globals.css`** — potentially add styles for fixed positioning on fullbleed
+- **`src/hooks/use-visual-viewport.ts`** — add `scroll` listener, rAF throttling, value-change guard
+- **`src/app/layout.tsx`** — add `app-shell` class to flex container
+- **`src/app/globals.css`** — add `position: fixed` rule for `.app-shell` in fullbleed mode
 
 Scope is narrow: two files modified, one CSS tweak. Only affects the terminal page (fullbleed mode) — dashboard and project pages use regular document flow with `100vh`.
 
@@ -57,7 +52,7 @@ Scope is narrow: two files modified, one CSS tweak. Only affects the terminal pa
 
 | # | Grade | Decision | Rationale | Scores |
 |---|-------|----------|-----------|--------|
-| 1 | Certain | Use `visualViewport.offsetTop` to track iOS scroll offset | This is the standard API for this purpose; no alternative exists | S:80 R:90 A:95 D:95 |
+| 1 | Certain | Use `position: fixed` in fullbleed mode instead of tracking `offsetTop` | Fixed positioning decouples from document scroll entirely; `offsetTop` tracking is unnecessary | S:80 R:90 A:95 D:95 |
 | 2 | Certain | Listen to both `resize` and `scroll` events on `visualViewport` | iOS fires `scroll` (not `resize`) when the page scrolls to accommodate the keyboard | S:80 R:90 A:95 D:95 |
 | 3 | Confident | Use `position: fixed` + `top`/`height` for the app container when fullbleed | More reliable than `translateY` for decoupling from iOS page scroll; only applies in fullbleed (terminal page) | S:60 R:75 A:70 D:65 |
 | 4 | Certain | Only the terminal page (fullbleed mode) is affected | Dashboard and project pages don't trigger the keyboard in a way that matters; they use normal overflow | S:85 R:90 A:90 D:90 |

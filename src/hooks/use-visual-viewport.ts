@@ -7,21 +7,34 @@ export function useVisualViewport() {
     const vv = window.visualViewport;
     if (!vv) return;
 
-    function update() {
+    let rafId: number | null = null;
+    let lastHeight = 0;
+
+    function apply() {
+      rafId = null;
       if (!vv) return;
-      document.documentElement.style.setProperty(
-        "--app-height",
-        `${vv.height}px`,
-      );
+      const h = vv.height;
+      if (h === lastHeight) return;
+      lastHeight = h;
+      document.documentElement.style.setProperty("--app-height", `${h}px`);
     }
 
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
+    function onViewportChange() {
+      if (rafId) return;
+      rafId = requestAnimationFrame(apply);
+    }
+
+    // Initial sync (no rAF — run immediately)
+    lastHeight = vv.height;
+    document.documentElement.style.setProperty("--app-height", `${vv.height}px`);
+
+    vv.addEventListener("resize", onViewportChange);
+    vv.addEventListener("scroll", onViewportChange);
 
     return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
+      vv.removeEventListener("resize", onViewportChange);
+      vv.removeEventListener("scroll", onViewportChange);
+      if (rafId) cancelAnimationFrame(rafId);
       document.documentElement.style.removeProperty("--app-height");
     };
   }, []);

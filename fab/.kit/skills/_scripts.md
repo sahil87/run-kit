@@ -39,10 +39,10 @@ fab/.kit/bin/fab <command> <subcommand> [args...]
 | `fab status show` | Worktree fab pipeline status |
 | `fab log` | Append-only history logging |
 | `fab preflight` | Validation + structured YAML output |
-| `fab change` | Change lifecycle (new, rename, switch, list) |
+| `fab change` | Change lifecycle (new, rename, switch, list, archive, restore, archive-list) |
 | `fab score` | Confidence scoring |
-| `fab archive` | Archive/restore operations |
 | `fab runtime` | Runtime state management (.fab-runtime.yaml) |
+| `fab pane-map` | Tmux pane-to-worktree mapping with fab pipeline state |
 
 ---
 
@@ -60,22 +60,34 @@ All commands accept a unified `<change>` argument:
 
 ---
 
-## fab resolve
+# Change Lifecycle
 
-Change Resolver — pure query, no side effects. Converts any change reference to a canonical output.
+## fab change
+
+Change Manager — manages change folders, naming, and the `fab/current` pointer.
 
 ```
-fab/.kit/bin/fab resolve [--id|--folder|--dir|--status] [<change>]
+fab/.kit/bin/fab change <subcommand> [flags...]
 ```
 
-| Flag | Output |
-|------|--------|
-| `--id` (default) | 4-char change ID (e.g., `9fg2`) |
-| `--folder` | Full folder name (e.g., `260228-9fg2-refactor-kit-scripts`) |
-| `--dir` | Directory path (e.g., `fab/changes/260228-9fg2-refactor-kit-scripts/`) |
-| `--status` | `.status.yaml` path (e.g., `fab/changes/260228-9fg2-refactor-kit-scripts/.status.yaml`) |
+| Subcommand | Usage | Purpose |
+|------------|-------|---------|
+| `new` | `new --slug <slug> [--change-id <4char>] [--log-args <desc>]` | Create new change |
+| `rename` | `rename --folder <current-folder> --slug <new-slug>` | Rename change slug |
+| `resolve` | `resolve [<override>]` | Passthrough to resolve --folder |
+| `switch` | `switch <name> \| --blank` | Switch active change |
+| `list` | `list [--archive]` | List changes with stage info |
+| `archive` | `archive <change> --description "..."` | Clean .pr-done, move to archive/, update index, clear pointer |
+| `restore` | `restore <change> [--switch]` | Move from archive/, remove index entry, optionally activate |
+| `archive-list` | `archive-list` | List archived folder names (one per line) |
+
+**Resolution**: archive resolves `<change>` via standard resolution (active changes). `restore` uses internal archive-folder resolution. Both support 4-char ID, substring, and full folder name.
+
+**Output**: Both archive and restore output structured YAML to stdout. Skills parse this YAML to construct user-facing reports.
 
 ---
+
+# Pipeline & Status
 
 ## fab status
 
@@ -132,51 +144,6 @@ Skills do NOT need to call `fab log review` or `fab log transition` manually —
 
 ---
 
-## fab change
-
-Change Manager — manages change folders, naming, and the `fab/current` pointer.
-
-```
-fab/.kit/bin/fab change <subcommand> [flags...]
-```
-
-| Subcommand | Usage | Purpose |
-|------------|-------|---------|
-| `new` | `new --slug <slug> [--change-id <4char>] [--log-args <desc>]` | Create new change |
-| `rename` | `rename --folder <current-folder> --slug <new-slug>` | Rename change slug |
-| `resolve` | `resolve [<override>]` | Passthrough to resolve --folder |
-| `switch` | `switch <name> \| --blank` | Switch active change |
-| `list` | `list [--archive]` | List changes with stage info |
-
----
-
-## fab log
-
-History Logger — append-only JSON logging to `.history.jsonl`. Skills call `fab log command` directly for command invocation logging.
-
-```
-fab/.kit/bin/fab log command <cmd> [change] [args]
-fab/.kit/bin/fab log confidence <change> <score> <delta> <trigger>
-fab/.kit/bin/fab log review <change> <result> [rework]
-fab/.kit/bin/fab log transition <change> <stage> <action> [from] [reason] [driver]
-```
-
-The `command` subcommand accepts `<cmd>` (skill name) as the first argument. `[change]` is optional — when omitted, it resolves the active change via `fab/current`. If resolution fails (no `fab/current`, empty file, stale pointer), exits 0 silently. When `[change]` IS provided and doesn't resolve, exits 1 with an error.
-
-**Callers**:
-
-| Caller | Trigger | Call |
-|--------|---------|------|
-| Skills (via `_preamble.md` §2) | Skill invocation (preflight-calling skills) | `fab/.kit/bin/fab log command "<skill>" "<change>"` |
-| Skills (per-skill instructions) | Skill invocation (exempt skills) | `fab/.kit/bin/fab log command "<skill>"` |
-| `fab status finish review` | Review pass | auto-logs review "passed" |
-| `fab status fail review` | Review fail | auto-logs review "failed" |
-| `fab score` | Score computation | auto-logs confidence |
-| `fab change new` | Change creation | auto-logs command |
-| `fab change rename` | Change rename | auto-logs command |
-
----
-
 ## fab score
 
 Confidence scorer — computes SRAD confidence score from Assumptions tables.
@@ -208,25 +175,49 @@ Validates: config.yaml exists, constitution.md exists, active change resolved, `
 
 ---
 
-## fab archive
+# Plumbing
 
-Archive Manager — handles archive/restore lifecycle operations.
+## fab resolve
+
+Change Resolver — pure query, no side effects. Converts any change reference to a canonical output.
 
 ```
-fab/.kit/bin/fab archive <change> --description "..."
-fab/.kit/bin/fab archive restore <change> [--switch]
-fab/.kit/bin/fab archive list
+fab/.kit/bin/fab resolve [--id|--folder|--dir|--status] [<change>]
 ```
 
-| Subcommand | Usage | Purpose |
-|------------|-------|---------|
-| *(default)* | `<change> --description "..."` | Clean .pr-done, move to archive/, update index, clear pointer |
-| `restore` | `restore <change> [--switch]` | Move from archive/, remove index entry, optionally activate |
-| `list` | `list` | List archived folder names (one per line) |
+| Flag | Output |
+|------|--------|
+| `--id` (default) | 4-char change ID (e.g., `9fg2`) |
+| `--folder` | Full folder name (e.g., `260228-9fg2-refactor-kit-scripts`) |
+| `--dir` | Directory path (e.g., `fab/changes/260228-9fg2-refactor-kit-scripts/`) |
+| `--status` | `.status.yaml` path (e.g., `fab/changes/260228-9fg2-refactor-kit-scripts/.status.yaml`) |
 
-**Resolution**: archive resolves `<change>` via standard resolution (active changes). `restore` uses internal archive-folder resolution. Both support 4-char ID, substring, and full folder name.
+---
 
-**Output**: Both archive and restore output structured YAML to stdout. Skills parse this YAML to construct user-facing reports.
+## fab log
+
+History Logger — append-only JSON logging to `.history.jsonl`. Skills call `fab log command` directly for command invocation logging.
+
+```
+fab/.kit/bin/fab log command <cmd> [change] [args]
+fab/.kit/bin/fab log confidence <change> <score> <delta> <trigger>
+fab/.kit/bin/fab log review <change> <result> [rework]
+fab/.kit/bin/fab log transition <change> <stage> <action> [from] [reason] [driver]
+```
+
+The `command` subcommand accepts `<cmd>` (skill name) as the first argument. `[change]` is optional — when omitted, it resolves the active change via `fab/current`. If resolution fails (no `fab/current`, empty file, stale pointer), exits 0 silently. When `[change]` IS provided and doesn't resolve, exits 1 with an error.
+
+**Callers**:
+
+| Caller | Trigger | Call |
+|--------|---------|------|
+| Skills (via `_preamble.md` §2) | Skill invocation (preflight-calling skills) | `fab/.kit/bin/fab log command "<skill>" "<change>"` |
+| Skills (per-skill instructions) | Skill invocation (exempt skills) | `fab/.kit/bin/fab log command "<skill>"` |
+| `fab status finish review` | Review pass | auto-logs review "passed" |
+| `fab status fail review` | Review fail | auto-logs review "failed" |
+| `fab score` | Score computation | auto-logs confidence |
+| `fab change new` | Change creation | auto-logs command |
+| `fab change rename` | Change rename | auto-logs command |
 
 ---
 
@@ -244,6 +235,39 @@ fab/.kit/bin/fab runtime <subcommand> <change>
 | `clear-idle` | `clear-idle <change>` | Delete the `agent` block for the resolved change (no-op if file missing) |
 
 Both subcommands accept the standard `<change>` argument (4-char ID, substring, or full folder name). The runtime file is `.fab-runtime.yaml` at the repo root, keyed by the change's full folder name.
+
+---
+
+## fab pane-map
+
+Pane Map — shows all tmux panes mapped to their fab worktrees with pipeline state. Requires an active tmux session.
+
+```
+fab/.kit/bin/fab pane-map
+```
+
+No arguments or flags. Produces an aligned table with columns:
+
+| Column | Content |
+|--------|---------|
+| Pane | Tmux pane ID (e.g., `%3`) |
+| Worktree | Relative path from main repo parent, or `(main)` for the main worktree |
+| Change | Active change folder name, or `(no change)` if none |
+| Stage | Current pipeline stage from `.status.yaml`, or `—` if no change |
+| Agent | Agent state: `active`, `idle ({duration})`, `?` (runtime file missing), or `—` (no change) |
+
+Idle duration format: `{N}s` (< 60s), `{N}m` (60s–59m), `{N}h` (>= 60m). Floor division.
+
+**Error behavior**: If `$TMUX` is unset, prints `Error: not inside a tmux session` to stderr and exits 1. Panes not inside a git repo or without a `fab/` directory are silently excluded. If no fab worktrees are found, prints `No fab worktrees found in tmux panes.` and exits 0.
+
+**Example output**:
+
+```
+Pane   Worktree                       Change                              Stage     Agent
+%3     myrepo.worktrees/alpha/        260306-r3m7-add-retry-logic         apply     active
+%7     myrepo.worktrees/bravo/        260306-k8ds-ship-wt-binary          review    idle (2m)
+%12    (main)                         260306-ab12-refactor-auth           hydrate   idle (8m)
+```
 
 ---
 

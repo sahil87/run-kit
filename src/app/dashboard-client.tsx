@@ -108,7 +108,7 @@ export function DashboardClient({ initialSessions }: Props) {
     setLine2Left(
       <button
         onClick={() => setShowCreateDialog(true)}
-        className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
+        className="text-sm px-3 py-1 coarse:min-h-[44px] border border-border rounded hover:border-text-secondary"
       >
         + New Session
       </button>,
@@ -293,7 +293,7 @@ export function DashboardClient({ initialSessions }: Props) {
             }}
             aria-label="Search windows"
             placeholder="Search windows..."
-            className="bg-bg-card text-text-primary text-sm px-3 py-1 border border-border rounded outline-none placeholder:text-text-secondary w-48 focus:border-text-secondary"
+            className="bg-bg-card text-text-primary text-sm px-3 py-1 coarse:min-h-[44px] border border-border rounded outline-none placeholder:text-text-secondary w-48 focus:border-text-secondary"
           />
         </div>
       )}
@@ -335,7 +335,7 @@ export function DashboardClient({ initialSessions }: Props) {
                     })
                   }
                   aria-label={`Kill session ${session.name}`}
-                  className="text-text-secondary hover:text-red-400 transition-colors text-sm px-1"
+                  className="text-text-secondary hover:text-red-400 transition-colors text-sm px-1 coarse:min-h-[44px] coarse:min-w-[44px] flex items-center justify-center"
                 >
                   ✕
                 </button>

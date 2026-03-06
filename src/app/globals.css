@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant coarse (@media (pointer: coarse));
+
 @theme {
   --color-bg-primary: #111111;
   --color-bg-card: #1a1a1a;

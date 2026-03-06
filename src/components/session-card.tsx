@@ -54,7 +54,7 @@ export function SessionCard({
                 onKill(e);
               }}
               aria-label={`Kill window ${win.name}`}
-              className="text-text-secondary hover:text-text-primary transition-colors ml-1 text-xs focus-visible:outline-2 focus-visible:outline-accent"
+              className="text-text-secondary hover:text-text-primary transition-colors ml-1 text-xs coarse:min-h-[44px] coarse:min-w-[44px] flex items-center justify-center focus-visible:outline-2 focus-visible:outline-accent"
             >
               ✕
             </button>

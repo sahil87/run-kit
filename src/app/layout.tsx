@@ -31,7 +31,7 @@ export default function RootLayout({
             <div className="app-shell flex flex-col" style={{ height: 'var(--app-height, 100vh)' }}>
               {/* Top chrome — fixed height, shrink-0 */}
               <div className="shrink-0">
-                <div className="max-w-4xl mx-auto w-full px-6">
+                <div className="max-w-4xl mx-auto w-full px-3 sm:px-6">
                   <TopBarChrome />
                 </div>
               </div>

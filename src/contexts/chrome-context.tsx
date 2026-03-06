@@ -2,10 +2,17 @@
 
 import { createContext, useContext, useState, useMemo, useRef, useEffect } from "react";
 
+export type BreadcrumbDropdownItem = {
+  label: string;
+  href: string;
+  current?: boolean;
+};
+
 export type Breadcrumb = {
   icon?: string;
   label: string;
   href?: string;
+  dropdownItems?: BreadcrumbDropdownItem[];
 };
 
 type ChromeState = {

@@ -85,13 +85,21 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
 
   // Set chrome slots
   useEffect(() => {
-    setBreadcrumbs([{ icon: "⬡", label: projectName }]);
+    setBreadcrumbs([{
+      icon: "⬡",
+      label: projectName,
+      dropdownItems: sessions.map((s) => ({
+        label: s.name,
+        href: `/p/${s.name}`,
+        current: s.name === projectName,
+      })),
+    }]);
     return () => {
       setBreadcrumbs([]);
       setLine2Left(null);
       setLine2Right(null);
     };
-  }, [projectName, setBreadcrumbs, setLine2Left, setLine2Right]);
+  }, [projectName, sessions, setBreadcrumbs, setLine2Left, setLine2Right]);
 
   useEffect(() => {
     setLine2Left(

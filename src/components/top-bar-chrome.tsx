@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useChrome } from "@/contexts/chrome-context";
+import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 
 export function TopBarChrome() {
   const { breadcrumbs, line2Left, line2Right, isConnected } = useChrome();
@@ -36,6 +37,9 @@ export function TopBarChrome() {
                 <span className="text-text-primary font-medium" aria-current="page">
                   {crumb.label}
                 </span>
+              )}
+              {crumb.dropdownItems && crumb.dropdownItems.length > 0 && (
+                <BreadcrumbDropdown items={crumb.dropdownItems} label={crumb.label} />
               )}
             </span>
           ))}

@@ -71,7 +71,7 @@ The root layout (`src/app/layout.tsx`) owns a flex-col skeleton (height: `var(--
 
 All three zones use `max-w-4xl mx-auto w-full px-6` for identical width/padding — pages cannot override this.
 
-**ChromeProvider** (`src/contexts/chrome-context.tsx`) — split into two React contexts: `ChromeStateContext` (read-only state: breadcrumbs, line2Left, line2Right, bottomBar, isConnected, fullbleed) and `ChromeDispatchContext` (stable setter functions). `useChrome()` returns both (backward compat, re-renders on state change). `useChromeDispatch()` returns only setters (stable reference, no re-renders from state changes). Pages that only set chrome slots use `useChromeDispatch()` to avoid cascade re-renders.
+**ChromeProvider** (`src/contexts/chrome-context.tsx`) — split into two React contexts: `ChromeStateContext` (read-only state: breadcrumbs, line2Left, line2Right, bottomBar, isConnected, fullbleed) and `ChromeDispatchContext` (stable setter functions). `useChrome()` returns both (backward compat, re-renders on state change). `useChromeDispatch()` returns only setters (stable reference, no re-renders from state changes). Pages that only set chrome slots use `useChromeDispatch()` to avoid cascade re-renders. `Breadcrumb` type includes optional `dropdownItems: BreadcrumbDropdownItem[]` for breadcrumb dropdown menus (project/window switching).
 
 **SessionProvider** (`src/contexts/session-context.tsx`) — layout-level React Context that owns the single `EventSource` connection to `/api/sessions/stream`. Exposes `{ sessions, isConnected }` to all descendant pages via `useSessions()` hook. Forwards `isConnected` to `ChromeProvider` internally, eliminating per-page connection status forwarding. Mounted inside `ChromeProvider` in `src/app/layout.tsx`.
 
@@ -141,3 +141,4 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 | 2026-03-07 | File upload: `/api/upload` endpoint, clipboard paste/drag-drop/file picker triggers, compose buffer integration, `.uploads/` auto-gitignore | `260307-kqio-image-upload-claude-terminal` |
 | 2026-03-07 | iOS keyboard viewport overlap fix — visualViewport scroll listener, fixed positioning in fullbleed mode | `260307-f3o9-ios-keyboard-viewport-overlap` |
 | 2026-03-07 | Sync byobu active tab — `isActiveWindow` on `WindowInfo`, breadcrumb/URL/action sync via SSE + `history.replaceState` | `260307-f3li-sync-byobu-active-tab` |
+| 2026-03-07 | Breadcrumb type extended with `dropdownItems` for project/window switching dropdowns | `260307-uzsa-navbar-breadcrumb-dropdowns` |

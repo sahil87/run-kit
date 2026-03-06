@@ -249,6 +249,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
             value={createName}
             onChange={(e) => setCreateName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+            aria-label="Window name"
             placeholder="Window name..."
             className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
           />
@@ -306,6 +307,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
             value={sendMessage}
             onChange={(e) => setSendMessage(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            aria-label="Message to send"
             placeholder="Message..."
             className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
           />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useId } from "react";
 
 export type PaletteAction = {
   id: string;
@@ -18,6 +18,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
 
   const filtered = actions.filter((a) =>
     a.label.toLowerCase().includes(query.toLowerCase()),
@@ -66,6 +67,10 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
 
   if (!open) return null;
 
+  const activeDescendant = filtered[selectedIndex]
+    ? `${listId}-option-${filtered[selectedIndex].id}`
+    : undefined;
+
   return (
     <div
       data-testid="palette-overlay"
@@ -73,10 +78,13 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
       onClick={() => setOpen(false)}
     >
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50" />
+      <div className="fixed inset-0 bg-black/50" aria-hidden="true" />
 
       {/* Modal */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
         className="relative w-full max-w-lg bg-bg-primary border border-border rounded-lg shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -90,19 +98,33 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
           }}
           onKeyDown={handleKeyDown}
           placeholder="Type a command..."
+          aria-label="Search commands"
+          aria-autocomplete="list"
+          aria-controls={listId}
+          aria-activedescendant={activeDescendant}
+          role="combobox"
+          aria-expanded="true"
           className="w-full bg-transparent text-text-primary text-sm p-3 border-b border-border outline-none placeholder:text-text-secondary"
         />
-        <div className="max-h-64 overflow-y-auto py-1">
+        <div
+          id={listId}
+          role="listbox"
+          aria-label="Commands"
+          className="max-h-64 overflow-y-auto py-1"
+        >
           {filtered.length === 0 ? (
             <div className="px-3 py-2 text-xs text-text-secondary">
               No results
             </div>
           ) : (
             filtered.map((action, i) => (
-              <button
+              <div
                 key={action.id}
+                id={`${listId}-option-${action.id}`}
+                role="option"
+                aria-selected={i === selectedIndex}
                 onClick={() => handleSelect(action)}
-                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between ${
+                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between cursor-pointer ${
                   i === selectedIndex
                     ? "bg-bg-card text-text-primary"
                     : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
@@ -114,7 +136,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
                     {action.shortcut}
                   </kbd>
                 )}
-              </button>
+              </div>
             ))
           )}
         </div>

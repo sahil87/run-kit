@@ -22,10 +22,10 @@ function hasModifiers(mods: ModifierSnapshot): boolean {
 }
 
 const ARROWS = [
-  { label: "\u2190", code: "D" }, // ←
-  { label: "\u2192", code: "C" }, // →
-  { label: "\u2191", code: "A" }, // ↑
-  { label: "\u2193", code: "B" }, // ↓
+  { label: "\u2190", name: "Left", code: "D" },
+  { label: "\u2192", name: "Right", code: "C" },
+  { label: "\u2191", name: "Up", code: "A" },
+  { label: "\u2193", name: "Down", code: "B" },
 ] as const;
 
 const FN_KEYS = [
@@ -48,7 +48,13 @@ const FN_KEYS = [
 ] as const;
 
 const KBD_CLASS =
-  "min-h-[44px] px-2.5 py-1.5 text-sm border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card";
+  "min-h-[44px] px-2.5 py-1.5 text-sm border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
+
+const MODIFIER_LABELS: Record<string, string> = {
+  ctrl: "Control",
+  alt: "Option",
+  cmd: "Command",
+};
 
 export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
   const mods = useModifierState();
@@ -115,47 +121,59 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
   );
 
   return (
-    <div className="flex items-center gap-1.5 py-1.5 flex-wrap">
+    <div className="flex items-center gap-1.5 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
       {/* Modifier toggles */}
       {([["ctrl", "^"], ["alt", "\u2325"], ["cmd", "\u2318"]] as const).map(([key, symbol]) => (
         <button
           key={key}
+          aria-label={MODIFIER_LABELS[key]}
+          aria-pressed={mods[key]}
           className={`${KBD_CLASS} ${mods[key] ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
           onClick={() => mods.toggle(key)}
         >
-          <kbd>{symbol}</kbd>
+          <kbd aria-hidden="true">{symbol}</kbd>
         </button>
       ))}
 
-      <div className="w-px h-6 bg-border mx-1" />
+      <div className="w-px h-6 bg-border mx-1" aria-hidden="true" />
 
       {/* Arrow keys */}
-      {ARROWS.map(({ label, code }) => (
+      {ARROWS.map(({ label, name, code }) => (
         <button
           key={code}
+          aria-label={`${name} arrow`}
           className={`${KBD_CLASS} text-text-secondary`}
           onClick={() => sendArrow(code)}
         >
-          <kbd>{label}</kbd>
+          <kbd aria-hidden="true">{label}</kbd>
         </button>
       ))}
 
-      <div className="w-px h-6 bg-border mx-1" />
+      <div className="w-px h-6 bg-border mx-1" aria-hidden="true" />
 
       {/* Fn dropdown */}
       <div ref={fnRef} className="relative">
         <button
+          aria-label="Function keys"
+          aria-haspopup="true"
+          aria-expanded={fnOpen}
           className={`${KBD_CLASS} text-text-secondary`}
           onClick={() => setFnOpen((v) => !v)}
         >
-          <kbd>Fn&#x25BE;</kbd>
+          <kbd aria-hidden="true">Fn&#x25BE;</kbd>
         </button>
         {fnOpen && (
-          <div className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 grid grid-cols-4 gap-0.5 min-w-[200px] z-50">
+          <div
+            role="menu"
+            aria-label="Function and navigation keys"
+            className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 grid grid-cols-4 gap-0.5 min-w-[200px] z-50"
+          >
             {FN_KEYS.map((fk) => (
               <button
                 key={fk.label}
-                className="px-2 py-1.5 min-h-[44px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded"
+                role="menuitem"
+                aria-label={fk.label}
+                className="px-2 py-1.5 min-h-[44px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
                 onClick={() => {
                   sendWithMods(fk.plain, fk.mod);
                   setFnOpen(false);
@@ -170,24 +188,27 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
 
       {/* Special keys */}
       <button
+        aria-label="Escape"
         className={`${KBD_CLASS} text-text-secondary`}
         onClick={() => sendSpecial("\x1b")}
       >
-        <kbd>{"\u238B"}</kbd>
+        <kbd aria-hidden="true">{"\u238B"}</kbd>
       </button>
       <button
+        aria-label="Tab"
         className={`${KBD_CLASS} text-text-secondary`}
         onClick={() => sendSpecial("\t")}
       >
-        <kbd>{"\u21E5"}</kbd>
+        <kbd aria-hidden="true">{"\u21E5"}</kbd>
       </button>
 
       {/* Compose toggle */}
       <button
+        aria-label="Compose text"
         className={`${KBD_CLASS} text-text-secondary`}
         onClick={onOpenCompose}
       >
-        <kbd>&#x270E;</kbd>
+        <kbd aria-hidden="true">&#x270E;</kbd>
       </button>
     </div>
   );

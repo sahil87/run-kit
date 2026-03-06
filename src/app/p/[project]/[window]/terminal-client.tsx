@@ -100,7 +100,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     setBottomBar(
       <BottomBar
         wsRef={wsRef}
-        onOpenCompose={() => setComposeOpen(true)}
+        onOpenCompose={() => setComposeOpen((v) => !v)}
       />,
     );
     return () => setBottomBar(null);

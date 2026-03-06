@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 type Modifier = "ctrl" | "alt" | "cmd";
 
@@ -30,13 +30,17 @@ export function useModifierState() {
     return snapshot;
   }, []);
 
-  return {
-    ctrl: stateRef.current.ctrl,
-    alt: stateRef.current.alt,
-    cmd: stateRef.current.cmd,
-    arm,
-    disarm,
-    toggle,
-    consume,
-  };
+  return useMemo(
+    () => ({
+      ctrl: stateRef.current.ctrl,
+      alt: stateRef.current.alt,
+      cmd: stateRef.current.cmd,
+      arm,
+      disarm,
+      toggle,
+      consume,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stateRef.current.ctrl, stateRef.current.alt, stateRef.current.cmd, arm, disarm, toggle, consume],
+  );
 }

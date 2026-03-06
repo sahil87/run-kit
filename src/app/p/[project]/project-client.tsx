@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useSessions } from "@/hooks/use-sessions";
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav";
-import { useChrome } from "@/contexts/chrome-context";
+import { useChromeDispatch } from "@/contexts/chrome-context";
 import { SessionCard } from "@/components/session-card";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
@@ -17,8 +17,8 @@ type Props = {
 
 export function ProjectClient({ projectName, initialWindows }: Props) {
   const router = useRouter();
-  const { sessions, isConnected } = useSessions();
-  const { setBreadcrumbs, setLine2Left, setLine2Right, setIsConnected } = useChrome();
+  const { sessions } = useSessions();
+  const { setBreadcrumbs, setLine2Left, setLine2Right } = useChromeDispatch();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showSendDialog, setShowSendDialog] = useState(false);
   const [showKillConfirm, setShowKillConfirm] = useState(false);
@@ -46,20 +46,22 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
     [windows, projectName, router],
   );
 
+  const shortcuts = useMemo(
+    () => ({
+      n: () => setShowCreateDialog(true),
+      x: () => {
+        // focusedIndex read at call time via the hook's internal state
+        setShowKillConfirm(true);
+      },
+      s: () => setShowSendDialog(true),
+    }),
+    [],
+  );
+
   const { focusedIndex } = useKeyboardNav({
     itemCount: windows.length,
     onSelect: navigateToTerminal,
-    shortcuts: {
-      n: () => setShowCreateDialog(true),
-      x: () => {
-        const win = windows[focusedIndex];
-        if (win) {
-          setKillWindowTarget(win);
-          setShowKillConfirm(true);
-        }
-      },
-      s: () => windows.length > 0 && setShowSendDialog(true),
-    },
+    shortcuts,
   });
 
   // Set chrome slots
@@ -71,10 +73,6 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       setLine2Right(null);
     };
   }, [projectName, setBreadcrumbs, setLine2Left, setLine2Right]);
-
-  useEffect(() => {
-    setIsConnected(isConnected);
-  }, [isConnected, setIsConnected]);
 
   useEffect(() => {
     setLine2Left(
@@ -296,7 +294,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       )}
 
       {/* Send dialog */}
-      {showSendDialog && (
+      {showSendDialog && windows.length > 0 && (
         <Dialog
           title={`Send to ${windows[focusedIndex]?.name}`}
           onClose={() => setShowSendDialog(false)}

@@ -48,7 +48,7 @@ await Promise.all(
 );
 ```
 
-Note: push order becomes non-deterministic. Sort by session name afterward if ordering matters.
+Note: use indexed assignment (`result[i] = ...`) to preserve original tmux ordering.
 
 ### Server-Side: SSE Connection Lifecycle
 
@@ -111,7 +111,7 @@ Move the SSE connection from per-page `useSessions()` hooks to a `SessionProvide
 
 ## Open Questions
 
-- Should the SSE pub/sub dedup use a module-level singleton or a more structured pattern (e.g., `BroadcastChannel`)? Module-level singleton is simpler for a single-process Next.js server.
+- ~~Should the SSE pub/sub dedup use a module-level singleton or a more structured pattern?~~ Resolved: module-level singleton (see #6).
 - Should `SessionProvider` expose the full `ProjectSession[]` or also provide per-project/per-window selectors to further reduce re-renders?
 
 ## Assumptions
@@ -123,11 +123,27 @@ Move the SSE connection from per-page `useSessions()` hooks to a `SessionProvide
 | 3 | Certain | Lift useSessions to layout-level SessionProvider | Discussed — eliminates redundant SSE connections and forwarding boilerplate | S:90 R:80 A:90 D:85 |
 | 4 | Certain | Debounce ResizeObserver fitAddon.fit at ~100ms | Discussed — prevents reflow storms during window resize | S:85 R:95 A:90 D:90 |
 | 5 | Certain | Memoize useModifierState return value | Discussed — prevents cascading callback recreation | S:85 R:95 A:90 D:95 |
-| 6 | Confident | SSE pub/sub uses module-level singleton pattern | Module-level singleton is simplest for single-process Next.js; BroadcastChannel adds complexity without benefit | S:75 R:80 A:75 D:65 |
-| 7 | Confident | Add 30-minute SSE connection lifetime cap | Reasonable default; forces reconnect to prevent indefinite orphan accumulation. Exact value can be tuned | S:70 R:90 A:70 D:65 |
-| 8 | Confident | WebSocket reconnection uses exponential backoff (1s, 2s, 4s, max 30s) | Standard pattern; exact intervals are tunable | S:70 R:85 A:80 D:70 |
-| 9 | Confident | Dashboard search input rendered inline instead of via chrome slot | Simpler fix than storing filterQuery in context; avoids per-keystroke context updates | S:75 R:85 A:80 D:60 |
-| 10 | Tentative | Session push order preserved via post-sort by session name | Parallel `Promise.all` makes push order non-deterministic; sorting by name provides stable UI order. Alternative: use indexed assignment | S:60 R:90 A:60 D:50 |
-<!-- assumed: Sort by session name — parallel push makes order non-deterministic, name sort provides stable display order -->
+| 6 | Certain | SSE pub/sub uses module-level singleton pattern | Clarified — user confirmed after explanation | S:95 R:80 A:75 D:65 |
+| 7 | Certain | Add 30-minute SSE connection lifetime cap | Clarified — user confirmed | S:95 R:90 A:70 D:65 |
+| 8 | Certain | WebSocket reconnection uses exponential backoff (1s, 2s, 4s, max 30s) | Clarified — user confirmed | S:95 R:85 A:80 D:70 |
+| 9 | Certain | Dashboard search input rendered inline instead of via chrome slot | Clarified — user confirmed | S:95 R:85 A:80 D:60 |
+| 10 | Certain | Session order preserved via indexed assignment after parallel enrichment | Clarified — user chose indexed assignment to preserve tmux ordering | S:95 R:90 A:60 D:50 |
 
-10 assumptions (5 certain, 4 confident, 1 tentative, 0 unresolved).
+10 assumptions (10 certain, 0 confident, 0 tentative, 0 unresolved).
+
+## Clarifications
+
+### Session 2026-03-06 (bulk confirm)
+
+| # | Action | Detail |
+|---|--------|--------|
+| 6 | Confirmed | After explanation |
+| 7 | Confirmed | — |
+| 8 | Confirmed | — |
+| 9 | Confirmed | — |
+
+### Session 2026-03-06
+
+| # | Question | Answer |
+|---|----------|--------|
+| 10 | How to stabilize result ordering after parallel enrichment? Sort by name or indexed assignment? | Indexed assignment — preserve original tmux ordering |

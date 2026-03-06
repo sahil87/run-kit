@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useMemo } from "react";
+import { createContext, useContext, useState, useMemo, useRef } from "react";
 
 export type Breadcrumb = {
   icon?: string;
@@ -8,22 +8,26 @@ export type Breadcrumb = {
   href?: string;
 };
 
-type ChromeContextType = {
+type ChromeState = {
   breadcrumbs: Breadcrumb[];
-  setBreadcrumbs: (crumbs: Breadcrumb[]) => void;
   line2Left: React.ReactNode;
-  setLine2Left: (node: React.ReactNode) => void;
   line2Right: React.ReactNode;
-  setLine2Right: (node: React.ReactNode) => void;
   bottomBar: React.ReactNode;
-  setBottomBar: (node: React.ReactNode) => void;
   isConnected: boolean;
-  setIsConnected: (connected: boolean) => void;
   fullbleed: boolean;
+};
+
+type ChromeDispatch = {
+  setBreadcrumbs: (crumbs: Breadcrumb[]) => void;
+  setLine2Left: (node: React.ReactNode) => void;
+  setLine2Right: (node: React.ReactNode) => void;
+  setBottomBar: (node: React.ReactNode) => void;
+  setIsConnected: (connected: boolean) => void;
   setFullbleed: (v: boolean) => void;
 };
 
-const ChromeContext = createContext<ChromeContextType | null>(null);
+const ChromeStateContext = createContext<ChromeState | null>(null);
+const ChromeDispatchContext = createContext<ChromeDispatch | null>(null);
 
 export function ChromeProvider({ children }: { children: React.ReactNode }) {
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
@@ -33,26 +37,46 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [fullbleed, setFullbleed] = useState(false);
 
-  const value = useMemo(() => ({
-    breadcrumbs, setBreadcrumbs,
-    line2Left, setLine2Left,
-    line2Right, setLine2Right,
-    bottomBar, setBottomBar,
-    isConnected, setIsConnected,
-    fullbleed, setFullbleed,
-  }), [breadcrumbs, line2Left, line2Right, bottomBar, isConnected, fullbleed]);
+  const stateValue = useMemo<ChromeState>(
+    () => ({ breadcrumbs, line2Left, line2Right, bottomBar, isConnected, fullbleed }),
+    [breadcrumbs, line2Left, line2Right, bottomBar, isConnected, fullbleed],
+  );
+
+  // Stable dispatch ref — setters never change identity
+  const dispatchRef = useRef<ChromeDispatch | null>(null);
+  if (!dispatchRef.current) {
+    dispatchRef.current = {
+      setBreadcrumbs,
+      setLine2Left,
+      setLine2Right,
+      setBottomBar,
+      setIsConnected,
+      setFullbleed,
+    };
+  }
 
   return (
-    <ChromeContext.Provider value={value}>
-      {children}
-    </ChromeContext.Provider>
+    <ChromeStateContext.Provider value={stateValue}>
+      <ChromeDispatchContext.Provider value={dispatchRef.current}>
+        {children}
+      </ChromeDispatchContext.Provider>
+    </ChromeStateContext.Provider>
   );
 }
 
-export function useChrome() {
-  const ctx = useContext(ChromeContext);
-  if (!ctx) throw new Error("useChrome must be used within ChromeProvider");
-  return ctx;
+/** Read chrome state + dispatch (triggers re-render on any state change). */
+export function useChrome(): ChromeState & ChromeDispatch {
+  const state = useContext(ChromeStateContext);
+  const dispatch = useContext(ChromeDispatchContext);
+  if (!state || !dispatch) throw new Error("useChrome must be used within ChromeProvider");
+  return useMemo(() => ({ ...state, ...dispatch }), [state, dispatch]);
+}
+
+/** Read only dispatch (stable — never triggers re-render from state changes). */
+export function useChromeDispatch(): ChromeDispatch {
+  const dispatch = useContext(ChromeDispatchContext);
+  if (!dispatch) throw new Error("useChromeDispatch must be used within ChromeProvider");
+  return dispatch;
 }
 
 export function ContentSlot({ children }: { children: React.ReactNode }) {

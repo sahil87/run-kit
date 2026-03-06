@@ -25,7 +25,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 | `src/lib/tmux.ts` | All tmux operations via `execFile` with argument arrays + timeouts |
 | `src/lib/worktree.ts` | Wraps fab-kit `wt-*` scripts (never reimplements) |
 | `src/lib/fab.ts` | Reads fab state (progress-line, current change, change list) |
-| `src/lib/sessions.ts` | Derives project roots from tmux, auto-detects fab-kit, enriches with fab state |
+| `src/lib/sessions.ts` | Derives project roots from tmux, auto-detects fab-kit, enriches with fab state. Session enrichment runs in parallel via `Promise.all` with indexed assignment to preserve tmux ordering |
 | `src/lib/validate.ts` | Input validation for names/paths + tilde expansion with `$HOME` security boundary |
 | `src/lib/config.ts` | Server config (port, relayPort, host) — reads CLI args > `run-kit.yaml` > defaults |
 | `src/lib/types.ts` | Shared TypeScript types + named constants |
@@ -38,7 +38,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 | `/api/sessions` | GET | Returns `ProjectSession[]` — one per tmux session, with auto-detected fab enrichment |
 | `/api/sessions` | POST | Actions: `createSession` (with optional `cwd`), `createWindow`, `killSession`, `killWindow`, `sendKeys` |
 | `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
-| `/api/sessions/stream` | GET | SSE — polls tmux every 2.5s, emits full snapshot on change |
+| `/api/sessions/stream` | GET | SSE — module-level singleton polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection. |
 
 ## Terminal Relay
 
@@ -49,6 +49,8 @@ Per connection:
 2. Spawns `tmux attach-session -t <paneId>` via `node-pty` for real terminal I/O
 3. Relays I/O between WebSocket and pty
 4. On disconnect: kills pty + pane (no orphaned panes)
+
+Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, max 30s) on unexpected close. Shows `[reconnecting...]` in terminal. Re-sends resize on successful reconnect. Skips reconnect on component unmount.
 
 ## Supervisor
 
@@ -68,7 +70,9 @@ The root layout (`src/app/layout.tsx`) owns a flex-col skeleton (height: `var(--
 
 All three zones use `max-w-4xl mx-auto w-full px-6` for identical width/padding — pages cannot override this.
 
-**ChromeProvider** (`src/contexts/chrome-context.tsx`) — React Context for slot injection. Pages set breadcrumbs, line2Left, line2Right, bottomBar, and isConnected via `useChrome()` setters in `useEffect`, with cleanup on unmount. Context value is memoized to prevent unnecessary re-renders.
+**ChromeProvider** (`src/contexts/chrome-context.tsx`) — split into two React contexts: `ChromeStateContext` (read-only state: breadcrumbs, line2Left, line2Right, bottomBar, isConnected, fullbleed) and `ChromeDispatchContext` (stable setter functions). `useChrome()` returns both (backward compat, re-renders on state change). `useChromeDispatch()` returns only setters (stable reference, no re-renders from state changes). Pages that only set chrome slots use `useChromeDispatch()` to avoid cascade re-renders.
+
+**SessionProvider** (`src/contexts/session-context.tsx`) — layout-level React Context that owns the single `EventSource` connection to `/api/sessions/stream`. Exposes `{ sessions, isConnected }` to all descendant pages via `useSessions()` hook. Forwards `isConnected` to `ChromeProvider` internally, eliminating per-page connection status forwarding. Mounted inside `ChromeProvider` in `src/app/layout.tsx`.
 
 **TopBarChrome** (`src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Line 1: icon breadcrumbs + connection indicator + ⌘K badge. Line 2: always rendered with `min-h-[36px]`, even when slots are empty (prevents layout shift).
 
@@ -82,13 +86,14 @@ Pages do NOT render their own top bar or outer containers — they set chrome sl
 
 ## Design Decisions
 
-- **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient
+- **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient. Module-level singleton deduplicates polling across tabs (one `fetchSessions()` per interval regardless of client count)
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
 - **Independent panes per browser client** — no cursor fights, agent pane untouched
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
 - **Config resolution: CLI > YAML > defaults** — `src/lib/config.ts` reads `run-kit.yaml` (optional, gitignored) and CLI args. Relay port delivered to client via server component prop (runtime, not build-time)
 - **Byobu session-group filtering** — `listSessions()` filters out derived session-group copies to avoid duplicate projects. See `docs/memory/run-kit/tmux-sessions.md`
-- **Layout-owned chrome (not per-page TopBar)** — React Context for slot injection. Pages inject content via `useEffect` setters; layout renders it in fixed positions. Prevents layout shift and ensures consistent width/padding across all pages. Old `TopBar` component deleted.
+- **Layout-owned chrome (not per-page TopBar)** — Split React Context for slot injection: state context (re-renders readers) and dispatch context (stable setters, no re-renders). Pages inject content via `useChromeDispatch()` setters in `useEffect`; layout renders it in fixed positions. Prevents both layout shift and cascade re-renders.
+- **Layout-level SessionProvider (not per-page SSE)** — Single `EventSource` connection at layout level, shared across all pages. Eliminates redundant connections and per-page `isConnected` forwarding boilerplate.
 - **Sticky modifier state via useRef + forceUpdate** — `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders. Ensures `consume()` reads the latest value atomically without stale closure issues.
 - **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.
 - **`i` key intercepted in capture phase** — Must prevent xterm from receiving the keystroke. Capture phase handler fires before xterm's internal textarea, allowing `stopPropagation()` to block it.
@@ -125,3 +130,4 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 | 2026-03-05 | Added `/api/directories` endpoint, `createSession` CWD support, `expandTilde` security boundary | `260305-zkem-session-folder-picker` |
 | 2026-03-06 | Chrome architecture — layout-owned flex-col skeleton, ChromeProvider context, TopBarChrome, icon breadcrumbs, always-visible kill buttons | `260305-emla-fixed-chrome-architecture` |
 | 2026-03-06 | Bottom bar (modifier toggles, arrow keys, Fn dropdown, Esc/Tab, compose buffer), iOS keyboard support via visualViewport, `i` key compose toggle | `260305-fjh1-bottom-bar-compose-buffer` |
+| 2026-03-06 | Performance: parallel session enrichment, SSE pub/sub singleton, split ChromeContext, layout-level SessionProvider, ResizeObserver debounce, useModifierState memoization, WS reconnection | `260306-0ahl-perf-sse-chrome-sessions` |

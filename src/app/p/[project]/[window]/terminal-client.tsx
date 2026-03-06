@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useSessions } from "@/hooks/use-sessions";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
-import { useChrome } from "@/contexts/chrome-context";
+import { useChromeDispatch } from "@/contexts/chrome-context";
 import { BottomBar } from "@/components/bottom-bar";
 import { ComposeBuffer } from "@/components/compose-buffer";
 import { Dialog } from "@/components/dialog";
@@ -26,8 +26,8 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
   const terminalRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const escTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { sessions, isConnected } = useSessions();
-  const { setBreadcrumbs, setLine2Left, setLine2Right, setBottomBar, setIsConnected, setFullbleed } = useChrome();
+  const { sessions } = useSessions();
+  const { setBreadcrumbs, setLine2Left, setLine2Right, setBottomBar, setFullbleed } = useChromeDispatch();
   const [showKillConfirm, setShowKillConfirm] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
 
@@ -53,10 +53,6 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       setLine2Right(null);
     };
   }, [projectName, windowName, setBreadcrumbs, setLine2Left, setLine2Right, setFullbleed]);
-
-  useEffect(() => {
-    setIsConnected(isConnected);
-  }, [isConnected, setIsConnected]);
 
   useEffect(() => {
     setLine2Left(
@@ -179,7 +175,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       terminal.open(terminalRef.current);
       fitAddon.fit();
 
-      // Connect WebSocket — derive from current host, use correct protocol
+      // WebSocket with exponential backoff reconnection
       // When served over HTTPS (e.g. via Caddy), use wss: on the same host/port
       // with /relay/ prefix. Over HTTP, connect directly to the relay port.
       const isSecure = window.location.protocol === "https:";
@@ -188,60 +184,82 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       const wsUrl = isSecure
         ? `${wsProto}//${wsHost}:${window.location.port || "443"}/relay/${projectName}/${windowIndex}`
         : `${wsProto}//${wsHost}:${relayPort}/${projectName}/${windowIndex}`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      let reconnectDelay = 1000;
+      let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+      let unmounting = false;
 
-      ws.binaryType = "arraybuffer";
+      function connect() {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+        ws.binaryType = "arraybuffer";
 
-      ws.onopen = () => {
-        // Send initial size
-        const dims = { cols: terminal!.cols, rows: terminal!.rows };
-        ws.send(JSON.stringify({ type: "resize", ...dims }));
-      };
+        ws.onopen = () => {
+          reconnectDelay = 1000; // Reset backoff on success
+          const dims = { cols: terminal!.cols, rows: terminal!.rows };
+          ws.send(JSON.stringify({ type: "resize", ...dims }));
+        };
 
-      ws.onmessage = (event) => {
-        if (typeof event.data === "string") {
-          terminal!.write(event.data);
-        } else {
-          terminal!.write(new Uint8Array(event.data));
-        }
-      };
+        ws.onmessage = (event) => {
+          if (typeof event.data === "string") {
+            terminal!.write(event.data);
+          } else {
+            terminal!.write(new Uint8Array(event.data));
+          }
+        };
 
-      ws.onclose = () => {
-        terminal!.write("\r\n\x1b[90m[connection closed]\x1b[0m\r\n");
-      };
+        ws.onclose = () => {
+          if (unmounting) {
+            terminal?.write("\r\n\x1b[90m[connection closed]\x1b[0m\r\n");
+            return;
+          }
+          terminal?.write("\r\n\x1b[90m[reconnecting...]\x1b[0m\r\n");
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            if (!unmounting) connect();
+          }, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        };
 
-      ws.onerror = () => {
-        terminal!.write(
-          "\r\n\x1b[31m[connection error]\x1b[0m\r\n",
-        );
-      };
+        ws.onerror = () => {
+          // onclose will fire after onerror — reconnection handled there
+        };
+      }
+
+      connect();
 
       // Send terminal input to WebSocket
       terminal.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(data);
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(data);
         }
       });
 
-      // Handle resize
+      // Handle resize — debounce via rAF to prevent reflow storms
+      let resizeRafId: number | null = null;
       const resizeObserver = new ResizeObserver(() => {
-        fitAddon?.fit();
-        if (ws.readyState === WebSocket.OPEN && terminal) {
-          ws.send(
-            JSON.stringify({
-              type: "resize",
-              cols: terminal.cols,
-              rows: terminal.rows,
-            }),
-          );
-        }
+        if (resizeRafId) cancelAnimationFrame(resizeRafId);
+        resizeRafId = requestAnimationFrame(() => {
+          resizeRafId = null;
+          fitAddon?.fit();
+          if (wsRef.current?.readyState === WebSocket.OPEN && terminal) {
+            wsRef.current.send(
+              JSON.stringify({
+                type: "resize",
+                cols: terminal.cols,
+                rows: terminal.rows,
+              }),
+            );
+          }
+        });
       });
 
       resizeObserver.observe(terminalRef.current);
 
       return () => {
+        unmounting = true;
         resizeObserver.disconnect();
+        if (resizeRafId) cancelAnimationFrame(resizeRafId);
+        if (reconnectTimer) clearTimeout(reconnectTimer);
       };
     }
 

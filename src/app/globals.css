@@ -22,6 +22,16 @@ body {
   color: var(--color-text-primary);
 }
 
+/* Clickable elements should feel clickable */
+button,
+[role="button"],
+[role="option"],
+[role="menuitem"],
+a,
+summary {
+  cursor: pointer;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

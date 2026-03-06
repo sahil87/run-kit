@@ -1,7 +1,7 @@
 name: 260307-uzsa-navbar-breadcrumb-dropdowns
 created: 2026-03-07T01:15:56+05:30
 created_by: sahil-weaver
-change_type: refactor
+change_type: feat
 issues: []
 progress:
     intake: done
@@ -40,4 +40,4 @@ stage_metrics:
     review-pr: {started_at: "2026-03-07T01:41:03+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T01:41:03+05:30"}
 prs:
     - https://github.com/wvrdz/run-kit/pull/23
-last_updated: 2026-03-07T01:41:03+05:30
+last_updated: 2026-03-07T01:48:36+05:30

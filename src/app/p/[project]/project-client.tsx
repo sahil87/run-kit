@@ -90,7 +90,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
       label: projectName,
       dropdownItems: sessions.map((s) => ({
         label: s.name,
-        href: `/p/${s.name}`,
+        href: `/p/${encodeURIComponent(s.name)}`,
         current: s.name === projectName,
       })),
     }]);

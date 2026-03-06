@@ -13,6 +13,7 @@ export function BreadcrumbDropdown({ items, label }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<(HTMLAnchorElement | null)[]>([]);
 
   // Close on outside click
@@ -27,16 +28,20 @@ export function BreadcrumbDropdown({ items, label }: Props) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
-  // Close on Escape, arrow key navigation
+  // Keyboard: Escape closes, ArrowDown/Up navigates. Capture phase + stopPropagation
+  // prevents terminal page handlers (double-Esc nav) from firing while menu is open.
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        e.stopPropagation();
         setOpen(false);
+        buttonRef.current?.focus();
         return;
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
+        e.stopPropagation();
         setFocusedIndex((prev) => {
           const next = prev < items.length - 1 ? prev + 1 : 0;
           itemRefs.current[next]?.focus();
@@ -45,6 +50,7 @@ export function BreadcrumbDropdown({ items, label }: Props) {
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
+        e.stopPropagation();
         setFocusedIndex((prev) => {
           const next = prev > 0 ? prev - 1 : items.length - 1;
           itemRefs.current[next]?.focus();
@@ -52,20 +58,29 @@ export function BreadcrumbDropdown({ items, label }: Props) {
         });
       }
     }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
+    document.addEventListener("keydown", handleKey, { capture: true });
+    return () => document.removeEventListener("keydown", handleKey, { capture: true });
   }, [open, items.length]);
 
-  const toggle = useCallback(() => {
-    setOpen((v) => {
-      if (!v) setFocusedIndex(-1);
-      return !v;
+  // Auto-focus current item (or first) when opening
+  useEffect(() => {
+    if (!open) return;
+    const currentIdx = items.findIndex((item) => item.current);
+    const targetIdx = currentIdx >= 0 ? currentIdx : 0;
+    setFocusedIndex(targetIdx);
+    requestAnimationFrame(() => {
+      itemRefs.current[targetIdx]?.focus();
     });
+  }, [open, items]);
+
+  const toggle = useCallback(() => {
+    setOpen((v) => !v);
   }, []);
 
   return (
     <div ref={containerRef} className="relative inline-flex items-center">
       <button
+        ref={buttonRef}
         aria-haspopup="true"
         aria-expanded={open}
         aria-label={label ? `Switch ${label}` : "Switch"}

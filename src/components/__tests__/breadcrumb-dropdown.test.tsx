@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -94,26 +94,33 @@ describe("BreadcrumbDropdown", () => {
     expect(links[2]).toHaveAttribute("href", "/p/project-c");
   });
 
+  it("auto-focuses current item on open", async () => {
+    render(<BreadcrumbDropdown items={items} />);
+    clickChevron();
+    // item 0 has current: true, should be auto-focused (via rAF)
+    const currentItem = screen.getAllByRole("menuitem")[0];
+    await waitFor(() => expect(document.activeElement).toBe(currentItem));
+  });
+
   it("navigates items with ArrowDown", () => {
     render(<BreadcrumbDropdown items={items} />);
     clickChevron();
-    fireEvent.keyDown(document, { key: "ArrowDown" });
-    const firstItem = screen.getAllByRole("menuitem")[0];
-    expect(document.activeElement).toBe(firstItem);
-
+    // Auto-focused on item 0 (current). ArrowDown → item 1
     fireEvent.keyDown(document, { key: "ArrowDown" });
     const secondItem = screen.getAllByRole("menuitem")[1];
     expect(document.activeElement).toBe(secondItem);
+
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    const thirdItem = screen.getAllByRole("menuitem")[2];
+    expect(document.activeElement).toBe(thirdItem);
   });
 
   it("navigates items with ArrowUp", () => {
     render(<BreadcrumbDropdown items={items} />);
     clickChevron();
-    // Go to first item
+    // Auto-focused on item 0. ArrowDown → item 1
     fireEvent.keyDown(document, { key: "ArrowDown" });
-    // Go to second
-    fireEvent.keyDown(document, { key: "ArrowDown" });
-    // Back to first
+    // ArrowUp → back to item 0
     fireEvent.keyDown(document, { key: "ArrowUp" });
     const firstItem = screen.getAllByRole("menuitem")[0];
     expect(document.activeElement).toBe(firstItem);
@@ -122,8 +129,7 @@ describe("BreadcrumbDropdown", () => {
   it("ArrowDown wraps from last to first", () => {
     render(<BreadcrumbDropdown items={items} />);
     clickChevron();
-    // Navigate to last item
-    fireEvent.keyDown(document, { key: "ArrowDown" });
+    // Auto-focused on item 0. Navigate to last item (2 ArrowDowns)
     fireEvent.keyDown(document, { key: "ArrowDown" });
     fireEvent.keyDown(document, { key: "ArrowDown" });
     // Wrap to first
@@ -135,9 +141,7 @@ describe("BreadcrumbDropdown", () => {
   it("ArrowUp wraps from first to last", () => {
     render(<BreadcrumbDropdown items={items} />);
     clickChevron();
-    // Navigate to first item
-    fireEvent.keyDown(document, { key: "ArrowDown" });
-    // Wrap to last
+    // Auto-focused on item 0. ArrowUp → wrap to last
     fireEvent.keyDown(document, { key: "ArrowUp" });
     const lastItem = screen.getAllByRole("menuitem")[2];
     expect(document.activeElement).toBe(lastItem);

@@ -79,7 +79,7 @@ export async function listWindows(session: string): Promise<WindowInfo[]> {
 
     const activity: WindowInfo["activity"] =
       now - activityTs <= ACTIVITY_THRESHOLD_SECONDS ? "active" : "idle";
-    const isActiveWindow = activeStr === "1";
+    const isActiveWindow = activeStr.trim() === "1";
 
     return { index, name, worktreePath, activity, isActiveWindow };
   });

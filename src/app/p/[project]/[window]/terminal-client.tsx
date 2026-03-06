@@ -77,7 +77,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     ]);
     // Sync URL without triggering Next.js routing
     const newUrl = `/p/${encodeURIComponent(projectName)}/${displayIndex}?name=${encodeURIComponent(displayName)}`;
-    window.history.replaceState(null, "", newUrl);
+    window.history.replaceState(window.history.state, "", newUrl);
   }, [projectName, displayName, displayIndex, setBreadcrumbs]);
 
   useEffect(() => {

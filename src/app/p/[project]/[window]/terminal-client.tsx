@@ -132,6 +132,16 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         return;
       }
 
+      // Ctrl/Cmd+Enter toggles compose buffer (unless already inside it)
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag !== "TEXTAREA") {
+          e.preventDefault();
+          setComposeOpen((v) => !v);
+          return;
+        }
+      }
+
       // Guard: skip shortcuts when typing in inputs, dialogs, or palette
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = (e.target as HTMLElement)?.tagName;

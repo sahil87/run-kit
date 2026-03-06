@@ -1,0 +1,5 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-07T02:58:00+05:30"}
+{"args":"Mobile bottom bar and breadcrumb consolidation: merge extended keys into F-key dropdown, move upload into compose, add keyboard dismiss, remove breadcrumb arrows","cmd":"fab-new","event":"command","ts":"2026-03-07T02:58:00+05:30"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-07T02:59:08+05:30"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-07T02:59:21+05:30"}
+{"cmd":"fab-new","event":"command","ts":"2026-03-07T02:59:26+05:30"}

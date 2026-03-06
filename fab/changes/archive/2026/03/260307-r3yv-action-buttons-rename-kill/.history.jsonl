@@ -15,3 +15,4 @@
 {"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-03-07T00:33:53+05:30"}
 {"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review-pr","ts":"2026-03-07T00:34:34+05:30"}
 {"event":"review","result":"passed","ts":"2026-03-07T00:34:39+05:30"}
+{"cmd":"fab-archive","event":"command","ts":"2026-03-07T03:00:49+05:30"}

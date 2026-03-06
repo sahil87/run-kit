@@ -1,0 +1,36 @@
+name: 260307-l9jj-mobile-bar-breadcrumb-cleanup
+created: 2026-03-07T02:58:00+05:30
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 5
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 84.3
+        reversibility: 92.9
+        competence: 87.1
+        disambiguation: 87.9
+stage_metrics:
+    intake: {started_at: "2026-03-07T02:58:00+05:30", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-03-07T02:59:25+05:30

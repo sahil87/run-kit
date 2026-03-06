@@ -180,9 +180,14 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       fitAddon.fit();
 
       // Connect WebSocket — derive from current host, use correct protocol
-      const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      // When served over HTTPS (e.g. via Caddy), use wss: on the same host/port
+      // with /relay/ prefix. Over HTTP, connect directly to the relay port.
+      const isSecure = window.location.protocol === "https:";
+      const wsProto = isSecure ? "wss:" : "ws:";
       const wsHost = window.location.hostname;
-      const wsUrl = `${wsProto}//${wsHost}:${relayPort}/${projectName}/${windowIndex}`;
+      const wsUrl = isSecure
+        ? `${wsProto}//${wsHost}:${window.location.port || "443"}/relay/${projectName}/${windowIndex}`
+        : `${wsProto}//${wsHost}:${relayPort}/${projectName}/${windowIndex}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 

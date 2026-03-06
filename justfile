@@ -38,17 +38,27 @@ down:
 
 # Signal a restart (build + health-check + auto-rollback); starts supervisor if not running
 restart:
-    #!/usr/bin/env bash
-    if tmux has-session -t runK 2>/dev/null; then
-        touch .restart-requested
-        echo "Restart signaled — supervisor will pick it up within 2s"
-    else
-        echo "Supervisor not running — starting it (includes build)..."
-        tmux new-session -d -s runK 'pnpm supervisor'
-        echo "Supervisor running in tmux session 'runK'"
-        echo "  Attach: just logs"
-        echo "  Stop:   just down"
-    fi
+    src/scripts/restart.sh
+
+# ─── HTTPS ────────────────────────────────────────────────────
+
+# Start Caddy HTTPS proxy in front of dev server (requires caddy: brew install caddy)
+https:
+    caddy run --config Caddyfile
+
+# Start supervisor + Caddy HTTPS proxy together
+up-https:
+    pnpm concurrently -n super,caddy -c blue,green "pnpm supervisor" "caddy run --config Caddyfile"
+
+# One-time: install Caddy's local CA into system trust store
+trust:
+    caddy trust
+
+# ─── Setup ────────────────────────────────────────────────────
+
+# Check that all system dependencies are installed
+doctor:
+    src/scripts/doctor.sh
 
 # ─── Quality ──────────────────────────────────────────────────
 

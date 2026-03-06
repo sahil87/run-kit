@@ -7,6 +7,14 @@ Web-based agent orchestration dashboard. Monitor and interact with tmux sessions
 - [Node.js](https://nodejs.org/) (v20+)
 - [pnpm](https://pnpm.io/)
 - [tmux](https://github.com/tmux/tmux) installed and on your `PATH`
+- [just](https://github.com/casey/just) task runner
+- [Caddy](https://caddyserver.com/) *(optional, for local HTTPS)*
+
+```sh
+brew install node pnpm tmux just caddy
+```
+
+Run `just doctor` to verify all dependencies are installed.
 
 ## Getting Started
 

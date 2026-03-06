@@ -22,8 +22,8 @@ type FlatWindow = {
 
 export function DashboardClient({ initialSessions }: Props) {
   const router = useRouter();
-  const { sessions: liveSessions } = useSessions();
-  const sessions = liveSessions.length > 0 ? liveSessions : initialSessions;
+  const { sessions: liveSessions, isConnected } = useSessions();
+  const sessions = isConnected ? liveSessions : initialSessions;
   const { setBreadcrumbs, setLine2Left, setLine2Right } = useChromeDispatch();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createSessionName, setCreateSessionName] = useState("");

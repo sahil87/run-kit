@@ -16,16 +16,20 @@ type Client = {
 const clients = new Set<Client>();
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let previousJson = "";
+let isPolling = false;
 const encoder = new TextEncoder();
 
 function startPolling() {
-  if (pollTimer) return;
+  if (pollTimer || isPolling) return;
 
   async function poll() {
     if (clients.size === 0) {
       pollTimer = null;
+      isPolling = false;
       return;
     }
+
+    isPolling = true;
 
     try {
       const sessions = await fetchSessions();
@@ -47,6 +51,7 @@ function startPolling() {
       // Polling error — skip this cycle
     }
 
+    isPolling = false;
     if (clients.size > 0) {
       pollTimer = setTimeout(poll, SSE_POLL_INTERVAL);
     } else {

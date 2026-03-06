@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useSessions } from "@/hooks/use-sessions";
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav";
 import { useChromeDispatch } from "@/contexts/chrome-context";
@@ -34,6 +34,9 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
     return session?.windows ?? initialWindows;
   }, [sessions, projectName, initialWindows]);
 
+  const windowsRef = useRef(windows);
+  windowsRef.current = windows;
+
   const navigateToTerminal = useCallback(
     (index: number) => {
       const win = windows[index];
@@ -50,10 +53,11 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
     () => ({
       n: () => setShowCreateDialog(true),
       x: () => {
-        // focusedIndex read at call time via the hook's internal state
-        setShowKillConfirm(true);
+        if (windowsRef.current.length > 0) setShowKillConfirm(true);
       },
-      s: () => setShowSendDialog(true),
+      s: () => {
+        if (windowsRef.current.length > 0) setShowSendDialog(true);
+      },
     }),
     [],
   );

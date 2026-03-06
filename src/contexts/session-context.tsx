@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useRef, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { useChromeDispatch } from "./chrome-context";
 import type { ProjectSession } from "@/lib/types";
 
@@ -19,12 +19,10 @@ type SessionProviderProps = {
 export function SessionProvider({ children, initialSessions = [] }: SessionProviderProps) {
   const [sessions, setSessions] = useState<ProjectSession[]>(initialSessions);
   const [isConnected, setIsConnected] = useState(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
 
   useEffect(() => {
     const es = new EventSource("/api/sessions/stream");
-    eventSourceRef.current = es;
 
     es.addEventListener("sessions", (e) => {
       try {
@@ -50,7 +48,6 @@ export function SessionProvider({ children, initialSessions = [] }: SessionProvi
 
     return () => {
       es.close();
-      eventSourceRef.current = null;
     };
   }, [setChromeConnected]);
 

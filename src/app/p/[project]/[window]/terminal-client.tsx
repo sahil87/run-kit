@@ -24,6 +24,7 @@ type Props = {
 export function TerminalClient({ projectName, windowIndex, windowName, relayPort }: Props) {
   const router = useRouter();
   const terminalRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const escTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { sessions } = useSessions();
@@ -102,22 +103,6 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     return () => setBottomBar(null);
   }, [setBottomBar]);
 
-  // Desktop `i` key → open compose (capture phase to intercept before xterm)
-  useEffect(() => {
-    function handleIKey(e: KeyboardEvent) {
-      if (composeOpen) return;
-      if (e.key !== "i") return;
-      // Only intercept when focus is within the terminal (xterm's internal elements)
-      const target = e.target as HTMLElement;
-      if (!terminalRef.current?.contains(target)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setComposeOpen(true);
-    }
-    document.addEventListener("keydown", handleIKey, { capture: true });
-    return () => document.removeEventListener("keydown", handleIKey, { capture: true });
-  }, [composeOpen]);
-
   // Double-Esc detection
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -174,6 +159,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       terminal.loadAddon(fitAddon);
       terminal.open(terminalRef.current);
       fitAddon.fit();
+      xtermRef.current = terminal;
 
       // WebSocket with exponential backoff reconnection
       // When served over HTTPS (e.g. via Caddy), use wss: on the same host/port
@@ -271,6 +257,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         wsRef.current.close();
         wsRef.current = null;
       }
+      xtermRef.current = null;
       terminal?.dispose();
     };
   }, [projectName, windowIndex, relayPort]);
@@ -324,7 +311,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       />
 
       {composeOpen && (
-        <ComposeBuffer wsRef={wsRef} onClose={() => setComposeOpen(false)} />
+        <ComposeBuffer wsRef={wsRef} onClose={() => { setComposeOpen(false); xtermRef.current?.focus(); }} />
       )}
 
       {/* Kill confirmation dialog */}

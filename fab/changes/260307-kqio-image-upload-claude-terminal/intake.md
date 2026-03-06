@@ -40,7 +40,7 @@ All three entry points feed into the same upload flow.
 
 #### Server Endpoint
 New API endpoint `POST /api/upload` that:
-1. Accepts `multipart/form-data` with the image file and a `sessionName` + `windowIndex` identifier
+1. Accepts `multipart/form-data` with the file and `session` (session name) + `window` (tmux window index) fields
 2. Resolves the project root directory for that session (from tmux, same as existing session enrichment)
 3. Writes the file to a deterministic location within the project: `.uploads/{timestamp}-{original-name}` (or similar)
 4. Returns the absolute file path in the response

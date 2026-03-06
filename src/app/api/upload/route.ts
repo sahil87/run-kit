@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { mkdir, writeFile, readFile, appendFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { validateName, sanitizeFilename } from "@/lib/validate";
 import { listWindows } from "@/lib/tmux";
@@ -33,7 +33,14 @@ export async function POST(request: Request) {
     }
 
     const windowField = formData.get("window");
-    const windowIndex = windowField ? Number(windowField) : 0;
+    let windowIndex = 0;
+    if (windowField !== null) {
+      const parsed = Number(windowField);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        return badRequest("Invalid window index");
+      }
+      windowIndex = parsed;
+    }
 
     const windows = await listWindows(session);
     if (windows.length === 0) {
@@ -58,7 +65,7 @@ export async function POST(request: Request) {
 
     if (!gitignoreContent.split("\n").some((line) => line.trim() === ".uploads/")) {
       const separator = gitignoreContent.length > 0 && !gitignoreContent.endsWith("\n") ? "\n" : "";
-      await appendFile(gitignorePath, `${separator}.uploads/\n`, "utf-8");
+      await writeFile(gitignorePath, `${gitignoreContent}${separator}.uploads/\n`, "utf-8");
     }
 
     // Build timestamped filename

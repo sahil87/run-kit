@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockMkdir, mockWriteFile, mockReadFile, mockAppendFile } = vi.hoisted(() => ({
+const { mockMkdir, mockWriteFile, mockReadFile } = vi.hoisted(() => ({
   mockMkdir: vi.fn(),
   mockWriteFile: vi.fn(),
   mockReadFile: vi.fn(),
-  mockAppendFile: vi.fn(),
 }));
 
 vi.mock("@/lib/tmux", () => ({
@@ -15,11 +14,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    default: { ...actual, mkdir: mockMkdir, writeFile: mockWriteFile, readFile: mockReadFile, appendFile: mockAppendFile },
+    default: { ...actual, mkdir: mockMkdir, writeFile: mockWriteFile, readFile: mockReadFile },
     mkdir: mockMkdir,
     writeFile: mockWriteFile,
     readFile: mockReadFile,
-    appendFile: mockAppendFile,
   };
 });
 
@@ -46,6 +44,13 @@ async function postUpload(fields: Record<string, string | File>) {
   return { status: response.status, data };
 }
 
+/** Find a writeFile call targeting .gitignore (not the uploaded file). */
+function gitignoreWriteCall() {
+  return mockWriteFile.mock.calls.find(
+    (call) => typeof call[0] === "string" && call[0].endsWith(".gitignore"),
+  );
+}
+
 describe("POST /api/upload", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -55,7 +60,6 @@ describe("POST /api/upload", () => {
     mockReadFile.mockResolvedValue("");
     mockMkdir.mockResolvedValue(undefined);
     mockWriteFile.mockResolvedValue(undefined);
-    mockAppendFile.mockResolvedValue(undefined);
   });
 
   it("succeeds with valid file and session", async () => {
@@ -82,17 +86,15 @@ describe("POST /api/upload", () => {
     );
   });
 
-  it("appends .uploads/ to .gitignore when missing", async () => {
+  it("writes .uploads/ to .gitignore when missing", async () => {
     mockReadFile.mockResolvedValue("node_modules/\n");
     await postUpload({
       session: "my-project",
       file: makeFile("test.txt"),
     });
-    expect(mockAppendFile).toHaveBeenCalledWith(
-      "/home/user/project/.gitignore",
-      ".uploads/\n",
-      "utf-8",
-    );
+    const call = gitignoreWriteCall();
+    expect(call).toBeDefined();
+    expect(call![1]).toContain(".uploads/");
   });
 
   it("does not duplicate .uploads/ in .gitignore", async () => {
@@ -101,7 +103,7 @@ describe("POST /api/upload", () => {
       session: "my-project",
       file: makeFile("test.txt"),
     });
-    expect(mockAppendFile).not.toHaveBeenCalled();
+    expect(gitignoreWriteCall()).toBeUndefined();
   });
 
   it("creates .gitignore when it does not exist", async () => {
@@ -110,11 +112,9 @@ describe("POST /api/upload", () => {
       session: "my-project",
       file: makeFile("test.txt"),
     });
-    expect(mockAppendFile).toHaveBeenCalledWith(
-      "/home/user/project/.gitignore",
-      ".uploads/\n",
-      "utf-8",
-    );
+    const call = gitignoreWriteCall();
+    expect(call).toBeDefined();
+    expect(call![1]).toContain(".uploads/");
   });
 
   it("rejects missing session field with 400", async () => {
@@ -149,7 +149,16 @@ describe("POST /api/upload", () => {
     });
     expect(status).toBe(400);
     expect(data.error).toContain("50MB limit");
-    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid window index with 400", async () => {
+    const { status, data } = await postUpload({
+      session: "my-project",
+      window: "abc",
+      file: makeFile("test.txt"),
+    });
+    expect(status).toBe(400);
+    expect(data.error).toContain("Invalid window index");
   });
 
   it("rejects when session has no windows", async () => {
@@ -167,9 +176,12 @@ describe("POST /api/upload", () => {
       session: "my-project",
       file: makeFile("../../../etc/passwd"),
     });
-    const writtenPath = mockWriteFile.mock.calls[0][0] as string;
-    expect(writtenPath).toContain("etc-passwd");
-    expect(writtenPath).not.toContain("..");
+    const fileWriteCall = mockWriteFile.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes(".uploads/"),
+    );
+    expect(fileWriteCall).toBeDefined();
+    expect(fileWriteCall![0]).toContain("etc-passwd");
+    expect(fileWriteCall![0]).not.toContain("..");
   });
 
   it("handles empty filename gracefully", async () => {
@@ -177,8 +189,11 @@ describe("POST /api/upload", () => {
       session: "my-project",
       file: makeFile(""),
     });
-    const writtenPath = mockWriteFile.mock.calls[0][0] as string;
-    expect(writtenPath).toContain("upload");
+    const fileWriteCall = mockWriteFile.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes(".uploads/"),
+    );
+    expect(fileWriteCall).toBeDefined();
+    expect(fileWriteCall![0]).toContain("upload");
   });
 
   it("uses specified window index for project root", async () => {

@@ -60,7 +60,7 @@ export function expandTilde(raw: string): { path: string; error: null } | { path
 
 /**
  * Sanitize a user-provided filename for safe disk storage.
- * Strips `/`, `\`, null bytes, and leading dots; replaces path separators with `-`.
+ * Removes null bytes and leading dots; replaces path separators (`/`, `\`) with `-`.
  * Returns `upload` if the result is empty after sanitization.
  */
 export function sanitizeFilename(name: string): string {

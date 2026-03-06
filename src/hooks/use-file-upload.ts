@@ -31,9 +31,19 @@ export function useFileUpload(projectName: string, windowIndex: string): UseFile
             method: "POST",
             body: formData,
           });
-          const data = await res.json();
-          if (data.ok && data.path) {
-            paths.push(data.path);
+          let data: Record<string, unknown> | null = null;
+          try {
+            data = await res.json();
+          } catch {
+            // Non-JSON response (e.g., proxy error)
+          }
+          if (!res.ok) {
+            const msg = (data?.error as string) ?? `Upload failed (${res.status})`;
+            console.error("Upload error:", msg);
+            continue;
+          }
+          if (data?.ok && data?.path) {
+            paths.push(data.path as string);
           }
         }
       } finally {

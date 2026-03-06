@@ -9,6 +9,7 @@
 - Server Components by default; Client Components only when interactivity requires it (keyboard handlers, xterm.js, SSE consumers)
 - Type narrowing over type assertions — prefer `if` guards and discriminated unions over `as` casts
 - Derive state from tmux + filesystem — no in-memory caches unless explicitly justified by performance measurement
+- New features and bug fixes MUST include tests covering the added/changed behavior
 - Wrap fab-kit scripts in typed async functions (`lib/*.ts`) — never call shell scripts directly from components or API routes
 
 ## Anti-Patterns

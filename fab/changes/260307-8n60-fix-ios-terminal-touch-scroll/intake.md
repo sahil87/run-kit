@@ -14,7 +14,7 @@ One-shot bug report. The user cannot scroll the terminal output on iOS — touch
 
 On iOS Safari, touching the terminal area and swiping scrolls the entire page instead of scrolling the xterm terminal's scrollback buffer. This makes the terminal unusable on mobile — the user cannot review output history, and the page bounces/shifts unexpectedly.
 
-The terminal page already sets `fullbleed(true)` which applies `overflow-hidden` on the `ContentSlot` (`src/contexts/chrome-context.tsx`), but iOS Safari ignores `overflow: hidden` for touch-initiated scrolling on the body/html elements. The outer flex container and `body` have no touch-action or overscroll-behavior constraints, so iOS elastic scrolling kicks in.
+The terminal page already sets `fullbleed(true)` which applies `overflow-hidden` on the `ContentSlot` (`src/contexts/chrome-context.tsx:85`), but iOS Safari ignores `overflow: hidden` for touch-initiated scrolling on the body/html elements. The outer flex container and `body` have no touch-action or overscroll-behavior constraints, so iOS elastic scrolling kicks in.
 
 xterm.js handles mouse wheel scrolling natively but does not automatically prevent touch event propagation on its canvas element. Without explicit `touch-action: none` on the terminal container, the browser claims the touch gesture for page scrolling before xterm can process it.
 

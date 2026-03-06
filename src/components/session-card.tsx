@@ -6,6 +6,7 @@ type SessionCardProps = {
   window: WindowInfo;
   projectName: string;
   focused: boolean;
+  onMouseEnter?: () => void;
   onClick: () => void;
   onKill?: (e: React.MouseEvent) => void;
 };
@@ -14,11 +15,13 @@ export function SessionCard({
   window: win,
   projectName,
   focused,
+  onMouseEnter,
   onClick,
   onKill,
 }: SessionCardProps) {
   return (
     <button
+      onMouseEnter={onMouseEnter}
       onClick={onClick}
       aria-label={`${win.name} — ${projectName}, ${win.activity}`}
       className={`group w-full text-left p-3 rounded border transition-colors focus-visible:outline-2 focus-visible:outline-accent ${

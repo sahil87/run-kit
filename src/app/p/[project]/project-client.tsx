@@ -76,7 +76,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
     [],
   );
 
-  const { focusedIndex } = useKeyboardNav({
+  const { focusedIndex, setFocusedIndex } = useKeyboardNav({
     itemCount: windows.length,
     onSelect: navigateToTerminal,
     shortcuts,
@@ -294,6 +294,7 @@ export function ProjectClient({ projectName, initialWindows }: Props) {
               window={win}
               projectName={projectName}
               focused={i === focusedIndex}
+              onMouseEnter={() => setFocusedIndex(i)}
               onClick={() => navigateToTerminal(i)}
               onKill={() => {
                 setKillWindowTarget(win);

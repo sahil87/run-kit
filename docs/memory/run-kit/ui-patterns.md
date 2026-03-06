@@ -18,11 +18,11 @@ The root layout renders `TopBarChrome` (`src/components/top-bar-chrome.tsx`) whi
 
 | Page | Breadcrumb |
 |------|-----------|
-| Dashboard | `RK` (logo placeholder only) |
-| Project | `RK › ⬡ {name}` |
-| Terminal | `RK › ⬡ {name} › ❯ {window}` |
+| Dashboard | `{logo}` (SVG logo only) |
+| Project | `{logo} › ⬡ {name}` |
+| Terminal | `{logo} › ⬡ {name} › ❯ {window}` |
 
-- `RK` — logo placeholder, always links to `/`
+- Logo SVG (`logo.svg`) — always links to `/`
 - ⬡ — Unicode hexagon (U+2B21), `text-text-secondary`, precedes project name
 - ❯ — Unicode heavy right angle (U+276F), `text-text-secondary`, precedes window name
 - All segments except the last are clickable links
@@ -47,13 +47,15 @@ Line 2 renders even when empty — prevents layout shift during navigation and b
 
 ## Bottom Bar (Terminal Page Only)
 
-Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBottomBar()` from ChromeProvider. Layout: `Ctrl Alt Cmd | <- -> up down | Fn Esc Tab compose`.
+Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBottomBar()` from ChromeProvider. Layout: `Ctrl Alt Cmd | ArrowPad | F▴ Esc Tab >_`.
 
 **Modifier toggles** (Ctrl, Alt, Cmd): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously.
 
-**Arrow keys**: Send ANSI escape sequences (`[A/B/C/D`). With modifiers, use xterm parameter encoding (`[1;{mod}X`). Modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) + (cmd?8:0).
+**Armed modifier bridging**: When modifiers are armed, a capture-phase `keydown` listener intercepts physical keypresses and translates them to terminal escape sequences (Ctrl+letter → control characters, Alt/Cmd → ESC prefix). Sends via WebSocket, preventing xterm from receiving the unmodified key. Ignores real Cmd/Ctrl/Alt held by the OS.
 
-**Function key dropdown** (Fn): Opens a grid dropdown above the button. Contains F1-F12, PgUp, PgDn, Home, End. Closes after each selection, on outside click, or on Escape.
+**ArrowPad** (`arrow-pad.tsx`): Combined directional pad replacing individual arrow buttons. Sends ANSI escape sequences (`[A/B/C/D`). With modifiers, use xterm parameter encoding (`[1;{mod}X`). Modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) + (cmd?8:0).
+
+**Function key dropdown** (F▴): Opens a grid dropdown above the button. Contains F1-F12, PgUp, PgDn, Home, End. Closes after each selection, on outside click, or on Escape.
 
 **Special keys** (Esc, Tab): Direct send. Ctrl is not consumed for Esc/Tab (Esc IS Ctrl+[, Tab IS Ctrl+I in terminal semantics) — Ctrl stays armed for the next key. Alt/Cmd prefix with ESC (Meta convention).
 
@@ -63,7 +65,7 @@ Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBotto
 
 Native `<textarea>` overlay triggered by the compose button. Appears above the bottom bar inside the content area. Terminal dims (`opacity-50`) while compose is open.
 
-- **Open**: Tap compose button, or press `i` on desktop (intercepted in capture phase before xterm)
+- **Open**: Tap compose button (`>_` icon)
 - **Send**: Click Send button or press Cmd/Ctrl+Enter — entire text transmitted as one WebSocket message
 - **Dismiss**: Press Escape — closes without sending, text discarded
 - **Why**: xterm is a `<canvas>`, not a native text input. iOS dictation, autocorrect, paste, IME all require a real DOM element. Also useful on desktop for pasting large text blocks over a laggy WebSocket.
@@ -81,7 +83,7 @@ Native `<textarea>` overlay triggered by the compose button. Appears above the b
 | `j` / `k` | Navigate cards down/up | Dashboard, Project view |
 | `Enter` | Drill into focused item | Dashboard, Project view |
 | `Esc Esc` | Navigate back | Terminal view (300ms window) |
-| `i` | Open compose buffer | Terminal view (capture phase, prevents xterm from receiving) |
+
 
 ### Dashboard
 | Key | Action |

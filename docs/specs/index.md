@@ -23,3 +23,4 @@
 | Spec | Description |
 |------|-------------|
 | [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |
+| [Short-Term Goal](short-term-goal.md) | Minimum viable product requirements and priorities |

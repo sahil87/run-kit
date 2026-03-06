@@ -238,7 +238,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
         className={`${KBD_CLASS} text-text-secondary ml-auto`}
         onClick={onOpenCompose}
       >
-        <kbd aria-hidden="true">&#x270E;</kbd>
+        <kbd aria-hidden="true">&gt;_</kbd>
       </button>
     </div>
   );

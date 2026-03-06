@@ -7,6 +7,7 @@ import { ArrowPad } from "@/components/arrow-pad";
 type BottomBarProps = {
   wsRef: React.RefObject<WebSocket | null>;
   onOpenCompose: () => void;
+  onUploadFiles?: (files: FileList) => void;
 };
 
 /** xterm modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) + (meta?8:0) */
@@ -55,12 +56,13 @@ const MODIFIER_LABELS: Record<string, string> = {
   cmd: "Command",
 };
 
-export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
+export function BottomBar({ wsRef, onOpenCompose, onUploadFiles }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
   const [extOpen, setExtOpen] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
   const extRef = useRef<HTMLDivElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -277,6 +279,31 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
           </div>
         )}
       </div>
+
+      {/* Upload button */}
+      {onUploadFiles && (
+        <>
+          <input
+            ref={uploadInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                onUploadFiles(e.target.files);
+                e.target.value = "";
+              }
+            }}
+          />
+          <button
+            aria-label="Upload file"
+            className={`${KBD_CLASS} text-text-secondary`}
+            onClick={() => uploadInputRef.current?.click()}
+          >
+            <span aria-hidden="true">{"\uD83D\uDCCE"}</span>
+          </button>
+        </>
+      )}
 
       {/* Compose toggle — right-aligned */}
       <button

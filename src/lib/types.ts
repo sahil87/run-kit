@@ -29,3 +29,6 @@ export const ACTIVITY_THRESHOLD_SECONDS = 10;
 
 /** SSE polling interval (milliseconds). */
 export const SSE_POLL_INTERVAL = 2500;
+
+/** Maximum upload file size (bytes). */
+export const UPLOAD_MAX_BYTES = 50 * 1024 * 1024;

@@ -47,7 +47,7 @@ Line 2 renders even when empty — prevents layout shift during navigation and b
 
 ## Bottom Bar (Terminal Page Only)
 
-Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBottomBar()` from ChromeProvider. Layout: `Ctrl Alt Cmd | ArrowPad | F▴ Esc Tab >_`.
+Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBottomBar()` from ChromeProvider. Layout: `Ctrl Alt Cmd | ArrowPad | F▴ Esc Tab 📎 >_`.
 
 **Modifier toggles** (Ctrl, Alt, Cmd): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously.
 
@@ -69,6 +69,17 @@ Native `<textarea>` overlay triggered by the compose button. Appears above the b
 - **Send**: Click Send button or press Cmd/Ctrl+Enter — entire text transmitted as one WebSocket message
 - **Dismiss**: Press Escape — closes without sending, text discarded
 - **Why**: xterm is a `<canvas>`, not a native text input. iOS dictation, autocorrect, paste, IME all require a real DOM element. Also useful on desktop for pasting large text blocks over a laggy WebSocket.
+- **initialText prop**: Optional string that pre-populates the textarea. Used by file upload to insert paths. On subsequent prop changes while mounted, appends to existing textarea content with newline separator.
+
+### File Upload
+
+Three entry points, all on the terminal page:
+- **Clipboard paste** (`Cmd+V` / `Ctrl+V`) — document-level paste listener; files in `clipboardData.files` trigger upload, text-only paste passes through to xterm
+- **Drag-and-drop** — drop files onto the terminal area; `ring-2 ring-accent` border highlight during drag-over; non-file drag content ignored
+- **File picker button** (📎) — in bottom bar between extended keys and compose toggle; opens native file picker via hidden `<input type="file">`
+- **Command palette** — "Upload file" action opens the file picker
+
+After upload: file path auto-inserted into compose buffer (opens compose if closed). Multiple files produce one path per line. Server writes to `.uploads/{YYMMDD-HHmmss}-{sanitized-name}` in the project root. 50MB size limit. `.uploads/` auto-added to `.gitignore` on first use.
 
 ### iOS Keyboard Support
 
@@ -167,3 +178,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-06 | Performance: split ChromeContext (state/dispatch), layout-level SessionProvider, inline dashboard search, memoized shortcuts | `260306-0ahl-perf-sse-chrome-sessions` |
 | 2026-03-07 | Rename window action (both pages), kill button label shortened to "Kill" | `260307-r3yv-action-buttons-rename-kill` |
 | 2026-03-07 | iOS touch scroll fix — `touch-none` on terminal container, fullbleed class toggle for body overflow/overscroll prevention | `260307-8n60-fix-ios-terminal-touch-scroll` |
+| 2026-03-07 | File upload: clipboard paste, drag-and-drop, file picker button, compose buffer path insertion, command palette action | `260307-kqio-image-upload-claude-terminal` |

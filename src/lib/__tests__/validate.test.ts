@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { validateName, validatePath, expandTilde } from "@/lib/validate";
+import { validateName, validatePath, expandTilde, sanitizeFilename } from "@/lib/validate";
 
 describe("validateName", () => {
   it("returns null for a valid name", () => {
@@ -133,5 +133,64 @@ describe("expandTilde", () => {
     const result = expandTilde("~/code/../code/project");
     expect(result.path).toBe(`${home}/code/project`);
     expect(result.error).toBeNull();
+  });
+});
+
+describe("sanitizeFilename", () => {
+  it("returns simple filenames unchanged", () => {
+    expect(sanitizeFilename("screenshot.png")).toBe("screenshot.png");
+  });
+
+  it("replaces forward slashes with dashes", () => {
+    expect(sanitizeFilename("path/to/file.txt")).toBe("path-to-file.txt");
+  });
+
+  it("replaces backslashes with dashes", () => {
+    expect(sanitizeFilename("path\\to\\file.txt")).toBe("path-to-file.txt");
+  });
+
+  it("strips null bytes", () => {
+    expect(sanitizeFilename("file\0name.txt")).toBe("filename.txt");
+  });
+
+  it("strips leading dots", () => {
+    expect(sanitizeFilename(".hidden")).toBe("hidden");
+    expect(sanitizeFilename("...triple")).toBe("triple");
+  });
+
+  it("sanitizes path traversal attempt", () => {
+    expect(sanitizeFilename("../../../etc/passwd")).toBe("etc-passwd");
+  });
+
+  it("sanitizes backslash traversal attempt", () => {
+    expect(sanitizeFilename("..\\..\\..\\etc\\passwd")).toBe("etc-passwd");
+  });
+
+  it("collapses multiple dashes", () => {
+    expect(sanitizeFilename("a---b")).toBe("a-b");
+  });
+
+  it("strips leading and trailing dashes", () => {
+    expect(sanitizeFilename("-file-")).toBe("file");
+  });
+
+  it("returns 'upload' for empty string", () => {
+    expect(sanitizeFilename("")).toBe("upload");
+  });
+
+  it("returns 'upload' for dots-only input", () => {
+    expect(sanitizeFilename("...")).toBe("upload");
+  });
+
+  it("returns 'upload' for slashes-only input", () => {
+    expect(sanitizeFilename("///")).toBe("upload");
+  });
+
+  it("preserves file extensions", () => {
+    expect(sanitizeFilename("my-document.pdf")).toBe("my-document.pdf");
+  });
+
+  it("handles spaces in filenames", () => {
+    expect(sanitizeFilename("my file name.png")).toBe("my file name.png");
   });
 });

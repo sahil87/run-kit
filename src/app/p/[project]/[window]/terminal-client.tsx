@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useSessions } from "@/hooks/use-sessions";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
+import { useFileUpload } from "@/hooks/use-file-upload";
 import { useChromeDispatch } from "@/contexts/chrome-context";
 import { BottomBar } from "@/components/bottom-bar";
 import { ComposeBuffer } from "@/components/compose-buffer";
@@ -33,6 +34,10 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [renameName, setRenameName] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
+  const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { uploadFiles } = useFileUpload(projectName, windowIndex);
 
   useVisualViewport();
 
@@ -144,16 +149,68 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     );
   }, [activeWindow, setLine2Right]);
 
+  // Open compose buffer with uploaded file paths
+  const openComposeWithPaths = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    const text = paths.join("\n");
+    setComposeInitialText(text);
+    setComposeOpen(true);
+  }, []);
+
+  // Paste handler — upload files from clipboard
+  useEffect(() => {
+    function handlePaste(e: ClipboardEvent) {
+      const files = e.clipboardData?.files;
+      if (!files || files.length === 0) return;
+      e.preventDefault();
+      uploadFiles(files).then(openComposeWithPaths);
+    }
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [uploadFiles, openComposeWithPaths]);
+
+  // Drag-and-drop handlers
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      const files = e.dataTransfer.files;
+      if (files.length === 0) return;
+      uploadFiles(files).then(openComposeWithPaths);
+    },
+    [uploadFiles, openComposeWithPaths],
+  );
+
+  // Upload button handler (passed to BottomBar)
+  const handleUploadFiles = useCallback(
+    (files: FileList) => {
+      uploadFiles(files).then(openComposeWithPaths);
+    },
+    [uploadFiles, openComposeWithPaths],
+  );
+
   // Bottom bar injection
   useEffect(() => {
     setBottomBar(
       <BottomBar
         wsRef={wsRef}
         onOpenCompose={() => setComposeOpen((v) => !v)}
+        onUploadFiles={handleUploadFiles}
       />,
     );
     return () => setBottomBar(null);
-  }, [setBottomBar]);
+  }, [setBottomBar, handleUploadFiles]);
 
   // Keyboard shortcuts (double-Esc + rename)
   const handleKeyDown = useCallback(
@@ -376,6 +433,11 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
   const paletteActions: PaletteAction[] = useMemo(
     () => [
       {
+        id: "upload-file",
+        label: "Upload file",
+        onSelect: () => fileInputRef.current?.click(),
+      },
+      {
         id: "rename-window",
         label: "Rename window",
         shortcut: "r",
@@ -409,11 +471,32 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         ref={terminalRef}
         role="application"
         aria-label={`Terminal: ${projectName}/${displayName}`}
-        className={`flex-1 min-h-0 transition-opacity ${composeOpen ? "opacity-50" : ""}`}
+        className={`flex-1 min-h-0 transition-opacity ${composeOpen ? "opacity-50" : ""} ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      />
+
+      {/* Hidden file input for command palette upload action */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            handleUploadFiles(e.target.files);
+            e.target.value = "";
+          }
+        }}
       />
 
       {composeOpen && (
-        <ComposeBuffer wsRef={wsRef} onClose={() => { setComposeOpen(false); xtermRef.current?.focus(); }} />
+        <ComposeBuffer
+          wsRef={wsRef}
+          onClose={() => { setComposeOpen(false); setComposeInitialText(undefined); xtermRef.current?.focus(); }}
+          initialText={composeInitialText}
+        />
       )}
 
       {/* Rename dialog */}

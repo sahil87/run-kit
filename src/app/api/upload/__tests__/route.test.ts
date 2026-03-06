@@ -11,7 +11,7 @@ vi.mock("@/lib/tmux", () => ({
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
     default: { ...actual, mkdir: mockMkdir, writeFile: mockWriteFile, readFile: mockReadFile },
@@ -55,7 +55,7 @@ describe("POST /api/upload", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(listWindows).mockResolvedValue([
-      { index: 0, name: "main", worktreePath: "/home/user/project", activity: "active" },
+      { index: 0, name: "main", worktreePath: "/home/user/project", activity: "active", isActiveWindow: true },
     ]);
     mockReadFile.mockResolvedValue("");
     mockMkdir.mockResolvedValue(undefined);
@@ -198,8 +198,8 @@ describe("POST /api/upload", () => {
 
   it("uses specified window index for project root", async () => {
     vi.mocked(listWindows).mockResolvedValue([
-      { index: 0, name: "main", worktreePath: "/home/user/project", activity: "active" },
-      { index: 1, name: "worktree", worktreePath: "/home/user/project-wt", activity: "idle" },
+      { index: 0, name: "main", worktreePath: "/home/user/project", activity: "active", isActiveWindow: true },
+      { index: 1, name: "worktree", worktreePath: "/home/user/project-wt", activity: "idle", isActiveWindow: false },
     ]);
     await postUpload({
       session: "my-project",

@@ -35,8 +35,8 @@ Connection indicator: green/gray dot with "live"/"disconnected" label, driven by
 | Page | Left content | Right content |
 |------|-------------|---------------|
 | Dashboard | "+ New Session" button (via chrome slot) | `{N} sessions, {M} windows` |
-| Project | "+ New Window" button, "Send Message" button (disabled when no windows) | `{N} windows` |
-| Terminal | "Kill Window" button (red hover) | Activity dot + fab stage badge |
+| Project | "+ New Window" button, "Send Message" button, "Rename" button (disabled when no windows) | `{N} windows` |
+| Terminal | "Rename" button, "Kill" button (red hover) | Activity dot + fab stage badge |
 
 Line 2 renders even when empty — prevents layout shift during navigation and before `useEffect` fires.
 
@@ -95,6 +95,12 @@ Native `<textarea>` overlay triggered by the compose button. Appears above the b
 | `n` | Create new window |
 | `x` | Kill focused window (confirmation) |
 | `s` | Send message to focused window's agent |
+| `r` | Rename focused window |
+
+### Terminal View
+| Key | Action |
+|-----|--------|
+| `r` | Rename window |
 
 All keyboard shortcuts are registered in the command palette.
 
@@ -153,3 +159,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-06 | Chrome architecture — layout-owned skeleton, ChromeProvider context, TopBarChrome, icon breadcrumbs, always-visible kill buttons | `260305-emla-fixed-chrome-architecture` |
 | 2026-03-06 | Bottom bar with modifier toggles, arrow keys, Fn dropdown, compose buffer, iOS keyboard support | `260305-fjh1-bottom-bar-compose-buffer` |
 | 2026-03-06 | Performance: split ChromeContext (state/dispatch), layout-level SessionProvider, inline dashboard search, memoized shortcuts | `260306-0ahl-perf-sse-chrome-sessions` |
+| 2026-03-07 | Rename window action (both pages), kill button label shortened to "Kill" | `260307-r3yv-action-buttons-rename-kill` |

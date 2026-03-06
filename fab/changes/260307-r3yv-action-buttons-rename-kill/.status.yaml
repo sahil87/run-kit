@@ -1,0 +1,41 @@
+name: 260307-r3yv-action-buttons-rename-kill
+created: 2026-03-07T00:19:57+05:30
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 23
+    total: 23
+confidence:
+    certain: 6
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 80.0
+        reversibility: 92.9
+        competence: 90.7
+        disambiguation: 90.7
+stage_metrics:
+    intake: {started_at: "2026-03-07T00:19:57+05:30", driver: fab-new, iterations: 1, completed_at: "2026-03-07T00:28:48+05:30"}
+    spec: {started_at: "2026-03-07T00:28:48+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T00:29:34+05:30"}
+    tasks: {started_at: "2026-03-07T00:29:34+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T00:29:34+05:30"}
+    apply: {started_at: "2026-03-07T00:29:34+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T00:32:36+05:30"}
+    review: {started_at: "2026-03-07T00:32:36+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T00:33:14+05:30"}
+    hydrate: {started_at: "2026-03-07T00:33:14+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T00:33:53+05:30"}
+    ship: {started_at: "2026-03-07T00:33:53+05:30", driver: fab-ff, iterations: 1}
+prs: []
+last_updated: 2026-03-07T00:33:53+05:30

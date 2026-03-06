@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-07T00:19:57+05:30"}
+{"args":"Add new action buttons, both to project and terminal page: Rename. And change Kill Window to just Kill. What else can we add?","cmd":"fab-new","event":"command","ts":"2026-03-07T00:19:57+05:30"}
+{"delta":"+1.8","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-03-07T00:20:43+05:30"}
+{"delta":"+0.0","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-03-07T00:20:52+05:30"}
+{"delta":"+2.9","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-07T00:25:51+05:30"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-07T00:25:55+05:30"}
+{"cmd":"fab-ff","event":"command","ts":"2026-03-07T00:27:47+05:30"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-07T00:28:44+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"spec","ts":"2026-03-07T00:28:48+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"tasks","ts":"2026-03-07T00:29:34+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-03-07T00:29:34+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-03-07T00:32:36+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-03-07T00:33:14+05:30"}
+{"event":"review","result":"passed","ts":"2026-03-07T00:33:14+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-03-07T00:33:53+05:30"}

@@ -36,7 +36,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 |----------|--------|---------|
 | `/api/health` | GET | Returns `200 { "status": "ok" }` for supervisor health checks |
 | `/api/sessions` | GET | Returns `ProjectSession[]` — one per tmux session, with auto-detected fab enrichment |
-| `/api/sessions` | POST | Actions: `createSession` (with optional `cwd`), `createWindow`, `killSession`, `killWindow`, `sendKeys` |
+| `/api/sessions` | POST | Actions: `createSession` (with optional `cwd`), `createWindow`, `killSession`, `killWindow`, `renameWindow`, `sendKeys` |
 | `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
 | `/api/sessions/stream` | GET | SSE — module-level singleton polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection. |
 

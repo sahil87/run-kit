@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchSessions } from "@/lib/sessions";
-import { createSession, createWindow, killSession, killWindow, sendKeys } from "@/lib/tmux";
+import { createSession, createWindow, killSession, killWindow, renameWindow, sendKeys } from "@/lib/tmux";
 import { validateName, validatePath, expandTilde } from "@/lib/validate";
 
 export const dynamic = "force-dynamic";
@@ -80,6 +80,22 @@ export async function POST(request: Request) {
         }
 
         await killWindow(session, index);
+        break;
+      }
+      case "renameWindow": {
+        const session = String(body.session ?? "");
+        const index = Number(body.index);
+        const name = String(body.name ?? "");
+
+        const sessionErr = validateName(session, "Session name");
+        if (sessionErr) return badRequest(sessionErr);
+        if (!Number.isInteger(index) || index < 0) {
+          return badRequest("Invalid window index");
+        }
+        const nameErr = validateName(name, "Window name");
+        if (nameErr) return badRequest(nameErr);
+
+        await renameWindow(session, index, name);
         break;
       }
       case "sendKeys": {

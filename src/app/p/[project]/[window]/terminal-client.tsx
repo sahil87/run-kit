@@ -30,6 +30,8 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
   const { sessions } = useSessions();
   const { setBreadcrumbs, setLine2Left, setLine2Right, setBottomBar, setFullbleed } = useChromeDispatch();
   const [showKillConfirm, setShowKillConfirm] = useState(false);
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [renameName, setRenameName] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
 
   useVisualViewport();
@@ -59,14 +61,23 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     setLine2Left(
       <div className="flex items-center gap-3">
         <button
+          onClick={() => {
+            setRenameName(windowName);
+            setShowRenameDialog(true);
+          }}
+          className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
+        >
+          Rename
+        </button>
+        <button
           onClick={() => setShowKillConfirm(true)}
           className="text-sm px-3 py-1 border border-border rounded hover:border-red-400 hover:text-red-400 transition-colors"
         >
-          Kill Window
+          Kill
         </button>
       </div>,
     );
-  }, [setLine2Left]);
+  }, [setLine2Left, windowName]);
 
   useEffect(() => {
     setLine2Right(
@@ -262,6 +273,26 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
     };
   }, [projectName, windowIndex, relayPort]);
 
+  async function handleRename() {
+    if (!renameName.trim()) return;
+    try {
+      await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "renameWindow",
+          session: projectName,
+          index: parseInt(windowIndex, 10),
+          name: renameName.trim(),
+        }),
+      });
+    } catch {
+      // SSE will reflect actual state
+    }
+    setShowRenameDialog(false);
+    xtermRef.current?.focus();
+  }
+
   async function handleKillWindow() {
     try {
       await fetch("/api/sessions", {
@@ -283,8 +314,17 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
   const paletteActions: PaletteAction[] = useMemo(
     () => [
       {
+        id: "rename-window",
+        label: "Rename window",
+        shortcut: "r",
+        onSelect: () => {
+          setRenameName(windowName);
+          setShowRenameDialog(true);
+        },
+      },
+      {
         id: "kill-window",
-        label: "Kill this window",
+        label: "Kill window",
         onSelect: () => setShowKillConfirm(true),
       },
       {
@@ -298,7 +338,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         onSelect: () => router.push("/"),
       },
     ],
-    [projectName, router],
+    [projectName, windowName, router],
   );
 
   return (
@@ -312,6 +352,29 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
 
       {composeOpen && (
         <ComposeBuffer wsRef={wsRef} onClose={() => { setComposeOpen(false); xtermRef.current?.focus(); }} />
+      )}
+
+      {/* Rename dialog */}
+      {showRenameDialog && (
+        <Dialog title="Rename window" onClose={() => { setShowRenameDialog(false); xtermRef.current?.focus(); }}>
+          <input
+            autoFocus
+            type="text"
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleRename()}
+            onFocus={(e) => e.target.select()}
+            aria-label="Window name"
+            placeholder="Window name..."
+            className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+          />
+          <button
+            onClick={handleRename}
+            className="mt-3 w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+          >
+            Rename
+          </button>
+        </Dialog>
       )}
 
       {/* Kill confirmation dialog */}

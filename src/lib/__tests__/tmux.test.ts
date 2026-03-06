@@ -84,7 +84,7 @@ describe("listWindows", () => {
   it("marks window as active when within threshold", async () => {
     const recentTs = FAKE_NOW_SECS - 1;
     mockExecFile.mockResolvedValueOnce({
-      stdout: `0\tdev\t/home/user/project\t${recentTs}\n`,
+      stdout: `0\tdev\t/home/user/project\t${recentTs}\t1\n`,
       stderr: "",
     });
 
@@ -96,7 +96,7 @@ describe("listWindows", () => {
   it("marks window as idle when beyond threshold", async () => {
     const oldTs = FAKE_NOW_SECS - ACTIVITY_THRESHOLD_SECONDS - 100;
     mockExecFile.mockResolvedValueOnce({
-      stdout: `0\tdev\t/home/user/project\t${oldTs}\n`,
+      stdout: `0\tdev\t/home/user/project\t${oldTs}\t0\n`,
       stderr: "",
     });
 
@@ -105,9 +105,9 @@ describe("listWindows", () => {
     expect(result[0].activity).toBe("idle");
   });
 
-  it("parses all fields correctly", async () => {
+  it("parses all fields correctly including isActiveWindow", async () => {
     mockExecFile.mockResolvedValueOnce({
-      stdout: `0\tdev\t/home/user/project\t${FAKE_NOW_SECS}\n2\tbuild\t/tmp/build\t${FAKE_NOW_SECS}\n`,
+      stdout: `0\tdev\t/home/user/project\t${FAKE_NOW_SECS}\t1\n2\tbuild\t/tmp/build\t${FAKE_NOW_SECS}\t0\n`,
       stderr: "",
     });
 
@@ -117,11 +117,13 @@ describe("listWindows", () => {
       index: 0,
       name: "dev",
       worktreePath: "/home/user/project",
+      isActiveWindow: true,
     });
     expect(result[1]).toMatchObject({
       index: 2,
       name: "build",
       worktreePath: "/tmp/build",
+      isActiveWindow: false,
     });
   });
 

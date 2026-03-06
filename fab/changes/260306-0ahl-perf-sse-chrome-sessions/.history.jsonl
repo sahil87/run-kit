@@ -1,0 +1,5 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-06T22:16:33+05:30"}
+{"args":"Performance improvements: parallelize session enrichment, fix SSE lifecycle, split ChromeContext","cmd":"fab-new","event":"command","ts":"2026-03-06T22:16:33+05:30"}
+{"delta":"+2.8","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-03-06T22:17:40+05:30"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-03-06T22:17:47+05:30"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-03-06T22:18:27+05:30"}

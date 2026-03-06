@@ -71,14 +71,32 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
 
   // Update breadcrumb and URL when active window changes
   useEffect(() => {
+    const currentSession = sessions.find((s) => s.name === projectName);
     setBreadcrumbs([
-      { icon: "⬡", label: projectName, href: `/p/${projectName}` },
-      { icon: "❯", label: displayName },
+      {
+        icon: "⬡",
+        label: projectName,
+        href: `/p/${encodeURIComponent(projectName)}`,
+        dropdownItems: sessions.map((s) => ({
+          label: s.name,
+          href: `/p/${encodeURIComponent(s.name)}`,
+          current: s.name === projectName,
+        })),
+      },
+      {
+        icon: "❯",
+        label: displayName,
+        dropdownItems: currentSession?.windows.map((w) => ({
+          label: w.name,
+          href: `/p/${encodeURIComponent(projectName)}/${w.index}?name=${encodeURIComponent(w.name)}`,
+          current: String(w.index) === displayIndex,
+        })) ?? [],
+      },
     ]);
     // Sync URL without triggering Next.js routing
     const newUrl = `/p/${encodeURIComponent(projectName)}/${displayIndex}?name=${encodeURIComponent(displayName)}`;
     window.history.replaceState(window.history.state, "", newUrl);
-  }, [projectName, displayName, displayIndex, setBreadcrumbs]);
+  }, [projectName, displayName, displayIndex, sessions, setBreadcrumbs]);
 
   useEffect(() => {
     setLine2Left(

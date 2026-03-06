@@ -19,14 +19,25 @@ The root layout renders `TopBarChrome` (`src/components/top-bar-chrome.tsx`) whi
 | Page | Breadcrumb |
 |------|-----------|
 | Dashboard | `{logo}` (SVG logo only) |
-| Project | `{logo} › ⬡ {name}` |
-| Terminal | `{logo} › ⬡ {name} › ❯ {window}` (syncs with tmux active window via SSE) |
+| Project | `{logo} › ⬡ {name} ▾` |
+| Terminal | `{logo} › ⬡ {name} ▾ › ❯ {window} ▾` (syncs with tmux active window via SSE) |
 
 - Logo SVG (`logo.svg`) — always links to `/`
 - ⬡ — Unicode hexagon (U+2B21), `text-text-secondary`, precedes project name
 - ❯ — Unicode heavy right angle (U+276F), `text-text-secondary`, precedes window name
+- ▾ — Chevron dropdown trigger, opens sibling-switching dropdown menu
 - All segments except the last are clickable links
 - No text prefixes like "project:" or "window:"
+
+### Breadcrumb Dropdowns
+
+Breadcrumb segments with a `dropdownItems` array render a small chevron (`▾`) next to the label. Split click-target pattern: clicking the label navigates (existing behavior), clicking the chevron opens the dropdown.
+
+**Project dropdown** (project page + terminal page): Lists all tmux sessions. Current project highlighted with `text-accent`. Selecting navigates to `/p/{name}`.
+
+**Window dropdown** (terminal page only): Lists all windows in the current session. Current window highlighted. Selecting navigates to `/p/{project}/{index}?name={name}`.
+
+**Dropdown component** (`src/components/breadcrumb-dropdown.tsx`): Reusable dropdown with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Chevron has 24px minimum tap target. Long names truncated via `max-w-[240px]`.
 
 Connection indicator: green/gray dot with "live"/"disconnected" label, driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
 
@@ -181,3 +192,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-07 | File upload: clipboard paste, drag-and-drop, file picker button, compose buffer path insertion, command palette action | `260307-kqio-image-upload-claude-terminal` |
 | 2026-03-07 | iOS keyboard viewport overlap fix — scroll+resize listeners on visualViewport, fixed positioning for app-shell in fullbleed | `260307-f3o9-ios-keyboard-viewport-overlap` |
 | 2026-03-07 | Active window sync — breadcrumb, URL, rename/kill targets follow byobu/tmux window switches via SSE + `history.replaceState` | `260307-f3li-sync-byobu-active-tab` |
+| 2026-03-07 | Breadcrumb dropdown menus — chevron triggers for project/window switching, split click-target pattern | `260307-uzsa-navbar-breadcrumb-dropdowns` |

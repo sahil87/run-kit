@@ -70,7 +70,7 @@ export function BottomSlot() {
   const { bottomBar } = useChrome();
   return (
     <div className="shrink-0">
-      <div className="max-w-4xl mx-auto w-full px-6">{bottomBar}</div>
+      <div className="max-w-4xl mx-auto w-full px-6 pb-1">{bottomBar}</div>
     </div>
   );
 }

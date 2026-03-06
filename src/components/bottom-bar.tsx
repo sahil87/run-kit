@@ -47,7 +47,7 @@ const EXT_KEYS = [
 ] as const;
 
 const KBD_CLASS =
-  "min-h-[36px] px-2 py-1 text-sm border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-[30px] px-2 py-0.5 text-sm border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
 
 const MODIFIER_LABELS: Record<string, string> = {
   ctrl: "Control",
@@ -125,7 +125,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
   );
 
   return (
-    <div className="flex items-center gap-1.5 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
+    <div className="flex items-center gap-1.5 py-0.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
       {/* Special keys */}
       <button
         aria-label="Escape"
@@ -184,7 +184,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
                 key={fk.label}
                 role="menuitem"
                 aria-label={fk.label}
-                className="px-2 py-1.5 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                className="px-2 py-1 min-h-[30px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
                 onClick={() => {
                   sendWithMods(fk.plain, fk.mod);
                   setFnOpen(false);
@@ -219,7 +219,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
                 key={ek.label}
                 role="menuitem"
                 aria-label={ek.label}
-                className="px-2 py-1.5 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                className="px-2 py-1 min-h-[30px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
                 onClick={() => {
                   sendWithMods(ek.plain, ek.mod);
                   setExtOpen(false);

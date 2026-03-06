@@ -36,6 +36,10 @@ export function ComposeBuffer({ wsRef, onClose }: ComposeBufferProps) {
       <textarea
         ref={textareaRef}
         autoFocus
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         placeholder="Compose text..."
         className="w-full bg-bg-card text-text-primary text-sm p-3 rounded border border-border outline-none resize-y min-h-[80px] max-h-[200px] placeholder:text-text-secondary focus:border-text-secondary"
         onKeyDown={handleKeyDown}

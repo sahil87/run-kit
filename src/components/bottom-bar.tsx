@@ -117,13 +117,13 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
   return (
     <div className="flex items-center gap-1.5 py-1.5 flex-wrap">
       {/* Modifier toggles */}
-      {(["ctrl", "alt", "cmd"] as const).map((key) => (
+      {([["ctrl", "^"], ["alt", "\u2325"], ["cmd", "\u2318"]] as const).map(([key, symbol]) => (
         <button
           key={key}
           className={`${KBD_CLASS} ${mods[key] ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
           onClick={() => mods.toggle(key)}
         >
-          <kbd>{key.charAt(0).toUpperCase() + key.slice(1)}</kbd>
+          <kbd>{symbol}</kbd>
         </button>
       ))}
 
@@ -173,13 +173,13 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
         className={`${KBD_CLASS} text-text-secondary`}
         onClick={() => sendSpecial("\x1b")}
       >
-        <kbd>Esc</kbd>
+        <kbd>{"\u238B"}</kbd>
       </button>
       <button
         className={`${KBD_CLASS} text-text-secondary`}
         onClick={() => sendSpecial("\t")}
       >
-        <kbd>Tab</kbd>
+        <kbd>{"\u21E5"}</kbd>
       </button>
 
       {/* Compose toggle */}

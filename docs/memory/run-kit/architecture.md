@@ -82,6 +82,8 @@ All three zones use `max-w-4xl mx-auto w-full px-6` for identical width/padding 
 
 **iOS Keyboard Support** — `useVisualViewport` hook (`src/hooks/use-visual-viewport.ts`) sets `--app-height` CSS custom property from `window.visualViewport.height`. The layout flex container uses `var(--app-height, 100vh)`, constraining the app to the visible viewport when the iOS keyboard is open. The bottom bar stays pinned above the keyboard; the terminal shrinks via `flex-1` and xterm refits via `ResizeObserver`.
 
+**iOS Touch Scroll Prevention** — `ContentSlot` toggles a `fullbleed` CSS class on `document.documentElement` when the terminal page is active. `globals.css` applies `overflow: hidden` and `overscroll-behavior: none` to `html.fullbleed` and `html.fullbleed body`, preventing iOS Safari elastic bounce scrolling. The terminal container div uses `touch-none` (`touch-action: none`) so the browser yields touch gestures to xterm.js for scrollback handling.
+
 Pages do NOT render their own top bar or outer containers — they set chrome slots and render only their content area.
 
 ## Design Decisions
@@ -131,3 +133,4 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 | 2026-03-06 | Chrome architecture — layout-owned flex-col skeleton, ChromeProvider context, TopBarChrome, icon breadcrumbs, always-visible kill buttons | `260305-emla-fixed-chrome-architecture` |
 | 2026-03-06 | Bottom bar (modifier toggles, arrow keys, Fn dropdown, Esc/Tab, compose buffer), iOS keyboard support via visualViewport, `i` key compose toggle | `260305-fjh1-bottom-bar-compose-buffer` |
 | 2026-03-06 | Performance: parallel session enrichment, SSE pub/sub singleton, split ChromeContext, layout-level SessionProvider, ResizeObserver debounce, useModifierState memoization, WS reconnection | `260306-0ahl-perf-sse-chrome-sessions` |
+| 2026-03-07 | iOS touch scroll prevention — fullbleed class toggle on html, touch-none on terminal container | `260307-8n60-fix-ios-terminal-touch-scroll` |

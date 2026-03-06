@@ -1,8 +1,14 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ChromeProvider, ContentSlot, BottomSlot } from "@/contexts/chrome-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { TopBarChrome } from "@/components/top-bar-chrome";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
+};
 
 export const metadata: Metadata = {
   title: "RunKit",

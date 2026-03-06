@@ -46,19 +46,27 @@ summary {
   border-radius: 3px;
 }
 
-/* Prevent iOS Safari page scroll/bounce when terminal is fullbleed */
+/* Prevent iOS Safari page scroll/bounce when terminal is fullbleed.
+   position: fixed on body is critical — without it iOS scrolls the body
+   behind the keyboard ("ghost scroll"). */
 html.fullbleed,
 html.fullbleed body {
+  position: fixed;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
 }
 
-/* Pin app shell to viewport when keyboard opens on iOS (fullbleed only) */
+/* Pin app shell to visual viewport when keyboard opens on iOS.
+   --app-height and --app-offset-top are set by useVisualViewport. */
 html.fullbleed .app-shell {
   position: fixed;
   inset: 0;
   width: 100%;
   height: var(--app-height, 100vh);
+  top: var(--app-offset-top, 0px);
+  will-change: top, height;
 }
 
 /* Prevent xterm scroll from chaining to the page on iOS */

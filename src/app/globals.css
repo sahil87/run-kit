@@ -65,8 +65,8 @@ html.fullbleed .app-shell {
   inset: 0;
   width: 100%;
   height: var(--app-height, 100vh);
-  transform: translateY(var(--app-offset-top, 0px));
-  will-change: transform, height;
+  top: var(--app-offset-top, 0px);
+  will-change: top, height;
 }
 
 /* Prevent xterm scroll from chaining to the page on iOS */

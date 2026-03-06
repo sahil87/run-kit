@@ -45,3 +45,10 @@ summary {
   background: var(--color-border);
   border-radius: 3px;
 }
+
+/* Prevent iOS Safari page scroll/bounce when terminal is fullbleed */
+html.fullbleed,
+html.fullbleed body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}

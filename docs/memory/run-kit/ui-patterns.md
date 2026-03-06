@@ -74,6 +74,10 @@ Native `<textarea>` overlay triggered by the compose button. Appears above the b
 
 `useVisualViewport` hook sets `--app-height` CSS custom property from `window.visualViewport.height`. Layout flex container uses `var(--app-height, 100vh)`. When the iOS keyboard appears, the bottom bar stays pinned above it, the terminal shrinks, and xterm refits via the existing `ResizeObserver`.
 
+### iOS Touch Scroll Prevention
+
+The terminal container div has `touch-none` (CSS `touch-action: none`) to prevent the browser from handling touch gestures on the xterm canvas — xterm.js handles its own scrollback. When fullbleed is active, `ContentSlot` toggles a `fullbleed` class on `<html>`, which applies `overflow: hidden` and `overscroll-behavior: none` to both `html` and `body` (via `globals.css`), preventing iOS Safari elastic bounce scrolling. The class is removed on cleanup when navigating away. Non-terminal pages (dashboard, project) are unaffected — they don't set fullbleed. The compose buffer and bottom bar are siblings of the terminal container, not children, so their touch behavior is preserved.
+
 ## Keyboard Shortcuts
 
 ### Global
@@ -162,3 +166,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-06 | Bottom bar with modifier toggles, arrow keys, Fn dropdown, compose buffer, iOS keyboard support | `260305-fjh1-bottom-bar-compose-buffer` |
 | 2026-03-06 | Performance: split ChromeContext (state/dispatch), layout-level SessionProvider, inline dashboard search, memoized shortcuts | `260306-0ahl-perf-sse-chrome-sessions` |
 | 2026-03-07 | Rename window action (both pages), kill button label shortened to "Kill" | `260307-r3yv-action-buttons-rename-kill` |
+| 2026-03-07 | iOS touch scroll fix — `touch-none` on terminal container, fullbleed class toggle for body overflow/overscroll prevention | `260307-8n60-fix-ios-terminal-touch-scroll` |

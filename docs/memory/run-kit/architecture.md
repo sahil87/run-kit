@@ -26,7 +26,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 | `src/lib/worktree.ts` | Wraps fab-kit `wt-*` scripts (never reimplements) |
 | `src/lib/fab.ts` | Reads fab state (progress-line, current change, change list) |
 | `src/lib/sessions.ts` | Derives project roots from tmux, auto-detects fab-kit, enriches with fab state. Session enrichment runs in parallel via `Promise.all` with indexed assignment to preserve tmux ordering |
-| `src/lib/validate.ts` | Input validation for names/paths + tilde expansion with `$HOME` security boundary |
+| `src/lib/validate.ts` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
 | `src/lib/config.ts` | Server config (port, relayPort, host) — reads CLI args > `run-kit.yaml` > defaults |
 | `src/lib/types.ts` | Shared TypeScript types + named constants |
 
@@ -39,6 +39,7 @@ The tmux server is an external dependency — never started or stopped by run-ki
 | `/api/sessions` | POST | Actions: `createSession` (with optional `cwd`), `createWindow`, `killSession`, `killWindow`, `renameWindow`, `sendKeys` |
 | `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
 | `/api/sessions/stream` | GET | SSE — module-level singleton polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection. |
+| `/api/upload` | POST | File upload — accepts `multipart/form-data` with `file` and `session` fields. Resolves project root via `listWindows`, writes to `.uploads/{timestamp}-{name}`, auto-manages `.gitignore`. 50MB limit. |
 
 ## Terminal Relay
 
@@ -78,7 +79,7 @@ All three zones use `max-w-4xl mx-auto w-full px-6` for identical width/padding 
 
 **BottomBar** (`src/components/bottom-bar.tsx`) — injected by `TerminalClient` via `setBottomBar()`. Single row of `<kbd>` buttons: modifier toggles (Ctrl/Alt/Cmd with sticky armed state), arrow keys, Fn dropdown (F1-F12, PgUp/PgDn, Home/End), Esc, Tab, and compose toggle. All buttons 44px min-height for mobile touch targets. Sends ANSI escape sequences through the WebSocket ref. Modifier state managed by `useModifierState` hook.
 
-**ComposeBuffer** (`src/components/compose-buffer.tsx`) — native `<textarea>` overlay triggered by the compose button. Supports iOS dictation, autocorrect, paste, multiline. Send button (or Cmd/Ctrl+Enter) transmits entire text as a single WebSocket message. Terminal dims (`opacity-50`) while compose is open. Escape dismisses without sending.
+**ComposeBuffer** (`src/components/compose-buffer.tsx`) — native `<textarea>` overlay triggered by the compose button or file upload. Supports iOS dictation, autocorrect, paste, multiline. Send button (or Cmd/Ctrl+Enter) transmits entire text as a single WebSocket message. Terminal dims (`opacity-50`) while compose is open. Escape dismisses without sending. Accepts optional `initialText` prop for pre-populating with uploaded file paths; appends on subsequent updates while open.
 
 **iOS Keyboard Support** — `useVisualViewport` hook (`src/hooks/use-visual-viewport.ts`) sets `--app-height` CSS custom property from `window.visualViewport.height`. The layout flex container uses `var(--app-height, 100vh)`, constraining the app to the visible viewport when the iOS keyboard is open. The bottom bar stays pinned above the keyboard; the terminal shrinks via `flex-1` and xterm refits via `ResizeObserver`.
 
@@ -99,6 +100,7 @@ Pages do NOT render their own top bar or outer containers — they set chrome sl
 - **Sticky modifier state via useRef + forceUpdate** — `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders. Ensures `consume()` reads the latest value atomically without stale closure issues.
 - **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.
 - **Armed modifiers bridge to physical keyboard** — When bottom-bar modifiers (Ctrl/Alt/Cmd) are armed, a capture-phase `keydown` listener intercepts physical keypresses, translates them to terminal escape sequences (Ctrl+letter → control characters, Alt/Cmd → ESC prefix), and sends via WebSocket. Prevents xterm from receiving the unmodified key. Ignores real Cmd/Ctrl/Alt held by the OS.
+- **File upload via server filesystem (not terminal binary injection)** — Browser uploads file to `POST /api/upload`, server writes to `.uploads/` in project root, path auto-inserted into compose buffer. Works because run-kit server and tmux are always co-located; the browser is the remote part. Separate `/api/upload` route (not extending `/api/sessions`) because FormData and JSON body parsing are incompatible.
 
 ## Testing
 
@@ -116,6 +118,7 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 - All `execFile` calls include timeout (10s tmux, 30s build)
 - User input validated via `lib/validate.ts` before reaching any subprocess
 - Directory listing restricted to `$HOME` via `expandTilde()` — rejects `..` traversal, absolute paths outside home, and `~username` syntax. Symlinks under `$HOME` are not resolved (accepted risk for local dev tool)
+- File uploads: filename sanitized via `sanitizeFilename()` (strips path separators, null bytes, leading dots, collapses dot sequences); 50MB size limit enforced server-side; writes via `fs.writeFile` (not subprocess)
 
 ## Changelog
 
@@ -134,3 +137,4 @@ Current coverage: `validate.ts` (input validation + tilde expansion), `config.ts
 | 2026-03-06 | Bottom bar (modifier toggles, arrow keys, Fn dropdown, Esc/Tab, compose buffer), iOS keyboard support via visualViewport, `i` key compose toggle | `260305-fjh1-bottom-bar-compose-buffer` |
 | 2026-03-06 | Performance: parallel session enrichment, SSE pub/sub singleton, split ChromeContext, layout-level SessionProvider, ResizeObserver debounce, useModifierState memoization, WS reconnection | `260306-0ahl-perf-sse-chrome-sessions` |
 | 2026-03-07 | iOS touch scroll prevention — fullbleed class toggle on html, touch-none on terminal container | `260307-8n60-fix-ios-terminal-touch-scroll` |
+| 2026-03-07 | File upload: `/api/upload` endpoint, clipboard paste/drag-drop/file picker triggers, compose buffer integration, `.uploads/` auto-gitignore | `260307-kqio-image-upload-claude-terminal` |

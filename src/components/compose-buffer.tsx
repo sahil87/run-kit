@@ -1,14 +1,27 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 
 type ComposeBufferProps = {
   wsRef: React.RefObject<WebSocket | null>;
   onClose: () => void;
+  initialText?: string;
 };
 
-export function ComposeBuffer({ wsRef, onClose }: ComposeBufferProps) {
+export function ComposeBuffer({ wsRef, onClose, initialText }: ComposeBufferProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastInitialTextRef = useRef(initialText);
+
+  // Append new text when initialText changes after mount (e.g., new file uploaded while compose is open)
+  useEffect(() => {
+    if (initialText && initialText !== lastInitialTextRef.current && textareaRef.current) {
+      const ta = textareaRef.current;
+      const current = ta.value;
+      const separator = current && !current.endsWith("\n") ? "\n" : "";
+      ta.value = current + separator + initialText;
+    }
+    lastInitialTextRef.current = initialText;
+  }, [initialText]);
 
   const send = useCallback(() => {
     const text = textareaRef.current?.value;
@@ -41,6 +54,7 @@ export function ComposeBuffer({ wsRef, onClose }: ComposeBufferProps) {
         autoCapitalize="off"
         spellCheck={false}
         aria-label="Compose text to send to terminal"
+        defaultValue={initialText}
         placeholder="Compose text..."
         className="w-full bg-bg-card text-text-primary text-sm p-3 rounded border border-border outline-none resize-y min-h-[80px] max-h-[200px] placeholder:text-text-secondary focus:border-text-secondary"
         onKeyDown={handleKeyDown}

@@ -58,6 +58,24 @@ export function expandTilde(raw: string): { path: string; error: null } | { path
   return { path: expanded, error: null };
 }
 
+/**
+ * Sanitize a user-provided filename for safe disk storage.
+ * Removes null bytes and leading dots; replaces path separators (`/`, `\`) with `-`.
+ * Returns `upload` if the result is empty after sanitization.
+ */
+export function sanitizeFilename(name: string): string {
+  let sanitized = name
+    .replace(/\0/g, "")        // strip null bytes
+    .replace(/[/\\]/g, "-")    // replace path separators with dash
+    .replace(/^\.+/, "")       // strip leading dots
+    .replace(/\.{2,}/g, "")    // strip sequences of 2+ dots (traversal remnants)
+    .replace(/-{2,}/g, "-")    // collapse multiple dashes
+    .replace(/^-+|-+$/g, "");  // strip leading/trailing dashes
+
+  sanitized = sanitized.trim();
+  return sanitized || "upload";
+}
+
 /** Validate a file path. Returns null if valid, error message if invalid. */
 export function validatePath(path: string, label: string): string | null {
   if (!path || path.trim().length === 0) {

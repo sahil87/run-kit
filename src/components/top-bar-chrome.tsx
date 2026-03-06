@@ -23,9 +23,11 @@ export function TopBarChrome() {
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1.5">
               <span className="text-text-secondary" aria-hidden="true">›</span>
-              {crumb.icon && (
+              {crumb.dropdownItems && crumb.dropdownItems.length > 0 ? (
+                <BreadcrumbDropdown items={crumb.dropdownItems} label={crumb.label} icon={crumb.icon} />
+              ) : crumb.icon ? (
                 <span className="text-text-secondary" aria-hidden="true">{crumb.icon}</span>
-              )}
+              ) : null}
               {crumb.href ? (
                 <Link
                   href={crumb.href}
@@ -37,9 +39,6 @@ export function TopBarChrome() {
                 <span className="text-text-primary font-medium" aria-current="page">
                   {crumb.label}
                 </span>
-              )}
-              {crumb.dropdownItems && crumb.dropdownItems.length > 0 && (
-                <BreadcrumbDropdown items={crumb.dropdownItems} label={crumb.label} />
               )}
             </span>
           ))}

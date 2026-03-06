@@ -206,11 +206,10 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
       <BottomBar
         wsRef={wsRef}
         onOpenCompose={() => setComposeOpen((v) => !v)}
-        onUploadFiles={handleUploadFiles}
       />,
     );
     return () => setBottomBar(null);
-  }, [setBottomBar, handleUploadFiles]);
+  }, [setBottomBar]);
 
   // Keyboard shortcuts (double-Esc + rename)
   const handleKeyDown = useCallback(
@@ -497,6 +496,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
           wsRef={wsRef}
           onClose={() => { setComposeOpen(false); setComposeInitialText(undefined); xtermRef.current?.focus(); }}
           initialText={composeInitialText}
+          onUploadFiles={handleUploadFiles}
         />
       )}
 

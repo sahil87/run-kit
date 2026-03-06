@@ -19,25 +19,25 @@ The root layout renders `TopBarChrome` (`src/components/top-bar-chrome.tsx`) whi
 | Page | Breadcrumb |
 |------|-----------|
 | Dashboard | `{logo}` (SVG logo only) |
-| Project | `{logo} › ⬡ {name} ▾` |
-| Terminal | `{logo} › ⬡ {name} ▾ › ❯ {window} ▾` (syncs with tmux active window via SSE) |
+| Project | `{logo} › ⬡ {name} › {label}` |
+| Terminal | `{logo} › ⬡ {name} › ❯ {window}` (syncs with tmux active window via SSE) |
 
 - Logo SVG (`logo.svg`) — always links to `/`
-- ⬡ — Unicode hexagon (U+2B21), `text-text-secondary`, precedes project name
-- ❯ — Unicode heavy right angle (U+276F), `text-text-secondary`, precedes window name
-- ▾ — Chevron dropdown trigger, opens sibling-switching dropdown menu
+- ⬡ — Unicode hexagon (U+2B21), serves as dropdown trigger for project switching (tapping opens dropdown)
+- ❯ — Unicode heavy right angle (U+276F), serves as dropdown trigger for window switching (tapping opens dropdown)
+- Icons are rendered inside `BreadcrumbDropdown` via `icon` prop — no separate passive span
 - All segments except the last are clickable links
 - No text prefixes like "project:" or "window:"
 
 ### Breadcrumb Dropdowns
 
-Breadcrumb segments with a `dropdownItems` array render a small chevron (`▾`) next to the label. Split click-target pattern: clicking the label navigates (existing behavior), clicking the chevron opens the dropdown.
+Breadcrumb segments with a `dropdownItems` array use the icon (⬡ or ❯) as the dropdown trigger. Split click-target pattern: clicking the label navigates (existing behavior), clicking the icon opens the dropdown.
 
 **Project dropdown** (project page + terminal page): Lists all tmux sessions. Current project highlighted with `text-accent`. Selecting navigates to `/p/{name}`.
 
 **Window dropdown** (terminal page only): Lists all windows in the current session. Current window highlighted. Selecting navigates to `/p/{project}/{index}?name={name}`.
 
-**Dropdown component** (`src/components/breadcrumb-dropdown.tsx`): Reusable dropdown with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Chevron has 24px minimum tap target (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
+**Dropdown component** (`src/components/breadcrumb-dropdown.tsx`): Reusable dropdown accepting `icon` prop (rendered as trigger button content), with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Icon button has 24px minimum tap target (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
 
 Connection indicator: green/gray dot with "live"/"disconnected" label, driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
 
@@ -65,7 +65,7 @@ Mobile:   3 sessions, 5 windows                            [⋯]
 
 ## Bottom Bar (Terminal Page Only)
 
-Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBottomBar()` from ChromeProvider. Layout: `Ctrl Alt Cmd | ArrowPad | F▴ Esc Tab 📎 >_`.
+Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBottomBar()` from ChromeProvider. Layout: `Esc Tab | Ctrl Alt Cmd | ArrowPad F▴ ⌄ | >_`.
 
 **Modifier toggles** (Ctrl, Alt, Cmd): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously.
 
@@ -73,7 +73,9 @@ Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBotto
 
 **ArrowPad** (`arrow-pad.tsx`): Combined directional pad replacing individual arrow buttons. Sends ANSI escape sequences (`[A/B/C/D`). With modifiers, use xterm parameter encoding (`[1;{mod}X`). Modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) + (cmd?8:0).
 
-**Function key dropdown** (F▴): Opens a grid dropdown above the button. Contains F1-F12, PgUp, PgDn, Home, End. Closes after each selection, on outside click, or on Escape.
+**Function key dropdown** (F▴): Opens a combined popup above the button. Top section: F1-F12 in a 4-column grid. Divider (`border-t border-border`). Bottom section: PgUp, PgDn, Home, End, Ins, Del in a 3-column grid. Closes after each selection, on outside click, or on Escape.
+
+**Keyboard dismiss** (⌄): Calls `blur()` on the active element to collapse the iOS software keyboard. Positioned after the F▴ dropdown.
 
 **Special keys** (Esc, Tab): Direct send. Ctrl is not consumed for Esc/Tab (Esc IS Ctrl+[, Tab IS Ctrl+I in terminal semantics) — Ctrl stays armed for the next key. Alt/Cmd prefix with ESC (Meta convention).
 
@@ -91,11 +93,11 @@ Native `<textarea>` overlay triggered by the compose button. Appears above the b
 
 ### File Upload
 
-Three entry points, all on the terminal page:
+Four entry points, all on the terminal page:
 - **Clipboard paste** (`Cmd+V` / `Ctrl+V`) — document-level paste listener; files in `clipboardData.files` trigger upload, text-only paste passes through to xterm
 - **Drag-and-drop** — drop files onto the terminal area; `ring-2 ring-accent` border highlight during drag-over; non-file drag content ignored
-- **File picker button** (📎) — in bottom bar between extended keys and compose toggle; opens native file picker via hidden `<input type="file">`
-- **Command palette** — "Upload file" action opens the file picker
+- **Compose buffer upload button** (📎) — in compose buffer action row, left of Send button; opens native file picker via hidden `<input type="file">`
+- **Command palette** — "Upload file" action opens a separate file picker (hidden input in terminal-client)
 
 After upload: file path auto-inserted into compose buffer (opens compose if closed). Multiple files produce one path per line. Server writes to `.uploads/{YYMMDD-HHmmss}-{sanitized-name}` in the project root. 50MB size limit. `.uploads/` auto-added to `.gitignore` on first use.
 
@@ -226,3 +228,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-07 | Active window sync — breadcrumb, URL, rename/kill targets follow byobu/tmux window switches via SSE + `history.replaceState` | `260307-f3li-sync-byobu-active-tab` |
 | 2026-03-07 | Breadcrumb dropdown menus — chevron triggers for project/window switching, split click-target pattern | `260307-uzsa-navbar-breadcrumb-dropdowns` |
 | 2026-03-07 | Mobile responsive polish — Line 2 collapse with ⋯ palette trigger, 44px touch targets via `coarse:` variant, responsive padding (px-3/px-6), terminal font scaling (11px/13px) | `260305-ol5d-mobile-responsive-polish` |
+| 2026-03-07 | Mobile cleanup — merged F-key/ext-key popups, moved upload to compose buffer, added keyboard dismiss button, breadcrumb icons as dropdown triggers | `260307-l9jj-mobile-bar-breadcrumb-cleanup` |

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useChrome } from "@/contexts/chrome-context";
 
@@ -13,9 +14,10 @@ export function TopBarChrome() {
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
           <Link
             href="/"
-            className="font-bold text-text-primary hover:text-accent transition-colors"
+            className="hover:opacity-80 transition-opacity"
+            aria-label="RunKit home"
           >
-            RK
+            <Image src="/logo.svg" alt="RunKit" width={20} height={20} />
           </Link>
           {breadcrumbs.map((crumb, i) => (
             <span key={i} className="flex items-center gap-1.5">

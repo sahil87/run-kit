@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-07T01:17:16+05:30"}
+{"args":"iOS keyboard overlaps terminal - bottom not visible when typing","cmd":"fab-new","event":"command","ts":"2026-03-07T01:17:16+05:30"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-07T01:17:52+05:30"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-07T01:17:56+05:30"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-07T01:27:49+05:30"}
+{"cmd":"fab-ff","event":"command","ts":"2026-03-07T01:28:26+05:30"}
+{"delta":"+0.3","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-07T01:30:27+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"spec","ts":"2026-03-07T01:30:30+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"tasks","ts":"2026-03-07T01:31:02+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-03-07T01:31:02+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-03-07T01:32:00+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-03-07T01:32:36+05:30"}
+{"event":"review","result":"passed","ts":"2026-03-07T01:32:36+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-03-07T01:33:08+05:30"}

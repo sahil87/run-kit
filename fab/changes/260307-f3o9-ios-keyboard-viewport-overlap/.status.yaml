@@ -1,0 +1,41 @@
+name: 260307-f3o9-ios-keyboard-viewport-overlap
+created: 2026-03-07T01:17:16+05:30
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 9
+    total: 9
+confidence:
+    certain: 6
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 90.8
+        competence: 91.7
+        disambiguation: 92.5
+stage_metrics:
+    intake: {started_at: "2026-03-07T01:17:16+05:30", driver: fab-new, iterations: 1, completed_at: "2026-03-07T01:30:30+05:30"}
+    spec: {started_at: "2026-03-07T01:30:30+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T01:31:02+05:30"}
+    tasks: {started_at: "2026-03-07T01:31:02+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T01:31:02+05:30"}
+    apply: {started_at: "2026-03-07T01:31:02+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T01:32:00+05:30"}
+    review: {started_at: "2026-03-07T01:32:00+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T01:32:36+05:30"}
+    hydrate: {started_at: "2026-03-07T01:32:36+05:30", driver: fab-ff, iterations: 1, completed_at: "2026-03-07T01:33:08+05:30"}
+    ship: {started_at: "2026-03-07T01:33:08+05:30", driver: fab-ff, iterations: 1}
+prs: []
+last_updated: 2026-03-07T01:33:08+05:30

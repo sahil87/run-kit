@@ -53,6 +53,14 @@ html.fullbleed body {
   overscroll-behavior: none;
 }
 
+/* Pin app shell to viewport when keyboard opens on iOS (fullbleed only) */
+html.fullbleed .app-shell {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: var(--app-height, 100vh);
+}
+
 /* Prevent xterm scroll from chaining to the page on iOS */
 .xterm .xterm-viewport {
   overscroll-behavior: none;

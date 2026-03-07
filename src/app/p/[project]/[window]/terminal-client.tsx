@@ -471,7 +471,7 @@ export function TerminalClient({ projectName, windowIndex, windowName, relayPort
         ref={terminalRef}
         role="application"
         aria-label={`Terminal: ${projectName}/${displayName}`}
-        className={`flex-1 min-h-0 transition-opacity ${composeOpen ? "opacity-50" : ""} ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
+        className={`flex-1 min-h-0 overflow-hidden transition-opacity ${composeOpen ? "opacity-50" : ""} ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}

@@ -18,15 +18,25 @@ Run `just doctor` to verify all dependencies are installed.
 
 ## Getting Started
 
-1. **Start in development mode**
+1. **Install dependencies and browsers**
 
    ```sh
-   pnpm install && pnpm dev
+   pnpm install
+   pnpm exec playwright install --with-deps chromium
+   ```
+
+   > **Note:** Use `chromium`, not `chrome` — Chrome doesn't ship ARM64 Linux binaries.
+   > The `--with-deps` flag installs required system libraries (will prompt for sudo).
+
+2. **Start in development mode**
+
+   ```sh
+   pnpm dev
    ```
 
    This starts both the Next.js dev server ([http://localhost:3000](http://localhost:3000)) and the terminal relay (port 3001). Ctrl+C stops both.
 
-2. **Start in production mode**
+3. **Start in production mode**
 
    Build and run both services with the supervisor:
 

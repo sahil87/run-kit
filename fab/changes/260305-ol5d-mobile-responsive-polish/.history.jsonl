@@ -1,3 +1,13 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-05T22:44:06+05:30"}
 {"args":"3/3 Mobile Responsive Polish — Line 2 mobile collapse with ⋯ button, 44px touch target audit, terminal font scaling, full-width on narrow screens","cmd":"fab-new","event":"command","ts":"2026-03-05T22:44:06+05:30"}
 {"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-05T22:45:00+05:30"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-07T03:06:08+05:30"}
+{"cmd":"fab-ff","event":"command","ts":"2026-03-07T03:06:53+05:30"}
+{"delta":"+0.6","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-07T03:10:23+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"spec","ts":"2026-03-07T03:10:27+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"tasks","ts":"2026-03-07T03:11:17+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-03-07T03:12:48+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-03-07T03:15:05+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-03-07T03:17:31+05:30"}
+{"event":"review","result":"passed","ts":"2026-03-07T03:17:31+05:30"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-03-07T03:18:29+05:30"}

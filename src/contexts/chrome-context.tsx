@@ -100,7 +100,7 @@ export function ContentSlot({ children }: { children: React.ReactNode }) {
 
   return (
     <main id="main-content" className={`flex-1 min-h-0 overflow-x-hidden ${fullbleed ? "overflow-hidden" : "overflow-y-auto"}`}>
-      <div className={`max-w-4xl mx-auto w-full px-6 min-w-0 min-h-full flex flex-col ${fullbleed ? "overflow-hidden" : ""}`}>
+      <div className={`max-w-4xl mx-auto w-full px-3 sm:px-6 min-w-0 min-h-full flex flex-col ${fullbleed ? "overflow-hidden" : ""}`}>
         {children}
       </div>
     </main>
@@ -111,7 +111,7 @@ export function BottomSlot() {
   const { bottomBar } = useChrome();
   return (
     <div className="shrink-0">
-      <div className="max-w-4xl mx-auto w-full px-6 pb-1">{bottomBar}</div>
+      <div className="max-w-4xl mx-auto w-full px-3 sm:px-6 pb-1">{bottomBar}</div>
     </div>
   );
 }

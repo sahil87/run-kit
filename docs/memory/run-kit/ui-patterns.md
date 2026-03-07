@@ -14,7 +14,7 @@ The terminal page accepts an optional `name` query parameter for the window name
 
 The root layout renders `TopBarChrome` (`src/components/top-bar-chrome.tsx`) which reads slot content from `ChromeProvider` context. Pages inject their content via `useChrome()` setters — they do NOT render their own top bar.
 
-**Line 1** (fixed height): Icon breadcrumbs + connection indicator + ⌘K hint badge.
+**Line 1** (fixed height): Icon breadcrumbs + connection indicator + ⌘K hint badge (hidden on mobile < 640px via `hidden sm:inline-flex`).
 
 | Page | Breadcrumb |
 |------|-----------|
@@ -37,7 +37,7 @@ Breadcrumb segments with a `dropdownItems` array render a small chevron (`▾`) 
 
 **Window dropdown** (terminal page only): Lists all windows in the current session. Current window highlighted. Selecting navigates to `/p/{project}/{index}?name={name}`.
 
-**Dropdown component** (`src/components/breadcrumb-dropdown.tsx`): Reusable dropdown with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Chevron has 24px minimum tap target. Long names truncated via `max-w-[240px]`.
+**Dropdown component** (`src/components/breadcrumb-dropdown.tsx`): Reusable dropdown with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Chevron has 24px minimum tap target (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
 
 Connection indicator: green/gray dot with "live"/"disconnected" label, driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
 
@@ -50,6 +50,13 @@ Connection indicator: green/gray dot with "live"/"disconnected" label, driven by
 | Terminal | "Rename" button, "Kill" button (red hover) | Activity dot + fab stage badge |
 
 Line 2 renders even when empty — prevents layout shift during navigation and before `useEffect` fires.
+
+**Line 2 mobile collapse** (< 640px): Action buttons (`line2Left`) are hidden (`hidden sm:block`). Status text (`line2Right`) renders left-aligned. A `⋯` button appears at the right edge (`sm:hidden`) and opens the command palette via a `palette:open` CustomEvent on `document`. All page-specific actions are already registered as palette actions, so nothing is lost on mobile — only the presentation changes.
+
+```
+Desktop:  [+ New Session] [Search...]   3 sessions, 5 windows
+Mobile:   3 sessions, 5 windows                            [⋯]
+```
 
 ### Inline Kill Controls
 
@@ -99,6 +106,31 @@ After upload: file path auto-inserted into compose buffer (opens compose if clos
 ### iOS Touch Scroll Prevention
 
 The terminal container div has `touch-none` (CSS `touch-action: none`) to prevent the browser from handling touch gestures on the xterm canvas — xterm.js handles its own scrollback. When fullbleed is active, `ContentSlot` toggles a `fullbleed` class on `<html>`, which applies `overflow: hidden` and `overscroll-behavior: none` to both `html` and `body` (via `globals.css`), preventing iOS Safari elastic bounce scrolling. The class is removed on cleanup when navigating away. Non-terminal pages (dashboard, project) are unaffected — they don't set fullbleed. The compose buffer and bottom bar are siblings of the terminal container, not children, so their touch behavior is preserved.
+
+## Mobile Responsive
+
+### Breakpoints & Container Width
+
+All three chrome zones (top chrome, content, bottom slot) use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. `max-w-4xl` (896px) remains the max-width constraint; below that, content is naturally edge-to-edge.
+
+### Touch Targets
+
+A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-variant coarse (@media (pointer: coarse))`. On touch devices, interactive elements get `coarse:min-h-[44px]` (Apple HIG minimum). This includes:
+- Line 2 action buttons (New Session, New Window, Send Message, Rename, Kill)
+- Session card ✕ kill buttons + session group ✕ kill buttons
+- Breadcrumb dropdown chevrons
+- `⋯` command palette trigger
+- Dashboard search input
+
+Bottom bar buttons use `min-h-[44px]` unconditionally (not `coarse:` gated) since the bottom bar is touch-primary.
+
+### Terminal Font Scaling
+
+Terminal font size adapts at initialization: 13px on viewports >= 640px, 11px below. Determined via `window.matchMedia('(min-width: 640px)')` at xterm Terminal construction time. FitAddon recalculates columns automatically.
+
+### Command Palette Mobile Trigger
+
+The `CommandPalette` component listens for a `palette:open` CustomEvent on `document` (in addition to `⌘K`). The `⋯` button in Line 2 dispatches this event. This is the mobile equivalent of `⌘K` — physical keyboards aren't available on phones.
 
 ## Keyboard Shortcuts
 
@@ -193,3 +225,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-07 | iOS keyboard viewport overlap fix — scroll+resize listeners on visualViewport, fixed positioning for app-shell in fullbleed | `260307-f3o9-ios-keyboard-viewport-overlap` |
 | 2026-03-07 | Active window sync — breadcrumb, URL, rename/kill targets follow byobu/tmux window switches via SSE + `history.replaceState` | `260307-f3li-sync-byobu-active-tab` |
 | 2026-03-07 | Breadcrumb dropdown menus — chevron triggers for project/window switching, split click-target pattern | `260307-uzsa-navbar-breadcrumb-dropdowns` |
+| 2026-03-07 | Mobile responsive polish — Line 2 collapse with ⋯ palette trigger, 44px touch targets via `coarse:` variant, responsive padding (px-3/px-6), terminal font scaling (11px/13px) | `260305-ol5d-mobile-responsive-polish` |

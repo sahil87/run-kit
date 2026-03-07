@@ -52,7 +52,7 @@ export function TopBarChrome() {
             aria-hidden="true"
           />
           <span>{isConnected ? "live" : "disconnected"}</span>
-          <kbd className="px-1.5 py-0.5 rounded border border-border text-text-secondary">
+          <kbd className="hidden sm:inline-flex px-1.5 py-0.5 rounded border border-border text-text-secondary">
             ⌘K
           </kbd>
         </div>
@@ -60,8 +60,16 @@ export function TopBarChrome() {
 
       {/* Line 2: Always rendered, fixed height */}
       <div className="flex items-center justify-between py-2 min-h-[36px]">
-        <div>{line2Left}</div>
+        <div className="hidden sm:block">{line2Left}</div>
         <div>{line2Right}</div>
+        <button
+          type="button"
+          onClick={() => document.dispatchEvent(new CustomEvent("palette:open"))}
+          aria-label="Open command palette"
+          className="sm:hidden text-text-secondary hover:text-text-primary transition-colors min-w-[36px] min-h-[36px] coarse:min-h-[44px] coarse:min-w-[44px] flex items-center justify-center border border-border rounded"
+        >
+          ⋯
+        </button>
       </div>
     </header>
   );

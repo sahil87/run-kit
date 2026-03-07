@@ -33,8 +33,17 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
         setSelectedIndex(0);
       }
     }
+    function handlePaletteOpen() {
+      setOpen(true);
+      setQuery("");
+      setSelectedIndex(0);
+    }
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    document.addEventListener("palette:open", handlePaletteOpen);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("palette:open", handlePaletteOpen);
+    };
   }, []);
 
   useEffect(() => {

@@ -7,7 +7,6 @@ import { ArrowPad } from "@/components/arrow-pad";
 type BottomBarProps = {
   wsRef: React.RefObject<WebSocket | null>;
   onOpenCompose: () => void;
-  onUploadFiles?: (files: FileList) => void;
 };
 
 /** xterm modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) + (meta?8:0) */
@@ -56,38 +55,32 @@ const MODIFIER_LABELS: Record<string, string> = {
   cmd: "Command",
 };
 
-export function BottomBar({ wsRef, onOpenCompose, onUploadFiles }: BottomBarProps) {
+export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
-  const [extOpen, setExtOpen] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
-  const extRef = useRef<HTMLDivElement>(null);
-  const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  // Close dropdowns on outside click
+  // Close dropdown on outside click
   useEffect(() => {
-    if (!fnOpen && !extOpen) return;
+    if (!fnOpen) return;
     function handleClick(e: MouseEvent) {
-      if (fnOpen && fnRef.current && !fnRef.current.contains(e.target as Node)) {
+      if (fnRef.current && !fnRef.current.contains(e.target as Node)) {
         setFnOpen(false);
-      }
-      if (extOpen && extRef.current && !extRef.current.contains(e.target as Node)) {
-        setExtOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [fnOpen, extOpen]);
+  }, [fnOpen]);
 
-  // Close dropdowns on Escape
+  // Close dropdown on Escape
   useEffect(() => {
-    if (!fnOpen && !extOpen) return;
+    if (!fnOpen) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") { setFnOpen(false); setExtOpen(false); }
+      if (e.key === "Escape") { setFnOpen(false); }
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [fnOpen, extOpen]);
+  }, [fnOpen]);
 
   // Intercept physical keyboard input when modifiers are armed.
   // Builds the correct terminal escape sequence and sends via WebSocket,
@@ -210,7 +203,7 @@ export function BottomBar({ wsRef, onOpenCompose, onUploadFiles }: BottomBarProp
       {/* Arrow keys — combined pad: drag to send, tap to open popup */}
       <ArrowPad onArrow={sendArrow} />
 
-      {/* Fn dropdown */}
+      {/* Fn + navigation keys dropdown */}
       <div ref={fnRef} className="relative">
         <button
           aria-label="Function keys"
@@ -224,86 +217,54 @@ export function BottomBar({ wsRef, onOpenCompose, onUploadFiles }: BottomBarProp
         {fnOpen && (
           <div
             role="menu"
-            aria-label="Function keys"
-            className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 grid grid-cols-4 gap-0.5 min-w-[200px] z-50"
+            aria-label="Function and navigation keys"
+            className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[200px] z-50"
           >
-            {FN_KEYS.map((fk) => (
-              <button
-                key={fk.label}
-                role="menuitem"
-                aria-label={fk.label}
-                className="px-2 py-1 min-h-[30px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
-                onClick={() => {
-                  sendWithMods(fk.plain, fk.mod);
-                  setFnOpen(false);
-                }}
-              >
-                {fk.label}
-              </button>
-            ))}
+            <div className="grid grid-cols-4 gap-0.5">
+              {FN_KEYS.map((fk) => (
+                <button
+                  key={fk.label}
+                  role="menuitem"
+                  aria-label={fk.label}
+                  className="px-2 py-1 min-h-[30px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                  onClick={() => {
+                    sendWithMods(fk.plain, fk.mod);
+                    setFnOpen(false);
+                  }}
+                >
+                  {fk.label}
+                </button>
+              ))}
+            </div>
+            <div className="border-t border-border my-1" />
+            <div className="grid grid-cols-3 gap-0.5">
+              {EXT_KEYS.map((ek) => (
+                <button
+                  key={ek.label}
+                  role="menuitem"
+                  aria-label={ek.label}
+                  className="px-2 py-1 min-h-[30px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                  onClick={() => {
+                    sendWithMods(ek.plain, ek.mod);
+                    setFnOpen(false);
+                  }}
+                >
+                  {ek.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Extended keys dropdown */}
-      <div ref={extRef} className="relative">
-        <button
-          aria-label="Extended keys"
-          aria-haspopup="true"
-          aria-expanded={extOpen}
-          className={`${KBD_CLASS} text-text-secondary`}
-          onClick={() => setExtOpen((v) => !v)}
-        >
-          <kbd aria-hidden="true">{"\u22EF"}</kbd>
-        </button>
-        {extOpen && (
-          <div
-            role="menu"
-            aria-label="Extended keys"
-            className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 grid grid-cols-3 gap-0.5 min-w-[150px] z-50"
-          >
-            {EXT_KEYS.map((ek) => (
-              <button
-                key={ek.label}
-                role="menuitem"
-                aria-label={ek.label}
-                className="px-2 py-1 min-h-[30px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
-                onClick={() => {
-                  sendWithMods(ek.plain, ek.mod);
-                  setExtOpen(false);
-                }}
-              >
-                {ek.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Upload button */}
-      {onUploadFiles && (
-        <>
-          <input
-            ref={uploadInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                onUploadFiles(e.target.files);
-                e.target.value = "";
-              }
-            }}
-          />
-          <button
-            aria-label="Upload file"
-            className={`${KBD_CLASS} text-text-secondary`}
-            onClick={() => uploadInputRef.current?.click()}
-          >
-            <span aria-hidden="true">{"\uD83D\uDCCE"}</span>
-          </button>
-        </>
-      )}
+      {/* Keyboard dismiss */}
+      <button
+        aria-label="Dismiss keyboard"
+        className={`${KBD_CLASS} text-text-secondary`}
+        onClick={() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); }}
+      >
+        <kbd aria-hidden="true">{"\u2304"}</kbd>
+      </button>
 
       {/* Compose toggle — right-aligned */}
       <button

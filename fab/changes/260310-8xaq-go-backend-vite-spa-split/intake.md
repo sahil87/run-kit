@@ -82,7 +82,7 @@ Root-level files removed: `next.config.ts`, `next-env.d.ts`, `postcss.config.mjs
 
 **HTTP server** — `chi` router (lightweight, zero transitive deps, ergonomic middleware chaining for CORS, logging, panic recovery). Single binary serves both REST API and WebSocket terminal relay on configurable ports.
 
-**API endpoints** — exact parity with current Next.js API routes:
+**API endpoints** — parity with current Next.js API routes, plus one new endpoint for runtime config:
 
 | Endpoint | Method | Current Source | Go Target |
 |----------|--------|----------------|-----------|
@@ -92,6 +92,7 @@ Root-level files removed: `next.config.ts`, `next-env.d.ts`, `postcss.config.mjs
 | `/api/sessions/stream` | GET (SSE) | `src/app/api/sessions/stream/route.ts` | `api/sse.go` |
 | `/api/directories` | GET | `src/app/api/directories/route.ts` | `api/routes.go` |
 | `/api/upload` | POST | `src/app/api/upload/route.ts` | `api/upload.go` |
+| `/api/config` | GET | *(new)* | `api/routes.go` — returns `{ relayPort, relayHost }` for client-side WebSocket connection |
 
 **Terminal relay** — `gorilla/websocket` for WebSocket handling, `creack/pty` for PTY allocation. Same URL scheme: `ws://{host}:{relayPort}/:session/:window`. Same behavior: split-window per connection, relay I/O, kill pane on disconnect.
 
@@ -155,9 +156,6 @@ run-kit.local {
     handle /api/* {
         reverse_proxy localhost:3000
     }
-    handle /ws/* {
-        reverse_proxy localhost:3001
-    }
     handle {
         root * packages/web/dist
         try_files {path} /index.html
@@ -165,6 +163,8 @@ run-kit.local {
     }
 }
 ```
+
+The terminal relay runs on its own port (default 3001) and the SPA connects directly via the `/api/config` endpoint's `relayPort` value — no Caddy proxy needed for WebSocket traffic in production (same as current architecture where the relay is a separate port).
 
 ### E2E Test Updates
 

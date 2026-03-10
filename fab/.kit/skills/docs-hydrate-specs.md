@@ -32,7 +32,7 @@ This is the reverse of hydrate (specs â†’ memory): hydrate-specs flows memory â†
 
 ## Context Loading
 
-Loads `docs/memory/index.md`, `docs/specs/index.md`, all memory files (or scoped domain), and all spec files. Does NOT require `fab/current`, config, or constitution.
+Loads `docs/memory/index.md`, `docs/specs/index.md`, all memory files (or scoped domain), and all spec files. Does NOT require `.fab-status.yaml`, config, or constitution.
 
 ---
 

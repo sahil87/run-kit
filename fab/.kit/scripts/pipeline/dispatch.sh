@@ -8,7 +8,7 @@ set -euo pipefail
 # Creates a worktree, provisions artifacts, validates prerequisites,
 # launches an interactive Claude session (tmux pane), sends fab-switch
 # and fab-ff via send-keys, and returns the pane ID.
-# Polls fab/current to confirm switch completion. Does NOT poll for
+# Polls .fab-status.yaml symlink to confirm switch completion. Does NOT poll for
 # fab-ff completion or shipping — run.sh handles that.
 #
 # Exit codes:
@@ -41,7 +41,7 @@ Arguments:
   last-pane-id    Pane ID of the previous dispatch (empty for first dispatch)
 
 Outputs worktree path and pane ID on stdout (two lines).
-Polls fab/current to confirm switch completion. Does NOT poll for
+Polls .fab-status.yaml symlink to confirm switch completion. Does NOT poll for
 fab-ff completion or shipping — run.sh handles that.
 
 Exit code 0 = pane created.
@@ -223,8 +223,8 @@ run_pipeline() {
   sleep 0.5
   tmux send-keys -t "$pane_id" Enter 2>/dev/null || true
 
-  # Step 3: Poll fab/current line 1 (4-char ID) until it matches the expected change
-  local fab_current_file="$wt_path/fab/current"
+  # Step 3: Poll .fab-status.yaml symlink until it points to the expected change
+  local symlink_path="$wt_path/.fab-status.yaml"
   local expected_id
   expected_id=$(echo "$CHANGE_ID" | cut -d'-' -f2)
   local elapsed=0
@@ -240,11 +240,11 @@ run_pipeline() {
       return 0
     fi
 
-    # Check fab/current line 1 (4-char ID)
-    if [[ -f "$fab_current_file" ]]; then
-      local current_id
-      current_id=$(sed -n '1p' "$fab_current_file" 2>/dev/null | tr -d '[:space:]')
-      if [[ "$current_id" == "$expected_id" ]]; then
+    # Check .fab-status.yaml symlink target points to the expected change
+    if [[ -L "$symlink_path" ]]; then
+      local target
+      target=$(readlink "$symlink_path" 2>/dev/null)
+      if [[ $target == fab/changes/[0-9][0-9][0-9][0-9][0-9][0-9]-${expected_id}-* ]]; then
         switch_ok=true
         break
       fi

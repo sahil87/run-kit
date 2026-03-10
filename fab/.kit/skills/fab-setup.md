@@ -52,7 +52,7 @@ After the pre-flight check passes, log the command invocation:
 fab/.kit/bin/fab log command "fab-setup" 2>/dev/null || true
 ```
 
-This is best-effort — logman resolves the active change via `fab/current` if one exists. Failures are silently ignored.
+This is best-effort — logman resolves the active change via `.fab-status.yaml` if one exists. Failures are silently ignored.
 
 ---
 
@@ -141,9 +141,9 @@ If the script cannot execute, perform the equivalent manually:
 
 Report how many symlinks were created, repaired, or already valid.
 
-#### 1k. `.gitignore` — append `fab/current`
+#### 1k. `.gitignore` — append `.fab-status.yaml`
 
-Read `.gitignore` (create if missing). If `fab/current` is not listed, append it.
+Read `.gitignore` (create if missing). If `.fab-status.yaml` is not listed, append it.
 
 ### Bootstrap Output
 
@@ -161,7 +161,7 @@ Created: docs/memory/index.md
 Created: docs/specs/index.md
 Created: fab/changes/
 Created: 11 symlinks in .claude/skills/
-Updated: .gitignore (added fab/current)
+Updated: .gitignore (added .fab-status.yaml)
 fab/ initialized successfully.
 
 Next: {per state table — initialized}

@@ -141,7 +141,6 @@ vite.config.ts.timestamp-*
 run-kit.yaml
 Caddyfile
 
-fab/current
 fab/.kit-sync-version
 fab/.kit/bin/fab-*
 fab/pipelines/.series-*.yaml
@@ -154,3 +153,5 @@ fab/changes/**/.pr-done
 /.codex
 /.ralph
 /.gemini
+
+.fab-status.yaml

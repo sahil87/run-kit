@@ -19,7 +19,7 @@
       "Bash(date:*)",
       "Bash(test:*)",
       "Bash(bats:*)",
-      "Bash(rm fab/current)",
+      "Bash(rm .fab-status.yaml)",
       "Bash(direnv allow)"
     ]
   }

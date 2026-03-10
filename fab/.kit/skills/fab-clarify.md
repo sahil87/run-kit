@@ -22,7 +22,7 @@ Mode determined by `[AUTO-MODE]` prefix (see `_preamble.md` > Skill Invocation P
 
 ## Arguments
 
-- **`<change-name>`** *(optional)* — target a specific change (see `_preamble.md` > Change-name override). `fab/current` unchanged.
+- **`<change-name>`** *(optional)* — target a specific change (see `_preamble.md` > Change-name override). `.fab-status.yaml` unchanged.
 - **`<target-artifact>`** *(optional)* — `intake`, `spec`, or `tasks`. **Required** at post-planning stages. Defaults to current stage's artifact at planning stages.
 
 Disambiguation: matches `intake`/`spec`/`tasks` → target artifact; anything else → change name. Both can be provided.

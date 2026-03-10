@@ -25,7 +25,7 @@ Archive a completed change after hydrate, or restore an archived change back to 
 
 - **`restore`** — switches to restore mode.
 - **`<change-name>`** *(required)* — name or substring of the archived change to restore.
-- **`--switch`** *(optional)* — activate the restored change by writing its name to `fab/current`.
+- **`--switch`** *(optional)* — activate the restored change by creating the `.fab-status.yaml` symlink.
 
 **Mode detection**: If the first positional argument is `restore`, use restore mode. Otherwise, use archive mode.
 
@@ -64,7 +64,7 @@ The command handles:
 - **Clean**: Delete `.pr-done` if present
 - **Move**: `fab/changes/{name}/` → `fab/changes/archive/yyyy/mm/{name}/` (date-bucketed)
 - **Index**: Create/update `fab/changes/archive/index.md` with entry + backfill
-- **Pointer**: Clear `fab/current` if this was the active change
+- **Pointer**: Remove `.fab-status.yaml` symlink if this was the active change
 
 ### Step 3: Mark Backlog Items Done
 
@@ -95,7 +95,7 @@ Construct the user-facing report from the script's YAML output fields:
 | `move: moved` | `Moved:    ✓ fab/changes/archive/yyyy/mm/{name}/` |
 | `index: created` | `Index:    ✓ fab/changes/archive/index.md created` |
 | `index: updated` | `Index:    ✓ fab/changes/archive/index.md updated` |
-| `pointer: cleared` | `Pointer:  ✓ fab/current cleared` |
+| `pointer: cleared` | `Pointer:  ✓ .fab-status.yaml removed` |
 | `pointer: skipped` | `Pointer:  — skipped, not active` |
 
 Backlog and Scan lines come from Step 3 (agent-driven), not from the script.
@@ -112,7 +112,7 @@ Moved:    ✓ fab/changes/archive/yyyy/mm/{name}/
 Index:    ✓ fab/changes/archive/index.md updated (or: created)
 Backlog:  ✓ [ID] marked done                   (or: — no backlog file)
 Scan:     ✓ {N} candidates, {M} marked done    (or: ✓ no matches)
-Pointer:  ✓ fab/current cleared                 (or: — skipped, not active)
+Pointer:  ✓ .fab-status.yaml removed             (or: — skipped, not active)
 
 Archive complete.
 
@@ -128,7 +128,7 @@ Next: {per state table — initialized}
 | Advances stage? | No — post-pipeline housekeeping |
 | Idempotent? | Yes — script detects state, backlog matching is idempotent |
 | Modifies `.status.yaml`? | No (may update `last_updated`) |
-| Modifies `fab/current`? | Yes — conditionally clears (via script) |
+| Modifies `.fab-status.yaml`? | Yes — conditionally removes symlink (via script) |
 | Modifies `docs/memory/`? | No |
 | Requires hydrate done? | Yes |
 
@@ -145,7 +145,7 @@ Restore an archived change back to the active changes folder. Inverse of the arc
 ## Arguments
 
 - **`<change-name>`** *(required)* — name or substring of the archived change to restore. Resolved by `fab change restore` via case-insensitive substring matching against `fab/changes/archive/`.
-- **`--switch`** *(optional)* — activate the restored change by writing its name to `fab/current`.
+- **`--switch`** *(optional)* — activate the restored change by creating the `.fab-status.yaml` symlink.
 
 ---
 
@@ -186,7 +186,7 @@ Construct the user-facing report from the script's YAML output fields:
 | `move: already_in_changes` | `Moved:    ✓ already in changes` |
 | `index: removed` | `Index:    ✓ entry removed from archive/index.md` |
 | `index: not_found` | `Index:    — entry not found` |
-| `pointer: switched` | `Pointer:  ✓ fab/current updated` |
+| `pointer: switched` | `Pointer:  ✓ .fab-status.yaml updated` |
 | `pointer: skipped` | `Pointer:  — not requested` |
 
 ---
@@ -198,7 +198,7 @@ Restore: {change name}
 
 Moved:    ✓ fab/changes/{name}/                  (or: ✓ already in changes)
 Index:    ✓ entry removed from archive/index.md  (or: — entry not found)
-Pointer:  ✓ fab/current updated                  (or: — not requested)
+Pointer:  ✓ .fab-status.yaml updated              (or: — not requested)
 
 Restore complete.
 
@@ -227,6 +227,6 @@ Next: {per state table — if --switch: restored change's state; otherwise: acti
 | Advances stage? | No — post-archive housekeeping |
 | Idempotent? | Yes — script detects already-restored folders |
 | Modifies `.status.yaml`? | No |
-| Modifies `fab/current`? | Only with `--switch` flag (via script) |
+| Modifies `.fab-status.yaml`? | Only with `--switch` flag (via script) |
 | Modifies `docs/memory/`? | No |
 | Requires hydrate done? | No — restores any archived change regardless of state |

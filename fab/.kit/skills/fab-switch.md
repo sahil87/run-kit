@@ -12,7 +12,7 @@ description: "Switch the active change to a different one. Lists available chang
 ## Arguments
 
 - **`<change-name>`** *(optional)* — full or partial name of the change to switch to. Supports full folder names, partial slug matches, or any substring. Case-insensitive.
-- **`--blank`** — deactivate the current change by deleting `fab/current`. Mutually exclusive with `<change-name>` (if both given, prefer `--blank`).
+- **`--blank`** — deactivate the current change by removing the `.fab-status.yaml` symlink. Mutually exclusive with `<change-name>` (if both given, prefer `--blank`).
 
 If no argument (and no `--blank`): list all active changes and ask user to pick.
 
@@ -54,7 +54,7 @@ Run `fab/.kit/bin/fab change switch --blank`. Display the command's stdout outpu
 
 `fab change switch` handles the full flow internally:
 1. Resolves the change name
-2. Writes `fab/current`
+2. Creates `.fab-status.yaml` symlink
 3. Outputs structured summary with stage and next command
 
 The skill displays the command's stdout directly.
@@ -67,7 +67,7 @@ After a successful switch (not `--blank`), log the command invocation:
 fab/.kit/bin/fab log command "fab-switch" 2>/dev/null || true
 ```
 
-This is best-effort — the logger resolves the active change via `fab/current` (just written by the switch command). Failures are silently ignored.
+This is best-effort — the logger resolves the active change via `.fab-status.yaml` (just created by the switch command). Failures are silently ignored.
 
 ### Hint Line
 
@@ -84,7 +84,7 @@ Tip: run /git-branch to create or switch to the matching branch
 Canonical format (from `fab change switch` + skill hint):
 
 ```
-fab/current → {name}
+.fab-status.yaml → {name}
 
 Stage:       {display_stage} ({N}/8) — {state}
 Confidence:  {score} of 5.0{indicative_suffix}
@@ -117,7 +117,7 @@ Tip line omitted for `--blank`. Deactivation shows `No active change.`. Already-
 |----------|-------|
 | Advances stage? | No — changes only the active pointer |
 | Idempotent? | Yes |
-| Modifies `fab/current`? | Yes (writes name, or deletes with `--blank`) |
+| Modifies `.fab-status.yaml`? | Yes (creates symlink, or removes with `--blank`) |
 | Modifies `.status.yaml`? | No |
 | Modifies git state? | No |
 | Requires config/constitution? | No |

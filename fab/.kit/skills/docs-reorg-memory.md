@@ -24,7 +24,7 @@ If either fails, STOP with appropriate message.
 
 ## Context Loading
 
-Loads `docs/memory/index.md`, all domain `index.md` files, and every `.md` file in each domain. Does NOT require `fab/current`, config, or constitution.
+Loads `docs/memory/index.md`, all domain `index.md` files, and every `.md` file in each domain. Does NOT require `.fab-status.yaml`, config, or constitution.
 
 ---
 

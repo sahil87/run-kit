@@ -17,7 +17,7 @@ Full pipeline with safety gates: intake → spec → tasks → apply → review 
 
 ## Arguments
 
-- **`<change-name>`** *(optional)* — target a specific change instead of `fab/current`. Resolution per `_preamble.md` (Change-name override).
+- **`<change-name>`** *(optional)* — target a specific change instead of the active one resolved via `.fab-status.yaml`. Resolution per `_preamble.md` (Change-name override).
 
 ---
 

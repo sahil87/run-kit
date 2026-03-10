@@ -9,21 +9,33 @@ if [ "${1:-}" = "--version" ]; then
   version="unknown"
   [ -f "$KIT_DIR/VERSION" ] && version=$(cat "$KIT_DIR/VERSION")
   backend="none"
-  if [ -x "$SCRIPT_DIR/fab-rust" ]; then
-    backend="rust"
-  elif [ -x "$SCRIPT_DIR/fab-go" ]; then
+  if [ -x "$SCRIPT_DIR/fab-go" ]; then
     backend="go"
+  elif [ -x "$SCRIPT_DIR/fab-rust" ]; then
+    backend="rust"
   fi
   echo "fab $version ($backend backend)"
   exit 0
 fi
 
-# Backend priority: rust > go
-if [ -x "$SCRIPT_DIR/fab-rust" ]; then
+# Backend override: FAB_BACKEND env var or .fab-backend file
+backend_override="${FAB_BACKEND:-}"
+if [ -z "$backend_override" ] && [ -f "$SCRIPT_DIR/../../../.fab-backend" ]; then
+  backend_override=$(cat "$SCRIPT_DIR/../../../.fab-backend" | tr -d '[:space:]')
+fi
+
+if [ "$backend_override" = "go" ] && [ -x "$SCRIPT_DIR/fab-go" ]; then
+  exec "$SCRIPT_DIR/fab-go" "$@"
+elif [ "$backend_override" = "rust" ] && [ -x "$SCRIPT_DIR/fab-rust" ]; then
   exec "$SCRIPT_DIR/fab-rust" "$@"
 fi
+
+# Default priority: go > rust
 if [ -x "$SCRIPT_DIR/fab-go" ]; then
   exec "$SCRIPT_DIR/fab-go" "$@"
+fi
+if [ -x "$SCRIPT_DIR/fab-rust" ]; then
+  exec "$SCRIPT_DIR/fab-rust" "$@"
 fi
 
 echo "Error: no fab backend found (expected fab-go or fab-rust in $SCRIPT_DIR)" >&2

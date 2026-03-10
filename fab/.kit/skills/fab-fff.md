@@ -17,7 +17,7 @@ Run the entire Fab pipeline from the current stage through PR review in a single
 
 ## Arguments
 
-- **`<change-name>`** *(optional)* — target a specific change instead of `fab/current`. Resolution per `_preamble.md` (Change-name override).
+- **`<change-name>`** *(optional)* — target a specific change instead of the active one resolved via `.fab-status.yaml`. Resolution per `_preamble.md` (Change-name override).
 
 ---
 

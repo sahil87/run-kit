@@ -24,7 +24,7 @@ If either fails, STOP with appropriate message.
 
 ## Context Loading
 
-Loads `docs/specs/index.md` and every `.md` file in `docs/specs/`. Does NOT require `fab/current`, config, or constitution.
+Loads `docs/specs/index.md` and every `.md` file in `docs/specs/`. Does NOT require `.fab-status.yaml`, config, or constitution.
 
 ---
 

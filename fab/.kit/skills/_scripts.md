@@ -43,6 +43,7 @@ fab/.kit/bin/fab <command> <subcommand> [args...]
 | `fab score` | Confidence scoring |
 | `fab runtime` | Runtime state management (.fab-runtime.yaml) |
 | `fab pane-map` | Tmux pane-to-worktree mapping with fab pipeline state |
+| `fab send-keys` | Send text to a change's tmux pane |
 
 ---
 
@@ -64,7 +65,7 @@ All commands accept a unified `<change>` argument:
 
 ## fab change
 
-Change Manager — manages change folders, naming, and the `fab/current` pointer.
+Change Manager — manages change folders, naming, and the `.fab-status.yaml` symlink.
 
 ```
 fab/.kit/bin/fab change <subcommand> [flags...]
@@ -205,7 +206,7 @@ fab/.kit/bin/fab log review <change> <result> [rework]
 fab/.kit/bin/fab log transition <change> <stage> <action> [from] [reason] [driver]
 ```
 
-The `command` subcommand accepts `<cmd>` (skill name) as the first argument. `[change]` is optional — when omitted, it resolves the active change via `fab/current`. If resolution fails (no `fab/current`, empty file, stale pointer), exits 0 silently. When `[change]` IS provided and doesn't resolve, exits 1 with an error.
+The `command` subcommand accepts `<cmd>` (skill name) as the first argument. `[change]` is optional — when omitted, it resolves the active change via `.fab-status.yaml`. If resolution fails (no `.fab-status.yaml` symlink, dangling symlink), exits 0 silently. When `[change]` IS provided and doesn't resolve, exits 1 with an error.
 
 **Callers**:
 
@@ -233,8 +234,9 @@ fab/.kit/bin/fab runtime <subcommand> <change>
 |------------|-------|---------|
 | `set-idle` | `set-idle <change>` | Write `agent.idle_since` Unix timestamp for the resolved change |
 | `clear-idle` | `clear-idle <change>` | Delete the `agent` block for the resolved change (no-op if file missing) |
+| `is-idle` | `is-idle <change>` | Check agent idle state. Outputs `idle {duration}`, `active`, or `unknown`. Always exits 0 |
 
-Both subcommands accept the standard `<change>` argument (4-char ID, substring, or full folder name). The runtime file is `.fab-runtime.yaml` at the repo root, keyed by the change's full folder name.
+All subcommands accept the standard `<change>` argument (4-char ID, substring, or full folder name). The runtime file is `.fab-runtime.yaml` at the repo root, keyed by the change's full folder name.
 
 ---
 
@@ -246,11 +248,12 @@ Pane Map — shows all tmux panes mapped to their fab worktrees with pipeline st
 fab/.kit/bin/fab pane-map
 ```
 
-No arguments or flags. Produces an aligned table with columns:
+No arguments or flags. Discovers panes in the current tmux session only (`-s` session scope). Produces an aligned table with columns:
 
 | Column | Content |
 |--------|---------|
 | Pane | Tmux pane ID (e.g., `%3`) |
+| Tab | Tmux window (tab) name |
 | Worktree | Relative path from main repo parent, or `(main)` for the main worktree |
 | Change | Active change folder name, or `(no change)` if none |
 | Stage | Current pipeline stage from `.status.yaml`, or `—` if no change |
@@ -263,10 +266,46 @@ Idle duration format: `{N}s` (< 60s), `{N}m` (60s–59m), `{N}h` (>= 60m). Floor
 **Example output**:
 
 ```
-Pane   Worktree                       Change                              Stage     Agent
-%3     myrepo.worktrees/alpha/        260306-r3m7-add-retry-logic         apply     active
-%7     myrepo.worktrees/bravo/        260306-k8ds-ship-wt-binary          review    idle (2m)
-%12    (main)                         260306-ab12-refactor-auth           hydrate   idle (8m)
+Pane   Tab        Worktree                       Change                              Stage     Agent
+%3     alpha      myrepo.worktrees/alpha/        260306-r3m7-add-retry-logic         apply     active
+%7     bravo      myrepo.worktrees/bravo/        260306-k8ds-ship-wt-binary          review    idle (2m)
+%12    main       (main)                         260306-ab12-refactor-auth           hydrate   idle (8m)
+```
+
+---
+
+## fab send-keys
+
+Send Keys — sends text to a change's tmux pane. Used by the operator skill for cross-agent coordination.
+
+```
+fab/.kit/bin/fab send-keys <change> "<text>"
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<change>` | Standard change reference (4-char ID, substring, or full folder name) |
+| `<text>` | Text to send to the target pane (typically a skill command like `/fab-continue`) |
+
+**Pane resolution**: Resolves the change argument to a folder name via standard change resolution, then discovers tmux panes in the current session (`tmux list-panes -s`), resolves each pane's git worktree root and `fab/current`, and matches the change folder. Sends to the first matching pane.
+
+**Safety**: Does NOT enforce idle checks — policy (check idle before sending) lives in the operator skill, mechanism (send text to pane) lives in the CLI.
+
+**Error behavior**:
+
+| Condition | Message | Exit code |
+|-----------|---------|-----------|
+| `$TMUX` unset | `Error: not inside a tmux session` | 1 |
+| Change not found | `No change matches "<arg>".` | 1 |
+| No pane for change | `No tmux pane found for change "<folder>".` | 1 |
+| Pane disappeared after resolution | `Error: pane %N no longer exists.` | 1 |
+| Multiple panes for same change | Sends to first match, prints `Warning: multiple panes found for <id>, using %N` to stderr | 0 |
+
+**Example**:
+
+```
+fab/.kit/bin/fab send-keys r3m7 "/fab-continue"
+fab/.kit/bin/fab send-keys 260306-k8ds-ship-wt-binary "git fetch origin main && git rebase origin/main"
 ```
 
 ---
@@ -278,4 +317,4 @@ Pane   Worktree                       Change                              Stage 
 | "Status file not found: {path}" | Passed a path that doesn't exist as a file | Use a change ID or folder name instead |
 | "Cannot resolve change '{arg}'" | Change ID/name doesn't match any folder in `fab/changes/` | Check `fab/.kit/bin/fab change list` for available changes |
 | "Multiple changes match" | Ambiguous substring matched multiple folders | Use a more specific identifier |
-| "No active changes found" | `fab/current` is empty/missing and no changes exist | Run `/fab-new` first |
+| "No active changes found" | `.fab-status.yaml` symlink is absent and no changes exist | Run `/fab-new` first |

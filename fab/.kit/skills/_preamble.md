@@ -66,11 +66,11 @@ Resolve the active change and load its state by running the preflight script:
 4. **Log command**: Call `fab/.kit/bin/fab log command "<skill-name>" "<id>" 2>/dev/null || true` where `<skill-name>` is the invoking skill (e.g., `fab-continue`) and `<id>` is the `id` field from the preflight YAML output. This is best-effort — failures are silently ignored.
 5. Load all completed artifacts in the change folder (e.g., `intake.md`, `spec.md`, `tasks.md`) — read each file that exists so you have full context of what has been decided so far
 
-> **Change-name override**: When a `[change-name]` argument is passed to the preflight script, it resolves the change using case-insensitive substring matching against `fab/changes/` folder names (excluding `archive/`) instead of reading `fab/current`. The override is **transient** — `fab/current` is never modified. This enables parallel workflows where multiple tabs target different changes concurrently. Supports full folder names, partial slugs, or 4-char IDs (e.g., `r3m7`).
+> **Change-name override**: When a `[change-name]` argument is passed to the preflight script, it resolves the change using case-insensitive substring matching against `fab/changes/` folder names (excluding `archive/`) instead of reading the `.fab-status.yaml` symlink. The override is **transient** — `.fab-status.yaml` is never modified. This enables parallel workflows where multiple tabs target different changes concurrently. Supports full folder names, partial slugs, or 4-char IDs (e.g., `r3m7`).
 
 > **What the script validates internally** (for reference — agents do not need to duplicate these checks):
 > 1. `fab/project/config.yaml` and `fab/project/constitution.md` exist (project initialized)
-> 2. `fab/current` exists and is non-empty (active change set) — OR `$1` override resolves to a valid change
+> 2. `.fab-status.yaml` symlink exists (active change set) — OR `$1` override resolves to a valid change
 > 3. Change directory `fab/changes/{name}/` exists
 > 4. `.status.yaml` exists within the change directory
 
@@ -121,7 +121,7 @@ Every skill MUST end its output with a `Next:` line derived from the State Table
 
 **State derivation**:
 - **(none)**: `fab/project/config.yaml` does not exist
-- **initialized**: `fab/project/config.yaml` exists AND no active change (`fab/current` absent or empty)
+- **initialized**: `fab/project/config.yaml` exists AND no active change (`.fab-status.yaml` symlink is absent)
 - **intake** through **apply**: Derived from the active change's `.status.yaml` progress map (the stage with `active` or `ready` state)
 - **review (pass)**: `progress.review == done`
 - **review (fail)**: `progress.review == failed`
@@ -135,7 +135,7 @@ Every skill MUST end its output with a `Next:` line derived from the State Table
 
 ### Activation Preamble
 
-When a skill creates or restores a change without activating it (no write to `fab/current`), the `Next:` line SHALL include a switch instruction followed by the state-derived commands:
+When a skill creates or restores a change without activating it (no `.fab-status.yaml` symlink created), the `Next:` line SHALL include a switch instruction followed by the state-derived commands:
 
 ```
 Next: /fab-switch {name} to make it active, then {default}, {other commands}

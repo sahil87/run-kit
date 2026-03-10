@@ -17,7 +17,7 @@ Advance through the 8-stage Fab pipeline one step at a time. Each invocation han
 
 ## Arguments
 
-- **`<change-name>`** *(optional)* — target a specific change instead of `fab/current`. Passed to preflight as `$1` (see `_preamble.md` §2).
+- **`<change-name>`** *(optional)* — target a specific change instead of the active one resolved via `.fab-status.yaml`. Passed to preflight as `$1` (see `_preamble.md` §2).
 - **`<stage>`** *(optional)* — reset target: `intake`, `spec`, `tasks`, `apply`, `review`, `hydrate`, `ship`, `review-pr`.
 
 Both may be provided in any order. Stage names are treated as reset targets; all others as change-name overrides.
@@ -245,4 +245,4 @@ The applying agent triages review comments by priority — not all comments need
 | Idempotent? | Yes — planning regenerates, apply resumes, review re-validates |
 | Modifies source code? | Yes — during apply |
 | Modifies `docs/memory/`? | Yes — during hydrate |
-| Moves change folder / clears `fab/current`? | No — use `/fab-archive` |
+| Moves change folder / removes `.fab-status.yaml`? | No — use `/fab-archive` |

@@ -159,9 +159,25 @@ run-kit.local {
 
 Go serves API, WebSocket relay, and SPA static files on one port. Caddy handles TLS termination and caching in production.
 
+### Development Workflow
+
+`dev.sh` runs Go backend and Vite dev server concurrently. Vite's `server.proxy` forwards `/api/*` and `/relay/*` (including WebSocket upgrades) to the Go server on `:3000`. Single browser URL (`:5173`) — no CORS needed in dev, HMR works for frontend. Non-browser clients (Android, CLI) hit Go's `:3000` directly. Go includes chi CORS middleware (permissive by default) for production flexibility.
+
+### Go Testing Strategy
+
+Port existing Vitest test *cases* (inputs, expected outputs, edge cases) from `validate.ts`, `config.ts`, `tmux.ts`, `sessions.ts`, and `api/sessions POST` as idiomatic Go table-driven tests. Don't transliterate TypeScript code — use the cases as behavioral specs. Frontend tests (`command-palette.tsx`, `use-keyboard-nav.ts`) stay as Vitest in `packages/web/`.
+
 ### E2E Test Updates
 
 Playwright tests in `e2e/` need web server config updated to point at the Go backend + Vite dev server (or built SPA). Test logic should remain largely unchanged — they test browser behavior, not server implementation.
+
+### SPA Routing Fallback
+
+Go serves a catch-all: any request not matching `/api/*` or `/relay/*` serves `index.html` from the built SPA (`packages/web/dist/`). This is the standard SPA hosting pattern — enables deep links and browser refreshes for client-side routes like `/p/my-project`. In dev, Vite handles SPA fallback natively. In production, Go's catch-all handles it (Caddy optional for TLS/caching, not required for routing).
+
+### Project Config Updates
+
+Update `fab/project/config.yaml` `source_paths` from `[src/]` to `[packages/api/, packages/web/src/]`. Constitution and code-quality docs need Go-equivalent rules (e.g., `os/exec` with argument slices replaces `execFile` with argument arrays). Detailed doc updates deferred to hydrate stage.
 
 ### What Gets Deleted
 
@@ -188,7 +204,7 @@ Playwright tests in `e2e/` need web server config updated to point at the Go bac
 
 ## Open Questions
 
-- Should Go tests port the existing Vitest test cases or start fresh with Go's testing patterns?
+*(All resolved — see Clarifications.)*
 
 ## Assumptions
 
@@ -199,12 +215,32 @@ Playwright tests in `e2e/` need web server config updated to point at the Go bac
 | 3 | Certain | pnpm workspaces monorepo (not separate repos) | Discussed — shared fab/docs/e2e, one PR for contract changes | S:90 R:75 A:85 D:90 |
 | 4 | Certain | Single change (not separate split + rewrite) | Discussed — user explicitly said "why break it?" | S:95 R:50 A:95 D:95 |
 | 5 | Certain | Drivers: decoupling, multi-client, iteration speed, stability (NOT scaling) | Discussed — user corrected "scaling" assumption | S:95 R:80 A:90 D:95 |
-| 6 | Confident | gorilla/websocket for WebSocket relay | Strong ecosystem default for Go WebSockets; `nhooyr/websocket` is the alternative but gorilla is more battle-tested | S:70 R:80 A:80 D:70 |
-| 7 | Confident | creack/pty for PTY allocation | Standard Go PTY library, eliminates node-pty native module dependency | S:70 R:75 A:85 D:80 |
-| 8 | Confident | Same API contract (endpoint parity with current Next.js routes) | Enables incremental migration and preserves e2e test validity | S:75 R:85 A:80 D:75 |
-| 9 | Confident | Tailwind CSS 4 stays (not switching CSS approach) | Existing styles work, no reason to change CSS tooling in this change | S:80 R:90 A:85 D:85 |
+| 6 | Certain | gorilla/websocket for WebSocket relay | Clarified — user confirmed | S:95 R:80 A:80 D:70 |
+| 7 | Certain | creack/pty for PTY allocation | Clarified — user confirmed | S:95 R:75 A:85 D:80 |
+| 8 | Certain | Same API contract (endpoint parity with current Next.js routes) | Clarified — user confirmed; API surface can be sanitized later | S:95 R:85 A:80 D:75 |
+| 9 | Certain | Tailwind CSS 4 stays (not switching CSS approach) | Clarified — user confirmed | S:95 R:90 A:85 D:85 |
 | 10 | Certain | chi router for Go HTTP server | Clarified — user chose chi for middleware ergonomics (CORS, logging, recovery) over zero-dep ServeMux | S:95 R:85 A:90 D:95 |
 | 11 | Certain | TanStack Router for client-side routing | Clarified — user chose TanStack Router for type-safe params and loaders | S:95 R:80 A:90 D:95 |
 | 12 | Certain | Single port — API, WebSocket relay, and SPA on one Go server | Clarified — user identified no reason for separate ports; two-port split was a Node.js artifact (separate processes). Caddy fronts in production for TLS | S:95 R:85 A:95 D:95 |
 
-12 assumptions (8 certain, 4 confident, 0 tentative, 0 unresolved).
+12 assumptions (12 certain, 0 confident, 0 tentative, 0 unresolved).
+
+## Clarifications
+
+### Session 2026-03-10 (bulk confirm)
+
+| # | Action | Detail |
+|---|--------|--------|
+| 6 | Confirmed | — |
+| 7 | Confirmed | — |
+| 8 | Confirmed | API surface can be sanitized later |
+| 9 | Confirmed | — |
+
+### Session 2026-03-10 (taxonomy scan)
+
+| # | Question | Answer |
+|---|----------|--------|
+| 1 | Go test strategy: port cases or start fresh? | Port test cases (inputs/outputs/edge cases) as idiomatic Go table-driven tests; frontend tests stay Vitest |
+| 2 | Dev workflow: how do Go + Vite coexist? | Vite `server.proxy` for `/api/*` and `/relay/*` (incl. WebSocket). Go is canonical API for all clients; Vite proxy is web dev convenience only. CORS middleware in Go for production flexibility |
+| 3 | SPA routing fallback for deep links? | Go catch-all: non-API/relay requests serve `index.html` from built SPA. Vite handles it in dev natively |
+| 4 | Project config updates in scope? | Yes — update `source_paths`, note constitution/code-quality Go equivalents. Detailed doc updates deferred to hydrate |

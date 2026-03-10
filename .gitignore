@@ -155,3 +155,6 @@ fab/changes/**/.pr-done
 /.gemini
 
 .fab-status.yaml
+
+# Go binary output
+bin/

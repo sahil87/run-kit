@@ -4,7 +4,8 @@ project:
 
 # Directories containing implementation code (relative to repo root).
 source_paths:
-  - src/
+  - packages/api/
+  - packages/web/src/
 
 # Project-specific categories appended to default checklist categories.
 # Defaults: functional_completeness, behavioral_correctness, scenario_coverage, edge_cases, security

@@ -1,18 +1,13 @@
 # Local HTTPS reverse proxy for run-kit
 # Usage: just https (requires caddy: brew install caddy)
 #
-# Proxies both Next.js and the terminal relay through a single HTTPS port.
-# Caddy auto-generates and trusts local TLS certs — no mkcert needed.
+# Go serves API, WebSocket relay, and SPA static files on a single port.
+# Caddy handles TLS termination — no routing needed.
 
 {
 	auto_https disable_redirects
 }
 
 {$RK_HTTPS_HOST:localhost}:{$RK_HTTPS_PORT:3443} {
-	handle /relay/* {
-		uri strip_prefix /relay
-		reverse_proxy localhost:{$RK_RELAY_PORT:3001}
-	}
-
 	reverse_proxy localhost:{$RK_PORT:3000}
 }

@@ -1,0 +1,36 @@
+name: 260310-8xaq-go-backend-vite-spa-split
+created: 2026-03-10T13:03:44+05:30
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 9
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 87.7
+        reversibility: 74.2
+        competence: 87.7
+        disambiguation: 88.5
+stage_metrics:
+    intake: {started_at: "2026-03-10T13:03:44+05:30", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-03-10T14:43:55+05:30

@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-10T13:03:44+05:30"}
+{"args":"Split run-kit into monorepo: Go backend + Vite React SPA frontend","cmd":"fab-new","event":"command","ts":"2026-03-10T13:03:44+05:30"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-03-10T13:05:35+05:30"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-03-10T13:05:46+05:30"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-03-10T14:43:26+05:30"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-03-10T14:43:31+05:30"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-03-10T14:43:36+05:30"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-03-10T14:43:42+05:30"}
+{"delta":"+3.8","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-03-10T14:43:51+05:30"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-03-10T14:43:55+05:30"}

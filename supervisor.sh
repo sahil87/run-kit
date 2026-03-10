@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# run-kit supervisor: manages Next.js app + terminal relay as a single unit.
+# run-kit supervisor: manages Go backend as a single unit.
 # Monitors .restart-requested file for signal-based restarts.
 # Rolls back via git revert HEAD on build or health failure.
 
 # Read port/host config from run-kit.yaml (optional)
 RK_PORT=3000
-RK_RELAY_PORT=3001
 RK_HOST="127.0.0.1"
 if [[ -f run-kit.yaml ]]; then
   _val() { grep "^[[:space:]]\+$1:" run-kit.yaml 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | sed 's/ *#.*//' | tr -d '"'"'" ; }
   _valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
-  _p=$(_val port);        [[ -n "$_p" ]] && _valid_port "$_p" && RK_PORT="$_p"
-  _r=$(_val relay_port);  [[ -n "$_r" ]] && _valid_port "$_r" && RK_RELAY_PORT="$_r"
-  _h=$(_val host);        [[ -n "$_h" ]] && [[ "$_h" =~ ^[a-zA-Z0-9._:-]+$ ]] && RK_HOST="$_h"
-  unset _val _valid_port _p _r _h
+  _p=$(_val port);  [[ -n "$_p" ]] && _valid_port "$_p" && RK_PORT="$_p"
+  _h=$(_val host);  [[ -n "$_h" ]] && [[ "$_h" =~ ^[a-zA-Z0-9._:-]+$ ]] && RK_HOST="$_h"
+  unset _val _valid_port _p _h
 fi
 
 HEALTH_URL="http://${RK_HOST}:${RK_PORT}/api/health"
@@ -23,39 +21,33 @@ HEALTH_TIMEOUT=10
 POLL_INTERVAL=2
 RESTART_SIGNAL=".restart-requested"
 
-nextjs_pid=""
-relay_pid=""
+server_pid=""
 
 # Trap signals for clean shutdown
 trap 'echo "[supervisor] Shutting down..."; stop_services; exit 0' SIGINT SIGTERM
 
-start_services() {
-  echo "[supervisor] Starting Next.js on ${RK_HOST}:${RK_PORT}..."
-  pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
-  nextjs_pid=$!
+build_all() {
+  echo "[supervisor] Building Go binary..."
+  (cd packages/api && go build -o ../../bin/run-kit ./cmd/run-kit)
 
-  echo "[supervisor] Starting terminal relay on ${RK_HOST}:${RK_RELAY_PORT}..."
-  pnpm relay --port "$RK_RELAY_PORT" --host "$RK_HOST" &
-  relay_pid=$!
+  echo "[supervisor] Building frontend..."
+  (cd packages/web && pnpm build)
+}
+
+start_services() {
+  echo "[supervisor] Starting Go server on ${RK_HOST}:${RK_PORT}..."
+  ./bin/run-kit --port "$RK_PORT" --host "$RK_HOST" &
+  server_pid=$!
 }
 
 stop_services() {
-  if [[ -n "$nextjs_pid" ]] && kill -0 "$nextjs_pid" 2>/dev/null; then
-    echo "[supervisor] Stopping Next.js (PID $nextjs_pid)..."
-    kill "$nextjs_pid" 2>/dev/null || true
-    wait "$nextjs_pid" 2>/dev/null || true
+  if [[ -n "$server_pid" ]] && kill -0 "$server_pid" 2>/dev/null; then
+    echo "[supervisor] Stopping server (PID $server_pid)..."
+    kill "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
   fi
-  if [[ -n "$relay_pid" ]] && kill -0 "$relay_pid" 2>/dev/null; then
-    echo "[supervisor] Stopping relay (PID $relay_pid)..."
-    kill "$relay_pid" 2>/dev/null || true
-    wait "$relay_pid" 2>/dev/null || true
-  fi
-  # Kill any orphaned children still holding our ports (pnpm spawns grandchildren
-  # that can survive parent PID kill)
   fuser -k "${RK_PORT}/tcp" 2>/dev/null || true
-  fuser -k "${RK_RELAY_PORT}/tcp" 2>/dev/null || true
-  nextjs_pid=""
-  relay_pid=""
+  server_pid=""
 }
 
 check_health() {
@@ -76,7 +68,7 @@ rollback() {
     echo "[supervisor] WARNING: git revert failed — manual intervention needed"
     return 1
   fi
-  if ! pnpm build 2>/dev/null; then
+  if ! build_all 2>/dev/null; then
     echo "[supervisor] WARNING: rollback build failed — manual intervention needed"
     return 1
   fi
@@ -91,7 +83,7 @@ rollback() {
 
 do_restart() {
   echo "[supervisor] Building..."
-  if ! pnpm build; then
+  if ! build_all; then
     echo "[supervisor] Build failed — rolling back..."
     rollback || true
     return 1
@@ -115,9 +107,12 @@ do_restart() {
 # Clear stale restart signal from before supervisor started
 rm -f "$RESTART_SIGNAL"
 
+# Create bin directory
+mkdir -p bin
+
 # Initial build + start
 echo "[supervisor] Initial build..."
-pnpm build
+build_all
 start_services
 
 echo "[supervisor] Waiting for health check..."
@@ -126,7 +121,7 @@ if ! check_health; then
   exit 1
 fi
 
-echo "[supervisor] Services running. Monitoring for restart signal..."
+echo "[supervisor] Server running. Monitoring for restart signal..."
 
 # Main loop: watch for restart signal
 while true; do
@@ -135,16 +130,10 @@ while true; do
     do_restart || true
   fi
 
-  # Check if individual processes died — restart only the dead one
-  if [[ -n "$nextjs_pid" ]] && ! kill -0 "$nextjs_pid" 2>/dev/null; then
-    echo "[supervisor] Next.js process died — restarting..."
-    pnpm start --port "$RK_PORT" --hostname "$RK_HOST" &
-    nextjs_pid=$!
-  fi
-  if [[ -n "$relay_pid" ]] && ! kill -0 "$relay_pid" 2>/dev/null; then
-    echo "[supervisor] Relay process died — restarting relay..."
-    pnpm relay --port "$RK_RELAY_PORT" --host "$RK_HOST" &
-    relay_pid=$!
+  # Check if process died — restart
+  if [[ -n "$server_pid" ]] && ! kill -0 "$server_pid" 2>/dev/null; then
+    echo "[supervisor] Server process died — restarting..."
+    start_services
   fi
 
   sleep "$POLL_INTERVAL"

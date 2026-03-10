@@ -4,15 +4,15 @@
 
 | Route | Page | Component Pattern |
 |-------|------|-------------------|
-| `/` | Dashboard | Server Component → Client Component (SSE) |
-| `/p/:project` | Project view | Server Component → Client Component (SSE) |
-| `/p/:project/:window?name=` | Terminal view | Server Component → Client Component (xterm.js + WebSocket + SSE) |
+| `/` | Dashboard | Page component (SSE via `useSessions()` context) |
+| `/p/$project` | Project view | Page component (SSE via `useSessions()` context) |
+| `/p/$project/$window?name=` | Terminal view | Page component (xterm.js + WebSocket + SSE via context) |
 
 The terminal page accepts an optional `name` query parameter for the window name (used in breadcrumb). Falls back to the numeric window index if not provided. Navigation from dashboard/project cards always includes the `name` param.
 
 ## Chrome (Top Bar)
 
-The root layout renders `TopBarChrome` (`src/components/top-bar-chrome.tsx`) which reads slot content from `ChromeProvider` context. Pages inject their content via `useChrome()` setters — they do NOT render their own top bar.
+The root layout (`packages/web/src/router.tsx` `RootLayout`) renders `TopBarChrome` which reads slot content from `ChromeProvider` context. Pages inject their content via `useChromeDispatch()` setters — they do NOT render their own top bar.
 
 **Line 1** (fixed height): Icon breadcrumbs + connection indicator + ⌘K hint badge (hidden on mobile < 640px via `hidden sm:inline-flex`).
 
@@ -37,7 +37,7 @@ Breadcrumb segments with a `dropdownItems` array use the icon (⬡ or ❯) as th
 
 **Window dropdown** (terminal page only): Lists all windows in the current session. Current window highlighted. Selecting navigates to `/p/{project}/{index}?name={name}`.
 
-**Dropdown component** (`src/components/breadcrumb-dropdown.tsx`): Reusable dropdown accepting `icon` prop (rendered as trigger button content), with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Icon button has 24px minimum tap target (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
+**Dropdown component** (`packages/web/src/components/breadcrumb-dropdown.tsx`): Reusable dropdown accepting `icon` prop (rendered as trigger button content), with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Icon button has 24px minimum tap target (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
 
 Connection indicator: green/gray dot with "live"/"disconnected" label, driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
 
@@ -103,7 +103,7 @@ After upload: file path auto-inserted into compose buffer (opens compose if clos
 
 ### iOS Keyboard Support
 
-`useVisualViewport` hook listens to both `resize` and `scroll` events on `window.visualViewport`, setting `--app-height` CSS custom property from `visualViewport.height`. The `scroll` listener catches iOS Safari viewport panning that doesn't trigger `resize`. In fullbleed mode, `globals.css` applies `position: fixed` to the `.app-shell` container with `inset: 0` and `height: var(--app-height, 100vh)`, pinning it to the viewport regardless of document scroll. When the iOS keyboard appears, the bottom bar stays pinned above it, the terminal shrinks, and xterm refits via the existing `ResizeObserver`. Non-fullbleed pages are unaffected.
+`useVisualViewport` hook (`packages/web/src/hooks/use-visual-viewport.ts`) listens to both `resize` and `scroll` events on `window.visualViewport`, setting `--app-height` CSS custom property from `visualViewport.height`. The `scroll` listener catches iOS Safari viewport panning that doesn't trigger `resize`. In fullbleed mode, `globals.css` applies `position: fixed` to the `.app-shell` container with `inset: 0` and `height: var(--app-height, 100vh)`, pinning it to the viewport regardless of document scroll. When the iOS keyboard appears, the bottom bar stays pinned above it, the terminal shrinks, and xterm refits via the existing `ResizeObserver`. Non-fullbleed pages are unaffected.
 
 ### iOS Touch Scroll Prevention
 
@@ -183,13 +183,13 @@ Dark theme only. Linear/Raycast aesthetic.
 
 ## Component Conventions
 
-- **Server Components by default** — Client Components only for keyboard handlers, xterm.js, SSE consumers
+- **All components are client-side** — pure React SPA, no Server Components. Data fetched via typed API client (`packages/web/src/api/client.ts`) and SSE context
 - **No loading spinners** — SSE keeps data fresh, pages render with whatever data is available
-- **No `useEffect` for data fetching** — Server Components fetch initial data, passed to Client Components
-- **SSE via `useSessions` hook** — thin wrapper over `SessionProvider` context. Single `EventSource` at layout level, shared across all pages. Replaces entire state on each event, auto-reconnects via `EventSource` built-in. Server-side SSE uses a module-level singleton that deduplicates polling across browser tabs
-- **ChromeProvider context** (`src/contexts/chrome-context.tsx`) — split into state/dispatch contexts. `useChrome()` for components reading state (TopBarChrome, BottomSlot, ContentSlot). `useChromeDispatch()` for setter-only consumers (page components) — stable reference, no re-renders from state changes. Pages set slots via `useEffect` with cleanup on unmount.
-- **SessionProvider context** (`src/contexts/session-context.tsx`) — layout-level provider owning the single `EventSource`. All pages consume session data via `useSessions()` hook. Connection status forwarded to ChromeProvider internally.
-- **Shared `Dialog` component** (`src/components/dialog.tsx`) — reusable modal with title, backdrop, close-on-click. Used for create, kill, send dialogs across all pages
+- **Data fetching via context (not per-page)** — `SessionProvider` at layout level owns the `EventSource` connection and provides session data to all pages via `useSessions()` hook. Pages consume from context, not fetch individually
+- **SSE via `useSessions` hook** — thin wrapper over `SessionProvider` context. Single `EventSource` at layout level, shared across all pages. Replaces entire state on each event, auto-reconnects via `EventSource` built-in. Server-side SSE uses a module-level goroutine hub that deduplicates polling across browser tabs
+- **ChromeProvider context** (`packages/web/src/contexts/chrome-context.tsx`) — split into state/dispatch contexts. `useChrome()` for components reading state (TopBarChrome, BottomSlot, ContentSlot). `useChromeDispatch()` for setter-only consumers (page components) — stable reference, no re-renders from state changes. Pages set slots via `useEffect` with cleanup on unmount.
+- **SessionProvider context** (`packages/web/src/contexts/session-context.tsx`) — layout-level provider owning the single `EventSource`. All pages consume session data via `useSessions()` hook. Connection status forwarded to ChromeProvider internally.
+- **Shared `Dialog` component** (`packages/web/src/components/dialog.tsx`) — reusable modal with title, backdrop, close-on-click. Used for create, kill, send dialogs across all pages
 
 ## Create Session Dialog
 
@@ -229,3 +229,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-07 | Breadcrumb dropdown menus — chevron triggers for project/window switching, split click-target pattern | `260307-uzsa-navbar-breadcrumb-dropdowns` |
 | 2026-03-07 | Mobile responsive polish — Line 2 collapse with ⋯ palette trigger, 44px touch targets via `coarse:` variant, responsive padding (px-3/px-6), terminal font scaling (11px/13px) | `260305-ol5d-mobile-responsive-polish` |
 | 2026-03-07 | Mobile cleanup — merged F-key/ext-key popups, moved upload to compose buffer, added keyboard dismiss button, breadcrumb icons as dropdown triggers | `260307-l9jj-mobile-bar-breadcrumb-cleanup` |
+| 2026-03-10 | Go backend + Vite SPA split — removed Server Component patterns, all data fetching via API client + SSE context, TanStack Router for client-side routing, terminal WebSocket on same port (no relay port config) | `260310-8xaq-go-backend-vite-spa-split` |

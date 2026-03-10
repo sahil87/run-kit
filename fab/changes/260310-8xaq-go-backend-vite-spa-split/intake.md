@@ -80,9 +80,9 @@ Root-level files removed: `next.config.ts`, `next-env.d.ts`, `postcss.config.mjs
 
 ### Go Backend (`packages/api/`)
 
-**HTTP server** — `chi` router (lightweight, zero transitive deps, ergonomic middleware chaining for CORS, logging, panic recovery). Single binary serves both REST API and WebSocket terminal relay on configurable ports.
+**HTTP server** — `chi` router (lightweight, zero transitive deps, ergonomic middleware chaining for CORS, logging, panic recovery). Single binary, single port serves REST API, SSE, and WebSocket terminal relay.
 
-**API endpoints** — parity with current Next.js API routes, plus one new endpoint for runtime config:
+**API endpoints** — parity with current Next.js API routes:
 
 | Endpoint | Method | Current Source | Go Target |
 |----------|--------|----------------|-----------|
@@ -92,9 +92,9 @@ Root-level files removed: `next.config.ts`, `next-env.d.ts`, `postcss.config.mjs
 | `/api/sessions/stream` | GET (SSE) | `src/app/api/sessions/stream/route.ts` | `api/sse.go` |
 | `/api/directories` | GET | `src/app/api/directories/route.ts` | `api/routes.go` |
 | `/api/upload` | POST | `src/app/api/upload/route.ts` | `api/upload.go` |
-| `/api/config` | GET | *(new)* | `api/routes.go` — returns `{ relayPort, relayHost }` for client-side WebSocket connection |
+| `/relay/{session}/{window}` | GET (WebSocket) | `src/terminal-relay/server.ts` (separate port) | `api/relay.go` — WebSocket upgrade on same port |
 
-**Terminal relay** — `gorilla/websocket` for WebSocket handling, `creack/pty` for PTY allocation. Same URL scheme: `ws://{host}:{relayPort}/:session/:window`. Same behavior: split-window per connection, relay I/O, kill pane on disconnect.
+**Terminal relay** — `gorilla/websocket` for WebSocket handling, `creack/pty` for PTY allocation. URL scheme: `ws://{host}:{port}/relay/:session/:window` (same port as API, `/relay/` prefix to avoid route collisions). Same behavior: split-window per connection, relay I/O, kill pane on disconnect. Eliminates the separate relay port — the two-port split existed because Next.js and the relay were separate Node.js processes; with Go it's one binary, one port.
 
 **tmux integration** — `os/exec` with `execve`-style argument arrays (same security model as `execFile`). All calls with timeouts via `context.WithTimeout`. Port existing logic from `src/lib/tmux.ts` (session listing, window listing, byobu filtering, sendKeys, createSession, createWindow, killSession, killWindow).
 
@@ -134,7 +134,7 @@ Root-level files removed: `next.config.ts`, `next-env.d.ts`, `postcss.config.mjs
 **Page components** — Rewrite from Next.js App Router to plain React components:
 - `dashboard-client.tsx` → `pages/dashboard.tsx` (fetch sessions from API instead of receiving as props)
 - `project-client.tsx` → `pages/project.tsx`
-- `terminal-client.tsx` → `pages/terminal.tsx` (relay port from config endpoint or env var instead of server component prop)
+- `terminal-client.tsx` → `pages/terminal.tsx` (WebSocket connects to `ws://${location.host}/relay/:session/:window` — same host, no config needed)
 
 **Styling** — Tailwind CSS 4 + same `globals.css`. PostCSS config moves to `packages/web/`.
 
@@ -143,28 +143,21 @@ Root-level files removed: `next.config.ts`, `next-env.d.ts`, `postcss.config.mjs
 `supervisor.sh` updated to:
 - Build Go binary: `cd packages/api && go build -o ../../bin/run-kit ./cmd/run-kit`
 - Build frontend: `cd packages/web && pnpm build` (outputs to `packages/web/dist/`)
-- Start Go server (serves API + optionally serves SPA static files)
+- Start Go server (single port — serves API, WebSocket relay, and optionally SPA static files)
 - Health check against Go's `/api/health`
 - Rollback: `git revert HEAD` still works (same repo)
 
 ### Caddyfile Updates
 
-Caddy reverse proxies API requests to Go backend, serves SPA static files directly:
+Caddy reverse proxies all traffic to the single Go server:
 
 ```
 run-kit.local {
-    handle /api/* {
-        reverse_proxy localhost:3000
-    }
-    handle {
-        root * packages/web/dist
-        try_files {path} /index.html
-        file_server
-    }
+    reverse_proxy localhost:3000
 }
 ```
 
-The terminal relay runs on its own port (default 3001) and the SPA connects directly via the `/api/config` endpoint's `relayPort` value — no Caddy proxy needed for WebSocket traffic in production (same as current architecture where the relay is a separate port).
+Go serves API, WebSocket relay, and SPA static files on one port. Caddy handles TLS termination and caching in production.
 
 ### E2E Test Updates
 
@@ -212,7 +205,6 @@ Playwright tests in `e2e/` need web server config updated to point at the Go bac
 | 9 | Confident | Tailwind CSS 4 stays (not switching CSS approach) | Existing styles work, no reason to change CSS tooling in this change | S:80 R:90 A:85 D:85 |
 | 10 | Certain | chi router for Go HTTP server | Clarified — user chose chi for middleware ergonomics (CORS, logging, recovery) over zero-dep ServeMux | S:95 R:85 A:90 D:95 |
 | 11 | Certain | TanStack Router for client-side routing | Clarified — user chose TanStack Router for type-safe params and loaders | S:95 R:80 A:90 D:95 |
-| 12 | Certain | Go serves SPA in dev, Caddy in production | Clarified — user confirmed dual-mode serving strategy | S:95 R:85 A:90 D:95 |
-| 13 | Certain | Relay port via `/api/config` runtime endpoint | Clarified — user chose config endpoint over build-time env vars | S:95 R:80 A:90 D:95 |
+| 12 | Certain | Single port — API, WebSocket relay, and SPA on one Go server | Clarified — user identified no reason for separate ports; two-port split was a Node.js artifact (separate processes). Caddy fronts in production for TLS | S:95 R:85 A:95 D:95 |
 
-13 assumptions (9 certain, 4 confident, 0 tentative, 0 unresolved).
+12 assumptions (8 certain, 4 confident, 0 tentative, 0 unresolved).

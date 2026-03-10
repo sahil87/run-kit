@@ -18,7 +18,7 @@ checklist:
     completed: 0
     total: 0
 confidence:
-    certain: 9
+    certain: 8
     confident: 4
     tentative: 0
     unresolved: 0
@@ -26,11 +26,11 @@ confidence:
     indicative: true
     fuzzy: true
     dimensions:
-        signal: 87.7
-        reversibility: 74.2
-        competence: 87.7
-        disambiguation: 88.5
+        signal: 87.1
+        reversibility: 73.8
+        competence: 87.9
+        disambiguation: 87.9
 stage_metrics:
     intake: {started_at: "2026-03-10T13:03:44+05:30", driver: fab-new, iterations: 1}
 prs: []
-last_updated: 2026-03-10T14:43:55+05:30
+last_updated: 2026-03-10T15:18:22+05:30

@@ -84,6 +84,10 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectRoot := targetWindow.WorktreePath
+	if projectRoot == "" {
+		writeError(w, http.StatusInternalServerError, "Could not determine project root from tmux window")
+		return
+	}
 
 	// Ensure .uploads/ directory exists
 	uploadsDir := filepath.Join(projectRoot, ".uploads")
@@ -109,7 +113,10 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 			separator = "\n"
 		}
 		newContent := string(gitignoreContent) + separator + ".uploads/\n"
-		_ = os.WriteFile(gitignorePath, []byte(newContent), 0o644)
+		if err := os.WriteFile(gitignorePath, []byte(newContent), 0o644); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update .gitignore: %v", err))
+			return
+		}
 	}
 
 	// Build timestamped filename

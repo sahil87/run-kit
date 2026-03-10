@@ -22,8 +22,7 @@ var hub = &sseHub{
 }
 
 type sseClient struct {
-	ch   chan []byte
-	done chan struct{}
+	ch chan []byte
 }
 
 type sseHub struct {
@@ -117,8 +116,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	client := &sseClient{
-		ch:   make(chan []byte, 8),
-		done: make(chan struct{}),
+		ch: make(chan []byte, 8),
 	}
 
 	hub.addClient(client)

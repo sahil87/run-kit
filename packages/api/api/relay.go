@@ -68,9 +68,13 @@ func handleRelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Attach to the NEW pane via pty
+	// Attach to the NEW pane via pty. attach-session -t accepts a pane target
+	// (e.g., %5) which resolves to that pane's session. We combine it with
+	// select-pane to ensure the correct pane is active on attach.
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", paneID)
+	// First, select the target pane so attach-session focuses on it
+	_ = exec.Command("tmux", "select-pane", "-t", paneID).Run()
+	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", session)
 	cmd.Env = os.Environ()
 
 	ptmx, err := pty.Start(cmd)

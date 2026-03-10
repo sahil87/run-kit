@@ -208,7 +208,7 @@ echo "  Maintain docs:  /docs-hydrate-memory, /docs-hydrate-specs, /docs-reorg-s
 echo ""
 echo "PACKAGES"
 echo ""
-echo "    wt-create, wt-list, wt-open, wt-delete, wt-init, wt-pr   Git worktree management"
+echo "    wt create, wt list, wt open, wt delete, wt init          Git worktree management"
 echo "    idea                                                     Per-repo backlog (fab/backlog.md)"
 echo ""
 echo "    Run <command> help for details."

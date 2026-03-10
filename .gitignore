@@ -158,3 +158,9 @@ fab/changes/**/.pr-done
 
 # Go binary output
 bin/
+
+fab/.kit/bin/*
+
+!fab/.kit/bin/fab
+
+!fab/.kit/bin/.gitkeep

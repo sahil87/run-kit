@@ -98,13 +98,13 @@ create_worktree() {
       # Parent exists locally — branch from it (dependent node)
       git branch "$CHANGE_BRANCH" "$PARENT_BRANCH" >/dev/null 2>&1
     fi
-    # If parent not local, wt-create will create from HEAD (root node)
+    # If parent not local, wt create will create from HEAD (root node)
   fi
 
-  wt_path=$(wt-create --non-interactive --reuse --worktree-open skip --worktree-name "$CHANGE_ID" "$CHANGE_BRANCH")
+  wt_path=$(wt create --non-interactive --reuse --worktree-open skip --worktree-name "$CHANGE_ID" "$CHANGE_BRANCH")
 
   if [[ -z "$wt_path" || ! -d "$wt_path" ]]; then
-    echo "Error: wt-create failed — no worktree path returned" >&2
+    echo "Error: wt create failed — no worktree path returned" >&2
     return 1
   fi
 

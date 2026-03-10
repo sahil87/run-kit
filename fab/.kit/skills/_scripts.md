@@ -42,8 +42,10 @@ fab/.kit/bin/fab <command> <subcommand> [args...]
 | `fab change` | Change lifecycle (new, rename, switch, list, archive, restore, archive-list) |
 | `fab score` | Confidence scoring |
 | `fab runtime` | Runtime state management (.fab-runtime.yaml) |
+| `fab hook` | Claude Code hook subcommands (session-start, stop, user-prompt, artifact-write, sync) |
 | `fab pane-map` | Tmux pane-to-worktree mapping with fab pipeline state |
 | `fab send-keys` | Send text to a change's tmux pane |
+| `fab idea` | Backlog idea management (add, list, show, done, reopen, edit, rm) |
 
 ---
 
@@ -240,6 +242,33 @@ All subcommands accept the standard `<change>` argument (4-char ID, substring, o
 
 ---
 
+## fab hook
+
+Claude Code Hook Manager — implements hook logic in Go for Claude Code lifecycle events. Each subcommand is invoked by thin shell wrappers in `fab/.kit/hooks/`. All hook subcommands MUST exit 0 always — errors are silently swallowed to never block the agent.
+
+```
+fab/.kit/bin/fab hook <subcommand>
+```
+
+| Subcommand | Usage | Purpose |
+|------------|-------|---------|
+| `session-start` | `hook session-start` | Clear agent idle state for the active change. Fires on `SessionStart` |
+| `stop` | `hook stop` | Write `agent.idle_since` Unix timestamp for the active change. Fires on `Stop` |
+| `user-prompt` | `hook user-prompt` | Clear agent idle state for the active change. Fires on `UserPromptSubmit` |
+| `artifact-write` | `hook artifact-write` | Read PostToolUse JSON from stdin, perform per-artifact bookkeeping (change type, score, checklist). Fires on `PostToolUse` (Write/Edit) |
+| `sync` | `hook sync` | Discover `on-*.sh` scripts in `fab/.kit/hooks/`, map to Claude Code events, merge into `.claude/settings.local.json`. Idempotent |
+
+**Hook subcommands vs `fab runtime`**: Hook subcommands resolve the active change automatically (no `<change>` argument) and swallow all errors. `fab runtime` subcommands require an explicit `<change>` argument and report errors normally. Hook subcommands use `internal/runtime` and other internal packages directly — no subprocesses.
+
+**`artifact-write` stdin**: Expects Claude Code PostToolUse JSON payload on stdin. Extracts `tool_input.file_path`, matches against fab artifact patterns (`fab/changes/*/intake.md`, `spec.md`, `tasks.md`, `checklist.md`), and performs bookkeeping. Outputs `{"additionalContext":"Bookkeeping: ..."}` JSON on success.
+
+**`sync` output**: Reports one of three statuses to stdout:
+- `Created: .claude/settings.local.json hooks (N hook entries)` — fresh settings
+- `Updated: .claude/settings.local.json hooks (added N hook entries)` — merged new entries
+- `.claude/settings.local.json hooks: OK` — already up to date
+
+---
+
 ## fab pane-map
 
 Pane Map — shows all tmux panes mapped to their fab worktrees with pipeline state. Requires an active tmux session.
@@ -307,6 +336,47 @@ fab/.kit/bin/fab send-keys <change> "<text>"
 fab/.kit/bin/fab send-keys r3m7 "/fab-continue"
 fab/.kit/bin/fab send-keys 260306-k8ds-ship-wt-binary "git fetch origin main && git rebase origin/main"
 ```
+
+---
+
+# Backlog
+
+## fab idea
+
+Idea Manager — full CRUD for `fab/backlog.md` in the current git repo. Manages backlog ideas as markdown checkbox items.
+
+```
+fab/.kit/bin/fab idea <subcommand> [flags...]
+```
+
+| Subcommand | Usage | Purpose |
+|------------|-------|---------|
+| `add` | `add <text> [--id <4char>] [--date <YYYY-MM-DD>]` | Add a new idea |
+| `list` | `list [-a] [--done] [--json] [--sort <id\|date>] [--reverse]` | List ideas |
+| `show` | `show <query> [--json]` | Show a single idea |
+| `done` | `done <query>` | Mark an idea as done |
+| `reopen` | `reopen <query>` | Reopen a completed idea |
+| `edit` | `edit <query> <new-text> [--id <4char>] [--date <YYYY-MM-DD>]` | Modify an idea |
+| `rm` | `rm <query> --force` | Delete an idea (requires --force) |
+
+**Persistent flag**: `--file <path>` overrides the backlog file location (relative to git root). Also respects `IDEAS_FILE` env var. Priority: `--file` > `IDEAS_FILE` > default `fab/backlog.md`.
+
+**Query matching**: Case-insensitive substring match on both the idea ID and text fields. Commands that modify a single idea (`show`, `done`, `reopen`, `edit`, `rm`) require exactly one match; zero matches returns "No idea matching", multiple matches returns disambiguation guidance.
+
+**Backlog format** (unchanged from the original Bash script):
+
+```
+- [ ] [a7k2] 2025-06-15: Add dark mode to settings page
+- [ ] [c3d4] 2025-06-10: DES-123 Link to a Linear ticket
+- [x] [e5f6] 2025-06-08: Fix login redirect bug
+```
+
+**Output format**:
+- Add: `Added: [{id}] {date}: {text}`
+- Done: `Done: - [x] [{id}] {date}: {text}`
+- Reopen: `Reopened: - [ ] [{id}] {date}: {text}`
+- Edit: `Updated: - [{status}] [{id}] {date}: {text}`
+- Rm: `Removed: - [{status}] [{id}] {date}: {text}`
 
 ---
 

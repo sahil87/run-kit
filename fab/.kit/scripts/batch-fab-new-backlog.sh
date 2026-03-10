@@ -132,7 +132,7 @@ for id in "${ids[@]}"; do
   printf "  [%s] %s\n" "$id" "${content:0:70}..."
 
   # Create a worktree named after the backlog ID (last line = path)
-  wt_path=$(wt-create --non-interactive --worktree-name "$id") || {
+  wt_path=$(wt create --non-interactive --worktree-name "$id") || {
     echo "Error: failed to create worktree for [$id], skipping" >&2
     continue
   }

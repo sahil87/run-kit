@@ -9,7 +9,7 @@ set -euo pipefail
 # By default, exits when all changes are terminal (done/failed/invalid).
 # Set watch: true in the manifest for infinite-loop mode (live editing).
 #
-# Requires: yq, wt-create, claude CLI
+# Requires: yq, wt, claude CLI
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KIT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"

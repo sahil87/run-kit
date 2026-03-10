@@ -108,7 +108,7 @@ Each use case follows the pattern: **interpret user intent** then **refresh stat
 ### UC4: Spawn new worktree + agent from idea
 
 1. Look up the idea via `idea show "<description>"`
-2. Create a worktree via `wt-create --non-interactive`
+2. Create a worktree via `wt create --non-interactive`
 3. Open a new tmux tab in that worktree
 4. Send `/fab-new <description>` to the new agent via `fab/.kit/bin/fab send-keys`
 

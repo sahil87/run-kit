@@ -120,7 +120,7 @@ for change in "${changes[@]}"; do
   branch_name="${branch_prefix}${match}"
 
   # Create worktree with the exact branch name fab-switch expects
-  wt_path=$(wt-create --non-interactive --reuse --worktree-name "$match" "$branch_name") || {
+  wt_path=$(wt create --non-interactive --reuse --worktree-name "$match" "$branch_name") || {
     echo "Error: failed to create worktree for '$match', skipping" >&2
     continue
   }

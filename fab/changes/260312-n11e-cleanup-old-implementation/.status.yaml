@@ -1,0 +1,37 @@
+id: n11e
+name: 260312-n11e-cleanup-old-implementation
+created: 2026-03-12T07:24:05Z
+created_by: sahil-weaver
+change_type: chore
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 3
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 91.3
+        reversibility: 78.8
+        competence: 92.5
+        disambiguation: 93.8
+stage_metrics:
+    intake: {started_at: "2026-03-12T07:24:05Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-03-12T07:24:26Z

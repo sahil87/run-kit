@@ -22,5 +22,8 @@
 
 | Spec | Description |
 |------|-------------|
+| [API](api.md) | HTTP, SSE, and WebSocket endpoint specification — the target API surface |
+| [Architecture](architecture.md) | System architecture, repository structure, data flow, build & deploy |
+| [Project Plan](project-plan.md) | 4-phase reimplementation plan: scaffold → backend → frontend → cleanup |
 | [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |
 | [Short-Term Goal](short-term-goal.md) | Minimum viable product requirements and priorities |

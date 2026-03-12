@@ -5,8 +5,8 @@ Active changes, in dependency order:
 1. `[vq7h]` Feature tests (tmux, keyboard nav, API) — test stable baseline before refactor
 2. `[emla]` **1/3 Fixed Chrome Architecture** — layout skeleton, ChromeProvider, icon breadcrumbs
 3. `[fjh1]` **2/3 Bottom Bar + Compose Buffer** — modifier keys, arrows, compose textarea (depends on 1/3)
-4. `[ol5d]` **3/3 Mobile Responsive Polish** — Line 2 collapse, touch targets, font scaling (depends on 1/3 + 2/3)
-5. `[r7zs]` Playwright E2E tests — verify design spec end-to-end (depends on 1/3 + 2/3 + 3/3)
+4. ~~`[ol5d]` **3/3 Mobile Responsive Polish** — Line 2 collapse, touch targets, font scaling (depends on 1/3 + 2/3)~~ ✓ archived
+5. ~~`[r7zs]` Playwright E2E tests — verify design spec end-to-end (depends on 1/3 + 2/3 + 3/3)~~ ✓ archived
 
 Parallel (no dependencies on 1–5):
 - `[zkem]` Session folder picker — directory autocomplete + quick picks

@@ -1,5 +1,9 @@
 # Archived Changes
 
+- **260310-8xaq-go-backend-vite-spa-split** — Go backend + Vite SPA split: monorepo restructure replacing Next.js monolith with Go HTTP/WebSocket backend and Vite+React SPA frontend for decoupled multi-client architecture.
+- **260307-l9jj-mobile-bar-breadcrumb-cleanup** — Mobile bottom bar and breadcrumb cleanup: merged extended keys into F-key dropdown, added keyboard dismiss button, removed upload button, and stripped breadcrumb dropdown arrows to save space on iOS.
+- **260305-r7zs-playwright-e2e-design-spec** — Playwright E2E test suite for UI design spec: verifies fixed chrome stability, bottom bar WebSocket integration, compose buffer flow, and mobile responsive behavior in real browsers.
+- **260305-ol5d-mobile-responsive-polish** — Mobile responsive polish: Line 2 action collapse on narrow screens, 44px touch targets per Apple HIG, command palette trigger for mobile, and responsive terminal typography.
 - **260307-uzsa-navbar-breadcrumb-dropdowns** — Added breadcrumb dropdown menus for switching between projects and windows directly from the navbar, using a split click-target pattern (name navigates, chevron opens dropdown).
 - **260307-r3yv-action-buttons-rename-kill** — Added Rename window action to both project and terminal pages, and shortened "Kill Window" label to "Kill".
 - **260307-kqio-image-upload-claude-terminal** — Added image upload to Claude Code terminal sessions via drag-drop, clipboard paste, and file picker in the run-kit web UI.

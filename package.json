@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bash dev.sh",
+    "dev": "just dev",
     "supervisor": "bash supervisor.sh",
     "test": "pnpm --filter run-kit-web test",
     "test:e2e": "playwright test",

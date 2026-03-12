@@ -4,29 +4,61 @@
 
 run-kit is a web-based agent orchestration dashboard. Two independent processes in production, three in development:
 
-1. **Bash supervisor** (`supervisor.sh`) — builds Go binary + frontend, manages the server as a single deployment unit
-2. **Go backend** (`packages/api/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port
+1. **Bash supervisor** (`supervisor.sh`) — builds Go binary from `app/backend/` + frontend from `app/frontend/`, manages the server as a single deployment unit
+2. **Go backend** (default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port
 
-In development, `dev.sh` runs two concurrent processes:
-- Go backend (`:3000`) — API, WebSocket relay, SPA static serving
-- Vite dev server (`:5173`) — HMR, proxies `/api/*` and `/relay/*` to Go via `vite.config.ts`
+In development, `just dev` runs two concurrent processes (replaces the removed `dev.sh`):
+- Go backend (`:3000`) via `go run ./cmd/run-kit` from `app/backend/` — API, WebSocket relay, SPA static serving
+- Vite dev server (`:5173`) via `pnpm dev` from `app/frontend/` — HMR, proxies `/api/*` and `/relay/*` to Go via `vite.config.ts`
 
-Ports and bind host are configurable via CLI args > `run-kit.yaml` > hardcoded defaults. See `packages/api/internal/config/config.go`.
+Ports and bind host are configurable via CLI args > `run-kit.yaml` > hardcoded defaults. See `packages/api/internal/config/config.go` (old) / `app/backend/internal/config/` (new scaffold).
 
 The tmux server is an external dependency — never started or stopped by run-kit.
 
 ## Repository Structure
 
-pnpm workspaces monorepo:
+pnpm workspaces monorepo. Two codebases coexist during the reimplementation: `packages/` (legacy, untouched until Phase 4 cleanup) and `app/` (new scaffold, Phases 1-3).
+
+### New: `app/` (scaffold — Phase 1)
+
+```
+app/
+  backend/            # Go module — new scaffold
+    cmd/run-kit/      # Entry point (main.go — prints "run-kit" and exits)
+    api/              # HTTP handler placeholders (router.go, sessions.go, windows.go,
+                      #   directories.go, upload.go, sse.go, relay.go, health.go, spa.go)
+    internal/         # tmux/, sessions/, fab/, config/, validate/ — each with
+                      #   placeholder .go + empty _test.go (no internal/worktree/ — dead code)
+    go.mod, go.sum
+  frontend/           # Vite + React SPA — new scaffold
+    src/
+      api/            # Type stubs (client.ts — all functions throw "not implemented")
+      main.tsx        # Minimal React entry
+      app.tsx         # Single-view layout skeleton (top bar, sidebar, terminal, bottom bar)
+      router.tsx      # TanStack Router — one route: /:session/:window
+      types.ts        # ProjectSession, WindowInfo types matching API spec
+      test-setup.ts   # @testing-library/jest-dom/vitest
+    tests/
+      msw/            # MSW handler stubs (handlers.ts)
+      e2e/            # Playwright smoke test (smoke.spec.ts — test.skip)
+    index.html
+    vite.config.ts    # React plugin, @/ alias, proxy /api/* and /relay/* to :3000
+    vitest.config.ts  # jsdom environment
+    tsconfig.json
+    playwright.config.ts  # Chromium desktop project, tests/e2e/
+    package.json
+```
+
+### Legacy: `packages/` (functional code — until Phase 4)
 
 ```
 packages/
-  api/              # Go module — stable backend
+  api/              # Go module — stable backend (fully functional)
     cmd/run-kit/    # Entry point (main.go)
     internal/       # tmux, config, fab, worktree, sessions, validate, relay
     api/            # HTTP handlers (routes.go, sse.go, relay.go, upload.go, spa.go)
     go.mod, go.sum
-  web/              # Vite + React SPA — disposable frontend
+  web/              # Vite + React SPA — disposable frontend (fully functional)
     src/
       api/          # Typed fetch wrappers (client.ts)
       components/   # React components
@@ -37,13 +69,18 @@ packages/
       types.ts      # Shared TypeScript types
     vite.config.ts
     vitest.config.ts
-e2e/                # Playwright E2E tests
+```
+
+### Root files
+
+```
+e2e/                # Playwright E2E tests (legacy, for packages/web)
 fab/                # Fab-kit project config + changes
 docs/               # Memory files
-supervisor.sh       # Production process manager
-dev.sh              # Development launcher (Go + Vite concurrent)
+justfile            # Task runner — all recipes target app/ paths (replaced dev.sh)
+supervisor.sh       # Production process manager (updated to app/ paths)
 Caddyfile.example   # HTTPS reverse proxy (TLS termination only)
-pnpm-workspace.yaml # ["packages/web"] — Go is independent
+pnpm-workspace.yaml # ["app/frontend"] — updated from ["packages/web"]
 ```
 
 ## Data Model
@@ -54,10 +91,12 @@ pnpm-workspace.yaml # ["packages/web"] — Go is independent
 
 ## Backend Libraries (Go Modules)
 
+Functional code lives in `packages/api/` until Phase 2+ ports it to `app/backend/`. The `app/backend/internal/` packages are empty placeholders (package declaration + exported placeholder + empty `_test.go`). No `internal/worktree/` in `app/backend/` — removed as dead code not exposed via API.
+
 | Package | Responsibility |
 |---------|---------------|
 | `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}` |
-| `internal/worktree` | Wraps fab-kit `wt-*` scripts (never reimplements) |
+| `internal/worktree` | Wraps fab-kit `wt-*` scripts (never reimplements) — `packages/api/` only, not in `app/backend/` |
 | `internal/fab` | Reads fab state (progress-line, current change, change list) |
 | `internal/sessions` | Derives project roots from tmux, auto-detects fab-kit, enriches with fab state. Session enrichment runs in parallel via goroutines with `sync.WaitGroup` and indexed assignment to preserve tmux ordering |
 | `internal/validate` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
@@ -88,7 +127,9 @@ All endpoints served by the single Go binary on one port.
 
 ### Frontend API Client
 
-`packages/web/src/api/client.ts` — typed fetch wrappers for all endpoints. Uses relative URLs (e.g., `/api/sessions`) — works with both Vite proxy in dev and same-origin in production. Exports `getSessions()`, `postSessionAction()`, `getDirectories()`, `uploadFile()` with TypeScript types.
+`packages/web/src/api/client.ts` — typed fetch wrappers for all endpoints (functional, legacy). Uses relative URLs (e.g., `/api/sessions`) — works with both Vite proxy in dev and same-origin in production. Exports `getSessions()`, `postSessionAction()`, `getDirectories()`, `uploadFile()` with TypeScript types.
+
+`app/frontend/src/api/client.ts` — type stubs matching the new POST-only API spec. All functions throw "not implemented". Uses individual POST routes (e.g., `/api/sessions/:session/kill`) rather than the legacy multiplexed POST. Will be implemented in Phase 3.
 
 ## Terminal Relay
 
@@ -107,7 +148,7 @@ Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, ma
 
 ~140-line bash script. Reads `run-kit.yaml` at startup via grep-based parsing (no `yq` dependency) for port/host config. Polling loop checks for `.restart-requested` file.
 
-Build cycle: `go build -o bin/run-kit ./cmd/run-kit` (Go binary) + `pnpm build` (frontend to `packages/web/dist/`).
+Build cycle: `cd app/backend && go build -o ../../bin/run-kit ./cmd/run-kit` (Go binary) + `cd app/frontend && pnpm build` (frontend to `app/frontend/dist/`).
 On detection: build all → kill server → start Go server → `GET /api/health` (10s timeout).
 On failure: `git revert HEAD` → rebuild → restart prior version.
 Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
@@ -115,7 +156,7 @@ Auto-restart: detects if server process died and restarts automatically.
 
 ## SPA Static Serving
 
-The Go server serves static files from the built SPA directory (`packages/web/dist/`). Any request not matching `/api/*` or `/relay/*` serves `index.html` for client-side routing (SPA fallback). Requests matching actual static file paths serve the file directly. Implementation in `packages/api/api/spa.go`.
+The Go server serves static files from the built SPA directory (`app/frontend/dist/`, previously `packages/web/dist/`). Any request not matching `/api/*` or `/relay/*` serves `index.html` for client-side routing (SPA fallback). Requests matching actual static file paths serve the file directly. Implementation in `packages/api/api/spa.go` (legacy) / `app/backend/api/spa.go` (scaffold placeholder).
 
 In development, Vite handles SPA fallback natively. In production, Go's catch-all handles it. Caddy is optional — used only for TLS termination, not routing.
 
@@ -169,37 +210,61 @@ Pages do NOT render their own top bar or outer containers — they set chrome sl
 
 ## Testing
 
+### Task Runner
+
+The `justfile` is the single task runner for all test/build/dev commands (replaces `dev.sh` which was removed):
+
+| Recipe | Command |
+|--------|---------|
+| `just dev` | Go backend (`app/backend/`) + Vite dev server (`app/frontend/`) concurrently |
+| `just build` | `go build` from `app/backend/` + `pnpm build` from `app/frontend/` |
+| `just test` | `test-backend` + `test-frontend` + `test-e2e` |
+| `just test-backend` | `go test ./...` from `app/backend/` |
+| `just test-frontend` | `pnpm test` from `app/frontend/` (Vitest) |
+| `just test-e2e` | `pnpm exec playwright test` from `app/frontend/` |
+| `just check` | `pnpm exec tsc --noEmit` from `app/frontend/` |
+| `just verify` | `check` + `test` + `build` |
+| `just up` | `./supervisor.sh` |
+| `just bg` / `just logs` / `just down` | Supervisor in detached tmux session |
+| `just https` / `just trust` | Caddy HTTPS proxy |
+
 ### Go Unit Tests
 
-Go `testing` package with table-driven tests. Test files co-located with source using `_test.go` suffix. Test scripts: `go test ./...` from `packages/api/`.
+Go `testing` package with table-driven tests. Test files co-located with source using `_test.go` suffix. Test scripts: `just test-backend` (runs `go test ./...` from `app/backend/`).
 
-Current Go test coverage: `internal/validate` (input validation + tilde expansion + filename sanitization), `internal/config` (CLI arg parsing, port validation, YAML parsing, defaults), `internal/tmux` (listSessions parsing + byobu filtering, listWindows activity computation), `internal/sessions` (fab-kit detection, project root derivation, session enrichment).
+Legacy tests in `packages/api/` remain functional. New `app/backend/internal/` packages have empty `_test.go` files (package declaration only, zero tests).
+
+Current Go test coverage (legacy `packages/api/`): `internal/validate` (input validation + tilde expansion + filename sanitization), `internal/config` (CLI arg parsing, port validation, YAML parsing, defaults), `internal/tmux` (listSessions parsing + byobu filtering, listWindows activity computation), `internal/sessions` (fab-kit detection, project root derivation, session enrichment).
 
 ### Frontend Unit Tests
 
-Vitest with jsdom environment. Config at `packages/web/vitest.config.ts`. Setup file at `packages/web/src/test-setup.ts` imports `@testing-library/jest-dom/vitest` for extended DOM matchers.
+Vitest with jsdom environment. New scaffold config at `app/frontend/vitest.config.ts`. Setup file at `app/frontend/src/test-setup.ts` imports `@testing-library/jest-dom/vitest`. Legacy config remains at `packages/web/vitest.config.ts`.
 
-Test scripts: `pnpm test` (single run, in `packages/web/`), `pnpm test:watch` (watch mode).
+Test scripts: `just test-frontend` (runs `pnpm test` from `app/frontend/`).
 
 Test files co-located with source using `.test.{ts,tsx}` suffix (test-alongside strategy per `code-quality.md`). Path alias `@/` resolves to `src/` in both app and test contexts.
 
-Current frontend test coverage: `command-palette.tsx` (keyboard interaction, filtering, open/close), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts).
+Current frontend test coverage (legacy `packages/web/`): `command-palette.tsx` (keyboard interaction, filtering, open/close), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts).
 
 ### Playwright E2E Tests
 
-Playwright for browser-level integration tests. Config at `playwright.config.ts` (repo root). E2E tests live in `e2e/` (separate from unit tests). Two projects: `desktop` (Chromium) and `mobile` (WebKit, iPhone 14 viewport). `mobile.spec.ts` runs only on the mobile project; all other specs run only on desktop.
+Two Playwright setups coexist:
 
-Test scripts: `pnpm test:e2e` (headless), `pnpm test:e2e:ui` (interactive UI mode). Web server auto-starts via `bash dev.sh` (Go + Vite) if not already running (`reuseExistingServer: true`).
+**Legacy** (`e2e/` at repo root): Config at `playwright.config.ts` (repo root). Two projects: `desktop` (Chromium) and `mobile` (WebKit, iPhone 14 viewport). `mobile.spec.ts` runs only on the mobile project; all other specs run only on desktop.
+
+Test scripts (legacy): `pnpm test:e2e` (headless), `pnpm test:e2e:ui` (interactive UI mode). Web server auto-starts via `just dev` if not already running (`reuseExistingServer: true`).
 
 Tests self-manage tmux sessions via `POST /api/sessions` in `beforeAll`/`afterAll` hooks. Shared helpers in `e2e/helpers.ts`.
 
-E2E test suites:
+E2E test suites (legacy):
 - `chrome-stability.spec.ts` — top bar bounding box invariance across page navigation, Line 2 min-height, max-width 896px
 - `breadcrumbs.spec.ts` — page-specific breadcrumb segments, link verification, no text prefixes
 - `bottom-bar.spec.ts` — terminal-only visibility, modifier armed state (`aria-pressed`), Fn dropdown lifecycle, special keys
 - `compose-buffer.spec.ts` — open/close flow, terminal dimming, Send button, multiline input
 - `kill-button.spec.ts` — always-visible kill buttons, confirmation dialog flow
 - `mobile.spec.ts` — mobile bottom bar rendering, tap target minimum height (30px), Cmd+K badge visibility
+
+**New scaffold** (`app/frontend/tests/e2e/`): Config at `app/frontend/playwright.config.ts`. One project: `desktop` (Chromium). One placeholder test (`smoke.spec.ts` — `test.skip`). Run via `just test-e2e`.
 
 ## Security
 
@@ -233,3 +298,4 @@ E2E test suites:
 | 2026-03-07 | Breadcrumb type extended with `dropdownItems` for project/window switching dropdowns | `260307-uzsa-navbar-breadcrumb-dropdowns` |
 | 2026-03-07 | Playwright E2E tests — chrome stability, breadcrumbs, bottom bar, compose buffer, kill button, mobile viewport | `260305-r7zs-playwright-e2e-design-spec` |
 | 2026-03-10 | **Go backend + Vite SPA split** — replaced Next.js monolith with Go backend (`packages/api/`) + Vite React SPA (`packages/web/`). Single-port architecture (API, SSE, WebSocket relay, SPA static serving on one Go binary). chi router, gorilla/websocket, creack/pty. TanStack Router for client-side routing. Typed API client module. Go table-driven tests ported from Vitest. E2E tests updated for Go + Vite dev servers. | `260310-8xaq-go-backend-vite-spa-split` |
+| 2026-03-12 | **Scaffold `app/` folder structure** (Phase 1 of reimplementation) — created `app/backend/` Go module (placeholder packages, no `internal/worktree/`) and `app/frontend/` Vite project (type stubs, MSW handlers, Playwright config). Replaced `justfile` recipes to target `app/` paths. Updated `supervisor.sh` build paths to `app/backend/` and `app/frontend/`. Updated `pnpm-workspace.yaml` from `["packages/web"]` to `["app/frontend"]`. Removed `dev.sh` (replaced by `just dev`). Legacy `packages/` untouched until Phase 4. | `260312-jz77-scaffold-app-structure` |

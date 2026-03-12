@@ -71,8 +71,8 @@ Returns all tmux sessions with their windows, enriched with fab-kit state where 
         "worktreePath": "/Users/sahil/code/wvrdz/run-kit",
         "activity": "active",
         "isActiveWindow": true,
-        "fabStage": "go-api-redesign",
-        "fabProgress": "spec ◷"
+        "fabChange": "260312-jz77-scaffold-app-structure",
+        "fabStage": "review-pr"
       }
     ]
   }
@@ -88,12 +88,12 @@ Returns all tmux sessions with their windows, enriched with fab-kit state where 
 | `worktreePath` | `string` | Absolute path from `pane_current_path` |
 | `activity` | `"active" \| "idle"` | Active if tmux activity within last 10 seconds |
 | `isActiveWindow` | `bool` | Whether this is the currently selected tmux window |
-| `fabStage` | `string?` | Current fab change name (from `fab/current`), omitted if not a fab-kit project |
-| `fabProgress` | `string?` | Progress line from `statusman.sh`, omitted if not a fab-kit project |
+| `fabChange` | `string?` | Active change name from `.fab-status.yaml`, omitted if no active change |
+| `fabStage` | `string?` | Current active stage (first `active` entry in `.fab-status.yaml` `progress` map), omitted if no active change |
 
 **Behavior:**
 - Filters out byobu session-group copies (keep where `name == group` or `grouped == 0`)
-- Enriches with fab-kit state in parallel per window
+- Fab enrichment is per-session (not per-window): reads `.fab-status.yaml` once from the project root (window 0's `pane_current_path`). All windows in a session share the same fab state.
 - Project root derived from window 0's `pane_current_path`
 
 #### `POST /api/sessions`

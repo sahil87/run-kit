@@ -23,9 +23,11 @@ confirm the build toolchain works (Go compiles, Vite builds, tests run and find 
 2. Create `app/frontend/` Vite project:
    - `package.json`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`
    - `src/main.tsx` — minimal React entry
-   - `src/router.tsx` — TanStack Router with three routes (empty pages)
+   - `src/app.tsx` — single-view layout skeleton (top bar + sidebar + terminal + bottom bar)
+   - `src/router.tsx` — TanStack Router with one route: `/:session/:window`
    - `src/api/client.ts` — type stubs matching the API spec (functions that throw "not implemented")
    - `src/types.ts` — `ProjectSession`, `WindowInfo` types from the API spec
+   - `tests/msw/handlers.ts` — MSW handler stubs for API + SSE mocking
    - `tests/e2e/` — Playwright config + one smoke test placeholder
 
 3. Update `justfile`:
@@ -59,7 +61,7 @@ ported from the old implementation where the logic is unchanged.
 1. **`internal/validate`** — port from old implementation verbatim (logic is identical, already tested)
 2. **`internal/config`** — port from old implementation verbatim
 3. **`internal/tmux`** — port from old implementation verbatim
-4. **`internal/fab`** — port from old implementation verbatim
+4. **`internal/fab`** — **rewrite** (not port). Reads `.fab-status.yaml` at project root. No subprocess calls, no `fab/current`, no `statusman.sh`. Pure YAML parse.
 5. **`internal/sessions`** — port from old implementation verbatim
 6. **`api/router.go`** — chi setup, middleware stack, route registration
 7. **`api/health.go`** — `GET /api/health` (trivial, validates the router works)
@@ -95,21 +97,19 @@ are unchanged, only the API client layer changes.
 
 1. **API client** (`src/api/client.ts`) — typed fetch wrappers for every endpoint in [api.md](api.md). All mutations use `POST` with path-based intent.
 2. **Types** (`src/types.ts`) — finalize shared types
-3. **Contexts** — `ChromeProvider`, `SessionProvider` (SSE connection to new stream endpoint)
-4. **Router + layout** — TanStack Router, root layout with chrome skeleton
-5. **Dashboard page** — session cards, search, create session dialog
-6. **Project page** — window cards, actions (create, kill, rename, send)
-7. **Terminal page** — xterm.js, WebSocket relay, bottom bar, compose buffer
-8. **Command palette** — keyboard shortcuts, mobile `⋯` trigger
-9. **Mobile polish** — iOS keyboard support, touch targets, responsive layout
+3. **Contexts** — `ChromeProvider` (session:window selection, sidebar/drawer state), `SessionProvider` (SSE connection)
+4. **Single-view layout** (`src/app.tsx`) — top bar + sidebar + terminal + bottom bar. One route: `/:session/:window`.
+5. **Sidebar** — session/window tree, collapsible sessions, fab stage inline, `[+ New Session]`
+6. **Top bar** — breadcrumb dropdowns (tappable session/window switcher), `☰` hamburger, `⌘K`/`⋯`
+7. **Terminal** — xterm.js + WebSocket relay
+8. **Bottom bar** — modifier toggles, arrow pad, Fn dropdown, compose buffer
+9. **Command palette** — keyboard shortcuts, mobile `⋯` trigger
+10. **Mobile** — drawer overlay, iOS keyboard (`useVisualViewport`), touch targets, responsive collapse
 
 **Testing approach:**
 
-- Vitest: component tests for command palette, keyboard nav, modifier state (port from old)
-- Playwright E2E (`app/frontend/tests/e2e/`):
-  - Port existing suites: chrome stability, breadcrumbs, bottom bar, compose buffer, kill button, mobile
-  - Add: API integration tests (create/kill session round-trip via UI)
-  - Self-managed tmux sessions in test hooks (same pattern as old e2e)
+- Vitest + MSW: mock API + SSE, test UI behavior in isolation (sidebar nav, drawer, breadcrumbs, keyboard, modifiers, touch targets, viewport)
+- Playwright E2E (`app/frontend/tests/e2e/`): thin suite (3-5 tests) for API round-trips (create/kill session, SSE stream). Self-managed tmux sessions in test hooks.
 
 **Verification gate:** `just test-frontend` passes. `just test-e2e` passes. `just verify` passes (full pipeline: check + test + build).
 

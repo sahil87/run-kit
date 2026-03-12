@@ -12,7 +12,7 @@
 
 1. **Frontend consumes the new API** — the API client must use the new POST-based routes (`POST /api/sessions/:session/kill` instead of `POST /api/sessions { action: "killSession" }`). This is not a tweak — the entire client module is rewritten to match `docs/specs/api.md`.
 2. **Playwright E2E at new location** — tests move from `e2e/` to `app/frontend/tests/e2e/`, using the same self-managed tmux session pattern but against the new backend.
-3. **Visual design unchanged** — dark theme, monospace, keyboard-first, iOS-first mobile, three pages. The design philosophy spec (`docs/specs/design.md`) and UI patterns memory (`docs/memory/run-kit/ui-patterns.md`) remain authoritative.
+3. **Single-view model** — dark theme, monospace, keyboard-first, iOS-first mobile. The old three-page model (Dashboard, Project, Terminal) is replaced by a single view: sidebar + terminal. One route (`/:session/:window`), breadcrumb dropdowns for quick navigation, drawer on mobile. See `docs/specs/design.md`.
 
 ## What Changes
 
@@ -39,18 +39,20 @@ uploadFile(session, file, window?)                   // POST /api/sessions/:sess
 
 ### Contexts
 
-- `ChromeProvider` — split state/dispatch contexts for slot injection. Port from current.
-- `SessionProvider` — layout-level SSE connection to `GET /api/sessions/stream`. Port from current.
+- `ChromeProvider` — current session:window selection, sidebar open/collapsed state, drawer state (mobile). No slot injection needed — chrome derives from selection.
+- `SessionProvider` — SSE connection to `GET /api/sessions/stream`. Shared session data.
 
-### Router + Layout
+### Single-View Layout (`src/app.tsx`)
 
-TanStack Router with type-safe routes: `/`, `/p/$project`, `/p/$project/$window`. Root layout owns the chrome skeleton (top bar, content, bottom slot).
+One route: `/:session/:window` (defaults to first session, first window). No page transitions.
 
-### Pages
-
-- **Dashboard** — session cards, search, create session dialog with folder picker autocomplete
-- **Project** — window cards, actions (create, kill, rename, send keys)
-- **Terminal** — xterm.js + WebSocket relay (`WS /relay/:session/:window`), bottom bar (modifier toggles, arrow pad, Fn dropdown, compose buffer), file upload
+- **Sidebar** (desktop: always visible, collapsible; mobile: drawer overlay via `☰`)
+  - Session/window tree with collapsible sessions
+  - Fab stage inline per window (right-aligned, `text-secondary`)
+  - `[+ New Session]` button, kill session `✕`
+- **Top bar** — breadcrumb dropdowns (tap session name → session list, tap window name → window list), `☰` toggle, connection status, `⌘K`/`⋯`
+- **Terminal** — xterm.js + WebSocket relay (`WS /relay/:session/:window`)
+- **Bottom bar** — modifier toggles, arrow pad, Fn dropdown, compose buffer
 
 ### Command Palette
 
@@ -60,16 +62,20 @@ Cmd+K trigger, keyboard shortcuts, mobile `⋯` trigger via CustomEvent.
 
 iOS keyboard support (`useVisualViewport`), touch scroll prevention, 44px touch targets, responsive Line 2 collapse, terminal font scaling.
 
+### Vitest Unit Tests (MSW-backed)
+
+MSW mocks API + SSE stream. Tests cover UI behavior in isolation:
+- Sidebar navigation, drawer open/close, breadcrumb dropdowns
+- Keyboard shortcuts, modifier state, command palette
+- Touch targets, `visualViewport` behavior, responsive collapse
+- Co-located `.test.{ts,tsx}` files
+
 ### Playwright E2E Tests (`app/frontend/tests/e2e/`)
 
-Port existing suites from `e2e/`:
-- Chrome stability, breadcrumbs, bottom bar, compose buffer, kill button, mobile
-- Add: API round-trip tests (create/kill session via UI)
+Thin suite (3-5 tests) for API integration round-trips:
+- Create/kill session via UI
+- SSE stream delivers real data
 - Self-managed tmux sessions in `beforeAll`/`afterAll`
-
-### Vitest Unit Tests
-
-Port from current: command palette, keyboard nav, modifier state. Co-located `.test.{ts,tsx}` files.
 
 ## Affected Memory
 
@@ -80,7 +86,8 @@ Port from current: command palette, keyboard nav, modifier state. Co-located `.t
 
 - **All frontend API calls** — new URL patterns and POST-only mutations
 - **E2E test location** — `e2e/` → `app/frontend/tests/e2e/`
-- **No visual or interaction changes** — same UI, same keyboard shortcuts, same mobile behavior
+- **Single-view model** — replaces three-page navigation with sidebar + terminal. New components: sidebar, breadcrumb dropdowns, drawer (mobile)
+- **Same keyboard shortcuts and mobile behavior** — command palette, modifier bar, compose buffer unchanged
 
 ## Open Questions
 
@@ -91,10 +98,12 @@ Port from current: command palette, keyboard nav, modifier state. Co-located `.t
 | # | Grade | Decision | Rationale | Scores |
 |---|-------|----------|-----------|--------|
 | 1 | Certain | POST-only API client | Discussed — matches api.md, all mutations use POST | S:95 R:80 A:95 D:95 |
-| 2 | Certain | Port UI components from old implementation | Discussed — visual design and interactions unchanged | S:90 R:85 A:90 D:95 |
-| 3 | Certain | E2E tests at `app/frontend/tests/e2e/` | Discussed — user specified this location | S:95 R:85 A:90 D:95 |
-| 4 | Certain | TanStack Router for type-safe routing | Same as current, no reason to change | S:90 R:85 A:90 D:95 |
-| 5 | Confident | Same frontend dependencies (React 19, Tailwind 4, xterm.js 5, shadcn/ui) | Philosophies unchanged per spec | S:75 R:80 A:85 D:85 |
-| 6 | Confident | Self-managed tmux sessions in E2E test hooks | Same pattern as current — proven, necessary for tmux-dependent tests | S:80 R:80 A:85 D:85 |
+| 2 | Certain | Single-view model (sidebar + terminal) | Discussed — replaces three-page navigation per design.md | S:95 R:80 A:95 D:95 |
+| 3 | Certain | Drawer pattern on mobile (not page stack) | Discussed — hamburger-only trigger, breadcrumbs for quick nav | S:95 R:80 A:90 D:95 |
+| 4 | Certain | E2E tests at `app/frontend/tests/e2e/` | Discussed — user specified this location | S:95 R:85 A:90 D:95 |
+| 5 | Certain | TanStack Router — one route `/:session/:window` | Discussed — single view, no page transitions | S:90 R:85 A:90 D:95 |
+| 6 | Certain | MSW-backed Vitest for UI tests, thin E2E for API round-trips | Discussed — minimizes backend dependency, 3-5 E2E tests only | S:90 R:80 A:90 D:90 |
+| 7 | Confident | Same frontend dependencies (React 19, Tailwind 4, xterm.js 5, MSW) | Philosophies unchanged per spec; MSW added for testing | S:75 R:80 A:85 D:85 |
+| 8 | Confident | Self-managed tmux sessions in E2E test hooks | Same pattern as current — proven, necessary for tmux-dependent tests | S:80 R:80 A:85 D:85 |
 
-6 assumptions (4 certain, 2 confident, 0 tentative, 0 unresolved).
+8 assumptions (6 certain, 2 confident, 0 tentative, 0 unresolved).

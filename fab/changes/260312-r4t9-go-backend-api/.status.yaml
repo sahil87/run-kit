@@ -2,7 +2,7 @@ id: r4t9
 name: 260312-r4t9-go-backend-api
 created: 2026-03-12T07:22:36Z
 created_by: sahil-weaver
-change_type: feat
+change_type: refactor
 issues: []
 progress:
     intake: ready
@@ -34,4 +34,4 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-03-12T07:22:36Z", driver: fab-new, iterations: 1}
 prs: []
-last_updated: 2026-03-12T07:23:17Z
+last_updated: 2026-03-12T07:45:20Z

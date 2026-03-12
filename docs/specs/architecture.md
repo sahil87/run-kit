@@ -43,7 +43,7 @@ run-kit/
 │   │   │   │   ├── sessions.go       # FetchSessions: tmux → enrich → fab → response
 │   │   │   │   └── sessions_test.go  # Enrichment logic, fab detection, parallel fetch
 │   │   │   ├── fab/
-│   │   │   │   ├── fab.go            # Fab-kit state: current change, progress, change list
+│   │   │   │   ├── fab.go            # Read .fab-status.yaml: active change, stage, progress
 │   │   │   │   └── fab_test.go
 │   │   │   ├── config/
 │   │   │   │   ├── config.go         # CLI > YAML > defaults resolution
@@ -59,39 +59,33 @@ run-kit/
 │       │   ├── api/
 │       │   │   └── client.ts          # Typed fetch wrappers for all endpoints
 │       │   ├── components/
-│       │   │   ├── top-bar-chrome.tsx
-│       │   │   ├── bottom-bar.tsx
-│       │   │   ├── compose-buffer.tsx
-│       │   │   ├── command-palette.tsx
-│       │   │   ├── session-card.tsx
-│       │   │   ├── dialog.tsx
-│       │   │   ├── breadcrumb-dropdown.tsx
-│       │   │   ├── arrow-pad.tsx
-│       │   │   └── terminal-client.tsx
+│       │   │   ├── sidebar.tsx         # Session/window tree (desktop sidebar + mobile drawer)
+│       │   │   ├── top-bar.tsx         # Breadcrumbs + status (line 1 + line 2)
+│       │   │   ├── breadcrumb-dropdown.tsx  # Tappable session/window switcher
+│       │   │   ├── bottom-bar.tsx      # Modifier keys, arrows, Fn, compose toggle
+│       │   │   ├── compose-buffer.tsx  # Native textarea overlay for burst input
+│       │   │   ├── command-palette.tsx  # Cmd+K / ⋯ trigger
+│       │   │   ├── terminal-client.tsx # xterm.js + WebSocket relay
+│       │   │   ├── dialog.tsx          # Create session/window dialogs
+│       │   │   └── arrow-pad.tsx       # Arrow key group for bottom bar
 │       │   ├── contexts/
-│       │   │   ├── chrome-context.tsx  # Split state/dispatch contexts for slot injection
-│       │   │   └── session-context.tsx # Layout-level SSE connection, shared session data
+│       │   │   ├── chrome-context.tsx  # Current session:window selection, sidebar/drawer state
+│       │   │   └── session-context.tsx # SSE connection, shared session data
 │       │   ├── hooks/
 │       │   │   ├── use-sessions.ts
 │       │   │   ├── use-keyboard-nav.ts
 │       │   │   ├── use-visual-viewport.ts
 │       │   │   └── use-modifier-state.ts
-│       │   ├── pages/
-│       │   │   ├── dashboard.tsx
-│       │   │   ├── project.tsx
-│       │   │   └── terminal.tsx
-│       │   ├── router.tsx             # TanStack Router (type-safe routes)
+│       │   ├── app.tsx                # Single-view layout: top bar + sidebar + terminal + bottom bar
+│       │   ├── router.tsx             # TanStack Router — one route: /:session/:window
 │       │   ├── types.ts               # Shared TypeScript types
 │       │   └── test-setup.ts
 │       ├── tests/
-│       │   └── e2e/                   # Playwright E2E tests
+│       │   ├── msw/                   # MSW handlers for mocking API + SSE
+│       │   │   └── handlers.ts
+│       │   └── e2e/                   # Playwright E2E tests (thin — API round-trips only)
 │       │       ├── helpers.ts
-│       │       ├── chrome-stability.spec.ts
-│       │       ├── breadcrumbs.spec.ts
-│       │       ├── bottom-bar.spec.ts
-│       │       ├── compose-buffer.spec.ts
-│       │       ├── kill-button.spec.ts
-│       │       └── mobile.spec.ts
+│       │       └── api-integration.spec.ts
 │       ├── playwright.config.ts
 │       ├── vite.config.ts
 │       ├── vitest.config.ts
@@ -160,9 +154,15 @@ The worktree package wraps fab-kit's `wt-*` scripts but is **not exposed through
 
 Development is launched via `just dev`, which runs Go backend + Vite dev server concurrently. No separate shell script needed.
 
-### No changes to `internal/`
+### `internal/fab` rewritten — `.fab-status.yaml` replaces subprocess calls
 
-The internal packages (`tmux`, `sessions`, `fab`, `config`, `validate`) are well-factored. Each has a single responsibility, clean interfaces, and existing tests. The refactor is limited to the `api/` layer — splitting the monolithic handler file and adopting POST-based routes per [api.md](api.md).
+The old `internal/fab` shelled out to `statusman.sh` and read `fab/current`. Both are deprecated. The new implementation reads `.fab-status.yaml` at the project root — a single YAML file that contains the active change name, progress map, confidence score, and PRs. No subprocess calls, no `fab/current`. Pure file read + YAML parse.
+
+Enrichment is per-session (not per-window): `.fab-status.yaml` is read once from window 0's project root. All windows in a session share the same fab state.
+
+### Other `internal/` packages ported verbatim
+
+`tmux`, `sessions`, `config`, `validate` are well-factored with existing tests. The refactor is limited to the `api/` layer and `internal/fab`.
 
 ---
 
@@ -174,7 +174,7 @@ Browser                    Go Backend                      tmux server
   ├──GET /api/sessions───────►│                                │
   │                           ├──tmux list-sessions───────────►│
   │                           ├──tmux list-windows (parallel)─►│
-  │                           ├──fab enrichment (parallel)     │
+  │                           ├──read .fab-status.yaml (per session)
   │◄──────────────────────────┤                                │
   │                           │                                │
   ├──GET /api/sessions/stream►│                                │
@@ -214,18 +214,21 @@ Table-driven tests co-located with source (`_test.go`). Run via `go test ./...` 
 | `internal/validate` | Name rules, path rules, tilde expansion edge cases, filename sanitization |
 | `internal/config` | CLI arg parsing, YAML parsing, override precedence, defaults |
 | `internal/tmux` | Output parsing (list-sessions, list-windows), byobu filtering, activity computation |
-| `internal/sessions` | Fab-kit detection, project root derivation, parallel enrichment |
+| `internal/sessions` | Project root derivation, parallel enrichment |
+| `internal/fab` | `.fab-status.yaml` parsing, active stage derivation, missing file handling |
 | `api/` | Handler integration tests — request/response shapes, validation errors, status codes |
 
 **Handler tests** are the new addition. Each handler file gets a corresponding `_test.go` that tests HTTP behavior: correct status codes, error shapes, content types, URL param parsing. These use `httptest.NewRecorder` with the chi router, mocking `internal/` interfaces where needed.
 
-### Frontend Unit Tests
+### Frontend Unit Tests (MSW-backed)
 
-Vitest + jsdom. Co-located `.test.{ts,tsx}` files. Run via `just test-frontend` from repo root.
+Vitest + jsdom + MSW (Mock Service Worker). Co-located `.test.{ts,tsx}` files. Run via `just test-frontend` from repo root.
 
-### Playwright E2E Tests
+MSW mocks the API and SSE stream, enabling frontend tests to run without a Go backend. Tests cover: sidebar navigation, drawer open/close, breadcrumb dropdowns, keyboard shortcuts, modifier state, touch targets, `visualViewport` behavior, command palette.
 
-Browser-level integration. Run via `just test-e2e` from repo root. Config at `app/frontend/playwright.config.ts`. Self-manages tmux sessions in test hooks.
+### Playwright E2E Tests (thin)
+
+3-5 browser-level integration tests for API round-trips: create session, kill session, SSE stream delivers data. Run via `just test-e2e` from repo root. Config at `app/frontend/playwright.config.ts`. Self-manages tmux sessions in test hooks.
 
 ---
 

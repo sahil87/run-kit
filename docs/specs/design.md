@@ -17,11 +17,26 @@ Every action reachable via keyboard. Mouse is supported but secondary. The comma
 
 ### 3. Fixed Chrome, Fluid Content
 
-The top bar and bottom bar are **architecturally immovable**. They never shift, resize, or reflow between pages. Page content flows in the space between them. This creates spatial stability — your eyes always know where navigation, status, and modifier keys live.
+The top bar and bottom bar are **architecturally immovable**. They never shift, resize, or reflow. The terminal fills the space between them. This creates spatial stability — your eyes always know where navigation, status, and modifier keys live.
 
-### 4. Three Pages, No More (Constitution IV)
+### 4. Single View, Not Pages
 
-`/` (Dashboard), `/p/:project` (Project), `/p/:project/:window` (Terminal). No settings pages, no admin panels. Configuration lives on disk. New pages require explicit spec justification.
+The entire UI is one view: sidebar + terminal. There are no page transitions.
+
+- **One route**: `/:session/:window` (defaults to first session, first window)
+- **Sidebar** shows the full session → window tree (replaces Dashboard and Project pages)
+- **Main area** is always the terminal
+- **Breadcrumbs** in the top bar provide quick session/window switching without the sidebar
+
+**Desktop (≥768px)**: Sidebar always visible (collapsible), terminal fills the rest.
+
+**Mobile (<768px)**: Terminal is full-screen. Navigation via:
+1. **Breadcrumbs** — tap session name → dropdown of sessions; tap window name → dropdown of windows
+2. **Drawer** — hamburger icon opens the full session/window tree as an overlay. Pick a target → drawer closes → terminal resumes.
+
+The drawer pattern (not a stack of pages) keeps one mental model across screen sizes. First-time mobile users land on the terminal — the hamburger icon and breadcrumbs provide discoverability.
+
+No settings pages, no admin panels. Configuration lives on disk.
 
 ### 5. Derive, Don't Configure (Constitution VII)
 
@@ -43,107 +58,134 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 
 ---
 
-## Layout Architecture: The Fixed Chrome
+## Layout Architecture
 
-### Problem
+### Desktop Layout
 
-The top bar shifts when navigating between Dashboard → Project → Terminal because:
-1. TopBar is rendered **inside** each page's client component, not in a shared layout
-2. Different pages use different container widths (`max-w-4xl` vs `max-w-[900px]`) and padding (`p-6` vs `px-4`)
-3. Line 2 is conditionally rendered — `{children && (...)}` means height changes when no actions exist
-4. No bottom bar exists at all
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ ☰  {logo} › ⬡ run-kit › ❯ zsh              ● live  ⌘K          │  ← top bar
+│ [Kill Window]                                        ● active   │  ← line 2
+├────────────┬─────────────────────────────────────────────────────┤
+│ Sessions   │                                                     │
+│            │                                                     │
+│ ▼ run-kit  │              Terminal (xterm.js)                    │
+│  ● main  spec ◷ │                                               │
+│  ● fix.. apply▸▸│          $ cursor_                            │
+│    scratch       │                                               │
+│            │                                                     │
+│ ▼ ao-srv   │                                                     │
+│   main  ●  │                                                     │
+│            │                                                     │
+├────────────┴─────────────────────────────────────────────────────┤
+│ ⌃ Ctrl  ⌥ Alt  ⌘ Cmd  │  ← → ↑ ↓  │  Fn▾  Esc  Tab  ✎        │  ← bottom bar
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Sidebar is collapsible — toggle via `☰` in top bar or keyboard shortcut. When collapsed, only the terminal + chrome remain.
+
+### Mobile Layout
+
+```
+┌──────────────────────────┐
+│ ☰ ⬡ run-kit › ❯ zsh  [⋯]│  ← top bar (compact)
+├──────────────────────────┤
+│                          │
+│   Terminal (xterm.js)    │  ← full screen
+│                          │
+│   $ cursor_              │
+│                          │
+├──────────────────────────┤
+│ Ctrl Alt Fn▾ Esc Tab  ✎ │  ← bottom bar
+└──────────────────────────┘
+```
+
+Tap `☰` → drawer slides in from left:
+
+```
+┌──────────────────────────┐
+│ ┌──────────────┐         │
+│ │ Sessions     │ (dimmed │
+│ │              │ terminal│
+│ │ ▼ run-kit    │ behind) │
+│ │   main    ●  │         │
+│ │   fix..   ●  │         │
+│ │   scratch    │         │
+│ │              │         │
+│ │ ▼ ao-srv     │         │
+│ │   main    ●  │         │
+│ │              │         │
+│ │ [+ Session]  │         │
+│ └──────────────┘         │
+├──────────────────────────┤
+│ Ctrl Alt Fn▾ Esc Tab  ✎ │
+└──────────────────────────┘
+```
+
+Tap a window → drawer closes → terminal connects to that session:window.
+
+### CSS Skeleton
+
+```
+h-screen flex flex-col
+  ├── top-chrome:  shrink-0  (2 lines, fixed height)
+  ├── main-area:   flex-1 flex flex-row min-h-0
+  │     ├── sidebar:   w-[220px] shrink-0 overflow-y-auto (hidden on mobile)
+  │     └── terminal:  flex-1 min-w-0
+  └── bottom-bar:  shrink-0  (1 line, fixed height)
+```
+
+On mobile (`<768px`), sidebar is `display: none` by default. Drawer is a fixed overlay triggered by `☰`.
 
 ### Principle: Chrome Must Be Architecturally Immovable
 
-The top bar and bottom bar should be **owned by the root layout**, not individual pages. Pages inject content into fixed slots, but the chrome's height and position never change. This is not a styling fix — it's a structural constraint. The layout makes it **difficult to accidentally shift the chrome**.
-
-### Structure
-
-```
-┌─────────────────────────────────────────────┐
-│ {logo} › ⬡ run-kit › ❯ zsh    ● live  ⌘K   │  ← fixed height, shrink-0
-│ [Kill Window]                      ● active │  ← fixed height, shrink-0 (EVEN WHEN EMPTY)
-├─────────────────────────────────────────────┤
-│                                             │
-│              Page Content                   │  ← flex-1, scrollable
-│              (children)                     │
-│                                             │
-├─────────────────────────────────────────────┤
-│ ⌃ Ctrl  ⌥ Alt  ⌘ Cmd  F1 F2 ... F12  Esc  │  ← fixed height, shrink-0
-└─────────────────────────────────────────────┘
-```
-
-**CSS skeleton** (root layout):
-```
-h-screen flex flex-col
-  ├── top-chrome: shrink-0   (2 lines, fixed height)
-  ├── content:    flex-1 overflow-y-auto min-h-0
-  └── bottom-bar: shrink-0   (1 line, fixed height)
-```
-
-**Single max-width**: One value everywhere — top bar, content, bottom bar. Same horizontal padding. No page can override the chrome's width. The fixed-width constraint applies to the terminal too — a fixed-width terminal is more pleasant to use than a full-bleed one, and the consistency across all three pages makes navigation feel seamless.
+The top bar and bottom bar are **owned by the root layout**. No component can change the chrome's structure, padding, or height. The sidebar and terminal fill the space between them.
 
 ### Top Bar (2 lines)
 
-**Line 1 — Navigation + Global Status**
-- Left: Breadcrumbs — compact, icon-driven, no verbose labels
-- Right: Connection dot + "live"/"disconnected", `⌘K` kbd hint
-
-Breadcrumb format (icons replace words):
+**Line 1 — Breadcrumbs + Global Status**
 
 ```
-Dashboard:  {logo}
-Project:    {logo} › ⬡ run-kit
-Terminal:   {logo} › ⬡ run-kit › ❯ zsh
+☰  {logo} › ⬡ run-kit › ❯ zsh                    ● live  ⌘K
 ```
 
-- `{logo}` — the RunKit hex logo, always links to `/`. Replaces the word "Dashboard".
-- `⬡` — hexagon, ties to the RunKit brand. Followed by session name.
-- `❯` — terminal prompt character (universally recognized from Pure, Starship, etc.). Followed by window name.
-- Each segment is a link except the last (current page)
-- Keep it tight — no "project:" or "window:" prefixes, just icon + name
+- `☰` — hamburger, toggles sidebar (desktop) / opens drawer (mobile)
+- `{logo}` — the RunKit hex logo
+- `⬡ run-kit` — **tappable**: opens dropdown of all sessions. Tap a different session → switch.
+- `❯ zsh` — **tappable**: opens dropdown of windows in current session. Tap a different window → switch.
+- Right: Connection dot + "live"/"disconnected", `⌘K` kbd hint (desktop) / `⋯` (mobile)
+
+The breadcrumb dropdowns are the **primary quick-navigation** mechanism. They avoid opening the full sidebar/drawer for simple session or window switches.
 
 **Line 2 — Actions + Contextual Status**
-- Left: Page-specific action buttons (+ New Session, + New Window, Kill, etc.)
-- Right: Page-specific status text (session/window counts, fab progress)
+- Left: Action buttons ([Kill Window], [+ New Window], etc.)
+- Right: Status text (● active, fab: intake ◷, window count)
 - **MUST render even when empty** — fixed height placeholder, never collapses
 
 **Line 2 — Mobile collapse** (screens < 640px):
 
-Actions collapse into the command palette, accessed via a `⋯` button. Status stays visible. The `⋯` also serves as the mobile command palette trigger (replacing the `⌘K` kbd hint which is meaningless without a physical keyboard).
+Actions collapse into the command palette via `⋯`. Status stays visible.
 
 ```
 Desktop:
 ┌─────────────────────────────────────────────────┐
-│ [+ New Session] [Search...]   3 sessions, 5 win │
+│ [Kill Window] [+ New Window]     ● active  ⌘K  │
 └─────────────────────────────────────────────────┘
 
 Mobile:
 ┌─────────────────────────────────────────────────┐
-│ 3 sessions, 5 windows                      [⋯] │
+│ ● active  fab: intake ◷                    [⋯] │
 └─────────────────────────────────────────────────┘
 ```
 
-Per-page mobile Line 2:
+Tapping `⋯` opens the command palette:
+- New Session, New Window, Kill Window, Kill Session, Send Keys, Search...
 
-```
-Dashboard:  3 sessions, 5 windows                [⋯]
-Project:    3 windows                             [⋯]
-Terminal:   ● active  fab: intake ◷               [⋯]
-```
-
-Tapping `⋯` opens the command palette with all page actions:
-- Dashboard: New Session, Search, Go to project...
-- Project: New Window, Send Message, Kill Window...
-- Terminal: Kill Window, Back to Project...
-
-The `⌘K` hint in Line 1 also becomes the `⋯` button on mobile (or is hidden, since `⋯` in Line 2 serves the same purpose).
-
-### Bottom Bar (Modifier Keys — Terminal Page Only)
+### Bottom Bar (Modifier Keys)
 
 **Purpose**: Browser terminals can't reliably capture F1-F12, Ctrl+C, Esc, and other modifier combos. The bottom bar provides clickable `<kbd>` buttons that inject these keystrokes into the active terminal.
 
-**Scope**: Terminal page only. Dashboard and Project pages do not render the bottom bar — they don't need it and the chrome height difference between pages is acceptable since the top bar (the spatial anchor for navigation) remains fixed.
+**Scope**: Always visible. Since the terminal is always the main content area, the bottom bar is always relevant.
 
 **Layout**: Single row of `<kbd>` styled buttons:
 
@@ -216,59 +258,59 @@ The terminal (`flex-1`) naturally shrinks as the keyboard takes space. xterm's `
 
 **Technical approach**: Use the `visualViewport` API (`window.visualViewport.resize` event + `visualViewport.height`) to detect the iOS virtual keyboard. Pin the modifier bar to the top of the keyboard by constraining the app's height to `visualViewport.height`. No reliable `keyboard-show` event exists in mobile Safari — `visualViewport` is the standard workaround.
 
-### Slot Injection (Pages → Chrome)
+### Chrome State Management
 
-Pages need to control what appears in Line 2 and breadcrumbs without owning the chrome container.
+Since there are no pages, the chrome content derives directly from the current `session:window` selection:
 
-**Approach — React Context**:
-- `ChromeProvider` wraps the app in root layout
-- Exposes: `setBreadcrumbs()`, `setLine2Left()`, `setLine2Right()`, `setBottomBarActive()`
-- Each page's client component calls these on mount/update via `useEffect`
-- Chrome renders current slot content, maintaining fixed height regardless
+- **Breadcrumbs** — derived from current session name + window name (from URL state)
+- **Line 2 left** — contextual actions for the active window (Kill, Rename, etc.)
+- **Line 2 right** — window status (activity, fab progress)
+- **Sidebar** — full session/window tree from SSE stream
 
-This means the layout file contains the chrome markup and pages only inject content — they can never change the chrome's structure, padding, or height.
+A `ChromeProvider` context manages:
+- Current session + window selection
+- Sidebar open/collapsed state
+- Drawer open state (mobile)
+
+No slot injection needed — the chrome reads the current selection and renders directly.
 
 ---
 
 ## Component Mockups
 
-### Project Group (Dashboard page)
+### Sidebar — Session/Window Tree
 
-Each tmux session renders as a group with a header and its window cards stacked below.
+The sidebar replaces the old Dashboard and Project pages. It shows all sessions with their windows as a collapsible tree.
 
 ```
-  run-kit                     3 windows                ✕
- ┌───────────────────────────────────────────────────────┐
- │ main                         fab: spec ▸▸░░  ● idle  │
- │ ~/code/wvrdz/run-kit                                  │
- ├───────────────────────────────────────────────────────┤
- │ 260305-a1b2-fix-layout       fab: apply ▸▸▸░ ● active│
- │ ~/code/wvrdz/run-kit/.worktrees/fix-layout            │
- ├───────────────────────────────────────────────────────┤
- │ scratch                                      ● idle  │
- │ ~/code/wvrdz/run-kit                                  │
- └───────────────────────────────────────────────────────┘
-
-  ao-server                   1 window                 ✕
- ┌───────────────────────────────────────────────────────┐
- │ main                                        ● active │
- │ ~/code/wvrdz/ao                                       │
- └───────────────────────────────────────────────────────┘
+┌─────────────────────┐
+│ Sessions            │
+│                     │
+│ ▼ run-kit        ✕  │
+│   ● main     spec ◷ │  ← active window (highlighted)
+│   ● fix..  apply ▸▸ │
+│     scratch          │
+│                     │
+│ ▼ ao-server      ✕  │
+│     main             │
+│                     │
+│ [+ New Session]     │
+└─────────────────────┘
 ```
 
-**Project header**: Session name (left, clickable → `/p/:project`), window count (center), kill button (right, always visible).
+**Session row**: Session name (left, collapsible), ✕ kill (right, always visible).
 
-**Window card**: Single box per window containing:
-- **Row 1**: Window name (left), fab badge if present (right of center), activity dot + label (right), ✕ kill (always visible, far right)
-- **Row 2**: Worktree path (subdued, `text-secondary`)
-- Focused card gets `border-accent` + subtle bg highlight
-- Clicking navigates to `/p/:project/:window`
+**Window row**: Single line, three zones:
+- Left: Activity dot (● = active, dim/absent = idle) + window name
+- Right: Fab stage + progress icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows.
+- Currently selected window gets `bg-card` highlight + `border-accent` left border
+- Tap → switches terminal to that session:window
 
-### Window Card (Project page)
-
-Same card component as Dashboard, without the project header — flat list.
-
-The card component is **identical** between Dashboard and Project — same `SessionCard`, same dimensions, same padding. The only difference is the surrounding context (grouped under project headers on Dashboard, flat list on Project page).
+**Design constraints**:
+- Sidebar width: `w-[220px]` on desktop, ~75% screen width as drawer on mobile
+- Window rows must be ≥44px tall on mobile (touch targets)
+- Session groups are collapsible (▼/▶) to manage long lists
+- `[+ New Session]` button at bottom — opens create session dialog
 
 ### Fab Status Badge
 
@@ -301,36 +343,15 @@ This is how fab-kit already works: `fab/changes/` lives in the main checkout and
 
 Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can match change names to worktree paths (worktree names often correspond to change slugs).
 
-### The Orchestrator Window (Future)
-
-Soon, each session will have a **singleton orchestrator window** — a special terminal that manages all the worktrees in that session. This is conceptually different from regular windows:
-
-| Aspect | Regular Window | Orchestrator |
-|--------|---------------|-------------|
-| Purpose | Run one agent on one change | Coordinate all changes in the session |
-| Count | 0–N per session | Exactly 1 per session (singleton) |
-| Identity | Named after change/worktree | Fixed name (e.g., `orchestrator` or `orch`) |
-| UX weight | Standard card in the list | Visually distinct — elevated, pinned to top |
-
-**UX implications** (to be designed):
-- The orchestrator card should be visually separated from regular window cards — pinned at the top of the project group, different styling (e.g., subtle accent border, icon, or label)
-- It may show aggregate status: how many worktrees are active, which stages they're in, overall health
-- Clicking it opens the orchestrator terminal, but it could also have a dashboard-like summary view
-- On the Dashboard page, the orchestrator status could be surfaced in the **project header** itself (since it's per-project metadata)
-
-**Open questions**:
-- How is the orchestrator window created? Auto-created when the session starts? On-demand via command palette?
-- Does the orchestrator appear in the regular window list (with special styling) or in its own dedicated slot above the list?
-- What does the orchestrator terminal actually run? A persistent Claude Code session? A custom TUI?
-
 ---
 
 ## Visual Consistency Rules
 
 ### Spacing
 
-- **Horizontal padding**: `px-6` everywhere (chrome + content)
-- **Max width**: `max-w-4xl` (896px) everywhere. Tailwind native, no magic numbers. Yields ~108 terminal columns at 13px JetBrains Mono — a practical width for modern terminal work.
+- **Horizontal padding**: `px-4` in sidebar, `px-2` around terminal (tight — terminal needs max columns)
+- **No max-width**: The old `max-w-4xl` constraint is gone. The terminal fills all available space right of the sidebar. More columns = better.
+- **Sidebar width**: Fixed `w-[220px]` on desktop
 - **Line heights**: Top bar lines use identical `py-2` + `text-sm`, producing predictable heights
 
 ### Typography
@@ -362,17 +383,24 @@ Soon, each session will have a **singleton orchestrator window** — a special t
 
 | # | Decision | Resolution |
 |---|----------|------------|
-| 1 | Bottom bar scope | Terminal page only — Dashboard/Project don't need modifier keys |
-| 2 | F1-F12 layout | Dropdown (`Fn ▾`) to keep the bar compact |
-| 3 | Sticky modifier visual | Yes — "armed" state with highlight color while active |
-| 4 | Terminal max-width | Fixed width, same as all pages. Fixed-width terminal is more pleasant to use and keeps navigation seamless across pages |
-| 5 | Max-width value | `max-w-4xl` (896px). Tailwind native, ~108 terminal columns at 13px JetBrains Mono |
-| 6 | Fn dropdown behavior | Closes after each selection — one key per open |
-| 7 | Mobile keyboard + modifier bar | Modifier bar pins above iOS keyboard. Terminal shrinks via `flex-1` + `FitAddon`. Prompt stays visible adjacent to modifier keys. Use `visualViewport` API for detection. |
-| 8 | Kill button (✕) | Always visible — no hover-reveal. Simpler, works on mobile and desktop equally. |
-| 9 | Mobile Line 2 | Actions collapse into command palette via `⋯` button. Status text stays visible. `⋯` replaces `⌘K` as command palette trigger on mobile. |
-| 10 | Bottom bar keys | `Ctrl Alt Cmd │ ← → ↑ ↓ │ Fn▾ Esc Tab ✎`. Arrow keys essential for mobile. Fn dropdown includes F1-F12 + PgUp/PgDn/Home/End. |
+| 1 | Page model | Single view — sidebar + terminal. No page transitions. One route: `/:session/:window`. |
+| 2 | Mobile navigation | Drawer pattern (not page stack). Terminal is full-screen, drawer overlays from left. Breadcrumbs for quick switching. |
+| 3 | Bottom bar scope | Always visible — terminal is always the main content area |
+| 4 | F1-F12 layout | Dropdown (`Fn ▾`) to keep the bar compact |
+| 5 | Sticky modifier visual | Yes — "armed" state with highlight color while active |
+| 6 | Terminal max-width | No max-width on terminal — it fills all space right of sidebar. Top bar and bottom bar span full width. |
+| 7 | Fn dropdown behavior | Closes after each selection — one key per open |
+| 8 | Mobile keyboard + modifier bar | Modifier bar pins above iOS keyboard. Terminal shrinks via `flex-1` + `FitAddon`. Prompt stays visible adjacent to modifier keys. Use `visualViewport` API for detection. |
+| 9 | Kill button (✕) | Always visible — no hover-reveal. Simpler, works on mobile and desktop equally. |
+| 10 | Mobile Line 2 | Actions collapse into command palette via `⋯` button. Status text stays visible. `⋯` replaces `⌘K` as command palette trigger on mobile. |
+| 11 | Bottom bar keys | `Ctrl Alt Cmd │ ← → ↑ ↓ │ Fn▾ Esc Tab ✎`. Arrow keys essential for mobile. Fn dropdown includes F1-F12 + PgUp/PgDn/Home/End. |
+| 12 | Breadcrumb behavior | Session segment → dropdown of all sessions. Window segment → dropdown of windows in session. Primary quick-nav mechanism. |
+| 13 | Sidebar width | `w-[220px]` on desktop, ~75% viewport as drawer on mobile |
+| 14 | Sidebar ordering | Same as tmux output order (no resorting) |
+| 15 | Drawer trigger | Hamburger icon only — no swipe gesture |
+| 16 | Testing strategy | MSW-backed tests for UI behavior (drawer, breadcrumbs, sidebar, keyboard, touch targets, viewport). Thin E2E suite (3-5 tests) for API integration round-trips (create/kill session, SSE stream). |
+| 17 | Sidebar fab status | Inline on same line as window name, right-aligned. Stage name + icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows. |
 
 ## Open Design Questions
 
-- Playwright E2E scope (separate change): mobile viewport testing (bottom bar, touch targets >= 44px, Line 2 collapse), fixed chrome pixel stability across navigation, compose buffer flow, `visualViewport` keyboard behavior
+None currently.

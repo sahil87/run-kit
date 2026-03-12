@@ -34,9 +34,11 @@ Discussion covered: folder naming (`app/` over `packages/` and `src/`), POST-onl
 - `tsconfig.json`, `vite.config.ts` (with proxy config for `/api/*` and `/relay/*` to `:3000`)
 - `vitest.config.ts` with jsdom environment
 - `src/main.tsx` — minimal React entry rendering the router
-- `src/router.tsx` — TanStack Router with three route stubs: `/`, `/p/$project`, `/p/$project/$window`
+- `src/app.tsx` — single-view layout skeleton: top bar + sidebar + terminal + bottom bar
+- `src/router.tsx` — TanStack Router with one route: `/:session/:window` (defaults to first session, first window)
 - `src/api/client.ts` — type stubs for all API endpoints per `docs/specs/api.md`. Functions throw "not implemented". Typed signatures match the spec.
 - `src/types.ts` — `ProjectSession` and `WindowInfo` types matching the API spec response shapes
+- `tests/msw/handlers.ts` — MSW handler stubs for API + SSE mocking
 - `tests/e2e/` — Playwright config at `app/frontend/playwright.config.ts`, one smoke test placeholder
 - `src/test-setup.ts` — Vitest setup importing `@testing-library/jest-dom/vitest`
 

@@ -23,8 +23,8 @@ Copy verbatim from `packages/api/internal/` to `app/backend/internal/`. These ar
 - `internal/validate` — name, path, tilde expansion, filename sanitization
 - `internal/config` — CLI > YAML > defaults config resolution
 - `internal/tmux` — tmux operations via `os/exec.CommandContext` with argument slices
-- `internal/fab` — fab-kit state (current change, progress line, change list)
-- `internal/sessions` — session enrichment with parallel fab detection
+- `internal/fab` — **rewrite** (not port). Reads `.fab-status.yaml` at project root. No subprocess calls (`statusman.sh`), no `fab/current`. Pure YAML parse → active change name + current stage.
+- `internal/sessions` — session enrichment with per-session fab detection (reads `.fab-status.yaml` once from window 0's project root, shared across all windows)
 
 Do NOT port `internal/worktree/` — removed per architecture spec.
 
@@ -75,7 +75,7 @@ Each handler file gets a `_test.go` with `httptest.NewRecorder` tests:
 | # | Grade | Decision | Rationale | Scores |
 |---|-------|----------|-----------|--------|
 | 1 | Certain | POST-only mutations | Discussed — user mandated, captured in api.md design principles | S:95 R:80 A:95 D:95 |
-| 2 | Certain | Port `internal/` packages verbatim | Discussed — logic is proven, copy don't rewrite | S:90 R:90 A:90 D:95 |
+| 2 | Certain | Port `internal/` packages verbatim (except `fab`) | Discussed — logic is proven, copy don't rewrite. `internal/fab` is rewritten to use `.fab-status.yaml` | S:90 R:90 A:90 D:95 |
 | 3 | Certain | No `internal/worktree/` | Architecture spec — dead code, not API-exposed | S:90 R:90 A:90 D:95 |
 | 4 | Certain | Handler files split by resource domain | Architecture spec — `sessions.go`, `windows.go`, etc. | S:90 R:85 A:90 D:90 |
 | 5 | Certain | chi router with CORS, logger, recovery middleware | Same stack as current, proven in production | S:90 R:85 A:90 D:95 |

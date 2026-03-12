@@ -18,7 +18,7 @@ func (s *Server) handleDirectories(w http.ResponseWriter, r *http.Request) {
 
 	expanded, expandErr := validate.ExpandTilde(prefix)
 	if expandErr != "" {
-		writeError(w, http.StatusBadRequest, expandErr)
+		writeJSON(w, http.StatusOK, map[string][]string{"directories": {}})
 		return
 	}
 

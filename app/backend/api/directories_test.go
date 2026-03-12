@@ -33,9 +33,11 @@ func TestDirectoriesEmptyPrefix(t *testing.T) {
 }
 
 func TestDirectoriesListChildren(t *testing.T) {
-	// Create temp dirs under $HOME to test listing
-	home, _ := os.UserHomeDir()
-	testDir := filepath.Join(home, ".run-kit-test-dirs")
+	// Use a temp HOME so the test is hermetic and doesn't touch the real home dir
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	testDir := filepath.Join(tmpHome, ".run-kit-test-dirs")
 	if err := os.MkdirAll(filepath.Join(testDir, "alpha"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +47,6 @@ func TestDirectoriesListChildren(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(testDir, ".hidden"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(testDir)
 
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
@@ -91,8 +92,11 @@ func TestDirectoriesListChildren(t *testing.T) {
 }
 
 func TestDirectoriesPrefixFilter(t *testing.T) {
-	home, _ := os.UserHomeDir()
-	testDir := filepath.Join(home, ".run-kit-test-filter")
+	// Use a temp HOME so the test is hermetic and doesn't touch the real home dir
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	testDir := filepath.Join(tmpHome, ".run-kit-test-filter")
 	if err := os.MkdirAll(filepath.Join(testDir, "abc"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +106,6 @@ func TestDirectoriesPrefixFilter(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(testDir, "xyz"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(testDir)
 
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 

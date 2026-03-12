@@ -86,12 +86,9 @@ func TestSPAPathTraversal(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	// Should not serve /etc/passwd — path traversal blocked
-	if rec.Code == http.StatusOK {
-		body := rec.Body.String()
-		if body != "<html>SPA</html>" {
-			t.Errorf("expected SPA fallback or 404, got different content: %q", body[:min(len(body), 100)])
-		}
+	// Should not serve /etc/passwd — path traversal must be blocked with 404
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
 
@@ -110,11 +107,4 @@ func TestSPANotBuilt(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

@@ -2,70 +2,71 @@
 
 ## URL Structure
 
-| Route | Page | Component Pattern |
+| Route | View | Component Pattern |
 |-------|------|-------------------|
-| `/` | Dashboard | Page component (SSE via `useSessions()` context) |
-| `/p/$project` | Project view | Page component (SSE via `useSessions()` context) |
-| `/p/$project/$window?name=` | Terminal view | Page component (xterm.js + WebSocket + SSE via context) |
+| `/:session/:window` | Single view (sidebar + terminal) | Layout component (SSE via `useSessions()` context) |
+| `/` | Redirect | Redirects to first session's first window (`/:session/0`) |
 
-The terminal page accepts an optional `name` query parameter for the window name (used in breadcrumb). Falls back to the numeric window index if not provided. Navigation from dashboard/project cards always includes the `name` param.
+Single-view model: sidebar shows session/window tree, terminal is always the main content area. No page transitions. When no sessions exist, sidebar shows "No sessions" with a `[+ New Session]` button and the terminal area shows a placeholder.
 
 ## Chrome (Top Bar)
 
-The root layout (`packages/web/src/router.tsx` `RootLayout`) renders `TopBarChrome` which reads slot content from `ChromeProvider` context. Pages inject their content via `useChromeDispatch()` setters — they do NOT render their own top bar.
+The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derives its content from the current session:window selection via `ChromeProvider` context. No slot injection — the chrome reads the selection and renders directly.
 
-**Line 1** (fixed height): Icon breadcrumbs + connection indicator + ⌘K hint badge (hidden on mobile < 640px via `hidden sm:inline-flex`).
+**Line 1** (fixed height): `☰` toggle + icon breadcrumbs + connection indicator + `⌘K` (desktop) / `⋯` (mobile).
 
-| Page | Breadcrumb |
-|------|-----------|
-| Dashboard | `{logo}` (SVG logo only) |
-| Project | `{logo} › ⬡ {name} › {label}` |
-| Terminal | `{logo} › ⬡ {name} › ❯ {window}` (syncs with tmux active window via SSE) |
+Breadcrumb: `☰ {logo} › ⬡ {session} › ❯ {window}` (syncs with tmux active window via SSE). `☰` toggles sidebar (desktop) or opens drawer (mobile).
 
 - Logo SVG (`logo.svg`) — always links to `/`
-- ⬡ — Unicode hexagon (U+2B21), serves as dropdown trigger for project switching (tapping opens dropdown)
-- ❯ — Unicode heavy right angle (U+276F), serves as dropdown trigger for window switching (tapping opens dropdown)
+- ⬡ — Unicode hexagon (U+2B21), serves as dropdown trigger for session switching (tapping opens dropdown listing all sessions)
+- ❯ — Unicode heavy right angle (U+276F), serves as dropdown trigger for window switching (tapping opens dropdown listing windows in current session)
 - Icons are rendered inside `BreadcrumbDropdown` via `icon` prop — no separate passive span
 - All segments except the last are clickable links
-- No text prefixes like "project:" or "window:"
+- No text prefixes like "session:" or "window:"
 
 ### Breadcrumb Dropdowns
 
 Breadcrumb segments with a `dropdownItems` array use the icon (⬡ or ❯) as the dropdown trigger. Split click-target pattern: clicking the label navigates (existing behavior), clicking the icon opens the dropdown.
 
-**Project dropdown** (project page + terminal page): Lists all tmux sessions. Current project highlighted with `text-accent`. Selecting navigates to `/p/{name}`.
+**Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{session}/0`.
 
-**Window dropdown** (terminal page only): Lists all windows in the current session. Current window highlighted. Selecting navigates to `/p/{project}/{index}?name={name}`.
+**Window dropdown**: Lists all windows in the current session. Current window highlighted. Selecting navigates to `/{session}/{index}`.
 
-**Dropdown component** (`packages/web/src/components/breadcrumb-dropdown.tsx`): Reusable dropdown accepting `icon` prop (rendered as trigger button content), with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Icon button has 24px minimum tap target (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
+**Dropdown component** (`app/frontend/src/components/breadcrumb-dropdown.tsx`): Reusable dropdown accepting `icon` prop (rendered as trigger button content), with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Icon button has 24px minimum tap target (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
 
 Connection indicator: green/gray dot with "live"/"disconnected" label, driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
 
-**Line 2** (fixed height, ALWAYS rendered with `min-h-[36px]`): Contextual action bar. Slots set via `setLine2Left` / `setLine2Right` from ChromeProvider.
+**Line 2** (fixed height, ALWAYS rendered with `min-h-[36px]`): Contextual action bar. Chrome derives content from current session:window selection — no slot injection.
 
-| Page | Left content | Right content |
-|------|-------------|---------------|
-| Dashboard | "+ New Session" button (via chrome slot) | `{N} sessions, {M} windows` |
-| Project | "+ New Window" button, "Send Message" button (disabled when no windows), "Rename" button (disabled when no windows) | `{N} windows` |
-| Terminal | "Rename" button, "Kill" button (red hover) | Activity dot + fab stage badge |
+| Left content | Right content |
+|-------------|---------------|
+| `[Rename]` `[Kill]` (kill has red hover) | Activity dot + activity text + fab stage badge |
 
-Line 2 renders even when empty — prevents layout shift during navigation and before `useEffect` fires.
+Line 2 renders even when empty — prevents layout shift.
 
-**Line 2 mobile collapse** (< 640px): Action buttons (`line2Left`) are hidden (`hidden sm:block`). Status text (`line2Right`) renders left-aligned. A `⋯` button appears at the right edge (`sm:hidden`) and opens the command palette via a `palette:open` CustomEvent on `document`. All page-specific actions are already registered as palette actions, so nothing is lost on mobile — only the presentation changes.
+**Line 2 mobile collapse** (< 640px): Action buttons hidden (`hidden sm:block`). Status text renders left-aligned. A `⋯` button appears at the right edge (`sm:hidden`) and opens the command palette via a `palette:open` CustomEvent on `document`. All actions are registered as palette actions, so nothing is lost on mobile — only the presentation changes.
 
-```
-Desktop:  [+ New Session] [Search...]   3 sessions, 5 windows
-Mobile:   3 sessions, 5 windows                            [⋯]
-```
+### Sidebar Kill Controls
 
-### Inline Kill Controls
+- **Session row ✕**: Always-visible ✕ button on session rows with red hover. Click opens confirmation dialog: "Kill session **{name}** and all {N} windows?"
 
-- **Window card ✕**: Every `SessionCard` has an always-visible ✕ button (no hover-reveal — accessible on touch devices). Click opens confirmation dialog. Click uses `stopPropagation` to prevent card navigation.
-- **Session group ✕** (dashboard only): Always-visible button on session group headers with red hover. Click opens confirmation dialog: "Kill session **{name}** and all {N} windows?"
+## Sidebar
 
-## Bottom Bar (Terminal Page Only)
+`app/frontend/src/components/sidebar.tsx` — session/window tree navigation.
 
-Single row of `<kbd>` styled buttons, injected by `TerminalClient` via `setBottomBar()` from ChromeProvider. Layout: `Esc Tab | Ctrl Alt Cmd | ArrowPad F▴ ⌄ | >_`.
+**Desktop** (>= 768px): Always visible at `w-[220px]`, collapsible via `☰` in top bar.
+
+**Mobile** (< 768px): Hidden by default. `☰` opens a drawer overlay from the left, dimming the terminal. Selecting a window closes the drawer.
+
+**Session rows**: Session name (left, collapsible via triangle/chevron), ✕ kill button (right, always visible). Click session name to expand/collapse windows.
+
+**Window rows**: Single line with activity dot (green = active, dim = idle) + window name (left), fab stage text in `text-secondary` (right, omitted for non-fab windows). Currently selected window highlighted with `bg-card` + `border-l-2 border-accent`. Click navigates to `/:session/:window`.
+
+**Footer**: `[+ New Session]` button at bottom.
+
+## Bottom Bar (Always Visible)
+
+Single row of `<kbd>` styled buttons, always visible (terminal is always the main content). Layout: `Esc Tab | Ctrl Alt Cmd | ArrowPad | Fn▾ ⌄ | >_`.
 
 **Modifier toggles** (Ctrl, Alt, Cmd): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously.
 
@@ -107,22 +108,22 @@ After upload: file path auto-inserted into compose buffer (opens compose if clos
 
 ### iOS Touch Scroll Prevention
 
-The terminal container div has `touch-none` (CSS `touch-action: none`) to prevent the browser from handling touch gestures on the xterm canvas — xterm.js handles its own scrollback. When fullbleed is active, `ContentSlot` toggles a `fullbleed` class on `<html>`, which applies `overflow: hidden` and `overscroll-behavior: none` to both `html` and `body` (via `globals.css`), preventing iOS Safari elastic bounce scrolling. The class is removed on cleanup when navigating away. Non-terminal pages (dashboard, project) are unaffected — they don't set fullbleed. The compose buffer and bottom bar are siblings of the terminal container, not children, so their touch behavior is preserved.
+The terminal container div has `touch-none` (CSS `touch-action: none`) to prevent the browser from handling touch gestures on the xterm canvas — xterm.js handles its own scrollback. In the single-view model, fullbleed is always active — `overflow: hidden` and `overscroll-behavior: none` are applied to both `html` and `body` (via `globals.css`), preventing iOS Safari elastic bounce scrolling. The compose buffer and bottom bar are siblings of the terminal container, not children, so their touch behavior is preserved.
 
 ## Mobile Responsive
 
 ### Breakpoints & Container Width
 
-All three chrome zones (top chrome, content, bottom slot) use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. `max-w-4xl` (896px) remains the max-width constraint; below that, content is naturally edge-to-edge.
+All zones use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. No `max-w-4xl` constraint — terminal, top bar, and bottom bar all span full width. Sidebar is `w-[220px]` fixed on desktop; terminal fills remaining space.
 
 ### Touch Targets
 
 A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-variant coarse (@media (pointer: coarse))`. On touch devices, interactive elements get `coarse:min-h-[44px]` (Apple HIG minimum). This includes:
-- Line 2 action buttons (New Session, New Window, Send Message, Rename, Kill)
-- Session card ✕ kill buttons + session group ✕ kill buttons
+- Line 2 action buttons (Rename, Kill)
+- Sidebar session ✕ kill buttons + window rows
 - Breadcrumb dropdown chevrons
 - `⋯` command palette trigger
-- Dashboard search input
+- `☰` hamburger toggle
 
 Bottom bar buttons use `min-h-[44px]` unconditionally (not `coarse:` gated) since the bottom bar is touch-primary.
 
@@ -139,30 +140,15 @@ The `CommandPalette` component listens for a `palette:open` CustomEvent on `docu
 ### Global
 | Key | Action | Context |
 |-----|--------|---------|
-| `Cmd+K` | Open command palette | All pages |
-| `j` / `k` | Navigate cards down/up | Dashboard, Project view |
-| `Enter` | Drill into focused item | Dashboard, Project view |
-| `Esc Esc` | Navigate back | Terminal view (300ms window) |
+| `Cmd+K` | Open command palette | Always |
+| `Esc Esc` | Navigate back (close drawer if open, else no-op) | 300ms double-tap window |
 
-
-### Dashboard
+### Sidebar
 | Key | Action |
 |-----|--------|
-| `c` | Create new tmux session |
-| `/` | Focus search input |
-
-### Project View
-| Key | Action |
-|-----|--------|
-| `n` | Create new window |
-| `x` | Kill focused window (confirmation) |
-| `s` | Send message to focused window's agent |
-| `r` | Rename focused window |
-
-### Terminal View
-| Key | Action |
-|-----|--------|
-| `r` | Rename active window (follows byobu switches) |
+| `j` / `k` | Navigate windows up/down in sidebar |
+| `Enter` | Open focused window in terminal |
+| `c` | Open create session dialog |
 
 All keyboard shortcuts are registered in the command palette.
 
@@ -183,13 +169,13 @@ Dark theme only. Linear/Raycast aesthetic.
 
 ## Component Conventions
 
-- **All components are client-side** — pure React SPA, no Server Components. Data fetched via typed API client (`packages/web/src/api/client.ts`) and SSE context
-- **No loading spinners** — SSE keeps data fresh, pages render with whatever data is available
-- **Data fetching via context (not per-page)** — `SessionProvider` at layout level owns the `EventSource` connection and provides session data to all pages via `useSessions()` hook. Pages consume from context, not fetch individually
-- **SSE via `useSessions` hook** — thin wrapper over `SessionProvider` context. Single `EventSource` at layout level, shared across all pages. Replaces entire state on each event, auto-reconnects via `EventSource` built-in. Server-side SSE uses a module-level goroutine hub that deduplicates polling across browser tabs
-- **ChromeProvider context** (`packages/web/src/contexts/chrome-context.tsx`) — split into state/dispatch contexts. `useChrome()` for components reading state (TopBarChrome, BottomSlot, ContentSlot). `useChromeDispatch()` for setter-only consumers (page components) — stable reference, no re-renders from state changes. Pages set slots via `useEffect` with cleanup on unmount.
-- **SessionProvider context** (`packages/web/src/contexts/session-context.tsx`) — layout-level provider owning the single `EventSource`. All pages consume session data via `useSessions()` hook. Connection status forwarded to ChromeProvider internally.
-- **Shared `Dialog` component** (`packages/web/src/components/dialog.tsx`) — reusable modal with title, backdrop, close-on-click. Used for create, kill, send dialogs across all pages
+- **All components are client-side** — pure React SPA, no Server Components. Data fetched via typed API client (`app/frontend/src/api/client.ts`) and SSE context
+- **No loading spinners** — SSE keeps data fresh, the view renders with whatever data is available
+- **Data fetching via context** — `SessionProvider` at layout level owns the `EventSource` connection and provides session data via `useSessions()` hook
+- **SSE via `useSessions` hook** — thin wrapper over `SessionProvider` context. Single `EventSource` at layout level. Replaces entire state on each event, auto-reconnects via `EventSource` built-in. Server-side SSE uses a module-level goroutine hub that deduplicates polling across browser tabs
+- **ChromeProvider context** (`app/frontend/src/contexts/chrome-context.tsx`) — split into state/dispatch contexts. Manages current session:window selection, sidebar open/collapsed state, drawer state (mobile), `isConnected`, `fullbleed` (always true in single-view). Chrome derives content from the selection — no slot injection (`setLine2Left`, `setLine2Right`, `setBottomBar` removed)
+- **SessionProvider context** (`app/frontend/src/contexts/session-context.tsx`) — layout-level provider owning the single `EventSource`. Session data consumed via `useSessions()` hook. Connection status forwarded to ChromeProvider internally.
+- **Shared `Dialog` component** (`app/frontend/src/components/dialog.tsx`) — reusable modal with title, backdrop, close-on-click. Used for create, kill, rename dialogs
 
 ## Create Session Dialog
 
@@ -201,7 +187,7 @@ The "Create session" dialog (dashboard, `c` shortcut) has three sections:
 
 3. **Session name** — Auto-derived from the last segment of the selected path (e.g., `~/code/wvrdz/run-kit` yields `run-kit`). Editable — auto-derivation is a convenience, not a lock.
 
-On submit, the dialog sends `{ action: "createSession", name, cwd }` to `POST /api/sessions`. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior.
+On submit, the dialog calls `createSession(name, cwd)` which sends `POST /api/sessions` with `{ name, cwd }`. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior. Accessible from sidebar `[+ New Session]` button and `c` keyboard shortcut.
 
 ## Session-to-Project Mapping
 
@@ -230,3 +216,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-07 | Mobile responsive polish — Line 2 collapse with ⋯ palette trigger, 44px touch targets via `coarse:` variant, responsive padding (px-3/px-6), terminal font scaling (11px/13px) | `260305-ol5d-mobile-responsive-polish` |
 | 2026-03-07 | Mobile cleanup — merged F-key/ext-key popups, moved upload to compose buffer, added keyboard dismiss button, breadcrumb icons as dropdown triggers | `260307-l9jj-mobile-bar-breadcrumb-cleanup` |
 | 2026-03-10 | Go backend + Vite SPA split — removed Server Component patterns, all data fetching via API client + SSE context, TanStack Router for client-side routing, terminal WebSocket on same port (no relay port config) | `260310-8xaq-go-backend-vite-spa-split` |
+| 2026-03-12 | Single-view UI model — sidebar + terminal replaces three-page navigation, POST-only API client with path-based intent, ChromeProvider derives from selection (no slot injection), fullbleed always on, no max-width constraint, sidebar with session/window tree and mobile drawer | `260312-ux92-vite-react-frontend` |

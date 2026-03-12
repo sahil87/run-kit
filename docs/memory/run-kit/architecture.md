@@ -37,27 +37,30 @@ app/
       relay.go        # WS /relay/:session/:window
       spa.go          # SPA static serving from app/frontend/dist/
     go.mod, go.sum
-  frontend/           # (Phase 3 — planned) Vite + React SPA
+  frontend/           # Vite + React SPA — single-view UI
 packages/
   api/                # Legacy Go backend — pending removal in Phase 4
-  web/                # Vite + React SPA — disposable frontend
+  web/                # Legacy frontend — pending removal in Phase 4
     src/
-      api/          # Typed fetch wrappers (client.ts)
-      components/   # React components
-      contexts/     # ChromeProvider, SessionProvider
-      hooks/        # useSessions, useKeyboardNav, useVisualViewport, etc.
-      pages/        # dashboard.tsx, project.tsx, terminal.tsx
-      router.tsx    # TanStack Router (type-safe routes)
-      types.ts      # Shared TypeScript types
+      api/            # Typed fetch wrappers (client.ts) — POST-only mutations
+      components/     # React components (sidebar, breadcrumb-dropdown, bottom-bar, etc.)
+      contexts/       # ChromeProvider, SessionProvider
+      hooks/          # useSessions, useKeyboardNav, useVisualViewport, etc.
+      app.tsx         # Single-view layout (sidebar + terminal)
+      types.ts        # Shared TypeScript types
+    tests/
+      msw/            # MSW handlers for API + SSE mocking
+      e2e/            # Playwright E2E tests
     vite.config.ts
     vitest.config.ts
-e2e/                # Playwright E2E tests
+    playwright.config.ts
+e2e/                  # Legacy Playwright E2E tests (Phase 4 removal)
 fab/                # Fab-kit project config + changes
 docs/               # Memory files
 supervisor.sh       # Production process manager
 dev.sh              # Development launcher (Go + Vite concurrent)
 Caddyfile.example   # HTTPS reverse proxy (TLS termination only)
-pnpm-workspace.yaml # ["packages/web"] — Go is independent
+pnpm-workspace.yaml # ["packages/web", "app/frontend"] — Go is independent
 ```
 
 ## Data Model
@@ -110,7 +113,21 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 
 ### Frontend API Client
 
-`packages/web/src/api/client.ts` — typed fetch wrappers for all endpoints. Uses relative URLs (e.g., `/api/sessions`) — works with both Vite proxy in dev and same-origin in production. Exports `getSessions()`, `postSessionAction()`, `getDirectories()`, `uploadFile()` with TypeScript types.
+`app/frontend/src/api/client.ts` — typed fetch wrappers for all endpoints using POST-only mutations with path-based intent. Uses relative URLs — works with both Vite proxy in dev and same-origin in production. Exports individual functions per endpoint:
+
+| Function | Method | Path |
+|----------|--------|------|
+| `getSessions()` | GET | `/api/sessions` |
+| `createSession(name, cwd?)` | POST | `/api/sessions` |
+| `killSession(session)` | POST | `/api/sessions/:session/kill` |
+| `createWindow(session, name, cwd?)` | POST | `/api/sessions/:session/windows` |
+| `killWindow(session, index)` | POST | `/api/sessions/:session/windows/:index/kill` |
+| `renameWindow(session, index, name)` | POST | `/api/sessions/:session/windows/:index/rename` |
+| `sendKeys(session, index, keys)` | POST | `/api/sessions/:session/windows/:index/keys` |
+| `getDirectories(prefix)` | GET | `/api/directories?prefix=...` |
+| `uploadFile(session, file, window?)` | POST | `/api/sessions/:session/upload` |
+
+No multiplexed `action` field — each mutation is a separate function with its own URL path.
 
 ## Terminal Relay
 
@@ -143,36 +160,40 @@ In development, Vite handles SPA fallback natively. In production, Go's catch-al
 
 ## Chrome Architecture
 
-The root layout (`packages/web/src/router.tsx` `RootLayout`) owns a flex-col skeleton (height: `var(--app-height, 100vh)`) with three zones:
+The root layout (`app/frontend/src/app.tsx`) owns a fixed chrome skeleton (height: `var(--app-height, 100vh)`) with four zones:
 
-1. **Top chrome** (`shrink-0`) — `TopBarChrome` component, always-rendered two-line top bar
-2. **Content** (`flex-1 overflow-y-auto min-h-0`) — page content, scrollable
-3. **Bottom slot** (`shrink-0`) — `BottomSlot` component, renders bottom bar on terminal page via ChromeProvider
+1. **Top chrome** (`shrink-0`) — `TopBarChrome`, always-rendered two-line top bar
+2. **Main area** (`flex-1 flex flex-row min-h-0`) — sidebar + terminal side by side
+   - **Sidebar** (`w-[220px] shrink-0 overflow-y-auto`, hidden on mobile < 768px) — session/window tree
+   - **Terminal** (`flex-1 min-w-0`) — xterm.js + WebSocket relay
+3. **Bottom bar** (`shrink-0`) — always visible (terminal is always the main content)
 
-All three zones use `max-w-4xl mx-auto w-full px-3 sm:px-6` for identical width/padding — pages cannot override this.
+No `max-w-4xl` constraint — all zones span full width. Terminal fills all available space right of the sidebar.
 
-**ChromeProvider** (`packages/web/src/contexts/chrome-context.tsx`) — split into two React contexts: `ChromeStateContext` (read-only state: breadcrumbs, line2Left, line2Right, bottomBar, isConnected, fullbleed) and `ChromeDispatchContext` (stable setter functions). `useChrome()` returns both (backward compat, re-renders on state change). `useChromeDispatch()` returns only setters (stable reference, no re-renders from state changes). Pages that only set chrome slots use `useChromeDispatch()` to avoid cascade re-renders. `Breadcrumb` type includes optional `dropdownItems: BreadcrumbDropdownItem[]` for breadcrumb dropdown menus (project/window switching).
+**ChromeProvider** (`app/frontend/src/contexts/chrome-context.tsx`) — split into two React contexts: `ChromeStateContext` (read-only state: current session:window selection, sidebar open/collapsed, drawer state, isConnected, fullbleed) and `ChromeDispatchContext` (stable setter functions). Chrome derives its content from the current selection — no slot injection. `setLine2Left`, `setLine2Right`, `setBottomBar` removed; top bar and bottom bar read the selection directly. `Breadcrumb` type includes optional `dropdownItems` for session/window switching.
 
-**SessionProvider** (`packages/web/src/contexts/session-context.tsx`) — layout-level React Context that owns the single `EventSource` connection to `/api/sessions/stream`. Exposes `{ sessions, isConnected }` to all descendant pages via `useSessions()` hook. Forwards `isConnected` to `ChromeProvider` internally, eliminating per-page connection status forwarding. Mounted inside `ChromeProvider` in `RootLayout`.
+**SessionProvider** (`app/frontend/src/contexts/session-context.tsx`) — layout-level React Context that owns the single `EventSource` connection to `/api/sessions/stream`. Exposes `{ sessions, isConnected }` via `useSessions()` hook. Forwards `isConnected` to `ChromeProvider` internally. Mounted inside `ChromeProvider` in the root layout.
 
-**TopBarChrome** (`packages/web/src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Line 1: icon breadcrumbs + connection indicator + Cmd+K badge. Line 2: always rendered with `min-h-[36px]`, even when slots are empty (prevents layout shift).
+**TopBarChrome** (`app/frontend/src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Line 1: `☰` toggle + icon breadcrumbs + connection indicator + `⌘K`/`⋯`. Line 2: always rendered with `min-h-[36px]` (prevents layout shift).
 
-**BottomBar** (`packages/web/src/components/bottom-bar.tsx`) — injected by `TerminalClient` via `setBottomBar()`. Single row of `<kbd>` buttons: modifier toggles (Ctrl/Alt/Cmd with sticky armed state), arrow keys, Fn dropdown (F1-F12, PgUp/PgDn, Home/End), Esc, Tab, and compose toggle. All buttons 44px min-height for mobile touch targets. Sends ANSI escape sequences through the WebSocket ref. Modifier state managed by `useModifierState` hook.
+**Sidebar** (`app/frontend/src/components/sidebar.tsx`) — session/window tree. Desktop: always visible at `w-[220px]`, collapsible via `☰`. Mobile (< 768px): drawer overlay from the left, triggered by `☰`.
 
-**ComposeBuffer** (`packages/web/src/components/compose-buffer.tsx`) — native `<textarea>` overlay triggered by the compose button or file upload. Supports iOS dictation, autocorrect, paste, multiline. Send button (or Cmd/Ctrl+Enter) transmits entire text as a single WebSocket message. Terminal dims (`opacity-50`) while compose is open. Escape dismisses without sending. Accepts optional `initialText` prop for pre-populating with uploaded file paths; appends on subsequent updates while open.
+**BottomBar** (`app/frontend/src/components/bottom-bar.tsx`) — always visible. Single row of `<kbd>` buttons: modifier toggles (Ctrl/Alt/Cmd with sticky armed state), arrow keys, Fn dropdown (F1-F12, PgUp/PgDn, Home/End), Esc, Tab, and compose toggle. All buttons 44px min-height for mobile touch targets. Sends ANSI escape sequences through the WebSocket ref. Modifier state managed by `useModifierState` hook.
 
-**iOS Keyboard Support** — `useVisualViewport` hook (`packages/web/src/hooks/use-visual-viewport.ts`) listens to both `resize` and `scroll` events on `window.visualViewport`, setting `--app-height` CSS custom property from `visualViewport.height`. The `scroll` listener is needed because iOS Safari may fire scroll events (not just resize) when adjusting the viewport for the keyboard. In fullbleed mode (terminal page), `globals.css` applies `position: fixed; inset: 0; height: var(--app-height, 100vh)` to the `.app-shell` container, decoupling it from document scroll — this prevents the keyboard from pushing the app container off-screen. Non-fullbleed pages (dashboard, project) are unaffected. The bottom bar stays pinned above the keyboard; the terminal shrinks via `flex-1` and xterm refits via `ResizeObserver`.
+**ComposeBuffer** (`app/frontend/src/components/compose-buffer.tsx`) — native `<textarea>` overlay triggered by the compose button or file upload. Supports iOS dictation, autocorrect, paste, multiline. Send button (or Cmd/Ctrl+Enter) transmits entire text as a single WebSocket message. Terminal dims (`opacity-50`) while compose is open. Escape dismisses without sending. Accepts optional `initialText` prop for pre-populating with uploaded file paths; appends on subsequent updates while open.
 
-**iOS Touch Scroll Prevention** — `ContentSlot` toggles a `fullbleed` CSS class on `document.documentElement` when the terminal page is active. `globals.css` applies `overflow: hidden` and `overscroll-behavior: none` to `html.fullbleed` and `html.fullbleed body`, preventing iOS Safari elastic bounce scrolling. The terminal container div uses `touch-none` (`touch-action: none`) so the browser yields touch gestures to xterm.js for scrollback handling.
+**iOS Keyboard Support** — `useVisualViewport` hook (`app/frontend/src/hooks/use-visual-viewport.ts`) listens to both `resize` and `scroll` events on `window.visualViewport`, setting `--app-height` CSS custom property from `visualViewport.height`. In the single-view model (fullbleed always on), `globals.css` applies `position: fixed; inset: 0; height: var(--app-height, 100vh)` to the app shell. The bottom bar stays pinned above the keyboard; the terminal shrinks via `flex-1` and xterm refits via `ResizeObserver`.
 
-Pages do NOT render their own top bar or outer containers — they set chrome slots and render only their content area.
+**iOS Touch Scroll Prevention** — Fullbleed is always active in the single-view model. `globals.css` applies `overflow: hidden` and `overscroll-behavior: none` to both `html` and `body`, preventing iOS Safari elastic bounce scrolling. The terminal container div uses `touch-none` (`touch-action: none`) so the browser yields touch gestures to xterm.js for scrollback handling.
+
+Single-view model: there are no page transitions or per-page chrome injection. The chrome reads the current selection and renders directly.
 
 ## Design Decisions
 
 - **Go backend + Vite SPA over Next.js monolith** — decouples frontend and backend for independent iteration. Go backend is a stable, long-lived API that outlives any individual frontend. Multi-client API support (web, mobile, CLI) without split API surface
 - **Single port architecture** — Go serves API, WebSocket relay, and SPA static files on one port. The two-port split (Next.js :3000, relay :3001) was a Node.js artifact — separate processes required separate ports. Go serves everything in one binary
 - **chi over stdlib ServeMux** — chi for middleware chaining (CORS, logging, recovery). Go 1.22+ ServeMux has pattern matching but lacks ergonomic middleware composition
-- **TanStack Router over React Router** — type-safe params and search params, built-in loader pattern. Prevents runtime errors from parameter mismatches
+- **TanStack Router over React Router** — type-safe params and search params, built-in loader pattern. Single route `/:session/:window` in the new frontend
 - **Vite proxy in dev (not CORS)** — single browser URL, no CORS config needed. WebSocket upgrade works transparently. Go includes chi CORS middleware for production/non-browser clients
 - **SPA fallback in Go (not Caddy-only)** — Go serves standalone without requiring Caddy. Caddy is optional for TLS termination
 - **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient. Module-level hub deduplicates polling across tabs (one `FetchSessions()` per interval regardless of client count). SSE data includes `isActiveWindow` per window, enabling UI sync when users switch tmux/byobu windows via terminal shortcuts
@@ -181,8 +202,11 @@ Pages do NOT render their own top bar or outer containers — they set chrome sl
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
 - **Config resolution: CLI > YAML > defaults** — `internal/config/config.go` reads `run-kit.yaml` (optional, gitignored) and CLI args. No relay port — single port serves everything
 - **Byobu session-group filtering** — `ListSessions()` filters out derived session-group copies to avoid duplicate projects. See `docs/memory/run-kit/tmux-sessions.md`
-- **Layout-owned chrome (not per-page TopBar)** — Split React Context for slot injection: state context (re-renders readers) and dispatch context (stable setters, no re-renders). Pages inject content via `useChromeDispatch()` setters in `useEffect`; layout renders it in fixed positions. Prevents both layout shift and cascade re-renders.
-- **Layout-level SessionProvider (not per-page SSE)** — Single `EventSource` connection at layout level, shared across all pages. Eliminates redundant connections and per-page `isConnected` forwarding boilerplate.
+- **Derived chrome (not slot injection)** — Single-view model means only one chrome state (terminal-focused). Top bar and bottom bar derive content from the current session:window selection. No `setLine2Left`/`setLine2Right`/`setBottomBar` setters. Split React Context preserved for performance (state vs dispatch).
+- **Layout-level SessionProvider (not per-page SSE)** — Single `EventSource` connection at layout level. Eliminates redundant connections and per-page `isConnected` forwarding boilerplate.
+- **Single-view layout (sidebar + terminal) replaces three pages** — Dashboard and Project page functionality subsumed by the sidebar. Terminal is always visible. No page transitions.
+- **POST-only API client with path-based intent** — Each mutation is a separate function with its own URL (e.g., `killSession(session)` → `POST /api/sessions/:session/kill`). No multiplexed `action` field in request bodies.
+- **Sidebar + drawer pattern on mobile** — Desktop sidebar is `w-[220px]`, collapsible. Mobile (< 768px) uses a left-side drawer overlay triggered by `☰`. Preserves session/window tree layout across breakpoints.
 - **Active window sync via `history.replaceState` (not `router.replace()`)** — When byobu switches windows, the terminal relay pty already shows the correct content. The UI syncs breadcrumb, URL, and action targets via SSE polling (2.5s). URL updates use `window.history.replaceState()` which is invisible to the router — no re-render, no terminal reinitialization.
 - **Sticky modifier state via useRef + forceUpdate** — `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders. Ensures `consume()` reads the latest value atomically without stale closure issues.
 - **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.
@@ -203,31 +227,29 @@ Current Go test coverage (`app/backend/`):
 - **Internal packages**: `internal/validate` (input validation + tilde expansion + filename sanitization), `internal/config` (CLI arg parsing, port validation, YAML parsing, defaults), `internal/tmux` (listSessions parsing + byobu filtering, listWindows activity computation), `internal/sessions` (fab-kit detection, project root derivation, per-session enrichment), `internal/fab` (`.fab-status.yaml` parsing, missing file, dangling symlink, all-done stages)
 - **Handler integration tests**: `api/health_test.go`, `api/sessions_test.go`, `api/windows_test.go`, `api/directories_test.go`, `api/upload_test.go`, `api/sse_test.go`, `api/spa_test.go` — all use `httptest.NewRecorder` with the chi router and mock `SessionFetcher`/`TmuxOps` interfaces for tmux isolation. Cover response shapes, validation errors, URL param parsing, content-type enforcement. `api/relay.go` has no unit test (requires live tmux + PTY)
 
-### Frontend Unit Tests
+### Frontend Unit Tests (app/frontend/)
+
+Vitest with jsdom environment. Config at `app/frontend/vitest.config.ts`. MSW mocks all API endpoints and the SSE stream (`app/frontend/tests/msw/handlers.ts`). Test files co-located with source using `.test.{ts,tsx}` suffix.
+
+Test coverage includes: sidebar (expand/collapse, window selection, kill session), breadcrumb dropdowns (open/close, selection), drawer (open via hamburger, close on selection), keyboard shortcuts (j/k navigation, c for create, Cmd+K palette), command palette, modifier state, touch targets (44px on `coarse`), API client (correct URL construction for each endpoint).
+
+### Frontend Unit Tests (packages/web/) — Legacy
 
 Vitest with jsdom environment. Config at `packages/web/vitest.config.ts`. Setup file at `packages/web/src/test-setup.ts` imports `@testing-library/jest-dom/vitest` for extended DOM matchers.
 
-Test scripts: `pnpm test` (single run, in `packages/web/`), `pnpm test:watch` (watch mode).
+Current coverage: `command-palette.tsx` (keyboard interaction, filtering, open/close), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts).
 
-Test files co-located with source using `.test.{ts,tsx}` suffix (test-alongside strategy per `code-quality.md`). Path alias `@/` resolves to `src/` in both app and test contexts.
+### Playwright E2E Tests (app/frontend/tests/e2e/)
 
-Current frontend test coverage: `command-palette.tsx` (keyboard interaction, filtering, open/close), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts).
+Thin suite (3-5 tests) for API round-trip validation. Config at `app/frontend/playwright.config.ts`. Self-managed tmux sessions in `beforeAll`/`afterAll` hooks.
 
-### Playwright E2E Tests
+E2E test coverage: create/kill session via UI, SSE stream delivers real data, sidebar navigation.
 
-Playwright for browser-level integration tests. Config at `playwright.config.ts` (repo root). E2E tests live in `e2e/` (separate from unit tests). Two projects: `desktop` (Chromium) and `mobile` (WebKit, iPhone 14 viewport). `mobile.spec.ts` runs only on the mobile project; all other specs run only on desktop.
+### Playwright E2E Tests (e2e/) — Legacy
 
-Test scripts: `pnpm test:e2e` (headless), `pnpm test:e2e:ui` (interactive UI mode). Web server auto-starts via `bash dev.sh` (Go + Vite) if not already running (`reuseExistingServer: true`).
+Config at `playwright.config.ts` (repo root). Two projects: `desktop` (Chromium) and `mobile` (WebKit, iPhone 14 viewport).
 
-Tests self-manage tmux sessions via `POST /api/sessions` in `beforeAll`/`afterAll` hooks. Shared helpers in `e2e/helpers.ts`.
-
-E2E test suites:
-- `chrome-stability.spec.ts` — top bar bounding box invariance across page navigation, Line 2 min-height, max-width 896px
-- `breadcrumbs.spec.ts` — page-specific breadcrumb segments, link verification, no text prefixes
-- `bottom-bar.spec.ts` — terminal-only visibility, modifier armed state (`aria-pressed`), Fn dropdown lifecycle, special keys
-- `compose-buffer.spec.ts` — open/close flow, terminal dimming, Send button, multiline input
-- `kill-button.spec.ts` — always-visible kill buttons, confirmation dialog flow
-- `mobile.spec.ts` — mobile bottom bar rendering, tap target minimum height (30px), Cmd+K badge visibility
+Legacy suites: `chrome-stability.spec.ts`, `breadcrumbs.spec.ts`, `bottom-bar.spec.ts`, `compose-buffer.spec.ts`, `kill-button.spec.ts`, `mobile.spec.ts`.
 
 ## Security
 
@@ -262,3 +284,4 @@ E2E test suites:
 | 2026-03-07 | Playwright E2E tests — chrome stability, breadcrumbs, bottom bar, compose buffer, kill button, mobile viewport | `260305-r7zs-playwright-e2e-design-spec` |
 | 2026-03-10 | **Go backend + Vite SPA split** — replaced Next.js monolith with Go backend (`packages/api/`) + Vite React SPA (`packages/web/`). Single-port architecture (API, SSE, WebSocket relay, SPA static serving on one Go binary). chi router, gorilla/websocket, creack/pty. TanStack Router for client-side routing. Typed API client module. Go table-driven tests ported from Vitest. E2E tests updated for Go + Vite dev servers. | `260310-8xaq-go-backend-vite-spa-split` |
 | 2026-03-12 | **Go backend API at `app/backend/`** — new canonical backend alongside legacy `packages/api/`. Handler files split by resource domain (sessions.go, windows.go, etc.). POST-only mutations with path-based intent. `internal/fab` rewritten to read `.fab-status.yaml` directly (no subprocess). Per-session fab enrichment model. `WindowInfo` fields changed: `FabChange`/`FabStage` replace `FabStage`/`FabProgress`. Upload endpoint session from URL path. Handler integration tests via `httptest.NewRecorder` + mock interfaces. SPA serves from `app/frontend/dist/`. | `260312-r4t9-go-backend-api` |
+| 2026-03-12 | **Vite/React frontend at `app/frontend/`** — single-view UI (sidebar + terminal, one route `/:session/:window`), POST-only API client with path-based intent, ChromeProvider derives from selection (no slot injection), sidebar with session/window tree + mobile drawer, MSW-backed Vitest, Playwright E2E at `app/frontend/tests/e2e/` | `260312-ux92-vite-react-frontend` |

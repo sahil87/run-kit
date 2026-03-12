@@ -1,14 +1,24 @@
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "tests/e2e",
+  testDir: "./tests/e2e",
+  timeout: 30_000,
+  retries: 1,
+  fullyParallel: false,
+  use: {
+    baseURL: "http://localhost:5173",
+    trace: "on-first-retry",
+  },
   projects: [
     {
-      name: "desktop",
+      name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  use: {
-    baseURL: "http://localhost:5173",
+  webServer: {
+    command: "bash ../../dev.sh",
+    port: 5173,
+    reuseExistingServer: true,
+    timeout: 60_000,
   },
 });

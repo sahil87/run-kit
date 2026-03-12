@@ -10,6 +10,7 @@ type SidebarProps = {
   focusedIndex?: number;
   onSelectWindow: (session: string, windowIndex: number) => void;
   onCreateSession: () => void;
+  onCreateWindow: (session: string) => void;
 };
 
 export function Sidebar({
@@ -19,6 +20,7 @@ export function Sidebar({
   focusedIndex,
   onSelectWindow,
   onCreateSession,
+  onCreateWindow,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
@@ -85,18 +87,27 @@ export function Sidebar({
                     </span>
                     <span className="font-medium truncate">{session.name}</span>
                   </button>
-                  <button
-                    onClick={() =>
-                      setKillTarget({
-                        name: session.name,
-                        windowCount: session.windows.length,
-                      })
-                    }
-                    aria-label={`Kill session ${session.name}`}
-                    className="text-text-secondary hover:text-red-400 transition-colors text-xs px-1 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
-                  >
-                    {"\u2715"}
-                  </button>
+                  <div className="flex items-center">
+                    <button
+                      onClick={() => onCreateWindow(session.name)}
+                      aria-label={`New window in ${session.name}`}
+                      className="text-text-secondary hover:text-text-primary transition-colors text-xs px-1 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
+                    >
+                      +
+                    </button>
+                    <button
+                      onClick={() =>
+                        setKillTarget({
+                          name: session.name,
+                          windowCount: session.windows.length,
+                        })
+                      }
+                      aria-label={`Kill session ${session.name}`}
+                      className="text-text-secondary hover:text-red-400 transition-colors text-xs px-1 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
+                    >
+                      {"\u2715"}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Window rows */}

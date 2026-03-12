@@ -71,9 +71,7 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
   return (
     <Dialog
       title="Create session"
-      onClose={() => {
-        onClose();
-      }}
+      onClose={onClose}
     >
       {quickPicks.length > 0 && (
         <div className="mb-3">

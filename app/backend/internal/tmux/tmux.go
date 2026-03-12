@@ -212,6 +212,16 @@ func SendKeys(session string, window int, keys string) error {
 	return err
 }
 
+// SelectWindow selects (focuses) a window by session and index.
+func SelectWindow(session string, index int) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	target := fmt.Sprintf("%s:%d", session, index)
+	_, err := tmuxExec(ctx, "select-window", "-t", target)
+	return err
+}
+
 // SplitWindow splits a window to create an independent pane. Returns the new pane ID.
 func SplitWindow(session string, window int) (string, error) {
 	ctx, cancel := withTimeout()

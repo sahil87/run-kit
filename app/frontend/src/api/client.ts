@@ -99,6 +99,18 @@ export async function sendKeys(
   return res.json();
 }
 
+export async function selectWindow(
+  session: string,
+  index: number,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    `/api/sessions/${encodeURIComponent(session)}/windows/${index}/select`,
+    { method: "POST" },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function getDirectories(prefix: string): Promise<string[]> {
   const res = await fetch(`/api/directories?prefix=${encodeURIComponent(prefix)}`);
   if (!res.ok) return [];

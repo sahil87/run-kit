@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
@@ -56,35 +55,25 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Create independent pane via split-window (agent pane 0 untouched)
-	paneID, err := s.tmux.SplitWindow(session, winIdx)
-	if err != nil {
-		slog.Error("split-window failed", "err", err, "session", session, "window", windowIndex)
+	// Select the target window so attach-session shows the right content
+	if err := s.tmux.SelectWindow(session, winIdx); err != nil {
+		slog.Error("select-window failed", "err", err, "session", session, "window", windowIndex)
 		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4001, "Failed to create tmux pane"))
+			websocket.FormatCloseMessage(4001, "Failed to select tmux window"))
 		return
 	}
 
-	// Attach to the NEW pane via pty. attach-session -t accepts a pane target
-	// (e.g., %5) which resolves to that pane's session. We combine it with
-	// select-pane to ensure the correct pane is active on attach.
+	// Attach to the session via PTY — renders the selected window as-is (no split)
 	ctx, cancel := context.WithCancel(context.Background())
-	// First, select the target pane so attach-session focuses on it
-	selectCtx, selectCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := exec.CommandContext(selectCtx, "tmux", "select-pane", "-t", paneID).Run(); err != nil {
-		slog.Debug("select-pane failed", "err", err, "paneID", paneID)
-	}
-	selectCancel()
 	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", session)
 	cmd.Env = os.Environ()
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		cancel()
-		s.tmux.KillPane(paneID)
-		slog.Error("pty start failed", "err", err, "paneID", paneID)
+		slog.Error("pty start failed", "err", err, "session", session, "window", windowIndex)
 		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4001, "Failed to attach to tmux pane"))
+			websocket.FormatCloseMessage(4001, "Failed to attach to tmux session"))
 		return
 	}
 
@@ -96,8 +85,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			if cmd.Process != nil {
 				cmd.Process.Kill()
 			}
-			s.tmux.KillPane(paneID)
-			slog.Debug("relay cleanup", "paneID", paneID)
+			slog.Debug("relay cleanup", "session", session, "window", windowIndex)
 		})
 	}
 	defer cleanup()

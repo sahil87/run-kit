@@ -100,6 +100,9 @@ func (m *mockTmuxOps) ListWindows(session string) ([]tmux.WindowInfo, error) {
 func (m *mockTmuxOps) SplitWindow(session string, window int) (string, error) {
 	return m.splitWindowResult, m.splitWindowErr
 }
+func (m *mockTmuxOps) SelectWindow(session string, index int) error {
+	return nil
+}
 func (m *mockTmuxOps) KillPane(paneID string) error {
 	return nil
 }

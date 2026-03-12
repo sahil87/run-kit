@@ -1,4 +1,4 @@
-import { useEffect, useRef, useId } from "react";
+import { useEffect, useRef, useId, useCallback } from "react";
 
 type DialogProps = {
   title: string;
@@ -10,39 +10,44 @@ export function Dialog({ title, onClose, children }: DialogProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Focus trap + Escape to close
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
+  // Stable ref so the keydown handler always calls the latest onClose
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      onCloseRef.current();
+      return;
+    }
+    const dialog = dialogRef.current;
+    if (!dialog || e.key !== "Tab") return;
     const focusable = dialog.querySelectorAll<HTMLElement>(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
     );
+    if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-
-    // Focus first focusable element
-    first?.focus();
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key === "Tab" && focusable.length > 0) {
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last?.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
-        }
-      }
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last?.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first?.focus();
     }
+  }, []);
 
+  // Focus first focusable element on mount; attach keydown listener
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog) {
+      const first = dialog.querySelector<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      first?.focus();
+    }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [handleKeyDown]);
 
   return (
     <div

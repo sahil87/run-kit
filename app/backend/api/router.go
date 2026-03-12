@@ -27,6 +27,7 @@ type TmuxOps interface {
 	KillWindow(session string, index int) error
 	RenameWindow(session string, index int, name string) error
 	SendKeys(session string, window int, keys string) error
+	SelectWindow(session string, index int) error
 	ListWindows(session string) ([]tmux.WindowInfo, error)
 	SplitWindow(session string, window int) (string, error)
 	KillPane(paneID string) error
@@ -75,6 +76,9 @@ func (p *prodTmuxOps) RenameWindow(session string, index int, name string) error
 }
 func (p *prodTmuxOps) SendKeys(session string, window int, keys string) error {
 	return tmux.SendKeys(session, window, keys)
+}
+func (p *prodTmuxOps) SelectWindow(session string, index int) error {
+	return tmux.SelectWindow(session, index)
 }
 func (p *prodTmuxOps) ListWindows(session string) ([]tmux.WindowInfo, error) {
 	return tmux.ListWindows(session)
@@ -130,6 +134,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/windows/{index}/kill", s.handleWindowKill)
 	r.Post("/api/sessions/{session}/windows/{index}/rename", s.handleWindowRename)
 	r.Post("/api/sessions/{session}/windows/{index}/keys", s.handleWindowKeys)
+	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)

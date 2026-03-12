@@ -14,6 +14,7 @@ import { BottomBar } from "@/components/bottom-bar";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
+import { selectWindow, createWindow } from "@/api/client";
 
 export function App() {
   return (
@@ -42,6 +43,11 @@ function AppShell() {
   const windowIndex = params.window;
 
   const [composeOpen, setComposeOpen] = useState(false);
+
+  // Track user-initiated navigation to suppress activeWindow sync temporarily.
+  // Also suppress while any dialog is open to prevent focus-stealing re-renders.
+  const userNavTimestampRef = useRef(0);
+  const dialogOpenRef = useRef(false);
 
   // Redirect root to first session's first window when data arrives
   const hasRedirected = useRef(false);
@@ -88,6 +94,10 @@ function AppShell() {
   useEffect(() => {
     if (!activeWindow || !sessionName) return;
     if (String(activeWindow.index) !== windowIndex) {
+      // Skip if user recently navigated (e.g. clicked sidebar) or a dialog is open
+      if (dialogOpenRef.current) return;
+      const elapsed = Date.now() - userNavTimestampRef.current;
+      if (elapsed < 3000) return;
       navigate({
         to: "/$session/$window",
         params: { session: sessionName, window: String(activeWindow.index) },
@@ -96,14 +106,17 @@ function AppShell() {
     }
   }, [activeWindow, sessionName, windowIndex, navigate]);
 
-  // Navigation callback for sidebar/breadcrumbs
+  // Navigation callback for sidebar/breadcrumbs — syncs both UI route and tmux active window
   const navigateToWindow = useCallback(
     (session: string, windowIdx: number) => {
+      userNavTimestampRef.current = Date.now();
       navigate({
         to: "/$session/$window",
         params: { session, window: String(windowIdx) },
       });
       setDrawerOpen(false);
+      // Fire-and-forget: tell tmux to select this window too
+      selectWindow(session, windowIdx).catch(() => {});
     },
     [navigate, setDrawerOpen],
   );
@@ -113,6 +126,10 @@ function AppShell() {
     sessionName,
     windowIndex: currentWindow?.index,
   });
+
+  // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
+  dialogOpenRef.current =
+    dialogs.showCreateDialog || dialogs.showRenameDialog || dialogs.showKillConfirm;
 
   // Keyboard shortcuts (c, r, Esc)
   useAppShortcuts({
@@ -127,6 +144,18 @@ function AppShell() {
       s.windows.map((w) => ({ session: s.name, window: w })),
     );
   }, [sessions]);
+
+  // Create a new window in a session (from sidebar "+" button)
+  const handleCreateWindow = useCallback(
+    async (session: string) => {
+      try {
+        await createWindow(session, "zsh");
+      } catch {
+        // SSE will reflect
+      }
+    },
+    [],
+  );
 
   // j/k keyboard navigation for sidebar windows
   const navigateByIndex = useCallback(
@@ -226,6 +255,7 @@ function AppShell() {
               focusedIndex={focusedIndex}
               onSelectWindow={navigateToWindow}
               onCreateSession={dialogs.openCreateDialog}
+              onCreateWindow={handleCreateWindow}
             />
           </div>
         )}
@@ -276,6 +306,7 @@ function AppShell() {
                 setDrawerOpen(false);
                 dialogs.openCreateDialog();
               }}
+              onCreateWindow={handleCreateWindow}
             />
           </div>
         </div>

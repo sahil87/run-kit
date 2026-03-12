@@ -46,6 +46,7 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
       currentWindowIndex="0"
       onSelectWindow={vi.fn()}
       onCreateSession={vi.fn()}
+      onCreateWindow={vi.fn()}
       {...overrides}
     />,
   );

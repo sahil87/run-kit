@@ -114,7 +114,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 				conn.Close()
 				return
 			}
-			if err := conn.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
 				return
 			}
 		}

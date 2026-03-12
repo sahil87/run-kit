@@ -78,12 +78,18 @@ export function TerminalClient({
   // xterm.js init + WebSocket connection
   useEffect(() => {
     let terminal: import("@xterm/xterm").Terminal | null = null;
-    let fitAddon: import("@xterm/addon-fit").FitAddon | null = null;
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let resizeRafId: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
 
     async function init() {
       if (!terminalRef.current) return;
       const { Terminal } = await import("@xterm/xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
+
+      // Component unmounted while awaiting imports
+      if (cancelled || !terminalRef.current) return;
 
       const isMobile = !window.matchMedia("(min-width: 640px)").matches;
 
@@ -100,7 +106,7 @@ export function TerminalClient({
         },
       });
 
-      fitAddon = new FitAddon();
+      const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
       terminal.open(terminalRef.current);
       fitAddon.fit();
@@ -111,10 +117,9 @@ export function TerminalClient({
         window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndex}`;
       let reconnectDelay = 1000;
-      let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-      let unmounting = false;
 
       function connect() {
+        if (cancelled) return;
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
         ws.binaryType = "arraybuffer";
@@ -131,14 +136,11 @@ export function TerminalClient({
         };
 
         ws.onclose = () => {
-          if (unmounting) {
-            terminal?.write("\r\n\x1b[90m[connection closed]\x1b[0m\r\n");
-            return;
-          }
+          if (cancelled) return;
           terminal?.write("\r\n\x1b[90m[reconnecting...]\x1b[0m\r\n");
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null;
-            if (!unmounting) connect();
+            if (!cancelled) connect();
           }, reconnectDelay);
           reconnectDelay = Math.min(reconnectDelay * 2, 30000);
         };
@@ -153,8 +155,7 @@ export function TerminalClient({
           wsRef.current.send(data);
       });
 
-      let resizeRafId: number | null = null;
-      const resizeObserver = new ResizeObserver(() => {
+      resizeObserver = new ResizeObserver(() => {
         if (resizeRafId) cancelAnimationFrame(resizeRafId);
         resizeRafId = requestAnimationFrame(() => {
           resizeRafId = null;
@@ -173,18 +174,15 @@ export function TerminalClient({
       });
 
       resizeObserver.observe(terminalRef.current);
-
-      return () => {
-        unmounting = true;
-        resizeObserver.disconnect();
-        if (resizeRafId) cancelAnimationFrame(resizeRafId);
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-      };
     }
 
-    const cleanup = init();
+    init();
+
     return () => {
-      cleanup.then((fn) => fn?.());
+      cancelled = true;
+      resizeObserver?.disconnect();
+      if (resizeRafId) cancelAnimationFrame(resizeRafId);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;

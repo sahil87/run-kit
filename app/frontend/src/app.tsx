@@ -88,10 +88,13 @@ function AppShell() {
   useEffect(() => {
     if (!activeWindow || !sessionName) return;
     if (String(activeWindow.index) !== windowIndex) {
-      const newUrl = `/${encodeURIComponent(sessionName)}/${activeWindow.index}`;
-      window.history.replaceState(window.history.state, "", newUrl);
+      navigate({
+        to: "/$session/$window",
+        params: { session: sessionName, window: String(activeWindow.index) },
+        replace: true,
+      });
     }
-  }, [activeWindow, sessionName, windowIndex]);
+  }, [activeWindow, sessionName, windowIndex, navigate]);
 
   // Navigation callback for sidebar/breadcrumbs
   const navigateToWindow = useCallback(
@@ -231,6 +234,7 @@ function AppShell() {
         <div className="flex-1 min-w-0 flex flex-col">
           {sessionName && windowIndex ? (
             <TerminalClient
+              key={`${sessionName}/${windowIndex}`}
               sessionName={sessionName}
               windowIndex={windowIndex}
               wsRef={wsRef}

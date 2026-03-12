@@ -5,14 +5,19 @@ set dotenv-load := false
 
 # ─── Development ──────────────────────────────────────────────
 
-# Start Go backend + Vite dev server concurrently (just dev --port 3001)
+# Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 3001)
 dev *args:
     #!/usr/bin/env bash
     set -euo pipefail
     pids=()
     cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait; }
     trap cleanup EXIT
-    (cd app/backend && go run ./cmd/run-kit) & pids+=($!)
+    if command -v air &>/dev/null; then
+      (cd app/backend && air) & pids+=($!)
+    else
+      echo "tip: install air for Go live-reload (go install github.com/air-verse/air@latest)"
+      (cd app/backend && go run ./cmd/run-kit) & pids+=($!)
+    fi
     (cd app/frontend && pnpm dev {{args}}) & pids+=($!)
     wait
 

@@ -7,9 +7,7 @@ run-kit is a web-based agent orchestration dashboard. Two independent processes 
 1. **Bash supervisor** (`supervisor.sh`) — builds Go binary + frontend, manages the server as a single deployment unit
 2. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port
 
-> **Legacy note**: `packages/api/` contains the prior implementation, pending removal in Phase 4. The canonical backend is now `app/backend/`.
-
-In development, `dev.sh` runs two concurrent processes:
+In development, `just dev` runs two concurrent processes:
 - Go backend (`:3000`) — API, WebSocket relay, SPA static serving
 - Vite dev server (`:5173`) — HMR, proxies `/api/*` and `/relay/*` to Go via `vite.config.ts`
 
@@ -23,7 +21,7 @@ pnpm workspaces monorepo:
 
 ```
 app/
-  backend/            # Go module — canonical backend (Phase 2+)
+  backend/            # Go module — backend
     cmd/run-kit/      # Entry point (main.go)
     internal/         # validate, config, tmux, fab, sessions
     api/              # HTTP handlers — one file per resource domain
@@ -38,29 +36,12 @@ app/
       spa.go          # SPA static serving from app/frontend/dist/
     go.mod, go.sum
   frontend/           # Vite + React SPA — single-view UI
-packages/
-  api/                # Legacy Go backend — pending removal in Phase 4
-  web/                # Legacy frontend — pending removal in Phase 4
-    src/
-      api/            # Typed fetch wrappers (client.ts) — POST-only mutations
-      components/     # React components (sidebar, breadcrumb-dropdown, bottom-bar, etc.)
-      contexts/       # ChromeProvider, SessionProvider
-      hooks/          # useSessions, useKeyboardNav, useVisualViewport, etc.
-      app.tsx         # Single-view layout (sidebar + terminal)
-      types.ts        # Shared TypeScript types
-    tests/
-      msw/            # MSW handlers for API + SSE mocking
-      e2e/            # Playwright E2E tests
-    vite.config.ts
-    vitest.config.ts
-    playwright.config.ts
-e2e/                  # Legacy Playwright E2E tests (Phase 4 removal)
 fab/                # Fab-kit project config + changes
 docs/               # Memory files
 supervisor.sh       # Production process manager
-dev.sh              # Development launcher (Go + Vite concurrent)
+justfile            # Task runner (dev, verify, test commands)
 Caddyfile.example   # HTTPS reverse proxy (TLS termination only)
-pnpm-workspace.yaml # ["packages/web", "app/frontend"] — Go is independent
+pnpm-workspace.yaml # ["app/frontend"] — Go is independent
 ```
 
 ## Data Model
@@ -80,8 +61,6 @@ Packages in `app/backend/internal/`:
 | `internal/sessions` | Derives project roots from tmux, auto-detects fab-kit via `os.Stat("fab/project/config.yaml")`, enriches with fab state. Per-session enrichment model: reads `.fab-status.yaml` once from window 0's project root, applies `FabChange`/`FabStage` to all windows in the session. Session enrichment runs in parallel via goroutines with `sync.WaitGroup` and indexed assignment to preserve tmux ordering |
 | `internal/validate` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
 | `internal/config` | Server config (port, host) — reads CLI args > `run-kit.yaml` > defaults. YAML parsing via `gopkg.in/yaml.v3` |
-
-> `internal/worktree` was present in `packages/api/` but is not ported to `app/backend/` (dead code, not API-exposed).
 
 ### External Go Dependencies
 
@@ -233,23 +212,11 @@ Vitest with jsdom environment. Config at `app/frontend/vitest.config.ts`. MSW mo
 
 Test coverage includes: sidebar (expand/collapse, window selection, kill session), breadcrumb dropdowns (open/close, selection), drawer (open via hamburger, close on selection), keyboard shortcuts (j/k navigation, c for create, Cmd+K palette), command palette, modifier state, touch targets (44px on `coarse`), API client (correct URL construction for each endpoint).
 
-### Frontend Unit Tests (packages/web/) — Legacy
-
-Vitest with jsdom environment. Config at `packages/web/vitest.config.ts`. Setup file at `packages/web/src/test-setup.ts` imports `@testing-library/jest-dom/vitest` for extended DOM matchers.
-
-Current coverage: `command-palette.tsx` (keyboard interaction, filtering, open/close), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts).
-
 ### Playwright E2E Tests (app/frontend/tests/e2e/)
 
 Thin suite (3-5 tests) for API round-trip validation. Config at `app/frontend/playwright.config.ts`. Self-managed tmux sessions in `beforeAll`/`afterAll` hooks.
 
 E2E test coverage: create/kill session via UI, SSE stream delivers real data, sidebar navigation.
-
-### Playwright E2E Tests (e2e/) — Legacy
-
-Config at `playwright.config.ts` (repo root). Two projects: `desktop` (Chromium) and `mobile` (WebKit, iPhone 14 viewport).
-
-Legacy suites: `chrome-stability.spec.ts`, `breadcrumbs.spec.ts`, `bottom-bar.spec.ts`, `compose-buffer.spec.ts`, `kill-button.spec.ts`, `mobile.spec.ts`.
 
 ## Security
 
@@ -282,6 +249,7 @@ Legacy suites: `chrome-stability.spec.ts`, `breadcrumbs.spec.ts`, `bottom-bar.sp
 | 2026-03-07 | Sync byobu active tab — `isActiveWindow` on `WindowInfo`, breadcrumb/URL/action sync via SSE + `history.replaceState` | `260307-f3li-sync-byobu-active-tab` |
 | 2026-03-07 | Breadcrumb type extended with `dropdownItems` for project/window switching dropdowns | `260307-uzsa-navbar-breadcrumb-dropdowns` |
 | 2026-03-07 | Playwright E2E tests — chrome stability, breadcrumbs, bottom bar, compose buffer, kill button, mobile viewport | `260305-r7zs-playwright-e2e-design-spec` |
-| 2026-03-10 | **Go backend + Vite SPA split** — replaced Next.js monolith with Go backend (`packages/api/`) + Vite React SPA (`packages/web/`). Single-port architecture (API, SSE, WebSocket relay, SPA static serving on one Go binary). chi router, gorilla/websocket, creack/pty. TanStack Router for client-side routing. Typed API client module. Go table-driven tests ported from Vitest. E2E tests updated for Go + Vite dev servers. | `260310-8xaq-go-backend-vite-spa-split` |
-| 2026-03-12 | **Go backend API at `app/backend/`** — new canonical backend alongside legacy `packages/api/`. Handler files split by resource domain (sessions.go, windows.go, etc.). POST-only mutations with path-based intent. `internal/fab` rewritten to read `.fab-status.yaml` directly (no subprocess). Per-session fab enrichment model. `WindowInfo` fields changed: `FabChange`/`FabStage` replace `FabStage`/`FabProgress`. Upload endpoint session from URL path. Handler integration tests via `httptest.NewRecorder` + mock interfaces. SPA serves from `app/frontend/dist/`. | `260312-r4t9-go-backend-api` |
+| 2026-03-10 | **Go backend + Vite SPA split** — replaced Next.js monolith with Go backend + Vite React SPA. Single-port architecture (API, SSE, WebSocket relay, SPA static serving on one Go binary). chi router, gorilla/websocket, creack/pty. TanStack Router for client-side routing. Typed API client module. Go table-driven tests ported from Vitest. E2E tests updated for Go + Vite dev servers. | `260310-8xaq-go-backend-vite-spa-split` |
+| 2026-03-12 | **Go backend API at `app/backend/`** — handler files split by resource domain (sessions.go, windows.go, etc.). POST-only mutations with path-based intent. `internal/fab` rewritten to read `.fab-status.yaml` directly (no subprocess). Per-session fab enrichment model. `WindowInfo` fields changed: `FabChange`/`FabStage` replace `FabStage`/`FabProgress`. Upload endpoint session from URL path. Handler integration tests via `httptest.NewRecorder` + mock interfaces. SPA serves from `app/frontend/dist/`. | `260312-r4t9-go-backend-api` |
 | 2026-03-12 | **Vite/React frontend at `app/frontend/`** — single-view UI (sidebar + terminal, one route `/:session/:window`), POST-only API client with path-based intent, ChromeProvider derives from selection (no slot injection), sidebar with session/window tree + mobile drawer, MSW-backed Vitest, Playwright E2E at `app/frontend/tests/e2e/` | `260312-ux92-vite-react-frontend` |
+| 2026-03-12 | **Cleanup old implementation** — removed legacy backend and frontend directories, `e2e/`, root `playwright.config.ts`. Updated `pnpm-workspace.yaml` to `["app/frontend"]`. Removed legacy test sections and stale path references from memory. | `260312-n11e-cleanup-old-implementation` |

@@ -16,7 +16,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "bash ../../dev.sh",
+    command: "just --justfile ../../justfile --working-directory ../.. dev",
     port: 5173,
     reuseExistingServer: true,
     timeout: 60_000,

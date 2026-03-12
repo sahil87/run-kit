@@ -5,33 +5,40 @@ created_by: sahil-weaver
 change_type: chore
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    tasks: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
 checklist:
-    generated: false
+    generated: true
     path: checklist.md
     completed: 0
-    total: 0
+    total: 12
 confidence:
-    certain: 3
-    confident: 1
+    certain: 4
+    confident: 2
     tentative: 0
     unresolved: 0
-    score: 4.7
-    indicative: true
+    score: 4.4
     fuzzy: true
     dimensions:
-        signal: 91.3
-        reversibility: 78.8
-        competence: 92.5
-        disambiguation: 93.8
+        signal: 89.2
+        reversibility: 81.7
+        competence: 90.8
+        disambiguation: 93.3
 stage_metrics:
-    intake: {started_at: "2026-03-12T07:24:05Z", driver: fab-new, iterations: 1}
-prs: []
-last_updated: 2026-03-12T07:24:26Z
+    intake: {started_at: "2026-03-12T07:24:05Z", driver: fab-new, iterations: 1, completed_at: "2026-03-12T17:03:25Z"}
+    spec: {started_at: "2026-03-12T17:03:25Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T17:04:49Z"}
+    tasks: {started_at: "2026-03-12T17:04:49Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T17:04:49Z"}
+    apply: {started_at: "2026-03-12T17:16:38Z", driver: fab-ff, iterations: 2, completed_at: "2026-03-12T17:16:38Z"}
+    review: {started_at: "2026-03-12T17:16:38Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T17:16:43Z"}
+    hydrate: {started_at: "2026-03-12T17:16:43Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T17:16:49Z"}
+    ship: {started_at: "2026-03-12T17:16:49Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T17:18:38Z"}
+    review-pr: {started_at: "2026-03-12T17:18:38Z", driver: fab-ff, iterations: 1}
+prs:
+    - https://github.com/wvrdz/run-kit/pull/35
+last_updated: 2026-03-12T17:18:38Z

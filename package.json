@@ -5,13 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "just dev",
-    "supervisor": "bash supervisor.sh",
-    "test": "pnpm --filter run-kit-web test",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "supervisor": "bash supervisor.sh"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
     "typescript": "^5.7.0"
   }
 }

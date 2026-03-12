@@ -334,8 +334,26 @@ function AppShell() {
         type="file"
         multiple
         className="hidden"
-        onChange={(e) => {
-          // handled by terminal client
+        onChange={async (e) => {
+          const { files } = e.target;
+          if (!files || files.length === 0) {
+            return;
+          }
+
+          const formData = new FormData();
+          Array.from(files).forEach((file) => {
+            formData.append("files", file);
+          });
+
+          try {
+            await fetch("/api/upload", {
+              method: "POST",
+              body: formData,
+            });
+          } finally {
+            // Reset the input so the same file can be selected again later.
+            e.target.value = "";
+          }
         }}
       />
 

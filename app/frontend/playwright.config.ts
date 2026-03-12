@@ -16,9 +16,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm dev",
+    command: "bash ../../dev.sh",
     port: 5173,
     reuseExistingServer: true,
-    timeout: 15_000,
+    timeout: 60_000,
   },
 });

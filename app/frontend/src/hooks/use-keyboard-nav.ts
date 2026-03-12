@@ -34,14 +34,17 @@ export function useKeyboardNav({
 
       switch (e.key) {
         case "j":
+          if (itemCount === 0) return;
           e.preventDefault();
           setFocusedIndex((i) => Math.min(i + 1, itemCount - 1));
           break;
         case "k":
+          if (itemCount === 0) return;
           e.preventDefault();
           setFocusedIndex((i) => Math.max(i - 1, 0));
           break;
         case "Enter":
+          if (itemCount === 0) return;
           e.preventDefault();
           onSelect(focusedIndex);
           break;

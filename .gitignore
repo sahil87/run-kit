@@ -166,3 +166,6 @@ fab/.kit/bin/*
 !fab/.kit/bin/.gitkeep
 
 .fab-*
+
+# Playwright MCP
+.playwright-mcp/

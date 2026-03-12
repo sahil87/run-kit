@@ -1,5 +1,5 @@
 # Fab Specific
-.fab-status.yaml
+.fab-*
 fab/.kit-sync-version
 fab/.kit/bin/*
 !fab/.kit/bin/fab

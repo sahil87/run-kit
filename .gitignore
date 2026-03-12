@@ -164,3 +164,5 @@ fab/.kit/bin/*
 !fab/.kit/bin/fab
 
 !fab/.kit/bin/.gitkeep
+
+.fab-*

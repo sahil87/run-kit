@@ -1,9 +1,9 @@
 ---
-name: fab-operator1
-description: "Multi-agent coordination in tmux — observe agents via pane-map and status, interact via send-keys, coordinate cross-agent actions."
+name: fab-operator2
+description: "Multi-agent coordination with proactive monitoring — observe agents via pane-map, interact via send-keys, monitor progress after every action."
 ---
 
-# /fab-operator1
+# /fab-operator2
 
 > Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.
 
@@ -11,7 +11,9 @@ description: "Multi-agent coordination in tmux — observe agents via pane-map a
 
 ## Purpose
 
-Multi-agent coordination layer that runs in a dedicated tmux pane. Observes all running fab agents via `fab pane-map`, and interacts with them via `fab send-keys`. Translates natural-language user instructions into cross-agent actions: broadcasting commands, sequencing rebases, spawning new worktrees, and merging PRs.
+Multi-agent coordination layer with proactive monitoring. Runs in a dedicated tmux pane, observes all running fab agents via `fab pane-map`, and interacts with them via `fab send-keys`. Translates natural-language user instructions into cross-agent actions: broadcasting commands, sequencing rebases, spawning new worktrees, and merging PRs.
+
+**Key difference from operator1**: After every action that dispatches work to another agent, operator2 automatically enrolls the target in a monitoring loop. Instead of fire-and-forget (send and go idle), operator2 uses `/loop` to periodically check agent progress, detect stage advances, completions, failures, pane deaths, and stuck agents — then reports transitions to the user.
 
 Not a lifecycle enforcer — individual agents already know their pipeline. The operator handles coordination that requires cross-agent awareness.
 
@@ -44,7 +46,7 @@ Do **not** run preflight. Do **not** load change-specific artifacts (intakes, sp
 After context loading, log the command invocation:
 
 ```bash
-fab/.kit/bin/fab log command "fab-operator1" 2>/dev/null || true
+fab/.kit/bin/fab log command "fab-operator2" 2>/dev/null || true
 ```
 
 This is best-effort — the logger resolves the active change via the `.fab-status.yaml` symlink if one exists. Failures are silently ignored.
@@ -56,9 +58,9 @@ This is best-effort — the logger resolves the active change via the `.fab-stat
 On invocation, display the current coordination landscape:
 
 1. **Pane map**: Run `fab/.kit/bin/fab pane-map` and display the output (shows Pane, Tab, Worktree, Change, Stage, Agent)
-2. **Ready signal**: Output `Ready for coordination commands.`
+2. **Ready signal**: Output `Ready for coordination commands. Monitoring is active after every send.`
 
-**Launcher**: Start the operator via `fab/.kit/scripts/fab-operator1.sh` — creates a singleton tmux tab named `operator` and invokes `/fab-operator1` in a new Claude session.
+**Launcher**: Start the operator via `fab/.kit/scripts/fab-operator2.sh` — creates a singleton tmux tab named `operator` and invokes `/fab-operator2` in a new Claude session.
 
 ### Outside tmux
 
@@ -68,7 +70,7 @@ If `$TMUX` is unset, display:
 Warning: not inside a tmux session. Pane map and send-keys unavailable. Status-only mode.
 ```
 
-Then run `fab/.kit/bin/fab status show --all` for status queries only. `fab send-keys` and `fab pane-map` are unavailable.
+Then run `fab/.kit/bin/fab status show --all` for status queries only. `fab send-keys` and `fab pane-map` are unavailable. Monitoring is disabled.
 
 ---
 
@@ -82,9 +84,72 @@ Never rely on stale values from conversation memory. If a pane died or a change 
 
 ---
 
+## Monitoring State
+
+The operator maintains a **monitored set** in conversation context (not a persistent file). Each entry tracks:
+
+| Field | Description |
+|-------|-------------|
+| Change ID | The 4-char change identifier |
+| Pane | The tmux pane ID (e.g., `%3`) |
+| Last-known stage | Stage at time of last observation |
+| Last-known agent state | Agent column value at last observation |
+| Enrolled-at | Timestamp when monitoring began |
+| Last-transition-at | Timestamp of last observed state change |
+
+### Enrollment
+
+A change is enrolled in the monitored set when:
+
+1. The operator sends a command to it via `fab send-keys` (UC1 broadcast, UC6 nudge, any direct send)
+2. The user explicitly requests monitoring ("tell me when r3m7 finishes")
+3. The operator triggers an automatic action toward it (UC2 sequenced rebase)
+
+Read-only actions (status check, pane map refresh) do NOT enroll changes.
+
+### Removal
+
+A change is removed from the monitored set when:
+
+1. It reaches a terminal stage: `hydrate`, `ship`, or `review-pr`
+2. Its pane dies (no longer appears in `fab pane-map`)
+3. The user explicitly says to stop monitoring it
+
+### Loop Lifecycle
+
+- **Start**: When the first change is enrolled and no loop is running, start `/loop 5m "check monitored agents"` (interval configurable via user instruction, e.g., "check every 2m")
+- **Extend**: When a new change is enrolled and a loop is already running, no action needed — the existing loop covers all monitored changes
+- **Stop**: When the monitored set becomes empty, stop the loop
+- **Only one loop**: There SHALL be at most one active `/loop` at any time
+
+---
+
+## Monitoring Tick Behavior
+
+On each `/loop` tick (and optionally when the user asks "any updates?"):
+
+1. **Re-query state**: Run `fab/.kit/bin/fab pane-map`
+2. **For each change in the monitored set**, compare current state to last-known state:
+
+| Detection | Condition | Report | Action |
+|-----------|-----------|--------|--------|
+| Stage advance | Stage changed from last-known | "{change}: {old_stage} -> {new_stage}" | Update baseline |
+| Pipeline completion | Stage is `hydrate`, `ship`, or `review-pr` | "{change}: reached {stage} -- pipeline complete" | Remove from monitored set |
+| Review failure | Stage went from `review` back to `apply` | "{change}: review failed, reworking (back at apply)" | Update baseline |
+| Pane death | Change no longer appears in pane map | "{change}: pane {pane} is gone -- agent exited" | Remove from monitored set |
+| Stuck detection | Agent idle at non-terminal stage for > stuck threshold (default 15m) | "{change}: idle at {stage} for {duration} -- may be stuck" | Advisory only — do NOT auto-nudge |
+
+3. **After processing all changes**: If the monitored set is now empty, stop the loop and report: "All monitored changes complete."
+
+### Stuck Detection
+
+The stuck threshold defaults to 15 minutes and MAY be overridden by user instruction (e.g., "flag agents stuck for more than 10 minutes"). Stuck detection is **advisory only** — the operator reports to the user but does NOT automatically send `/fab-continue` or any other command. Nudging requires explicit UC6 invocation or user instruction.
+
+---
+
 ## Use Cases
 
-Each use case follows the pattern: **interpret user intent** then **refresh state** then **validate preconditions** then **execute** then **report**.
+Each use case follows the pattern: **interpret user intent** then **refresh state** then **validate preconditions** then **execute** then **report** then **enroll in monitoring** (if work was dispatched).
 
 ### UC1: Broadcast command to all idle agents
 
@@ -93,12 +158,15 @@ Each use case follows the pattern: **interpret user intent** then **refresh stat
 3. Announce: "Sending {command} to {change1} (%N), {change2} (%M)"
 4. For each idle agent: `fab/.kit/bin/fab send-keys <change> "<command>"`
 5. Report: "Done. {N} agents received {command}."
+6. **Enroll all recipients in monitoring**
 
 ### UC2: Sequenced rebase after completion
 
-1. Hold the instruction in conversation context (e.g., "when r3m7 finishes, rebase k8ds on main")
-2. On the next user interaction (or when explicitly asked to check), query the trigger change's status
-3. When the trigger change reaches hydrate or later, send the rebase command to the target change via `fab/.kit/bin/fab send-keys`
+1. Enroll the trigger change in monitoring (if not already monitored)
+2. The monitoring loop detects when the trigger change reaches the target stage (e.g., hydrate)
+3. When detected: send the rebase command to the target change via `fab/.kit/bin/fab send-keys`
+4. Report: "{trigger} finished. Sending rebase to {target}."
+5. Enroll the target change in monitoring
 
 ### UC3: Merge completed PRs
 
@@ -118,6 +186,7 @@ Each use case follows the pattern: **interpret user intent** then **refresh stat
 
 1. Refresh pane map via `fab/.kit/bin/fab pane-map`
 2. Present a concise human-readable summary with change name, tab, stage, and agent state
+3. If monitoring is active, include the monitored set with enrolled-at timestamps and last-known state
 
 ### UC6: Unstick a stuck agent
 
@@ -125,14 +194,14 @@ Each use case follows the pattern: **interpret user intent** then **refresh stat
 2. Announce: "Sending /fab-continue to {change} (%N)"
 3. Send `/fab-continue` via `fab/.kit/bin/fab send-keys <change> "/fab-continue"`
 4. Report the send
-5. If a **second nudge** is requested for the same agent, warn: "Already nudged {change} once. Manual investigation recommended." Send only if the user explicitly insists.
+5. **Enroll the nudged agent in monitoring** to check recovery
+6. If a **second nudge** is requested for the same agent, warn: "Already nudged {change} once. Manual investigation recommended." Send only if the user explicitly insists.
 
 ### UC7: Notification surface
 
-1. When user says "tell me when {change} finishes," hold the instruction in conversation context
-2. On the next user interaction (or when asked "any updates?"), check the change's status
-3. If the change has reached hydrate or later: "{change} finished — now at {stage}."
-4. If not finished: "{change} still at {stage}."
+1. When user says "tell me when {change} finishes," **enroll the change in monitoring immediately** (if not already)
+2. The monitoring loop handles notification automatically — no "check on next user interaction" caveat
+3. When the monitoring tick detects the change at a terminal stage: "{change} finished — now at {stage}."
 
 ### UC8: Autopilot
 
@@ -215,7 +284,7 @@ When UC8 delegates here, the operator drives a queue of changes through the full
 
 ### Monitoring via `/loop`
 
-The operator itself stays reactive — it acts in response to input. Autopilot monitoring uses `/loop` to provide a periodic heartbeat:
+Autopilot uses its own `/loop` cadence (default 2m, more aggressive than the standard 5m monitoring interval). If a general monitoring loop is already running, it is replaced by the autopilot loop:
 
 1. After confirming the queue and starting the first change, invoke `/loop 2m "check autopilot progress"`
 2. Each tick: re-derive state via `fab pane-map` → check current change → advance/flag/skip as needed
@@ -239,22 +308,22 @@ The operator resolves queue order via one of three strategies:
 For each change in the resolved queue:
 
 ```
-1. Spawn        → wt create --non-interactive --reuse --worktree-name <change> <branch>
-2. Open tab     → tmux new-window -n "fab-<id>" -c <worktree> \
+1. Spawn        -> wt create --non-interactive --reuse --worktree-name <change> <branch>
+2. Open tab     -> tmux new-window -n "fab-<id>" -c <worktree> \
                    "claude --dangerously-skip-permissions '/fab-switch <change>'"
-3. Gate check   → fab/.kit/bin/fab status show <change>
-                   - confidence >= gate → fab/.kit/bin/fab send-keys <change> "/fab-ff"
-                   - confidence < gate  → flag to user with score and threshold
-4. Monitor      → poll fab/.kit/bin/fab pane-map on each user interaction
-                   - stage reaches hydrate/ship → change succeeded
-                   - review fails after rework budget → flag and skip
-                   - agent idle >15 min at non-terminal stage → nudge once, then flag
-                   - pane dies → flag and skip
-5. Merge        → gh pr merge from operator shell (destructive — already confirmed)
-6. Rebase next  → fab/.kit/bin/fab send-keys <next-change> "git fetch origin main && git rebase origin/main"
-                   - conflict → flag to user, skip to next (never auto-resolve)
-7. Cleanup      → wt delete <worktree-name> (optional, after merge)
-8. Progress     → report one-line status
+3. Gate check   -> fab/.kit/bin/fab status show <change>
+                   - confidence >= gate -> fab/.kit/bin/fab send-keys <change> "/fab-ff"
+                   - confidence < gate  -> flag to user with score and threshold
+4. Monitor      -> poll fab/.kit/bin/fab pane-map on each tick
+                   - stage reaches hydrate/ship -> change succeeded
+                   - review fails after rework budget -> flag and skip
+                   - agent idle >15 min at non-terminal stage -> nudge once, then flag
+                   - pane dies -> flag and skip
+5. Merge        -> gh pr merge from operator shell (destructive -- already confirmed)
+6. Rebase next  -> fab/.kit/bin/fab send-keys <next-change> "git fetch origin main && git rebase origin/main"
+                   - conflict -> flag to user, skip to next (never auto-resolve)
+7. Cleanup      -> wt delete <worktree-name> (optional, after merge)
+8. Progress     -> report one-line status
 ```
 
 ### Failure Matrix
@@ -297,6 +366,18 @@ When the queue is complete, the operator outputs a final summary listing each ch
 
 ---
 
+## Configuration
+
+| Setting | Default | Override |
+|---------|---------|----------|
+| Monitoring interval | 5m | "check every {N}m" or "monitor every {N}m" |
+| Stuck threshold | 15m | "flag agents stuck for more than {N} minutes" |
+| Autopilot tick interval | 2m | "autopilot check every {N}m" |
+
+All settings are session-scoped — they reset when the operator session restarts.
+
+---
+
 ## Key Properties
 
 | Property | Value |
@@ -308,4 +389,5 @@ When the queue is complete, the operator outputs a final summary listing each ch
 | Advances stage? | No |
 | Outputs `Next:` line? | No — ends with ready signal |
 | Loads change artifacts? | No — coordination context only |
-| Requires tmux? | Yes for pane-map and send-keys; status-only mode without |
+| Requires tmux? | Yes for pane-map, send-keys, and monitoring; status-only mode without |
+| Uses `/loop`? | Yes — for proactive monitoring after every send |

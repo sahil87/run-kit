@@ -9,9 +9,11 @@ set -euo pipefail
 # Run from anywhere: fab/.kit/scripts/fab-sync.sh
 # Safe to re-run (idempotent).
 
-scripts_dir="$(cd "$(dirname "$0")" && pwd)"
-kit_dir="$(dirname "$scripts_dir")"
-fab_dir="$(dirname "$kit_dir")"
+# Resolve paths from git toplevel so this works in worktrees
+# ($0 follows git's file sharing back to the main repo).
+repo_root="$(git rev-parse --show-toplevel)"
+kit_dir="$repo_root/fab/.kit"
+fab_dir="$repo_root/fab"
 
 echo "fab-sync: running kit-level scripts..."
 for script in "$kit_dir"/sync/*.sh; do

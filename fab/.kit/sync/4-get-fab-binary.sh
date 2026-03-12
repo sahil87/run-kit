@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# fab/.kit/sync/4-get-fab-binary.sh — Ensure the Go binary is present
+# fab/.kit/sync/4-get-fab-binary.sh — Ensure kit binaries are present
 #
-# Downloads the platform-specific fab binary from GitHub Releases if missing.
-# Skipped gracefully when gh CLI is unavailable or the release lacks a binary.
+# Downloads the platform-specific kit binaries from GitHub Releases if missing.
+# Skipped gracefully when gh CLI is unavailable or the release lacks binaries.
 # Idempotent — safe to re-run.
 
 sync_dir="$(cd "$(dirname "$0")" && pwd)"
@@ -12,15 +12,26 @@ kit_dir="$(dirname "$sync_dir")"
 fab_dir="$(dirname "$kit_dir")"
 bin_dir="$kit_dir/bin"
 
+# All binaries that ship in the platform archive
+kit_binaries=("fab-go" "wt" "idea")
+
+# Check which binaries are missing
+missing=()
+for bin in "${kit_binaries[@]}"; do
+  if [ ! -x "$bin_dir/$bin" ]; then
+    missing+=("$bin")
+  fi
+done
+
 # Already present — nothing to do
-if [ -x "$bin_dir/fab-go" ]; then
-  echo "fab binary: OK"
+if [ ${#missing[@]} -eq 0 ]; then
+  echo "kit binaries: OK"
   return 0 2>/dev/null || exit 0
 fi
 
 # Need gh CLI to download
 if ! command -v gh &>/dev/null; then
-  echo "fab binary: skipped (gh CLI not found)"
+  echo "kit binaries: skipped (gh CLI not found)"
   return 0 2>/dev/null || exit 0
 fi
 
@@ -45,18 +56,25 @@ cleanup() { rm -rf "$tmp_dir"; }
 trap cleanup EXIT
 
 if ! gh release download "$tag" --repo "$repo" --pattern "$platform_archive" --dir "$tmp_dir" 2>/dev/null; then
-  echo "fab binary: skipped (no release asset for ${detect_os}/${detect_arch})"
+  echo "kit binaries: skipped (no release asset for ${detect_os}/${detect_arch})"
   exit 0
 fi
 
-# Extract just the binary
-if ! tar xzf "$tmp_dir/$platform_archive" -C "$tmp_dir" .kit/bin/fab-go 2>/dev/null; then
-  echo "fab binary: skipped (archive lacks binary)"
+# Extract binaries from archive
+extract_args=()
+for bin in "${missing[@]}"; do
+  extract_args+=(".kit/bin/$bin")
+done
+
+if ! tar xzf "$tmp_dir/$platform_archive" -C "$tmp_dir" "${extract_args[@]}" 2>/dev/null; then
+  echo "kit binaries: skipped (archive lacks binaries)"
   exit 0
 fi
 
 # Install
 mkdir -p "$bin_dir"
-cp "$tmp_dir/.kit/bin/fab-go" "$bin_dir/fab-go"
-chmod +x "$bin_dir/fab-go"
-echo "fab binary: installed (${detect_os}/${detect_arch})"
+for bin in "${missing[@]}"; do
+  cp "$tmp_dir/.kit/bin/$bin" "$bin_dir/$bin"
+  chmod +x "$bin_dir/$bin"
+done
+echo "kit binaries: installed ${missing[*]} (${detect_os}/${detect_arch})"

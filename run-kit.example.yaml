@@ -3,4 +3,5 @@
 
 server:
   port: 3000        # Go server port (API + WebSocket relay + SPA)
+  dev_port: 3001    # Vite dev server port (dev mode only)
   host: 127.0.0.1   # Bind address (use 0.0.0.0 to expose to network)

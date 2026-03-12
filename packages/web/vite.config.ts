@@ -4,20 +4,25 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "yaml";
 
-function loadBackendTarget(): string {
+interface RunKitConfig {
+  server?: { port?: number; dev_port?: number; host?: string };
+}
+
+function loadConfig(): RunKitConfig {
   try {
-    const doc = parse(
+    return parse(
       readFileSync(resolve(__dirname, "../../run-kit.yaml"), "utf8"),
-    );
-    const port = doc?.server?.port ?? 3000;
-    const host = doc?.server?.host ?? "127.0.0.1";
-    return `http://${host}:${port}`;
+    ) as RunKitConfig;
   } catch {
-    return "http://127.0.0.1:3000";
+    return {};
   }
 }
 
-const backendTarget = loadBackendTarget();
+const cfg = loadConfig();
+const apiPort = cfg.server?.port ?? 3000;
+const apiHost = cfg.server?.host ?? "127.0.0.1";
+const devPort = cfg.server?.dev_port ?? 5173;
+const backendTarget = `http://${apiHost}:${apiPort}`;
 
 export default defineConfig({
   plugins: [react()],
@@ -27,6 +32,9 @@ export default defineConfig({
     },
   },
   server: {
+    port: devPort,
+    host: apiHost,
+    allowedHosts: true,
     proxy: {
       "/api": {
         target: backendTarget,

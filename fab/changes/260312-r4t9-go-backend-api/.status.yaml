@@ -11,8 +11,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 checklist:
     generated: true
     path: checklist.md
@@ -37,6 +37,8 @@ stage_metrics:
     apply: {started_at: "2026-03-12T09:12:31Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:24:21Z"}
     review: {started_at: "2026-03-12T09:24:21Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:28:11Z"}
     hydrate: {started_at: "2026-03-12T09:28:11Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:31:29Z"}
-    ship: {started_at: "2026-03-12T09:31:29Z", driver: fab-ff, iterations: 1}
-prs: []
-last_updated: 2026-03-12T09:31:29Z
+    ship: {started_at: "2026-03-12T09:31:29Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:33:14Z"}
+    review-pr: {started_at: "2026-03-12T09:33:14Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/wvrdz/run-kit/pull/33
+last_updated: 2026-03-12T09:33:14Z

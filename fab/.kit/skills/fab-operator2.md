@@ -1,6 +1,6 @@
 ---
 name: fab-operator2
-description: "Multi-agent coordination with proactive monitoring — observe agents via pane-map, interact via send-keys, monitor progress after every action."
+description: "Multi-agent coordination with proactive monitoring — observe agents via pane-map, interact via resolve --pane + tmux send-keys, monitor progress after every action."
 ---
 
 # /fab-operator2
@@ -11,7 +11,7 @@ description: "Multi-agent coordination with proactive monitoring — observe age
 
 ## Purpose
 
-Multi-agent coordination layer with proactive monitoring. Runs in a dedicated tmux pane, observes all running fab agents via `fab pane-map`, and interacts with them via `fab send-keys`. Translates natural-language user instructions into cross-agent actions: broadcasting commands, sequencing rebases, spawning new worktrees, and merging PRs.
+Multi-agent coordination layer with proactive monitoring. Runs in a dedicated tmux pane, observes all running fab agents via `fab pane-map`, and interacts with them via `fab resolve --pane` + raw `tmux send-keys`. Translates natural-language user instructions into cross-agent actions: broadcasting commands, sequencing rebases, spawning new worktrees, and merging PRs.
 
 **Key difference from operator1**: After every action that dispatches work to another agent, operator2 automatically enrolls the target in a monitoring loop. Instead of fire-and-forget (send and go idle), operator2 uses `/loop` to periodically check agent progress, detect stage advances, completions, failures, pane deaths, and stuck agents — then reports transitions to the user.
 
@@ -53,11 +53,50 @@ This is best-effort — the logger resolves the active change via the `.fab-stat
 
 ---
 
+## Available Tools
+
+This is the authoritative mapping of intent to tool. Use the right tool for the job — do not improvise alternatives.
+
+### Observation
+
+| Intent | Tool | Notes |
+|--------|------|-------|
+| See all agents + stages + panes | `fab/.kit/bin/fab pane-map` | Primary observation tool. Requires tmux. |
+| List all worktrees | `fab/.kit/bin/wt list` | Names, branches, paths. Works without tmux. |
+| Check if a worktree exists | `fab/.kit/bin/wt list --path <name>` | Exit 0 = exists (prints path), exit 1 = not found. |
+| Read an agent's recent terminal output | `tmux capture-pane -t <pane> -p` | For diagnosis. Do NOT deeply analyze — report what you see. |
+
+### Pipeline Queries
+
+| Intent | Tool | Notes |
+|--------|------|-------|
+| List all open changes | `fab/.kit/bin/fab change list` | Returns name:stage:state:confidence:indicative per line. |
+| Get a change's confidence score | `fab/.kit/bin/fab status confidence <change>` | Use for autopilot gate checks. |
+| Get a change's PR URLs | `fab/.kit/bin/fab status get-prs <change>` | For merge operations. |
+| Look up a backlog idea | `fab/.kit/bin/fab idea show "<description>"` | For spawning new work. |
+
+### Actions
+
+| Intent | Tool | Notes |
+|--------|------|-------|
+| Send a command to an agent | `tmux send-keys -t "$(fab/.kit/bin/fab resolve <change> --pane)" "<text>" Enter` | Always validate pane exists + agent idle first. |
+| Create a worktree | `fab/.kit/bin/wt create --non-interactive --worktree-name <name>` | Add `--reuse` for autopilot respawns. |
+| Delete a worktree | `fab/.kit/bin/wt delete <name>` | Post-merge cleanup. Destructive — confirm first. |
+| Open a new agent tab | `tmux new-window -n "fab-<id>" -c <worktree> "claude --dangerously-skip-permissions '<command>'"` | Spawns a new Claude session in the worktree. |
+| Merge a PR | `gh pr merge <url>` | Run from operator's own shell. Destructive — confirm first. |
+| Start periodic monitoring | `/loop 5m "check monitored agents"` | Interval configurable. Only one loop at a time. |
+
+### State Re-derivation
+
+Before **every** action, re-query live state via `fab pane-map` (or `wt list` + `fab change list` if outside tmux). Never rely on stale values from conversation memory. If a pane died or a change advanced since the last check, the operator must know.
+
+---
+
 ## Orientation on Start
 
 On invocation, display the current coordination landscape:
 
-1. **Pane map**: Run `fab/.kit/bin/fab pane-map` and display the output (shows Pane, Tab, Worktree, Change, Stage, Agent)
+1. **Pane map**: Run `fab/.kit/bin/fab pane-map` and display the output
 2. **Ready signal**: Output `Ready for coordination commands. Monitoring is active after every send.`
 
 **Launcher**: Start the operator via `fab/.kit/scripts/fab-operator2.sh` — creates a singleton tmux tab named `operator` and invokes `/fab-operator2` in a new Claude session.
@@ -67,20 +106,10 @@ On invocation, display the current coordination landscape:
 If `$TMUX` is unset, display:
 
 ```
-Warning: not inside a tmux session. Pane map and send-keys unavailable. Status-only mode.
+Warning: not inside a tmux session. Pane map and resolve --pane unavailable. Status-only mode.
 ```
 
-Then run `fab/.kit/bin/fab status show --all` for status queries only. `fab send-keys` and `fab pane-map` are unavailable. Monitoring is disabled.
-
----
-
-## State Re-derivation
-
-Before **every** action, re-query live state:
-
-- `fab/.kit/bin/fab pane-map` — current pane-to-change mapping with stage and agent state
-
-Never rely on stale values from conversation memory. If a pane died or a change advanced since the last check, the operator must know.
+Use `wt list` (worktree overview) and `fab change list` (pipeline state) for status queries only. Monitoring is disabled.
 
 ---
 
@@ -101,9 +130,9 @@ The operator maintains a **monitored set** in conversation context (not a persis
 
 A change is enrolled in the monitored set when:
 
-1. The operator sends a command to it via `fab send-keys` (UC1 broadcast, UC6 nudge, any direct send)
+1. The operator sends a command to it via `resolve --pane` + `tmux send-keys` (broadcast, nudge, any direct send)
 2. The user explicitly requests monitoring ("tell me when r3m7 finishes")
-3. The operator triggers an automatic action toward it (UC2 sequenced rebase)
+3. The operator triggers an automatic action toward it (sequenced rebase)
 
 Read-only actions (status check, pane map refresh) do NOT enroll changes.
 
@@ -147,68 +176,41 @@ The stuck threshold defaults to 15 minutes and MAY be overridden by user instruc
 
 ---
 
-## Use Cases
+## Modes of Operation
 
-Each use case follows the pattern: **interpret user intent** then **refresh state** then **validate preconditions** then **execute** then **report** then **enroll in monitoring** (if work was dispatched).
+Every mode follows the same rhythm: **interpret user intent → refresh state → validate preconditions → execute → report → enroll in monitoring** (if work was dispatched). Refer to the [Available Tools](#available-tools) section for which tool satisfies each intent.
 
-### UC1: Broadcast command to all idle agents
+### Broadcast
 
-1. Refresh pane map
-2. Filter for idle agents (via the Agent column in the pane map)
-3. Announce: "Sending {command} to {change1} (%N), {change2} (%M)"
-4. For each idle agent: `fab/.kit/bin/fab send-keys <change> "<command>"`
-5. Report: "Done. {N} agents received {command}."
-6. **Enroll all recipients in monitoring**
+Send a command to all idle agents. Filter the pane map for idle agents, announce the targets, send the command to each, and enroll all recipients in monitoring.
 
-### UC2: Sequenced rebase after completion
+### Sequenced Rebase
 
-1. Enroll the trigger change in monitoring (if not already monitored)
-2. The monitoring loop detects when the trigger change reaches the target stage (e.g., hydrate)
-3. When detected: send the rebase command to the target change via `fab/.kit/bin/fab send-keys`
-4. Report: "{trigger} finished. Sending rebase to {target}."
-5. Enroll the target change in monitoring
+"When X finishes, rebase Y on main." Enroll the trigger change in monitoring. When the monitoring loop detects it reaches the target stage, send the rebase to the target change and enroll it in monitoring.
 
-### UC3: Merge completed PRs
+### Merge PRs
 
-1. Refresh pane map, filter for changes at `ship` or `review-pr` stage
-2. For each candidate: `fab/.kit/bin/fab status get-prs <change>` to retrieve PR URLs
-3. **Confirm before executing** (destructive action): "Will merge PRs for {change1}, {change2}. Proceed?"
-4. On confirmation, run `gh pr merge <url>` from the operator's own shell for each PR
+Merge completed PRs for changes at `ship` or `review-pr` stage. Retrieve PR URLs, confirm before executing (destructive), then merge from the operator's own shell.
 
-### UC4: Spawn new worktree + agent from idea
+### Spawn Agent
 
-1. Look up the idea via `fab/.kit/bin/fab idea show "<description>"`
-2. Create a worktree: `wt create --non-interactive --worktree-name <name>`
-3. Open a new tmux tab with a Claude session:
-   `tmux new-window -n "fab-<id>" -c <worktree> "claude --dangerously-skip-permissions '/fab-new <description>'"`
+Start a new worktree + agent from a backlog idea. Look up the idea, create a worktree, open a new tmux tab with a Claude session running `/fab-new`.
 
-### UC5: Status dashboard
+### Status Dashboard
 
-1. Refresh pane map via `fab/.kit/bin/fab pane-map`
-2. Present a concise human-readable summary with change name, tab, stage, and agent state
-3. If monitoring is active, include the monitored set with enrolled-at timestamps and last-known state
+Present a concise summary of all agents: change name, tab, stage, agent state. If monitoring is active, include the monitored set with enrolled-at timestamps.
 
-### UC6: Unstick a stuck agent
+### Unstick Agent
 
-1. Confirm the target agent is idle via the Agent column in the pane map
-2. Announce: "Sending /fab-continue to {change} (%N)"
-3. Send `/fab-continue` via `fab/.kit/bin/fab send-keys <change> "/fab-continue"`
-4. Report the send
-5. **Enroll the nudged agent in monitoring** to check recovery
-6. If a **second nudge** is requested for the same agent, warn: "Already nudged {change} once. Manual investigation recommended." Send only if the user explicitly insists.
+Nudge a stuck agent with `/fab-continue`. Verify the agent is idle first. Enroll in monitoring to check recovery. If a second nudge is requested for the same agent, warn: "Already nudged once. Manual investigation recommended." Send only if the user explicitly insists.
 
-### UC7: Notification surface
+### Notification
 
-1. When user says "tell me when {change} finishes," **enroll the change in monitoring immediately** (if not already)
-2. The monitoring loop handles notification automatically — no "check on next user interaction" caveat
-3. When the monitoring tick detects the change at a terminal stage: "{change} finished — now at {stage}."
+"Tell me when X finishes." Enroll the change in monitoring immediately. The monitoring loop handles notification automatically — when a terminal stage is detected: "{change} finished — now at {stage}."
 
-### UC8: Autopilot
+### Autopilot
 
-1. Accept a list of changes (IDs, names, or "all idle")
-2. Resolve ordering via one of three strategies (user-provided, confidence-based, hybrid)
-3. Confirm the full queue at start (destructive — merges PRs)
-4. Delegate to the [Autopilot Behavior](#autopilot-behavior) section for execution
+Drive a queue of changes through the full pipeline. Accept a list, resolve ordering, confirm the queue (destructive — merges PRs), then delegate to the [Autopilot Behavior](#autopilot-behavior) section.
 
 ---
 
@@ -226,7 +228,7 @@ Actions are categorized into three risk tiers:
 
 ## Pre-Send Validation
 
-Before sending keys to any pane via `fab send-keys`, the operator MUST:
+Before sending keys to any pane via `fab resolve --pane` + `tmux send-keys`, the operator MUST:
 
 1. **Verify pane exists**: Refresh the pane map. If the target pane is gone, report: "Pane for {change} is gone (agent exited or tab closed)." Do NOT attempt to send.
 2. **Check agent is idle**: Read the Agent column from the pane map. If the agent is not idle, warn: "{change} is currently active. Sending may corrupt its work. Send anyway?" Only send if the user confirms.
@@ -266,18 +268,6 @@ Individual agents self-govern via their own pipeline skills. The operator handle
 
 ---
 
-## Terminal Output Inspection
-
-When the user asks about an agent's recent output:
-
-```bash
-tmux capture-pane -t <pane> -p
-```
-
-Present the output to the user. Do NOT attempt to load the agent's spec, tasks, or source files.
-
----
-
 ## Autopilot Behavior
 
 When UC8 delegates here, the operator drives a queue of changes through the full pipeline — spawning agents, monitoring progress, merging PRs, and rebasing downstream changes.
@@ -307,24 +297,13 @@ The operator resolves queue order via one of three strategies:
 
 For each change in the resolved queue:
 
-```
-1. Spawn        -> wt create --non-interactive --reuse --worktree-name <change> <branch>
-2. Open tab     -> tmux new-window -n "fab-<id>" -c <worktree> \
-                   "claude --dangerously-skip-permissions '/fab-switch <change>'"
-3. Gate check   -> fab/.kit/bin/fab status show <change>
-                   - confidence >= gate -> fab/.kit/bin/fab send-keys <change> "/fab-ff"
-                   - confidence < gate  -> flag to user with score and threshold
-4. Monitor      -> poll fab/.kit/bin/fab pane-map on each tick
-                   - stage reaches hydrate/ship -> change succeeded
-                   - review fails after rework budget -> flag and skip
-                   - agent idle >15 min at non-terminal stage -> nudge once, then flag
-                   - pane dies -> flag and skip
-5. Merge        -> gh pr merge from operator shell (destructive -- already confirmed)
-6. Rebase next  -> fab/.kit/bin/fab send-keys <next-change> "git fetch origin main && git rebase origin/main"
-                   - conflict -> flag to user, skip to next (never auto-resolve)
-7. Cleanup      -> wt delete <worktree-name> (optional, after merge)
-8. Progress     -> report one-line status
-```
+1. **Spawn** — Create worktree (with `--reuse` for respawns), open a new agent tab with `/fab-switch <change>`. For user-provided ordering, pass `--base <previous-change-folder-name>` to branch from the prior change: `wt create --non-interactive --reuse --worktree-name <name> <branch> --base <prev-change-folder-name>`. For confidence-based ordering (independent changes), omit `--base`.
+2. **Gate check** — Query confidence score. If >= gate, send `/fab-ff`. If < gate, flag to user with score and threshold.
+3. **Monitor** — Poll pane map on each tick. Detect: stage reaches hydrate/ship (success), review fails after rework budget (flag and skip), agent idle >15 min at non-terminal stage (nudge once, then flag), pane dies (flag and skip).
+4. **Merge** — Merge PR from operator's shell (destructive — already confirmed at queue start)
+5. **Rebase next** — Send rebase to the next change in queue. On conflict: flag to user, skip to next (never auto-resolve).
+6. **Cleanup** — Delete worktree (optional, after merge)
+7. **Progress** — Report one-line status
 
 ### Failure Matrix
 
@@ -389,5 +368,5 @@ All settings are session-scoped — they reset when the operator session restart
 | Advances stage? | No |
 | Outputs `Next:` line? | No — ends with ready signal |
 | Loads change artifacts? | No — coordination context only |
-| Requires tmux? | Yes for pane-map, send-keys, and monitoring; status-only mode without |
+| Requires tmux? | Yes for pane-map, resolve --pane, and monitoring; status-only mode without |
 | Uses `/loop`? | Yes — for proactive monitoring after every send |

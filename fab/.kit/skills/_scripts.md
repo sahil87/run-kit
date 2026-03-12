@@ -36,15 +36,13 @@ fab/.kit/bin/fab <command> <subcommand> [args...]
 |---------|---------|
 | `fab resolve` | Change reference resolution |
 | `fab status` | Stage state machine + metadata |
-| `fab status show` | Worktree fab pipeline status |
 | `fab log` | Append-only history logging |
 | `fab preflight` | Validation + structured YAML output |
 | `fab change` | Change lifecycle (new, rename, switch, list, archive, restore, archive-list) |
 | `fab score` | Confidence scoring |
 | `fab runtime` | Runtime state management (.fab-runtime.yaml) |
 | `fab hook` | Claude Code hook subcommands (session-start, stop, user-prompt, artifact-write, sync) |
-| `fab pane-map` | Tmux pane-to-worktree mapping with fab pipeline state |
-| `fab send-keys` | Send text to a change's tmux pane |
+| `fab pane-map` | Tmux pane-to-worktree mapping with pipeline state (all panes) |
 | `fab idea` | Backlog idea management (add, list, show, done, reopen, edit, rm) |
 
 ---
@@ -104,7 +102,6 @@ fab/.kit/bin/fab status <subcommand> <change> [args...]
 
 | Subcommand | Usage | Purpose |
 |------------|-------|---------|
-| `show` | `show [--all] [--json] [<name>]` | Worktree fab pipeline status |
 | `finish` | `finish <change> <stage> [driver]` | Mark stage done, auto-activate next. Review stage auto-logs "passed" |
 | `start` | `start <change> <stage> [driver] [from] [reason]` | pending/failed → active |
 | `advance` | `advance <change> <stage> [driver]` | active → ready |
@@ -185,7 +182,7 @@ Validates: config.yaml exists, constitution.md exists, active change resolved, `
 Change Resolver — pure query, no side effects. Converts any change reference to a canonical output.
 
 ```
-fab/.kit/bin/fab resolve [--id|--folder|--dir|--status] [<change>]
+fab/.kit/bin/fab resolve [--id|--folder|--dir|--status|--pane] [<change>]
 ```
 
 | Flag | Output |
@@ -194,6 +191,7 @@ fab/.kit/bin/fab resolve [--id|--folder|--dir|--status] [<change>]
 | `--folder` | Full folder name (e.g., `260228-9fg2-refactor-kit-scripts`) |
 | `--dir` | Directory path (e.g., `fab/changes/260228-9fg2-refactor-kit-scripts/`) |
 | `--status` | `.status.yaml` path (e.g., `fab/changes/260228-9fg2-refactor-kit-scripts/.status.yaml`) |
+| `--pane` | Tmux pane ID (e.g., `%5`). Requires `$TMUX`. Errors if no pane matches the change |
 
 ---
 
@@ -271,7 +269,7 @@ fab/.kit/bin/fab hook <subcommand>
 
 ## fab pane-map
 
-Pane Map — shows all tmux panes mapped to their fab worktrees with pipeline state. Requires an active tmux session.
+Pane Map — shows all tmux panes with pipeline state. Requires an active tmux session. Includes all panes regardless of whether they are in a git repo or have a `fab/` directory.
 
 ```
 fab/.kit/bin/fab pane-map
@@ -283,14 +281,14 @@ No arguments or flags. Discovers panes in the current tmux session only (`-s` se
 |--------|---------|
 | Pane | Tmux pane ID (e.g., `%3`) |
 | Tab | Tmux window (tab) name |
-| Worktree | Relative path from main repo parent, or `(main)` for the main worktree |
-| Change | Active change folder name, or `(no change)` if none |
-| Stage | Current pipeline stage from `.status.yaml`, or `—` if no change |
-| Agent | Agent state: `active`, `idle ({duration})`, `?` (runtime file missing), or `—` (no change) |
+| Worktree | Relative path from main repo parent, `(main)` for the main worktree, or `basename/` for non-git panes |
+| Change | Active change folder name, `(no change)` if no active change, or `—` if not a fab worktree |
+| Stage | Current pipeline stage from `.status.yaml`, or `—` if no change or not a fab worktree |
+| Agent | Agent state: `active`, `idle ({duration})`, `?` (runtime file missing), or `—` (no change or not fab) |
 
 Idle duration format: `{N}s` (< 60s), `{N}m` (60s–59m), `{N}h` (>= 60m). Floor division.
 
-**Error behavior**: If `$TMUX` is unset, prints `Error: not inside a tmux session` to stderr and exits 1. Panes not inside a git repo or without a `fab/` directory are silently excluded. If no fab worktrees are found, prints `No fab worktrees found in tmux panes.` and exits 0.
+**Error behavior**: If `$TMUX` is unset, prints `Error: not inside a tmux session` to stderr and exits 1. If no tmux panes are found, prints `No tmux panes found.` and exits 0.
 
 **Example output**:
 
@@ -299,42 +297,7 @@ Pane   Tab        Worktree                       Change                         
 %3     alpha      myrepo.worktrees/alpha/        260306-r3m7-add-retry-logic         apply     active
 %7     bravo      myrepo.worktrees/bravo/        260306-k8ds-ship-wt-binary          review    idle (2m)
 %12    main       (main)                         260306-ab12-refactor-auth           hydrate   idle (8m)
-```
-
----
-
-## fab send-keys
-
-Send Keys — sends text to a change's tmux pane. Used by the operator skill for cross-agent coordination.
-
-```
-fab/.kit/bin/fab send-keys <change> "<text>"
-```
-
-| Argument | Description |
-|----------|-------------|
-| `<change>` | Standard change reference (4-char ID, substring, or full folder name) |
-| `<text>` | Text to send to the target pane (typically a skill command like `/fab-continue`) |
-
-**Pane resolution**: Resolves the change argument to a folder name via standard change resolution, then discovers tmux panes in the current session (`tmux list-panes -s`), resolves each pane's git worktree root and `fab/current`, and matches the change folder. Sends to the first matching pane.
-
-**Safety**: Does NOT enforce idle checks — policy (check idle before sending) lives in the operator skill, mechanism (send text to pane) lives in the CLI.
-
-**Error behavior**:
-
-| Condition | Message | Exit code |
-|-----------|---------|-----------|
-| `$TMUX` unset | `Error: not inside a tmux session` | 1 |
-| Change not found | `No change matches "<arg>".` | 1 |
-| No pane for change | `No tmux pane found for change "<folder>".` | 1 |
-| Pane disappeared after resolution | `Error: pane %N no longer exists.` | 1 |
-| Multiple panes for same change | Sends to first match, prints `Warning: multiple panes found for <id>, using %N` to stderr | 0 |
-
-**Example**:
-
-```
-fab/.kit/bin/fab send-keys r3m7 "/fab-continue"
-fab/.kit/bin/fab send-keys 260306-k8ds-ship-wt-binary "git fetch origin main && git rebase origin/main"
+%15    scratch    downloads/                     —                                   —         —
 ```
 
 ---

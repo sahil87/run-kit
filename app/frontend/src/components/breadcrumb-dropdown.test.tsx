@@ -1,0 +1,139 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { BreadcrumbDropdown } from "./breadcrumb-dropdown";
+import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
+
+const items: BreadcrumbDropdownItem[] = [
+  { label: "project-a", href: "/project-a/0", current: true },
+  { label: "project-b", href: "/project-b/0" },
+  { label: "project-c", href: "/project-c/0" },
+];
+
+function clickChevron() {
+  fireEvent.click(screen.getByRole("button", { name: /switch/i }));
+}
+
+describe("BreadcrumbDropdown", () => {
+  afterEach(cleanup);
+
+  it("renders a chevron button", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    expect(screen.getByRole("button", { name: /switch/i })).toBeInTheDocument();
+  });
+
+  it("renders icon as button content", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    expect(screen.getByRole("button", { name: /switch/i }).textContent).toBe("\u2B21");
+  });
+
+  it("falls back to default when icon is omitted", () => {
+    render(<BreadcrumbDropdown items={items} />);
+    expect(screen.getByRole("button", { name: /switch/i }).textContent).toBe("\u25BE");
+  });
+
+  it("dropdown is hidden by default", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("opens dropdown on chevron click", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    clickChevron();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+  });
+
+  it("closes dropdown on second chevron click", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    clickChevron();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    clickChevron();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("closes dropdown on Escape", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    clickChevron();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("closes dropdown on outside click", () => {
+    render(
+      <div>
+        <span data-testid="outside">outside</span>
+        <BreadcrumbDropdown items={items} icon={"\u2B21"} />
+      </div>,
+    );
+    clickChevron();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByTestId("outside"));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("highlights current item with accent color", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    clickChevron();
+    const currentItem = screen.getByText("project-a");
+    expect(currentItem.className).toContain("text-accent");
+  });
+
+  it("non-current items have secondary color", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    clickChevron();
+    const otherItem = screen.getByText("project-b");
+    expect(otherItem.className).toContain("text-text-secondary");
+  });
+
+  it("calls onNavigate with correct href when item is clicked", () => {
+    const onNavigate = vi.fn();
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} onNavigate={onNavigate} />);
+    clickChevron();
+    fireEvent.click(screen.getByText("project-b"));
+    expect(onNavigate).toHaveBeenCalledWith("/project-b/0");
+  });
+
+  it("auto-focuses current item on open", async () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    clickChevron();
+    const currentItem = screen.getAllByRole("menuitem")[0];
+    await waitFor(() => expect(document.activeElement).toBe(currentItem));
+  });
+
+  it("navigates items with ArrowDown", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    clickChevron();
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    const secondItem = screen.getAllByRole("menuitem")[1];
+    expect(document.activeElement).toBe(secondItem);
+  });
+
+  it("navigates items with ArrowUp wrapping", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    clickChevron();
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    const lastItem = screen.getAllByRole("menuitem")[2];
+    expect(document.activeElement).toBe(lastItem);
+  });
+
+  it("uses contextual aria-label when label prop provided", () => {
+    render(<BreadcrumbDropdown items={items} label="session" icon={"\u2B21"} />);
+    expect(screen.getByRole("button", { name: "Switch session" })).toBeInTheDocument();
+  });
+
+  it("sets aria-expanded correctly", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    const button = screen.getByRole("button", { name: /switch/i });
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    clickChevron();
+    expect(button).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("closes dropdown when item is clicked", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u2B21"} />);
+    clickChevron();
+    fireEvent.click(screen.getByText("project-b"));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+});

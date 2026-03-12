@@ -1,28 +1,145 @@
 import { http, HttpResponse } from "msw";
+import type { ProjectSession } from "@/types";
+
+/** Default mock data — two sessions with windows. */
+export const mockSessions: ProjectSession[] = [
+  {
+    name: "run-kit",
+    windows: [
+      {
+        index: 0,
+        name: "main",
+        worktreePath: "~/code/run-kit",
+        activity: "active",
+        isActiveWindow: true,
+        fabChange: "ux92",
+        fabStage: "apply",
+      },
+      {
+        index: 1,
+        name: "scratch",
+        worktreePath: "~/code/run-kit",
+        activity: "idle",
+        isActiveWindow: false,
+      },
+    ],
+  },
+  {
+    name: "ao-server",
+    windows: [
+      {
+        index: 0,
+        name: "dev",
+        worktreePath: "~/code/ao-server",
+        activity: "idle",
+        isActiveWindow: true,
+      },
+    ],
+  },
+];
+
+let sessions = structuredClone(mockSessions);
+
+export function resetMockSessions() {
+  sessions = structuredClone(mockSessions);
+}
 
 export const handlers = [
-  // GET /api/sessions — returns empty array
+  // GET /api/sessions
   http.get("/api/sessions", () => {
-    return HttpResponse.json([]);
-  }),
-
-  // GET /api/sessions/stream — no-op SSE stub
-  http.get("/api/sessions/stream", () => {
-    return new HttpResponse(null, { status: 200 });
-  }),
-
-  // GET /api/directories — returns { directories: [] }
-  http.get("/api/directories", () => {
-    return HttpResponse.json({ directories: [] });
+    return HttpResponse.json(sessions);
   }),
 
   // POST /api/sessions — create session
-  http.post("/api/sessions", () => {
+  http.post("/api/sessions", async ({ request }) => {
+    const body = (await request.json()) as { name: string; cwd?: string };
+    const newSession: ProjectSession = {
+      name: body.name,
+      windows: [
+        {
+          index: 0,
+          name: "main",
+          worktreePath: body.cwd ?? "~",
+          activity: "idle",
+          isActiveWindow: true,
+        },
+      ],
+    };
+    sessions.push(newSession);
     return HttpResponse.json({ ok: true }, { status: 201 });
   }),
 
-  // POST /api/sessions/:session/kill — kill session
-  http.post("/api/sessions/:session/kill", () => {
+  // POST /api/sessions/:session/kill
+  http.post("/api/sessions/:session/kill", ({ params }) => {
+    const sessionName = params.session as string;
+    sessions = sessions.filter((s) => s.name !== sessionName);
     return HttpResponse.json({ ok: true });
+  }),
+
+  // POST /api/sessions/:session/windows — create window
+  http.post("/api/sessions/:session/windows", async ({ params, request }) => {
+    const sessionName = params.session as string;
+    const body = (await request.json()) as { name: string; cwd?: string };
+    const session = sessions.find((s) => s.name === sessionName);
+    if (!session) return HttpResponse.json({ error: "Not found" }, { status: 404 });
+    const maxIndex = session.windows.reduce((m, w) => Math.max(m, w.index), -1);
+    session.windows.push({
+      index: maxIndex + 1,
+      name: body.name,
+      worktreePath: body.cwd ?? session.windows[0]?.worktreePath ?? "~",
+      activity: "idle",
+      isActiveWindow: false,
+    });
+    return HttpResponse.json({ ok: true }, { status: 201 });
+  }),
+
+  // POST /api/sessions/:session/windows/:index/kill
+  http.post("/api/sessions/:session/windows/:index/kill", ({ params }) => {
+    const sessionName = params.session as string;
+    const idx = Number(params.index);
+    const session = sessions.find((s) => s.name === sessionName);
+    if (!session) return HttpResponse.json({ error: "Not found" }, { status: 404 });
+    session.windows = session.windows.filter((w) => w.index !== idx);
+    return HttpResponse.json({ ok: true });
+  }),
+
+  // POST /api/sessions/:session/windows/:index/rename
+  http.post("/api/sessions/:session/windows/:index/rename", async ({ params, request }) => {
+    const sessionName = params.session as string;
+    const idx = Number(params.index);
+    const body = (await request.json()) as { name: string };
+    const session = sessions.find((s) => s.name === sessionName);
+    if (!session) return HttpResponse.json({ error: "Not found" }, { status: 404 });
+    const win = session.windows.find((w) => w.index === idx);
+    if (!win) return HttpResponse.json({ error: "Not found" }, { status: 404 });
+    win.name = body.name;
+    return HttpResponse.json({ ok: true });
+  }),
+
+  // POST /api/sessions/:session/windows/:index/keys
+  http.post("/api/sessions/:session/windows/:index/keys", async ({ params, request }) => {
+    const sessionName = params.session as string;
+    const idx = Number(params.index);
+    const body = (await request.json()) as { keys: string };
+    const session = sessions.find((s) => s.name === sessionName);
+    if (!session) return HttpResponse.json({ error: "Not found" }, { status: 404 });
+    return HttpResponse.json({ ok: true });
+  }),
+
+  // GET /api/directories
+  http.get("/api/directories", ({ request }) => {
+    const url = new URL(request.url);
+    const prefix = url.searchParams.get("prefix") ?? "";
+    // Mock: return a few directories based on prefix
+    const dirs = prefix
+      ? [`${prefix}project-a/`, `${prefix}project-b/`]
+      : [];
+    return HttpResponse.json({ directories: dirs });
+  }),
+
+  // POST /api/sessions/:session/upload
+  http.post("/api/sessions/:session/upload", async ({ params }) => {
+    const sessionName = params.session as string;
+    return HttpResponse.json({ ok: true, path: `/tmp/uploads/${sessionName}/file.txt` });
   }),
 ];

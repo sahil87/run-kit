@@ -5,23 +5,57 @@ set dotenv-load := false
 
 # ─── Development ──────────────────────────────────────────────
 
-# Start dev server (Next.js + terminal relay with hot reload)
+# Start Go backend + Vite dev server concurrently
 dev:
-    pnpm dev
+    #!/usr/bin/env bash
+    set -euo pipefail
+    trap 'kill 0' EXIT
+    (cd app/backend && go run ./cmd/run-kit) &
+    (cd app/frontend && pnpm dev)
 
-# ─── Production ───────────────────────────────────────────────
+# ─── Build ───────────────────────────────────────────────────
 
-# Build Next.js for production
+# Build Go binary + frontend for production
 build:
-    pnpm build
+    mkdir -p bin
+    cd app/backend && go build -o ../../bin/run-kit ./cmd/run-kit
+    cd app/frontend && pnpm build
 
-# Start supervisor (builds, runs Next.js + relay, self-heals, auto-rollback)
+# ─── Test ────────────────────────────────────────────────────
+
+# Run all tests (backend + frontend + e2e)
+test: test-backend test-frontend test-e2e
+
+# Run Go tests
+test-backend:
+    cd app/backend && go test ./...
+
+# Run Vitest unit tests
+test-frontend:
+    cd app/frontend && pnpm test
+
+# Run Playwright e2e tests
+test-e2e:
+    cd app/frontend && pnpm exec playwright test
+
+# ─── Quality ─────────────────────────────────────────────────
+
+# Type-check frontend without emitting
+check:
+    cd app/frontend && pnpm exec tsc --noEmit
+
+# Full verification: type-check, test, build
+verify: check test build
+
+# ─── Production ──────────────────────────────────────────────
+
+# Start supervisor (builds, runs, self-heals, auto-rollback)
 up:
-    pnpm supervisor
+    ./supervisor.sh
 
 # Start supervisor in a detached tmux session
 bg:
-    tmux new-session -d -s runK 'pnpm supervisor'
+    tmux new-session -d -s runK './supervisor.sh'
     @echo "Supervisor running in tmux session 'runK'"
     @echo "  Attach: just logs"
     @echo "  Stop:   just down"
@@ -36,39 +70,12 @@ down:
     @sleep 1
     tmux kill-session -t runK 2>/dev/null || true
 
-# Signal a restart (build + health-check + auto-rollback); starts supervisor if not running
-restart:
-    src/scripts/restart.sh
+# ─── HTTPS ───────────────────────────────────────────────────
 
-# ─── HTTPS ────────────────────────────────────────────────────
-
-# Start Caddy HTTPS proxy in front of dev server (requires caddy: brew install caddy)
+# Start Caddy HTTPS proxy in front of dev server
 https:
     caddy run --config Caddyfile
-
-# Start supervisor + Caddy HTTPS proxy together
-up-https:
-    pnpm concurrently -n super,caddy -c blue,green "pnpm supervisor" "caddy run --config Caddyfile"
 
 # One-time: install Caddy's local CA into system trust store
 trust:
     caddy trust
-
-# ─── Setup ────────────────────────────────────────────────────
-
-# Check that all system dependencies are installed
-doctor:
-    src/scripts/doctor.sh
-
-# ─── Quality ──────────────────────────────────────────────────
-
-# Run all tests
-test:
-    pnpm test
-
-# Type-check without emitting
-check:
-    npx tsc --noEmit
-
-# Full verification: type-check then build
-verify: check build

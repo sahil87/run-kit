@@ -28,10 +28,10 @@ trap 'echo "[supervisor] Shutting down..."; stop_services; exit 0' SIGINT SIGTER
 
 build_all() {
   echo "[supervisor] Building Go binary..."
-  (cd packages/api && go build -o ../../bin/run-kit ./cmd/run-kit)
+  (cd app/backend && go build -o ../../bin/run-kit ./cmd/run-kit)
 
   echo "[supervisor] Building frontend..."
-  (cd packages/web && pnpm build)
+  (cd app/frontend && pnpm build)
 }
 
 start_services() {

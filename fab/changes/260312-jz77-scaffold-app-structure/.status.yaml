@@ -5,33 +5,38 @@ created_by: sahil-weaver
 change_type: docs
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    tasks: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 checklist:
-    generated: false
+    generated: true
     path: checklist.md
     completed: 0
-    total: 0
+    total: 37
 confidence:
-    certain: 6
-    confident: 3
+    certain: 11
+    confident: 2
     tentative: 0
     unresolved: 0
-    score: 4.1
-    indicative: true
+    score: 4.4
     fuzzy: true
     dimensions:
-        signal: 87.8
-        reversibility: 87.2
-        competence: 90.0
-        disambiguation: 92.8
+        signal: 91.2
+        reversibility: 88.5
+        competence: 91.5
+        disambiguation: 93.1
 stage_metrics:
-    intake: {started_at: "2026-03-12T07:21:25Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-03-12T07:21:25Z", driver: fab-new, iterations: 1, completed_at: "2026-03-12T08:45:51Z"}
+    spec: {started_at: "2026-03-12T08:45:51Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T08:47:18Z"}
+    tasks: {started_at: "2026-03-12T08:47:18Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T08:49:28Z"}
+    apply: {started_at: "2026-03-12T08:56:37Z", driver: fab-ff, iterations: 2, completed_at: "2026-03-12T08:57:31Z"}
+    review: {started_at: "2026-03-12T08:57:31Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T08:58:21Z"}
+    hydrate: {started_at: "2026-03-12T08:58:21Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:01:18Z"}
+    ship: {started_at: "2026-03-12T09:01:18Z", driver: fab-ff, iterations: 1}
 prs: []
-last_updated: 2026-03-12T07:45:05Z
+last_updated: 2026-03-12T09:01:18Z

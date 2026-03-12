@@ -4,61 +4,43 @@
 
 run-kit is a web-based agent orchestration dashboard. Two independent processes in production, three in development:
 
-1. **Bash supervisor** (`supervisor.sh`) — builds Go binary from `app/backend/` + frontend from `app/frontend/`, manages the server as a single deployment unit
-2. **Go backend** (default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port
+1. **Bash supervisor** (`supervisor.sh`) — builds Go binary + frontend, manages the server as a single deployment unit
+2. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port
 
-In development, `just dev` runs two concurrent processes (replaces the removed `dev.sh`):
-- Go backend (`:3000`) via `go run ./cmd/run-kit` from `app/backend/` — API, WebSocket relay, SPA static serving
-- Vite dev server (`:5173`) via `pnpm dev` from `app/frontend/` — HMR, proxies `/api/*` and `/relay/*` to Go via `vite.config.ts`
+> **Legacy note**: `packages/api/` contains the prior implementation, pending removal in Phase 4. The canonical backend is now `app/backend/`.
 
-Ports and bind host are configurable via CLI args > `run-kit.yaml` > hardcoded defaults. See `packages/api/internal/config/config.go` (old) / `app/backend/internal/config/` (new scaffold).
+In development, `dev.sh` runs two concurrent processes:
+- Go backend (`:3000`) — API, WebSocket relay, SPA static serving
+- Vite dev server (`:5173`) — HMR, proxies `/api/*` and `/relay/*` to Go via `vite.config.ts`
+
+Ports and bind host are configurable via CLI args > `run-kit.yaml` > hardcoded defaults. See `app/backend/internal/config/config.go`.
 
 The tmux server is an external dependency — never started or stopped by run-kit.
 
 ## Repository Structure
 
-pnpm workspaces monorepo. Two codebases coexist during the reimplementation: `packages/` (legacy, untouched until Phase 4 cleanup) and `app/` (new scaffold, Phases 1-3).
-
-### New: `app/` (scaffold — Phase 1)
+pnpm workspaces monorepo:
 
 ```
 app/
-  backend/            # Go module — new scaffold
-    cmd/run-kit/      # Entry point (main.go — prints "run-kit" and exits)
-    api/              # HTTP handler placeholders (router.go, sessions.go, windows.go,
-                      #   directories.go, upload.go, sse.go, relay.go, health.go, spa.go)
-    internal/         # tmux/, sessions/, fab/, config/, validate/ — each with
-                      #   placeholder .go + empty _test.go (no internal/worktree/ — dead code)
+  backend/            # Go module — canonical backend (Phase 2+)
+    cmd/run-kit/      # Entry point (main.go)
+    internal/         # validate, config, tmux, fab, sessions
+    api/              # HTTP handlers — one file per resource domain
+      router.go       # chi router, CORS/logger/recovery middleware, route registration
+      health.go       # GET /api/health
+      sessions.go     # GET /api/sessions, POST /api/sessions, POST .../kill
+      windows.go      # POST .../windows (create, kill, rename, keys)
+      directories.go  # GET /api/directories
+      upload.go       # POST /api/sessions/:session/upload
+      sse.go          # GET /api/sessions/stream (hub singleton)
+      relay.go        # WS /relay/:session/:window
+      spa.go          # SPA static serving from app/frontend/dist/
     go.mod, go.sum
-  frontend/           # Vite + React SPA — new scaffold
-    src/
-      api/            # Type stubs (client.ts — all functions throw "not implemented")
-      main.tsx        # Minimal React entry
-      app.tsx         # Single-view layout skeleton (top bar, sidebar, terminal, bottom bar)
-      router.tsx      # TanStack Router — one route: /:session/:window
-      types.ts        # ProjectSession, WindowInfo types matching API spec
-      test-setup.ts   # @testing-library/jest-dom/vitest
-    tests/
-      msw/            # MSW handler stubs (handlers.ts)
-      e2e/            # Playwright smoke test (smoke.spec.ts — test.skip)
-    index.html
-    vite.config.ts    # React plugin, @/ alias, proxy /api/* and /relay/* to :3000
-    vitest.config.ts  # jsdom environment
-    tsconfig.json
-    playwright.config.ts  # Chromium desktop project, tests/e2e/
-    package.json
-```
-
-### Legacy: `packages/` (functional code — until Phase 4)
-
-```
+  frontend/           # (Phase 3 — planned) Vite + React SPA
 packages/
-  api/              # Go module — stable backend (fully functional)
-    cmd/run-kit/    # Entry point (main.go)
-    internal/       # tmux, config, fab, worktree, sessions, validate, relay
-    api/            # HTTP handlers (routes.go, sse.go, relay.go, upload.go, spa.go)
-    go.mod, go.sum
-  web/              # Vite + React SPA — disposable frontend (fully functional)
+  api/                # Legacy Go backend — pending removal in Phase 4
+  web/                # Vite + React SPA — disposable frontend
     src/
       api/          # Typed fetch wrappers (client.ts)
       components/   # React components
@@ -69,38 +51,34 @@ packages/
       types.ts      # Shared TypeScript types
     vite.config.ts
     vitest.config.ts
-```
-
-### Root files
-
-```
-e2e/                # Playwright E2E tests (legacy, for packages/web)
+e2e/                # Playwright E2E tests
 fab/                # Fab-kit project config + changes
 docs/               # Memory files
-justfile            # Task runner — all recipes target app/ paths (replaced dev.sh)
-supervisor.sh       # Production process manager (updated to app/ paths)
+supervisor.sh       # Production process manager
+dev.sh              # Development launcher (Go + Vite concurrent)
 Caddyfile.example   # HTTPS reverse proxy (TLS termination only)
-pnpm-workspace.yaml # ["app/frontend"] — updated from ["packages/web"]
+pnpm-workspace.yaml # ["packages/web"] — Go is independent
 ```
 
 ## Data Model
 
 **No database.** State derived at request time from:
 - **tmux server** — `tmux list-sessions`, `tmux list-windows` via `internal/tmux/tmux.go`. Project roots derived from window 0's `pane_current_path`
-- **Filesystem** — `fab/current`, `.status.yaml` via `internal/fab/fab.go`. Fab-kit projects auto-detected via `os.Stat()` on `fab/project/config.yaml` at the derived project root
+- **Filesystem** — `.fab-status.yaml` via `internal/fab/fab.go` (reads change name + active stage). Fab-kit projects auto-detected via `os.Stat()` on `fab/project/config.yaml` at the derived project root
 
 ## Backend Libraries (Go Modules)
 
-Functional code lives in `packages/api/` until Phase 2+ ports it to `app/backend/`. The `app/backend/internal/` packages are empty placeholders (package declaration + exported placeholder + empty `_test.go`). No `internal/worktree/` in `app/backend/` — removed as dead code not exposed via API.
+Packages in `app/backend/internal/`:
 
 | Package | Responsibility |
 |---------|---------------|
-| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}` |
-| `internal/worktree` | Wraps fab-kit `wt-*` scripts (never reimplements) — `packages/api/` only, not in `app/backend/` |
-| `internal/fab` | Reads fab state (progress-line, current change, change list) |
-| `internal/sessions` | Derives project roots from tmux, auto-detects fab-kit, enriches with fab state. Session enrichment runs in parallel via goroutines with `sync.WaitGroup` and indexed assignment to preserve tmux ordering |
+| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields (replaced legacy `FabStage`/`FabProgress`) |
+| `internal/fab` | Reads `.fab-status.yaml` from project root via `os.ReadFile` + `yaml.Unmarshal`. Returns `*State{Change, Stage}` (active change name + first active stage in canonical order). Returns nil if file missing, dangling symlink, or parse error. No subprocess calls |
+| `internal/sessions` | Derives project roots from tmux, auto-detects fab-kit via `os.Stat("fab/project/config.yaml")`, enriches with fab state. Per-session enrichment model: reads `.fab-status.yaml` once from window 0's project root, applies `FabChange`/`FabStage` to all windows in the session. Session enrichment runs in parallel via goroutines with `sync.WaitGroup` and indexed assignment to preserve tmux ordering |
 | `internal/validate` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
 | `internal/config` | Server config (port, host) — reads CLI args > `run-kit.yaml` > defaults. YAML parsing via `gopkg.in/yaml.v3` |
+
+> `internal/worktree` was present in `packages/api/` but is not ported to `app/backend/` (dead code, not API-exposed).
 
 ### External Go Dependencies
 
@@ -114,26 +92,29 @@ Functional code lives in `packages/api/` until Phase 2+ ports it to `app/backend
 
 ## API Layer
 
-All endpoints served by the single Go binary on one port.
+All endpoints served by the single Go binary on one port. POST-only mutations with path-based intent (no multiplexed action field).
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/health` | GET | Returns `200 { "status": "ok" }` for supervisor health checks |
-| `/api/sessions` | GET | Returns `ProjectSession[]` — one per tmux session, with auto-detected fab enrichment |
-| `/api/sessions` | POST | Actions: `createSession` (with optional `cwd`), `createWindow`, `killSession`, `killWindow`, `renameWindow`, `sendKeys` |
+| `/api/health` | GET | Returns `200 {"status":"ok"}` for supervisor health checks |
+| `/api/sessions` | GET | Returns `ProjectSession[]` — one per tmux session, with auto-detected fab enrichment (`fabChange`/`fabStage` on windows) |
+| `/api/sessions` | POST | Create session — JSON body `{"name":"...","cwd":"..."}`. Returns `201 {"ok":true}` |
+| `/api/sessions/:session/kill` | POST | Kill session — `:session` validated via `validate.ValidateName()`. Returns `200 {"ok":true}` |
+| `/api/sessions/:session/windows` | POST | Create window — JSON body `{"name":"...","cwd":"..."}`. Returns `201 {"ok":true}` |
+| `/api/sessions/:session/windows/:index/kill` | POST | Kill window — `:index` must be non-negative integer. Returns `200 {"ok":true}` |
+| `/api/sessions/:session/windows/:index/rename` | POST | Rename window — JSON body `{"name":"..."}`. Returns `200 {"ok":true}` |
+| `/api/sessions/:session/windows/:index/keys` | POST | Send keys — JSON body `{"keys":"..."}` (non-empty after trim). Returns `200 {"ok":true}` |
 | `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
-| `/api/sessions/stream` | GET | SSE — module-level goroutine polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection. |
-| `/api/upload` | POST | File upload — accepts `multipart/form-data` with `file` and `session` fields. Resolves project root via `ListWindows`, writes to `.uploads/{timestamp}-{name}`, auto-manages `.gitignore`. 50MB limit. |
+| `/api/sessions/:session/upload` | POST | File upload — session from URL path (not form field). Multipart with `file` field, optional `window` field (defaults to `"0"`). Resolves project root via `ListWindows`, writes to `.uploads/{timestamp}-{name}`, auto-manages `.gitignore`. 50MB limit. Returns `200 {"ok":true,"path":"..."}` |
+| `/api/sessions/stream` | GET | SSE — hub singleton polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection |
 
 ### Frontend API Client
 
-`packages/web/src/api/client.ts` — typed fetch wrappers for all endpoints (functional, legacy). Uses relative URLs (e.g., `/api/sessions`) — works with both Vite proxy in dev and same-origin in production. Exports `getSessions()`, `postSessionAction()`, `getDirectories()`, `uploadFile()` with TypeScript types.
-
-`app/frontend/src/api/client.ts` — type stubs matching the new POST-only API spec. All functions throw "not implemented". Uses individual POST routes (e.g., `/api/sessions/:session/kill`) rather than the legacy multiplexed POST. Will be implemented in Phase 3.
+`packages/web/src/api/client.ts` — typed fetch wrappers for all endpoints. Uses relative URLs (e.g., `/api/sessions`) — works with both Vite proxy in dev and same-origin in production. Exports `getSessions()`, `postSessionAction()`, `getDirectories()`, `uploadFile()` with TypeScript types.
 
 ## Terminal Relay
 
-WebSocket endpoint at `/relay/{session}/{window}` on the same port as the API — no separate relay port. Uses `gorilla/websocket` for WebSocket handling and `creack/pty` for PTY allocation. Implementation in `packages/api/api/relay.go`.
+WebSocket endpoint at `/relay/{session}/{window}` on the same port as the API — no separate relay port. Uses `gorilla/websocket` for WebSocket handling and `creack/pty` for PTY allocation. Implementation in `app/backend/api/relay.go`.
 
 Per connection:
 1. Creates independent pane via `tmux split-window` (agent pane 0 untouched)
@@ -148,7 +129,7 @@ Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, ma
 
 ~140-line bash script. Reads `run-kit.yaml` at startup via grep-based parsing (no `yq` dependency) for port/host config. Polling loop checks for `.restart-requested` file.
 
-Build cycle: `cd app/backend && go build -o ../../bin/run-kit ./cmd/run-kit` (Go binary) + `cd app/frontend && pnpm build` (frontend to `app/frontend/dist/`).
+Build cycle: `go build -o bin/run-kit ./cmd/run-kit` (Go binary) + `pnpm build` (frontend to `app/frontend/dist/`).
 On detection: build all → kill server → start Go server → `GET /api/health` (10s timeout).
 On failure: `git revert HEAD` → rebuild → restart prior version.
 Signal trapping: SIGINT/SIGTERM → `stop_services` → clean exit.
@@ -156,7 +137,7 @@ Auto-restart: detects if server process died and restarts automatically.
 
 ## SPA Static Serving
 
-The Go server serves static files from the built SPA directory (`app/frontend/dist/`, previously `packages/web/dist/`). Any request not matching `/api/*` or `/relay/*` serves `index.html` for client-side routing (SPA fallback). Requests matching actual static file paths serve the file directly. Implementation in `packages/api/api/spa.go` (legacy) / `app/backend/api/spa.go` (scaffold placeholder).
+The Go server serves static files from the built SPA directory (`app/frontend/dist/`). Any request not matching `/api/*` or `/relay/*` serves `index.html` for client-side routing (SPA fallback). Requests matching actual static file paths serve the file directly. Path traversal is prevented (resolved path must stay within SPA directory). Implementation in `app/backend/api/spa.go`.
 
 In development, Vite handles SPA fallback natively. In production, Go's catch-all handles it. Caddy is optional — used only for TLS termination, not routing.
 
@@ -206,65 +187,47 @@ Pages do NOT render their own top bar or outer containers — they set chrome sl
 - **Sticky modifier state via useRef + forceUpdate** — `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders. Ensures `consume()` reads the latest value atomically without stale closure issues.
 - **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.
 - **Armed modifiers bridge to physical keyboard** — When bottom-bar modifiers (Ctrl/Alt/Cmd) are armed, a capture-phase `keydown` listener intercepts physical keypresses, translates them to terminal escape sequences (Ctrl+letter → control characters, Alt/Cmd → ESC prefix), and sends via WebSocket. Prevents xterm from receiving the unmodified key. Ignores real Cmd/Ctrl/Alt held by the OS.
-- **File upload via server filesystem (not terminal binary injection)** — Browser uploads file to `POST /api/upload`, server writes to `.uploads/` in project root, path auto-inserted into compose buffer. Works because run-kit server and tmux are always co-located; the browser is the remote part. Separate `/api/upload` route (not extending `/api/sessions`) because FormData and JSON body parsing are incompatible.
+- **File upload via server filesystem (not terminal binary injection)** — Browser uploads file to `POST /api/sessions/:session/upload`, server writes to `.uploads/` in project root, path auto-inserted into compose buffer. Works because run-kit server and tmux are always co-located; the browser is the remote part. Session identified by URL param (consistent with other session-scoped endpoints, replaces legacy form field approach)
+- **Handler files split by resource domain (not monolithic routes.go)** — Each handler file owns one resource: `sessions.go`, `windows.go`, `directories.go`, `upload.go`, `sse.go`, `relay.go`, `spa.go`, `health.go`. `router.go` owns middleware, dependency interfaces, and route registration only. (`260312-r4t9-go-backend-api`)
+- **Dependency injection via interfaces for handler testability** — `Server` struct holds `SessionFetcher` and `TmuxOps` interfaces. `NewRouter()` wires production implementations; `NewTestRouter()` accepts mocks. Enables `httptest.NewRecorder` tests without live tmux. (`260312-r4t9-go-backend-api`)
+- **Per-session fab enrichment (not per-window)** — `internal/sessions` reads `.fab-status.yaml` once from window 0's project root and applies `FabChange`/`FabStage` to all windows in the session. Eliminates redundant filesystem reads and subprocess calls per window. (`260312-r4t9-go-backend-api`)
+- **`internal/fab` reads `.fab-status.yaml` directly (not subprocess)** — Pure `os.ReadFile` + `yaml.Unmarshal`, no calls to `statusman.sh` or `changeman.sh`, no reading `fab/current`. Simpler, faster, no shell dependency. (`260312-r4t9-go-backend-api`)
 
 ## Testing
 
-### Task Runner
-
-The `justfile` is the single task runner for all test/build/dev commands (replaces `dev.sh` which was removed):
-
-| Recipe | Command |
-|--------|---------|
-| `just dev` | Go backend (`app/backend/`) + Vite dev server (`app/frontend/`) concurrently |
-| `just build` | `go build` from `app/backend/` + `pnpm build` from `app/frontend/` |
-| `just test` | `test-backend` + `test-frontend` + `test-e2e` |
-| `just test-backend` | `go test ./...` from `app/backend/` |
-| `just test-frontend` | `pnpm test` from `app/frontend/` (Vitest) |
-| `just test-e2e` | `pnpm exec playwright test` from `app/frontend/` |
-| `just check` | `pnpm exec tsc --noEmit` from `app/frontend/` |
-| `just verify` | `check` + `test` + `build` |
-| `just up` | `./supervisor.sh` |
-| `just bg` / `just logs` / `just down` | Supervisor in detached tmux session |
-| `just https` / `just trust` | Caddy HTTPS proxy |
-
 ### Go Unit Tests
 
-Go `testing` package with table-driven tests. Test files co-located with source using `_test.go` suffix. Test scripts: `just test-backend` (runs `go test ./...` from `app/backend/`).
+Go `testing` package with table-driven tests. Test files co-located with source using `_test.go` suffix. Test scripts: `go test ./...` from `app/backend/`.
 
-Legacy tests in `packages/api/` remain functional. New `app/backend/internal/` packages have empty `_test.go` files (package declaration only, zero tests).
-
-Current Go test coverage (legacy `packages/api/`): `internal/validate` (input validation + tilde expansion + filename sanitization), `internal/config` (CLI arg parsing, port validation, YAML parsing, defaults), `internal/tmux` (listSessions parsing + byobu filtering, listWindows activity computation), `internal/sessions` (fab-kit detection, project root derivation, session enrichment).
+Current Go test coverage (`app/backend/`):
+- **Internal packages**: `internal/validate` (input validation + tilde expansion + filename sanitization), `internal/config` (CLI arg parsing, port validation, YAML parsing, defaults), `internal/tmux` (listSessions parsing + byobu filtering, listWindows activity computation), `internal/sessions` (fab-kit detection, project root derivation, per-session enrichment), `internal/fab` (`.fab-status.yaml` parsing, missing file, dangling symlink, all-done stages)
+- **Handler integration tests**: `api/health_test.go`, `api/sessions_test.go`, `api/windows_test.go`, `api/directories_test.go`, `api/upload_test.go`, `api/sse_test.go`, `api/spa_test.go` — all use `httptest.NewRecorder` with the chi router and mock `SessionFetcher`/`TmuxOps` interfaces for tmux isolation. Cover response shapes, validation errors, URL param parsing, content-type enforcement. `api/relay.go` has no unit test (requires live tmux + PTY)
 
 ### Frontend Unit Tests
 
-Vitest with jsdom environment. New scaffold config at `app/frontend/vitest.config.ts`. Setup file at `app/frontend/src/test-setup.ts` imports `@testing-library/jest-dom/vitest`. Legacy config remains at `packages/web/vitest.config.ts`.
+Vitest with jsdom environment. Config at `packages/web/vitest.config.ts`. Setup file at `packages/web/src/test-setup.ts` imports `@testing-library/jest-dom/vitest` for extended DOM matchers.
 
-Test scripts: `just test-frontend` (runs `pnpm test` from `app/frontend/`).
+Test scripts: `pnpm test` (single run, in `packages/web/`), `pnpm test:watch` (watch mode).
 
 Test files co-located with source using `.test.{ts,tsx}` suffix (test-alongside strategy per `code-quality.md`). Path alias `@/` resolves to `src/` in both app and test contexts.
 
-Current frontend test coverage (legacy `packages/web/`): `command-palette.tsx` (keyboard interaction, filtering, open/close), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts).
+Current frontend test coverage: `command-palette.tsx` (keyboard interaction, filtering, open/close), `use-keyboard-nav.ts` (j/k/Enter navigation, input skip, clamping, custom shortcuts).
 
 ### Playwright E2E Tests
 
-Two Playwright setups coexist:
+Playwright for browser-level integration tests. Config at `playwright.config.ts` (repo root). E2E tests live in `e2e/` (separate from unit tests). Two projects: `desktop` (Chromium) and `mobile` (WebKit, iPhone 14 viewport). `mobile.spec.ts` runs only on the mobile project; all other specs run only on desktop.
 
-**Legacy** (`e2e/` at repo root): Config at `playwright.config.ts` (repo root). Two projects: `desktop` (Chromium) and `mobile` (WebKit, iPhone 14 viewport). `mobile.spec.ts` runs only on the mobile project; all other specs run only on desktop.
-
-Test scripts (legacy): `pnpm test:e2e` (headless), `pnpm test:e2e:ui` (interactive UI mode). Web server auto-starts via `just dev` if not already running (`reuseExistingServer: true`).
+Test scripts: `pnpm test:e2e` (headless), `pnpm test:e2e:ui` (interactive UI mode). Web server auto-starts via `bash dev.sh` (Go + Vite) if not already running (`reuseExistingServer: true`).
 
 Tests self-manage tmux sessions via `POST /api/sessions` in `beforeAll`/`afterAll` hooks. Shared helpers in `e2e/helpers.ts`.
 
-E2E test suites (legacy):
+E2E test suites:
 - `chrome-stability.spec.ts` — top bar bounding box invariance across page navigation, Line 2 min-height, max-width 896px
 - `breadcrumbs.spec.ts` — page-specific breadcrumb segments, link verification, no text prefixes
 - `bottom-bar.spec.ts` — terminal-only visibility, modifier armed state (`aria-pressed`), Fn dropdown lifecycle, special keys
 - `compose-buffer.spec.ts` — open/close flow, terminal dimming, Send button, multiline input
 - `kill-button.spec.ts` — always-visible kill buttons, confirmation dialog flow
 - `mobile.spec.ts` — mobile bottom bar rendering, tap target minimum height (30px), Cmd+K badge visibility
-
-**New scaffold** (`app/frontend/tests/e2e/`): Config at `app/frontend/playwright.config.ts`. One project: `desktop` (Chromium). One placeholder test (`smoke.spec.ts` — `test.skip`). Run via `just test-e2e`.
 
 ## Security
 
@@ -298,4 +261,4 @@ E2E test suites (legacy):
 | 2026-03-07 | Breadcrumb type extended with `dropdownItems` for project/window switching dropdowns | `260307-uzsa-navbar-breadcrumb-dropdowns` |
 | 2026-03-07 | Playwright E2E tests — chrome stability, breadcrumbs, bottom bar, compose buffer, kill button, mobile viewport | `260305-r7zs-playwright-e2e-design-spec` |
 | 2026-03-10 | **Go backend + Vite SPA split** — replaced Next.js monolith with Go backend (`packages/api/`) + Vite React SPA (`packages/web/`). Single-port architecture (API, SSE, WebSocket relay, SPA static serving on one Go binary). chi router, gorilla/websocket, creack/pty. TanStack Router for client-side routing. Typed API client module. Go table-driven tests ported from Vitest. E2E tests updated for Go + Vite dev servers. | `260310-8xaq-go-backend-vite-spa-split` |
-| 2026-03-12 | **Scaffold `app/` folder structure** (Phase 1 of reimplementation) — created `app/backend/` Go module (placeholder packages, no `internal/worktree/`) and `app/frontend/` Vite project (type stubs, MSW handlers, Playwright config). Replaced `justfile` recipes to target `app/` paths. Updated `supervisor.sh` build paths to `app/backend/` and `app/frontend/`. Updated `pnpm-workspace.yaml` from `["packages/web"]` to `["app/frontend"]`. Removed `dev.sh` (replaced by `just dev`). Legacy `packages/` untouched until Phase 4. | `260312-jz77-scaffold-app-structure` |
+| 2026-03-12 | **Go backend API at `app/backend/`** — new canonical backend alongside legacy `packages/api/`. Handler files split by resource domain (sessions.go, windows.go, etc.). POST-only mutations with path-based intent. `internal/fab` rewritten to read `.fab-status.yaml` directly (no subprocess). Per-session fab enrichment model. `WindowInfo` fields changed: `FabChange`/`FabStage` replace `FabStage`/`FabProgress`. Upload endpoint session from URL path. Handler integration tests via `httptest.NewRecorder` + mock interfaces. SPA serves from `app/frontend/dist/`. | `260312-r4t9-go-backend-api` |

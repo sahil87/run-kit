@@ -5,33 +5,40 @@ created_by: sahil-weaver
 change_type: refactor
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    tasks: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+  intake: done
+  spec: done
+  tasks: done
+  apply: done
+  review: done
+  hydrate: done
+  ship: done
+  review-pr: active
 checklist:
-    generated: false
-    path: checklist.md
-    completed: 0
-    total: 0
+  generated: true
+  path: checklist.md
+  completed: 0
+  total: 0
 confidence:
-    certain: 5
-    confident: 3
-    tentative: 0
-    unresolved: 0
-    score: 4.1
-    indicative: true
-    fuzzy: true
-    dimensions:
-        signal: 85.6
-        reversibility: 83.8
-        competence: 88.8
-        disambiguation: 90.6
+  certain: 8
+  confident: 4
+  tentative: 0
+  unresolved: 0
+  score: 3.8
+  fuzzy: true
+  dimensions:
+    signal: 86.3
+    reversibility: 86.3
+    competence: 89.6
+    disambiguation: 90.8
 stage_metrics:
-    intake: {started_at: "2026-03-12T07:22:36Z", driver: fab-new, iterations: 1}
-prs: []
-last_updated: 2026-03-12T07:45:20Z
+  intake: {started_at: "2026-03-12T07:22:36Z", driver: fab-new, iterations: 1, completed_at: "2026-03-12T09:05:38Z"}
+  spec: {started_at: "2026-03-12T09:05:38Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:09:34Z"}
+  tasks: {started_at: "2026-03-12T09:09:34Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:12:31Z"}
+  apply: {started_at: "2026-03-12T09:12:31Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:24:21Z"}
+  review: {started_at: "2026-03-12T09:24:21Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:28:11Z"}
+  hydrate: {started_at: "2026-03-12T09:28:11Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:31:29Z"}
+  ship: {started_at: "2026-03-12T09:31:29Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-12T09:33:14Z"}
+  review-pr: {started_at: "2026-03-12T09:33:14Z", driver: git-pr, iterations: 1, phase: fixing, reviewer: 'copilot-pull-request-reviewer[bot]'}
+prs:
+  - https://github.com/wvrdz/run-kit/pull/33
+last_updated: 2026-03-12T09:33:14Z

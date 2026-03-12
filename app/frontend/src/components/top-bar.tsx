@@ -15,6 +15,7 @@ type TopBarProps = {
   onKill: () => void;
   onToggleSidebar: () => void;
   onToggleDrawer: () => void;
+  onCreateSession: () => void;
 };
 
 export function TopBar({
@@ -29,6 +30,7 @@ export function TopBar({
   onKill,
   onToggleSidebar,
   onToggleDrawer,
+  onCreateSession,
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
@@ -60,7 +62,7 @@ export function TopBar({
   );
 
   return (
-    <header className="px-3 sm:px-6">
+    <header className="px-3 sm:px-6 border-b border-border">
       {/* Line 1: Hamburger + Logo + Breadcrumbs + Connection + Cmd+K */}
       <div className="flex items-center justify-between py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
@@ -90,13 +92,10 @@ export function TopBar({
 
           {sessionName && (
             <span className="flex items-center gap-1.5">
-              <span className="text-text-secondary" aria-hidden="true">
-                {"\u203A"}
-              </span>
               <BreadcrumbDropdown
                 items={sessionItems}
                 label="session"
-                icon={"\u2B21"}
+                icon={"\u276F"}
                 onNavigate={handleDropdownNavigate}
               />
               <span className="text-text-secondary hover:text-text-primary">
@@ -107,9 +106,6 @@ export function TopBar({
 
           {windowName && (
             <span className="flex items-center gap-1.5">
-              <span className="text-text-secondary" aria-hidden="true">
-                {"\u203A"}
-              </span>
               <BreadcrumbDropdown
                 items={windowItems}
                 label="window"
@@ -154,6 +150,12 @@ export function TopBar({
       {/* Line 2: Action buttons + status */}
       <div className="flex items-center justify-between py-2 min-h-[36px]">
         <div className="hidden sm:flex items-center gap-3">
+          <button
+            onClick={onCreateSession}
+            className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
+          >
+            + Session
+          </button>
           {currentWindow && (
             <>
               <button

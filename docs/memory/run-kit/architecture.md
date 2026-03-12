@@ -139,13 +139,14 @@ In development, Vite handles SPA fallback natively. In production, Go's catch-al
 
 ## Chrome Architecture
 
-The root layout (`app/frontend/src/app.tsx`) owns a fixed chrome skeleton (height: `var(--app-height, 100vh)`) with four zones:
+The root layout (`app/frontend/src/app.tsx`) owns a fixed chrome skeleton (height: `var(--app-height, 100vh)`) with three zones:
 
-1. **Top chrome** (`shrink-0`) — `TopBarChrome`, always-rendered two-line top bar
-2. **Main area** (`flex-1 flex flex-row min-h-0`) — sidebar + terminal side by side
-   - **Sidebar** (`w-[220px] shrink-0 overflow-y-auto`, hidden on mobile < 768px) — session/window tree
-   - **Terminal** (`flex-1 min-w-0`) — xterm.js + WebSocket relay
-3. **Bottom bar** (`shrink-0`) — always visible (terminal is always the main content)
+1. **Top chrome** (`shrink-0, border-b border-border`) — `TopBarChrome`, always-rendered two-line top bar
+2. **Main area** (`flex-1 flex flex-row min-h-0`) — sidebar + terminal column side by side
+   - **Sidebar** (drag-resizable, default 220px, min 160, max 400, `shrink-0 overflow-y-auto`, hidden on mobile < 768px) — session/window tree. Width persisted to `localStorage` key `runkit-sidebar-width`. Full height of main area (top bar to viewport bottom)
+   - **Terminal column** (`flex-1 min-w-0 flex flex-col`) — contains terminal + bottom bar
+     - **Terminal** (`flex-1`) — xterm.js + WebSocket relay
+     - **Bottom bar** (`shrink-0, border-t border-border`) — always visible, width tracks terminal column (not full viewport)
 
 No `max-w-4xl` constraint — all zones span full width. Terminal fills all available space right of the sidebar.
 
@@ -153,9 +154,9 @@ No `max-w-4xl` constraint — all zones span full width. Terminal fills all avai
 
 **SessionProvider** (`app/frontend/src/contexts/session-context.tsx`) — layout-level React Context that owns the single `EventSource` connection to `/api/sessions/stream`. Exposes `{ sessions, isConnected }` via `useSessions()` hook. Forwards `isConnected` to `ChromeProvider` internally. Mounted inside `ChromeProvider` in the root layout.
 
-**TopBarChrome** (`app/frontend/src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Line 1: `☰` toggle + icon breadcrumbs + connection indicator + `⌘K`/`⋯`. Line 2: always rendered with `min-h-[36px]` (prevents layout shift).
+**TopBarChrome** (`app/frontend/src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Line 1 (`border-b border-border`): `☰` toggle + icon breadcrumbs (`☰ {logo} ❯ session ❯ window`) + connection indicator + `⌘K`/`⋯`. Line 2: `[+ Session]` + contextual `[Rename]` `[Kill]`, always rendered with `min-h-[36px]` (prevents layout shift).
 
-**Sidebar** (`app/frontend/src/components/sidebar.tsx`) — session/window tree. Desktop: always visible at `w-[220px]`, collapsible via `☰`. Mobile (< 768px): drawer overlay from the left, triggered by `☰`.
+**Sidebar** (`app/frontend/src/components/sidebar.tsx`) — session/window tree. Desktop: drag-resizable (default 220px, min 160, max 400, persisted to `localStorage`), collapsible via `☰`. No footer (create session moved to top bar). Mobile (< 768px): drawer overlay from the left, triggered by `☰`.
 
 **BottomBar** (`app/frontend/src/components/bottom-bar.tsx`) — always visible. Single row of `<kbd>` buttons: modifier toggles (Ctrl/Alt/Cmd with sticky armed state), arrow keys, Fn dropdown (F1-F12, PgUp/PgDn, Home/End), Esc, Tab, and compose toggle. All buttons 44px min-height for mobile touch targets. Sends ANSI escape sequences through the WebSocket ref. Modifier state managed by `useModifierState` hook.
 
@@ -185,7 +186,7 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 - **Layout-level SessionProvider (not per-page SSE)** — Single `EventSource` connection at layout level. Eliminates redundant connections and per-page `isConnected` forwarding boilerplate.
 - **Single-view layout (sidebar + terminal) replaces three pages** — Dashboard and Project page functionality subsumed by the sidebar. Terminal is always visible. No page transitions.
 - **POST-only API client with path-based intent** — Each mutation is a separate function with its own URL (e.g., `killSession(session)` → `POST /api/sessions/:session/kill`). No multiplexed `action` field in request bodies.
-- **Sidebar + drawer pattern on mobile** — Desktop sidebar is `w-[220px]`, collapsible. Mobile (< 768px) uses a left-side drawer overlay triggered by `☰`. Preserves session/window tree layout across breakpoints.
+- **Sidebar + drawer pattern on mobile** — Desktop sidebar is drag-resizable (default 220px, min 160, max 400, localStorage persist), collapsible. Mobile (< 768px) uses a left-side drawer overlay triggered by `☰`. Preserves session/window tree layout across breakpoints.
 - **Active window sync via `history.replaceState` (not `router.replace()`)** — When byobu switches windows, the terminal relay pty already shows the correct content. The UI syncs breadcrumb, URL, and action targets via SSE polling (2.5s). URL updates use `window.history.replaceState()` which is invisible to the router — no re-render, no terminal reinitialization.
 - **Sticky modifier state via useRef + forceUpdate** — `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders. Ensures `consume()` reads the latest value atomically without stale closure issues.
 - **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.
@@ -253,3 +254,4 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-12 | **Go backend API at `app/backend/`** — handler files split by resource domain (sessions.go, windows.go, etc.). POST-only mutations with path-based intent. `internal/fab` rewritten to read `.fab-status.yaml` directly (no subprocess). Per-session fab enrichment model. `WindowInfo` fields changed: `FabChange`/`FabStage` replace `FabStage`/`FabProgress`. Upload endpoint session from URL path. Handler integration tests via `httptest.NewRecorder` + mock interfaces. SPA serves from `app/frontend/dist/`. | `260312-r4t9-go-backend-api` |
 | 2026-03-12 | **Vite/React frontend at `app/frontend/`** — single-view UI (sidebar + terminal, one route `/:session/:window`), POST-only API client with path-based intent, ChromeProvider derives from selection (no slot injection), sidebar with session/window tree + mobile drawer, MSW-backed Vitest, Playwright E2E at `app/frontend/tests/e2e/` | `260312-ux92-vite-react-frontend` |
 | 2026-03-12 | **Cleanup old implementation** — removed legacy backend and frontend directories, `e2e/`, root `playwright.config.ts`. Updated `pnpm-workspace.yaml` to `["app/frontend"]`. Removed legacy test sections and stale path references from memory. | `260312-n11e-cleanup-old-implementation` |
+| 2026-03-12 | **UI chrome layout refinements** — bottom bar moved inside terminal column (width tracks terminal, not viewport). Sidebar drag-resizable (default 220px, min 160, max 400, localStorage persist). Top bar `border-b`, bottom bar `border-t`. Breadcrumbs simplified to `☰ {logo} ❯ session ❯ window`. `[+ Session]` button added to top bar line 2. | `260312-y4ci-ui-chrome-layout-refinements` |

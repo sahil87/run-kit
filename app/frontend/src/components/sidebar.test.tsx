@@ -45,7 +45,6 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
       currentSession="run-kit"
       currentWindowIndex="0"
       onSelectWindow={vi.fn()}
-      onCreateSession={vi.fn()}
       onCreateWindow={vi.fn()}
       {...overrides}
     />,
@@ -101,16 +100,9 @@ describe("Sidebar", () => {
     expect(screen.getByText("apply")).toBeInTheDocument();
   });
 
-  it("shows + New Session button", () => {
+  it("does not render a footer with + New Session button", () => {
     renderSidebar();
-    expect(screen.getByText("+ New Session")).toBeInTheDocument();
-  });
-
-  it("calls onCreateSession when clicking + New Session", () => {
-    const onCreateSession = vi.fn();
-    renderSidebar({ onCreateSession });
-    fireEvent.click(screen.getByText("+ New Session"));
-    expect(onCreateSession).toHaveBeenCalledOnce();
+    expect(screen.queryByText("+ New Session")).not.toBeInTheDocument();
   });
 
   it("shows kill button for each session", () => {

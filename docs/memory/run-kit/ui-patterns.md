@@ -13,20 +13,19 @@ Single-view model: sidebar shows session/window tree, terminal is always the mai
 
 The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derives its content from the current session:window selection via `ChromeProvider` context. No slot injection — the chrome reads the selection and renders directly.
 
-**Line 1** (fixed height): `☰` toggle + icon breadcrumbs + connection indicator + `⌘K` (desktop) / `⋯` (mobile).
+**Line 1** (fixed height, `border-b border-border`): `☰` toggle + icon breadcrumbs + connection indicator + `⌘K` (desktop) / `⋯` (mobile).
 
-Breadcrumb: `☰ {logo} › ⬡ {session} › ❯ {window}` (syncs with tmux active window via SSE). `☰` toggles sidebar (desktop) or opens drawer (mobile).
+Breadcrumb: `☰ {logo} ❯ {session} ❯ {window}` (syncs with tmux active window via SSE). `☰` toggles sidebar (desktop) or opens drawer (mobile).
 
 - Logo SVG (`logo.svg`) — always links to `/`
-- ⬡ — Unicode hexagon (U+2B21), serves as dropdown trigger for session switching (tapping opens dropdown listing all sessions)
-- ❯ — Unicode heavy right angle (U+276F), serves as dropdown trigger for window switching (tapping opens dropdown listing windows in current session)
-- Icons are rendered inside `BreadcrumbDropdown` via `icon` prop — no separate passive span
+- ❯ — Unicode heavy right angle (U+276F), unified separator/dropdown trigger icon for both session and window segments (tapping opens respective dropdown)
+- Icons are rendered inside `BreadcrumbDropdown` via `icon` prop — no separate passive span, no `›` separator spans
 - All segments except the last are clickable links
 - No text prefixes like "session:" or "window:"
 
 ### Breadcrumb Dropdowns
 
-Breadcrumb segments with a `dropdownItems` array use the icon (⬡ or ❯) as the dropdown trigger. Split click-target pattern: clicking the label navigates (existing behavior), clicking the icon opens the dropdown.
+Breadcrumb segments with a `dropdownItems` array use the ❯ icon as the dropdown trigger. Split click-target pattern: clicking the label navigates (existing behavior), clicking the icon opens the dropdown.
 
 **Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{session}/0`.
 
@@ -40,7 +39,9 @@ Connection indicator: green/gray dot with "live"/"disconnected" label, driven by
 
 | Left content | Right content |
 |-------------|---------------|
-| `[Rename]` `[Kill]` (kill has red hover) | Activity dot + activity text + fab stage badge |
+| `[+ Session]` `[Rename]` `[Kill]` (kill has red hover) | Activity dot + activity text + fab stage badge |
+
+`[+ Session]` is always visible (not gated on `currentWindow`) since creating a session is a global action. `[Rename]` and `[Kill]` are contextual to the current window.
 
 Line 2 renders even when empty — prevents layout shift.
 
@@ -54,19 +55,21 @@ Line 2 renders even when empty — prevents layout shift.
 
 `app/frontend/src/components/sidebar.tsx` — session/window tree navigation.
 
-**Desktop** (>= 768px): Always visible at `w-[220px]`, collapsible via `☰` in top bar.
+**Desktop** (>= 768px): Drag-resizable panel, default 220px width. Width persisted to `localStorage` key `runkit-sidebar-width`. Constraints: min 160px, max 400px. Drag handle (4-6px) on right edge with `col-resize` cursor, supports mouse and touch events. Collapsible via `☰` in top bar.
 
-**Mobile** (< 768px): Hidden by default. `☰` opens a drawer overlay from the left, dimming the terminal. Selecting a window closes the drawer.
+**Mobile** (< 768px): Hidden by default. `☰` opens a drawer overlay from the left, dimming the terminal. Selecting a window closes the drawer. Drag-resize does not apply to mobile drawer.
+
+**Padding**: `px-3 sm:px-6` (matches top bar and bottom bar chrome padding).
 
 **Session rows**: Session name (left, collapsible via triangle/chevron), ✕ kill button (right, always visible). Click session name to expand/collapse windows.
 
 **Window rows**: Single line with activity dot (green = active, dim = idle) + window name (left), fab stage text in `text-secondary` (right, omitted for non-fab windows). Currently selected window highlighted with `bg-card` + `border-l-2 border-accent`. Click navigates to `/:session/:window`.
 
-**Footer**: `[+ New Session]` button at bottom.
+**No footer** — `[+ Session]` action moved to top bar line 2.
 
-## Bottom Bar (Always Visible)
+## Bottom Bar (Always Visible, Inside Terminal Column)
 
-Single row of `<kbd>` styled buttons, always visible (terminal is always the main content). Layout: `Esc Tab | Ctrl Alt Cmd | ArrowPad | Fn▾ ⌄ | >_`.
+Single row of `<kbd>` styled buttons, always visible (terminal is always the main content). Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt Cmd | ArrowPad | Fn▾ ⌄ | >_`.
 
 **Modifier toggles** (Ctrl, Alt, Cmd): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously.
 
@@ -114,7 +117,7 @@ The terminal container div has `touch-none` (CSS `touch-action: none`) to preven
 
 ### Breakpoints & Container Width
 
-All zones use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. No `max-w-4xl` constraint — terminal, top bar, and bottom bar all span full width. Sidebar is `w-[220px]` fixed on desktop; terminal fills remaining space.
+All zones use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. No `max-w-4xl` constraint — terminal, top bar, and bottom bar all span full width. Sidebar is drag-resizable (default 220px, min 160, max 400) on desktop; terminal fills remaining space. Terminal container has `py-0.5 px-1` padding for breathing room against border lines. Bottom bar uses `py-1.5` vertical padding.
 
 ### Touch Targets
 
@@ -217,3 +220,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-07 | Mobile cleanup — merged F-key/ext-key popups, moved upload to compose buffer, added keyboard dismiss button, breadcrumb icons as dropdown triggers | `260307-l9jj-mobile-bar-breadcrumb-cleanup` |
 | 2026-03-10 | Go backend + Vite SPA split — removed Server Component patterns, all data fetching via API client + SSE context, TanStack Router for client-side routing, terminal WebSocket on same port (no relay port config) | `260310-8xaq-go-backend-vite-spa-split` |
 | 2026-03-12 | Single-view UI model — sidebar + terminal replaces three-page navigation, POST-only API client with path-based intent, ChromeProvider derives from selection (no slot injection), fullbleed always on, no max-width constraint, sidebar with session/window tree and mobile drawer | `260312-ux92-vite-react-frontend` |
+| 2026-03-12 | UI chrome refinements — simplified breadcrumbs (`☰ {logo} ❯ session ❯ window`, removed `⬡` and `›`), drag-resizable sidebar (default 220px, min 160, max 400, localStorage persist), bottom bar moved inside terminal column (`border-t border-border`, `py-1.5`), top bar `border-b border-border`, `[+ Session]` button in top bar line 2, sidebar footer removed, padding consistency (`px-3 sm:px-6` sidebar, `py-0.5 px-1` terminal container) | `260312-y4ci-ui-chrome-layout-refinements` |

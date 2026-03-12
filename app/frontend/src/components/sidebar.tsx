@@ -9,7 +9,6 @@ type SidebarProps = {
   currentWindowIndex: string | null;
   focusedIndex?: number;
   onSelectWindow: (session: string, windowIndex: number) => void;
-  onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
 };
 
@@ -19,7 +18,6 @@ export function Sidebar({
   currentWindowIndex,
   focusedIndex,
   onSelectWindow,
-  onCreateSession,
   onCreateWindow,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -63,7 +61,7 @@ export function Sidebar({
   }
 
   return (
-    <nav aria-label="Sessions" className="flex flex-col h-full px-4 py-2">
+    <nav aria-label="Sessions" className="flex flex-col h-full px-3 sm:px-6 py-2">
       <div className="flex-1 overflow-y-auto">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center">
@@ -159,16 +157,6 @@ export function Sidebar({
             );
           })
         )}
-      </div>
-
-      {/* Footer */}
-      <div className="shrink-0 border-t border-border pt-2 mt-2">
-        <button
-          onClick={onCreateSession}
-          className="w-full text-sm text-text-secondary hover:text-text-primary py-2 min-h-[36px] coarse:min-h-[44px] border border-border rounded hover:border-text-secondary transition-colors"
-        >
-          + New Session
-        </button>
       </div>
 
       {/* Kill session confirmation */}

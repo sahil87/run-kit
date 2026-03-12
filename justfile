@@ -5,15 +5,15 @@ set dotenv-load := false
 
 # ─── Development ──────────────────────────────────────────────
 
-# Start Go backend + Vite dev server concurrently
-dev:
+# Start Go backend + Vite dev server concurrently (just dev --port 3001)
+dev *args:
     #!/usr/bin/env bash
     set -euo pipefail
     pids=()
     cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait; }
     trap cleanup EXIT
     (cd app/backend && go run ./cmd/run-kit) & pids+=($!)
-    (cd app/frontend && pnpm dev) & pids+=($!)
+    (cd app/frontend && pnpm dev {{args}}) & pids+=($!)
     wait
 
 # ─── Build ───────────────────────────────────────────────────

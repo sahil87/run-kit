@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 
 interface RunKitConfig {
-  server?: { port?: number; dev_port?: number; host?: string };
+  server?: { port?: number; host?: string };
 }
 
 function loadConfig(): RunKitConfig {
@@ -21,7 +21,6 @@ function loadConfig(): RunKitConfig {
 const cfg = loadConfig();
 const apiPort = cfg.server?.port ?? 3000;
 const apiHost = cfg.server?.host ?? "127.0.0.1";
-const devPort = cfg.server?.dev_port ?? 5173;
 const backendTarget = `http://${apiHost}:${apiPort}`;
 
 export default defineConfig({
@@ -32,7 +31,6 @@ export default defineConfig({
     },
   },
   server: {
-    port: devPort,
     host: apiHost,
     allowedHosts: true,
     proxy: {

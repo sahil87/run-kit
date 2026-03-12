@@ -1,0 +1,5 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-12T20:14:47Z"}
+{"args":"UI chrome and layout refinements: simplify breadcrumbs, add layout borders, draggable sidebar, padding consistency, restructure bottom bar scope","cmd":"fab-new","event":"command","ts":"2026-03-12T20:14:47Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-12T20:15:59Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-12T20:16:18Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-03-12T20:18:58Z"}

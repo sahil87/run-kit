@@ -1,0 +1,37 @@
+id: y4ci
+name: 260312-y4ci-ui-chrome-layout-refinements
+created: 2026-03-12T20:14:47Z
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 8
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 88.5
+        reversibility: 90.5
+        competence: 87.0
+        disambiguation: 90.0
+stage_metrics:
+    intake: {started_at: "2026-03-12T20:14:47Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-03-12T20:16:23Z

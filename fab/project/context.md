@@ -15,25 +15,45 @@
          Python, FastAPI, SQLAlchemy, PostgreSQL
 -->
 
-## Tech Stack
+## Repository Layout
 
-- **Runtime**: Node.js (ESM)
-- **Framework**: Next.js 15 (App Router, Server Components by default)
+```
+app/
+  backend/     # Go HTTP server (chi router)
+  frontend/    # Vite + React SPA
+```
+
+Monorepo managed by pnpm workspaces. Task runner: `just` (see `justfile`).
+
+## Backend — `app/backend/`
+
+- **Language**: Go 1.22
+- **Router**: chi/v5
+- **WebSocket**: gorilla/websocket — terminal relay to tmux panes via creack/pty
+- **SSE**: custom handler for real-time session state
+- **Config parsing**: `gopkg.in/yaml.v3` for `run-kit.yaml`
+- **Structure**: `cmd/run-kit/` (entrypoint), `api/` (HTTP handlers), `internal/` (config, fab, sessions, tmux, validate)
+- **Testing**: `go test ./...`
+- **Build**: `go build -o ../../bin/run-kit ./cmd/run-kit`
+
+## Frontend — `app/frontend/`
+
 - **Language**: TypeScript 5.7+
-- **UI**: React 19, Tailwind CSS 4, shadcn/ui (generated into `components/ui/`)
+- **Framework**: Vite 7 + React 19 (SPA, no SSR)
+- **Routing**: TanStack Router — routes: `/` (redirect), `/$session/$window`
+- **UI**: Tailwind CSS 4
 - **Terminal**: xterm.js 5 (`@xterm/xterm`) with FitAddon and WebLinks addon
-- **Terminal relay**: WebSocket server (`ws`) + `node-pty` for tmux pane I/O
-- **Testing**: Vitest 4, Testing Library (React + jest-dom), jsdom
+- **API client**: `src/api/client.ts`
+- **Testing**: Vitest 4, Testing Library (React + jest-dom), jsdom, Playwright (e2e)
+- **Build**: `tsc --noEmit && vite build`
 - **Package manager**: pnpm
-- **Build**: `pnpm build` (Next.js production build)
-- **Config parsing**: `yaml` package for `run-kit.yaml`
 
 ## Conventions
 
-- Server Components by default; Client Components only for interactivity (keyboard handlers, xterm, SSE)
-- All subprocess calls via `execFile` with argument arrays + timeouts (never `exec` or shell strings)
 - State derived from tmux + filesystem at request time — no database, no in-memory caches
-- Fab-kit scripts wrapped in typed async functions in `src/lib/*.ts`
-- Dark theme only, monospace everywhere, `max-w-4xl` on all pages
-- Three routes: `/`, `/p/:project`, `/p/:project/:window`
+- All Go subprocess calls use `exec.CommandContext` with timeouts — never shell strings
+- Dark theme only, monospace everywhere
+- Keyboard-first — command palette (`Cmd+K`) is primary discovery mechanism
 - SSE for real-time session state, WebSocket for terminal I/O
+- Dev workflow: `just dev` (runs Go backend with air live-reload + Vite dev server concurrently)
+- For interactive UI testing during development, use Playwright MCP with `just dev --port <port>` to start the service

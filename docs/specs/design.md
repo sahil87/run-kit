@@ -52,7 +52,7 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 - **Bottom bar is essential on mobile**: No physical keyboard means the modifier bar is the *only* way to send Ctrl+C, Esc, function keys. On mobile the bottom bar appears on the terminal page and becomes the primary interaction surface alongside the on-screen keyboard.
 - **Max-width becomes full-width on mobile**: `max-w-4xl` is the desktop constraint. On screens < 896px, content goes edge-to-edge with minimal padding (`px-3` or `px-4`).
 - **Terminal font scales down**: 13px on desktop, smaller on mobile (10-11px) to fit more columns. The terminal should still be readable and horizontally scrollable if needed.
-- **Top bar stays compact**: The icon-driven breadcrumb (`{logo} › ⬡ run-kit › ❯ zsh`) was already designed tight — it fits on a phone screen. Line 2 actions may need to collapse into the command palette on narrow screens.
+- **Top bar stays compact**: The breadcrumb (`{logo} ❯ run-kit ❯ zsh`) is minimal — it fits on a phone screen. Line 2 actions collapse into the command palette on narrow screens.
 - **Cards are already touch-friendly**: Full-width, stacked vertically, clear tap targets. The hover-reveal kill button (✕) needs a mobile alternative — long-press or swipe-to-reveal.
 - **No hover states on mobile**: Hover-reveal patterns (kill button, border brightening) need touch equivalents. Either always-visible or gesture-activated.
 
@@ -64,8 +64,8 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ ☰  {logo} › ⬡ run-kit › ❯ zsh              ● live  ⌘K          │  ← top bar
-│ [Kill Window]                                        ● active   │  ← line 2
+│ ☰  {logo} ❯ run-kit ❯ zsh                   ● live  ⌘K          │  ← top bar (border-b)
+│ [+ Session] [Rename] [Kill]                          ● active   │  ← line 2
 ├────────────┬─────────────────────────────────────────────────────┤
 │ Sessions   │                                                     │
 │            │                                                     │
@@ -76,19 +76,20 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 │            │                                                     │
 │ ▼ ao-srv   │                                                     │
 │   main  ●  │                                                     │
-│            │                                                     │
-├────────────┴─────────────────────────────────────────────────────┤
-│ ⌃ Ctrl  ⌥ Alt  ⌘ Cmd  │  ← → ↑ ↓  │  Fn▾  Esc  Tab  ✎        │  ← bottom bar
-└──────────────────────────────────────────────────────────────────┘
+│            ├─────────────────────────────────────────────────────┤
+│            │ Esc Tab │ ^ ⌥ ⌘ │ ← → ↑ ↓ │ Fn▾  ⌄  >_           │  ← bottom bar (border-t)
+└────────────┴─────────────────────────────────────────────────────┘
 ```
 
-Sidebar is collapsible — toggle via `☰` in top bar or keyboard shortcut. When collapsed, only the terminal + chrome remain.
+Sidebar is drag-resizable (default 220px, min 160px, max 400px, persisted to localStorage). Collapsible via `☰` or keyboard shortcut. When collapsed, only the terminal + chrome remain.
+
+The bottom bar is scoped to the terminal column — it does not extend under the sidebar. The sidebar fills the full height of the main area.
 
 ### Mobile Layout
 
 ```
 ┌──────────────────────────┐
-│ ☰ ⬡ run-kit › ❯ zsh  [⋯]│  ← top bar (compact)
+│ ☰ ❯ run-kit ❯ zsh    [⋯]│  ← top bar (compact)
 ├──────────────────────────┤
 │                          │
 │   Terminal (xterm.js)    │  ← full screen
@@ -115,7 +116,6 @@ Tap `☰` → drawer slides in from left:
 │ │ ▼ ao-srv     │         │
 │ │   main    ●  │         │
 │ │              │         │
-│ │ [+ Session]  │         │
 │ └──────────────┘         │
 ├──────────────────────────┤
 │ Ctrl Alt Fn▾ Esc Tab  ✎ │
@@ -128,37 +128,39 @@ Tap a window → drawer closes → terminal connects to that session:window.
 
 ```
 h-screen flex flex-col
-  ├── top-chrome:  shrink-0  (2 lines, fixed height)
-  ├── main-area:   flex-1 flex flex-row min-h-0
-  │     ├── sidebar:   w-[220px] shrink-0 overflow-y-auto (hidden on mobile)
-  │     └── terminal:  flex-1 min-w-0
-  └── bottom-bar:  shrink-0  (1 line, fixed height)
+  ├── top-chrome:  shrink-0  (2 lines, fixed height, border-b)
+  └── main-area:   flex-1 flex flex-row min-h-0
+        ├── sidebar:   w-[var] shrink-0 overflow-y-auto (hidden on mobile, drag-resizable)
+        └── terminal-col:  flex-1 min-w-0 flex flex-col
+              ├── terminal:  flex-1 min-h-0 py-0.5 px-1
+              └── bottom-bar:  shrink-0  (1 line, border-t, py-1.5)
 ```
 
-On mobile (`<768px`), sidebar is `display: none` by default. Drawer is a fixed overlay triggered by `☰`.
+On mobile (`<768px`), sidebar is `display: none` by default. Drawer is a fixed overlay triggered by `☰`. Bottom bar spans full width on mobile (no sidebar).
 
 ### Principle: Chrome Must Be Architecturally Immovable
 
-The top bar and bottom bar are **owned by the root layout**. No component can change the chrome's structure, padding, or height. The sidebar and terminal fill the space between them.
+The top bar is **owned by the root layout**. No component can change the chrome's structure, padding, or height. The bottom bar is owned by the terminal column — it tracks the terminal's width and sits below it, not below the sidebar.
 
 ### Top Bar (2 lines)
 
 **Line 1 — Breadcrumbs + Global Status**
 
 ```
-☰  {logo} › ⬡ run-kit › ❯ zsh                    ● live  ⌘K
+☰  {logo} ❯ run-kit ❯ zsh                         ● live  ⌘K
 ```
 
 - `☰` — hamburger, toggles sidebar (desktop) / opens drawer (mobile)
 - `{logo}` — the RunKit hex logo
-- `⬡ run-kit` — **tappable**: opens dropdown of all sessions. Tap a different session → switch.
-- `❯ zsh` — **tappable**: opens dropdown of windows in current session. Tap a different window → switch.
+- `❯` — unified separator/dropdown trigger icon (replaces both `›` separators and `⬡` icon)
+- `run-kit` — **tappable**: opens dropdown of all sessions. Tap a different session → switch.
+- `zsh` — **tappable**: opens dropdown of windows in current session. Tap a different window → switch.
 - Right: Connection dot + "live"/"disconnected", `⌘K` kbd hint (desktop) / `⋯` (mobile)
 
 The breadcrumb dropdowns are the **primary quick-navigation** mechanism. They avoid opening the full sidebar/drawer for simple session or window switches.
 
 **Line 2 — Actions + Contextual Status**
-- Left: Action buttons ([Kill Window], [+ New Window], etc.)
+- Left: Action buttons ([+ Session], [Rename], [Kill]). `[+ Session]` is always visible (global action, not gated on current window).
 - Right: Status text (● active, fab: intake ◷, window count)
 - **MUST render even when empty** — fixed height placeholder, never collapses
 
@@ -263,7 +265,7 @@ The terminal (`flex-1`) naturally shrinks as the keyboard takes space. xterm's `
 Since there are no pages, the chrome content derives directly from the current `session:window` selection:
 
 - **Breadcrumbs** — derived from current session name + window name (from URL state)
-- **Line 2 left** — contextual actions for the active window (Kill, Rename, etc.)
+- **Line 2 left** — global + contextual actions ([+ Session], [Rename], [Kill])
 - **Line 2 right** — window status (activity, fab progress)
 - **Sidebar** — full session/window tree from SSE stream
 
@@ -294,11 +296,10 @@ The sidebar replaces the old Dashboard and Project pages. It shows all sessions 
 │ ▼ ao-server      ✕  │
 │     main             │
 │                     │
-│ [+ New Session]     │
 └─────────────────────┘
 ```
 
-**Session row**: Session name (left, collapsible), ✕ kill (right, always visible).
+**Session row**: Session name (left, collapsible), + new window (right), ✕ kill (right, always visible).
 
 **Window row**: Single line, three zones:
 - Left: Activity dot (● = active, dim/absent = idle) + window name
@@ -307,10 +308,10 @@ The sidebar replaces the old Dashboard and Project pages. It shows all sessions 
 - Tap → switches terminal to that session:window
 
 **Design constraints**:
-- Sidebar width: `w-[220px]` on desktop, ~75% screen width as drawer on mobile
+- Sidebar width: drag-resizable (default 220px, min 160px, max 400px), persisted to localStorage. ~75% screen width as drawer on mobile.
 - Window rows must be ≥44px tall on mobile (touch targets)
 - Session groups are collapsible (▼/▶) to manage long lists
-- `[+ New Session]` button at bottom — opens create session dialog
+- No footer — `[+ Session]` lives in the top bar's line 2
 
 ### Fab Status Badge
 
@@ -349,10 +350,11 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 
 ### Spacing
 
-- **Horizontal padding**: `px-4` in sidebar, `px-2` around terminal (tight — terminal needs max columns)
+- **Horizontal padding**: `px-3 sm:px-6` for top bar, sidebar, and bottom bar (consistent chrome padding)
+- **Terminal padding**: `py-0.5 px-1` — minimal breathing room against border lines
 - **No max-width**: The old `max-w-4xl` constraint is gone. The terminal fills all available space right of the sidebar. More columns = better.
-- **Sidebar width**: Fixed `w-[220px]` on desktop
-- **Line heights**: Top bar lines use identical `py-2` + `text-sm`, producing predictable heights
+- **Sidebar width**: Drag-resizable (default 220px, min 160px, max 400px), persisted to localStorage
+- **Line heights**: Top bar lines use `py-2` + `text-sm`. Bottom bar uses `py-1.5` for near-symmetry.
 
 ### Typography
 
@@ -385,21 +387,25 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 |---|----------|------------|
 | 1 | Page model | Single view — sidebar + terminal. No page transitions. One route: `/:session/:window`. |
 | 2 | Mobile navigation | Drawer pattern (not page stack). Terminal is full-screen, drawer overlays from left. Breadcrumbs for quick switching. |
-| 3 | Bottom bar scope | Always visible — terminal is always the main content area |
+| 3 | Bottom bar scope | Scoped to terminal column width. Always visible, but sits below the terminal only — does not extend under the sidebar. |
 | 4 | F1-F12 layout | Dropdown (`Fn ▾`) to keep the bar compact |
 | 5 | Sticky modifier visual | Yes — "armed" state with highlight color while active |
-| 6 | Terminal max-width | No max-width on terminal — it fills all space right of sidebar. Top bar and bottom bar span full width. |
+| 6 | Terminal max-width | No max-width on terminal — it fills all space right of sidebar. Top bar spans full width; bottom bar spans terminal width. |
 | 7 | Fn dropdown behavior | Closes after each selection — one key per open |
 | 8 | Mobile keyboard + modifier bar | Modifier bar pins above iOS keyboard. Terminal shrinks via `flex-1` + `FitAddon`. Prompt stays visible adjacent to modifier keys. Use `visualViewport` API for detection. |
 | 9 | Kill button (✕) | Always visible — no hover-reveal. Simpler, works on mobile and desktop equally. |
 | 10 | Mobile Line 2 | Actions collapse into command palette via `⋯` button. Status text stays visible. `⋯` replaces `⌘K` as command palette trigger on mobile. |
 | 11 | Bottom bar keys | `Ctrl Alt Cmd │ ← → ↑ ↓ │ Fn▾ Esc Tab ✎`. Arrow keys essential for mobile. Fn dropdown includes F1-F12 + PgUp/PgDn/Home/End. |
-| 12 | Breadcrumb behavior | Session segment → dropdown of all sessions. Window segment → dropdown of windows in session. Primary quick-nav mechanism. |
-| 13 | Sidebar width | `w-[220px]` on desktop, ~75% viewport as drawer on mobile |
+| 12 | Breadcrumb format | `☰ {logo} ❯ run-kit ❯ zsh` — `❯` as unified separator/dropdown icon. No `›` separators, no `⬡` icon. Session and window names are tappable dropdown triggers. |
+| 13 | Sidebar width | Drag-resizable (default 220px, min 160px, max 400px), width persisted to localStorage. ~75% viewport as drawer on mobile. |
 | 14 | Sidebar ordering | Same as tmux output order (no resorting) |
 | 15 | Drawer trigger | Hamburger icon only — no swipe gesture |
 | 16 | Testing strategy | MSW-backed tests for UI behavior (drawer, breadcrumbs, sidebar, keyboard, touch targets, viewport). Thin E2E suite (3-5 tests) for API integration round-trips (create/kill session, SSE stream). |
 | 17 | Sidebar fab status | Inline on same line as window name, right-aligned. Stage name + icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows. |
+| 18 | Layout borders | `border-b` on top bar, `border-t` on bottom bar, `border-r` on sidebar. Clear visual separation between chrome regions and content. |
+| 19 | Padding consistency | All chrome uses `px-3 sm:px-6`. Terminal container gets `py-0.5 px-1` for breathing room. Bottom bar `py-1.5` for near-symmetry with top bar's `py-2`. |
+| 20 | "+ New Session" location | Moved from sidebar footer to top bar line 2. Always visible (not gated on current window). Sidebar has no footer section. |
+| 21 | Bottom bar position | Inside terminal column (not root layout). Width tracks terminal, not full viewport. Sidebar extends full height of main area. |
 
 ## Open Design Questions
 

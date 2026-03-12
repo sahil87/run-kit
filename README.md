@@ -34,7 +34,7 @@ Run `just doctor` to verify all dependencies are installed.
    pnpm dev
    ```
 
-   This starts both the Next.js dev server ([http://localhost:3000](http://localhost:3000)) and the terminal relay (port 3001). Ctrl+C stops both.
+   This starts the Go API server and the Vite dev server. The API serves on port 3000 by default; Vite proxies `/api` and `/relay` requests to it. Ctrl+C stops both.
 
 3. **Start in production mode**
 
@@ -44,7 +44,7 @@ Run `just doctor` to verify all dependencies are installed.
    pnpm supervisor
    ```
 
-   The supervisor manages the Next.js server and terminal relay as a single unit, with health checks and automatic rollback on failure. It reads `run-kit.yaml` for port/host configuration.
+   The supervisor manages the Go server as a single unit, with health checks and automatic rollback on failure. It reads `run-kit.yaml` for port/host configuration.
 
 ## Configuration
 
@@ -52,20 +52,16 @@ Create an optional `run-kit.yaml` at the repo root to override defaults:
 
 ```yaml
 server:
-  port: 3000        # Next.js port (default: 3000)
-  relay_port: 3001  # Terminal relay WebSocket port (default: 3001)
+  port: 3000        # Go server port (default: 3000)
   host: 127.0.0.1   # Bind address (default: 127.0.0.1)
 ```
 
-All values are optional — defaults apply when the file is absent or a key is omitted.
+All values are optional — defaults apply when the file is absent or a key is omitted. The Vite dev server reads `run-kit.yaml` at startup to configure its proxy targets automatically.
 
 CLI args override `run-kit.yaml` (useful for one-off overrides):
 
 ```sh
-# Relay server
-tsx src/terminal-relay/server.ts --port 4001 --host 0.0.0.0
-
-# Supervisor passes flags to both services automatically
+./bin/run-kit --port 4000 --host 0.0.0.0
 ```
 
 **Security note:** The default host `127.0.0.1` restricts access to localhost. Setting `host: 0.0.0.0` exposes the terminal relay to the network.

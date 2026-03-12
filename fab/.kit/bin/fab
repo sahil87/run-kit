@@ -11,8 +11,6 @@ if [ "${1:-}" = "--version" ]; then
   backend="none"
   if [ -x "$SCRIPT_DIR/fab-go" ]; then
     backend="go"
-  elif [ -x "$SCRIPT_DIR/fab-rust" ]; then
-    backend="rust"
   fi
   echo "fab $version ($backend backend)"
   exit 0
@@ -26,18 +24,13 @@ fi
 
 if [ "$backend_override" = "go" ] && [ -x "$SCRIPT_DIR/fab-go" ]; then
   exec "$SCRIPT_DIR/fab-go" "$@"
-elif [ "$backend_override" = "rust" ] && [ -x "$SCRIPT_DIR/fab-rust" ]; then
-  exec "$SCRIPT_DIR/fab-rust" "$@"
 fi
 
-# Default priority: go > rust
+# Default: go backend
 if [ -x "$SCRIPT_DIR/fab-go" ]; then
   exec "$SCRIPT_DIR/fab-go" "$@"
 fi
-if [ -x "$SCRIPT_DIR/fab-rust" ]; then
-  exec "$SCRIPT_DIR/fab-rust" "$@"
-fi
 
-echo "Error: no fab backend found (expected fab-go or fab-rust in $SCRIPT_DIR)" >&2
+echo "Error: no fab backend found (expected fab-go in $SCRIPT_DIR)" >&2
 echo "Fix: run fab-sync.sh or download a platform-specific kit archive" >&2
 exit 1

@@ -1,6 +1,6 @@
 ---
 name: _scripts
-description: "Kit script invocation guide — calling conventions for the fab dispatcher and Go binary."
+description: "Kit script invocation guide — calling conventions for the fab dispatcher and Go backend."
 user-invocable: false
 disable-model-invocation: true
 metadata:
@@ -14,17 +14,16 @@ metadata:
 
 ## Calling Convention
 
-`fab/.kit/bin/fab` is a shell dispatcher that serves as the sole entry point for all fab CLI operations. It checks for compiled backends in priority order (`fab-rust` → `fab-go`) and delegates accordingly. All commands are implemented in the Go binary via Cobra.
+`fab/.kit/bin/fab` is a shell dispatcher that serves as the sole entry point for all fab CLI operations. It delegates to the Go backend (`fab-go`). All commands are implemented in the Go binary via Cobra.
 
 ```
 fab/.kit/bin/fab <command> <subcommand> [args...]
 ```
 
-### Backend Priority
+### Backend
 
-1. `fab/.kit/bin/fab-rust` — if present and executable, all commands delegate here
-2. `fab/.kit/bin/fab-go` — if present and executable, all commands delegate here
-3. Error — exits 1 with message directing user to install a backend
+1. `fab/.kit/bin/fab-go` — if present and executable, all commands delegate here
+2. Error — exits 1 with message directing user to install the backend
 
 ### Help
 

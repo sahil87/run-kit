@@ -171,7 +171,8 @@ Print: `  ✓ push   — origin/<branch>`
    - Check if `fab/changes/{name}/intake.md` exists → `{has_intake}`
    - Check if `fab/changes/{name}/spec.md` exists → `{has_spec}`
    - Check if `fab/changes/{name}/tasks.md` exists → `{has_tasks}`
-   - Read `fab/changes/{name}/.status.yaml` for `confidence`, `checklist`, `progress`, and `stage_metrics` fields
+   - Read `fab/changes/{name}/.status.yaml` for `id`, `name`, `confidence`, `checklist`, `progress`, and `stage_metrics` fields
+   - Read `fab/project/config.yaml` for the optional `linear_workspace` field under `project:`
 
    **Construct blob URLs** (only when `{has_fab}`):
    - `{owner_repo}` = `gh repo view --json nameWithOwner -q '.nameWithOwner'`
@@ -190,11 +191,23 @@ Print: `  ✓ push   — origin/<branch>`
    {if has_fab AND has_intake: bulleted list of subsection headings from intake's ## What Changes section}
    {otherwise: omit this section entirely}
 
+   ## Change
+   {if has_fab: render the Change table below}
+   {otherwise: omit this section entirely}
+   | ID | Name | Issue |
+   |----|------|-------|
+   | {id} | {status_name} | {issue_display} |
+
    ## Stats
    | Type | Confidence | Checklist | Tasks | Review |
    |------|-----------|-----------|-------|--------|
    | {type} | {confidence} | {checklist} | {tasks} | {review} |
    ```
+
+   **Change column population** (only when `{has_fab}`):
+   - **ID**: From `.status.yaml` `id` field (4-char change ID). Show `—` if unavailable
+   - **Name**: From `.status.yaml` `name` field (full change folder name). Use a distinct variable (e.g., `{status_name}`) to avoid clobbering `{name}` (the resolved change folder used for path construction). Show `—` if unavailable
+   - **Issue**: From `issues` resolved in Step 1 (`fab status get-issues`). If `linear_workspace` is configured in `fab/project/config.yaml`, render each issue as `[{ID}](https://linear.app/{linear_workspace}/issue/{ID})`. If `linear_workspace` is absent, render bare issue IDs. Multiple issues are comma-separated. Show `—` if no issues
 
    **Stats column population**:
    - **Type**: Always populated from the resolved PR type

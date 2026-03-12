@@ -22,7 +22,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "bash dev.sh",
+    command: "just dev",
     port: 5173,
     reuseExistingServer: true,
   },

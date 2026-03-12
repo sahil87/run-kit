@@ -9,9 +9,12 @@ set dotenv-load := false
 dev:
     #!/usr/bin/env bash
     set -euo pipefail
-    trap 'kill 0' EXIT
-    (cd app/backend && go run ./cmd/run-kit) &
-    (cd app/frontend && pnpm dev)
+    pids=()
+    cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait; }
+    trap cleanup EXIT
+    (cd app/backend && go run ./cmd/run-kit) & pids+=($!)
+    (cd app/frontend && pnpm dev) & pids+=($!)
+    wait
 
 # ─── Build ───────────────────────────────────────────────────
 

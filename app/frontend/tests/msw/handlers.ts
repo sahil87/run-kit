@@ -11,7 +11,7 @@ export const handlers = [
     return new HttpResponse(null, { status: 200 });
   }),
 
-  // GET /api/directories — returns empty array
+  // GET /api/directories — returns { directories: [] }
   http.get("/api/directories", () => {
     return HttpResponse.json({ directories: [] });
   }),

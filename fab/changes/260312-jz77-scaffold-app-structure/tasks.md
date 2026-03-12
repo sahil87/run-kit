@@ -32,7 +32,7 @@
 
 <!-- Test infrastructure, MSW, Playwright, justfile, supervisor, workspace config. -->
 
-- [x] T015 [P] Create `app/frontend/tests/msw/handlers.ts` — MSW handler stubs for `GET /api/sessions` (empty array), `GET /api/sessions/stream` (no-op), `GET /api/directories` (empty array), `POST /api/sessions` (ok), `POST /api/sessions/:session/kill` (ok). Export `handlers` array.
+- [x] T015 [P] Create `app/frontend/tests/msw/handlers.ts` — MSW handler stubs for `GET /api/sessions` (empty array), `GET /api/sessions/stream` (no-op), `GET /api/directories` (`{ directories: [] }`), `POST /api/sessions` (ok), `POST /api/sessions/:session/kill` (ok). Export `handlers` array.
 - [x] T016 [P] Create `app/frontend/playwright.config.ts` — desktop project (Chromium), base URL `http://localhost:5173`, test dir `tests/e2e/`. Create `app/frontend/tests/e2e/smoke.spec.ts` with `test.skip('smoke', () => {})`.
 - [x] T017 Replace `justfile` with updated recipes: `dev` (Go + Vite concurrent), `build` (Go build + pnpm build), `test` (backend + frontend + e2e), `test-backend`, `test-frontend`, `test-e2e`, `check`, `verify`, `up`, `bg`, `logs`, `down`, `https`, `trust`.
 - [x] T018 Update `supervisor.sh` paths: Go build from `app/backend/`, frontend build from `app/frontend/`, dist path from `app/frontend/dist/`.

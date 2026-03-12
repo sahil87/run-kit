@@ -192,7 +192,7 @@ The system SHALL create `app/frontend/src/types.ts` with:
 The system SHALL create `app/frontend/tests/msw/handlers.ts` with MSW handler stubs for:
 - `GET /api/sessions` — returns empty array
 - `GET /api/sessions/stream` — no-op SSE stub
-- `GET /api/directories` — returns empty array
+- `GET /api/directories` — returns `{ directories: [] }`
 - `POST /api/sessions` — returns `{ ok: true }`
 - `POST /api/sessions/:session/kill` — returns `{ ok: true }`
 

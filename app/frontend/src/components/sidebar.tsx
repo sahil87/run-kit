@@ -125,12 +125,12 @@ export function Sidebar({
                           key={win.index}
                           ref={isFocused ? focusedRef : undefined}
                           onClick={() => onSelectWindow(session.name, win.index)}
-                          className={`w-full text-left flex items-center justify-between gap-2 py-1 px-2 text-sm rounded transition-colors min-h-[28px] coarse:min-h-[44px] ${
+                          className={`w-full text-left flex items-center justify-between gap-2 py-1 px-2 text-sm transition-colors min-h-[28px] coarse:min-h-[44px] border-l-2 ${
                             isSelected
-                              ? "bg-card border-l-2 border-accent text-text-primary"
+                              ? "bg-accent/10 border-accent text-text-primary font-medium rounded-r"
                               : isFocused
-                                ? "bg-bg-card/70 text-text-primary ring-1 ring-accent/50"
-                                : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
+                                ? "bg-bg-card/70 text-text-primary ring-1 ring-accent/50 border-transparent rounded"
+                                : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 border-transparent rounded"
                           }`}
                           aria-current={isSelected ? "page" : undefined}
                           data-focused={isFocused || undefined}

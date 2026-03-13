@@ -174,8 +174,6 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
 
       <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
 
-      <ArrowPad onArrow={sendArrow} />
-
       <div ref={fnRef} className="relative">
         <button
           aria-label="Function keys"
@@ -223,13 +221,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
         )}
       </div>
 
-      <button
-        aria-label="Dismiss keyboard"
-        className={`${KBD_CLASS} text-text-secondary`}
-        onClick={() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); }}
-      >
-        <kbd aria-hidden="true">{"\u2304"}</kbd>
-      </button>
+      <ArrowPad onArrow={sendArrow} />
 
       <button
         aria-label="Compose text"

@@ -77,7 +77,7 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 │ ▼ ao-srv   │                                                     │
 │   main  ●  │                                                     │
 │            ├─────────────────────────────────────────────────────┤
-│            │ Esc Tab │ ^ ⌥ ⌘ │ ← → ↑ ↓ │ Fn▾  ⌄  >_           │  ← bottom bar (border-t)
+│            │ Esc Tab │ ^ ⌥ ⌘ │ Fn▾  ← → ↑ ↓  >_               │  ← bottom bar (border-t)
 └────────────┴─────────────────────────────────────────────────────┘
 ```
 
@@ -192,7 +192,7 @@ Tapping `⋯` opens the command palette:
 **Layout**: Single row of `<kbd>` styled buttons:
 
 ```
-Ctrl  Alt  Cmd  │  ← → ↑ ↓  │  Fn▾  Esc  Tab  ✎
+Esc  Tab  │  Ctrl  Alt  Cmd  │  Fn▾  ← → ↑ ↓  ✎
 ```
 
 - Modifier toggles: `Ctrl`, `Alt`, `Cmd` — **sticky** with visual "armed" state (highlight color while active, e.g., `accent` bg or bright border). Click to arm, auto-clears after the next keypress is sent.
@@ -304,7 +304,7 @@ The sidebar replaces the old Dashboard and Project pages. It shows all sessions 
 **Window row**: Single line, three zones:
 - Left: Activity dot (● = active, dim/absent = idle) + window name
 - Right: Fab stage + progress icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows.
-- Currently selected window gets `bg-card` highlight + `border-accent` left border
+- Currently selected window gets `bg-accent/10` highlight + `border-accent` left border + `font-medium`
 - Tap → switches terminal to that session:window
 
 **Design constraints**:
@@ -395,7 +395,7 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 | 8 | Mobile keyboard + modifier bar | Modifier bar pins above iOS keyboard. Terminal shrinks via `flex-1` + `FitAddon`. Prompt stays visible adjacent to modifier keys. Use `visualViewport` API for detection. |
 | 9 | Kill button (✕) | Always visible — no hover-reveal. Simpler, works on mobile and desktop equally. |
 | 10 | Mobile Line 2 | Actions collapse into command palette via `⋯` button. Status text stays visible. `⋯` replaces `⌘K` as command palette trigger on mobile. |
-| 11 | Bottom bar keys | `Ctrl Alt Cmd │ ← → ↑ ↓ │ Fn▾ Esc Tab ✎`. Arrow keys essential for mobile. Fn dropdown includes F1-F12 + PgUp/PgDn/Home/End. |
+| 11 | Bottom bar keys | `Esc Tab │ Ctrl Alt Cmd │ Fn▴ ← → ↑ ↓ >_`. Arrow keys essential for mobile. Fn dropdown includes F1-F12 + PgUp/PgDn/Home/End. |
 | 12 | Breadcrumb format | `☰ {logo} ❯ run-kit ❯ zsh` — `❯` as unified separator/dropdown icon. No `›` separators, no `⬡` icon. Session and window names are tappable dropdown triggers. |
 | 13 | Sidebar width | Drag-resizable (default 220px, min 160px, max 400px), width persisted to localStorage. ~75% viewport as drawer on mobile. |
 | 14 | Sidebar ordering | Same as tmux output order (no resorting) |

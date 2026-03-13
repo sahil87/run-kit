@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-13T11:33:59Z"}
+{"args":"Remove single-key keyboard shortcuts (j/k/c/r) and Esc Esc drawer toggle that conflict with xterm.js terminal input","cmd":"fab-new","event":"command","ts":"2026-03-13T11:33:59Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-13T11:34:47Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-13T11:34:53Z"}

@@ -63,13 +63,13 @@ Line 2 renders even when empty — prevents layout shift.
 
 **Session rows**: Session name (left, collapsible via triangle/chevron), ✕ kill button (right, always visible). Click session name to expand/collapse windows.
 
-**Window rows**: Single line with activity dot (green = active, dim = idle) + window name (left), fab stage text in `text-secondary` (right, omitted for non-fab windows). Currently selected window highlighted with `bg-card` + `border-l-2 border-accent`. Click navigates to `/:session/:window`.
+**Window rows**: Single line with activity dot (green = active, dim = idle) + window name (left), fab stage text in `text-secondary` (right, omitted for non-fab windows). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
 
 **No footer** — `[+ Session]` action moved to top bar line 2.
 
 ## Bottom Bar (Always Visible, Inside Terminal Column)
 
-Single row of `<kbd>` styled buttons, always visible (terminal is always the main content). Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt Cmd | ArrowPad | Fn▾ ⌄ | >_`.
+Single row of `<kbd>` styled buttons, always visible (terminal is always the main content). Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt Cmd | Fn▴ ArrowPad | >_`.
 
 **Modifier toggles** (Ctrl, Alt, Cmd): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously.
 
@@ -78,8 +78,6 @@ Single row of `<kbd>` styled buttons, always visible (terminal is always the mai
 **ArrowPad** (`arrow-pad.tsx`): Combined directional pad replacing individual arrow buttons. Sends ANSI escape sequences (`[A/B/C/D`). With modifiers, use xterm parameter encoding (`[1;{mod}X`). Modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) + (cmd?8:0).
 
 **Function key dropdown** (F▴): Opens a combined popup above the button. Top section: F1-F12 in a 4-column grid. Divider (`border-t border-border`). Bottom section: PgUp, PgDn, Home, End, Ins, Del in a 3-column grid. Closes after each selection, on outside click, or on Escape.
-
-**Keyboard dismiss** (⌄): Calls `blur()` on the active element to collapse the iOS software keyboard. Positioned after the F▴ dropdown.
 
 **Special keys** (Esc, Tab): Direct send. Ctrl is not consumed for Esc/Tab (Esc IS Ctrl+[, Tab IS Ctrl+I in terminal semantics) — Ctrl stays armed for the next key. Alt/Cmd prefix with ESC (Meta convention).
 

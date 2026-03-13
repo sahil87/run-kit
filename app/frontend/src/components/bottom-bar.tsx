@@ -45,7 +45,7 @@ const EXT_KEYS = [
 ] as const;
 
 const KBD_CLASS =
-  "min-h-[32px] min-w-[32px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-[32px] min-w-[32px] coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
 
 const MODIFIER_LABELS: Record<string, string> = {
   ctrl: "Control",
@@ -150,11 +150,11 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
   );
 
   return (
-    <div className="flex items-center gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
-      <button aria-label="Escape" className={`${KBD_CLASS} text-text-secondary`} onClick={() => sendSpecial("\x1b")}>
+    <div className="flex items-center gap-1 py-1.5 flex-wrap overflow-hidden" role="toolbar" aria-label="Terminal keys">
+      <button aria-label="Escape" className={`${KBD_CLASS} text-text-primary`} onClick={() => sendSpecial("\x1b")}>
         <kbd aria-hidden="true">{"\u238B"}</kbd>
       </button>
-      <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onClick={() => sendSpecial("\t")}>
+      <button aria-label="Tab" className={`${KBD_CLASS} text-text-primary`} onClick={() => sendSpecial("\t")}>
         <kbd aria-hidden="true">{"\u21E5"}</kbd>
       </button>
 
@@ -165,7 +165,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
           key={key}
           aria-label={MODIFIER_LABELS[key]}
           aria-pressed={mods[key]}
-          className={`${KBD_CLASS} ${mods[key] ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
+          className={`${KBD_CLASS} ${mods[key] ? "bg-accent/20 border-accent text-accent" : "text-text-primary"}`}
           onClick={() => mods.toggle(key)}
         >
           <kbd aria-hidden="true">{symbol}</kbd>
@@ -179,7 +179,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
           aria-label="Function keys"
           aria-haspopup="true"
           aria-expanded={fnOpen}
-          className={`${KBD_CLASS} text-text-secondary`}
+          className={`${KBD_CLASS} text-text-primary`}
           onClick={() => setFnOpen((v) => !v)}
         >
           <kbd aria-hidden="true">F&#x25B4;</kbd>
@@ -225,7 +225,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
 
       <button
         aria-label="Compose text"
-        className={`${KBD_CLASS} text-text-secondary ml-auto`}
+        className={`${KBD_CLASS} text-text-primary ml-auto`}
         onClick={onOpenCompose}
       >
         <kbd aria-hidden="true">&gt;_</kbd>

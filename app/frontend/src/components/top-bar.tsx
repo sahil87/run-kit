@@ -78,7 +78,7 @@ export function TopBar({
               }
             }}
             aria-label="Toggle navigation"
-            className="hover:opacity-80 transition-opacity min-w-[24px] min-h-[24px] coarse:min-w-[44px] coarse:min-h-[44px] flex items-center justify-center"
+            className="hover:opacity-80 transition-opacity min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
           >
             <img src="/logo.svg" alt="RunKit" width={20} height={20} />
           </button>
@@ -133,7 +133,7 @@ export function TopBar({
               document.dispatchEvent(new CustomEvent("palette:open"))
             }
             aria-label="Open command palette"
-            className="sm:hidden text-text-secondary hover:text-text-primary transition-colors min-w-[36px] min-h-[36px] coarse:min-h-[44px] coarse:min-w-[44px] flex items-center justify-center border border-border rounded"
+            className="sm:hidden text-text-secondary hover:text-text-primary transition-colors min-w-[36px] min-h-[36px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center border border-border rounded"
           >
             {"\u22EF"}
           </button>

@@ -117,19 +117,22 @@ export function TerminalClient({
 
       // Clipboard addon — enriched clipboard support
       const { ClipboardAddon } = await import("@xterm/addon-clipboard");
+      if (cancelled) return void terminal.dispose();
       terminal.loadAddon(new ClipboardAddon());
 
       // Clickable URLs
       const { WebLinksAddon } = await import("@xterm/addon-web-links");
+      if (cancelled) return void terminal.dispose();
       terminal.loadAddon(new WebLinksAddon());
 
       // GPU-accelerated rendering (silent fallback to canvas)
       try {
         const { WebglAddon } = await import("@xterm/addon-webgl");
-        terminal.loadAddon(new WebglAddon());
+        if (!cancelled) terminal.loadAddon(new WebglAddon());
       } catch {
         // canvas renderer continues working
       }
+      if (cancelled) return void terminal.dispose();
 
       // Keyboard input → current WebSocket (wsRef always points to latest)
       terminal.onData((data) => {
@@ -147,7 +150,7 @@ export function TerminalClient({
           event.type === "keydown"
         ) {
           if (term.hasSelection()) {
-            navigator.clipboard.writeText(term.getSelection());
+            void navigator.clipboard.writeText(term.getSelection()).catch(() => {});
             return false;
           }
         }

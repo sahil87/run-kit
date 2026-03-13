@@ -268,36 +268,66 @@ fab/.kit/bin/fab hook <subcommand>
 
 ## fab pane-map
 
-Pane Map — shows all tmux panes with pipeline state. Requires an active tmux session. Includes all panes regardless of whether they are in a git repo or have a `fab/` directory.
+Pane Map — shows all tmux panes with pipeline state. Includes all panes regardless of whether they are in a git repo or have a `fab/` directory.
 
 ```
-fab/.kit/bin/fab pane-map
+fab/.kit/bin/fab pane-map [--json] [--session <name>] [--all-sessions]
 ```
 
-No arguments or flags. Discovers panes in the current tmux session only (`-s` session scope). Produces an aligned table with columns:
+### Flags
 
-| Column | Content |
-|--------|---------|
-| Pane | Tmux pane ID (e.g., `%3`) |
-| Tab | Tmux window (tab) name |
-| Worktree | Relative path from main repo parent, `(main)` for the main worktree, or `basename/` for non-git panes |
-| Change | Active change folder name, `(no change)` if no active change, or `—` if not a fab worktree |
-| Stage | Current pipeline stage from `.status.yaml`, or `—` if no change or not a fab worktree |
-| Agent | Agent state: `active`, `idle ({duration})`, `?` (runtime file missing), or `—` (no change or not fab) |
+| Flag | Type | Description |
+|------|------|-------------|
+| `--json` | bool | Output as JSON array instead of aligned table |
+| `--session <name>` | string | Target a specific tmux session by name (skips `$TMUX` check) |
+| `--all-sessions` | bool | Query all tmux sessions (skips `$TMUX` check) |
+
+`--session` and `--all-sessions` are mutually exclusive. When neither is set, discovers panes in the current tmux session only (`-s` session scope) and requires `$TMUX` to be set.
+
+### Table Output
+
+Produces an aligned table with columns:
+
+| Column | Content | Conditional |
+|--------|---------|-------------|
+| Session | Tmux session name | Only with `--all-sessions` |
+| Pane | Tmux pane ID (e.g., `%3`) | Always |
+| WinIdx | Tmux window index (integer) | Always |
+| Tab | Tmux window (tab) name | Always |
+| Worktree | Relative path from main repo parent, `(main)` for the main worktree, or `basename/` for non-git panes | Always |
+| Change | Active change folder name, `(no change)` if no active change, or `—` if not a fab worktree | Always |
+| Stage | Current pipeline stage from `.status.yaml`, or `—` if no change or not a fab worktree | Always |
+| Agent | Agent state: `active`, `idle ({duration})`, `?` (runtime file missing), or `—` (no change or not fab) | Always |
 
 Idle duration format: `{N}s` (< 60s), `{N}m` (60s–59m), `{N}h` (>= 60m). Floor division.
 
-**Error behavior**: If `$TMUX` is unset, prints `Error: not inside a tmux session` to stderr and exits 1. If no tmux panes are found, prints `No tmux panes found.` and exits 0.
-
-**Example output**:
+**Example table output**:
 
 ```
-Pane   Tab        Worktree                       Change                              Stage     Agent
-%3     alpha      myrepo.worktrees/alpha/        260306-r3m7-add-retry-logic         apply     active
-%7     bravo      myrepo.worktrees/bravo/        260306-k8ds-ship-wt-binary          review    idle (2m)
-%12    main       (main)                         260306-ab12-refactor-auth           hydrate   idle (8m)
-%15    scratch    downloads/                     —                                   —         —
+Pane   WinIdx  Tab        Worktree                       Change                              Stage     Agent
+%3     0       alpha      myrepo.worktrees/alpha/        260306-r3m7-add-retry-logic         apply     active
+%7     1       bravo      myrepo.worktrees/bravo/        260306-k8ds-ship-wt-binary          review    idle (2m)
+%12    2       main       (main)                         260306-ab12-refactor-auth           hydrate   idle (8m)
+%15    3       scratch    downloads/                     —                                   —         —
 ```
+
+### JSON Output
+
+When `--json` is set, output is a JSON array. Each element has these fields (snake_case):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `session` | string | Tmux session name |
+| `window_index` | int | Tmux window index |
+| `pane` | string | Tmux pane ID |
+| `tab` | string | Tmux window (tab) name |
+| `worktree` | string | Display path |
+| `change` | string\|null | Active change folder name; `null` for `—` or `(no change)` |
+| `stage` | string\|null | Pipeline stage; `null` for `—` |
+| `agent_state` | string\|null | `"active"`, `"idle"`, `"unknown"`, or `null` |
+| `agent_idle_duration` | string\|null | Duration string (e.g., `"5m"`) when idle; `null` otherwise |
+
+**Error behavior**: If `$TMUX` is unset and neither `--session` nor `--all-sessions` is provided, prints `Error: not inside a tmux session` to stderr and exits 1. If no tmux panes are found, prints `No tmux panes found.` and exits 0.
 
 ---
 

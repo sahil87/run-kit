@@ -2,3 +2,13 @@
 {"args":"Remove single-key keyboard shortcuts (j/k/c/r) and Esc Esc drawer toggle that conflict with xterm.js terminal input","cmd":"fab-new","event":"command","ts":"2026-03-13T11:33:59Z"}
 {"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-13T11:34:47Z"}
 {"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-13T11:34:53Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-13T14:55:09Z"}
+{"cmd":"fab-ff","event":"command","ts":"2026-03-13T14:55:29Z"}
+{"delta":"+0.3","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-13T14:57:04Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"spec","ts":"2026-03-13T14:57:07Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"tasks","ts":"2026-03-13T14:57:44Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-03-13T14:57:44Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-03-13T15:00:28Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-03-13T15:02:05Z"}
+{"event":"review","result":"passed","ts":"2026-03-13T15:02:05Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-03-13T15:03:06Z"}

@@ -4,8 +4,6 @@ import { ChromeProvider, useChrome, useChromeDispatch } from "@/contexts/chrome-
 import { SessionProvider } from "@/contexts/session-context";
 import { useSessions } from "@/hooks/use-sessions";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
-import { useKeyboardNav } from "@/hooks/use-keyboard-nav";
-import { useAppShortcuts } from "@/hooks/use-app-shortcuts";
 import { useDialogState } from "@/hooks/use-dialog-state";
 import { TopBar } from "@/components/top-bar";
 import { Sidebar } from "@/components/sidebar";
@@ -205,14 +203,7 @@ function AppShell() {
   dialogOpenRef.current =
     dialogs.showCreateDialog || dialogs.showRenameDialog || dialogs.showKillConfirm;
 
-  // Keyboard shortcuts (c, r, Esc)
-  useAppShortcuts({
-    currentWindow,
-    onCreateSession: dialogs.openCreateDialog,
-    onRenameWindow: dialogs.openRenameDialog,
-  });
-
-  // Flat window list for j/k navigation and palette actions
+  // Flat window list for palette actions
   const flatWindows = useMemo(() => {
     return sessions.flatMap((s) =>
       s.windows.map((w) => ({ session: s.name, window: w })),
@@ -231,22 +222,6 @@ function AppShell() {
     [],
   );
 
-  // j/k keyboard navigation for sidebar windows
-  const navigateByIndex = useCallback(
-    (index: number) => {
-      const item = flatWindows[index];
-      if (item) {
-        navigateToWindow(item.session, item.window.index);
-      }
-    },
-    [flatWindows, navigateToWindow],
-  );
-
-  const { focusedIndex } = useKeyboardNav({
-    itemCount: flatWindows.length,
-    onSelect: navigateByIndex,
-  });
-
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -255,7 +230,6 @@ function AppShell() {
       {
         id: "create-session",
         label: "Create new session",
-        shortcut: "c",
         onSelect: dialogs.openCreateDialog,
       },
       ...(currentWindow
@@ -268,7 +242,6 @@ function AppShell() {
             {
               id: "rename-window",
               label: "Rename current window",
-              shortcut: "r",
               onSelect: () => {
                 if (currentWindow) {
                   dialogs.openRenameDialog(currentWindow.name);
@@ -331,7 +304,6 @@ function AppShell() {
                 sessions={sessions}
                 currentSession={sessionName ?? null}
                 currentWindowIndex={windowIndex ?? null}
-                focusedIndex={focusedIndex}
                 onSelectWindow={navigateToWindow}
                 onCreateWindow={handleCreateWindow}
               />
@@ -369,7 +341,7 @@ function AppShell() {
           ) : (
             <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
               {sessions.length === 0
-                ? "No sessions. Press c to create one."
+                ? "No sessions. Use + Session or \u2318K."
                 : "Select a window from the sidebar."}
             </div>
           )}
@@ -392,7 +364,6 @@ function AppShell() {
                 sessions={sessions}
                 currentSession={sessionName ?? null}
                 currentWindowIndex={windowIndex ?? null}
-                focusedIndex={focusedIndex}
                 onSelectWindow={(s, w) => {
                   navigateToWindow(s, w);
                 }}

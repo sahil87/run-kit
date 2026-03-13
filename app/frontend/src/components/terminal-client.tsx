@@ -160,8 +160,15 @@ export function TerminalClient({
     };
   }, [wsRef]);
 
-  // WebSocket connection — reconnects when session/window changes.
-  // Keeps the xterm instance alive; only swaps the data stream.
+  // Keep a ref to windowIndex so the WS effect can read it without
+  // depending on it. The relay uses `tmux attach-session` which follows
+  // window switches automatically — only session changes need a reconnect.
+  const windowIndexRef = useRef(windowIndex);
+  windowIndexRef.current = windowIndex;
+
+  // WebSocket connection — reconnects only when the session changes.
+  // Window switches within the same session are handled by the relay's
+  // tmux attach-session, which follows the active window automatically.
   useEffect(() => {
     if (!terminalReady || !xtermRef.current) return;
 
@@ -173,10 +180,10 @@ export function TerminalClient({
 
     const wsProto =
       window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndex}`;
 
     function connect() {
       if (cancelled) return;
+      const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndexRef.current}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.binaryType = "arraybuffer";
@@ -192,12 +199,7 @@ export function TerminalClient({
       ws.onmessage = (event) => {
         if (needsReset) {
           needsReset = false;
-          // Clear via escape sequences through write() instead of reset().
-          // reset() is synchronous and triggers an immediate repaint;
-          // write() is buffered, so clear + first data render in one pass.
-          // \x1b[2J = clear screen, \x1b[H = cursor home,
-          // \x1b[0m = reset attributes, \x1b[3J = clear scrollback
-          terminal.write("\x1b[2J\x1b[H\x1b[0m\x1b[3J");
+          terminal.reset();
         }
         if (typeof event.data === "string") terminal.write(event.data);
         else terminal.write(new Uint8Array(event.data));
@@ -226,7 +228,8 @@ export function TerminalClient({
         wsRef.current = null;
       }
     };
-  }, [terminalReady, sessionName, windowIndex, wsRef]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalReady, sessionName, wsRef]);
 
   return (
     <>

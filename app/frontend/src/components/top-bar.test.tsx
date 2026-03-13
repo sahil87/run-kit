@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { TopBar } from "./top-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import type { ProjectSession, WindowInfo } from "@/types";
@@ -93,5 +93,41 @@ describe("TopBar Line 1", () => {
     expect(screen.queryByText("+ Session")).not.toBeInTheDocument();
     expect(screen.queryByText("Rename")).not.toBeInTheDocument();
     expect(screen.queryByText("Kill")).not.toBeInTheDocument();
+  });
+
+  it("calls onCreateSession when + New Session dropdown action is clicked", () => {
+    const onCreateSession = vi.fn();
+    renderTopBar({ onCreateSession });
+
+    // Open the session breadcrumb dropdown
+    const sessionDropdown = screen.getByLabelText("Switch session");
+    fireEvent.click(sessionDropdown);
+
+    // Click the "+ New Session" action
+    const newSessionBtn = screen.getByText("+ New Session");
+    expect(newSessionBtn).toBeInTheDocument();
+    fireEvent.click(newSessionBtn);
+
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    // Menu should close after action
+    expect(screen.queryByText("+ New Session")).not.toBeInTheDocument();
+  });
+
+  it("calls onCreateWindow when + New Window dropdown action is clicked", () => {
+    const onCreateWindow = vi.fn();
+    renderTopBar({ onCreateWindow });
+
+    // Open the window breadcrumb dropdown
+    const windowDropdown = screen.getByLabelText("Switch window");
+    fireEvent.click(windowDropdown);
+
+    // Click the "+ New Window" action
+    const newWindowBtn = screen.getByText("+ New Window");
+    expect(newWindowBtn).toBeInTheDocument();
+    fireEvent.click(newWindowBtn);
+
+    expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
+    // Menu should close after action
+    expect(screen.queryByText("+ New Window")).not.toBeInTheDocument();
   });
 });

@@ -10,7 +10,7 @@ type SidebarProps = {
   currentWindowIndex: string | null;
   onSelectWindow: (session: string, windowIndex: number) => void;
   onCreateWindow: (session: string) => void;
-  onCreateSession?: () => void;
+  onCreateSession: () => void;
 };
 
 export function Sidebar({
@@ -72,14 +72,12 @@ export function Sidebar({
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
             <span>No sessions</span>
-            {onCreateSession && (
-              <button
-                onClick={onCreateSession}
-                className="text-sm px-3 py-1.5 border border-border rounded hover:border-text-secondary text-text-primary"
-              >
-                + New Session
-              </button>
-            )}
+            <button
+              onClick={onCreateSession}
+              className="text-sm px-3 py-1.5 border border-border rounded hover:border-text-secondary text-text-primary"
+            >
+              + New Session
+            </button>
           </div>
         ) : (
           sessions.map((session) => {

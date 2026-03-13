@@ -123,9 +123,7 @@ export function TopBar({
             aria-hidden="true"
           />
           <span>{isConnected ? "live" : "disconnected"}</span>
-          <span className="coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center">
-            <FixedWidthToggle />
-          </span>
+          <FixedWidthToggle />
           <kbd className="hidden sm:inline-flex px-1.5 py-0.5 rounded border border-border text-text-secondary">
             {"\u2318K"}
           </kbd>
@@ -155,7 +153,7 @@ function FixedWidthToggle() {
       onClick={toggleFixedWidth}
       aria-label="Toggle fixed terminal width"
       aria-pressed={fixedWidth}
-      className={`px-1.5 py-0.5 rounded border transition-colors ${
+      className={`px-1.5 py-0.5 rounded border transition-colors coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center ${
         fixedWidth
           ? "border-accent text-accent bg-accent/10"
           : "border-border text-text-secondary hover:border-text-secondary"

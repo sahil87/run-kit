@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-13T17:13:53Z"}
+{"args":"Add Dashboard and Project page views to the terminal area","cmd":"fab-new","event":"command","ts":"2026-03-13T17:13:53Z"}
+{"delta":"+2.1","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-03-13T17:15:07Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-03-13T17:15:23Z"}

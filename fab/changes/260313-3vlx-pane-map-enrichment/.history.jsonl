@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-13T15:21:21Z"}
+{"args":"Replace direct fab file reading with fab pane-map --json --all-sessions in backend poller","cmd":"fab-new","event":"command","ts":"2026-03-13T15:21:21Z"}
+{"delta":"+3.4","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-03-13T15:22:17Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-03-13T15:22:26Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-03-13T15:22:30Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-03-13T17:12:35Z"}
+{"delta":"+1.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-13T17:12:42Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-13T17:12:56Z"}

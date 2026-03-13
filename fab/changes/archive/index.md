@@ -1,5 +1,11 @@
 # Archived Changes
 
+- **260313-txna-rich-sidebar-window-status** — Enrich sidebar window rows with activity duration, agent state indicators, and an info popover for fab change/process/worktree details — plus top bar Line 2 detail.
+- **260312-y4ci-ui-chrome-layout-refinements** — Refine UI chrome — simplify breadcrumbs, add layout borders, make sidebar resizable, normalize padding, and scope bottom bar to keyboard input.
+- **260312-ux92-vite-react-frontend** — Implement the Vite/React SPA frontend against the new Go API — single-view model with sidebar + terminal, POST-based API client, and Playwright E2E tests.
+- **260312-r4t9-go-backend-api** — Implement the Go backend API with resource-oriented POST-based routes, handler-level tests, SSE, and WebSocket relay — Phase 2 of the reimplementation plan.
+- **260312-n11e-cleanup-old-implementation** — Remove old packages/ and e2e/ code superseded by the new app/ implementation, clean up stale path references in docs and config.
+- **260312-jz77-scaffold-app-structure** — Clean foundation for reimplementation — creates the app/backend and app/frontend folder scaffolding with working build toolchains before functional code lands.
 - **260310-8xaq-go-backend-vite-spa-split** — Go backend + Vite SPA split: monorepo restructure replacing Next.js monolith with Go HTTP/WebSocket backend and Vite+React SPA frontend for decoupled multi-client architecture.
 - **260307-l9jj-mobile-bar-breadcrumb-cleanup** — Mobile bottom bar and breadcrumb cleanup: merged extended keys into F-key dropdown, added keyboard dismiss button, removed upload button, and stripped breadcrumb dropdown arrows to save space on iOS.
 - **260305-r7zs-playwright-e2e-design-spec** — Playwright E2E test suite for UI design spec: verifies fixed chrome stability, bottom bar WebSocket integration, compose buffer flow, and mobile responsive behavior in real browsers.

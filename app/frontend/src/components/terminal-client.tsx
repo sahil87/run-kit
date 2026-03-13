@@ -180,18 +180,22 @@ export function TerminalClient({
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.binaryType = "arraybuffer";
+      let needsReset = true;
 
       ws.onopen = () => {
         reconnectDelay = 1000;
-        // Clear old content only once the new connection is ready,
-        // so the previous terminal output stays visible until new data streams in.
-        terminal.reset();
         fitAddonRef.current?.fit();
         const dims = { cols: terminal.cols, rows: terminal.rows };
         ws.send(JSON.stringify({ type: "resize", ...dims }));
       };
 
       ws.onmessage = (event) => {
+        // Reset in the same frame as the first data write so there's
+        // no visible blank gap between old and new content.
+        if (needsReset) {
+          needsReset = false;
+          terminal.reset();
+        }
         if (typeof event.data === "string") terminal.write(event.data);
         else terminal.write(new Uint8Array(event.data));
       };

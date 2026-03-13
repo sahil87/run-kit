@@ -352,7 +352,7 @@ function AppShell() {
         )}
 
         {/* Terminal Column */}
-        <div className={`flex-1 min-w-0 flex flex-col ${fixedWidth ? "bg-[#0a0c12]" : ""}`}>
+        <div className={`flex-1 min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-[#0a0c12]" : ""}`}>
           {sessionName && windowIndex ? (
             <div
               className={`flex-1 min-h-0 py-0.5 px-1 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}

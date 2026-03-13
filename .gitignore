@@ -172,3 +172,4 @@ fab/.kit/bin/*
 
 tmp
 .uploads/
+test-results/

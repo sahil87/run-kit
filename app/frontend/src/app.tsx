@@ -194,11 +194,27 @@ function AppShell() {
     setDrawerOpen(false);
   }, [navigate, setDrawerOpen]);
 
+  // Kill redirect helpers — use replace to prevent back-navigation to stale URLs
+  const redirectToSession = useCallback(
+    (session: string) => {
+      userNavTimestampRef.current = Date.now();
+      navigate({ to: "/$session", params: { session }, replace: true });
+      setDrawerOpen(false);
+    },
+    [navigate, setDrawerOpen],
+  );
+
+  const redirectToDashboard = useCallback(() => {
+    userNavTimestampRef.current = Date.now();
+    navigate({ to: "/", replace: true });
+    setDrawerOpen(false);
+  }, [navigate, setDrawerOpen]);
+
   // Dialog state management
   const dialogs = useDialogState({
     sessionName,
     windowIndex: currentWindow?.index,
-    onKillWindow: navigateToSession,
+    onKillWindow: redirectToSession,
   });
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
@@ -311,7 +327,7 @@ function AppShell() {
                 onSelectWindow={navigateToWindow}
                 onCreateWindow={handleCreateWindow}
                 onSelectSession={navigateToSession}
-                onKillSession={navigateToDashboard}
+                onKillSession={redirectToDashboard}
               />
             </div>
             {/* Drag handle */}
@@ -330,10 +346,10 @@ function AppShell() {
         )}
 
         {/* Terminal Column */}
-        <div className={`flex-1 min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-[#0a0c12]" : ""}`}>
+        <div className={`flex-1 min-w-0 flex flex-col overflow-hidden ${fixedWidth && view === "terminal" ? "bg-[#0a0c12]" : ""}`}>
           <div
-            className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
-            style={fixedWidth ? { maxWidth: 965, width: "100%", marginInline: "auto" } : undefined}
+            className={`flex-1 min-h-0 flex flex-col ${fixedWidth && view === "terminal" ? "bg-bg-primary" : ""}`}
+            style={fixedWidth && view === "terminal" ? { maxWidth: 965, width: "100%", marginInline: "auto" } : undefined}
           >
             {view === "terminal" && sessionName && windowIndex ? (
               <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
@@ -377,7 +393,7 @@ function AppShell() {
                 }}
                 onCreateWindow={handleCreateWindow}
                 onSelectSession={navigateToSession}
-                onKillSession={navigateToDashboard}
+                onKillSession={redirectToDashboard}
               />
             </div>
           </div>

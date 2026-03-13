@@ -114,7 +114,7 @@ Line 2 renders even when empty — prevents layout shift.
 
 **Session rows**: Split interaction targets — session name and chevron are separate buttons. Chevron (▶/▼) toggles expand/collapse of the window list. Session name click navigates to `/$session` (project page) via `onSelectSession` prop. When viewing a Project page (`/$session`), the session name is highlighted (`text-text-primary font-medium`). ✕ kill button (right, always visible) opens confirmation dialog; on kill success, `onKillSession` callback navigates to `/`.
 
-**Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
+**Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/$session/$window`.
 
 1. **Activity dot with `isActiveWindow` ring** — green dot = active, dim dot = idle (unchanged). When `isActiveWindow` is true, adds a `ring-1` outline: `ring-accent-green` for active windows, `ring-text-secondary/40` for idle windows. Pure CSS, no animation.
 

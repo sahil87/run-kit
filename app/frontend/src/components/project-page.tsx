@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, Link } from "@tanstack/react-router";
 import { parseFabChange, getWindowDuration } from "@/lib/format";
 import { createWindow } from "@/api/client";
 import type { ProjectSession } from "@/types";
@@ -17,16 +17,9 @@ export function ProjectPage({ sessionName, sessions }: ProjectPageProps) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
         <p className="text-text-secondary text-sm">Session not found</p>
-        <a
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate({ to: "/" });
-          }}
-          className="text-accent text-sm hover:underline"
-        >
+        <Link to="/" className="text-accent text-sm hover:underline">
           Back to dashboard
-        </a>
+        </Link>
       </div>
     );
   }

@@ -3,12 +3,12 @@
 @custom-variant coarse (@media (pointer: coarse));
 
 @theme {
-  --color-bg-primary: #111111;
-  --color-bg-card: #1a1a1a;
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #888888;
-  --color-border: #333333;
-  --color-accent: #3b82f6;
+  --color-bg-primary: #0f1117;
+  --color-bg-card: #171b24;
+  --color-text-primary: #e8eaf0;
+  --color-text-secondary: #7a8394;
+  --color-border: #2a3040;
+  --color-accent: #5b8af0;
   --color-accent-green: #22c55e;
   --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Menlo", "Monaco",
     "Consolas", monospace;

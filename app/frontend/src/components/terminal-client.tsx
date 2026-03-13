@@ -101,10 +101,10 @@ export function TerminalClient({
           "JetBrains Mono, Fira Code, SF Mono, Menlo, Monaco, Consolas, monospace",
         fontSize: isMobile ? 11 : 13,
         theme: {
-          background: "#111111",
-          foreground: "#ffffff",
-          cursor: "#ffffff",
-          selectionBackground: "#333333",
+          background: "#0f1117",
+          foreground: "#e8eaf0",
+          cursor: "#e8eaf0",
+          selectionBackground: "#2a3040",
         },
       });
 

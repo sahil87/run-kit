@@ -151,11 +151,11 @@ export function Sidebar({
                       const fabInfo = parseFabChange(win.fabChange ?? "");
                       const isPopoverOpen = popoverKey === winKey;
 
-                      // Activity dot ring classes
+                      // Activity dot ring classes — ring-offset creates visible gap between dot and ring
                       const dotRingClass = win.isActiveWindow
                         ? win.activity === "active"
-                          ? "ring-1 ring-accent-green"
-                          : "ring-1 ring-text-secondary/40"
+                          ? "ring-1 ring-accent-green ring-offset-1 ring-offset-transparent"
+                          : "ring-1 ring-text-secondary/40 ring-offset-1 ring-offset-transparent"
                         : "";
 
                       return (
@@ -179,7 +179,7 @@ export function Sidebar({
                                   win.activity === "active"
                                     ? "bg-accent-green"
                                     : "bg-text-secondary/40"
-                                } ${dotRingClass}`}
+                                } ${dotRingClass}${win.isActiveWindow ? " ml-0.5" : ""}`}
                                 aria-label={win.activity}
                               />
                               <span className="truncate">{win.name}</span>
@@ -215,7 +215,7 @@ export function Sidebar({
                           {isPopoverOpen && (
                             <div
                               data-info-popover
-                              className="absolute right-0 top-full mt-1 bg-bg-primary border border-border shadow-2xl rounded py-1 px-2 text-xs z-50 min-w-[200px]"
+                              className="absolute right-0 top-full mt-1 bg-bg-primary border border-border shadow-2xl rounded py-1 px-2 text-xs z-50 w-[200px]"
                             >
                               {fabInfo && (
                                 <div className="flex justify-between py-1">

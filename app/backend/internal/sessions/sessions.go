@@ -1,9 +1,11 @@
 package sessions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -40,8 +42,13 @@ func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
 
 	bin := filepath.Join(repoRoot, "fab/.kit/bin/fab-go")
 	cmd := exec.CommandContext(ctx, bin, "pane-map", "--json", "--all-sessions")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if stderr.Len() > 0 {
+			return nil, fmt.Errorf("%w: %s", err, stderr.String())
+		}
 		return nil, err
 	}
 
@@ -53,9 +60,34 @@ func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
 	m := make(map[string]paneMapEntry, len(entries))
 	for _, e := range entries {
 		key := fmt.Sprintf("%s:%d", e.Session, e.WindowIndex)
-		m[key] = e
+		if existing, ok := m[key]; ok {
+			// Multiple panes in the same window (splits). Prefer the entry
+			// with richer fab state to keep enrichment deterministic.
+			if e.Change != nil && existing.Change == nil {
+				m[key] = e
+			}
+			// Otherwise keep the first entry seen.
+		} else {
+			m[key] = e
+		}
 	}
 	return m, nil
+}
+
+// findRepoRoot walks up from dir until it finds a directory containing
+// fab/.kit/bin/fab-go, returning that directory. Returns "" if not found.
+func findRepoRoot(dir string) string {
+	for {
+		candidate := filepath.Join(dir, "fab/.kit/bin/fab-go")
+		if _, err := os.Stat(candidate); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // derefStr dereferences a *string, returning empty string for nil.
@@ -99,13 +131,17 @@ func FetchSessions() ([]ProjectSession, error) {
 	}
 	wg.Wait()
 
-	// Derive repoRoot from first available window's WorktreePath.
+	// Derive repoRoot by walking up from the first available window's
+	// WorktreePath until we find a directory containing fab/.kit/bin/fab-go.
+	// WorktreePath is the pane's cwd which may be a subdirectory of the repo.
 	repoRoot := ""
 	for _, sd := range data {
 		for _, w := range sd.windows {
 			if w.WorktreePath != "" {
-				repoRoot = w.WorktreePath
-				break
+				repoRoot = findRepoRoot(w.WorktreePath)
+				if repoRoot != "" {
+					break
+				}
 			}
 		}
 		if repoRoot != "" {

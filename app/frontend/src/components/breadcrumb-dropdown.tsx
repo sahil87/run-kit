@@ -6,9 +6,10 @@ type Props = {
   label?: string;
   icon?: string;
   onNavigate?: (href: string) => void;
+  action?: { label: string; onAction: () => void };
 };
 
-export function BreadcrumbDropdown({ items, label, icon, onNavigate }: Props) {
+export function BreadcrumbDropdown({ items, label, icon, onNavigate, action }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -90,6 +91,23 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate }: Props) {
           aria-label={label ? `Switch ${label}` : "Switch"}
           className="absolute top-full left-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] max-w-[240px] z-50"
         >
+          {action && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                onClick={() => {
+                  setOpen(false);
+                  action.onAction();
+                }}
+                className="w-full text-left block px-3 py-2 text-sm text-text-primary hover:bg-bg-card transition-colors"
+              >
+                {action.label}
+              </button>
+              <div className="border-t border-border" />
+            </>
+          )}
           {items.map((item, i) => (
             <button
               key={item.href}

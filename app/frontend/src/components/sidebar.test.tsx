@@ -116,7 +116,7 @@ describe("Sidebar", () => {
     expect(applySpans.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("does not render a footer with + New Session button", () => {
+  it("does not render + New Session button when sessions exist", () => {
     renderSidebar();
     expect(screen.queryByText("+ New Session")).not.toBeInTheDocument();
   });
@@ -135,9 +135,14 @@ describe("Sidebar", () => {
     expect(screen.getByText(/2 window/)).toBeInTheDocument();
   });
 
-  it("shows empty state when no sessions", () => {
-    renderSidebar({ sessions: [] });
+  it("shows empty state with + New Session button when no sessions", () => {
+    const onCreateSession = vi.fn();
+    renderSidebar({ sessions: [], onCreateSession });
     expect(screen.getByText("No sessions")).toBeInTheDocument();
+    const btn = screen.getByText("+ New Session");
+    expect(btn).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
   // T009: ring class on isActiveWindow dot

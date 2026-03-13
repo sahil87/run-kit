@@ -7,13 +7,13 @@
 | `/:session/:window` | Single view (sidebar + terminal) | Layout component (SSE via `useSessions()` context) |
 | `/` | Redirect | Redirects to first session's first window (`/:session/0`) |
 
-Single-view model: sidebar shows session/window tree, terminal is always the main content area. No page transitions. When no sessions exist, sidebar shows "No sessions" with a `[+ New Session]` button and the terminal area shows a placeholder.
+Single-view model: sidebar shows session/window tree, terminal is always the main content area. No page transitions. When no sessions exist, sidebar shows "No sessions" with a `+ New Session` button and the terminal area shows a placeholder.
 
 ## Chrome (Top Bar)
 
 The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derives its content from the current session:window selection via `ChromeProvider` context. No slot injection — the chrome reads the selection and renders directly.
 
-**Line 1** (fixed height, `border-b border-border`): logo toggle + icon breadcrumbs + connection indicator + `⌘K` (desktop) / `⋯` (mobile).
+**Line 1** (fixed height, `border-b border-border`): logo toggle + icon breadcrumbs + connection indicator + FixedWidthToggle + `⌘K` (desktop) / `⋯` (mobile). Single-line top bar — no Line 2.
 
 Breadcrumb: `{logo} ❯ {session} ❯ {window}` (syncs with tmux active window via SSE). Logo toggles sidebar (desktop) or opens drawer (mobile) — no separate hamburger icon.
 
@@ -27,27 +27,17 @@ Breadcrumb: `{logo} ❯ {session} ❯ {window}` (syncs with tmux active window v
 
 Breadcrumb segments with a `dropdownItems` array use the ❯ icon as the dropdown trigger. Split click-target pattern: clicking the label navigates (existing behavior), clicking the icon opens the dropdown.
 
-**Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{session}/0`.
+**Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{session}/0`. First item: `+ New Session` action (opens session creation dialog).
 
-**Window dropdown**: Lists all windows in the current session. Current window highlighted. Selecting navigates to `/{session}/{index}`.
+**Window dropdown**: Lists all windows in the current session. Current window highlighted. Selecting navigates to `/{session}/{index}`. First item: `+ New Window` action (creates new window in current session).
+
+**Action items in dropdowns**: `BreadcrumbDropdown` accepts an optional `action` prop of type `{ label: string; onAction: () => void }`. When provided, the action item renders before the selection list, separated by a divider (`border-t border-border`). Action items use `text-text-primary` styling (not `text-accent`), close the dropdown on click, and are excluded from ArrowUp/ArrowDown keyboard navigation among selection items.
 
 **Dropdown component** (`app/frontend/src/components/breadcrumb-dropdown.tsx`): Reusable dropdown accepting `icon` prop (rendered as trigger button content), with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Icon button has 24px minimum tap target (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
 
 Connection indicator: green/gray dot with "live"/"disconnected" label, driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
 
-**Line 2** (fixed height, ALWAYS rendered with `min-h-[36px]`): Contextual action bar. Chrome derives content from current session:window selection — no slot injection.
-
-| Left content | Right content |
-|-------------|---------------|
-| `[+ Session]` `[Rename]` `[Kill]` (kill has red hover) | `{dot} {activity} · {paneCommand} · {duration} │ {fabStage badge} · {fabChange id} · {fabChange slug} [fixedWidthToggle]` |
-
-Right content layout for the selected window: activity dot + activity text, then `paneCommand` if present, then idle duration (via `getWindowDuration()`), then a `│` (U+2502 box drawing vertical) separator + fab stage badge + fab change (4-char ID `·` slug via `parseFabChange()`) if fab info is present. Items within a group separated by `·` (U+00B7 middle dot). All items `text-xs text-text-secondary`. Fab stage uses `text-accent px-1.5 py-0.5 rounded bg-accent/10` badge styling. Shared helpers imported from `lib/format.ts`.
-
-`[+ Session]` is always visible (not gated on `currentWindow`) since creating a session is a global action. `[Rename]` and `[Kill]` are contextual to the current window.
-
-Line 2 renders even when empty — prevents layout shift.
-
-**Line 2 mobile collapse** (< 640px): Action buttons hidden (`hidden sm:block`). Status text renders left-aligned. A `⋯` button appears at the right edge (`sm:hidden`) and opens the command palette via a `palette:open` CustomEvent on `document`. All actions are registered as palette actions, so nothing is lost on mobile — only the presentation changes.
+**FixedWidthToggle** (in Line 1 right section): Renders between the connection indicator and `⌘K`/`⋯`. Order: `[● live] [⇔] [⌘K]`. Self-contained component using `useChrome()`/`useChromeDispatch()`. Touch target: `coarse:min-h-[36px] coarse:min-w-[28px]`. Visible on all viewports (desktop and mobile).
 
 ### Sidebar Kill Controls
 
@@ -81,7 +71,9 @@ Line 2 renders even when empty — prevents layout shift.
 
 Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:windowIndex`. Visually distinct from action menus (read-only info card, not clickable items).
 
-**No footer** — `[+ Session]` action moved to top bar line 2.
+**Empty state**: When no sessions exist (`sessions.length === 0`), the sidebar displays "No sessions" text with a centered `+ New Session` button. The button triggers the same session creation flow as the breadcrumb dropdown's `+ New Session` action.
+
+**No footer** — session creation accessible via breadcrumb dropdown `+ New Session` action and sidebar empty state button.
 
 ## Bottom Bar (Always Visible, Inside Terminal Column)
 
@@ -136,7 +128,7 @@ All zones use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. 
 ### Touch Targets
 
 A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-variant coarse (@media (pointer: coarse))`. On touch devices, interactive elements get `coarse:min-h-[44px]` (Apple HIG minimum). This includes:
-- Line 2 action buttons (Rename, Kill)
+- FixedWidthToggle (`coarse:min-h-[36px] coarse:min-w-[28px]`)
 - Sidebar session ✕ kill buttons + window rows
 - Breadcrumb dropdown chevrons
 - `⋯` command palette trigger
@@ -161,7 +153,7 @@ Terminal font size adapts at initialization: 13px on viewports >= 640px, 11px be
 
 ### Command Palette Mobile Trigger
 
-The `CommandPalette` component listens for a `palette:open` CustomEvent on `document` (in addition to `⌘K`). The `⋯` button in Line 2 dispatches this event. This is the mobile equivalent of `⌘K` — physical keyboards aren't available on phones.
+The `CommandPalette` component listens for a `palette:open` CustomEvent on `document` (in addition to `⌘K`). The `⋯` button in Line 1 dispatches this event on mobile. This is the mobile equivalent of `⌘K` — physical keyboards aren't available on phones.
 
 ## Keyboard Shortcuts
 
@@ -200,7 +192,7 @@ Dark theme only, blue-tinted palette. Linear/Raycast aesthetic.
 
 ## Create Session Dialog
 
-The "Create session" dialog (top bar `[+ Session]` button or command palette) has three sections:
+The "Create session" dialog (breadcrumb `+ New Session` action, sidebar empty state button, or command palette) has three sections:
 
 1. **Quick picks ("Recent:")** — Deduplicated project root paths from existing tmux sessions (window 0's `pane_current_path`). Tappable list items with 44px min height for mobile. Selecting fills path + auto-derives session name.
 
@@ -208,7 +200,7 @@ The "Create session" dialog (top bar `[+ Session]` button or command palette) ha
 
 3. **Session name** — Auto-derived from the last segment of the selected path (e.g., `~/code/wvrdz/run-kit` yields `run-kit`). Editable — auto-derivation is a convenience, not a lock.
 
-On submit, the dialog calls `createSession(name, cwd)` which sends `POST /api/sessions` with `{ name, cwd }`. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior. Accessible from top bar `[+ Session]` button and command palette.
+On submit, the dialog calls `createSession(name, cwd)` which sends `POST /api/sessions` with `{ name, cwd }`. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior. Accessible from breadcrumb `+ New Session` dropdown action, sidebar empty state button, and command palette.
 
 ## Session-to-Project Mapping
 
@@ -242,3 +234,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-13 | Rich sidebar window status — activity dot ring for `isActiveWindow`, idle duration display, info popover (change, process, path, state), shared format helpers (`lib/format.ts`). Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Backend: `paneCommand` + `activityTimestamp` from tmux, `.fab-runtime.yaml` reading for agent state | `260313-txna-rich-sidebar-window-status` |
 | 2026-03-13 | xterm addon activation — ClipboardAddon (OSC 52), WebLinksAddon (clickable URLs), WebglAddon (GPU rendering with silent canvas fallback), Cmd+C selection-aware copy via `attachCustomKeyEventHandler` | `260313-dr60-xterm-clipboard-addons` |
 | 2026-03-13 | Removed single-key shortcuts — deleted `useKeyboardNav` (j/k/Enter), `useAppShortcuts` (c/r/Esc Esc), sidebar focus ring (`focusedIndex`). Cmd+K command palette is now the sole keyboard shortcut. Palette actions no longer show shortcut hints for create/rename | `260313-3brm-remove-single-key-shortcuts` |
+| 2026-03-13 | Remove top bar Line 2 — deleted action bar (+ Session, Rename, Kill, window status). FixedWidthToggle relocated to Line 1 (between connection indicator and ⌘K). BreadcrumbDropdown gains `action` prop for `+ New Session`/`+ New Window` as first dropdown item with divider. Sidebar empty state shows `+ New Session` button. Top bar is now single-line on all viewports | `260313-zvgc-remove-top-bar-line-2` |

@@ -10,6 +10,7 @@ type SidebarProps = {
   currentWindowIndex: string | null;
   onSelectWindow: (session: string, windowIndex: number) => void;
   onCreateWindow: (session: string) => void;
+  onCreateSession?: () => void;
 };
 
 export function Sidebar({
@@ -18,6 +19,7 @@ export function Sidebar({
   currentWindowIndex,
   onSelectWindow,
   onCreateWindow,
+  onCreateSession,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
@@ -68,8 +70,16 @@ export function Sidebar({
     <nav aria-label="Sessions" className="flex flex-col h-full py-2">
       <div className="flex-1 overflow-y-auto px-3 sm:px-6">
         {sessions.length === 0 ? (
-          <div className="text-text-secondary text-xs py-4 text-center">
-            No sessions
+          <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
+            <span>No sessions</span>
+            {onCreateSession && (
+              <button
+                onClick={onCreateSession}
+                className="text-sm px-3 py-1.5 border border-border rounded hover:border-text-secondary text-text-primary"
+              >
+                + New Session
+              </button>
+            )}
           </div>
         ) : (
           sessions.map((session) => {

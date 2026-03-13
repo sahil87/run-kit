@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { useChrome, useChromeDispatch } from "@/contexts/chrome-context";
-import { parseFabChange, getWindowDuration } from "@/lib/format";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -13,11 +12,10 @@ type TopBarProps = {
   windowName: string;
   isConnected: boolean;
   onNavigate: (session: string, windowIndex: number) => void;
-  onRename: () => void;
-  onKill: () => void;
   onToggleSidebar: () => void;
   onToggleDrawer: () => void;
   onCreateSession: () => void;
+  onCreateWindow: (session: string) => void;
 };
 
 export function TopBar({
@@ -28,11 +26,10 @@ export function TopBar({
   windowName,
   isConnected,
   onNavigate,
-  onRename,
-  onKill,
   onToggleSidebar,
   onToggleDrawer,
   onCreateSession,
+  onCreateWindow,
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
@@ -90,6 +87,7 @@ export function TopBar({
                 label="session"
                 icon={"\u276F"}
                 onNavigate={handleDropdownNavigate}
+                action={{ label: "+ New Session", onAction: onCreateSession }}
               />
               <span className="text-text-secondary hover:text-text-primary">
                 {sessionName}
@@ -104,6 +102,7 @@ export function TopBar({
                 label="window"
                 icon={"\u276F"}
                 onNavigate={handleDropdownNavigate}
+                action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
               />
               <span className="text-text-primary font-medium" aria-current="page">
                 {windowName}
@@ -124,6 +123,9 @@ export function TopBar({
             aria-hidden="true"
           />
           <span>{isConnected ? "live" : "disconnected"}</span>
+          <span className="coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center">
+            <FixedWidthToggle />
+          </span>
           <kbd className="hidden sm:inline-flex px-1.5 py-0.5 rounded border border-border text-text-secondary">
             {"\u2318K"}
           </kbd>
@@ -140,82 +142,6 @@ export function TopBar({
         </div>
       </div>
 
-      {/* Line 2: Action buttons + status — hidden on mobile where all children are hidden */}
-      <div className="hidden sm:flex items-center justify-between py-2 min-h-[36px]">
-        <div className="hidden sm:flex items-center gap-3">
-          <button
-            onClick={onCreateSession}
-            className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
-          >
-            + Session
-          </button>
-          {currentWindow && (
-            <>
-              <button
-                onClick={onRename}
-                className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
-              >
-                Rename
-              </button>
-              <button
-                onClick={onKill}
-                className="text-sm px-3 py-1 border border-border rounded hover:border-red-400 hover:text-red-400 transition-colors"
-              >
-                Kill
-              </button>
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-2 text-xs text-text-secondary">
-          {currentWindow && (
-            <div className="hidden sm:flex items-center gap-2" data-testid="line2-status">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  currentWindow.activity === "active"
-                    ? "bg-accent-green"
-                    : "bg-text-secondary"
-                }`}
-              />
-              <span>{currentWindow.activity}</span>
-              {currentWindow.paneCommand && (
-                <>
-                  <span className="text-text-secondary/50">{"\u00B7"}</span>
-                  <span>{currentWindow.paneCommand}</span>
-                </>
-              )}
-              {(() => {
-                const dur = getWindowDuration(currentWindow, Math.floor(Date.now() / 1000));
-                return dur ? (
-                  <>
-                    <span className="text-text-secondary/50">{"\u00B7"}</span>
-                    <span>{dur}</span>
-                  </>
-                ) : null;
-              })()}
-              {currentWindow.fabStage && (
-                <>
-                  <span className="text-text-secondary/50">{"\u2502"}</span>
-                  <span className="text-accent px-1.5 py-0.5 rounded bg-accent/10">
-                    {currentWindow.fabStage}
-                  </span>
-                  {(() => {
-                    const fabInfo = parseFabChange(currentWindow.fabChange ?? "");
-                    return fabInfo ? (
-                      <>
-                        <span className="text-text-secondary/50">{"\u00B7"}</span>
-                        <span>{fabInfo.id}</span>
-                        <span className="text-text-secondary/50">{"\u00B7"}</span>
-                        <span>{fabInfo.slug}</span>
-                      </>
-                    ) : null;
-                  })()}
-                </>
-              )}
-            </div>
-          )}
-          <FixedWidthToggle />
-        </div>
-      </div>
     </header>
   );
 }

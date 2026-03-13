@@ -25,7 +25,7 @@ test.describe("Mobile layout", () => {
     await expect(page.getByRole("button", { name: "Tab" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Control" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Option" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Command" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Command", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Function keys" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Arrow keys" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Compose text" })).toBeVisible();
@@ -87,8 +87,8 @@ test.describe("Mobile layout", () => {
     await expect(fnMenu).toBeVisible();
 
     // F1 and F12 should be visible
-    await expect(page.getByRole("menuitem", { name: "F1" })).toBeVisible();
-    await expect(page.getByRole("menuitem", { name: "F12" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "F1", exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "F12", exact: true })).toBeVisible();
 
     // Navigation keys too
     await expect(page.getByRole("menuitem", { name: "PgUp" })).toBeVisible();

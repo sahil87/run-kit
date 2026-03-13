@@ -16,6 +16,28 @@ import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { selectWindow, createWindow } from "@/api/client";
 
+const SIDEBAR_STORAGE_KEY = "runkit-sidebar-width";
+const SIDEBAR_DEFAULT_WIDTH = 220;
+const SIDEBAR_MIN_WIDTH = 160;
+const SIDEBAR_MAX_WIDTH = 400;
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+}
+
+function readSidebarWidth(): number {
+  try {
+    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (stored) {
+      const parsed = Number(stored);
+      if (!isNaN(parsed)) return clampSidebarWidth(parsed);
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return SIDEBAR_DEFAULT_WIDTH;
+}
+
 export function App() {
   return (
     <ChromeProvider>
@@ -43,6 +65,58 @@ function AppShell() {
   const windowIndex = params.window;
 
   const [composeOpen, setComposeOpen] = useState(false);
+
+  // Sidebar drag-resize state (desktop only)
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const isDraggingRef = useRef(false);
+
+  const handleDragStart = useCallback((startX: number) => {
+    isDraggingRef.current = true;
+    const startWidth = sidebarWidth;
+
+    const handleMove = (clientX: number) => {
+      const newWidth = clampSidebarWidth(startWidth + (clientX - startX));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX);
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches[0]) handleMove(e.touches[0].clientX);
+    };
+
+    const handleEnd = () => {
+      isDraggingRef.current = false;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleEnd);
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("touchend", handleEnd);
+      // Persist final width
+      setSidebarWidth((w) => {
+        try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(w)); } catch { /* noop */ }
+        return w;
+      });
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleEnd);
+    document.addEventListener("touchmove", handleTouchMove);
+    document.addEventListener("touchend", handleEnd);
+  }, [sidebarWidth]);
+
+  const handleDragHandleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      handleDragStart(e.clientX);
+    },
+    [handleDragStart],
+  );
+
+  const handleDragHandleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches[0]) handleDragStart(e.touches[0].clientX);
+    },
+    [handleDragStart],
+  );
 
   // Track user-initiated navigation to suppress activeWindow sync temporarily.
   // Also suppress while any dialog is open to prevent focus-stealing re-renders.
@@ -240,6 +314,7 @@ function AppShell() {
           onKill={dialogs.openKillConfirm}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
+          onCreateSession={dialogs.openCreateDialog}
         />
       </div>
 
@@ -247,30 +322,48 @@ function AppShell() {
       <div className="flex-1 flex flex-row min-h-0">
         {/* Desktop sidebar */}
         {sidebarOpen && (
-          <div className="w-[220px] shrink-0 overflow-y-auto border-r border-border hidden md:block">
-            <Sidebar
-              sessions={sessions}
-              currentSession={sessionName ?? null}
-              currentWindowIndex={windowIndex ?? null}
-              focusedIndex={focusedIndex}
-              onSelectWindow={navigateToWindow}
-              onCreateSession={dialogs.openCreateDialog}
-              onCreateWindow={handleCreateWindow}
+          <div
+            className="shrink-0 hidden md:flex flex-row"
+            style={{ width: sidebarWidth }}
+          >
+            <div className="flex-1 min-w-0 overflow-y-auto">
+              <Sidebar
+                sessions={sessions}
+                currentSession={sessionName ?? null}
+                currentWindowIndex={windowIndex ?? null}
+                focusedIndex={focusedIndex}
+                onSelectWindow={navigateToWindow}
+                onCreateWindow={handleCreateWindow}
+              />
+            </div>
+            {/* Drag handle */}
+            <div
+              className="w-[5px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary/40 transition-colors"
+              onMouseDown={handleDragHandleMouseDown}
+              onTouchStart={handleDragHandleTouchStart}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sidebar"
+              aria-valuenow={sidebarWidth}
+              aria-valuemin={SIDEBAR_MIN_WIDTH}
+              aria-valuemax={SIDEBAR_MAX_WIDTH}
             />
           </div>
         )}
 
-        {/* Terminal */}
+        {/* Terminal Column */}
         <div className="flex-1 min-w-0 flex flex-col">
           {sessionName && windowIndex ? (
-            <TerminalClient
-              key={`${sessionName}/${windowIndex}`}
-              sessionName={sessionName}
-              windowIndex={windowIndex}
-              wsRef={wsRef}
-              composeOpen={composeOpen}
-              setComposeOpen={setComposeOpen}
-            />
+            <div className="flex-1 min-h-0 py-0.5 px-1">
+              <TerminalClient
+                key={`${sessionName}/${windowIndex}`}
+                sessionName={sessionName}
+                windowIndex={windowIndex}
+                wsRef={wsRef}
+                composeOpen={composeOpen}
+                setComposeOpen={setComposeOpen}
+              />
+            </div>
           ) : (
             <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
               {sessions.length === 0
@@ -278,12 +371,12 @@ function AppShell() {
                 : "Select a window from the sidebar."}
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Bottom Bar */}
-      <div className="shrink-0 px-3 sm:px-6 pb-1">
-        <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} />
+          {/* Bottom Bar */}
+          <div className="shrink-0 border-t border-border px-3 sm:px-6">
+            <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} />
+          </div>
+        </div>
       </div>
 
       {/* Mobile Drawer Overlay */}
@@ -301,10 +394,6 @@ function AppShell() {
               focusedIndex={focusedIndex}
               onSelectWindow={(s, w) => {
                 navigateToWindow(s, w);
-              }}
-              onCreateSession={() => {
-                setDrawerOpen(false);
-                dialogs.openCreateDialog();
               }}
               onCreateWindow={handleCreateWindow}
             />

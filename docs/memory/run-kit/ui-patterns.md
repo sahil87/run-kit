@@ -144,6 +144,17 @@ A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-var
 
 Bottom bar buttons use `min-h-[44px]` unconditionally (not `coarse:` gated) since the bottom bar is touch-primary.
 
+### Terminal Addons
+
+Addons loaded in `init()` via dynamic import, after `terminal.open()`, before `ResizeObserver` setup. Order: FitAddon (existing) → fit() → ClipboardAddon → WebLinksAddon → WebglAddon.
+
+| Addon | Purpose | Notes |
+|-------|---------|-------|
+| `@xterm/addon-fit` | Auto-resize columns/rows | Existing — loaded first, `fit()` called immediately |
+| `@xterm/addon-clipboard` | OSC 52 clipboard sequences | Programs (tmux, vim, SSH) can write to system clipboard |
+| `@xterm/addon-web-links` | Clickable URLs in terminal output | |
+| `@xterm/addon-webgl` | GPU-accelerated rendering | Wrapped in try/catch — silently falls back to canvas renderer on failure |
+
 ### Terminal Font Scaling
 
 Terminal font size adapts at initialization: 13px on viewports >= 640px, 11px below. Determined via `window.matchMedia('(min-width: 640px)')` at xterm Terminal construction time. FitAddon recalculates columns automatically.
@@ -158,6 +169,7 @@ The `CommandPalette` component listens for a `palette:open` CustomEvent on `docu
 | Key | Action | Context |
 |-----|--------|---------|
 | `Cmd+K` | Open command palette | Always |
+| `Cmd+C` / `Ctrl+C` | Copy selection to clipboard (with selection) or send SIGINT (without selection) | Terminal focused — via `attachCustomKeyEventHandler`, `keydown` only |
 | `Esc Esc` | Navigate back (close drawer if open, else no-op) | 300ms double-tap window |
 
 ### Sidebar
@@ -236,3 +248,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-12 | Single-view UI model — sidebar + terminal replaces three-page navigation, POST-only API client with path-based intent, ChromeProvider derives from selection (no slot injection), fullbleed always on, no max-width constraint, sidebar with session/window tree and mobile drawer | `260312-ux92-vite-react-frontend` |
 | 2026-03-12 | UI chrome refinements — simplified breadcrumbs (`☰ {logo} ❯ session ❯ window`, removed `⬡` and `›`), drag-resizable sidebar (default 220px, min 160, max 400, localStorage persist), bottom bar moved inside terminal column (`border-t border-border`, `py-1.5`), top bar `border-b border-border`, `[+ Session]` button in top bar line 2, sidebar footer removed, padding consistency (`px-3 sm:px-6` sidebar, `py-0.5 px-1` terminal container) | `260312-y4ci-ui-chrome-layout-refinements` |
 | 2026-03-13 | Rich sidebar window status — activity dot ring for `isActiveWindow`, idle duration display, info popover (change, process, path, state), shared format helpers (`lib/format.ts`). Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Backend: `paneCommand` + `activityTimestamp` from tmux, `.fab-runtime.yaml` reading for agent state | `260313-txna-rich-sidebar-window-status` |
+| 2026-03-13 | xterm addon activation — ClipboardAddon (OSC 52), WebLinksAddon (clickable URLs), WebglAddon (GPU rendering with silent canvas fallback), Cmd+C selection-aware copy via `attachCustomKeyEventHandler` | `260313-dr60-xterm-clipboard-addons` |

@@ -115,10 +115,46 @@ export function TerminalClient({
       xtermRef.current = terminal;
       fitAddonRef.current = fitAddon;
 
+      // Clipboard addon — enriched clipboard support
+      const { ClipboardAddon } = await import("@xterm/addon-clipboard");
+      if (cancelled) return void terminal.dispose();
+      terminal.loadAddon(new ClipboardAddon());
+
+      // Clickable URLs
+      const { WebLinksAddon } = await import("@xterm/addon-web-links");
+      if (cancelled) return void terminal.dispose();
+      terminal.loadAddon(new WebLinksAddon());
+
+      // GPU-accelerated rendering (silent fallback to canvas)
+      try {
+        const { WebglAddon } = await import("@xterm/addon-webgl");
+        if (!cancelled) terminal.loadAddon(new WebglAddon());
+      } catch {
+        // canvas renderer continues working
+      }
+      if (cancelled) return void terminal.dispose();
+
       // Keyboard input → current WebSocket (wsRef always points to latest)
       terminal.onData((data) => {
         if (wsRef.current?.readyState === WebSocket.OPEN)
           wsRef.current.send(data);
+      });
+
+      // Cmd+C / Ctrl+C: copy selection instead of sending SIGINT
+      // Local const narrows the type for the closure (outer `terminal` is T | null).
+      const term = terminal;
+      term.attachCustomKeyEventHandler((event) => {
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          event.key === "c" &&
+          event.type === "keydown"
+        ) {
+          if (term.hasSelection()) {
+            void navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+            return false;
+          }
+        }
+        return true;
       });
 
       resizeObserver = new ResizeObserver(() => {

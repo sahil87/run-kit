@@ -45,7 +45,7 @@ const EXT_KEYS = [
 ] as const;
 
 const KBD_CLASS =
-  "min-h-[32px] min-w-[32px] coarse:min-h-[44px] coarse:min-w-[44px] flex items-center justify-center px-1.5 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-[32px] min-w-[32px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
 
 const MODIFIER_LABELS: Record<string, string> = {
   ctrl: "Control",
@@ -150,7 +150,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
   );
 
   return (
-    <div className="flex items-center gap-1.5 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
+    <div className="flex items-center gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
       <button aria-label="Escape" className={`${KBD_CLASS} text-text-secondary`} onClick={() => sendSpecial("\x1b")}>
         <kbd aria-hidden="true">{"\u238B"}</kbd>
       </button>
@@ -188,7 +188,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
           <div
             role="menu"
             aria-label="Function and navigation keys"
-            className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[200px] z-50"
+            className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] z-50"
           >
             <div className="grid grid-cols-4 gap-0.5">
               {FN_KEYS.map((fk) => (

@@ -31,7 +31,7 @@ Monorepo managed by pnpm workspaces. Task runner: `just` (see `justfile`).
 - **Router**: chi/v5
 - **WebSocket**: gorilla/websocket — terminal relay to tmux panes via creack/pty
 - **SSE**: custom handler for real-time session state
-- **Config parsing**: `gopkg.in/yaml.v3` for `run-kit.yaml`
+- **Config**: environment variables (`RUN_KIT_PORT`, `RUN_KIT_HOST`) loaded via `.env` / `.env.local`
 - **Structure**: `cmd/run-kit/` (entrypoint), `api/` (HTTP handlers), `internal/` (config, fab, sessions, tmux, validate)
 - **Testing**: `go test ./...`
 - **Build**: `go build -o ../../bin/run-kit ./cmd/run-kit`

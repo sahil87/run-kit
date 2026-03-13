@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 )
 
@@ -36,4 +37,50 @@ func TestDefaults(t *testing.T) {
 	if defaults.Host != "127.0.0.1" {
 		t.Errorf("default host = %q, want 127.0.0.1", defaults.Host)
 	}
+}
+
+func TestLoad(t *testing.T) {
+	t.Run("reads port and host from env", func(t *testing.T) {
+		t.Setenv("BACKEND_PORT", "8080")
+		t.Setenv("BACKEND_HOST", "0.0.0.0")
+
+		cfg := Load()
+		if cfg.Port != 8080 {
+			t.Errorf("port = %d, want 8080", cfg.Port)
+		}
+		if cfg.Host != "0.0.0.0" {
+			t.Errorf("host = %q, want 0.0.0.0", cfg.Host)
+		}
+	})
+
+	t.Run("ignores invalid port", func(t *testing.T) {
+		t.Setenv("BACKEND_PORT", "notanumber")
+
+		cfg := Load()
+		if cfg.Port != defaults.Port {
+			t.Errorf("port = %d, want default %d", cfg.Port, defaults.Port)
+		}
+	})
+
+	t.Run("ignores out-of-range port", func(t *testing.T) {
+		t.Setenv("BACKEND_PORT", "99999")
+
+		cfg := Load()
+		if cfg.Port != defaults.Port {
+			t.Errorf("port = %d, want default %d", cfg.Port, defaults.Port)
+		}
+	})
+
+	t.Run("falls back to defaults when unset", func(t *testing.T) {
+		os.Unsetenv("BACKEND_PORT")
+		os.Unsetenv("BACKEND_HOST")
+
+		cfg := Load()
+		if cfg.Port != defaults.Port {
+			t.Errorf("port = %d, want default %d", cfg.Port, defaults.Port)
+		}
+		if cfg.Host != defaults.Host {
+			t.Errorf("host = %q, want default %q", cfg.Host, defaults.Host)
+		}
+	})
 }

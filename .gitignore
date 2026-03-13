@@ -66,9 +66,8 @@ web_modules/
 .yarn-integrity
 
 # dotenv environment variable files
-.env
-.env.*
-!.env.example
+.env.local
+.env.*.local
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -138,7 +137,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-run-kit.yaml
 Caddyfile
 
 fab/.kit-sync-version
@@ -173,3 +171,4 @@ fab/.kit/bin/*
 tmp
 .uploads/
 test-results/
+app/backend/run-kit

@@ -5,17 +5,22 @@ set dotenv-load := false
 
 # ─── Development ──────────────────────────────────────────────
 
-# Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 3001)
+# Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
 dev *args:
     ./scripts/dev.sh {{args}}
 
-# ─── Build ───────────────────────────────────────────────────
+# ─── Build & Prod ───────────────────────────────────────────────────
 
 # Build Go binary + frontend for production
 build:
     mkdir -p bin
     cd app/backend && go build -o ../../bin/run-kit ./cmd/run-kit
     cd app/frontend && pnpm build
+
+# Build and run production binary (just prod --port 4000)
+prod *args:
+    just build
+    ./scripts/prod.sh {{args}}
 
 # ─── Test ────────────────────────────────────────────────────
 
@@ -43,27 +48,18 @@ check:
 # Full verification: type-check, test, build
 verify: check test build
 
-# ─── Production ──────────────────────────────────────────────
+# ─── Daemon ──────────────────────────────────────────────
 
-# Start supervisor (builds, runs, auto-restart on crash)
-up:
-    ./scripts/supervisor.sh
+# Run supervisor in background tmux session (just bg --port 4000)
+bg *args:
+    tmux new-session -d -s runK './scripts/supervisor.sh {{args}}'
 
-# Start supervisor in a detached tmux session
-bg:
-    tmux new-session -d -s runK './scripts/supervisor.sh'
-    @echo "Supervisor running in tmux session 'runK'"
-    @echo "  Attach: just logs"
-    @echo "  Stop:   just down"
-
-# Attach to the supervisor tmux session
+# Attach to supervisor session
 logs:
     tmux attach-session -t runK
 
-# Stop the background supervisor
+# Stop supervisor
 down:
-    tmux send-keys -t runK C-c
-    @sleep 1
     tmux kill-session -t runK 2>/dev/null || true
 
 # ─── HTTPS ───────────────────────────────────────────────────

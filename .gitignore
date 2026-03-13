@@ -169,3 +169,5 @@ fab/.kit/bin/*
 
 # Playwright MCP
 .playwright-mcp/
+
+tmp

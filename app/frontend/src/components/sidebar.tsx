@@ -61,8 +61,8 @@ export function Sidebar({
   }
 
   return (
-    <nav aria-label="Sessions" className="flex flex-col h-full px-3 sm:px-6 py-2">
-      <div className="flex-1 overflow-y-auto">
+    <nav aria-label="Sessions" className="flex flex-col h-full py-2">
+      <div className="flex-1 overflow-y-auto px-3 sm:px-6">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center">
             No sessions
@@ -84,6 +84,9 @@ export function Sidebar({
                       {isCollapsed ? "\u25B6" : "\u25BC"}
                     </span>
                     <span className="font-medium truncate">{session.name}</span>
+                    {session.byobu && (
+                      <span className="text-[10px] text-accent-green/70 shrink-0" aria-label="byobu session">b</span>
+                    )}
                   </button>
                   <div className="flex items-center">
                     <button

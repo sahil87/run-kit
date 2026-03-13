@@ -52,7 +52,7 @@ function AppShell() {
   useVisualViewport();
 
   const { sessions, isConnected } = useSessions();
-  const { sidebarOpen, drawerOpen } = useChrome();
+  const { sidebarOpen, drawerOpen, fixedWidth } = useChrome();
   const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen } = useChromeDispatch();
   const navigate = useNavigate();
   const matches = useMatches();
@@ -326,7 +326,7 @@ function AppShell() {
             className="shrink-0 hidden md:flex flex-row"
             style={{ width: sidebarWidth }}
           >
-            <div className="flex-1 min-w-0 overflow-y-auto">
+            <div className="flex-1 min-w-0 overflow-hidden">
               <Sidebar
                 sessions={sessions}
                 currentSession={sessionName ?? null}
@@ -352,9 +352,12 @@ function AppShell() {
         )}
 
         {/* Terminal Column */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className={`flex-1 min-w-0 flex flex-col ${fixedWidth ? "bg-[#0a0a0a]" : ""}`}>
           {sessionName && windowIndex ? (
-            <div className="flex-1 min-h-0 py-0.5 px-1">
+            <div
+              className={`flex-1 min-h-0 py-0.5 px-1 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
+              style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
+            >
               <TerminalClient
                 key={`${sessionName}/${windowIndex}`}
                 sessionName={sessionName}

@@ -126,6 +126,9 @@ export function TerminalClient({
 
         ws.onopen = () => {
           reconnectDelay = 1000;
+          // Re-fit now that layout is fully settled — the initial fit()
+          // after terminal.open() may have read stale dimensions.
+          fitAddon.fit();
           const dims = { cols: terminal!.cols, rows: terminal!.rows };
           ws.send(JSON.stringify({ type: "resize", ...dims }));
         };

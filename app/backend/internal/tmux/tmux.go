@@ -65,27 +65,40 @@ func withTimeout() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), TmuxTimeout)
 }
 
-// parseSessions parses tmux list-sessions output lines into session names,
+// SessionInfo describes a tmux session with metadata about its type.
+type SessionInfo struct {
+	Name  string `json:"name"`
+	Byobu bool   `json:"byobu"` // true if the session belongs to a byobu session group
+}
+
+// parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out byobu session-group copies. Exported for testing.
-func parseSessions(lines []string) []string {
-	var sessions []string
+func parseSessions(lines []string) []SessionInfo {
+	var sessions []SessionInfo
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
-		if len(parts) < 3 {
+		if len(parts) < 2 {
 			continue
 		}
-		name, grouped, group := parts[0], parts[1], parts[2]
+		name, grouped := parts[0], parts[1]
+		group := ""
+		if len(parts) >= 3 {
+			group = parts[2]
+		}
 		// Filter out session-group copies: keep if ungrouped or if name matches group
 		if grouped == "0" || name == group {
-			sessions = append(sessions, name)
+			sessions = append(sessions, SessionInfo{
+				Name:  name,
+				Byobu: grouped == "1",
+			})
 		}
 	}
 	return sessions
 }
 
-// ListSessions returns all tmux session names, filtering out byobu session-group copies.
+// ListSessions returns all tmux sessions, filtering out byobu session-group copies.
 // Returns nil if tmux server is not running.
-func ListSessions() ([]string, error) {
+func ListSessions() ([]SessionInfo, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 

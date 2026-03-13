@@ -20,7 +20,7 @@ func TestParseSessions(t *testing.T) {
 	tests := []struct {
 		name  string
 		lines []string
-		want  []string
+		want  []SessionInfo
 	}{
 		{
 			name: "standard sessions with session_grouped=0",
@@ -28,7 +28,7 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("alpha", "0", "alpha"),
 				sessionLine("beta", "0", "beta"),
 			},
-			want: []string{"alpha", "beta"},
+			want: []SessionInfo{{Name: "alpha"}, {Name: "beta"}},
 		},
 		{
 			name: "filters out session-group copies (grouped=1, name != group)",
@@ -36,14 +36,14 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("devshell", "0", "devshell"),
 				sessionLine("devshell-82", "1", "devshell"),
 			},
-			want: []string{"devshell"},
+			want: []SessionInfo{{Name: "devshell"}},
 		},
 		{
-			name: "keeps group-named session (grouped=1, name == group)",
+			name: "keeps group-named session (grouped=1, name == group) and marks as byobu",
 			lines: []string{
 				sessionLine("mygroup", "1", "mygroup"),
 			},
-			want: []string{"mygroup"},
+			want: []SessionInfo{{Name: "mygroup", Byobu: true}},
 		},
 		{
 			name:  "empty input returns nil",
@@ -56,12 +56,19 @@ func TestParseSessions(t *testing.T) {
 			want:  nil,
 		},
 		{
-			name: "malformed line with fewer than 3 fields is skipped",
+			name: "malformed line with fewer than 2 fields is skipped",
 			lines: []string{
 				"onlyname",
 				sessionLine("good", "0", "good"),
 			},
-			want: []string{"good"},
+			want: []SessionInfo{{Name: "good"}},
+		},
+		{
+			name: "ungrouped session with no session_group field (2 fields only)",
+			lines: []string{
+				"mysession\t0",
+			},
+			want: []SessionInfo{{Name: "mysession"}},
 		},
 		{
 			name: "multiple session-group copies filtered, original kept",
@@ -70,7 +77,7 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("proj-1", "1", "proj"),
 				sessionLine("proj-2", "1", "proj"),
 			},
-			want: []string{"proj"},
+			want: []SessionInfo{{Name: "proj"}},
 		},
 		{
 			name: "mixed grouped and ungrouped sessions",
@@ -80,14 +87,14 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("beta-N", "1", "beta"),
 				sessionLine("gamma", "0", "gamma"),
 			},
-			want: []string{"alpha", "beta", "gamma"},
+			want: []SessionInfo{{Name: "alpha"}, {Name: "beta", Byobu: true}, {Name: "gamma"}},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := parseSessions(tt.lines)
-			if !stringSliceEqual(got, tt.want) {
+			if !sessionInfoSliceEqual(got, tt.want) {
 				t.Errorf("parseSessions() = %v, want %v", got, tt.want)
 			}
 		})
@@ -207,10 +214,9 @@ func TestParseWindows(t *testing.T) {
 	}
 }
 
-// stringSliceEqual compares two string slices, treating nil and empty as equivalent.
-func stringSliceEqual(a, b []string) bool {
+// sessionInfoSliceEqual compares two SessionInfo slices, treating nil and empty as equivalent.
+func sessionInfoSliceEqual(a, b []SessionInfo) bool {
 	if len(a) == 0 && len(b) == 0 {
-		// Both nil or empty
 		if a == nil && b == nil {
 			return true
 		}

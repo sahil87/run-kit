@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
+import { useChrome, useChromeDispatch } from "@/contexts/chrome-context";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -191,8 +192,56 @@ export function TopBar({
               )}
             </>
           )}
+          <FixedWidthToggle />
         </div>
       </div>
     </header>
+  );
+}
+
+function FixedWidthToggle() {
+  const { fixedWidth } = useChrome();
+  const { toggleFixedWidth } = useChromeDispatch();
+
+  return (
+    <button
+      onClick={toggleFixedWidth}
+      aria-label="Toggle fixed terminal width"
+      aria-pressed={fixedWidth}
+      className={`px-1.5 py-0.5 rounded border transition-colors ${
+        fixedWidth
+          ? "border-accent text-accent bg-accent/10"
+          : "border-border text-text-secondary hover:border-text-secondary"
+      }`}
+      title={fixedWidth ? "Full width" : "Fixed width (900px)"}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      >
+        {fixedWidth ? (
+          <>
+            {/* Arrows pointing outward — expand */}
+            <line x1="1" y1="7" x2="5" y2="7" />
+            <polyline points="1,5 1,7 1,9" />
+            <line x1="9" y1="7" x2="13" y2="7" />
+            <polyline points="13,5 13,7 13,9" />
+          </>
+        ) : (
+          <>
+            {/* Arrows pointing inward — contract */}
+            <line x1="1" y1="7" x2="5" y2="7" />
+            <polyline points="5,5 5,7 5,9" />
+            <line x1="9" y1="7" x2="13" y2="7" />
+            <polyline points="9,5 9,7 9,9" />
+          </>
+        )}
+      </svg>
+    </button>
   );
 }

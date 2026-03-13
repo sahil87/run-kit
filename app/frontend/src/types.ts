@@ -1,6 +1,7 @@
 /** A tmux session with its windows and optional fab enrichment. */
 export type ProjectSession = {
   name: string;
+  byobu: boolean;
   windows: WindowInfo[];
 };
 

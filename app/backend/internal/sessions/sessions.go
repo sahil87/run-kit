@@ -12,6 +12,7 @@ import (
 // ProjectSession is a tmux session with its windows and optional fab enrichment.
 type ProjectSession struct {
 	Name    string            `json:"name"`
+	Byobu   bool              `json:"byobu"`
 	Windows []tmux.WindowInfo `json:"windows"`
 }
 
@@ -36,34 +37,34 @@ func enrichSession(windows []tmux.WindowInfo, projectRoot string) {
 
 // FetchSessions fetches all sessions, derives project roots from tmux, and enriches with fab state.
 func FetchSessions() ([]ProjectSession, error) {
-	sessionNames, err := tmux.ListSessions()
+	sessionInfos, err := tmux.ListSessions()
 	if err != nil {
 		return nil, err
 	}
 
-	if len(sessionNames) == 0 {
+	if len(sessionInfos) == 0 {
 		return []ProjectSession{}, nil
 	}
 
 	// Fetch windows for all sessions in parallel
 	type sessionData struct {
-		name    string
+		info    tmux.SessionInfo
 		windows []tmux.WindowInfo
 	}
 
-	data := make([]sessionData, len(sessionNames))
+	data := make([]sessionData, len(sessionInfos))
 	var wg sync.WaitGroup
 
-	for i, name := range sessionNames {
+	for i, info := range sessionInfos {
 		wg.Add(1)
-		go func(idx int, sName string) {
+		go func(idx int, si tmux.SessionInfo) {
 			defer wg.Done()
-			windows, _ := tmux.ListWindows(sName)
+			windows, _ := tmux.ListWindows(si.Name)
 			if windows == nil {
 				windows = []tmux.WindowInfo{}
 			}
-			data[idx] = sessionData{name: sName, windows: windows}
-		}(i, name)
+			data[idx] = sessionData{info: si, windows: windows}
+		}(i, info)
 	}
 	wg.Wait()
 
@@ -85,7 +86,7 @@ func FetchSessions() ([]ProjectSession, error) {
 				enrichSession(sd.windows, projectRoot)
 			}
 
-			result[idx] = ProjectSession{Name: sd.name, Windows: sd.windows}
+			result[idx] = ProjectSession{Name: sd.info.Name, Byobu: sd.info.Byobu, Windows: sd.windows}
 		}(i, sd)
 	}
 	enrichWg.Wait()

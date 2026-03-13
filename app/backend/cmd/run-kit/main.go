@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,7 +18,11 @@ import (
 func main() {
 	cfg := config.Load()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logLevel := slog.LevelInfo
+	if strings.EqualFold(os.Getenv("LOG_LEVEL"), "debug") {
+		logLevel = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
 	slog.SetDefault(logger)
 
 	router := api.NewRouter(logger)

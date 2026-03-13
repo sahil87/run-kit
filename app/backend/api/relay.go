@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 	"github.com/go-chi/chi/v5"
@@ -30,6 +32,18 @@ type resizeMsg struct {
 	Type string `json:"type"`
 	Cols uint16 `json:"cols"`
 	Rows uint16 `json:"rows"`
+}
+
+// ensureTERM returns a copy of env with TERM set to xterm-256color if absent.
+// tmux uses the attaching client's TERM to parse input escape sequences (e.g.,
+// function keys). Without a proper TERM, sequences like F2 are not recognized.
+func ensureTERM(env []string) []string {
+	for _, e := range env {
+		if strings.HasPrefix(e, "TERM=") {
+			return env
+		}
+	}
+	return append(env, "TERM=xterm-256color")
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
@@ -63,12 +77,29 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Wait for the first resize message so we can start the PTY at the correct
+	// dimensions. Without this, tmux attaches at the default 80x24 and byobu's
+	// status bar renders in the wrong position.
+	var initialSize pty.Winsize
+	initialSize.Cols = 80
+	initialSize.Rows = 24
+
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, msg, err := conn.ReadMessage(); err == nil {
+		var resize resizeMsg
+		if json.Unmarshal(msg, &resize) == nil && resize.Type == "resize" && resize.Cols > 0 && resize.Rows > 0 {
+			initialSize.Cols = resize.Cols
+			initialSize.Rows = resize.Rows
+		}
+	}
+	conn.SetReadDeadline(time.Time{}) // clear deadline
+
 	// Attach to the session via PTY — renders the selected window as-is (no split)
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", session)
-	cmd.Env = os.Environ()
+	cmd.Env = ensureTERM(os.Environ())
 
-	ptmx, err := pty.Start(cmd)
+	ptmx, err := pty.StartWithSize(cmd, &initialSize)
 	if err != nil {
 		cancel()
 		slog.Error("pty start failed", "err", err, "session", session, "window", windowIndex)

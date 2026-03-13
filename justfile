@@ -12,6 +12,8 @@ dev *args:
     pids=()
     cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait; }
     trap cleanup EXIT
+    LOG_LEVEL=debug
+    export LOG_LEVEL
     if command -v air &>/dev/null; then
       (cd app/backend && air) & pids+=($!)
     else

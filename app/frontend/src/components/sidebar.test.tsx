@@ -6,6 +6,7 @@ import type { ProjectSession } from "@/types";
 const sessions: ProjectSession[] = [
   {
     name: "run-kit",
+    byobu: false,
     windows: [
       {
         index: 0,
@@ -26,6 +27,7 @@ const sessions: ProjectSession[] = [
   },
   {
     name: "ao-server",
+    byobu: false,
     windows: [
       {
         index: 0,

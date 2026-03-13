@@ -68,10 +68,9 @@ export function TopBar({
       {/* Line 1: Hamburger + Logo + Breadcrumbs + Connection + Cmd+K */}
       <div className="flex items-center justify-between py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
-          {/* Hamburger: desktop toggles sidebar, mobile toggles drawer */}
+          {/* Logo doubles as sidebar/drawer toggle */}
           <button
             onClick={() => {
-              // On desktop: toggle sidebar. On mobile: toggle drawer.
               if (window.innerWidth >= 768) {
                 onToggleSidebar();
               } else {
@@ -79,18 +78,10 @@ export function TopBar({
               }
             }}
             aria-label="Toggle navigation"
-            className="text-text-secondary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[44px] coarse:min-h-[44px] flex items-center justify-center mr-1"
-          >
-            {"\u2630"}
-          </button>
-
-          <a
-            href="/"
-            className="hover:opacity-80 transition-opacity"
-            aria-label="RunKit home"
+            className="hover:opacity-80 transition-opacity min-w-[24px] min-h-[24px] coarse:min-w-[44px] coarse:min-h-[44px] flex items-center justify-center"
           >
             <img src="/logo.svg" alt="RunKit" width={20} height={20} />
-          </a>
+          </button>
 
           {sessionName && (
             <span className="flex items-center gap-1.5">
@@ -243,7 +234,7 @@ function FixedWidthToggle() {
           ? "border-accent text-accent bg-accent/10"
           : "border-border text-text-secondary hover:border-text-secondary"
       }`}
-      title={fixedWidth ? "Full width" : "Fixed width (900px)"}
+      title={fixedWidth ? "Full width" : "Fixed width (965px)"}
     >
       <svg
         width="14"

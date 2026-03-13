@@ -352,11 +352,11 @@ function AppShell() {
         )}
 
         {/* Terminal Column */}
-        <div className={`flex-1 min-w-0 flex flex-col ${fixedWidth ? "bg-[#0a0a0a]" : ""}`}>
+        <div className={`flex-1 min-w-0 flex flex-col ${fixedWidth ? "bg-[#0a0c12]" : ""}`}>
           {sessionName && windowIndex ? (
             <div
               className={`flex-1 min-h-0 py-0.5 px-1 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
-              style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
+              style={fixedWidth ? { maxWidth: 965, width: "100%", marginInline: "auto" } : undefined}
             >
               <TerminalClient
                 sessionName={sessionName}

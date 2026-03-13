@@ -13,11 +13,11 @@ Single-view model: sidebar shows session/window tree, terminal is always the mai
 
 The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derives its content from the current session:window selection via `ChromeProvider` context. No slot injection — the chrome reads the selection and renders directly.
 
-**Line 1** (fixed height, `border-b border-border`): `☰` toggle + icon breadcrumbs + connection indicator + `⌘K` (desktop) / `⋯` (mobile).
+**Line 1** (fixed height, `border-b border-border`): logo toggle + icon breadcrumbs + connection indicator + `⌘K` (desktop) / `⋯` (mobile).
 
-Breadcrumb: `☰ {logo} ❯ {session} ❯ {window}` (syncs with tmux active window via SSE). `☰` toggles sidebar (desktop) or opens drawer (mobile).
+Breadcrumb: `{logo} ❯ {session} ❯ {window}` (syncs with tmux active window via SSE). Logo toggles sidebar (desktop) or opens drawer (mobile) — no separate hamburger icon.
 
-- Logo SVG (`logo.svg`) — always links to `/`
+- Logo SVG (`logo.svg`) — clickable button that toggles sidebar/drawer (replaces `☰` hamburger)
 - ❯ — Unicode heavy right angle (U+276F), unified separator/dropdown trigger icon for both session and window segments (tapping opens respective dropdown)
 - Icons are rendered inside `BreadcrumbDropdown` via `icon` prop — no separate passive span, no `›` separator spans
 - All segments except the last are clickable links
@@ -57,9 +57,9 @@ Line 2 renders even when empty — prevents layout shift.
 
 `app/frontend/src/components/sidebar.tsx` — session/window tree navigation.
 
-**Desktop** (>= 768px): Drag-resizable panel, default 220px width. Width persisted to `localStorage` key `runkit-sidebar-width`. Constraints: min 160px, max 400px. Drag handle (4-6px) on right edge with `col-resize` cursor, supports mouse and touch events. Collapsible via `☰` in top bar.
+**Desktop** (>= 768px): Drag-resizable panel, default 220px width. Width persisted to `localStorage` key `runkit-sidebar-width`. Constraints: min 160px, max 400px. Drag handle (4-6px) on right edge with `col-resize` cursor, supports mouse and touch events. Collapsible via logo button in top bar.
 
-**Mobile** (< 768px): Hidden by default. `☰` opens a drawer overlay from the left, dimming the terminal. Selecting a window closes the drawer. Drag-resize does not apply to mobile drawer.
+**Mobile** (< 768px): Hidden by default. Logo button opens a drawer overlay from the left, dimming the terminal. Selecting a window closes the drawer. Drag-resize does not apply to mobile drawer.
 
 **Padding**: `px-3 sm:px-6` (matches top bar and bottom bar chrome padding).
 
@@ -97,7 +97,7 @@ Single row of `<kbd>` styled buttons, always visible (terminal is always the mai
 
 **Special keys** (Esc, Tab): Direct send. Ctrl is not consumed for Esc/Tab (Esc IS Ctrl+[, Tab IS Ctrl+I in terminal semantics) — Ctrl stays armed for the next key. Alt/Cmd prefix with ESC (Meta convention).
 
-**All buttons**: 44px minimum height (Apple HIG touch target). `<kbd>` element styling consistent with the existing `Cmd+K` badge.
+**All buttons**: 32px minimum height on desktop, 44px on touch devices (`coarse:min-h-[44px]`). `text-xs`, `<kbd>` element styling.
 
 ### Compose Buffer
 
@@ -140,7 +140,7 @@ A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-var
 - Sidebar session ✕ kill buttons + window rows
 - Breadcrumb dropdown chevrons
 - `⋯` command palette trigger
-- `☰` hamburger toggle
+- Logo button (sidebar/drawer toggle)
 
 Bottom bar buttons use `min-h-[44px]` unconditionally (not `coarse:` gated) since the bottom bar is touch-primary.
 
@@ -171,16 +171,16 @@ All keyboard shortcuts are registered in the command palette.
 
 ## Visual Design
 
-Dark theme only. Linear/Raycast aesthetic.
+Dark theme only, blue-tinted palette. Linear/Raycast aesthetic.
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--color-bg-primary` | `#111111` | Page background |
-| `--color-bg-card` | `#1a1a1a` | Card backgrounds |
-| `--color-text-primary` | `#ffffff` | Primary text |
-| `--color-text-secondary` | `#888888` | Secondary text, labels |
-| `--color-border` | `#333333` | Borders, dividers |
-| `--color-accent` | `#3b82f6` | Active states, focus rings |
+| `--color-bg-primary` | `#0f1117` | Page background (dark navy) |
+| `--color-bg-card` | `#171b24` | Card backgrounds (navy-gray) |
+| `--color-text-primary` | `#e8eaf0` | Primary text (soft white) |
+| `--color-text-secondary` | `#7a8394` | Secondary text, labels (cool gray-blue) |
+| `--color-border` | `#2a3040` | Borders, dividers (navy-tinted) |
+| `--color-accent` | `#5b8af0` | Active states, focus rings |
 | `--color-accent-green` | `#22c55e` | Activity indicators |
 | `--font-mono` | JetBrains Mono, etc. | Everywhere |
 

@@ -32,9 +32,9 @@ The entire UI is one view: sidebar + terminal. There are no page transitions.
 
 **Mobile (<768px)**: Terminal is full-screen. Navigation via:
 1. **Breadcrumbs** — tap session name → dropdown of sessions; tap window name → dropdown of windows
-2. **Drawer** — hamburger icon opens the full session/window tree as an overlay. Pick a target → drawer closes → terminal resumes.
+2. **Drawer** — logo icon opens the full session/window tree as an overlay. Pick a target → drawer closes → terminal resumes.
 
-The drawer pattern (not a stack of pages) keeps one mental model across screen sizes. First-time mobile users land on the terminal — the hamburger icon and breadcrumbs provide discoverability.
+The drawer pattern (not a stack of pages) keeps one mental model across screen sizes. First-time mobile users land on the terminal — the logo icon and breadcrumbs provide discoverability.
 
 No settings pages, no admin panels. Configuration lives on disk.
 
@@ -64,7 +64,7 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ ☰  {logo} ❯ run-kit ❯ zsh                   ● live  ⌘K          │  ← top bar (border-b)
+│ {logo} ❯ run-kit ❯ zsh                   ● live  ⌘K          │  ← top bar (border-b)
 │ [+ Session] [Rename] [Kill]                          ● active   │  ← line 2
 ├────────────┬─────────────────────────────────────────────────────┤
 │ Sessions   │                                                     │
@@ -81,7 +81,7 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 └────────────┴─────────────────────────────────────────────────────┘
 ```
 
-Sidebar is drag-resizable (default 220px, min 160px, max 400px, persisted to localStorage). Collapsible via `☰` or keyboard shortcut. When collapsed, only the terminal + chrome remain.
+Sidebar is drag-resizable (default 220px, min 160px, max 400px, persisted to localStorage). Collapsible via logo button or keyboard shortcut. When collapsed, only the terminal + chrome remain.
 
 The bottom bar is scoped to the terminal column — it does not extend under the sidebar. The sidebar fills the full height of the main area.
 
@@ -89,7 +89,7 @@ The bottom bar is scoped to the terminal column — it does not extend under the
 
 ```
 ┌──────────────────────────┐
-│ ☰ ❯ run-kit ❯ zsh    [⋯]│  ← top bar (compact)
+│ {logo} ❯ run-kit ❯ zsh [⋯]│  ← top bar (compact)
 ├──────────────────────────┤
 │                          │
 │   Terminal (xterm.js)    │  ← full screen
@@ -101,7 +101,7 @@ The bottom bar is scoped to the terminal column — it does not extend under the
 └──────────────────────────┘
 ```
 
-Tap `☰` → drawer slides in from left:
+Tap logo → drawer slides in from left:
 
 ```
 ┌──────────────────────────┐
@@ -136,7 +136,7 @@ h-screen flex flex-col
               └── bottom-bar:  shrink-0  (1 line, border-t, py-1.5)
 ```
 
-On mobile (`<768px`), sidebar is `display: none` by default. Drawer is a fixed overlay triggered by `☰`. Bottom bar spans full width on mobile (no sidebar).
+On mobile (`<768px`), sidebar is `display: none` by default. Drawer is a fixed overlay triggered by the logo button. Bottom bar spans full width on mobile (no sidebar).
 
 ### Principle: Chrome Must Be Architecturally Immovable
 
@@ -147,11 +147,10 @@ The top bar is **owned by the root layout**. No component can change the chrome'
 **Line 1 — Breadcrumbs + Global Status**
 
 ```
-☰  {logo} ❯ run-kit ❯ zsh                         ● live  ⌘K
+{logo} ❯ run-kit ❯ zsh                            ● live  ⌘K
 ```
 
-- `☰` — hamburger, toggles sidebar (desktop) / opens drawer (mobile)
-- `{logo}` — the RunKit hex logo
+- `{logo}` — the RunKit hex logo, doubles as sidebar/drawer toggle (no separate hamburger)
 - `❯` — unified separator/dropdown trigger icon (replaces both `›` separators and `⬡` icon)
 - `run-kit` — **tappable**: opens dropdown of all sessions. Tap a different session → switch.
 - `zsh` — **tappable**: opens dropdown of windows in current session. Tap a different window → switch.
@@ -365,12 +364,12 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 
 ### Color Discipline
 
-- `text-primary` (#fff) for actionable/focused text
-- `text-secondary` (#888) for labels, hints, disabled state
+- `text-primary` (#e8eaf0) for actionable/focused text
+- `text-secondary` (#7a8394) for labels, hints, disabled state
 - `accent-green` for "live" / active indicators only
-- `accent` (blue) for fab status badges only
-- `border` (#333) for all borders — no variation
-- `bg-card` (#1a1a1a) for elevated surfaces (cards, dialogs)
+- `accent` (#5b8af0) for fab status badges only
+- `border` (#2a3040) for all borders — no variation
+- `bg-card` (#171b24) for elevated surfaces (cards, dialogs)
 
 ### Interactive States
 
@@ -396,7 +395,7 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 | 9 | Kill button (✕) | Always visible — no hover-reveal. Simpler, works on mobile and desktop equally. |
 | 10 | Mobile Line 2 | Actions collapse into command palette via `⋯` button. Status text stays visible. `⋯` replaces `⌘K` as command palette trigger on mobile. |
 | 11 | Bottom bar keys | `Esc Tab │ Ctrl Alt Cmd │ Fn▴ ← → ↑ ↓ >_`. Arrow keys essential for mobile. Fn dropdown includes F1-F12 + PgUp/PgDn/Home/End. |
-| 12 | Breadcrumb format | `☰ {logo} ❯ run-kit ❯ zsh` — `❯` as unified separator/dropdown icon. No `›` separators, no `⬡` icon. Session and window names are tappable dropdown triggers. |
+| 12 | Breadcrumb format | `{logo} ❯ run-kit ❯ zsh` — logo doubles as sidebar/drawer toggle (no separate hamburger). `❯` as unified separator/dropdown icon. Session and window names are tappable dropdown triggers. |
 | 13 | Sidebar width | Drag-resizable (default 220px, min 160px, max 400px), width persisted to localStorage. ~75% viewport as drawer on mobile. |
 | 14 | Sidebar ordering | Same as tmux output order (no resorting) |
 | 15 | Drawer trigger | Hamburger icon only — no swipe gesture |

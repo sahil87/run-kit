@@ -22,9 +22,11 @@ func hasFabKit(projectRoot string) bool {
 	return err == nil
 }
 
-// enrichSession reads .fab-status.yaml once from the project root (window 0's
-// WorktreePath) and applies the fab state to ALL windows in the session.
-func enrichSession(windows []tmux.WindowInfo, projectRoot string) {
+// enrichSession reads .fab-status.yaml and .fab-runtime.yaml from the project
+// root and applies the fab state and agent runtime state to ALL windows.
+// runtimeCache is a shared map for caching runtime state per project root
+// across concurrent enrichment goroutines. Pass nil to skip caching.
+func enrichSession(windows []tmux.WindowInfo, projectRoot string, runtimeCache *sync.Map) {
 	state := fab.ReadState(projectRoot)
 	if state == nil {
 		return
@@ -32,6 +34,27 @@ func enrichSession(windows []tmux.WindowInfo, projectRoot string) {
 	for i := range windows {
 		windows[i].FabChange = state.Change
 		windows[i].FabStage = state.Stage
+	}
+
+	// Read runtime state with per-project-root caching
+	var runtime *fab.RuntimeState
+	if runtimeCache != nil {
+		if cached, ok := runtimeCache.Load(projectRoot); ok {
+			runtime, _ = cached.(*fab.RuntimeState)
+		} else {
+			runtime = fab.ReadRuntime(projectRoot, state.Change)
+			runtimeCache.Store(projectRoot, runtime)
+		}
+	} else {
+		runtime = fab.ReadRuntime(projectRoot, state.Change)
+	}
+
+	if runtime == nil {
+		return
+	}
+	for i := range windows {
+		windows[i].AgentState = runtime.AgentState
+		windows[i].AgentIdleDuration = runtime.AgentIdleDuration
 	}
 }
 
@@ -68,9 +91,11 @@ func FetchSessions() ([]ProjectSession, error) {
 	}
 	wg.Wait()
 
-	// Enrich all sessions in parallel, preserve tmux ordering via indexed assignment
+	// Enrich all sessions in parallel, preserve tmux ordering via indexed assignment.
+	// runtimeCache ensures .fab-runtime.yaml is read at most once per project root.
 	result := make([]ProjectSession, len(data))
 	var enrichWg sync.WaitGroup
+	var runtimeCache sync.Map
 
 	for i, sd := range data {
 		enrichWg.Add(1)
@@ -83,7 +108,7 @@ func FetchSessions() ([]ProjectSession, error) {
 			}
 
 			if projectRoot != "" && hasFabKit(projectRoot) {
-				enrichSession(sd.windows, projectRoot)
+				enrichSession(sd.windows, projectRoot, &runtimeCache)
 			}
 
 			result[idx] = ProjectSession{Name: sd.info.Name, Byobu: sd.info.Byobu, Windows: sd.windows}

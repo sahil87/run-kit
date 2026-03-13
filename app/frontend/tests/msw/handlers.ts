@@ -13,8 +13,9 @@ export const mockSessions: ProjectSession[] = [
         worktreePath: "~/code/run-kit",
         activity: "active",
         isActiveWindow: true,
-        fabChange: "ux92",
+        fabChange: "260312-ux92-vite-react-frontend",
         fabStage: "apply",
+        activityTimestamp: Math.floor(Date.now() / 1000) - 2,
       },
       {
         index: 1,
@@ -22,6 +23,7 @@ export const mockSessions: ProjectSession[] = [
         worktreePath: "~/code/run-kit",
         activity: "idle",
         isActiveWindow: false,
+        activityTimestamp: Math.floor(Date.now() / 1000) - 120,
       },
     ],
   },
@@ -35,6 +37,7 @@ export const mockSessions: ProjectSession[] = [
         worktreePath: "~/code/ao-server",
         activity: "idle",
         isActiveWindow: true,
+        activityTimestamp: Math.floor(Date.now() / 1000) - 300,
       },
     ],
   },
@@ -65,6 +68,7 @@ export const handlers = [
           worktreePath: body.cwd ?? "~",
           activity: "idle",
           isActiveWindow: true,
+          activityTimestamp: Math.floor(Date.now() / 1000),
         },
       ],
     };
@@ -92,6 +96,7 @@ export const handlers = [
       worktreePath: body.cwd ?? session.windows[0]?.worktreePath ?? "~",
       activity: "idle",
       isActiveWindow: false,
+      activityTimestamp: Math.floor(Date.now() / 1000),
     });
     return HttpResponse.json({ ok: true }, { status: 201 });
   }),

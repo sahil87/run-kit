@@ -39,7 +39,9 @@ Connection indicator: green/gray dot with "live"/"disconnected" label, driven by
 
 | Left content | Right content |
 |-------------|---------------|
-| `[+ Session]` `[Rename]` `[Kill]` (kill has red hover) | Activity dot + activity text + fab stage badge |
+| `[+ Session]` `[Rename]` `[Kill]` (kill has red hover) | `{dot} {activity} · {paneCommand} · {duration} │ {fabStage badge} · {fabChange id} · {fabChange slug} [fixedWidthToggle]` |
+
+Right content layout for the selected window: activity dot + activity text, then `paneCommand` if present, then idle duration (via `getWindowDuration()`), then a `│` (U+2502 box drawing vertical) separator + fab stage badge + fab change (4-char ID `·` slug via `parseFabChange()`) if fab info is present. Items within a group separated by `·` (U+00B7 middle dot). All items `text-xs text-text-secondary`. Fab stage uses `text-accent px-1.5 py-0.5 rounded bg-accent/10` badge styling. Shared helpers imported from `lib/format.ts`.
 
 `[+ Session]` is always visible (not gated on `currentWindow`) since creating a session is a global action. `[Rename]` and `[Kill]` are contextual to the current window.
 
@@ -63,7 +65,21 @@ Line 2 renders even when empty — prevents layout shift.
 
 **Session rows**: Session name (left, collapsible via triangle/chevron), ✕ kill button (right, always visible). Click session name to expand/collapse windows.
 
-**Window rows**: Single line with activity dot (green = active, dim = idle) + window name (left), fab stage text in `text-secondary` (right, omitted for non-fab windows). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
+**Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
+
+1. **Activity dot with `isActiveWindow` ring** — green dot = active, dim dot = idle (unchanged). When `isActiveWindow` is true, adds a `ring-1` outline: `ring-accent-green` for active windows, `ring-text-secondary/40` for idle windows. Pure CSS, no animation.
+
+2. **Duration display** (right-aligned, `text-xs text-text-secondary`, after fab stage): For fab windows with `agentState === "idle"`, shows `agentIdleDuration` (e.g., `2m`). For non-fab or unknown-state idle windows, computes elapsed time from `activityTimestamp` on the frontend. Omitted for active windows. Computed via `getWindowDuration()` from `lib/format.ts`.
+
+3. **Info button** (`ⓘ`, `text-[10px]`) — hover-reveal on desktop (`opacity-0 group-hover:opacity-100`), always visible on mobile (`coarse:opacity-100`). Click/tap toggles an info popover. 44px tap target on touch devices (`coarse:min-h-[44px]`). Rendered as a sibling `<button>` positioned absolutely (`absolute right-2 top-1/2 -translate-y-1/2`) to avoid nested interactive elements.
+
+4. **Info popover** — compact key-value card (`bg-bg-primary border border-border shadow-2xl rounded py-1 px-2 text-xs z-50 min-w-[200px]`). Dismiss on outside click, Escape, or re-tap. Contains:
+   - **Change**: fab change ID + slug (e.g., `txna · rich-sidebar-window-status`) — shown only for fab windows
+   - **Process**: `paneCommand` (e.g., `claude`, `zsh`) — shown when present
+   - **Path**: `worktreePath` — always shown
+   - **State**: `activity` + agent state + duration (e.g., `idle · idle · 2m`) — always shown
+
+Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:windowIndex`. Visually distinct from action menus (read-only info card, not clickable items).
 
 **No footer** — `[+ Session]` action moved to top bar line 2.
 
@@ -219,3 +235,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-10 | Go backend + Vite SPA split — removed Server Component patterns, all data fetching via API client + SSE context, TanStack Router for client-side routing, terminal WebSocket on same port (no relay port config) | `260310-8xaq-go-backend-vite-spa-split` |
 | 2026-03-12 | Single-view UI model — sidebar + terminal replaces three-page navigation, POST-only API client with path-based intent, ChromeProvider derives from selection (no slot injection), fullbleed always on, no max-width constraint, sidebar with session/window tree and mobile drawer | `260312-ux92-vite-react-frontend` |
 | 2026-03-12 | UI chrome refinements — simplified breadcrumbs (`☰ {logo} ❯ session ❯ window`, removed `⬡` and `›`), drag-resizable sidebar (default 220px, min 160, max 400, localStorage persist), bottom bar moved inside terminal column (`border-t border-border`, `py-1.5`), top bar `border-b border-border`, `[+ Session]` button in top bar line 2, sidebar footer removed, padding consistency (`px-3 sm:px-6` sidebar, `py-0.5 px-1` terminal container) | `260312-y4ci-ui-chrome-layout-refinements` |
+| 2026-03-13 | Rich sidebar window status — activity dot ring for `isActiveWindow`, idle duration display, info popover (change, process, path, state), shared format helpers (`lib/format.ts`). Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Backend: `paneCommand` + `activityTimestamp` from tmux, `.fab-runtime.yaml` reading for agent state | `260313-txna-rich-sidebar-window-status` |

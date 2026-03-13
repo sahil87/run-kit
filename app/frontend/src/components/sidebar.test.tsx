@@ -15,6 +15,10 @@ const sessions: ProjectSession[] = [
         activity: "active",
         isActiveWindow: true,
         fabStage: "apply",
+        fabChange: "260313-txna-rich-sidebar-window-status",
+        agentState: "active",
+        paneCommand: "claude",
+        activityTimestamp: Math.floor(Date.now() / 1000) - 5,
       },
       {
         index: 1,
@@ -22,6 +26,12 @@ const sessions: ProjectSession[] = [
         worktreePath: "~/code/run-kit",
         activity: "idle",
         isActiveWindow: false,
+        fabStage: "apply",
+        fabChange: "260313-txna-rich-sidebar-window-status",
+        agentState: "idle",
+        agentIdleDuration: "3m",
+        paneCommand: "zsh",
+        activityTimestamp: Math.floor(Date.now() / 1000) - 180,
       },
     ],
   },
@@ -35,6 +45,8 @@ const sessions: ProjectSession[] = [
         worktreePath: "~/code/ao-server",
         activity: "idle",
         isActiveWindow: true,
+        paneCommand: "zsh",
+        activityTimestamp: Math.floor(Date.now() / 1000) - 3600,
       },
     ],
   },
@@ -86,7 +98,7 @@ describe("Sidebar", () => {
   it("highlights selected window", () => {
     renderSidebar();
     const mainBtn = screen.getByText("main").closest("button");
-    expect(mainBtn?.className).toContain("bg-card");
+    expect(mainBtn?.className).toContain("bg-accent/10");
     expect(mainBtn?.className).toContain("border-accent");
   });
 
@@ -99,7 +111,9 @@ describe("Sidebar", () => {
 
   it("shows fab stage text on windows", () => {
     renderSidebar();
-    expect(screen.getByText("apply")).toBeInTheDocument();
+    // Both fab windows show "apply"
+    const applySpans = screen.getAllByText("apply");
+    expect(applySpans.length).toBeGreaterThanOrEqual(1);
   });
 
   it("does not render a footer with + New Session button", () => {
@@ -124,5 +138,109 @@ describe("Sidebar", () => {
   it("shows empty state when no sessions", () => {
     renderSidebar({ sessions: [] });
     expect(screen.getByText("No sessions")).toBeInTheDocument();
+  });
+
+  // T009: ring class on isActiveWindow dot
+  it("shows green ring on active isActiveWindow dot", () => {
+    renderSidebar();
+    // "main" window: isActiveWindow=true, activity=active → green ring
+    const dots = screen.getAllByLabelText("active");
+    // Find the dot that has ring-accent-green
+    const greenRingDot = dots.find((d) => d.className.includes("ring-accent-green"));
+    expect(greenRingDot).toBeTruthy();
+    expect(greenRingDot?.className).toContain("ring-1");
+  });
+
+  it("shows dim ring on idle isActiveWindow dot", () => {
+    renderSidebar();
+    // "dev" window: isActiveWindow=true, activity=idle → dim ring
+    const idleDots = screen.getAllByLabelText("idle");
+    const dimRingDot = idleDots.find((d) => d.className.includes("ring-text-secondary/40"));
+    expect(dimRingDot).toBeTruthy();
+    expect(dimRingDot?.className).toContain("ring-1");
+  });
+
+  it("shows no ring on non-focused window dot", () => {
+    renderSidebar();
+    // "scratch" window: isActiveWindow=false, activity=idle → no ring
+    const idleDots = screen.getAllByLabelText("idle");
+    // Find one without ring class
+    const noRingDot = idleDots.find((d) => !d.className.includes("ring-1"));
+    expect(noRingDot).toBeTruthy();
+  });
+
+  // T009: duration display
+  it("shows duration for idle fab windows", () => {
+    renderSidebar();
+    // scratch: idle with agentIdleDuration "3m"
+    expect(screen.getByText("3m")).toBeInTheDocument();
+  });
+
+  it("shows duration for idle non-fab windows", () => {
+    renderSidebar();
+    // dev: idle, non-fab, 3600s ago → "1h"
+    expect(screen.getByText("1h")).toBeInTheDocument();
+  });
+
+  it("omits duration for active windows", () => {
+    renderSidebar();
+    // "main" window is active — should have no duration text
+    // (duration would only be something like "5s" if shown — but active windows skip duration)
+    const mainRow = screen.getByText("main").closest("button");
+    // The active window should NOT have a duration span as a sibling
+    expect(mainRow?.textContent).not.toMatch(/\d+s$/);
+  });
+
+  // T009: info button
+  it("renders info button for each window", () => {
+    renderSidebar();
+    const infoButtons = screen.getAllByLabelText(/Info for/);
+    expect(infoButtons.length).toBe(3); // main, scratch, dev
+  });
+
+  it("opens and closes popover on info button click", () => {
+    renderSidebar();
+    const infoBtn = screen.getByLabelText("Info for main");
+
+    // Open popover
+    fireEvent.click(infoBtn);
+    expect(screen.getByText("Process")).toBeInTheDocument();
+    expect(screen.getByText("claude")).toBeInTheDocument();
+    expect(screen.getByText("Path")).toBeInTheDocument();
+
+    // Re-tap to close
+    fireEvent.click(infoBtn);
+    expect(screen.queryByText("Process")).not.toBeInTheDocument();
+  });
+
+  it("popover shows Change row for fab windows", () => {
+    renderSidebar();
+    const infoBtn = screen.getByLabelText("Info for main");
+    fireEvent.click(infoBtn);
+
+    expect(screen.getByText("Change")).toBeInTheDocument();
+    // Should show parsed id and slug
+    expect(screen.getByText(/txna/)).toBeInTheDocument();
+    expect(screen.getByText(/rich-sidebar-window-status/)).toBeInTheDocument();
+  });
+
+  it("popover omits Change row for non-fab windows", () => {
+    renderSidebar();
+    const infoBtn = screen.getByLabelText("Info for dev");
+    fireEvent.click(infoBtn);
+
+    // "Change" label should not be present for non-fab
+    const allText = screen.getByText("Path").closest("[data-info-popover]")?.textContent ?? "";
+    expect(allText).not.toContain("Change");
+  });
+
+  it("dismisses popover on Escape", () => {
+    renderSidebar();
+    const infoBtn = screen.getByLabelText("Info for main");
+    fireEvent.click(infoBtn);
+    expect(screen.getByText("Process")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByText("Process")).not.toBeInTheDocument();
   });
 });

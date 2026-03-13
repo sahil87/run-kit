@@ -58,7 +58,7 @@ The existing `/` index route changes from a redirect-on-load to a persistent Das
 - Click a card → navigate to `/$session` (project page)
 - "New Session" button (opens existing create session dialog)
 
-The initial redirect behavior (navigate to first session's first window on load) should be removed or made conditional — if the user navigates to `/` explicitly, they should see the Dashboard, not get redirected.
+The initial redirect behavior (navigate to first session's first window on load) is removed. `/` always shows the Dashboard — users drill down via session cards.
 
 ### Redirect Logic After Kills
 
@@ -80,8 +80,10 @@ The top bar and bottom bar currently derive content from a selected session:wind
 
 ### Sidebar Interaction
 
-The sidebar continues to work as-is — clicking a window navigates to `/$session/$window`. Additionally:
-- Clicking a session name in the sidebar (currently expands/collapses) could also navigate to `/$session` — but this may conflict with expand/collapse behavior. The simpler approach: sidebar expand/collapse stays as-is, session cards in Dashboard are the primary navigation to project pages.
+The sidebar gains navigation behavior on session names:
+- Clicking a session name navigates to `/$session` (project page) — consistent with the URL hierarchy
+- Expand/collapse of the window list is handled by a separate chevron/triangle toggle (not the session name itself)
+- Clicking a window navigates to `/$session/$window` (unchanged)
 
 ## Affected Memory
 
@@ -98,7 +100,7 @@ The sidebar continues to work as-is — clicking a window navigates to `/$sessio
 
 ## Open Questions
 
-- Should clicking a session name in the sidebar navigate to `/$session` (project page), or keep the current expand/collapse behavior? Both have merit — navigation creates consistency with the URL model, expand/collapse is the existing muscle memory.
+None — all questions resolved during discussion.
 
 ## Assumptions
 
@@ -112,9 +114,7 @@ The sidebar continues to work as-is — clicking a window navigates to `/$sessio
 | 6 | Confident | No new backend API endpoints needed — card data from existing SSE stream | Existing `ProjectSession[]` with `WindowInfo[]` contains all fields needed for cards | S:70 R:90 A:85 D:90 |
 | 7 | Confident | Bottom bar hidden on Dashboard and Project page (no terminal to target) | Bottom bar sends keys to terminal WebSocket — meaningless without a terminal | S:65 R:90 A:85 D:90 |
 | 8 | Confident | Card styling follows existing design tokens (bg-card, border-border, text-primary/secondary) | Constitution + existing visual design patterns give clear answer | S:70 R:95 A:85 D:90 |
-| 9 | Tentative | Initial redirect-on-load removed — `/` always shows Dashboard | Could break existing workflow where users expect to land on a terminal. May need "last visited" or "auto-navigate to terminal if sessions exist" | S:60 R:60 A:50 D:55 |
-<!-- assumed: Removing auto-redirect to terminal — users may expect to land on their last session, not Dashboard -->
-| 10 | Tentative | Sidebar session click keeps expand/collapse (no navigation to `/$session`) | Changing sidebar click behavior could break muscle memory, but inconsistency with URL model is a tradeoff | S:55 R:70 A:55 D:50 |
-<!-- assumed: Sidebar session click behavior unchanged — preserving expand/collapse over navigation consistency -->
+| 9 | Certain | `/` always shows Dashboard — no auto-redirect to terminal | Clarified — user chose "always dashboard" | S:95 R:80 A:90 D:95 |
+| 10 | Certain | Sidebar session click navigates to `/$session` (project page) | Clarified — user chose navigation over expand/collapse on session name | S:95 R:75 A:85 D:95 |
 
-10 assumptions (5 certain, 3 confident, 2 tentative, 0 unresolved).
+10 assumptions (7 certain, 3 confident, 0 tentative, 0 unresolved).

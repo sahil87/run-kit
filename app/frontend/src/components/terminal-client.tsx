@@ -166,7 +166,6 @@ export function TerminalClient({
     if (!terminalReady || !xtermRef.current) return;
 
     const terminal = xtermRef.current;
-    terminal.reset();
 
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -184,7 +183,9 @@ export function TerminalClient({
 
       ws.onopen = () => {
         reconnectDelay = 1000;
-        // Re-fit now that layout is fully settled
+        // Clear old content only once the new connection is ready,
+        // so the previous terminal output stays visible until new data streams in.
+        terminal.reset();
         fitAddonRef.current?.fit();
         const dims = { cols: terminal.cols, rows: terminal.rows };
         ws.send(JSON.stringify({ type: "resize", ...dims }));

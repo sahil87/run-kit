@@ -171,3 +171,4 @@ fab/.kit/bin/*
 .playwright-mcp/
 
 tmp
+.uploads/

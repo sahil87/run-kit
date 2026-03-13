@@ -20,6 +20,8 @@ export function TerminalClient({
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
+  const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
+  const [terminalReady, setTerminalReady] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
   const { uploadFiles } = useFileUpload(sessionName, windowIndex);
@@ -75,11 +77,11 @@ export function TerminalClient({
     [uploadFiles, openComposeWithPaths],
   );
 
-  // xterm.js init + WebSocket connection
+  // xterm.js init — mount only, creates terminal instance and resize observer.
+  // WebSocket connection is handled by the separate effect below.
   useEffect(() => {
-    let terminal: import("@xterm/xterm").Terminal | null = null;
     let cancelled = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let terminal: import("@xterm/xterm").Terminal | null = null;
     let resizeRafId: number | null = null;
     let resizeObserver: ResizeObserver | null = null;
 
@@ -111,48 +113,9 @@ export function TerminalClient({
       terminal.open(terminalRef.current);
       fitAddon.fit();
       xtermRef.current = terminal;
+      fitAddonRef.current = fitAddon;
 
-      // WebSocket — same host, /relay/ prefix
-      const wsProto =
-        window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndex}`;
-      let reconnectDelay = 1000;
-
-      function connect() {
-        if (cancelled) return;
-        const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
-        ws.binaryType = "arraybuffer";
-
-        ws.onopen = () => {
-          reconnectDelay = 1000;
-          // Re-fit now that layout is fully settled — the initial fit()
-          // after terminal.open() may have read stale dimensions.
-          fitAddon.fit();
-          const dims = { cols: terminal!.cols, rows: terminal!.rows };
-          ws.send(JSON.stringify({ type: "resize", ...dims }));
-        };
-
-        ws.onmessage = (event) => {
-          if (typeof event.data === "string") terminal!.write(event.data);
-          else terminal!.write(new Uint8Array(event.data));
-        };
-
-        ws.onclose = () => {
-          if (cancelled) return;
-          terminal?.write("\r\n\x1b[90m[reconnecting...]\x1b[0m\r\n");
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            if (!cancelled) connect();
-          }, reconnectDelay);
-          reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-        };
-
-        ws.onerror = () => {};
-      }
-
-      connect();
-
+      // Keyboard input → current WebSocket (wsRef always points to latest)
       terminal.onData((data) => {
         if (wsRef.current?.readyState === WebSocket.OPEN)
           wsRef.current.send(data);
@@ -162,14 +125,14 @@ export function TerminalClient({
         if (resizeRafId) cancelAnimationFrame(resizeRafId);
         resizeRafId = requestAnimationFrame(() => {
           resizeRafId = null;
-          fitAddon?.fit();
-          terminal?.scrollToBottom();
-          if (wsRef.current?.readyState === WebSocket.OPEN && terminal) {
+          fitAddonRef.current?.fit();
+          xtermRef.current?.scrollToBottom();
+          if (wsRef.current?.readyState === WebSocket.OPEN && xtermRef.current) {
             wsRef.current.send(
               JSON.stringify({
                 type: "resize",
-                cols: terminal.cols,
-                rows: terminal.rows,
+                cols: xtermRef.current.cols,
+                rows: xtermRef.current.rows,
               }),
             );
           }
@@ -177,6 +140,7 @@ export function TerminalClient({
       });
 
       resizeObserver.observe(terminalRef.current);
+      setTerminalReady(true);
     }
 
     init();
@@ -185,15 +149,76 @@ export function TerminalClient({
       cancelled = true;
       resizeObserver?.disconnect();
       if (resizeRafId) cancelAnimationFrame(resizeRafId);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
+      // Close any active WS on true unmount
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
       xtermRef.current = null;
+      fitAddonRef.current = null;
       terminal?.dispose();
     };
-  }, [sessionName, windowIndex, wsRef]);
+  }, [wsRef]);
+
+  // WebSocket connection — reconnects when session/window changes.
+  // Keeps the xterm instance alive; only swaps the data stream.
+  useEffect(() => {
+    if (!terminalReady || !xtermRef.current) return;
+
+    const terminal = xtermRef.current;
+    terminal.reset();
+
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectDelay = 1000;
+
+    const wsProto =
+      window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndex}`;
+
+    function connect() {
+      if (cancelled) return;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = () => {
+        reconnectDelay = 1000;
+        // Re-fit now that layout is fully settled
+        fitAddonRef.current?.fit();
+        const dims = { cols: terminal.cols, rows: terminal.rows };
+        ws.send(JSON.stringify({ type: "resize", ...dims }));
+      };
+
+      ws.onmessage = (event) => {
+        if (typeof event.data === "string") terminal.write(event.data);
+        else terminal.write(new Uint8Array(event.data));
+      };
+
+      ws.onclose = () => {
+        if (cancelled) return;
+        terminal.write("\r\n\x1b[90m[reconnecting...]\x1b[0m\r\n");
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          if (!cancelled) connect();
+        }, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      };
+
+      ws.onerror = () => {};
+    }
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [terminalReady, sessionName, windowIndex, wsRef]);
 
   return (
     <>

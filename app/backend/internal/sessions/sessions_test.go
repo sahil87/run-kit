@@ -131,7 +131,7 @@ func TestProjectRootDerivation(t *testing.T) {
 func TestEnrichSessionWithFabState(t *testing.T) {
 	// Create a project root with .fab-status.yaml
 	dir := t.TempDir()
-	yaml := `name: 260312-abc-feature
+	statusYaml := `name: 260312-abc-feature
 progress:
   intake: done
   spec: done
@@ -139,7 +139,7 @@ progress:
   apply: active
   review: pending
 `
-	if err := os.WriteFile(filepath.Join(dir, ".fab-status.yaml"), []byte(yaml), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".fab-status.yaml"), []byte(statusYaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,7 +149,7 @@ progress:
 		{Index: 2, Name: "test", WorktreePath: "/tmp/test"},
 	}
 
-	enrichSession(windows, dir)
+	enrichSession(windows, dir, nil)
 
 	// All windows should share the same fab state
 	for i, win := range windows {
@@ -170,7 +170,7 @@ func TestEnrichSessionNoFabFile(t *testing.T) {
 		{Index: 1, Name: "other", WorktreePath: dir},
 	}
 
-	enrichSession(windows, dir)
+	enrichSession(windows, dir, nil)
 
 	for i, win := range windows {
 		if win.FabChange != "" {
@@ -179,6 +179,115 @@ func TestEnrichSessionNoFabFile(t *testing.T) {
 		if win.FabStage != "" {
 			t.Errorf("window[%d].FabStage = %q, want empty", i, win.FabStage)
 		}
+	}
+}
+
+func TestEnrichSessionWithActiveAgent(t *testing.T) {
+	dir := t.TempDir()
+	statusYaml := `name: 260313-txna-rich-sidebar
+progress:
+  apply: active
+`
+	runtimeYaml := `260313-txna-rich-sidebar:
+  agent:
+    pid: 12345
+`
+	if err := os.WriteFile(filepath.Join(dir, ".fab-status.yaml"), []byte(statusYaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".fab-runtime.yaml"), []byte(runtimeYaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	windows := []tmux.WindowInfo{
+		{Index: 0, Name: "main", WorktreePath: dir},
+		{Index: 1, Name: "test", WorktreePath: dir},
+	}
+
+	enrichSession(windows, dir, nil)
+
+	for i, win := range windows {
+		if win.AgentState != "active" {
+			t.Errorf("window[%d].AgentState = %q, want %q", i, win.AgentState, "active")
+		}
+		if win.AgentIdleDuration != "" {
+			t.Errorf("window[%d].AgentIdleDuration = %q, want empty", i, win.AgentIdleDuration)
+		}
+	}
+}
+
+func TestEnrichSessionWithIdleAgent(t *testing.T) {
+	dir := t.TempDir()
+	statusYaml := `name: 260313-txna-rich-sidebar
+progress:
+  apply: active
+`
+	// idle_since far in the past so it definitely shows as idle
+	runtimeYaml := `260313-txna-rich-sidebar:
+  agent:
+    idle_since: 1000000000
+`
+	if err := os.WriteFile(filepath.Join(dir, ".fab-status.yaml"), []byte(statusYaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".fab-runtime.yaml"), []byte(runtimeYaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	windows := []tmux.WindowInfo{
+		{Index: 0, Name: "main", WorktreePath: dir},
+	}
+
+	enrichSession(windows, dir, nil)
+
+	if windows[0].AgentState != "idle" {
+		t.Errorf("AgentState = %q, want %q", windows[0].AgentState, "idle")
+	}
+	if windows[0].AgentIdleDuration == "" {
+		t.Error("AgentIdleDuration is empty, want non-empty duration")
+	}
+}
+
+func TestEnrichSessionUnknownAgentState(t *testing.T) {
+	dir := t.TempDir()
+	statusYaml := `name: 260313-txna-rich-sidebar
+progress:
+  apply: active
+`
+	if err := os.WriteFile(filepath.Join(dir, ".fab-status.yaml"), []byte(statusYaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No .fab-runtime.yaml → unknown agent state
+
+	windows := []tmux.WindowInfo{
+		{Index: 0, Name: "main", WorktreePath: dir},
+	}
+
+	enrichSession(windows, dir, nil)
+
+	if windows[0].AgentState != "unknown" {
+		t.Errorf("AgentState = %q, want %q", windows[0].AgentState, "unknown")
+	}
+	if windows[0].AgentIdleDuration != "" {
+		t.Errorf("AgentIdleDuration = %q, want empty", windows[0].AgentIdleDuration)
+	}
+}
+
+func TestEnrichSessionNonFabSkipsEnrichment(t *testing.T) {
+	dir := t.TempDir()
+	// No .fab-status.yaml → non-fab session
+
+	windows := []tmux.WindowInfo{
+		{Index: 0, Name: "main", WorktreePath: dir},
+	}
+
+	enrichSession(windows, dir, nil)
+
+	if windows[0].AgentState != "" {
+		t.Errorf("AgentState = %q, want empty for non-fab session", windows[0].AgentState)
+	}
+	if windows[0].FabChange != "" {
+		t.Errorf("FabChange = %q, want empty for non-fab session", windows[0].FabChange)
 	}
 }
 

@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { killSession as killSessionApi } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { parseFabChange, getWindowDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
 
 type SidebarProps = {
@@ -25,6 +26,7 @@ export function Sidebar({
     name: string;
     windowCount: number;
   } | null>(null);
+  const [popoverKey, setPopoverKey] = useState<string | null>(null);
   const focusedRef = useRef<HTMLButtonElement | null>(null);
 
   const toggleSession = useCallback((name: string) => {
@@ -50,6 +52,28 @@ export function Sidebar({
     }
   }, [focusedIndex]);
 
+  // Dismiss popover on outside click and Escape
+  useEffect(() => {
+    if (!popoverKey) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-info-popover]") && !target.closest("[data-info-btn]")) {
+        setPopoverKey(null);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setPopoverKey(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [popoverKey]);
+
   async function handleKillSession() {
     if (!killTarget) return;
     try {
@@ -59,6 +83,8 @@ export function Sidebar({
     }
     setKillTarget(null);
   }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
 
   return (
     <nav aria-label="Sessions" className="flex flex-col h-full py-2">
@@ -120,38 +146,112 @@ export function Sidebar({
                         currentWindowIndex === String(win.index);
                       const winFlatIndex = flatIndexMap.get(`${session.name}:${win.index}`);
                       const isFocused = focusedIndex != null && winFlatIndex === focusedIndex;
+                      const winKey = `${session.name}:${win.index}`;
+                      const duration = getWindowDuration(win, nowSeconds);
+                      const fabInfo = parseFabChange(win.fabChange ?? "");
+                      const isPopoverOpen = popoverKey === winKey;
+
+                      // Activity dot ring classes
+                      const dotRingClass = win.isActiveWindow
+                        ? win.activity === "active"
+                          ? "ring-1 ring-accent-green"
+                          : "ring-1 ring-text-secondary/40"
+                        : "";
+
                       return (
-                        <button
-                          key={win.index}
-                          ref={isFocused ? focusedRef : undefined}
-                          onClick={() => onSelectWindow(session.name, win.index)}
-                          className={`w-full text-left flex items-center justify-between gap-2 py-1 px-2 text-sm transition-colors min-h-[28px] coarse:min-h-[44px] border-l-2 ${
-                            isSelected
-                              ? "bg-accent/10 border-accent text-text-primary font-medium rounded-r"
-                              : isFocused
-                                ? "bg-bg-card/70 text-text-primary ring-1 ring-accent/50 border-transparent rounded"
-                                : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 border-transparent rounded"
-                          }`}
-                          aria-current={isSelected ? "page" : undefined}
-                          data-focused={isFocused || undefined}
-                        >
-                          <span className="flex items-center gap-1.5 truncate min-w-0">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                win.activity === "active"
-                                  ? "bg-accent-green"
-                                  : "bg-text-secondary/40"
-                              }`}
-                              aria-label={win.activity}
-                            />
-                            <span className="truncate">{win.name}</span>
-                          </span>
-                          {win.fabStage && (
-                            <span className="text-xs text-text-secondary shrink-0">
-                              {win.fabStage}
+                        <div key={win.index} className="relative group">
+                          <button
+                            ref={isFocused ? focusedRef : undefined}
+                            onClick={() => onSelectWindow(session.name, win.index)}
+                            className={`w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-6 text-sm transition-colors min-h-[28px] coarse:min-h-[44px] border-l-2 ${
+                              isSelected
+                                ? "bg-accent/10 border-accent text-text-primary font-medium rounded-r"
+                                : isFocused
+                                  ? "bg-bg-card/70 text-text-primary ring-1 ring-accent/50 border-transparent rounded"
+                                  : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 border-transparent rounded"
+                            }`}
+                            aria-current={isSelected ? "page" : undefined}
+                            data-focused={isFocused || undefined}
+                          >
+                            <span className="flex items-center gap-1.5 truncate min-w-0">
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                  win.activity === "active"
+                                    ? "bg-accent-green"
+                                    : "bg-text-secondary/40"
+                                } ${dotRingClass}`}
+                                aria-label={win.activity}
+                              />
+                              <span className="truncate">{win.name}</span>
                             </span>
+                            <span className="flex items-center gap-1.5 shrink-0">
+                              {win.fabStage && (
+                                <span className="text-xs text-text-secondary">
+                                  {win.fabStage}
+                                </span>
+                              )}
+                              {duration && (
+                                <span className="text-xs text-text-secondary">
+                                  {duration}
+                                </span>
+                              )}
+                              {/* Info button: hover-reveal on desktop, always visible on mobile */}
+                              <span
+                                data-info-btn
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`Info for ${win.name}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPopoverKey(isPopoverOpen ? null : winKey);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setPopoverKey(isPopoverOpen ? null : winKey);
+                                  }
+                                }}
+                                className="text-[10px] text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 min-w-[16px] coarse:min-h-[44px] flex items-center justify-center"
+                              >
+                                {"\u24D8"}
+                              </span>
+                            </span>
+                          </button>
+
+                          {/* Info popover */}
+                          {isPopoverOpen && (
+                            <div
+                              data-info-popover
+                              className="absolute right-0 top-full mt-1 bg-bg-primary border border-border shadow-2xl rounded py-1 px-2 text-xs z-50 min-w-[200px]"
+                            >
+                              {fabInfo && (
+                                <div className="flex justify-between py-1">
+                                  <span className="text-text-secondary">Change</span>
+                                  <span className="text-text-primary">{fabInfo.id} &middot; {fabInfo.slug}</span>
+                                </div>
+                              )}
+                              {win.paneCommand && (
+                                <div className="flex justify-between py-1">
+                                  <span className="text-text-secondary">Process</span>
+                                  <span className="text-text-primary">{win.paneCommand}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between py-1">
+                                <span className="text-text-secondary">Path</span>
+                                <span className="text-text-primary truncate ml-2 max-w-[180px]">{win.worktreePath}</span>
+                              </div>
+                              <div className="flex justify-between py-1">
+                                <span className="text-text-secondary">State</span>
+                                <span className="text-text-primary">
+                                  {win.activity}
+                                  {win.agentState && win.agentState !== "unknown" && ` \u00B7 ${win.agentState}`}
+                                  {duration && ` \u00B7 ${duration}`}
+                                </span>
+                              </div>
+                            </div>
                           )}
-                        </button>
+                        </div>
                       );
                     })}
                   </div>

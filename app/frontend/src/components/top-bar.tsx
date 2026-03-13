@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { useChrome, useChromeDispatch } from "@/contexts/chrome-context";
+import { parseFabChange, getWindowDuration } from "@/lib/format";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -176,7 +177,7 @@ export function TopBar({
         </div>
         <div className="flex items-center gap-2 text-xs text-text-secondary">
           {currentWindow && (
-            <>
+            <div className="hidden sm:flex items-center gap-2" data-testid="line2-status">
               <span
                 className={`w-2 h-2 rounded-full ${
                   currentWindow.activity === "active"
@@ -185,12 +186,41 @@ export function TopBar({
                 }`}
               />
               <span>{currentWindow.activity}</span>
-              {currentWindow.fabStage && (
-                <span className="text-accent px-1.5 py-0.5 rounded bg-accent/10">
-                  {currentWindow.fabStage}
-                </span>
+              {currentWindow.paneCommand && (
+                <>
+                  <span className="text-text-secondary/50">{"\u00B7"}</span>
+                  <span>{currentWindow.paneCommand}</span>
+                </>
               )}
-            </>
+              {(() => {
+                const dur = getWindowDuration(currentWindow, Math.floor(Date.now() / 1000));
+                return dur ? (
+                  <>
+                    <span className="text-text-secondary/50">{"\u00B7"}</span>
+                    <span>{dur}</span>
+                  </>
+                ) : null;
+              })()}
+              {currentWindow.fabStage && (
+                <>
+                  <span className="text-text-secondary/50">{"\u2502"}</span>
+                  <span className="text-accent px-1.5 py-0.5 rounded bg-accent/10">
+                    {currentWindow.fabStage}
+                  </span>
+                  {(() => {
+                    const fabInfo = parseFabChange(currentWindow.fabChange ?? "");
+                    return fabInfo ? (
+                      <>
+                        <span className="text-text-secondary/50">{"\u00B7"}</span>
+                        <span>{fabInfo.id}</span>
+                        <span className="text-text-secondary/50">{"\u00B7"}</span>
+                        <span>{fabInfo.slug}</span>
+                      </>
+                    ) : null;
+                  })()}
+                </>
+              )}
+            </div>
           )}
           <FixedWidthToggle />
         </div>

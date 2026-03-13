@@ -20,13 +20,17 @@ const (
 
 // WindowInfo describes a single tmux window within a session.
 type WindowInfo struct {
-	Index          int    `json:"index"`
-	Name           string `json:"name"`
-	WorktreePath   string `json:"worktreePath"`
-	Activity       string `json:"activity"` // "active" or "idle"
-	IsActiveWindow bool   `json:"isActiveWindow"`
-	FabChange      string `json:"fabChange,omitempty"`
-	FabStage       string `json:"fabStage,omitempty"`
+	Index             int    `json:"index"`
+	Name              string `json:"name"`
+	WorktreePath      string `json:"worktreePath"`
+	Activity          string `json:"activity"` // "active" or "idle"
+	IsActiveWindow    bool   `json:"isActiveWindow"`
+	PaneCommand       string `json:"paneCommand,omitempty"`
+	ActivityTimestamp int64  `json:"activityTimestamp"`
+	AgentState        string `json:"agentState,omitempty"`
+	AgentIdleDuration string `json:"agentIdleDuration,omitempty"`
+	FabChange         string `json:"fabChange,omitempty"`
+	FabStage          string `json:"fabStage,omitempty"`
 }
 
 // tmuxExec runs a tmux command with a timeout and returns stdout lines (empty lines filtered).
@@ -119,7 +123,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
-		if len(parts) < 5 {
+		if len(parts) < 6 {
 			continue
 		}
 
@@ -131,13 +135,16 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			activity = "active"
 		}
 		isActive := strings.TrimSpace(parts[4]) == "1"
+		paneCmd := strings.TrimSpace(parts[5])
 
 		windows = append(windows, WindowInfo{
-			Index:          index,
-			Name:           parts[1],
-			WorktreePath:   parts[2],
-			Activity:       activity,
-			IsActiveWindow: isActive,
+			Index:             index,
+			Name:              parts[1],
+			WorktreePath:      parts[2],
+			Activity:          activity,
+			IsActiveWindow:    isActive,
+			PaneCommand:       paneCmd,
+			ActivityTimestamp:  activityTs,
 		})
 	}
 	return windows
@@ -154,6 +161,7 @@ func ListWindows(session string) ([]WindowInfo, error) {
 		"#{pane_current_path}",
 		"#{window_activity}",
 		"#{window_active}",
+		"#{pane_current_command}",
 	}, listDelim)
 
 	lines, err := tmuxExec(ctx, "list-windows", "-t", session, "-F", format)

@@ -1,0 +1,138 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, cleanup } from "@testing-library/react";
+import { TopBar } from "./top-bar";
+import { ChromeProvider } from "@/contexts/chrome-context";
+import type { ProjectSession, WindowInfo } from "@/types";
+
+const nowSeconds = Math.floor(Date.now() / 1000);
+
+const fabWindow: WindowInfo = {
+  index: 0,
+  name: "main",
+  worktreePath: "~/code/run-kit",
+  activity: "active",
+  isActiveWindow: true,
+  paneCommand: "claude",
+  activityTimestamp: nowSeconds - 5,
+  agentState: "active",
+  fabChange: "260313-txna-rich-sidebar-window-status",
+  fabStage: "apply",
+};
+
+const nonFabIdleWindow: WindowInfo = {
+  index: 0,
+  name: "dev",
+  worktreePath: "~/code/ao-server",
+  activity: "idle",
+  isActiveWindow: true,
+  paneCommand: "zsh",
+  activityTimestamp: nowSeconds - 120,
+};
+
+const sessions: ProjectSession[] = [
+  {
+    name: "run-kit",
+    byobu: false,
+    windows: [fabWindow],
+  },
+  {
+    name: "ao-server",
+    byobu: false,
+    windows: [nonFabIdleWindow],
+  },
+];
+
+function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
+  return render(
+    <ChromeProvider>
+      <TopBar
+        sessions={sessions}
+        currentSession={sessions[0]}
+        currentWindow={fabWindow}
+        sessionName="run-kit"
+        windowName="main"
+        isConnected={true}
+        onNavigate={vi.fn()}
+        onRename={vi.fn()}
+        onKill={vi.fn()}
+        onToggleSidebar={vi.fn()}
+        onToggleDrawer={vi.fn()}
+        onCreateSession={vi.fn()}
+        {...overrides}
+      />
+    </ChromeProvider>,
+  );
+}
+
+describe("TopBar Line 2 enriched status", () => {
+  afterEach(cleanup);
+
+  it("shows full status for fab window", () => {
+    renderTopBar();
+    const status = screen.getByTestId("line2-status");
+    expect(status).toBeInTheDocument();
+    // Activity
+    expect(screen.getByText("active")).toBeInTheDocument();
+    // Pane command
+    expect(screen.getByText("claude")).toBeInTheDocument();
+    // Fab stage badge
+    expect(screen.getByText("apply")).toBeInTheDocument();
+    // Fab change ID and slug
+    expect(screen.getByText("txna")).toBeInTheDocument();
+    expect(screen.getByText("rich-sidebar-window-status")).toBeInTheDocument();
+  });
+
+  it("shows non-fab window status with duration", () => {
+    renderTopBar({ currentWindow: nonFabIdleWindow, currentSession: sessions[1], sessionName: "ao-server" });
+    const status = screen.getByTestId("line2-status");
+    expect(status).toBeInTheDocument();
+    // Activity
+    expect(screen.getByText("idle")).toBeInTheDocument();
+    // Pane command
+    expect(screen.getByText("zsh")).toBeInTheDocument();
+    // Duration: 120s → "2m"
+    expect(screen.getByText("2m")).toBeInTheDocument();
+    // No fab fields
+    expect(screen.queryByText("apply")).not.toBeInTheDocument();
+    expect(screen.queryByText("txna")).not.toBeInTheDocument();
+  });
+
+  it("omits pane command when empty", () => {
+    const winNoPaneCmd: WindowInfo = {
+      ...fabWindow,
+      paneCommand: undefined,
+    };
+    renderTopBar({ currentWindow: winNoPaneCmd });
+    expect(screen.queryByText("claude")).not.toBeInTheDocument();
+  });
+
+  it("omits fab fields when no fabStage", () => {
+    const winNoFab: WindowInfo = {
+      ...fabWindow,
+      fabStage: undefined,
+      fabChange: undefined,
+    };
+    renderTopBar({ currentWindow: winNoFab });
+    expect(screen.queryByText("apply")).not.toBeInTheDocument();
+    expect(screen.queryByText("txna")).not.toBeInTheDocument();
+  });
+
+  it("parses ID and slug from fabChange correctly", () => {
+    renderTopBar();
+    // "260313-txna-rich-sidebar-window-status" → id: "txna", slug: "rich-sidebar-window-status"
+    expect(screen.getByText("txna")).toBeInTheDocument();
+    expect(screen.getByText("rich-sidebar-window-status")).toBeInTheDocument();
+  });
+
+  it("renders enriched status hidden on mobile via hidden sm:flex", () => {
+    renderTopBar();
+    const status = screen.getByTestId("line2-status");
+    expect(status.className).toContain("hidden");
+    expect(status.className).toContain("sm:flex");
+  });
+
+  it("shows no status when no current window", () => {
+    renderTopBar({ currentWindow: null });
+    expect(screen.queryByTestId("line2-status")).not.toBeInTheDocument();
+  });
+});

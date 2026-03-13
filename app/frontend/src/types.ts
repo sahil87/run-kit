@@ -12,6 +12,10 @@ export type WindowInfo = {
   worktreePath: string;
   activity: "active" | "idle";
   isActiveWindow: boolean;
+  paneCommand?: string;
+  activityTimestamp: number;
+  agentState?: string;
+  agentIdleDuration?: string;
   fabChange?: string;
   fabStage?: string;
 };

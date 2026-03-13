@@ -11,9 +11,9 @@ func sessionLine(name, grouped, group string) string {
 	return strings.Join([]string{name, grouped, group}, listDelim)
 }
 
-func windowLine(index int, name, path string, activityTs int64, active int) string {
-	return fmt.Sprintf("%d%s%s%s%s%s%d%s%d",
-		index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active)
+func windowLine(index int, name, path string, activityTs int64, active int, paneCmd string) string {
+	return fmt.Sprintf("%d%s%s%s%s%s%d%s%d%s%s",
+		index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd)
 }
 
 func TestParseSessions(t *testing.T) {
@@ -113,33 +113,33 @@ func TestParseWindows(t *testing.T) {
 		{
 			name: "marks window as active when within threshold",
 			lines: []string{
-				windowLine(0, "dev", "/home/user/project", fakeNow-1, 1),
+				windowLine(0, "dev", "/home/user/project", fakeNow-1, 1, "claude"),
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "dev", WorktreePath: "/home/user/project", Activity: "active", IsActiveWindow: true},
+				{Index: 0, Name: "dev", WorktreePath: "/home/user/project", Activity: "active", IsActiveWindow: true, PaneCommand: "claude", ActivityTimestamp: fakeNow - 1},
 			},
 		},
 		{
 			name: "marks window as idle when beyond threshold",
 			lines: []string{
-				windowLine(0, "dev", "/home/user/project", fakeNow-ActivityThresholdSeconds-100, 0),
+				windowLine(0, "dev", "/home/user/project", fakeNow-ActivityThresholdSeconds-100, 0, "zsh"),
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "dev", WorktreePath: "/home/user/project", Activity: "idle", IsActiveWindow: false},
+				{Index: 0, Name: "dev", WorktreePath: "/home/user/project", Activity: "idle", IsActiveWindow: false, PaneCommand: "zsh", ActivityTimestamp: fakeNow - ActivityThresholdSeconds - 100},
 			},
 		},
 		{
-			name: "parses all fields correctly including isActiveWindow",
+			name: "parses all fields correctly including isActiveWindow and paneCommand",
 			lines: []string{
-				windowLine(0, "dev", "/home/user/project", fakeNow, 1),
-				windowLine(2, "build", "/tmp/build", fakeNow, 0),
+				windowLine(0, "dev", "/home/user/project", fakeNow, 1, "claude"),
+				windowLine(2, "build", "/tmp/build", fakeNow, 0, "make"),
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "dev", WorktreePath: "/home/user/project", Activity: "active", IsActiveWindow: true},
-				{Index: 2, Name: "build", WorktreePath: "/tmp/build", Activity: "active", IsActiveWindow: false},
+				{Index: 0, Name: "dev", WorktreePath: "/home/user/project", Activity: "active", IsActiveWindow: true, PaneCommand: "claude", ActivityTimestamp: fakeNow},
+				{Index: 2, Name: "build", WorktreePath: "/tmp/build", Activity: "active", IsActiveWindow: false, PaneCommand: "make", ActivityTimestamp: fakeNow},
 			},
 		},
 		{
@@ -149,34 +149,54 @@ func TestParseWindows(t *testing.T) {
 			want:  nil,
 		},
 		{
-			name: "malformed line with fewer than 5 fields is skipped",
+			name: "malformed line with fewer than 6 fields is skipped",
 			lines: []string{
-				"0\tdev\t/path",
-				windowLine(1, "good", "/home/user", fakeNow, 1),
+				"0\tdev\t/path\t1700000000\t1",
+				windowLine(1, "good", "/home/user", fakeNow, 1, "zsh"),
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 1, Name: "good", WorktreePath: "/home/user", Activity: "active", IsActiveWindow: true},
+				{Index: 1, Name: "good", WorktreePath: "/home/user", Activity: "active", IsActiveWindow: true, PaneCommand: "zsh", ActivityTimestamp: fakeNow},
 			},
 		},
 		{
 			name: "activity exactly at threshold boundary is active",
 			lines: []string{
-				windowLine(0, "edge", "/path", fakeNow-ActivityThresholdSeconds, 0),
+				windowLine(0, "edge", "/path", fakeNow-ActivityThresholdSeconds, 0, "bash"),
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "edge", WorktreePath: "/path", Activity: "active", IsActiveWindow: false},
+				{Index: 0, Name: "edge", WorktreePath: "/path", Activity: "active", IsActiveWindow: false, PaneCommand: "bash", ActivityTimestamp: fakeNow - ActivityThresholdSeconds},
 			},
 		},
 		{
 			name: "activity one second past threshold is idle",
 			lines: []string{
-				windowLine(0, "past", "/path", fakeNow-ActivityThresholdSeconds-1, 0),
+				windowLine(0, "past", "/path", fakeNow-ActivityThresholdSeconds-1, 0, "vim"),
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "past", WorktreePath: "/path", Activity: "idle", IsActiveWindow: false},
+				{Index: 0, Name: "past", WorktreePath: "/path", Activity: "idle", IsActiveWindow: false, PaneCommand: "vim", ActivityTimestamp: fakeNow - ActivityThresholdSeconds - 1},
+			},
+		},
+		{
+			name: "paneCommand populated from 6th field",
+			lines: []string{
+				windowLine(0, "work", "/home/user/code", fakeNow, 1, "node"),
+			},
+			now: fakeNow,
+			want: []WindowInfo{
+				{Index: 0, Name: "work", WorktreePath: "/home/user/code", Activity: "active", IsActiveWindow: true, PaneCommand: "node", ActivityTimestamp: fakeNow},
+			},
+		},
+		{
+			name: "activityTimestamp exposed as raw unix epoch",
+			lines: []string{
+				windowLine(0, "ts", "/path", 1710300000, 0, "zsh"),
+			},
+			now: 1710300100,
+			want: []WindowInfo{
+				{Index: 0, Name: "ts", WorktreePath: "/path", Activity: "idle", IsActiveWindow: false, PaneCommand: "zsh", ActivityTimestamp: 1710300000},
 			},
 		},
 	}
@@ -208,6 +228,12 @@ func TestParseWindows(t *testing.T) {
 				}
 				if got[i].IsActiveWindow != tt.want[i].IsActiveWindow {
 					t.Errorf("window[%d].IsActiveWindow = %v, want %v", i, got[i].IsActiveWindow, tt.want[i].IsActiveWindow)
+				}
+				if got[i].PaneCommand != tt.want[i].PaneCommand {
+					t.Errorf("window[%d].PaneCommand = %q, want %q", i, got[i].PaneCommand, tt.want[i].PaneCommand)
+				}
+				if got[i].ActivityTimestamp != tt.want[i].ActivityTimestamp {
+					t.Errorf("window[%d].ActivityTimestamp = %d, want %d", i, got[i].ActivityTimestamp, tt.want[i].ActivityTimestamp)
 				}
 			}
 		})

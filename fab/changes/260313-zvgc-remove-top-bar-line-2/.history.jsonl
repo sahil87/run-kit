@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-13T18:13:57Z"}
+{"args":"Move top bar line 2 actions into sidebar (i) popup and relocate fixed-width toggle to line 1","cmd":"fab-new","event":"command","ts":"2026-03-13T18:13:57Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-13T18:14:37Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-13T18:14:42Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-13T18:16:16Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-13T18:16:27Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-13T18:16:33Z"}
+{"delta":"-0.3","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-03-13T18:16:43Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-03-13T18:16:48Z"}

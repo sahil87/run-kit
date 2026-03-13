@@ -1,0 +1,37 @@
+id: zvgc
+name: 260313-zvgc-remove-top-bar-line-2
+created: 2026-03-13T18:13:57Z
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 5
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 83.3
+        reversibility: 88.3
+        competence: 85.0
+        disambiguation: 88.3
+stage_metrics:
+    intake: {started_at: "2026-03-13T18:13:57Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-03-13T18:16:48Z

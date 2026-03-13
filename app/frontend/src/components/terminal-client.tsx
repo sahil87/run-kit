@@ -139,6 +139,12 @@ export function TerminalClient({
         });
       });
 
+      // Guard against unmount during terminal setup (after imports returned)
+      if (cancelled || !terminalRef.current) {
+        terminal.dispose();
+        return;
+      }
+
       resizeObserver.observe(terminalRef.current);
       setTerminalReady(true);
     }
@@ -157,6 +163,7 @@ export function TerminalClient({
       xtermRef.current = null;
       fitAddonRef.current = null;
       terminal?.dispose();
+      setTerminalReady(false);
     };
   }, [wsRef]);
 
@@ -190,6 +197,7 @@ export function TerminalClient({
       let needsReset = true;
 
       ws.onopen = () => {
+        if (cancelled) return;
         reconnectDelay = 1000;
         fitAddonRef.current?.fit();
         const dims = { cols: terminal.cols, rows: terminal.rows };
@@ -197,6 +205,7 @@ export function TerminalClient({
       };
 
       ws.onmessage = (event) => {
+        if (cancelled) return;
         if (needsReset) {
           needsReset = false;
           terminal.reset();

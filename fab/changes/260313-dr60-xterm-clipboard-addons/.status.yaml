@@ -2,36 +2,41 @@ id: dr60
 name: 260313-dr60-xterm-clipboard-addons
 created: 2026-03-13T11:43:21Z
 created_by: sahil-weaver
-change_type: docs
+change_type: feat
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    tasks: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 checklist:
-    generated: false
+    generated: true
     path: checklist.md
     completed: 0
-    total: 0
+    total: 17
 confidence:
-    certain: 4
+    certain: 5
     confident: 3
     tentative: 0
     unresolved: 0
     score: 4.1
-    indicative: true
     fuzzy: true
     dimensions:
-        signal: 82.9
-        reversibility: 92.1
-        competence: 87.9
+        signal: 83.1
+        reversibility: 91.3
+        competence: 88.8
         disambiguation: 90.0
 stage_metrics:
-    intake: {started_at: "2026-03-13T11:43:21Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-03-13T11:43:21Z", driver: fab-new, iterations: 1, completed_at: "2026-03-13T14:56:11Z"}
+    spec: {started_at: "2026-03-13T14:56:11Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-13T14:57:01Z"}
+    tasks: {started_at: "2026-03-13T14:57:01Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-13T14:57:36Z"}
+    apply: {started_at: "2026-03-13T14:57:36Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-13T14:59:22Z"}
+    review: {started_at: "2026-03-13T14:59:22Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-13T15:00:36Z"}
+    hydrate: {started_at: "2026-03-13T15:00:36Z", driver: fab-ff, iterations: 1, completed_at: "2026-03-13T15:01:26Z"}
+    ship: {started_at: "2026-03-13T15:01:26Z", driver: fab-ff, iterations: 1}
 prs: []
-last_updated: 2026-03-13T11:46:35Z
+last_updated: 2026-03-13T15:01:26Z

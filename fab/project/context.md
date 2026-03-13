@@ -56,4 +56,26 @@ Monorepo managed by pnpm workspaces. Task runner: `just` (see `justfile`).
 - Keyboard-first — command palette (`Cmd+K`) is primary discovery mechanism
 - SSE for real-time session state, WebSocket for terminal I/O
 - Dev workflow: `just dev` (runs Go backend with air live-reload + Vite dev server concurrently)
-- For interactive UI testing during development, use Playwright MCP with `just dev --port <port>` to start the service
+
+## Playwright-Driven Development
+
+When making UI changes — especially mobile/responsive work — use Playwright MCP as the primary verification tool:
+
+1. Start the dev server: `just dev --port <port>` (use a port that won't collide with the user's running instance)
+2. Set viewport size to simulate the target device (e.g., 375×812 for iPhone)
+3. Navigate, click, and screenshot to verify layout changes visually
+4. Test interactive elements: popups, drawers, toggles — confirm they render within bounds and aren't clipped
+5. Resize viewport to verify desktop layout isn't broken
+
+This workflow catches overflow issues, clipping, and layout regressions that unit tests miss. Always verify both mobile (375px) and desktop (1024px+) viewports after responsive changes.
+
+## Mobile Responsive Design
+
+- Touch targets use the `coarse:` custom Tailwind variant (`@media (pointer: coarse)`) for touch devices
+- Touch targets: `coarse:min-h-[36px] coarse:min-w-[28px]` (taller than wide, not square) for bottom bar buttons; `coarse:36px` square for top bar/breadcrumb buttons
+- Bottom bar toolbar fits all buttons in a single row at 375px — no wrapping, no horizontal scroll
+- Top bar line 2 (+ Session, Rename, Kill, status, fixed-width toggle) is `hidden sm:flex` — hidden on mobile where it adds no value
+- Mobile sidebar drawer is `absolute` inside the main area (not `fixed inset-0`) so the top bar stays visible and the logo toggle can close the drawer
+- The `.app-shell` and terminal column have `overflow: hidden` to prevent horizontal page overflow from xterm.js canvas
+- Terminal font: 11px on mobile (`min-width: 640px` media query), 13px on desktop
+- tmux has a hard minimum width (~80 cols) that exceeds most phone screens — horizontal overflow in the terminal area is expected and acceptable

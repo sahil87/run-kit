@@ -359,7 +359,6 @@ function AppShell() {
               style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
             >
               <TerminalClient
-                key={`${sessionName}/${windowIndex}`}
                 sessionName={sessionName}
                 windowIndex={windowIndex}
                 wsRef={wsRef}

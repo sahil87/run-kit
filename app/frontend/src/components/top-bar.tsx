@@ -140,8 +140,8 @@ export function TopBar({
         </div>
       </div>
 
-      {/* Line 2: Action buttons + status */}
-      <div className="flex items-center justify-between py-2 min-h-[36px]">
+      {/* Line 2: Action buttons + status — hidden on mobile where all children are hidden */}
+      <div className="hidden sm:flex items-center justify-between py-2 min-h-[36px]">
         <div className="hidden sm:flex items-center gap-3">
           <button
             onClick={onCreateSession}

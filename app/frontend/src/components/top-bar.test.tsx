@@ -52,12 +52,14 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
         sessionName="run-kit"
         windowName="main"
         isConnected={true}
+        view="terminal"
         onNavigate={vi.fn()}
         onRename={vi.fn()}
         onKill={vi.fn()}
         onToggleSidebar={vi.fn()}
         onToggleDrawer={vi.fn()}
         onCreateSession={vi.fn()}
+        onCreateWindow={vi.fn()}
         {...overrides}
       />
     </ChromeProvider>,
@@ -134,5 +136,68 @@ describe("TopBar Line 2 enriched status", () => {
   it("shows no status when no current window", () => {
     renderTopBar({ currentWindow: null });
     expect(screen.queryByTestId("line2-status")).not.toBeInTheDocument();
+  });
+});
+
+describe("TopBar view-dependent breadcrumbs", () => {
+  afterEach(cleanup);
+
+  it("dashboard: shows only logo, no session or window breadcrumbs", () => {
+    renderTopBar({ view: "dashboard", sessionName: "", windowName: "" });
+    // No session or window text in breadcrumb
+    expect(screen.queryByText("run-kit")).not.toBeInTheDocument();
+    expect(screen.queryByText("main")).not.toBeInTheDocument();
+  });
+
+  it("project page: shows session breadcrumb, no window breadcrumb", () => {
+    renderTopBar({ view: "project", sessionName: "run-kit", windowName: "", currentWindow: null });
+    expect(screen.getByText("run-kit")).toBeInTheDocument();
+    // No window name
+    expect(screen.queryByText("main")).not.toBeInTheDocument();
+  });
+
+  it("terminal: shows both session and window breadcrumbs", () => {
+    renderTopBar({ view: "terminal" });
+    expect(screen.getByText("run-kit")).toBeInTheDocument();
+    expect(screen.getByText("main")).toBeInTheDocument();
+  });
+});
+
+describe("TopBar view-dependent Line 2 actions", () => {
+  afterEach(cleanup);
+
+  it("dashboard: shows only + Session button", () => {
+    renderTopBar({ view: "dashboard", sessionName: "", windowName: "", currentWindow: null });
+    expect(screen.getByText("+ Session")).toBeInTheDocument();
+    expect(screen.queryByText("+ Window")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rename")).not.toBeInTheDocument();
+    expect(screen.queryByText("Kill")).not.toBeInTheDocument();
+  });
+
+  it("project page: shows + Session and + Window buttons", () => {
+    renderTopBar({ view: "project", sessionName: "run-kit", windowName: "", currentWindow: null });
+    expect(screen.getByText("+ Session")).toBeInTheDocument();
+    expect(screen.getByText("+ Window")).toBeInTheDocument();
+    expect(screen.queryByText("Rename")).not.toBeInTheDocument();
+    expect(screen.queryByText("Kill")).not.toBeInTheDocument();
+  });
+
+  it("terminal: shows + Session, Rename, and Kill buttons", () => {
+    renderTopBar({ view: "terminal" });
+    expect(screen.getByText("+ Session")).toBeInTheDocument();
+    expect(screen.getByText("Rename")).toBeInTheDocument();
+    expect(screen.getByText("Kill")).toBeInTheDocument();
+    expect(screen.queryByText("+ Window")).not.toBeInTheDocument();
+  });
+
+  it("terminal: hides status and fixed-width toggle on non-terminal views", () => {
+    renderTopBar({ view: "dashboard", sessionName: "", windowName: "", currentWindow: null });
+    expect(screen.queryByTestId("line2-status")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+  });
+
+  it("terminal: shows fixed-width toggle on terminal view", () => {
+    renderTopBar({ view: "terminal" });
+    expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
   });
 });

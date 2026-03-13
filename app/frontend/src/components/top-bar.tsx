@@ -12,12 +12,14 @@ type TopBarProps = {
   sessionName: string;
   windowName: string;
   isConnected: boolean;
+  view: "dashboard" | "project" | "terminal";
   onNavigate: (session: string, windowIndex: number) => void;
   onRename: () => void;
   onKill: () => void;
   onToggleSidebar: () => void;
   onToggleDrawer: () => void;
   onCreateSession: () => void;
+  onCreateWindow: () => void;
 };
 
 export function TopBar({
@@ -27,12 +29,14 @@ export function TopBar({
   sessionName,
   windowName,
   isConnected,
+  view,
   onNavigate,
   onRename,
   onKill,
   onToggleSidebar,
   onToggleDrawer,
   onCreateSession,
+  onCreateWindow,
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
@@ -83,7 +87,7 @@ export function TopBar({
             <img src="/logo.svg" alt="RunKit" width={20} height={20} />
           </button>
 
-          {sessionName && (
+          {(view === "project" || view === "terminal") && sessionName && (
             <span className="flex items-center gap-1.5">
               <BreadcrumbDropdown
                 items={sessionItems}
@@ -97,7 +101,7 @@ export function TopBar({
             </span>
           )}
 
-          {windowName && (
+          {view === "terminal" && windowName && (
             <span className="flex items-center gap-1.5">
               <BreadcrumbDropdown
                 items={windowItems}
@@ -149,7 +153,15 @@ export function TopBar({
           >
             + Session
           </button>
-          {currentWindow && (
+          {view === "project" && (
+            <button
+              onClick={onCreateWindow}
+              className="text-sm px-3 py-1 border border-border rounded hover:border-text-secondary"
+            >
+              + Window
+            </button>
+          )}
+          {view === "terminal" && currentWindow && (
             <>
               <button
                 onClick={onRename}
@@ -167,7 +179,7 @@ export function TopBar({
           )}
         </div>
         <div className="flex items-center gap-2 text-xs text-text-secondary">
-          {currentWindow && (
+          {view === "terminal" && currentWindow && (
             <div className="hidden sm:flex items-center gap-2" data-testid="line2-status">
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -213,7 +225,7 @@ export function TopBar({
               )}
             </div>
           )}
-          <FixedWidthToggle />
+          {view === "terminal" && <FixedWidthToggle />}
         </div>
       </div>
     </header>

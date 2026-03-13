@@ -7,6 +7,8 @@ import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { useDialogState } from "@/hooks/use-dialog-state";
 import { TopBar } from "@/components/top-bar";
 import { Sidebar } from "@/components/sidebar";
+import { Dashboard } from "@/components/dashboard";
+import { ProjectPage } from "@/components/project-page";
 import { TerminalClient } from "@/components/terminal-client";
 import { BottomBar } from "@/components/bottom-bar";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
@@ -56,11 +58,15 @@ function AppShell() {
   const matches = useMatches();
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Extract params -- the route may be / (no params) or /:session/:window
+  // Extract params -- the route may be / (no params), /$session, or /$session/$window
   const lastMatch = matches[matches.length - 1];
   const params = (lastMatch?.params ?? {}) as { session?: string; window?: string };
   const sessionName = params.session;
   const windowIndex = params.window;
+
+  // Derive current view from route params
+  const view: "dashboard" | "project" | "terminal" =
+    sessionName && windowIndex ? "terminal" : sessionName ? "project" : "dashboard";
 
   const [composeOpen, setComposeOpen] = useState(false);
 
@@ -121,27 +127,6 @@ function AppShell() {
   const userNavTimestampRef = useRef(0);
   const dialogOpenRef = useRef(false);
 
-  // Redirect root to first session's first window when data arrives
-  const hasRedirected = useRef(false);
-  useEffect(() => {
-    if (sessionName) {
-      hasRedirected.current = true;
-      return;
-    }
-    if (sessions.length > 0 && !hasRedirected.current) {
-      hasRedirected.current = true;
-      const first = sessions[0];
-      const firstWin = first.windows[0];
-      if (firstWin) {
-        navigate({
-          to: "/$session/$window",
-          params: { session: first.name, window: String(firstWin.index) },
-          replace: true,
-        });
-      }
-    }
-  }, [sessions, sessionName, navigate]);
-
   // Sync currentSession/currentWindow from route params + SSE data
   const currentSession = useMemo(
     () => sessions.find((s) => s.name === sessionName) ?? null,
@@ -164,7 +149,7 @@ function AppShell() {
   }, [currentSession]);
 
   useEffect(() => {
-    if (!activeWindow || !sessionName) return;
+    if (!activeWindow || !sessionName || !windowIndex) return;
     if (String(activeWindow.index) !== windowIndex) {
       // Skip if user recently navigated (e.g. clicked sidebar) or a dialog is open
       if (dialogOpenRef.current) return;
@@ -193,10 +178,27 @@ function AppShell() {
     [navigate, setDrawerOpen],
   );
 
+  // Navigation helpers for session/dashboard views
+  const navigateToSession = useCallback(
+    (session: string) => {
+      userNavTimestampRef.current = Date.now();
+      navigate({ to: "/$session", params: { session } });
+      setDrawerOpen(false);
+    },
+    [navigate, setDrawerOpen],
+  );
+
+  const navigateToDashboard = useCallback(() => {
+    userNavTimestampRef.current = Date.now();
+    navigate({ to: "/" });
+    setDrawerOpen(false);
+  }, [navigate, setDrawerOpen]);
+
   // Dialog state management
   const dialogs = useDialogState({
     sessionName,
     windowIndex: currentWindow?.index,
+    onKillWindow: navigateToSession,
   });
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
@@ -278,6 +280,7 @@ function AppShell() {
           sessionName={displaySession}
           windowName={displayName}
           isConnected={isConnected}
+          view={view}
           onNavigate={navigateToWindow}
           onRename={() => {
             if (currentWindow) {
@@ -288,6 +291,7 @@ function AppShell() {
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
           onCreateSession={dialogs.openCreateDialog}
+          onCreateWindow={() => sessionName && handleCreateWindow(sessionName)}
         />
       </div>
 
@@ -306,6 +310,8 @@ function AppShell() {
                 currentWindowIndex={windowIndex ?? null}
                 onSelectWindow={navigateToWindow}
                 onCreateWindow={handleCreateWindow}
+                onSelectSession={navigateToSession}
+                onKillSession={navigateToDashboard}
               />
             </div>
             {/* Drag handle */}
@@ -329,7 +335,7 @@ function AppShell() {
             className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
             style={fixedWidth ? { maxWidth: 965, width: "100%", marginInline: "auto" } : undefined}
           >
-            {sessionName && windowIndex ? (
+            {view === "terminal" && sessionName && windowIndex ? (
               <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
                 <TerminalClient
                   sessionName={sessionName}
@@ -339,18 +345,18 @@ function AppShell() {
                   setComposeOpen={setComposeOpen}
                 />
               </div>
+            ) : view === "project" && sessionName ? (
+              <ProjectPage sessionName={sessionName} sessions={sessions} />
             ) : (
-              <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
-                {sessions.length === 0
-                  ? "No sessions. Use + Session or \u2318K."
-                  : "Select a window from the sidebar."}
-              </div>
+              <Dashboard sessions={sessions} onCreateSession={dialogs.openCreateDialog} />
             )}
 
-            {/* Bottom Bar */}
-            <div className="shrink-0 border-t border-border px-1.5">
-              <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} />
-            </div>
+            {/* Bottom Bar — only render on terminal view */}
+            {view === "terminal" && (
+              <div className="shrink-0 border-t border-border px-1.5">
+                <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -370,6 +376,8 @@ function AppShell() {
                   navigateToWindow(s, w);
                 }}
                 onCreateWindow={handleCreateWindow}
+                onSelectSession={navigateToSession}
+                onKillSession={navigateToDashboard}
               />
             </div>
           </div>

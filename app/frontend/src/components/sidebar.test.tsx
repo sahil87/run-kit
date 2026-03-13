@@ -60,6 +60,8 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
       currentWindowIndex="0"
       onSelectWindow={vi.fn()}
       onCreateWindow={vi.fn()}
+      onSelectSession={vi.fn()}
+      onKillSession={vi.fn()}
       {...overrides}
     />,
   );
@@ -242,5 +244,44 @@ describe("Sidebar", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByText("Process")).not.toBeInTheDocument();
+  });
+
+  // T011: split session row — name click navigates, chevron toggles
+  it("calls onSelectSession when clicking session name", () => {
+    const onSelectSession = vi.fn();
+    renderSidebar({ onSelectSession });
+    // The session name button (not the chevron)
+    const nameButtons = screen.getAllByText("run-kit");
+    // Click the session name button (it's a button element containing the text)
+    fireEvent.click(nameButtons[0]);
+    expect(onSelectSession).toHaveBeenCalledWith("run-kit");
+  });
+
+  it("chevron toggles expand/collapse without navigating", () => {
+    const onSelectSession = vi.fn();
+    renderSidebar({ onSelectSession });
+    // Windows visible initially
+    expect(screen.getByText("main")).toBeInTheDocument();
+
+    // Click chevron to collapse
+    fireEvent.click(screen.getByLabelText(/Collapse run-kit/));
+    expect(screen.queryByText("main")).not.toBeInTheDocument();
+    // Navigation should NOT have been called
+    expect(onSelectSession).not.toHaveBeenCalled();
+  });
+
+  it("highlights active session when on project page (no window selected)", () => {
+    renderSidebar({ currentSession: "run-kit", currentWindowIndex: null });
+    // The session name button wraps the span containing "run-kit"
+    const nameSpan = screen.getAllByText("run-kit")[0];
+    const nameBtn = nameSpan.closest("button")!;
+    expect(nameBtn.className).toContain("text-text-primary");
+  });
+
+  it("does not highlight session when a window is selected", () => {
+    renderSidebar({ currentSession: "run-kit", currentWindowIndex: "0" });
+    const nameSpan = screen.getAllByText("run-kit")[0];
+    const nameBtn = nameSpan.closest("button")!;
+    expect(nameBtn.className).toContain("text-text-secondary");
   });
 });

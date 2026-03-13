@@ -4,10 +4,52 @@
 
 | Route | View | Component Pattern |
 |-------|------|-------------------|
-| `/:session/:window` | Single view (sidebar + terminal) | Layout component (SSE via `useSessions()` context) |
-| `/` | Redirect | Redirects to first session's first window (`/:session/0`) |
+| `/` | Dashboard | Session card grid in terminal area (`app/frontend/src/components/dashboard.tsx`) |
+| `/$session` | Project page | Window card grid in terminal area (`app/frontend/src/components/project-page.tsx`) |
+| `/$session/$window` | Terminal | xterm.js + WebSocket relay (unchanged) |
 
-Single-view model: sidebar shows session/window tree, terminal is always the main content area. No page transitions. When no sessions exist, sidebar shows "No sessions" with a `[+ New Session]` button and the terminal area shows a placeholder.
+Three-tier URL hierarchy: `/` = global overview, `/$session` = session-scoped, `/$session/$window` = terminal. All three views render in the terminal area slot within the existing app shell (top bar + sidebar + main area). Route detection via `useMatches()` in `app.tsx` — the `view` variable is derived from param presence: both params = `"terminal"`, session only = `"project"`, neither = `"dashboard"`.
+
+TanStack Router has three routes: `indexRoute` (`/`), `sessionRoute` (`/$session`), `sessionWindowRoute` (`/$session/$window`). The router distinguishes them by path segment count.
+
+## Dashboard View (`/`)
+
+`app/frontend/src/components/dashboard.tsx` — renders in the terminal area slot when route matches `/`.
+
+**Empty state**: When no sessions exist, centers "No sessions" text + `[+ Session]` button.
+
+**Normal state**:
+- Stats line at top: `{N} sessions, {M} windows` (singular when count is 1, e.g., "1 session, 1 window"). Styled `text-text-secondary text-xs`.
+- Session card grid: CSS Grid `grid-template-columns: repeat(auto-fill, minmax(240px, 1fr))` with `gap-3`. Responsive — no breakpoint-specific rules.
+- `[+ Session]` button below the grid, opens `CreateSessionDialog`.
+
+**Session cards**: `<button>` elements (semantic HTML for accessibility). Styling: `bg-bg-card border border-border rounded p-4 hover:border-text-secondary text-left transition-colors`. Content:
+- Session name (`text-text-primary font-medium text-sm truncate`)
+- Window count (e.g., "3 windows")
+- Activity summary (e.g., "2 active, 1 idle") — derived from each window's `activity` field
+
+Click navigates to `/$session` (project page).
+
+## Project Page View (`/$session`)
+
+`app/frontend/src/components/project-page.tsx` — renders in the terminal area slot when route matches `/$session`.
+
+**Session not found**: If no session matches the `$session` URL param, shows "Session not found" with an `<a>` link back to `/`.
+
+**Empty session** (0 windows): Centers "No windows" text + `[+ Window]` button.
+
+**Normal state**:
+- Window card grid: same CSS Grid pattern as Dashboard (`auto-fill, minmax(240px, 1fr)`, `gap-3`).
+- `[+ Window]` button below the grid, calls `createWindow` API.
+
+**Window cards**: `<button>` elements. Same base styling as session cards. Content:
+- Window name (`text-text-primary font-medium text-sm truncate`)
+- Running process (`paneCommand`) if present
+- Activity status: colored dot (green = `bg-accent-green` for active, dim = `bg-text-secondary/40` for idle) + label text
+- Duration: idle duration via `getWindowDuration()` from `lib/format.ts`
+- Fab info (when `fabStage` present): stage badge (`text-accent text-xs px-1.5 py-0.5 rounded bg-accent/10`) + change ID and slug via `parseFabChange()`
+
+Click navigates to `/$session/$window`.
 
 ## Chrome (Top Bar)
 
@@ -15,7 +57,12 @@ The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derive
 
 **Line 1** (fixed height, `border-b border-border`): logo toggle + icon breadcrumbs + connection indicator + `⌘K` (desktop) / `⋯` (mobile).
 
-Breadcrumb: `{logo} ❯ {session} ❯ {window}` (syncs with tmux active window via SSE). Logo toggles sidebar (desktop) or opens drawer (mobile) — no separate hamburger icon.
+Breadcrumb adapts per view:
+- **Dashboard** (`/`): Logo only (no ❯ separators)
+- **Project page** (`/$session`): `{logo} ❯ {session}` (session dropdown, no window segment)
+- **Terminal** (`/$session/$window`): `{logo} ❯ {session} ❯ {window}` (unchanged, syncs with tmux active window via SSE)
+
+Logo toggles sidebar (desktop) or opens drawer (mobile) — no separate hamburger icon.
 
 - Logo SVG (`logo.svg`) — clickable button that toggles sidebar/drawer (replaces `☰` hamburger)
 - ❯ — Unicode heavy right angle (U+276F), unified separator/dropdown trigger icon for both session and window segments (tapping opens respective dropdown)
@@ -35,11 +82,13 @@ Breadcrumb segments with a `dropdownItems` array use the ❯ icon as the dropdow
 
 Connection indicator: green/gray dot with "live"/"disconnected" label, driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
 
-**Line 2** (fixed height, ALWAYS rendered with `min-h-[36px]`): Contextual action bar. Chrome derives content from current session:window selection — no slot injection.
+**Line 2** (fixed height, ALWAYS rendered with `min-h-[36px]`): Contextual action bar. Chrome derives content from `view` prop — adapts left actions and right status per route.
 
-| Left content | Right content |
-|-------------|---------------|
-| `[+ Session]` `[Rename]` `[Kill]` (kill has red hover) | `{dot} {activity} · {paneCommand} · {duration} │ {fabStage badge} · {fabChange id} · {fabChange slug} [fixedWidthToggle]` |
+| View | Left content | Right content |
+|------|-------------|---------------|
+| Dashboard (`/`) | `[+ Session]` | (empty) |
+| Project page (`/$session`) | `[+ Session]` `[+ Window]` | (empty) |
+| Terminal (`/$session/$window`) | `[+ Session]` `[Rename]` `[Kill]` (kill has red hover) | `{dot} {activity} · {paneCommand} · {duration} │ {fabStage badge} · {fabChange id} · {fabChange slug} [fixedWidthToggle]` |
 
 Right content layout for the selected window: activity dot + activity text, then `paneCommand` if present, then idle duration (via `getWindowDuration()`), then a `│` (U+2502 box drawing vertical) separator + fab stage badge + fab change (4-char ID `·` slug via `parseFabChange()`) if fab info is present. Items within a group separated by `·` (U+00B7 middle dot). All items `text-xs text-text-secondary`. Fab stage uses `text-accent px-1.5 py-0.5 rounded bg-accent/10` badge styling. Shared helpers imported from `lib/format.ts`.
 
@@ -63,7 +112,7 @@ Line 2 renders even when empty — prevents layout shift.
 
 **Padding**: `px-3 sm:px-6` (matches top bar and bottom bar chrome padding).
 
-**Session rows**: Session name (left, collapsible via triangle/chevron), ✕ kill button (right, always visible). Click session name to expand/collapse windows.
+**Session rows**: Split interaction targets — session name and chevron are separate buttons. Chevron (▶/▼) toggles expand/collapse of the window list. Session name click navigates to `/$session` (project page) via `onSelectSession` prop. When viewing a Project page (`/$session`), the session name is highlighted (`text-text-primary font-medium`). ✕ kill button (right, always visible) opens confirmation dialog; on kill success, `onKillSession` callback navigates to `/`.
 
 **Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
 
@@ -83,9 +132,9 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 
 **No footer** — `[+ Session]` action moved to top bar line 2.
 
-## Bottom Bar (Always Visible, Inside Terminal Column)
+## Bottom Bar (Terminal View Only, Inside Terminal Column)
 
-Single row of `<kbd>` styled buttons, always visible (terminal is always the main content). Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt Cmd | Fn▴ ArrowPad | >_`.
+Single row of `<kbd>` styled buttons, rendered only when the Terminal view is active (`/$session/$window`). Hidden (not rendered) on Dashboard and Project page — no terminal WebSocket exists on those views. Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt Cmd | Fn▴ ArrowPad | >_`.
 
 **Modifier toggles** (Ctrl, Alt, Cmd): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously.
 
@@ -242,3 +291,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-13 | Rich sidebar window status — activity dot ring for `isActiveWindow`, idle duration display, info popover (change, process, path, state), shared format helpers (`lib/format.ts`). Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Backend: `paneCommand` + `activityTimestamp` from tmux, `.fab-runtime.yaml` reading for agent state | `260313-txna-rich-sidebar-window-status` |
 | 2026-03-13 | xterm addon activation — ClipboardAddon (OSC 52), WebLinksAddon (clickable URLs), WebglAddon (GPU rendering with silent canvas fallback), Cmd+C selection-aware copy via `attachCustomKeyEventHandler` | `260313-dr60-xterm-clipboard-addons` |
 | 2026-03-13 | Removed single-key shortcuts — deleted `useKeyboardNav` (j/k/Enter), `useAppShortcuts` (c/r/Esc Esc), sidebar focus ring (`focusedIndex`). Cmd+K command palette is now the sole keyboard shortcut. Palette actions no longer show shortcut hints for create/rename | `260313-3brm-remove-single-key-shortcuts` |
+| 2026-03-14 | Dashboard & Project page views — three-tier URL hierarchy (`/` = Dashboard, `/$session` = Project page, `/$session/$window` = Terminal). Session/window card grids in terminal area. View-dependent chrome (breadcrumbs, Line 2 actions, bottom bar visibility). Sidebar session name navigates to project page (chevron toggles expand/collapse). Kill redirects (window kill → `/$session`, session kill → `/`). Removed auto-redirect on root | `260313-ll1j-dashboard-project-page-views` |

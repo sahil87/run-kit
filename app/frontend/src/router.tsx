@@ -2,7 +2,6 @@ import {
   createRouter,
   createRootRoute,
   createRoute,
-  redirect,
 } from "@tanstack/react-router";
 import { App } from "@/app";
 
@@ -13,11 +12,14 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  beforeLoad: () => {
-    // Redirect will happen in the App component after SSE data arrives.
-    // This route renders the app shell with an empty terminal placeholder.
-    return {};
-  },
+});
+
+const sessionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/$session",
+  parseParams: (params) => ({
+    session: params.session,
+  }),
 });
 
 const sessionWindowRoute = createRoute({
@@ -29,7 +31,7 @@ const sessionWindowRoute = createRoute({
   }),
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, sessionWindowRoute]);
+const routeTree = rootRoute.addChildren([indexRoute, sessionRoute, sessionWindowRoute]);
 
 export const router = createRouter({ routeTree });
 

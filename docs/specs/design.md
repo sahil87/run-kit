@@ -132,8 +132,9 @@ h-screen flex flex-col
   └── main-area:   flex-1 flex flex-row min-h-0
         ├── sidebar:   w-[var] shrink-0 overflow-y-auto (hidden on mobile, drag-resizable)
         └── terminal-col:  flex-1 min-w-0 flex flex-col
-              ├── terminal:  flex-1 min-h-0 py-0.5 px-1
-              └── bottom-bar:  shrink-0  (1 line, border-t, py-1.5)
+              └── inner:  flex-1 min-h-0 flex flex-col (max-width + centered when fixed-width on)
+                    ├── terminal:  flex-1 min-h-0 py-0.5 px-1
+                    └── bottom-bar:  shrink-0  (1 line, border-t, px-1.5, py-1.5)
 ```
 
 On mobile (`<768px`), sidebar is `display: none` by default. Drawer is a fixed overlay triggered by the logo button. Bottom bar spans full width on mobile (no sidebar).
@@ -349,7 +350,7 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 
 ### Spacing
 
-- **Horizontal padding**: `px-3 sm:px-6` for top bar, sidebar, and bottom bar (consistent chrome padding)
+- **Horizontal padding**: `px-3 sm:px-6` for top bar and sidebar; `px-1.5` (6px) for bottom bar (tighter fit since it shares the terminal's fixed-width container)
 - **Terminal padding**: `py-0.5 px-1` — minimal breathing room against border lines
 - **No max-width**: The old `max-w-4xl` constraint is gone. The terminal fills all available space right of the sidebar. More columns = better.
 - **Sidebar width**: Drag-resizable (default 220px, min 160px, max 400px), persisted to localStorage
@@ -402,9 +403,9 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 | 16 | Testing strategy | MSW-backed tests for UI behavior (drawer, breadcrumbs, sidebar, keyboard, touch targets, viewport). Thin E2E suite (3-5 tests) for API integration round-trips (create/kill session, SSE stream). |
 | 17 | Sidebar fab status | Inline on same line as window name, right-aligned. Stage name + icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows. |
 | 18 | Layout borders | `border-b` on top bar, `border-t` on bottom bar, `border-r` on sidebar. Clear visual separation between chrome regions and content. |
-| 19 | Padding consistency | All chrome uses `px-3 sm:px-6`. Terminal container gets `py-0.5 px-1` for breathing room. Bottom bar `py-1.5` for near-symmetry with top bar's `py-2`. |
+| 19 | Padding consistency | Top bar and sidebar use `px-3 sm:px-6`. Bottom bar uses `px-1.5` (6px) — tighter since it shares the terminal's fixed-width container. Terminal container gets `py-0.5 px-1` for breathing room. Bottom bar `py-1.5` for near-symmetry with top bar's `py-2`. |
 | 20 | "+ New Session" location | Moved from sidebar footer to top bar line 2. Always visible (not gated on current window). Sidebar has no footer section. |
-| 21 | Bottom bar position | Inside terminal column (not root layout). Width tracks terminal, not full viewport. Sidebar extends full height of main area. |
+| 21 | Bottom bar position | Inside the terminal's fixed-width inner container (not root layout). Shares the same `max-width` + centering as the terminal when fixed-width toggle is on. Width always matches terminal width. Sidebar extends full height of main area. |
 
 ## Open Design Questions
 

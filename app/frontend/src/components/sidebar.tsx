@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { killSession as killSessionApi } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { parseFabChange, getWindowDuration } from "@/lib/format";
@@ -8,7 +8,6 @@ type SidebarProps = {
   sessions: ProjectSession[];
   currentSession: string | null;
   currentWindowIndex: string | null;
-  focusedIndex?: number;
   onSelectWindow: (session: string, windowIndex: number) => void;
   onCreateWindow: (session: string) => void;
 };
@@ -17,7 +16,6 @@ export function Sidebar({
   sessions,
   currentSession,
   currentWindowIndex,
-  focusedIndex,
   onSelectWindow,
   onCreateWindow,
 }: SidebarProps) {
@@ -27,30 +25,10 @@ export function Sidebar({
     windowCount: number;
   } | null>(null);
   const [popoverKey, setPopoverKey] = useState<string | null>(null);
-  const focusedRef = useRef<HTMLButtonElement | null>(null);
 
   const toggleSession = useCallback((name: string) => {
     setCollapsed((prev) => ({ ...prev, [name]: !prev[name] }));
   }, []);
-
-  // Build a flat index map for keyboard navigation highlight
-  const flatIndexMap = useMemo(() => {
-    const map = new Map<string, number>();
-    let idx = 0;
-    for (const session of sessions) {
-      for (const win of session.windows) {
-        map.set(`${session.name}:${win.index}`, idx++);
-      }
-    }
-    return map;
-  }, [sessions]);
-
-  // Scroll the focused item into view
-  useEffect(() => {
-    if (focusedIndex != null && focusedRef.current) {
-      focusedRef.current.scrollIntoView({ block: "nearest" });
-    }
-  }, [focusedIndex]);
 
   // Dismiss popover on outside click and Escape
   useEffect(() => {
@@ -144,8 +122,6 @@ export function Sidebar({
                       const isSelected =
                         currentSession === session.name &&
                         currentWindowIndex === String(win.index);
-                      const winFlatIndex = flatIndexMap.get(`${session.name}:${win.index}`);
-                      const isFocused = focusedIndex != null && winFlatIndex === focusedIndex;
                       const winKey = `${session.name}:${win.index}`;
                       const duration = getWindowDuration(win, nowSeconds);
                       const fabInfo = parseFabChange(win.fabChange ?? "");
@@ -161,17 +137,13 @@ export function Sidebar({
                       return (
                         <div key={win.index} className="relative group">
                           <button
-                            ref={isFocused ? focusedRef : undefined}
                             onClick={() => onSelectWindow(session.name, win.index)}
                             className={`w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-6 text-sm transition-colors min-h-[28px] coarse:min-h-[44px] border-l-2 ${
                               isSelected
                                 ? "bg-accent/10 border-accent text-text-primary font-medium rounded-r"
-                                : isFocused
-                                  ? "bg-bg-card/70 text-text-primary ring-1 ring-accent/50 border-transparent rounded"
-                                  : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 border-transparent rounded"
+                                : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 border-transparent rounded"
                             }`}
                             aria-current={isSelected ? "page" : undefined}
-                            data-focused={isFocused || undefined}
                           >
                             <span className="flex items-center gap-1.5 truncate min-w-0">
                               <span

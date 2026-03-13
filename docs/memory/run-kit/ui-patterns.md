@@ -170,16 +170,8 @@ The `CommandPalette` component listens for a `palette:open` CustomEvent on `docu
 |-----|--------|---------|
 | `Cmd+K` | Open command palette | Always |
 | `Cmd+C` / `Ctrl+C` | Copy selection to clipboard (with selection) or send SIGINT (without selection) | Terminal focused — via `attachCustomKeyEventHandler`, `keydown` only |
-| `Esc Esc` | Navigate back (close drawer if open, else no-op) | 300ms double-tap window |
 
-### Sidebar
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate windows up/down in sidebar |
-| `Enter` | Open focused window in terminal |
-| `c` | Open create session dialog |
-
-All keyboard shortcuts are registered in the command palette.
+No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with xterm.js terminal input. All actions are accessible via `Cmd+K` command palette or top bar buttons.
 
 ## Visual Design
 
@@ -208,7 +200,7 @@ Dark theme only, blue-tinted palette. Linear/Raycast aesthetic.
 
 ## Create Session Dialog
 
-The "Create session" dialog (dashboard, `c` shortcut) has three sections:
+The "Create session" dialog (top bar `[+ Session]` button or command palette) has three sections:
 
 1. **Quick picks ("Recent:")** — Deduplicated project root paths from existing tmux sessions (window 0's `pane_current_path`). Tappable list items with 44px min height for mobile. Selecting fills path + auto-derives session name.
 
@@ -216,7 +208,7 @@ The "Create session" dialog (dashboard, `c` shortcut) has three sections:
 
 3. **Session name** — Auto-derived from the last segment of the selected path (e.g., `~/code/wvrdz/run-kit` yields `run-kit`). Editable — auto-derivation is a convenience, not a lock.
 
-On submit, the dialog calls `createSession(name, cwd)` which sends `POST /api/sessions` with `{ name, cwd }`. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior. Accessible from sidebar `[+ New Session]` button and `c` keyboard shortcut.
+On submit, the dialog calls `createSession(name, cwd)` which sends `POST /api/sessions` with `{ name, cwd }`. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior. Accessible from top bar `[+ Session]` button and command palette.
 
 ## Session-to-Project Mapping
 
@@ -249,3 +241,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-12 | UI chrome refinements — simplified breadcrumbs (`☰ {logo} ❯ session ❯ window`, removed `⬡` and `›`), drag-resizable sidebar (default 220px, min 160, max 400, localStorage persist), bottom bar moved inside terminal column (`border-t border-border`, `py-1.5`), top bar `border-b border-border`, `[+ Session]` button in top bar line 2, sidebar footer removed, padding consistency (`px-3 sm:px-6` sidebar, `py-0.5 px-1` terminal container) | `260312-y4ci-ui-chrome-layout-refinements` |
 | 2026-03-13 | Rich sidebar window status — activity dot ring for `isActiveWindow`, idle duration display, info popover (change, process, path, state), shared format helpers (`lib/format.ts`). Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Backend: `paneCommand` + `activityTimestamp` from tmux, `.fab-runtime.yaml` reading for agent state | `260313-txna-rich-sidebar-window-status` |
 | 2026-03-13 | xterm addon activation — ClipboardAddon (OSC 52), WebLinksAddon (clickable URLs), WebglAddon (GPU rendering with silent canvas fallback), Cmd+C selection-aware copy via `attachCustomKeyEventHandler` | `260313-dr60-xterm-clipboard-addons` |
+| 2026-03-13 | Removed single-key shortcuts — deleted `useKeyboardNav` (j/k/Enter), `useAppShortcuts` (c/r/Esc Esc), sidebar focus ring (`focusedIndex`). Cmd+K command palette is now the sole keyboard shortcut. Palette actions no longer show shortcut hints for create/rename | `260313-3brm-remove-single-key-shortcuts` |

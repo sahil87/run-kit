@@ -45,7 +45,7 @@ const EXT_KEYS = [
 ] as const;
 
 const KBD_CLASS =
-  "min-h-[44px] min-w-[44px] flex items-center justify-center px-2 py-0.5 text-sm border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-[32px] min-w-[32px] coarse:min-h-[44px] coarse:min-w-[44px] flex items-center justify-center px-1.5 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
 
 const MODIFIER_LABELS: Record<string, string> = {
   ctrl: "Control",

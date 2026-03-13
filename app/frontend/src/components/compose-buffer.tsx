@@ -44,7 +44,7 @@ export function ComposeBuffer({ wsRef, onClose, initialText, onUploadFiles }: Co
   );
 
   return (
-    <div className="shrink-0 border-t border-border bg-bg-primary p-3">
+    <div className="shrink-0 border-t border-border bg-bg-primary px-1 py-1.5">
       <textarea
         ref={textareaRef}
         autoFocus
@@ -55,10 +55,10 @@ export function ComposeBuffer({ wsRef, onClose, initialText, onUploadFiles }: Co
         aria-label="Compose text to send to terminal"
         defaultValue={initialText}
         placeholder="Compose text..."
-        className="w-full bg-bg-card text-text-primary text-sm p-3 rounded border border-border outline-none resize-y min-h-[80px] max-h-[200px] placeholder:text-text-secondary focus:border-text-secondary"
+        className="w-full bg-bg-card text-text-primary text-sm px-2 py-1.5 rounded border border-border outline-none resize-y min-h-[60px] max-h-[200px] placeholder:text-text-secondary focus:border-text-secondary"
         onKeyDown={handleKeyDown}
       />
-      <div className="flex justify-end mt-2 gap-2">
+      <div className="flex justify-end mt-1 gap-1.5">
         {onUploadFiles && (
           <>
             <input

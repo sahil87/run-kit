@@ -190,11 +190,14 @@ export function TerminalClient({
       };
 
       ws.onmessage = (event) => {
-        // Reset in the same frame as the first data write so there's
-        // no visible blank gap between old and new content.
         if (needsReset) {
           needsReset = false;
-          terminal.reset();
+          // Clear via escape sequences through write() instead of reset().
+          // reset() is synchronous and triggers an immediate repaint;
+          // write() is buffered, so clear + first data render in one pass.
+          // \x1b[2J = clear screen, \x1b[H = cursor home,
+          // \x1b[0m = reset attributes, \x1b[3J = clear scrollback
+          terminal.write("\x1b[2J\x1b[H\x1b[0m\x1b[3J");
         }
         if (typeof event.data === "string") terminal.write(event.data);
         else terminal.write(new Uint8Array(event.data));

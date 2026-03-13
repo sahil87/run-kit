@@ -200,7 +200,7 @@ Dark theme only, blue-tinted palette. Linear/Raycast aesthetic.
 
 ## Create Session Dialog
 
-The "Create session" dialog (dashboard, `c` shortcut) has three sections:
+The "Create session" dialog (top bar `[+ Session]` button or command palette) has three sections:
 
 1. **Quick picks ("Recent:")** — Deduplicated project root paths from existing tmux sessions (window 0's `pane_current_path`). Tappable list items with 44px min height for mobile. Selecting fills path + auto-derives session name.
 

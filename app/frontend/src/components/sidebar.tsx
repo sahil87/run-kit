@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { killSession as killSessionApi } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { parseFabChange, getWindowDuration } from "@/lib/format";

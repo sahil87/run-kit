@@ -1,11 +1,14 @@
 package sessions
 
 import (
-	"os"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
-	"run-kit/internal/fab"
 	"run-kit/internal/tmux"
 )
 
@@ -16,46 +19,51 @@ type ProjectSession struct {
 	Windows []tmux.WindowInfo `json:"windows"`
 }
 
-// hasFabKit checks if a project root contains a fab-kit project.
-func hasFabKit(projectRoot string) bool {
-	_, err := os.Stat(filepath.Join(projectRoot, "fab/project/config.yaml"))
-	return err == nil
+// paneMapEntry matches the JSON output of `fab-go pane-map --json`.
+type paneMapEntry struct {
+	Session           string  `json:"session"`
+	WindowIndex       int     `json:"window_index"`
+	Pane              string  `json:"pane"`
+	Tab               string  `json:"tab"`
+	Worktree          string  `json:"worktree"`
+	Change            *string `json:"change"`
+	Stage             *string `json:"stage"`
+	AgentState        *string `json:"agent_state"`
+	AgentIdleDuration *string `json:"agent_idle_duration"`
 }
 
-// enrichSession reads .fab-status.yaml and .fab-runtime.yaml from the project
-// root and applies the fab state and agent runtime state to ALL windows.
-// runtimeCache is a shared map for caching runtime state per project root
-// across concurrent enrichment goroutines. Pass nil to skip caching.
-func enrichSession(windows []tmux.WindowInfo, projectRoot string, runtimeCache *sync.Map) {
-	state := fab.ReadState(projectRoot)
-	if state == nil {
-		return
-	}
-	for i := range windows {
-		windows[i].FabChange = state.Change
-		windows[i].FabStage = state.Stage
+// fetchPaneMap runs fab-go pane-map --json --all-sessions and returns a lookup
+// map keyed by "session:windowIndex". Returns nil map and an error on failure.
+func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	bin := filepath.Join(repoRoot, "fab/.kit/bin/fab-go")
+	cmd := exec.CommandContext(ctx, bin, "pane-map", "--json", "--all-sessions")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
 	}
 
-	// Read runtime state with per-project-root caching
-	var runtime *fab.RuntimeState
-	if runtimeCache != nil {
-		if cached, ok := runtimeCache.Load(projectRoot); ok {
-			runtime, _ = cached.(*fab.RuntimeState)
-		} else {
-			runtime = fab.ReadRuntime(projectRoot, state.Change)
-			runtimeCache.Store(projectRoot, runtime)
-		}
-	} else {
-		runtime = fab.ReadRuntime(projectRoot, state.Change)
+	var entries []paneMapEntry
+	if err := json.Unmarshal(out, &entries); err != nil {
+		return nil, err
 	}
 
-	if runtime == nil {
-		return
+	m := make(map[string]paneMapEntry, len(entries))
+	for _, e := range entries {
+		key := fmt.Sprintf("%s:%d", e.Session, e.WindowIndex)
+		m[key] = e
 	}
-	for i := range windows {
-		windows[i].AgentState = runtime.AgentState
-		windows[i].AgentIdleDuration = runtime.AgentIdleDuration
+	return m, nil
+}
+
+// derefStr dereferences a *string, returning empty string for nil.
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
 	}
+	return *s
 }
 
 // FetchSessions fetches all sessions, derives project roots from tmux, and enriches with fab state.
@@ -91,30 +99,41 @@ func FetchSessions() ([]ProjectSession, error) {
 	}
 	wg.Wait()
 
-	// Enrich all sessions in parallel, preserve tmux ordering via indexed assignment.
-	// runtimeCache ensures .fab-runtime.yaml is read at most once per project root.
-	result := make([]ProjectSession, len(data))
-	var enrichWg sync.WaitGroup
-	var runtimeCache sync.Map
-
-	for i, sd := range data {
-		enrichWg.Add(1)
-		go func(idx int, sd sessionData) {
-			defer enrichWg.Done()
-
-			projectRoot := ""
-			if len(sd.windows) > 0 {
-				projectRoot = sd.windows[0].WorktreePath
+	// Derive repoRoot from first available window's WorktreePath.
+	repoRoot := ""
+	for _, sd := range data {
+		for _, w := range sd.windows {
+			if w.WorktreePath != "" {
+				repoRoot = w.WorktreePath
+				break
 			}
-
-			if projectRoot != "" && hasFabKit(projectRoot) {
-				enrichSession(sd.windows, projectRoot, &runtimeCache)
-			}
-
-			result[idx] = ProjectSession{Name: sd.info.Name, Byobu: sd.info.Byobu, Windows: sd.windows}
-		}(i, sd)
+		}
+		if repoRoot != "" {
+			break
+		}
 	}
-	enrichWg.Wait()
+
+	// Fetch pane-map once for all sessions. On error, paneMap is nil
+	// and all windows get empty fab fields (graceful degradation).
+	var paneMap map[string]paneMapEntry
+	if repoRoot != "" {
+		paneMap, _ = fetchPaneMap(repoRoot)
+	}
+
+	// Build result with per-window fab enrichment from pane-map.
+	result := make([]ProjectSession, len(data))
+	for i, sd := range data {
+		for j := range sd.windows {
+			key := fmt.Sprintf("%s:%d", sd.info.Name, sd.windows[j].Index)
+			if entry, ok := paneMap[key]; ok {
+				sd.windows[j].FabChange = derefStr(entry.Change)
+				sd.windows[j].FabStage = derefStr(entry.Stage)
+				sd.windows[j].AgentState = derefStr(entry.AgentState)
+				sd.windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
+			}
+		}
+		result[i] = ProjectSession{Name: sd.info.Name, Byobu: sd.info.Byobu, Windows: sd.windows}
+	}
 
 	return result, nil
 }

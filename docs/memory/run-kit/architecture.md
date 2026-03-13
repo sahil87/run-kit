@@ -23,7 +23,7 @@ pnpm workspaces monorepo:
 app/
   backend/            # Go module — backend
     cmd/run-kit/      # Entry point (main.go)
-    internal/         # validate, config, tmux, fab, sessions
+    internal/         # validate, config, tmux, sessions
     api/              # HTTP handlers — one file per resource domain
       router.go       # chi router, CORS/logger/recovery middleware, route registration
       health.go       # GET /api/health
@@ -48,7 +48,7 @@ pnpm-workspace.yaml # ["app/frontend"] — Go is independent
 
 **No database.** State derived at request time from:
 - **tmux server** — `tmux list-sessions`, `tmux list-windows` via `internal/tmux/tmux.go`. Project roots derived from window 0's `pane_current_path`
-- **Filesystem** — `.fab-status.yaml` via `internal/fab/fab.go` (reads change name + active stage). `.fab-runtime.yaml` via `internal/fab/runtime.go` (reads agent idle state per change). Fab-kit projects auto-detected via `os.Stat()` on `fab/project/config.yaml` at the derived project root
+- **fab-go pane-map** — `internal/sessions` calls `fab-go pane-map --json --all-sessions` once per SSE poll cycle to get per-window fab state (change name, pipeline stage, agent state, idle duration). Returns a map keyed by `session:windowIndex` for O(1) lookup during result assembly. Replaces direct `.fab-status.yaml` / `.fab-runtime.yaml` file reading
 
 ## Backend Libraries (Go Modules)
 
@@ -56,9 +56,8 @@ Packages in `app/backend/internal/`:
 
 | Package | Responsibility |
 |---------|---------------|
-| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields (replaced legacy `FabStage`/`FabProgress`), plus `AgentState`/`AgentIdleDuration` (populated by sessions enrichment) |
-| `internal/fab` | `fab.go`: Reads `.fab-status.yaml` from project root via `os.ReadFile` + `yaml.Unmarshal`. Returns `*State{Change, Stage}` (active change name + first active stage in canonical order). Returns nil if file missing, dangling symlink, or parse error. No subprocess calls. `runtime.go`: Reads `.fab-runtime.yaml` and resolves agent state for a given change name. Navigates `{changeName}.agent.idle_since` (Unix timestamp) to compute idle duration. Returns `*RuntimeState{AgentState, AgentIdleDuration}` — `"active"` (no idle_since), `"idle"` (with formatted duration via `FormatIdleDuration`), or `"unknown"` (file missing/unparseable). Returns nil if `.fab-status.yaml` doesn't exist (non-fab safety net) |
-| `internal/sessions` | Derives project roots from tmux, auto-detects fab-kit via `os.Stat("fab/project/config.yaml")`, enriches with fab state and agent runtime state. Per-session enrichment model: reads `.fab-status.yaml` once from window 0's project root (applies `FabChange`/`FabStage` to all windows), then reads `.fab-runtime.yaml` for agent state (applies `AgentState`/`AgentIdleDuration` to all windows). Runtime reads are cached per project root via `sync.Map` across concurrent enrichment goroutines. Session enrichment runs in parallel via goroutines with `sync.WaitGroup` and indexed assignment to preserve tmux ordering |
+| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields, plus `AgentState`/`AgentIdleDuration` (populated by pane-map enrichment in sessions package) |
+| `internal/sessions` | Fetches windows for all sessions in parallel, then enriches with fab state via a single `fab-go pane-map --json --all-sessions` subprocess call. Per-window enrichment model: pane-map returns per-pane fab state, joined to windows by `session:windowIndex` key. `paneMapEntry` struct uses `*string` for nullable JSON fields (change, stage, agent_state, agent_idle_duration). `fetchPaneMap(repoRoot)` runs `fab-go` with 10s timeout. Graceful degradation: if pane-map fails, all windows get empty fab fields |
 | `internal/validate` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
 | `internal/config` | Server config (port, host) — reads `BACKEND_PORT` and `BACKEND_HOST` env vars with defaults (3000, 127.0.0.1) |
 
@@ -70,7 +69,7 @@ Packages in `app/backend/internal/`:
 | `github.com/go-chi/cors` | CORS middleware (permissive by default for multi-client API) |
 | `github.com/gorilla/websocket` | WebSocket handling for terminal relay |
 | `github.com/creack/pty` | PTY allocation (replaces node-pty, no native module compilation) |
-| `gopkg.in/yaml.v3` | YAML parsing for `.fab-status.yaml` and `.fab-runtime.yaml` |
+| `gopkg.in/yaml.v3` | YAML parsing (legacy dependency — no longer imported after `internal/fab` removal, candidate for `go mod tidy`) |
 
 ## API Layer
 
@@ -192,9 +191,7 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 - **File upload via server filesystem (not terminal binary injection)** — Browser uploads file to `POST /api/sessions/:session/upload`, server writes to `.uploads/` in project root, path auto-inserted into compose buffer. Works because run-kit server and tmux are always co-located; the browser is the remote part. Session identified by URL param (consistent with other session-scoped endpoints, replaces legacy form field approach)
 - **Handler files split by resource domain (not monolithic routes.go)** — Each handler file owns one resource: `sessions.go`, `windows.go`, `directories.go`, `upload.go`, `sse.go`, `relay.go`, `spa.go`, `health.go`. `router.go` owns middleware, dependency interfaces, and route registration only. (`260312-r4t9-go-backend-api`)
 - **Dependency injection via interfaces for handler testability** — `Server` struct holds `SessionFetcher` and `TmuxOps` interfaces. `NewRouter()` wires production implementations; `NewTestRouter()` accepts mocks. Enables `httptest.NewRecorder` tests without live tmux. (`260312-r4t9-go-backend-api`)
-- **Per-session fab enrichment (not per-window)** — `internal/sessions` reads `.fab-status.yaml` once from window 0's project root and applies `FabChange`/`FabStage` to all windows in the session. Eliminates redundant filesystem reads and subprocess calls per window. (`260312-r4t9-go-backend-api`)
-- **`internal/fab` reads `.fab-status.yaml` directly (not subprocess)** — Pure `os.ReadFile` + `yaml.Unmarshal`, no calls to `statusman.sh` or `changeman.sh`, no reading `fab/current`. Simpler, faster, no shell dependency. (`260312-r4t9-go-backend-api`)
-- **Extend existing Go backend for agent state (not shelling out to `fab pane-map`)** — The backend already calls `tmux list-windows` and reads `.fab-status.yaml` per session every SSE tick. Adding `#{pane_current_command}` to the existing tmux format string and reading `.fab-runtime.yaml` alongside `.fab-status.yaml` avoids process spawn overhead. Runtime YAML cached per project root via `sync.Map` within a single `FetchSessions()` call. (`260313-txna-rich-sidebar-window-status`)
+- **Per-window fab enrichment via `fab-go pane-map` (replaces per-session file reading)** — Single `fab-go pane-map --json --all-sessions` subprocess call per SSE tick replaces per-session `.fab-status.yaml` + `.fab-runtime.yaml` file reads. Provides per-window resolution (each worktree window shows its own change/stage) instead of per-session (all windows inherited session-level state). Decouples from internal file formats. `internal/fab` package deleted entirely. (`260313-3vlx-pane-map-enrichment`, supersedes `260312-r4t9-go-backend-api` and `260313-txna-rich-sidebar-window-status` decisions)
 
 ## Testing
 
@@ -203,7 +200,7 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 Go `testing` package with table-driven tests. Test files co-located with source using `_test.go` suffix. Test scripts: `go test ./...` from `app/backend/`.
 
 Current Go test coverage (`app/backend/`):
-- **Internal packages**: `internal/validate` (input validation + tilde expansion + filename sanitization), `internal/config` (env var reading, port validation, defaults), `internal/tmux` (listSessions parsing + byobu filtering, listWindows activity computation), `internal/sessions` (fab-kit detection, project root derivation, per-session enrichment), `internal/fab` (`.fab-status.yaml` parsing, missing file, dangling symlink, all-done stages)
+- **Internal packages**: `internal/validate` (input validation + tilde expansion + filename sanitization), `internal/config` (env var reading, port validation, defaults), `internal/tmux` (listSessions parsing + byobu filtering, listWindows activity computation), `internal/sessions` (pane-map JSON parsing, per-window fab field join, graceful degradation on pane-map failure, nonexistent binary error)
 - **Handler integration tests**: `api/health_test.go`, `api/sessions_test.go`, `api/windows_test.go`, `api/directories_test.go`, `api/upload_test.go`, `api/sse_test.go`, `api/spa_test.go` — all use `httptest.NewRecorder` with the chi router and mock `SessionFetcher`/`TmuxOps` interfaces for tmux isolation. Cover response shapes, validation errors, URL param parsing, content-type enforcement. `api/relay.go` has no unit test (requires live tmux + PTY)
 
 ### Frontend Unit Tests (app/frontend/)
@@ -257,3 +254,4 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-13 | **Rich sidebar window status** — Backend: `internal/tmux` adds `PaneCommand` + `ActivityTimestamp` to `WindowInfo` via 6-field tmux format string. New `internal/fab/runtime.go` reads `.fab-runtime.yaml` for agent idle state. `internal/sessions` enriches with runtime state (cached per project root via `sync.Map`). Frontend: sidebar window rows gain activity dot ring, idle duration, info popover. Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Shared helpers in `lib/format.ts`. | `260313-txna-rich-sidebar-window-status` |
 | 2026-03-13 | **Env var config** — replaced `run-kit.yaml` with `.env`/`.env.local` (direnv). Two-tier env vars: user-facing `RUN_KIT_PORT`/`RUN_KIT_HOST` translated by scripts to process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Dev mode: Vite on `RUN_KIT_PORT`, Go on `PORT+1`. Prod: Go on `RUN_KIT_PORT`. All entry points accept `--port`. Removed CLI flag parsing and YAML config from Go. Supervisor slimmed to ~30 lines. | — |
 | 2026-03-13 | **Removed single-key shortcuts** — deleted `useKeyboardNav` (j/k/Enter sidebar nav), `useAppShortcuts` (c/r/Esc Esc), sidebar `focusedIndex` prop and focus ring styling. Cmd+K is now the sole keyboard shortcut. Palette actions no longer display shortcut hints. | `260313-3brm-remove-single-key-shortcuts` |
+| 2026-03-14 | **Pane-map enrichment** — replaced per-session `.fab-status.yaml` + `.fab-runtime.yaml` file reading with single `fab-go pane-map --json --all-sessions` subprocess call. Per-window fab state (change, stage, agent state, idle duration) instead of per-session. Deleted `internal/fab/` package (4 files). `internal/sessions` simplified: removed `enrichSession()`, `hasFabKit()`, `runtimeCache sync.Map`. New `fetchPaneMap(repoRoot)` + map join. | `260313-3vlx-pane-map-enrichment` |

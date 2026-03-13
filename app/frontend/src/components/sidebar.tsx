@@ -195,28 +195,20 @@ export function Sidebar({
                                   {duration}
                                 </span>
                               )}
-                              {/* Info button: hover-reveal on desktop, always visible on mobile */}
-                              <span
-                                data-info-btn
-                                role="button"
-                                tabIndex={0}
-                                aria-label={`Info for ${win.name}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPopoverKey(isPopoverOpen ? null : winKey);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    setPopoverKey(isPopoverOpen ? null : winKey);
-                                  }
-                                }}
-                                className="text-[10px] text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 min-w-[16px] coarse:min-h-[44px] flex items-center justify-center"
-                              >
-                                {"\u24D8"}
-                              </span>
                             </span>
+                          </button>
+                          {/* Info button: hover-reveal on desktop, always visible on mobile — sibling to avoid nested interactive elements */}
+                          <button
+                            type="button"
+                            data-info-btn
+                            aria-label={`Info for ${win.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPopoverKey(isPopoverOpen ? null : winKey);
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 min-w-[16px] min-h-[28px] coarse:min-h-[44px] flex items-center justify-center z-10"
+                          >
+                            {"\u24D8"}
                           </button>
 
                           {/* Info popover */}

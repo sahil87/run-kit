@@ -13,7 +13,7 @@ export const mockSessions: ProjectSession[] = [
         worktreePath: "~/code/run-kit",
         activity: "active",
         isActiveWindow: true,
-        fabChange: "ux92",
+        fabChange: "260312-ux92-vite-react-frontend",
         fabStage: "apply",
         activityTimestamp: Math.floor(Date.now() / 1000) - 2,
       },

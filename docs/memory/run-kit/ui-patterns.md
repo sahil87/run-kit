@@ -39,9 +39,9 @@ Connection indicator: green/gray dot with "live"/"disconnected" label, driven by
 
 | Left content | Right content |
 |-------------|---------------|
-| `[+ Session]` `[Rename]` `[Kill]` (kill has red hover) | `{dot} {activity} . {paneCommand} . {duration} | {fabStage badge} . {fabChange id} . {fabChange slug} [fixedWidthToggle]` |
+| `[+ Session]` `[Rename]` `[Kill]` (kill has red hover) | `{dot} {activity} · {paneCommand} · {duration} │ {fabStage badge} · {fabChange id} · {fabChange slug} [fixedWidthToggle]` |
 
-Right content layout for the selected window: activity dot + activity text, then `paneCommand` if present, then idle duration (via `getWindowDuration()`), then a `|` separator + fab stage badge + fab change (4-char ID + slug via `parseFabChange()`) if fab info is present. All items `text-xs text-text-secondary`. Fab stage uses `text-accent px-1.5 py-0.5 rounded bg-accent/10` badge styling. Shared helpers imported from `lib/format.ts`.
+Right content layout for the selected window: activity dot + activity text, then `paneCommand` if present, then idle duration (via `getWindowDuration()`), then a `│` (U+2502 box drawing vertical) separator + fab stage badge + fab change (4-char ID `·` slug via `parseFabChange()`) if fab info is present. Items within a group separated by `·` (U+00B7 middle dot). All items `text-xs text-text-secondary`. Fab stage uses `text-accent px-1.5 py-0.5 rounded bg-accent/10` badge styling. Shared helpers imported from `lib/format.ts`.
 
 `[+ Session]` is always visible (not gated on `currentWindow`) since creating a session is a global action. `[Rename]` and `[Kill]` are contextual to the current window.
 

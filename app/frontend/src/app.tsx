@@ -319,7 +319,7 @@ function AppShell() {
       </div>
 
       {/* Main Area */}
-      <div className="flex-1 flex flex-row min-h-0">
+      <div className="flex-1 flex flex-row min-h-0 relative">
         {/* Desktop sidebar */}
         {sidebarOpen && (
           <div
@@ -379,29 +379,29 @@ function AppShell() {
             <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} />
           </div>
         </div>
-      </div>
 
-      {/* Mobile Drawer Overlay */}
-      {drawerOpen && (
-        <div className="fixed inset-0 z-40 md:hidden" onClick={() => setDrawerOpen(false)}>
-          <div className="fixed inset-0 bg-black/50" aria-hidden="true" />
-          <div
-            className="fixed inset-y-0 left-0 w-[75vw] max-w-[300px] bg-bg-primary border-r border-border overflow-y-auto z-50"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Sidebar
-              sessions={sessions}
-              currentSession={sessionName ?? null}
-              currentWindowIndex={windowIndex ?? null}
-              focusedIndex={focusedIndex}
-              onSelectWindow={(s, w) => {
-                navigateToWindow(s, w);
-              }}
-              onCreateWindow={handleCreateWindow}
-            />
+        {/* Mobile Drawer Overlay — inside main area so it sits below the top bar */}
+        {drawerOpen && (
+          <div className="absolute inset-0 z-40 md:hidden" onClick={() => setDrawerOpen(false)}>
+            <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
+            <div
+              className="absolute inset-y-0 left-0 w-[75vw] max-w-[300px] bg-bg-primary border-r border-border overflow-y-auto z-50"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Sidebar
+                sessions={sessions}
+                currentSession={sessionName ?? null}
+                currentWindowIndex={windowIndex ?? null}
+                focusedIndex={focusedIndex}
+                onSelectWindow={(s, w) => {
+                  navigateToWindow(s, w);
+                }}
+                onCreateWindow={handleCreateWindow}
+              />
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Dialogs */}
       {dialogs.showCreateDialog && (

@@ -325,30 +325,32 @@ function AppShell() {
 
         {/* Terminal Column */}
         <div className={`flex-1 min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-[#0a0c12]" : ""}`}>
-          {sessionName && windowIndex ? (
-            <div
-              className={`flex-1 min-h-0 py-0.5 px-1 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
-              style={fixedWidth ? { maxWidth: 965, width: "100%", marginInline: "auto" } : undefined}
-            >
-              <TerminalClient
-                sessionName={sessionName}
-                windowIndex={windowIndex}
-                wsRef={wsRef}
-                composeOpen={composeOpen}
-                setComposeOpen={setComposeOpen}
-              />
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
-              {sessions.length === 0
-                ? "No sessions. Use + Session or \u2318K."
-                : "Select a window from the sidebar."}
-            </div>
-          )}
+          <div
+            className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
+            style={fixedWidth ? { maxWidth: 965, width: "100%", marginInline: "auto" } : undefined}
+          >
+            {sessionName && windowIndex ? (
+              <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
+                <TerminalClient
+                  sessionName={sessionName}
+                  windowIndex={windowIndex}
+                  wsRef={wsRef}
+                  composeOpen={composeOpen}
+                  setComposeOpen={setComposeOpen}
+                />
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
+                {sessions.length === 0
+                  ? "No sessions. Use + Session or \u2318K."
+                  : "Select a window from the sidebar."}
+              </div>
+            )}
 
-          {/* Bottom Bar */}
-          <div className="shrink-0 border-t border-border px-3 sm:px-6">
-            <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} />
+            {/* Bottom Bar */}
+            <div className="shrink-0 border-t border-border px-1.5">
+              <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} />
+            </div>
           </div>
         </div>
 

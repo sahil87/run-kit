@@ -14,7 +14,7 @@ Parallel (no dependencies on 1–5):
 ## Backlog
 
 - [ ] 2026-03-03: Fall back to `#{session_path}` for project root detection — currently we derive the project root from window 0's `pane_current_path`, which breaks if the user has `cd`'d away. tmux exposes `#{session_path}` (the `-c start-directory` from session creation), which is immutable. A hybrid approach (prefer `session_path`, fall back to `pane_current_path`) would be more robust. Low priority — the current approach works for typical coding sessions.
-- [ ] [w70w] 2026-03-03: Double esc - could have side effects - need a better shortcut
+- [x] [w70w] 2026-03-03: ~~Double esc - could have side effects - need a better shortcut~~ → `[3brm]` removed single-key shortcuts
 - [ ] [63td] 2026-03-03: We would need buttons to delete this worktree and at the project level to delete all unused worktrees.
 - [ ] [ar9l] 2026-03-03: Buttons to send Git PR and a way to keep checking its status.
 - [x] [c1ro] 2026-03-03: ~~While creating a new window (a new session/project), how do we specify the CWD?~~ → `[zkem]` session folder picker

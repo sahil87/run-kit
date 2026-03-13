@@ -150,7 +150,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
   );
 
   return (
-    <div className="flex items-center gap-1 py-1.5 flex-wrap overflow-hidden" role="toolbar" aria-label="Terminal keys">
+    <div className="flex items-center gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
       <button aria-label="Escape" className={`${KBD_CLASS} text-text-primary`} onClick={() => sendSpecial("\x1b")}>
         <kbd aria-hidden="true">{"\u238B"}</kbd>
       </button>

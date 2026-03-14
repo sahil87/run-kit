@@ -151,9 +151,9 @@ No `max-w-4xl` constraint — all zones span full width. Terminal fills all avai
 
 **SessionProvider** (`app/frontend/src/contexts/session-context.tsx`) — layout-level React Context that owns the single `EventSource` connection to `/api/sessions/stream`. Exposes `{ sessions, isConnected }` via `useSessions()` hook. Forwards `isConnected` to `ChromeProvider` internally. Mounted inside `ChromeProvider` in the root layout.
 
-**TopBarChrome** (`app/frontend/src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Line 1 (`border-b border-border`): `☰` toggle + icon breadcrumbs (`☰ {logo} ❯ session ❯ window`) + connection indicator + `⌘K`/`⋯`. Line 2: `[+ Session]` + contextual `[Rename]` `[Kill]`, always rendered with `min-h-[36px]` (prevents layout shift).
+**TopBarChrome** (`app/frontend/src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Line 1 (`border-b border-border`): hamburger toggle (inline SVG, three horizontal lines) + icon breadcrumbs (`☰ ❯ session ❯ window`) + connection indicator + FixedWidthToggle + `⌘K`/`⋯`. Single-line top bar — no Line 2.
 
-**Sidebar** (`app/frontend/src/components/sidebar.tsx`) — session/window tree. Desktop: drag-resizable (default 220px, min 160, max 400, persisted to `localStorage`), collapsible via `☰`. No footer (create session moved to top bar). Mobile (< 768px): drawer overlay from the left, triggered by `☰`.
+**Sidebar** (`app/frontend/src/components/sidebar.tsx`) — session/window tree. Desktop: drag-resizable (default 220px, min 160, max 400, persisted to `localStorage`), collapsible via hamburger icon. No footer (create session moved to breadcrumb dropdown). Mobile (< 768px): drawer overlay from the left, triggered by hamburger icon.
 
 **BottomBar** (`app/frontend/src/components/bottom-bar.tsx`) — always visible. Single row of `<kbd>` buttons: modifier toggles (Ctrl/Alt/Cmd with sticky armed state), arrow keys, Fn dropdown (F1-F12, PgUp/PgDn, Home/End), Esc, Tab, and compose toggle. All buttons 44px min-height for mobile touch targets. Sends ANSI escape sequences through the WebSocket ref. Modifier state managed by `useModifierState` hook.
 

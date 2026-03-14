@@ -13,11 +13,11 @@ Single-view model: sidebar shows session/window tree, terminal is always the mai
 
 The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derives its content from the current session:window selection via `ChromeProvider` context. No slot injection — the chrome reads the selection and renders directly.
 
-**Line 1** (fixed height, `border-b border-border`): logo toggle + icon breadcrumbs + connection indicator + FixedWidthToggle + `⌘K` (desktop) / `⋯` (mobile). Single-line top bar — no Line 2.
+**Line 1** (fixed height, `border-b border-border`): hamburger toggle + icon breadcrumbs + connection indicator + FixedWidthToggle + `⌘K` (desktop) / `⋯` (mobile). Single-line top bar — no Line 2.
 
-Breadcrumb: `{logo} ❯ {session} ❯ {window}` (syncs with tmux active window via SSE). Logo toggles sidebar (desktop) or opens drawer (mobile) — no separate hamburger icon.
+Breadcrumb: `{☰} ❯ {session} ❯ {window}` (syncs with tmux active window via SSE). Hamburger toggles sidebar (desktop) or opens drawer (mobile).
 
-- Logo SVG (`logo.svg`) — clickable button that toggles sidebar/drawer (replaces `☰` hamburger)
+- Hamburger icon (inline SVG, three horizontal lines) — clickable button that toggles sidebar/drawer
 - ❯ — Unicode heavy right angle (U+276F), unified separator/dropdown trigger icon for both session and window segments (tapping opens respective dropdown)
 - Icons are rendered inside `BreadcrumbDropdown` via `icon` prop — no separate passive span, no `›` separator spans
 - All segments except the last are clickable links
@@ -235,3 +235,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-13 | xterm addon activation — ClipboardAddon (OSC 52), WebLinksAddon (clickable URLs), WebglAddon (GPU rendering with silent canvas fallback), Cmd+C selection-aware copy via `attachCustomKeyEventHandler` | `260313-dr60-xterm-clipboard-addons` |
 | 2026-03-13 | Removed single-key shortcuts — deleted `useKeyboardNav` (j/k/Enter), `useAppShortcuts` (c/r/Esc Esc), sidebar focus ring (`focusedIndex`). Cmd+K command palette is now the sole keyboard shortcut. Palette actions no longer show shortcut hints for create/rename | `260313-3brm-remove-single-key-shortcuts` |
 | 2026-03-13 | Remove top bar Line 2 — deleted action bar (+ Session, Rename, Kill, window status). FixedWidthToggle relocated to Line 1 (between connection indicator and ⌘K). BreadcrumbDropdown gains `action` prop for `+ New Session`/`+ New Window` as first dropdown item with divider. Sidebar empty state shows `+ New Session` button. Top bar is now single-line on all viewports | `260313-zvgc-remove-top-bar-line-2` |
+| 2026-03-14 | Hamburger menu toggle — replaced logo SVG with inline SVG hamburger icon (three horizontal lines) in top-left toggle button. Toggle behavior unchanged. `logo.svg` preserved | `260314-kqab-hamburger-menu-toggle` |

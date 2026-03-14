@@ -77,7 +77,19 @@ export function TopBar({
             aria-label="Toggle navigation"
             className="hover:opacity-80 transition-opacity min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
           >
-            <img src="/logo.svg" alt="RunKit" width={20} height={20} />
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <line x1="3" y1="5" x2="17" y2="5" />
+              <line x1="3" y1="10" x2="17" y2="10" />
+              <line x1="3" y1="15" x2="17" y2="15" />
+            </svg>
           </button>
 
           {sessionName && (

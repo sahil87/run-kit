@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-14T07:05:01Z"}
+{"args":"Replace top left logo with hamburger icon that controls the left bar / menu","cmd":"fab-new","event":"command","ts":"2026-03-14T07:05:01Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-14T07:05:30Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-14T07:05:33Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-14T07:07:08Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-03-14T07:08:15Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"spec","ts":"2026-03-14T07:08:19Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-14T07:08:49Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-14T07:08:52Z"}
+{"cmd":"fab-ff","event":"command","ts":"2026-03-14T07:10:11Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"tasks","ts":"2026-03-14T07:10:22Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-03-14T07:10:47Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-03-14T07:11:37Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-03-14T07:12:12Z"}
+{"event":"review","result":"passed","ts":"2026-03-14T07:12:12Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-03-14T07:13:05Z"}

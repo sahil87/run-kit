@@ -119,8 +119,10 @@ export function TopBar({
     [onNavigate],
   );
 
-  // Hamburger is "open" when sidebar is open on desktop OR drawer is open on mobile
-  const hamburgerOpen = sidebarOpen || drawerOpen;
+  // Match the click handler's breakpoint: desktop (>=768px) uses sidebar, mobile uses drawer.
+  // Using both ensures correctness even when the other state is stale after a viewport switch.
+  const isDesktop = typeof window !== "undefined" && window.innerWidth >= 768;
+  const hamburgerOpen = isDesktop ? sidebarOpen : drawerOpen;
 
   return (
     <header className="px-3 sm:px-6 border-b border-border">
@@ -168,11 +170,7 @@ export function TopBar({
           )}
         </nav>
 
-        <div
-          className="flex items-center gap-3 text-xs text-text-secondary"
-          role="status"
-          aria-live="polite"
-        >
+        <div className="flex items-center gap-3 text-xs text-text-secondary">
           {/* Logo (decorative branding) — desktop only */}
           <img
             src="/logo.svg"
@@ -185,13 +183,15 @@ export function TopBar({
           {/* "Run Kit" text — desktop only */}
           <span className="hidden sm:inline text-xs text-text-secondary">Run Kit</span>
 
-          {/* Connection dot — no text label */}
-          <span
-            className={`hidden sm:block w-2 h-2 rounded-full ${
-              isConnected ? "bg-accent-green" : "bg-text-secondary"
-            }`}
-            aria-label={isConnected ? "Connected" : "Disconnected"}
-          />
+          {/* Connection dot — live region scoped to non-interactive status indicator */}
+          <span role="status" aria-live="polite">
+            <span
+              className={`hidden sm:block w-2 h-2 rounded-full ${
+                isConnected ? "bg-accent-green" : "bg-text-secondary"
+              }`}
+              aria-label={isConnected ? "Connected" : "Disconnected"}
+            />
+          </span>
 
           <span className="hidden sm:flex">
             <FixedWidthToggle />

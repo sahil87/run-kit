@@ -6,14 +6,26 @@ type Props = {
   label?: string;
   icon?: string;
   onNavigate?: (href: string) => void;
+  action?: { label: string; onAction: () => void };
 };
 
-export function BreadcrumbDropdown({ items, label, icon, onNavigate }: Props) {
+export function BreadcrumbDropdown({ items, label, icon, onNavigate, action }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const actionRef = useRef<HTMLButtonElement | null>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // When action exists, index 0 = action button, indices 1..N = items.
+  // When no action, indices 0..N-1 = items directly.
+  const offset = action ? 1 : 0;
+  const totalCount = items.length + offset;
+
+  function getFocusableRef(index: number): HTMLButtonElement | null {
+    if (action && index === 0) return actionRef.current;
+    return itemRefs.current[index - offset] ?? null;
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -39,8 +51,8 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate }: Props) {
         e.preventDefault();
         e.stopPropagation();
         setFocusedIndex((prev) => {
-          const next = prev < items.length - 1 ? prev + 1 : 0;
-          itemRefs.current[next]?.focus();
+          const next = prev < totalCount - 1 ? prev + 1 : 0;
+          getFocusableRef(next)?.focus();
           return next;
         });
       }
@@ -48,23 +60,23 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate }: Props) {
         e.preventDefault();
         e.stopPropagation();
         setFocusedIndex((prev) => {
-          const next = prev > 0 ? prev - 1 : items.length - 1;
-          itemRefs.current[next]?.focus();
+          const next = prev > 0 ? prev - 1 : totalCount - 1;
+          getFocusableRef(next)?.focus();
           return next;
         });
       }
     }
     document.addEventListener("keydown", handleKey, { capture: true });
     return () => document.removeEventListener("keydown", handleKey, { capture: true });
-  }, [open, items.length]);
+  }, [open, totalCount]);
 
   useEffect(() => {
     if (!open) return;
     const currentIdx = items.findIndex((item) => item.current);
-    const targetIdx = currentIdx >= 0 ? currentIdx : 0;
+    const targetIdx = (currentIdx >= 0 ? currentIdx : 0) + offset;
     setFocusedIndex(targetIdx);
     requestAnimationFrame(() => {
-      itemRefs.current[targetIdx]?.focus();
+      getFocusableRef(targetIdx)?.focus();
     });
   }, [open, items]);
 
@@ -90,13 +102,31 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate }: Props) {
           aria-label={label ? `Switch ${label}` : "Switch"}
           className="absolute top-full left-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] max-w-[240px] z-50"
         >
+          {action && (
+            <>
+              <button
+                ref={(el) => { actionRef.current = el; }}
+                type="button"
+                role="menuitem"
+                tabIndex={focusedIndex === 0 ? 0 : -1}
+                onClick={() => {
+                  setOpen(false);
+                  action.onAction();
+                }}
+                className="w-full text-left block px-3 py-2 text-sm text-text-primary hover:bg-bg-card transition-colors"
+              >
+                {action.label}
+              </button>
+              <div className="border-t border-border" />
+            </>
+          )}
           {items.map((item, i) => (
             <button
               key={item.href}
               ref={(el) => { itemRefs.current[i] = el; }}
               type="button"
               role="menuitem"
-              tabIndex={focusedIndex === i ? 0 : -1}
+              tabIndex={focusedIndex === i + offset ? 0 : -1}
               onClick={() => {
                 setOpen(false);
                 if (onNavigate) {

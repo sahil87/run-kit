@@ -279,15 +279,10 @@ function AppShell() {
           windowName={displayName}
           isConnected={isConnected}
           onNavigate={navigateToWindow}
-          onRename={() => {
-            if (currentWindow) {
-              dialogs.openRenameDialog(currentWindow.name);
-            }
-          }}
-          onKill={dialogs.openKillConfirm}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
           onCreateSession={dialogs.openCreateDialog}
+          onCreateWindow={handleCreateWindow}
         />
       </div>
 
@@ -306,6 +301,7 @@ function AppShell() {
                 currentWindowIndex={windowIndex ?? null}
                 onSelectWindow={navigateToWindow}
                 onCreateWindow={handleCreateWindow}
+                onCreateSession={dialogs.openCreateDialog}
               />
             </div>
             {/* Drag handle */}
@@ -370,6 +366,7 @@ function AppShell() {
                   navigateToWindow(s, w);
                 }}
                 onCreateWindow={handleCreateWindow}
+                onCreateSession={dialogs.openCreateDialog}
               />
             </div>
           </div>

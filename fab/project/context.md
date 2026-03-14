@@ -74,7 +74,7 @@ This workflow catches overflow issues, clipping, and layout regressions that uni
 - Touch targets use the `coarse:` custom Tailwind variant (`@media (pointer: coarse)`) for touch devices
 - Touch targets: `coarse:min-h-[36px] coarse:min-w-[28px]` (taller than wide, not square) for bottom bar buttons; `coarse:36px` square for top bar/breadcrumb buttons
 - Bottom bar toolbar fits all buttons in a single row at 375px — no wrapping, no horizontal scroll
-- Top bar line 2 (+ Session, Rename, Kill, status, fixed-width toggle) is `hidden sm:flex` — hidden on mobile where it adds no value
+- Top bar is a single line: breadcrumbs + connection status + FixedWidthToggle + command palette trigger. Session/window creation actions live in breadcrumb dropdown `+ New` items
 - Mobile sidebar drawer is `absolute` inside the main area (not `fixed inset-0`) so the top bar stays visible and the logo toggle can close the drawer
 - The `.app-shell` and terminal column have `overflow: hidden` to prevent horizontal page overflow from xterm.js canvas
 - Terminal font: 11px on mobile (`min-width: 640px` media query), 13px on desktop

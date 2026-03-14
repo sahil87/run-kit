@@ -82,17 +82,29 @@ describe("Sidebar", () => {
     expect(screen.getByText("dev")).toBeInTheDocument();
   });
 
-  it("collapse/expand sessions on click", () => {
+  it("collapse/expand sessions via chevron click", () => {
     renderSidebar();
     // Windows are visible by default
     expect(screen.getByText("main")).toBeInTheDocument();
 
-    // Click session name to collapse
+    // Click chevron to collapse
     fireEvent.click(screen.getByLabelText(/Collapse run-kit/));
     expect(screen.queryByText("main")).not.toBeInTheDocument();
 
-    // Click again to expand
+    // Click chevron again to expand
     fireEvent.click(screen.getByLabelText(/Expand run-kit/));
+    expect(screen.getByText("main")).toBeInTheDocument();
+  });
+
+  it("session name click navigates to first window (not toggles)", () => {
+    const onSelectWindow = vi.fn();
+    renderSidebar({ onSelectWindow });
+
+    // Click the session name text
+    fireEvent.click(screen.getByLabelText("Navigate to run-kit"));
+    expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 0);
+
+    // Windows should still be visible (not collapsed)
     expect(screen.getByText("main")).toBeInTheDocument();
   });
 

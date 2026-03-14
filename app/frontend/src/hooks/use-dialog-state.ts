@@ -4,9 +4,10 @@ import { renameWindow, killWindow } from "@/api/client";
 type UseDialogStateOptions = {
   sessionName: string | undefined;
   windowIndex: number | undefined;
+  onKillComplete?: () => void;
 };
 
-export function useDialogState({ sessionName, windowIndex }: UseDialogStateOptions) {
+export function useDialogState({ sessionName, windowIndex, onKillComplete }: UseDialogStateOptions) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [showKillConfirm, setShowKillConfirm] = useState(false);
@@ -45,7 +46,8 @@ export function useDialogState({ sessionName, windowIndex }: UseDialogStateOptio
       // SSE will reflect
     }
     setShowKillConfirm(false);
-  }, [sessionName, windowIndex]);
+    onKillComplete?.();
+  }, [sessionName, windowIndex, onKillComplete]);
 
   return {
     showCreateDialog,

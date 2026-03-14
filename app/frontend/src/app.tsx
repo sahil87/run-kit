@@ -12,6 +12,7 @@ import { BottomBar } from "@/components/bottom-bar";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
+import { Dashboard } from "@/components/dashboard";
 import { selectWindow, createWindow } from "@/api/client";
 
 const SIDEBAR_STORAGE_KEY = "runkit-sidebar-width";
@@ -121,27 +122,6 @@ function AppShell() {
   const userNavTimestampRef = useRef(0);
   const dialogOpenRef = useRef(false);
 
-  // Redirect root to first session's first window when data arrives
-  const hasRedirected = useRef(false);
-  useEffect(() => {
-    if (sessionName) {
-      hasRedirected.current = true;
-      return;
-    }
-    if (sessions.length > 0 && !hasRedirected.current) {
-      hasRedirected.current = true;
-      const first = sessions[0];
-      const firstWin = first.windows[0];
-      if (firstWin) {
-        navigate({
-          to: "/$session/$window",
-          params: { session: first.name, window: String(firstWin.index) },
-          replace: true,
-        });
-      }
-    }
-  }, [sessions, sessionName, navigate]);
-
   // Sync currentSession/currentWindow from route params + SSE data
   const currentSession = useMemo(
     () => sessions.find((s) => s.name === sessionName) ?? null,
@@ -157,21 +137,11 @@ function AppShell() {
     setCurrentWindow(currentWindow);
   }, [currentSession, currentWindow, setCurrentSession, setCurrentWindow]);
 
-  // Redirect when the current session/window no longer exists (e.g. last window killed)
+  // Redirect when the current session/window no longer exists (e.g. window/session killed)
   useEffect(() => {
     if (!sessionName || !isConnected) return;
-    if (sessions.length > 0 && !currentSession) {
+    if ((sessions.length > 0 && !currentSession) || (currentSession && windowIndex && !currentWindow)) {
       navigate({ to: "/", replace: true });
-    } else if (currentSession && windowIndex && !currentWindow) {
-      // Window gone but session still exists — go to active window
-      const fallback = currentSession.windows.find((w) => w.isActiveWindow) ?? currentSession.windows[0];
-      if (fallback) {
-        navigate({
-          to: "/$session/$window",
-          params: { session: currentSession.name, window: String(fallback.index) },
-          replace: true,
-        });
-      }
     }
   }, [sessionName, windowIndex, sessions, currentSession, currentWindow, isConnected, navigate]);
 
@@ -215,6 +185,7 @@ function AppShell() {
   const dialogs = useDialogState({
     sessionName,
     windowIndex: currentWindow?.index,
+    onKillComplete: () => navigate({ to: "/", replace: true }),
   });
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
@@ -347,28 +318,30 @@ function AppShell() {
             style={fixedWidth ? { maxWidth: 965, width: "100%", marginInline: "auto" } : undefined}
           >
             {sessionName && windowIndex ? (
-              <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
-                <TerminalClient
-                  sessionName={sessionName}
-                  windowIndex={windowIndex}
-                  wsRef={wsRef}
-                  composeOpen={composeOpen}
-                  setComposeOpen={setComposeOpen}
-                  onSessionNotFound={() => navigate({ to: "/", replace: true })}
-                />
-              </div>
+              <>
+                <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
+                  <TerminalClient
+                    sessionName={sessionName}
+                    windowIndex={windowIndex}
+                    wsRef={wsRef}
+                    composeOpen={composeOpen}
+                    setComposeOpen={setComposeOpen}
+                    onSessionNotFound={() => navigate({ to: "/", replace: true })}
+                  />
+                </div>
+                {/* Bottom Bar — only on terminal pages */}
+                <div className="shrink-0 border-t border-border px-1.5">
+                  <BottomBar wsRef={wsRef} />
+                </div>
+              </>
             ) : (
-              <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
-                {sessions.length === 0
-                  ? "No sessions. Use + Session or \u2318K."
-                  : "Select a window from the sidebar."}
-              </div>
+              <Dashboard
+                sessions={sessions}
+                onNavigate={navigateToWindow}
+                onCreateSession={dialogs.openCreateDialog}
+                onCreateWindow={handleCreateWindow}
+              />
             )}
-
-            {/* Bottom Bar */}
-            <div className="shrink-0 border-t border-border px-1.5">
-              <BottomBar wsRef={wsRef} />
-            </div>
           </div>
         </div>
 

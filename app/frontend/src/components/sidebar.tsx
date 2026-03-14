@@ -86,20 +86,26 @@ export function Sidebar({
               <div key={session.name} className="mb-2">
                 {/* Session row */}
                 <div className="flex items-center justify-between group">
-                  <button
-                    onClick={() => toggleSession(session.name)}
-                    className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[32px] coarse:min-h-[44px]"
-                    aria-expanded={!isCollapsed}
-                    aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${session.name}`}
-                  >
-                    <span className="text-xs w-3" aria-hidden="true">
+                  <div className="flex items-center gap-0.5 min-w-0">
+                    <button
+                      onClick={() => toggleSession(session.name)}
+                      className="text-xs text-text-secondary hover:text-text-primary transition-colors w-5 shrink-0 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
+                      aria-expanded={!isCollapsed}
+                      aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${session.name}`}
+                    >
                       {isCollapsed ? "\u25B6" : "\u25BC"}
-                    </span>
-                    <span className="font-medium truncate">{session.name}</span>
-                    {session.byobu && (
-                      <span className="text-[10px] text-accent-green/70 shrink-0" aria-label="byobu session">b</span>
-                    )}
-                  </button>
+                    </button>
+                    <button
+                      onClick={() => onSelectWindow(session.name, session.windows[0]?.index ?? 0)}
+                      className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[32px] coarse:min-h-[44px] min-w-0"
+                      aria-label={`Navigate to ${session.name}`}
+                    >
+                      <span className="font-medium truncate">{session.name}</span>
+                      {session.byobu && (
+                        <span className="text-[10px] text-accent-green/70 shrink-0" aria-label="byobu session">b</span>
+                      )}
+                    </button>
+                  </div>
                   <div className="flex items-center">
                     <button
                       onClick={() => onCreateWindow(session.name)}

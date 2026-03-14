@@ -52,18 +52,21 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
         sessionName="run-kit"
         windowName="main"
         isConnected={true}
+        sidebarOpen={false}
+        drawerOpen={false}
         onNavigate={vi.fn()}
         onToggleSidebar={vi.fn()}
         onToggleDrawer={vi.fn()}
         onCreateSession={vi.fn()}
         onCreateWindow={vi.fn()}
+        onOpenCompose={vi.fn()}
         {...overrides}
       />
     </ChromeProvider>,
   );
 }
 
-describe("TopBar Line 1", () => {
+describe("TopBar", () => {
   afterEach(cleanup);
 
   it("renders breadcrumb with session and window names", () => {
@@ -72,19 +75,56 @@ describe("TopBar Line 1", () => {
     expect(screen.getByText("main")).toBeInTheDocument();
   });
 
-  it("shows connection status", () => {
+  it("uses / as breadcrumb separator (not chevron)", () => {
     renderTopBar();
-    expect(screen.getByText("live")).toBeInTheDocument();
+    expect(screen.getByText("/")).toBeInTheDocument();
+    // No chevron separators
+    expect(screen.queryByText("\u276F")).not.toBeInTheDocument();
   });
 
-  it("shows disconnected status", () => {
+  it("does not show 'live' or 'disconnected' text", () => {
+    renderTopBar();
+    expect(screen.queryByText("live")).not.toBeInTheDocument();
+    expect(screen.queryByText("disconnected")).not.toBeInTheDocument();
+  });
+
+  it("shows connection dot without text label", () => {
     renderTopBar({ isConnected: false });
-    expect(screen.getByText("disconnected")).toBeInTheDocument();
+    expect(screen.queryByText("live")).not.toBeInTheDocument();
+    expect(screen.queryByText("disconnected")).not.toBeInTheDocument();
+    // The dot exists with an aria-label
+    expect(screen.getByLabelText("Disconnected")).toBeInTheDocument();
   });
 
-  it("renders FixedWidthToggle in Line 1", () => {
+  it("renders FixedWidthToggle", () => {
     renderTopBar();
     expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
+  });
+
+  it("renders hamburger icon (not logo img) as navigation toggle", () => {
+    renderTopBar();
+    const toggleBtn = screen.getByLabelText("Toggle navigation");
+    expect(toggleBtn).toBeInTheDocument();
+    // Should contain an SVG, not an img
+    expect(toggleBtn.querySelector("svg")).toBeTruthy();
+    expect(toggleBtn.querySelector("img")).toBeNull();
+  });
+
+  it("renders compose button in top bar", () => {
+    renderTopBar();
+    expect(screen.getByLabelText("Compose text")).toBeInTheDocument();
+  });
+
+  it("calls onOpenCompose when compose button is clicked", () => {
+    const onOpenCompose = vi.fn();
+    renderTopBar({ onOpenCompose });
+    fireEvent.click(screen.getByLabelText("Compose text"));
+    expect(onOpenCompose).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders 'Run Kit' branding text", () => {
+    renderTopBar();
+    expect(screen.getByText("Run Kit")).toBeInTheDocument();
   });
 
   it("does not render Line 2 elements", () => {
@@ -99,7 +139,7 @@ describe("TopBar Line 1", () => {
     const onCreateSession = vi.fn();
     renderTopBar({ onCreateSession });
 
-    // Open the session breadcrumb dropdown
+    // Open the session breadcrumb dropdown (session name is the trigger)
     const sessionDropdown = screen.getByLabelText("Switch session");
     fireEvent.click(sessionDropdown);
 
@@ -117,7 +157,7 @@ describe("TopBar Line 1", () => {
     const onCreateWindow = vi.fn();
     renderTopBar({ onCreateWindow });
 
-    // Open the window breadcrumb dropdown
+    // Open the window breadcrumb dropdown (window name is the trigger)
     const windowDropdown = screen.getByLabelText("Switch window");
     fireEvent.click(windowDropdown);
 

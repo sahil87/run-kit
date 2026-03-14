@@ -296,11 +296,14 @@ function AppShell() {
           sessionName={displaySession}
           windowName={displayName}
           isConnected={isConnected}
+          sidebarOpen={sidebarOpen}
+          drawerOpen={drawerOpen}
           onNavigate={navigateToWindow}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
           onCreateSession={dialogs.openCreateDialog}
           onCreateWindow={handleCreateWindow}
+          onOpenCompose={() => setComposeOpen((v) => !v)}
         />
       </div>
 
@@ -364,7 +367,7 @@ function AppShell() {
 
             {/* Bottom Bar */}
             <div className="shrink-0 border-t border-border px-1.5">
-              <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} />
+              <BottomBar wsRef={wsRef} />
             </div>
           </div>
         </div>

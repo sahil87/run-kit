@@ -11,12 +11,68 @@ type TopBarProps = {
   sessionName: string;
   windowName: string;
   isConnected: boolean;
+  sidebarOpen: boolean;
+  drawerOpen: boolean;
   onNavigate: (session: string, windowIndex: number) => void;
   onToggleSidebar: () => void;
   onToggleDrawer: () => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
+  onOpenCompose: () => void;
 };
+
+function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 18 18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      {/* Top line: slides down + rotates +45deg when open */}
+      <line
+        x1="3"
+        y1="4.5"
+        x2="15"
+        y2="4.5"
+        style={{
+          transition: "transform 200ms ease",
+          transformOrigin: "9px 9px",
+          transform: isOpen ? "translateY(4.5px) rotate(45deg)" : "none",
+        }}
+      />
+      {/* Middle line: fades/scales out when open */}
+      <line
+        x1="3"
+        y1="9"
+        x2="15"
+        y2="9"
+        style={{
+          transition: "opacity 150ms ease, transform 150ms ease",
+          transformOrigin: "9px 9px",
+          opacity: isOpen ? 0 : 1,
+          transform: isOpen ? "scaleX(0)" : "scaleX(1)",
+        }}
+      />
+      {/* Bottom line: slides up + rotates -45deg when open */}
+      <line
+        x1="3"
+        y1="13.5"
+        x2="15"
+        y2="13.5"
+        style={{
+          transition: "transform 200ms ease",
+          transformOrigin: "9px 9px",
+          transform: isOpen ? "translateY(-4.5px) rotate(-45deg)" : "none",
+        }}
+      />
+    </svg>
+  );
+}
 
 export function TopBar({
   sessions,
@@ -25,11 +81,14 @@ export function TopBar({
   sessionName,
   windowName,
   isConnected,
+  sidebarOpen,
+  drawerOpen,
   onNavigate,
   onToggleSidebar,
   onToggleDrawer,
   onCreateSession,
   onCreateWindow,
+  onOpenCompose,
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
@@ -60,12 +119,14 @@ export function TopBar({
     [onNavigate],
   );
 
+  // Hamburger is "open" when sidebar is open on desktop OR drawer is open on mobile
+  const hamburgerOpen = sidebarOpen || drawerOpen;
+
   return (
     <header className="px-3 sm:px-6 border-b border-border">
-      {/* Line 1: Hamburger + Logo + Breadcrumbs + Connection + Cmd+K */}
       <div className="flex items-center justify-between py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
-          {/* Logo doubles as sidebar/drawer toggle */}
+          {/* Hamburger icon — toggles sidebar (desktop) / drawer (mobile) */}
           <button
             onClick={() => {
               if (window.innerWidth >= 768) {
@@ -75,39 +136,35 @@ export function TopBar({
               }
             }}
             aria-label="Toggle navigation"
-            className="hover:opacity-80 transition-opacity min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
+            className="text-text-secondary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
           >
-            <img src="/logo.svg" alt="RunKit" width={20} height={20} />
+            <HamburgerIcon isOpen={hamburgerOpen} />
           </button>
 
           {sessionName && (
-            <span className="flex items-center gap-1.5">
-              <BreadcrumbDropdown
-                items={sessionItems}
-                label="session"
-                icon={"\u276F"}
-                onNavigate={handleDropdownNavigate}
-                action={{ label: "+ New Session", onAction: onCreateSession }}
-              />
-              <span className="text-text-secondary hover:text-text-primary">
-                {sessionName}
-              </span>
-            </span>
+            <BreadcrumbDropdown
+              items={sessionItems}
+              label="session"
+              icon={sessionName}
+              onNavigate={handleDropdownNavigate}
+              action={{ label: "+ New Session", onAction: onCreateSession }}
+              triggerClassName="max-w-[7ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
+            />
+          )}
+
+          {sessionName && windowName && (
+            <span className="text-text-secondary select-none" aria-hidden="true">/</span>
           )}
 
           {windowName && (
-            <span className="flex items-center gap-1.5">
-              <BreadcrumbDropdown
-                items={windowItems}
-                label="window"
-                icon={"\u276F"}
-                onNavigate={handleDropdownNavigate}
-                action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
-              />
-              <span className="text-text-primary font-medium" aria-current="page">
-                {windowName}
-              </span>
-            </span>
+            <BreadcrumbDropdown
+              items={windowItems}
+              label="window"
+              icon={windowName}
+              onNavigate={handleDropdownNavigate}
+              action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
+              triggerClassName="text-text-primary font-medium hover:text-text-primary transition-colors text-sm"
+            />
           )}
         </nav>
 
@@ -116,17 +173,35 @@ export function TopBar({
           role="status"
           aria-live="polite"
         >
+          {/* Logo (decorative branding) — desktop only */}
+          <img
+            src="/logo.svg"
+            alt=""
+            aria-hidden="true"
+            width={16}
+            height={16}
+            className="hidden sm:block"
+          />
+          {/* "Run Kit" text — desktop only */}
+          <span className="hidden sm:inline text-xs text-text-secondary">Run Kit</span>
+
+          {/* Connection dot — no text label */}
           <span
-            className={`w-2 h-2 rounded-full ${
+            className={`hidden sm:block w-2 h-2 rounded-full ${
               isConnected ? "bg-accent-green" : "bg-text-secondary"
             }`}
-            aria-hidden="true"
+            aria-label={isConnected ? "Connected" : "Disconnected"}
           />
-          <span>{isConnected ? "live" : "disconnected"}</span>
-          <FixedWidthToggle />
+
+          <span className="hidden sm:flex">
+            <FixedWidthToggle />
+          </span>
+
           <kbd className="hidden sm:inline-flex px-1.5 py-0.5 rounded border border-border text-text-secondary">
             {"\u2318K"}
           </kbd>
+
+          {/* Command palette trigger — mobile */}
           <button
             type="button"
             onClick={() =>
@@ -137,9 +212,18 @@ export function TopBar({
           >
             {"\u22EF"}
           </button>
+
+          {/* Compose button — always visible */}
+          <button
+            type="button"
+            onClick={onOpenCompose}
+            aria-label="Compose text"
+            className="text-text-secondary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center border border-border rounded text-xs px-1.5 py-0.5"
+          >
+            &gt;_
+          </button>
         </div>
       </div>
-
     </header>
   );
 }

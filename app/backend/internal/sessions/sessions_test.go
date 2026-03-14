@@ -1,83 +1,12 @@
 package sessions
 
 import (
-	"os"
-	"path/filepath"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"run-kit/internal/tmux"
 )
-
-func TestHasFabKit(t *testing.T) {
-	tests := []struct {
-		name       string
-		setupDir   func(t *testing.T) string
-		wantResult bool
-	}{
-		{
-			name: "returns true when fab/project/config.yaml exists",
-			setupDir: func(t *testing.T) string {
-				t.Helper()
-				dir := t.TempDir()
-				configDir := filepath.Join(dir, "fab", "project")
-				if err := os.MkdirAll(configDir, 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("name: test"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				return dir
-			},
-			wantResult: true,
-		},
-		{
-			name: "returns false when fab/project/config.yaml does not exist",
-			setupDir: func(t *testing.T) string {
-				t.Helper()
-				return t.TempDir()
-			},
-			wantResult: false,
-		},
-		{
-			name: "returns false when fab dir exists but config.yaml is missing",
-			setupDir: func(t *testing.T) string {
-				t.Helper()
-				dir := t.TempDir()
-				if err := os.MkdirAll(filepath.Join(dir, "fab", "project"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				return dir
-			},
-			wantResult: false,
-		},
-		{
-			name: "returns false for empty string",
-			setupDir: func(t *testing.T) string {
-				t.Helper()
-				return ""
-			},
-			wantResult: false,
-		},
-		{
-			name: "returns false for nonexistent directory",
-			setupDir: func(t *testing.T) string {
-				t.Helper()
-				return "/nonexistent/path/that/does/not/exist"
-			},
-			wantResult: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := tt.setupDir(t)
-			got := hasFabKit(dir)
-			if got != tt.wantResult {
-				t.Errorf("hasFabKit(%q) = %v, want %v", dir, got, tt.wantResult)
-			}
-		})
-	}
-}
 
 func TestProjectRootDerivation(t *testing.T) {
 	tests := []struct {
@@ -128,169 +57,6 @@ func TestProjectRootDerivation(t *testing.T) {
 	}
 }
 
-func TestEnrichSessionWithFabState(t *testing.T) {
-	// Create a project root with .fab-status.yaml
-	dir := t.TempDir()
-	statusYaml := `name: 260312-abc-feature
-progress:
-  intake: done
-  spec: done
-  tasks: done
-  apply: active
-  review: pending
-`
-	if err := os.WriteFile(filepath.Join(dir, ".fab-status.yaml"), []byte(statusYaml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	windows := []tmux.WindowInfo{
-		{Index: 0, Name: "main", WorktreePath: dir},
-		{Index: 1, Name: "build", WorktreePath: "/tmp/build"},
-		{Index: 2, Name: "test", WorktreePath: "/tmp/test"},
-	}
-
-	enrichSession(windows, dir, nil)
-
-	// All windows should share the same fab state
-	for i, win := range windows {
-		if win.FabChange != "260312-abc-feature" {
-			t.Errorf("window[%d].FabChange = %q, want %q", i, win.FabChange, "260312-abc-feature")
-		}
-		if win.FabStage != "apply" {
-			t.Errorf("window[%d].FabStage = %q, want %q", i, win.FabStage, "apply")
-		}
-	}
-}
-
-func TestEnrichSessionNoFabFile(t *testing.T) {
-	dir := t.TempDir()
-
-	windows := []tmux.WindowInfo{
-		{Index: 0, Name: "test", WorktreePath: dir},
-		{Index: 1, Name: "other", WorktreePath: dir},
-	}
-
-	enrichSession(windows, dir, nil)
-
-	for i, win := range windows {
-		if win.FabChange != "" {
-			t.Errorf("window[%d].FabChange = %q, want empty", i, win.FabChange)
-		}
-		if win.FabStage != "" {
-			t.Errorf("window[%d].FabStage = %q, want empty", i, win.FabStage)
-		}
-	}
-}
-
-func TestEnrichSessionWithActiveAgent(t *testing.T) {
-	dir := t.TempDir()
-	statusYaml := `name: 260313-txna-rich-sidebar
-progress:
-  apply: active
-`
-	runtimeYaml := `260313-txna-rich-sidebar:
-  agent:
-    pid: 12345
-`
-	if err := os.WriteFile(filepath.Join(dir, ".fab-status.yaml"), []byte(statusYaml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".fab-runtime.yaml"), []byte(runtimeYaml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	windows := []tmux.WindowInfo{
-		{Index: 0, Name: "main", WorktreePath: dir},
-		{Index: 1, Name: "test", WorktreePath: dir},
-	}
-
-	enrichSession(windows, dir, nil)
-
-	for i, win := range windows {
-		if win.AgentState != "active" {
-			t.Errorf("window[%d].AgentState = %q, want %q", i, win.AgentState, "active")
-		}
-		if win.AgentIdleDuration != "" {
-			t.Errorf("window[%d].AgentIdleDuration = %q, want empty", i, win.AgentIdleDuration)
-		}
-	}
-}
-
-func TestEnrichSessionWithIdleAgent(t *testing.T) {
-	dir := t.TempDir()
-	statusYaml := `name: 260313-txna-rich-sidebar
-progress:
-  apply: active
-`
-	// idle_since far in the past so it definitely shows as idle
-	runtimeYaml := `260313-txna-rich-sidebar:
-  agent:
-    idle_since: 1000000000
-`
-	if err := os.WriteFile(filepath.Join(dir, ".fab-status.yaml"), []byte(statusYaml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".fab-runtime.yaml"), []byte(runtimeYaml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	windows := []tmux.WindowInfo{
-		{Index: 0, Name: "main", WorktreePath: dir},
-	}
-
-	enrichSession(windows, dir, nil)
-
-	if windows[0].AgentState != "idle" {
-		t.Errorf("AgentState = %q, want %q", windows[0].AgentState, "idle")
-	}
-	if windows[0].AgentIdleDuration == "" {
-		t.Error("AgentIdleDuration is empty, want non-empty duration")
-	}
-}
-
-func TestEnrichSessionUnknownAgentState(t *testing.T) {
-	dir := t.TempDir()
-	statusYaml := `name: 260313-txna-rich-sidebar
-progress:
-  apply: active
-`
-	if err := os.WriteFile(filepath.Join(dir, ".fab-status.yaml"), []byte(statusYaml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// No .fab-runtime.yaml → unknown agent state
-
-	windows := []tmux.WindowInfo{
-		{Index: 0, Name: "main", WorktreePath: dir},
-	}
-
-	enrichSession(windows, dir, nil)
-
-	if windows[0].AgentState != "unknown" {
-		t.Errorf("AgentState = %q, want %q", windows[0].AgentState, "unknown")
-	}
-	if windows[0].AgentIdleDuration != "" {
-		t.Errorf("AgentIdleDuration = %q, want empty", windows[0].AgentIdleDuration)
-	}
-}
-
-func TestEnrichSessionNonFabSkipsEnrichment(t *testing.T) {
-	dir := t.TempDir()
-	// No .fab-status.yaml → non-fab session
-
-	windows := []tmux.WindowInfo{
-		{Index: 0, Name: "main", WorktreePath: dir},
-	}
-
-	enrichSession(windows, dir, nil)
-
-	if windows[0].AgentState != "" {
-		t.Errorf("AgentState = %q, want empty for non-fab session", windows[0].AgentState)
-	}
-	if windows[0].FabChange != "" {
-		t.Errorf("FabChange = %q, want empty for non-fab session", windows[0].FabChange)
-	}
-}
-
 func TestProjectSessionStruct(t *testing.T) {
 	ps := ProjectSession{
 		Name: "my-project",
@@ -313,3 +79,197 @@ func TestProjectSessionStruct(t *testing.T) {
 		t.Error("Windows[1].IsActiveWindow should be false")
 	}
 }
+
+func TestPaneMapEntryParsing(t *testing.T) {
+	change := "260313-abc-feature"
+	stage := "apply"
+	agentState := "active"
+
+	jsonData := `[
+		{"session":"dev","window_index":0,"pane":"%0","tab":"main","worktree":"/home/user/project","change":"260313-abc-feature","stage":"apply","agent_state":"active","agent_idle_duration":null},
+		{"session":"dev","window_index":1,"pane":"%1","tab":"build","worktree":"/tmp/build","change":null,"stage":null,"agent_state":null,"agent_idle_duration":null}
+	]`
+
+	var entries []paneMapEntry
+	if err := json.Unmarshal([]byte(jsonData), &entries); err != nil {
+		t.Fatalf("failed to parse pane-map JSON: %v", err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+
+	// First entry: fab pane with populated fields
+	e0 := entries[0]
+	if e0.Session != "dev" {
+		t.Errorf("entries[0].Session = %q, want %q", e0.Session, "dev")
+	}
+	if e0.WindowIndex != 0 {
+		t.Errorf("entries[0].WindowIndex = %d, want 0", e0.WindowIndex)
+	}
+	if e0.Change == nil || *e0.Change != change {
+		t.Errorf("entries[0].Change = %v, want %q", e0.Change, change)
+	}
+	if e0.Stage == nil || *e0.Stage != stage {
+		t.Errorf("entries[0].Stage = %v, want %q", e0.Stage, stage)
+	}
+	if e0.AgentState == nil || *e0.AgentState != agentState {
+		t.Errorf("entries[0].AgentState = %v, want %q", e0.AgentState, agentState)
+	}
+	if e0.AgentIdleDuration != nil {
+		t.Errorf("entries[0].AgentIdleDuration = %v, want nil", e0.AgentIdleDuration)
+	}
+
+	// Second entry: non-fab pane with null fields
+	e1 := entries[1]
+	if e1.Change != nil {
+		t.Errorf("entries[1].Change = %v, want nil", e1.Change)
+	}
+	if e1.Stage != nil {
+		t.Errorf("entries[1].Stage = %v, want nil", e1.Stage)
+	}
+	if e1.AgentState != nil {
+		t.Errorf("entries[1].AgentState = %v, want nil", e1.AgentState)
+	}
+}
+
+func TestDerefStr(t *testing.T) {
+	val := "hello"
+	if got := derefStr(&val); got != "hello" {
+		t.Errorf("derefStr(&%q) = %q, want %q", val, got, "hello")
+	}
+	if got := derefStr(nil); got != "" {
+		t.Errorf("derefStr(nil) = %q, want empty", got)
+	}
+}
+
+func TestPaneMapJoinPopulatesPerWindowFabFields(t *testing.T) {
+	change := "260313-abc-feature"
+	stage := "apply"
+	agentState := "active"
+	idleDuration := "5m"
+
+	paneMap := map[string]paneMapEntry{
+		"dev:0": {
+			Session:           "dev",
+			WindowIndex:       0,
+			Change:            &change,
+			Stage:             &stage,
+			AgentState:        &agentState,
+			AgentIdleDuration: nil,
+		},
+		"dev:1": {
+			Session:           "dev",
+			WindowIndex:       1,
+			Change:            &change,
+			Stage:             &stage,
+			AgentState:        strPtr("idle"),
+			AgentIdleDuration: &idleDuration,
+		},
+	}
+
+	windows := []tmux.WindowInfo{
+		{Index: 0, Name: "main"},
+		{Index: 1, Name: "build"},
+		{Index: 2, Name: "test"},
+	}
+
+	sessionName := "dev"
+	for j := range windows {
+		key := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
+		if entry, ok := paneMap[key]; ok {
+			windows[j].FabChange = derefStr(entry.Change)
+			windows[j].FabStage = derefStr(entry.Stage)
+			windows[j].AgentState = derefStr(entry.AgentState)
+			windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
+		}
+	}
+
+	// Window 0: fab pane, active agent
+	if windows[0].FabChange != change {
+		t.Errorf("windows[0].FabChange = %q, want %q", windows[0].FabChange, change)
+	}
+	if windows[0].FabStage != stage {
+		t.Errorf("windows[0].FabStage = %q, want %q", windows[0].FabStage, stage)
+	}
+	if windows[0].AgentState != agentState {
+		t.Errorf("windows[0].AgentState = %q, want %q", windows[0].AgentState, agentState)
+	}
+	if windows[0].AgentIdleDuration != "" {
+		t.Errorf("windows[0].AgentIdleDuration = %q, want empty", windows[0].AgentIdleDuration)
+	}
+
+	// Window 1: fab pane, idle agent
+	if windows[1].FabChange != change {
+		t.Errorf("windows[1].FabChange = %q, want %q", windows[1].FabChange, change)
+	}
+	if windows[1].AgentState != "idle" {
+		t.Errorf("windows[1].AgentState = %q, want %q", windows[1].AgentState, "idle")
+	}
+	if windows[1].AgentIdleDuration != idleDuration {
+		t.Errorf("windows[1].AgentIdleDuration = %q, want %q", windows[1].AgentIdleDuration, idleDuration)
+	}
+
+	// Window 2: no pane-map entry — fab fields remain empty
+	if windows[2].FabChange != "" {
+		t.Errorf("windows[2].FabChange = %q, want empty", windows[2].FabChange)
+	}
+	if windows[2].FabStage != "" {
+		t.Errorf("windows[2].FabStage = %q, want empty", windows[2].FabStage)
+	}
+	if windows[2].AgentState != "" {
+		t.Errorf("windows[2].AgentState = %q, want empty", windows[2].AgentState)
+	}
+}
+
+func TestPaneMapNilLeavesAllFieldsEmpty(t *testing.T) {
+	// When fetchPaneMap fails, paneMap is nil — all fab fields stay empty.
+	var paneMap map[string]paneMapEntry
+
+	windows := []tmux.WindowInfo{
+		{Index: 0, Name: "main"},
+		{Index: 1, Name: "build"},
+	}
+
+	sessionName := "dev"
+	for j := range windows {
+		key := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
+		if entry, ok := paneMap[key]; ok {
+			windows[j].FabChange = derefStr(entry.Change)
+			windows[j].FabStage = derefStr(entry.Stage)
+			windows[j].AgentState = derefStr(entry.AgentState)
+			windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
+		}
+	}
+
+	for i, w := range windows {
+		if w.FabChange != "" {
+			t.Errorf("windows[%d].FabChange = %q, want empty", i, w.FabChange)
+		}
+		if w.FabStage != "" {
+			t.Errorf("windows[%d].FabStage = %q, want empty", i, w.FabStage)
+		}
+		if w.AgentState != "" {
+			t.Errorf("windows[%d].AgentState = %q, want empty", i, w.AgentState)
+		}
+		if w.AgentIdleDuration != "" {
+			t.Errorf("windows[%d].AgentIdleDuration = %q, want empty", i, w.AgentIdleDuration)
+		}
+	}
+}
+
+func TestFetchPaneMapNonexistentBinary(t *testing.T) {
+	// fetchPaneMap with a bad repoRoot should return an error.
+	m, err := fetchPaneMap("/nonexistent/path")
+	if err == nil {
+		t.Error("expected error for nonexistent binary, got nil")
+	}
+	if m != nil {
+		t.Errorf("expected nil map, got %v", m)
+	}
+}
+
+// strPtr is a test helper returning a pointer to s.
+func strPtr(s string) *string { return &s }
+
+

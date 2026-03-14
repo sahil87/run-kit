@@ -119,12 +119,12 @@ export function TerminalClient({
 
       // Clipboard addon — enriched clipboard support
       const { ClipboardAddon } = await import("@xterm/addon-clipboard");
-      if (cancelled) return void terminal.dispose();
+      if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
       terminal.loadAddon(new ClipboardAddon());
 
       // Clickable URLs
       const { WebLinksAddon } = await import("@xterm/addon-web-links");
-      if (cancelled) return void terminal.dispose();
+      if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
       terminal.loadAddon(new WebLinksAddon());
 
       // GPU-accelerated rendering (silent fallback to canvas)
@@ -134,7 +134,7 @@ export function TerminalClient({
       } catch {
         // canvas renderer continues working
       }
-      if (cancelled) return void terminal.dispose();
+      if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
 
       // Keyboard input → current WebSocket (wsRef always points to latest)
       terminal.onData((data) => {
@@ -160,8 +160,10 @@ export function TerminalClient({
       });
 
       resizeObserver = new ResizeObserver(() => {
+        if (cancelled) return;
         if (resizeRafId) cancelAnimationFrame(resizeRafId);
         resizeRafId = requestAnimationFrame(() => {
+          if (cancelled) return;
           resizeRafId = null;
           fitAddonRef.current?.fit();
           xtermRef.current?.scrollToBottom();
@@ -179,7 +181,7 @@ export function TerminalClient({
 
       // Guard against unmount during terminal setup (after imports returned)
       if (cancelled || !terminalRef.current) {
-        terminal.dispose();
+        try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ }
         return;
       }
 
@@ -200,7 +202,7 @@ export function TerminalClient({
       }
       xtermRef.current = null;
       fitAddonRef.current = null;
-      terminal?.dispose();
+      try { terminal?.dispose(); } catch { /* WebGL addon may throw during teardown */ }
       setTerminalReady(false);
     };
   }, [wsRef]);

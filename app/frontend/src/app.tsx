@@ -157,6 +157,24 @@ function AppShell() {
     setCurrentWindow(currentWindow);
   }, [currentSession, currentWindow, setCurrentSession, setCurrentWindow]);
 
+  // Redirect when the current session/window no longer exists (e.g. last window killed)
+  useEffect(() => {
+    if (!sessionName || !isConnected) return;
+    if (sessions.length > 0 && !currentSession) {
+      navigate({ to: "/", replace: true });
+    } else if (currentSession && windowIndex && !currentWindow) {
+      // Window gone but session still exists — go to active window
+      const fallback = currentSession.windows.find((w) => w.isActiveWindow) ?? currentSession.windows[0];
+      if (fallback) {
+        navigate({
+          to: "/$session/$window",
+          params: { session: currentSession.name, window: String(fallback.index) },
+          replace: true,
+        });
+      }
+    }
+  }, [sessionName, windowIndex, sessions, currentSession, currentWindow, isConnected, navigate]);
+
   // Active window sync: when SSE says isActiveWindow changed, update URL
   const activeWindow = useMemo(() => {
     if (!currentSession) return null;

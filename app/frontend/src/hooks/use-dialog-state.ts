@@ -42,11 +42,12 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete }: Use
     if (!sessionName || windowIndex == null) return;
     try {
       await killWindow(sessionName, windowIndex);
+      onKillComplete?.();
     } catch {
       // SSE will reflect
+    } finally {
+      setShowKillConfirm(false);
     }
-    setShowKillConfirm(false);
-    onKillComplete?.();
   }, [sessionName, windowIndex, onKillComplete]);
 
   return {

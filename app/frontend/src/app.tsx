@@ -140,7 +140,7 @@ function AppShell() {
   // Redirect when the current session/window no longer exists (e.g. window/session killed)
   useEffect(() => {
     if (!sessionName || !isConnected) return;
-    if ((sessions.length > 0 && !currentSession) || (currentSession && windowIndex && !currentWindow)) {
+    if (!currentSession || (currentSession && windowIndex && !currentWindow)) {
       navigate({ to: "/", replace: true });
     }
   }, [sessionName, windowIndex, sessions, currentSession, currentWindow, isConnected, navigate]);

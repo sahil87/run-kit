@@ -64,8 +64,7 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ {logo} ❯ run-kit ❯ zsh                   ● live  ⌘K          │  ← top bar (border-b)
-│ [+ Session] [Rename] [Kill]                          ● active   │  ← line 2
+│ ☰  run-kit / zsh          {logo} Run Kit ● ⇔ ⌘K  >_           │  ← top bar (border-b)
 ├────────────┬─────────────────────────────────────────────────────┤
 │ Sessions   │                                                     │
 │            │                                                     │
@@ -77,11 +76,11 @@ run-kit must be fully usable on a phone. This is a primary use case, not an afte
 │ ▼ ao-srv   │                                                     │
 │   main  ●  │                                                     │
 │            ├─────────────────────────────────────────────────────┤
-│            │ Esc Tab │ ^ ⌥ ⌘ │ Fn▾  ← → ↑ ↓  >_               │  ← bottom bar (border-t)
+│            │ Esc  Tab  │  ^  ⌥  │  F▴  ← → ↑ ↓                 │  ← bottom bar (border-t)
 └────────────┴─────────────────────────────────────────────────────┘
 ```
 
-Sidebar is drag-resizable (default 220px, min 160px, max 400px, persisted to localStorage). Collapsible via logo button or keyboard shortcut. When collapsed, only the terminal + chrome remain.
+Sidebar is drag-resizable (default 220px, min 160px, max 400px, persisted to localStorage). Collapsible via hamburger button or keyboard shortcut. When collapsed, only the terminal + chrome remain.
 
 The bottom bar is scoped to the terminal column — it does not extend under the sidebar. The sidebar fills the full height of the main area.
 
@@ -89,7 +88,7 @@ The bottom bar is scoped to the terminal column — it does not extend under the
 
 ```
 ┌──────────────────────────┐
-│ {logo} ❯ run-kit ❯ zsh [⋯]│  ← top bar (compact)
+│ ☰  run-kit / zsh     >_  │  ← top bar (compact)
 ├──────────────────────────┤
 │                          │
 │   Terminal (xterm.js)    │  ← full screen
@@ -97,11 +96,11 @@ The bottom bar is scoped to the terminal column — it does not extend under the
 │   $ cursor_              │
 │                          │
 ├──────────────────────────┤
-│ Ctrl Alt Fn▾ Esc Tab  ✎ │  ← bottom bar
+│ Esc  Tab │ ^  ⌥ │ F▴ ←→↑↓│  ← bottom bar
 └──────────────────────────┘
 ```
 
-Tap logo → drawer slides in from left:
+Tap hamburger → drawer slides in from left:
 
 ```
 ┌──────────────────────────┐
@@ -118,7 +117,7 @@ Tap logo → drawer slides in from left:
 │ │              │         │
 │ └──────────────┘         │
 ├──────────────────────────┤
-│ Ctrl Alt Fn▾ Esc Tab  ✎ │
+│ Esc  Tab │ ^  ⌥ │ F▴ ←→↑↓│
 └──────────────────────────┘
 ```
 
@@ -128,7 +127,7 @@ Tap a window → drawer closes → terminal connects to that session:window.
 
 ```
 h-screen flex flex-col
-  ├── top-chrome:  shrink-0  (2 lines, fixed height, border-b)
+  ├── top-chrome:  shrink-0  (1 line, fixed height, border-b)
   └── main-area:   flex-1 flex flex-row min-h-0
         ├── sidebar:   w-[var] shrink-0 overflow-y-auto (hidden on mobile, drag-resizable)
         └── terminal-col:  flex-1 min-w-0 flex flex-col
@@ -137,51 +136,49 @@ h-screen flex flex-col
                     └── bottom-bar:  shrink-0  (1 line, border-t, px-1.5, py-1.5)
 ```
 
-On mobile (`<768px`), sidebar is `display: none` by default. Drawer is a fixed overlay triggered by the logo button. Bottom bar spans full width on mobile (no sidebar).
+On mobile (`<768px`), sidebar is `display: none` by default. Drawer is a fixed overlay triggered by the hamburger button. Bottom bar spans full width on mobile (no sidebar).
 
 ### Principle: Chrome Must Be Architecturally Immovable
 
 The top bar is **owned by the root layout**. No component can change the chrome's structure, padding, or height. The bottom bar is owned by the terminal column — it tracks the terminal's width and sits below it, not below the sidebar.
 
-### Top Bar (2 lines)
+### Top Bar (1 line)
 
-**Line 1 — Breadcrumbs + Global Status**
-
-```
-{logo} ❯ run-kit ❯ zsh                            ● live  ⌘K
-```
-
-- `{logo}` — the RunKit hex logo, doubles as sidebar/drawer toggle (no separate hamburger)
-- `❯` — unified separator/dropdown trigger icon (replaces both `›` separators and `⬡` icon)
-- `run-kit` — **tappable**: opens dropdown of all sessions. Tap a different session → switch.
-- `zsh` — **tappable**: opens dropdown of windows in current session. Tap a different window → switch.
-- Right: Connection dot + "live"/"disconnected", `⌘K` kbd hint (desktop) / `⋯` (mobile)
-
-The breadcrumb dropdowns are the **primary quick-navigation** mechanism. They avoid opening the full sidebar/drawer for simple session or window switches.
-
-**Line 2 — Actions + Contextual Status**
-- Left: Action buttons ([+ Session], [Rename], [Kill]). `[+ Session]` is always visible (global action, not gated on current window).
-- Right: Status text (● active, fab: intake ◷, window count)
-- **MUST render even when empty** — fixed height placeholder, never collapses
-
-**Line 2 — Mobile collapse** (screens < 640px):
-
-Actions collapse into the command palette via `⋯`. Status stays visible.
+Single line with left-aligned navigation and right-aligned branding + controls.
 
 ```
 Desktop:
-┌─────────────────────────────────────────────────┐
-│ [Kill Window] [+ New Window]     ● active  ⌘K  │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ ☰  run-kit / zsh              {logo} Run Kit  ●  ⇔  ⌘K  >_    │
+└──────────────────────────────────────────────────────────────────┘
 
 Mobile:
-┌─────────────────────────────────────────────────┐
-│ ● active  fab: intake ◷                    [⋯] │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────┐
+│ ☰  run-kit / zsh         >_  │
+└──────────────────────────────┘
 ```
 
-Tapping `⋯` opens the command palette:
-- New Session, New Window, Kill Window, Kill Session, Send Keys, Search...
+**Left section — Navigation**
+
+- `☰` — hamburger icon, toggles sidebar (desktop) or drawer (mobile). Replaces logo as the toggle trigger.
+- `run-kit` — **tappable**: session name, opens dropdown of all sessions. Tap a different session → switch. **Max 7 characters** displayed (truncated with ellipsis via `max-w-[7ch]`).
+- `/` — separator between session and window (lighter than `❯`, no dropdown trigger role)
+- `zsh` — **tappable**: window name, opens dropdown of windows in current session. Tap a different window → switch.
+
+The breadcrumb dropdowns are the **primary quick-navigation** mechanism. They avoid opening the full sidebar/drawer for simple session or window switches. Dropdown triggers are the names themselves (not separator icons).
+
+**Right section — Branding + Controls**
+
+- `{logo}` — RunKit hex logo SVG (decorative, not a button)
+- `Run Kit` — product name text, `text-text-secondary`, `text-xs`
+- `●` — green/gray connection dot. No text label — the dot color alone signals live (green) or disconnected (gray)
+- `⇔` — fixed-width toggle (unchanged)
+- `⌘K` — command palette hint (desktop only, `hidden sm:inline-flex`)
+- `>_` — compose/terminal button (moved from bottom bar). Opens the compose buffer overlay.
+
+**Mobile right section**: Everything except `>_` is hidden. The compose button is the sole right-side element on mobile. Command palette remains accessible via `⌘K` on external keyboards or from the compose buffer / sidebar actions.
+
+> **Open question**: With `⋯` removed on mobile, the command palette loses its touch trigger. Options: (1) keep `⋯` alongside `>_` on mobile, (2) add a command palette action inside the compose buffer, (3) accept that mobile users use the sidebar + breadcrumb dropdowns for navigation and the compose buffer for input. Leaning toward option 3 — the palette was a catch-all, but sidebar + breadcrumbs + compose covers the key flows.
 
 ### Bottom Bar (Modifier Keys)
 
@@ -192,24 +189,26 @@ Tapping `⋯` opens the command palette:
 **Layout**: Single row of `<kbd>` styled buttons:
 
 ```
-Esc  Tab  │  Ctrl  Alt  Cmd  │  Fn▾  ← → ↑ ↓  ✎
+Esc  Tab  │  Ctrl  Alt  │  F▴  ← → ↑ ↓
 ```
 
-- Modifier toggles: `Ctrl`, `Alt`, `Cmd` — **sticky** with visual "armed" state (highlight color while active, e.g., `accent` bg or bright border). Click to arm, auto-clears after the next keypress is sent.
-- Arrow keys: `← → ↑ ↓` — compact group. Essential on mobile (no physical arrow keys). Command history (`↑`/`↓`), cursor movement (`←`/`→`).
-- Function keys: `Fn ▾` dropdown — F1–F12, PgUp, PgDn, Home, End (extended keys, rarely needed but grouped together)
-- Special: `Esc`, `Tab`
-- Compose: `✎` — opens local compose buffer (see below)
+- Special keys: `Esc`, `Tab` — direct send
+- Modifier toggles: `Ctrl`, `Alt` — **sticky** with visual "armed" state (highlight color while active, e.g., `accent` bg or bright border). Click to arm, auto-clears after the next keypress is sent. **`Cmd` removed** — on desktop users hold the real Cmd key; on mobile Cmd combos aren't used in terminal workflows
+- Function keys: `F ▴` dropdown — F1–F12, PgUp, PgDn, Home, End (extended keys, rarely needed but grouped together)
+- Arrow keys: `← → ↑ ↓` — compact group. Essential on mobile (no physical arrow keys). Command history (`↑`/`↓`), cursor movement (`←`/`→`)
+- **Compose button moved to top bar** — the `>_` / `✎` button now lives in the top bar's right section, freeing bottom bar space
+
+**Sizing**: With fewer buttons, each button gets larger touch targets: `min-h-[36px] min-w-[36px]` on desktop, `coarse:min-h-[44px] coarse:min-w-[36px]` on touch devices (up from 32px/28px). Proper Apple HIG 44px height on mobile.
 
 ### Compose Buffer
 
 **Problem**: xterm is a `<canvas>`, not a native text input. iOS dictation, autocorrect, paste, and long-form input all work poorly in a canvas. Add network latency (remote server) and character-by-character streaming becomes painful. You need a way to compose locally and send in a burst.
 
-**Solution**: A `✎ Compose` button on the bottom bar opens a native `<textarea>` overlay.
+**Solution**: A `>_` compose button in the **top bar** (rightmost item) opens a native `<textarea>` overlay.
 
 ```
 ┌──────────────────────────┐
-│ top chrome               │
+│ ☰ run-kit / zsh      >_  │  ← compose button in top bar
 ├──────────────────────────┤
 │ terminal output (dimmed) │
 │ ...                      │
@@ -220,7 +219,7 @@ Esc  Tab  │  Ctrl  Alt  Cmd  │  Fn▾  ← → ↑ ↓  ✎
 │ │              [Send]  │ │    multiline
 │ └──────────────────────┘ │
 ├──────────────────────────┤
-│ Ctrl  Alt  ✎  Fn▾  Esc  │
+│ Esc  Tab │ ^  ⌥ │ F▴ ←→↑↓│
 ├──────────────────────────┤
 │ iOS keyboard             │
 └──────────────────────────┘
@@ -244,13 +243,13 @@ Esc  Tab  │  Ctrl  Alt  Cmd  │  Fn▾  ← → ↑ ↓  ✎
 
 ```
 ┌──────────────────────────┐
-│ top chrome (2 lines)     │
+│ ☰ run-kit / zsh      >_  │  ← top chrome (1 line)
 ├──────────────────────────┤
 │ terminal output          │
 │ ...                      │
 │ $ cursor is here_        │  ← prompt stays visible
 ├──────────────────────────┤
-│ Ctrl  Alt  Fn▾  Esc Tab  │  ← modifier bar, pinned above keyboard
+│ Esc Tab │ ^ ⌥ │ F▴ ←→↑↓  │  ← modifier bar, pinned above keyboard
 ├──────────────────────────┤
 │ iOS on-screen keyboard   │
 └──────────────────────────┘
@@ -395,11 +394,11 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 | 8 | Mobile keyboard + modifier bar | Modifier bar pins above iOS keyboard. Terminal shrinks via `flex-1` + `FitAddon`. Prompt stays visible adjacent to modifier keys. Use `visualViewport` API for detection. |
 | 9 | Kill button (✕) | Always visible — no hover-reveal. Simpler, works on mobile and desktop equally. |
 | 10 | Mobile Line 2 | Actions collapse into command palette via `⋯` button. Status text stays visible. `⋯` replaces `⌘K` as command palette trigger on mobile. |
-| 11 | Bottom bar keys | `Esc Tab │ Ctrl Alt Cmd │ Fn▴ ← → ↑ ↓ >_`. Arrow keys essential for mobile. Fn dropdown includes F1-F12 + PgUp/PgDn/Home/End. |
-| 12 | Breadcrumb format | `{logo} ❯ run-kit ❯ zsh` — logo doubles as sidebar/drawer toggle (no separate hamburger). `❯` as unified separator/dropdown icon. Session and window names are tappable dropdown triggers. |
+| 11 | Bottom bar keys | `Esc Tab │ Ctrl Alt │ F▴ ← → ↑ ↓`. Cmd removed (unused in terminal workflows). Compose (`>_`) moved to top bar. Arrow keys essential for mobile. Fn dropdown includes F1-F12 + PgUp/PgDn/Home/End. Larger touch targets (44px) with freed space. |
+| 12 | Breadcrumb format | `☰ run-kit / zsh` — hamburger (`☰`) toggles sidebar/drawer. Session name max 7 chars (truncated). `/` separator (no dropdown role). Session and window names are tappable dropdown triggers. Logo moved to right side as branding. |
 | 13 | Sidebar width | Drag-resizable (default 220px, min 160px, max 400px), width persisted to localStorage. ~75% viewport as drawer on mobile. |
 | 14 | Sidebar ordering | Same as tmux output order (no resorting) |
-| 15 | Drawer trigger | Hamburger icon only — no swipe gesture |
+| 15 | Drawer trigger | Hamburger icon (`☰`) only — no swipe gesture. Hamburger is always the leftmost top bar element. |
 | 16 | Testing strategy | MSW-backed tests for UI behavior (drawer, breadcrumbs, sidebar, keyboard, touch targets, viewport). Thin E2E suite (3-5 tests) for API integration round-trips (create/kill session, SSE stream). |
 | 17 | Sidebar fab status | Inline on same line as window name, right-aligned. Stage name + icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows. |
 | 18 | Layout borders | `border-b` on top bar, `border-t` on bottom bar, `border-r` on sidebar. Clear visual separation between chrome regions and content. |
@@ -407,6 +406,13 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 | 20 | "+ New Session" location | Moved from sidebar footer to top bar line 2. Always visible (not gated on current window). Sidebar has no footer section. |
 | 21 | Bottom bar position | Inside the terminal's fixed-width inner container (not root layout). Shares the same `max-width` + centering as the terminal when fixed-width toggle is on. Width always matches terminal width. Sidebar extends full height of main area. |
 
+| 22 | Cmd modifier removed | Cmd toggle removed from bottom bar. On desktop, users hold the real Cmd key. On mobile, Cmd combos aren't used in terminal workflows. Armed modifier bridging code simplified (Alt prefix only). |
+| 23 | Compose button location | Moved from bottom bar to top bar right section (rightmost item). Visible on all viewports including mobile. Frees bottom bar space for larger touch targets. |
+| 24 | Top bar branding | RunKit logo + "Run Kit" text on right side of top bar (desktop). Connection indicator reduced to dot-only (no "live"/"disconnected" text). Mobile hides all right-side elements except compose button. |
+| 25 | Session name max width | Session name in breadcrumb truncated at 7 characters (`max-w-[7ch]` + text overflow ellipsis). Keeps top bar compact on narrow screens. |
+
 ## Open Design Questions
 
-None currently.
+| # | Question | Options | Leaning |
+|---|----------|---------|---------|
+| 1 | Mobile command palette access | With `⋯` removed on mobile, the command palette loses its touch trigger. (a) Keep `⋯` alongside `>_` on mobile, (b) Add palette action inside compose buffer, (c) Accept sidebar + breadcrumbs + compose covers key flows | Option (c) — palette was a catch-all; dedicated UI covers the important actions |

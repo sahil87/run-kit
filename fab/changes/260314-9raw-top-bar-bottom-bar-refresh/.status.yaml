@@ -1,0 +1,37 @@
+id: 9raw
+name: 260314-9raw-top-bar-bottom-bar-refresh
+created: 2026-03-14T14:30:10Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 8
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 88.2
+        reversibility: 88.6
+        competence: 88.2
+        disambiguation: 90.0
+stage_metrics:
+    intake: {started_at: "2026-03-14T14:30:10Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-03-14T14:31:40Z

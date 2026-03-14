@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-14T14:30:10Z"}
+{"args":"Top bar and bottom bar UI refresh: remove Cmd toggle, move compose to top bar, restructure breadcrumbs, add branding","cmd":"fab-new","event":"command","ts":"2026-03-14T14:30:10Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-14T14:31:20Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-14T14:31:36Z"}

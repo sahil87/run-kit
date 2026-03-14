@@ -1,41 +1,45 @@
 #!/usr/bin/env bash
-# run-kit supervisor: build, run, and auto-restart on crash or .restart-requested signal.
-# Usage: ./scripts/supervisor.sh [--port PORT]
+# run-kit supervisor: build, run, and auto-restart on .restart-requested signal.
+# Crash recovery as safety net.
 set -euo pipefail
 
-# Parse --port flag (overrides RUN_KIT_PORT)
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --port) export RUN_KIT_PORT="$2"; shift 2 ;;
-    *) shift ;;
-  esac
-done
-
-POLL=2
+POLL=5
 SIGNAL=".restart-requested"
+BINARY="bin/run-kit"
 pid=""
+inode=""
+
+binary_inode() { stat -f %i "$BINARY" 2>/dev/null; }
 
 trap 'echo "[sup] Shutting down..."; kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; exit 0' SIGINT SIGTERM
 
-run() {
-  just build
+start() {
   ./scripts/prod.sh &
   pid=$!
+  inode=$(binary_inode)
   echo "[sup] Started (PID $pid)"
 }
 
-rm -f "$SIGNAL"
-run
+just build
+start
 
 while true; do
   if [[ -f "$SIGNAL" ]]; then
     echo "[sup] Restart signal detected."
     rm -f "$SIGNAL"
-    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true
-    run
+    just build
+    if [[ "$(binary_inode)" != "$inode" ]]; then
+      echo "[sup] Binary changed — restarting..."
+      kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true
+      start
+    else
+      echo "[sup] Build unchanged — skipping restart."
+    fi
   elif ! kill -0 "$pid" 2>/dev/null; then
-    echo "[sup] Process died — restarting..."
-    run
+    echo "[sup] Process died — restarting in 10s..."
+    sleep 10
+    just build
+    start
   fi
   sleep "$POLL"
 done

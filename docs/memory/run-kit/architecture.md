@@ -8,10 +8,10 @@ run-kit is a web-based agent orchestration dashboard. Two independent processes 
 2. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port
 
 In development, `just dev` runs two concurrent processes:
-- Vite dev server (`:RUN_KIT_PORT`, default 3000) — HMR, proxies `/api/*` and `/relay/*` to Go backend
-- Go backend (`:RUN_KIT_PORT+1`, default 3001) — API, WebSocket relay, SPA static serving
+- Vite dev server (`:RK_PORT`, default 3000) — HMR, proxies `/api/*` and `/relay/*` to Go backend
+- Go backend (`:RK_PORT+1`, default 3001) — API, WebSocket relay, SPA static serving
 
-Configuration via env vars: `.env` (committed) defines `RUN_KIT_PORT` and `RUN_KIT_HOST`, `.env.local` (gitignored) for overrides. Scripts (`dev.sh`, `prod.sh`) translate user-facing `RUN_KIT_*` into process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Go and Vite read only `BACKEND_*` vars. All entry points accept `--port` for ad-hoc overrides.
+Configuration via env vars: `.env` (committed) defines `RK_PORT` and `RK_HOST`, `.env.local` (gitignored) for overrides. Scripts (`dev.sh`, `prod.sh`) translate user-facing `RK_*` into process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Go and Vite read only `BACKEND_*` vars. `dev.sh` accepts `--port` for ad-hoc overrides.
 
 The tmux server is an external dependency — never started or stopped by run-kit.
 
@@ -122,7 +122,7 @@ Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, ma
 
 ## Supervisor
 
-Thin bash script (~30 lines). Delegates build to `just build` and run to `scripts/prod.sh`. Accepts `--port` flag (overrides `RUN_KIT_PORT`). Polling loop checks for `.restart-requested` file.
+Thin bash script (~30 lines). Delegates build to `just build` and run to `scripts/prod.sh`. Polling loop checks for `.restart-requested` file.
 
 On signal detection: kill server → rebuild via `just build` → restart via `prod.sh`.
 Signal trapping: SIGINT/SIGTERM → kill server → clean exit.
@@ -177,7 +177,7 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
 - **Independent panes per browser client** — no cursor fights, agent pane untouched. The relay pty follows byobu window switches natively (runs `tmux attach-session`)
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
-- **Config via env vars (not YAML)** — `.env` committed with defaults, `.env.local` for overrides, loaded via `.envrc` (direnv). Scripts translate `RUN_KIT_*` → `BACKEND_*`/`FRONTEND_*`. Go reads only `BACKEND_PORT`/`BACKEND_HOST`. No relay port — single port serves everything
+- **Config via env vars (not YAML)** — `.env` committed with defaults, `.env.local` for overrides, loaded via `.envrc` (direnv). Scripts translate `RK_*` → `BACKEND_*`/`FRONTEND_*`. Go reads only `BACKEND_PORT`/`BACKEND_HOST`. No relay port — single port serves everything
 - **Byobu session-group filtering** — `ListSessions()` filters out derived session-group copies to avoid duplicate projects. See `docs/memory/run-kit/tmux-sessions.md`
 - **Derived chrome (not slot injection)** — Single-view model means only one chrome state (terminal-focused). Top bar and bottom bar derive content from the current session:window selection. No `setLine2Left`/`setLine2Right`/`setBottomBar` setters. Split React Context preserved for performance (state vs dispatch).
 - **Layout-level SessionProvider (not per-page SSE)** — Single `EventSource` connection at layout level. Eliminates redundant connections and per-page `isConnected` forwarding boilerplate.
@@ -252,6 +252,6 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-12 | **Cleanup old implementation** — removed legacy backend and frontend directories, `e2e/`, root `playwright.config.ts`. Updated `pnpm-workspace.yaml` to `["app/frontend"]`. Removed legacy test sections and stale path references from memory. | `260312-n11e-cleanup-old-implementation` |
 | 2026-03-12 | **UI chrome layout refinements** — bottom bar moved inside terminal column (width tracks terminal, not viewport). Sidebar drag-resizable (default 220px, min 160, max 400, localStorage persist). Top bar `border-b`, bottom bar `border-t`. Breadcrumbs simplified to `☰ {logo} ❯ session ❯ window`. `[+ Session]` button added to top bar line 2. | `260312-y4ci-ui-chrome-layout-refinements` |
 | 2026-03-13 | **Rich sidebar window status** — Backend: `internal/tmux` adds `PaneCommand` + `ActivityTimestamp` to `WindowInfo` via 6-field tmux format string. New `internal/fab/runtime.go` reads `.fab-runtime.yaml` for agent idle state. `internal/sessions` enriches with runtime state (cached per project root via `sync.Map`). Frontend: sidebar window rows gain activity dot ring, idle duration, info popover. Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Shared helpers in `lib/format.ts`. | `260313-txna-rich-sidebar-window-status` |
-| 2026-03-13 | **Env var config** — replaced `run-kit.yaml` with `.env`/`.env.local` (direnv). Two-tier env vars: user-facing `RUN_KIT_PORT`/`RUN_KIT_HOST` translated by scripts to process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Dev mode: Vite on `RUN_KIT_PORT`, Go on `PORT+1`. Prod: Go on `RUN_KIT_PORT`. All entry points accept `--port`. Removed CLI flag parsing and YAML config from Go. Supervisor slimmed to ~30 lines. | — |
+| 2026-03-13 | **Env var config** — replaced `run-kit.yaml` with `.env`/`.env.local` (direnv). Two-tier env vars: user-facing `RK_PORT`/`RK_HOST` translated by scripts to process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Dev mode: Vite on `RK_PORT`, Go on `PORT+1`. Prod: Go on `RK_PORT`. All entry points accept `--port`. Removed CLI flag parsing and YAML config from Go. Supervisor slimmed to ~30 lines. | — |
 | 2026-03-13 | **Removed single-key shortcuts** — deleted `useKeyboardNav` (j/k/Enter sidebar nav), `useAppShortcuts` (c/r/Esc Esc), sidebar `focusedIndex` prop and focus ring styling. Cmd+K is now the sole keyboard shortcut. Palette actions no longer display shortcut hints. | `260313-3brm-remove-single-key-shortcuts` |
 | 2026-03-14 | **Pane-map enrichment** — replaced per-session `.fab-status.yaml` + `.fab-runtime.yaml` file reading with single `fab-go pane-map --json --all-sessions` subprocess call. Per-window fab state (change, stage, agent state, idle duration) instead of per-session. Deleted `internal/fab/` package (4 files). `internal/sessions` simplified: removed `enrichSession()`, `hasFabKit()`, `runtimeCache sync.Map`. New `fetchPaneMap(repoRoot)` + map join. | `260313-3vlx-pane-map-enrichment` |

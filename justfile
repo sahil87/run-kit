@@ -9,7 +9,12 @@ set dotenv-load := false
 dev *args:
     ./scripts/dev.sh {{args}}
 
-# ─── Build & Prod ───────────────────────────────────────────────────
+# ─── Setup & Build & Prod ────────────────────────────────────────────────────
+
+# Copy default config files for local development
+setup:
+    [ -f .env.local ] || cp .env .env.local
+    [ -f Caddyfile ] || cp Caddyfile.example Caddyfile
 
 # Build Go binary + frontend for production
 build:
@@ -17,10 +22,10 @@ build:
     cd app/backend && go build -o ../../bin/run-kit ./cmd/run-kit
     cd app/frontend && pnpm build
 
-# Build and run production binary (just prod --port 4000)
-prod *args:
+# Build and run production binary
+prod:
     just build
-    ./scripts/prod.sh {{args}}
+    ./scripts/prod.sh
 
 # ─── Test ────────────────────────────────────────────────────
 
@@ -50,17 +55,16 @@ verify: check test build
 
 # ─── Daemon ──────────────────────────────────────────────
 
-# Run supervisor in background tmux session (just bg --port 4000)
-bg *args:
-    tmux new-session -d -s runK './scripts/supervisor.sh {{args}}'
-
-# Attach to supervisor session
-logs:
-    tmux attach-session -t runK
+# Run supervisor in background tmux session
+up:
+    tmux new-session -d -s rk './scripts/supervisor.sh'
 
 # Stop supervisor
 down:
-    tmux kill-session -t runK 2>/dev/null || true
+    tmux kill-session -t rk 2>/dev/null || true
+
+restart:
+    touch .restart-requested
 
 # ─── HTTPS ───────────────────────────────────────────────────
 

@@ -22,3 +22,6 @@ Parallel (no dependencies on 1–5):
 - [ ] 2026-03-03: Add vitest tests for tmux session-group filtering — `listSessions()` must filter byobu-created derived sessions (e.g. `devshell-82` in group `devshell`) while keeping primaries and standalone sessions. Test cases: (1) standalone session (grouped=0) kept, (2) primary group member (name=group) kept, (3) derived copy (name≠group) filtered, (4) multiple groups with multiple copies, (5) empty/no sessions. Requires vitest framework setup first. See `docs/memory/run-kit/tmux-sessions.md`
 - [x] [qeuz] 2026-03-03: ~~while typing an input - is there a way to overcome the latency? Make user input super smooth~~ → `[fjh1]` compose buffer
 - [x] [bj8j] 2026-03-03: ~~can reserve the bottom bar for input - Ctrl, Alt, Cmd, Fn keys etc~~ → `[fjh1]` bottom bar
+- [ ] [oibl] 2026-03-14: unable to scroll terminal on mobile
+- [ ] [4hef] 2026-03-14: tapping on modifiers from bottom bar collapses the keyboard
+- [ ] [wq7h] 2026-03-14: get ssl

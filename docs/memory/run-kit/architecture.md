@@ -56,7 +56,7 @@ Packages in `app/backend/internal/`:
 
 | Package | Responsibility |
 |---------|---------------|
-| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields, plus `AgentState`/`AgentIdleDuration` (populated by pane-map enrichment in sessions package) |
+| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). `CreateSession()` uses `byobu new-session` when byobu is on PATH (detected once via `sync.OnceValue`), otherwise falls back to `tmux new-session`. `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields, plus `AgentState`/`AgentIdleDuration` (populated by pane-map enrichment in sessions package) |
 | `internal/sessions` | Fetches windows for all sessions in parallel, then enriches with fab state via a single `fab-go pane-map --json --all-sessions` subprocess call. Per-window enrichment model: pane-map returns per-pane fab state, joined to windows by `session:windowIndex` key. `paneMapEntry` struct uses `*string` for nullable JSON fields (change, stage, agent_state, agent_idle_duration). `fetchPaneMap(repoRoot)` runs `fab-go` with 10s timeout. Graceful degradation: if pane-map fails, all windows get empty fab fields |
 | `internal/validate` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
 | `internal/config` | Server config (port, host) — reads `BACKEND_PORT` and `BACKEND_HOST` env vars with defaults (3000, 127.0.0.1) |
@@ -112,13 +112,13 @@ No multiplexed `action` field — each mutation is a separate function with its 
 WebSocket endpoint at `/relay/{session}/{window}` on the same port as the API — no separate relay port. Uses `gorilla/websocket` for WebSocket handling and `creack/pty` for PTY allocation. Implementation in `app/backend/api/relay.go`.
 
 Per connection:
-1. Creates independent pane via `tmux split-window` (agent pane 0 untouched)
-2. Spawns `tmux attach-session -t <paneId>` via `creack/pty` for real terminal I/O
+1. Validates session exists via `ListWindows` and selects the target window — returns WebSocket close code `4004` if session or window not found
+2. Spawns `tmux attach-session -t <session>` via `creack/pty` for real terminal I/O
 3. Relays I/O between WebSocket and pty (goroutine for pty→WS, main loop for WS→pty)
 4. Handles resize messages (JSON `{"type":"resize","cols":N,"rows":N}`) via `pty.Setsize`
 5. On disconnect: kills pty + pane via `sync.Once` cleanup (no orphaned panes)
 
-Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, max 30s) on unexpected close. Shows `[reconnecting...]` in terminal. Re-sends resize on successful reconnect. Skips reconnect on component unmount. Terminal page connects via `ws://${location.host}/relay/{session}/{window}` — same host, no config needed.
+Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, max 30s) on unexpected close. Shows `[reconnecting...]` in terminal. Re-sends resize on successful reconnect. Skips reconnect on component unmount. On close code `4004` (session/window not found): shows `[session not found]` and navigates to `/` instead of reconnecting. Terminal page connects via `ws://${location.host}/relay/{session}/{window}` — same host, no config needed.
 
 ## Supervisor
 
@@ -254,4 +254,6 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-13 | **Rich sidebar window status** — Backend: `internal/tmux` adds `PaneCommand` + `ActivityTimestamp` to `WindowInfo` via 6-field tmux format string. New `internal/fab/runtime.go` reads `.fab-runtime.yaml` for agent idle state. `internal/sessions` enriches with runtime state (cached per project root via `sync.Map`). Frontend: sidebar window rows gain activity dot ring, idle duration, info popover. Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Shared helpers in `lib/format.ts`. | `260313-txna-rich-sidebar-window-status` |
 | 2026-03-13 | **Env var config** — replaced `run-kit.yaml` with `.env`/`.env.local` (direnv). Two-tier env vars: user-facing `RK_PORT`/`RK_HOST` translated by scripts to process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Dev mode: Vite on `RK_PORT`, Go on `PORT+1`. Prod: Go on `RK_PORT`. All entry points accept `--port`. Removed CLI flag parsing and YAML config from Go. Supervisor slimmed to ~30 lines. | — |
 | 2026-03-13 | **Removed single-key shortcuts** — deleted `useKeyboardNav` (j/k/Enter sidebar nav), `useAppShortcuts` (c/r/Esc Esc), sidebar `focusedIndex` prop and focus ring styling. Cmd+K is now the sole keyboard shortcut. Palette actions no longer display shortcut hints. | `260313-3brm-remove-single-key-shortcuts` |
+| 2026-03-14 | **Relay session validation** — relay handler validates session/window exist before attaching PTY. Returns WebSocket close code `4004` for missing session or window (distinct from `4001` PTY failure). Frontend handles `4004` by navigating to `/` instead of reconnecting. Prevents infinite reconnect loops when navigating to a non-existent tmux session. | — |
 | 2026-03-14 | **Pane-map enrichment** — replaced per-session `.fab-status.yaml` + `.fab-runtime.yaml` file reading with single `fab-go pane-map --json --all-sessions` subprocess call. Per-window fab state (change, stage, agent state, idle duration) instead of per-session. Deleted `internal/fab/` package (4 files). `internal/sessions` simplified: removed `enrichSession()`, `hasFabKit()`, `runtimeCache sync.Map`. New `fetchPaneMap(repoRoot)` + map join. | `260313-3vlx-pane-map-enrichment` |
+| 2026-03-14 | **Byobu session creation** — `CreateSession()` detects byobu on PATH via `sync.OnceValue` + `exec.LookPath`, uses `byobu new-session` when available so sessions get the byobu status bar and keybindings. Falls back to raw `tmux new-session` when byobu is not installed. | — |

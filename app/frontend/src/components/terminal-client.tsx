@@ -9,6 +9,7 @@ type TerminalClientProps = {
   wsRef: React.MutableRefObject<WebSocket | null>;
   composeOpen: boolean;
   setComposeOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  onSessionNotFound?: () => void;
 };
 
 export function TerminalClient({
@@ -17,6 +18,7 @@ export function TerminalClient({
   wsRef,
   composeOpen,
   setComposeOpen,
+  onSessionNotFound,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
@@ -250,8 +252,14 @@ export function TerminalClient({
         else terminal.write(new Uint8Array(event.data));
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (cancelled) return;
+        // 4004 = session or window not found — redirect instead of reconnecting
+        if (event.code === 4004) {
+          terminal.write("\r\n\x1b[91m[session not found]\x1b[0m\r\n");
+          onSessionNotFound?.();
+          return;
+        }
         terminal.write("\r\n\x1b[90m[reconnecting...]\x1b[0m\r\n");
         reconnectTimer = setTimeout(() => {
           reconnectTimer = null;

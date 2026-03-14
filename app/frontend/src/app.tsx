@@ -333,6 +333,7 @@ function AppShell() {
                   wsRef={wsRef}
                   composeOpen={composeOpen}
                   setComposeOpen={setComposeOpen}
+                  onSessionNotFound={() => navigate({ to: "/", replace: true })}
                 />
               </div>
             ) : (

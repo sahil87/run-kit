@@ -5,7 +5,7 @@
 | Route | View | Component Pattern |
 |-------|------|-------------------|
 | `/:session/:window` | Single view (sidebar + terminal) | Layout component (SSE via `useSessions()` context) |
-| `/` | Redirect | Redirects to first session's first window (`/:session/0`) |
+| `/` | Redirect | Redirects to first session's first window (`/:session/0`). Also the target for relay `4004` (session not found) — shows "No sessions" or auto-redirects to first available session |
 
 Single-view model: sidebar shows session/window tree, terminal is always the main content area. No page transitions. When no sessions exist, sidebar shows "No sessions" with a `+ New Session` button and the terminal area shows a placeholder.
 

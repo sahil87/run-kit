@@ -43,11 +43,11 @@ Grouped sessions share the same windows, so displaying both is incorrect — it 
 ## Impact on Other Operations
 
 - `listWindows(session)` — works correctly with primary session name
-- `createSession(name)` — no group involvement, creates standalone
+- `createSession(name)` — uses `byobu new-session` when byobu is on PATH (detected once via `sync.OnceValue`), otherwise falls back to `tmux new-session`. Byobu-created sessions get the byobu status bar and keybindings; they also create session groups automatically
 - `killSession(session)` — kills only the named session; other group members survive but become orphaned (byobu cleans these up on disconnect)
 - `sendKeys(session, window, keys)` — targets the correct window regardless of group membership
 
 ## Related Files
 
-- `src/lib/tmux.ts` — `listSessions()` implements the filter
-- `src/lib/sessions.ts` — calls `listSessions()` to build the dashboard view
+- `app/backend/internal/tmux/tmux.go` — `ListSessions()` implements the filter, `CreateSession()` uses byobu when available
+- `app/backend/internal/sessions/sessions.go` — calls `ListSessions()` to build the dashboard view

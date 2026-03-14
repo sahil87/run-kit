@@ -69,11 +69,18 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Select the target window so attach-session shows the right content
+	// Verify the session exists and select the target window
+	windows, err := s.tmux.ListWindows(session)
+	if err != nil || windows == nil {
+		slog.Warn("session not found", "session", session)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4004, "Session not found"))
+		return
+	}
 	if err := s.tmux.SelectWindow(session, winIdx); err != nil {
 		slog.Error("select-window failed", "err", err, "session", session, "window", windowIndex)
 		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4001, "Failed to select tmux window"))
+			websocket.FormatCloseMessage(4004, "Window not found"))
 		return
 	}
 

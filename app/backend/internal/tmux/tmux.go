@@ -6,8 +6,15 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+// hasByobu reports whether the byobu command is available on PATH.
+var hasByobu = sync.OnceValue(func() bool {
+	_, err := exec.LookPath("byobu")
+	return err == nil
+})
 
 const (
 	// TmuxTimeout is the default timeout for tmux commands.
@@ -173,6 +180,7 @@ func ListWindows(session string) ([]WindowInfo, error) {
 }
 
 // CreateSession creates a new detached tmux session, optionally in a specific directory.
+// Uses byobu when available so sessions get the byobu status bar and keybindings.
 func CreateSession(name string, cwd string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -180,6 +188,12 @@ func CreateSession(name string, cwd string) error {
 	args := []string{"new-session", "-d", "-s", name}
 	if cwd != "" {
 		args = append(args, "-c", cwd)
+	}
+
+	if hasByobu() {
+		cmd := exec.CommandContext(ctx, "byobu", args...)
+		_, err := cmd.Output()
+		return err
 	}
 	_, err := tmuxExec(ctx, args...)
 	return err

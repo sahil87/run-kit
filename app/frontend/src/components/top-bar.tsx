@@ -62,10 +62,10 @@ export function TopBar({
 
   return (
     <header className="px-3 sm:px-6 border-b border-border">
-      {/* Line 1: Hamburger + Logo + Breadcrumbs + Connection + Cmd+K */}
+      {/* Line 1: Hamburger + Breadcrumbs + Connection + Cmd+K */}
       <div className="flex items-center justify-between py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
-          {/* Logo doubles as sidebar/drawer toggle */}
+          {/* Hamburger icon — sidebar/drawer toggle */}
           <button
             onClick={() => {
               if (window.innerWidth >= 768) {
@@ -75,7 +75,7 @@ export function TopBar({
               }
             }}
             aria-label="Toggle navigation"
-            className="hover:opacity-80 transition-opacity min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
+            className="text-text-secondary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
           >
             <svg
               width="20"

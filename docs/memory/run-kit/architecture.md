@@ -138,7 +138,7 @@ In development, Vite handles SPA fallback natively. In production, Go's catch-al
 
 The root layout (`app/frontend/src/app.tsx`) owns a fixed chrome skeleton (height: `var(--app-height, 100vh)`) with three zones:
 
-1. **Top chrome** (`shrink-0, border-b border-border`) — `TopBarChrome`, always-rendered two-line top bar
+1. **Top chrome** (`shrink-0, border-b border-border`) — `TopBarChrome`, always-rendered single-line top bar
 2. **Main area** (`flex-1 flex flex-row min-h-0`) — sidebar + terminal column side by side
    - **Sidebar** (drag-resizable, default 220px, min 160, max 400, `shrink-0 overflow-y-auto`, hidden on mobile < 768px) — session/window tree. Width persisted to `localStorage` key `runkit-sidebar-width`. Full height of main area (top bar to viewport bottom)
    - **Terminal column** (`flex-1 min-w-0 flex flex-col`) — contains terminal + bottom bar

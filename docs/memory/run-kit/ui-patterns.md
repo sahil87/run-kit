@@ -47,9 +47,9 @@ Connection indicator: green/gray dot with "live"/"disconnected" label, driven by
 
 `app/frontend/src/components/sidebar.tsx` — session/window tree navigation.
 
-**Desktop** (>= 768px): Drag-resizable panel, default 220px width. Width persisted to `localStorage` key `runkit-sidebar-width`. Constraints: min 160px, max 400px. Drag handle (4-6px) on right edge with `col-resize` cursor, supports mouse and touch events. Collapsible via logo button in top bar.
+**Desktop** (>= 768px): Drag-resizable panel, default 220px width. Width persisted to `localStorage` key `runkit-sidebar-width`. Constraints: min 160px, max 400px. Drag handle (4-6px) on right edge with `col-resize` cursor, supports mouse and touch events. Collapsible via hamburger button in top bar.
 
-**Mobile** (< 768px): Hidden by default. Logo button opens a drawer overlay from the left, dimming the terminal. Selecting a window closes the drawer. Drag-resize does not apply to mobile drawer.
+**Mobile** (< 768px): Hidden by default. Hamburger button opens a drawer overlay from the left, dimming the terminal. Selecting a window closes the drawer. Drag-resize does not apply to mobile drawer.
 
 **Padding**: `px-3 sm:px-6` (matches top bar and bottom bar chrome padding).
 

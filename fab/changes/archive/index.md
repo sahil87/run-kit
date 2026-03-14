@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260313-zvgc-remove-top-bar-line-2** — Remove top bar line 2
 - **260313-dr60-xterm-clipboard-addons** — Enabled xterm.js clipboard copy (Cmd+C with selection check), activated web-links and WebGL addons, and added clipboard addon for OSC 52 support.
 - **260313-3brm-remove-single-key-shortcuts** — Removed single-key keyboard shortcuts (j/k/c/r) and Esc Esc drawer toggle that conflicted with xterm.js terminal input, along with the sidebar focus ring that only existed for j/k navigation.
 - **260313-txna-rich-sidebar-window-status** — Enrich sidebar window rows with activity duration, agent state indicators, and an info popover for fab change/process/worktree details — plus top bar Line 2 detail.

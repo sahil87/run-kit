@@ -42,7 +42,7 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
         style={{
           transition: "transform 200ms ease",
           transformOrigin: "9px 9px",
-          transform: isOpen ? "translateY(4.5px) rotate(45deg)" : "none",
+          transform: isOpen ? "rotate(45deg) translateY(4.5px)" : "none",
         }}
       />
       {/* Middle line: fades/scales out when open */}
@@ -67,7 +67,7 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
         style={{
           transition: "transform 200ms ease",
           transformOrigin: "9px 9px",
-          transform: isOpen ? "translateY(-4.5px) rotate(-45deg)" : "none",
+          transform: isOpen ? "rotate(-45deg) translateY(-4.5px)" : "none",
         }}
       />
     </svg>
@@ -125,7 +125,7 @@ export function TopBar({
   const hamburgerOpen = isDesktop ? sidebarOpen : drawerOpen;
 
   return (
-    <header className="px-3 sm:px-6 border-b border-border">
+    <header className="px-3 sm:px-6 border-b-2 border-border">
       <div className="flex items-center justify-between py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
           {/* Hamburger icon — toggles sidebar (desktop) / drawer (mobile) */}
@@ -175,22 +175,29 @@ export function TopBar({
         </nav>
 
         <div className="flex items-center gap-3 text-xs text-text-secondary">
-          {/* Logo (decorative branding) — desktop only */}
-          <img
-            src="/logo.svg"
-            alt=""
-            aria-hidden="true"
-            width={16}
-            height={16}
-            className="hidden sm:block"
-          />
-          {/* "Run Kit" text — desktop only */}
-          <span className="hidden sm:inline text-xs text-text-secondary">Run Kit</span>
+          {/* Logo + "Run Kit" — links to dashboard */}
+          <a href="/" className="flex items-center gap-3 text-text-secondary hover:text-text-primary transition-colors">
+            <img
+              src="/logo.svg"
+              alt="Run Kit"
+              width={20}
+              height={20}
+              className="hidden sm:block"
+            />
+            <img
+              src="/logo.svg"
+              alt="Run Kit"
+              width={30}
+              height={30}
+              className="sm:hidden"
+            />
+            <span className="hidden sm:inline text-xs">Run Kit</span>
+          </a>
 
           {/* Connection dot — live region scoped to non-interactive status indicator */}
-          <span role="status" aria-live="polite">
+          <span role="status" aria-live="polite" className="hidden sm:inline">
             <span
-              className={`hidden sm:block w-2 h-2 rounded-full ${
+              className={`block w-2 h-2 rounded-full ${
                 isConnected ? "bg-accent-green" : "bg-text-secondary"
               }`}
               aria-label={isConnected ? "Connected" : "Disconnected"}
@@ -205,24 +212,14 @@ export function TopBar({
             {"\u2318K"}
           </kbd>
 
-          {/* Command palette trigger — mobile */}
-          <button
-            type="button"
-            onClick={() =>
-              document.dispatchEvent(new CustomEvent("palette:open"))
-            }
-            aria-label="Open command palette"
-            className="sm:hidden text-text-secondary hover:text-text-primary transition-colors min-w-[36px] min-h-[36px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center border border-border rounded"
-          >
-            {"\u22EF"}
-          </button>
+
 
           {/* Compose button — always visible */}
           <button
             type="button"
             onClick={onOpenCompose}
             aria-label="Compose text"
-            className="text-text-secondary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center border border-border rounded text-xs px-1.5 py-0.5"
+            className="text-text-primary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] sm:min-w-[24px] sm:min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center border border-border rounded text-xs"
           >
             &gt;_
           </button>

@@ -287,7 +287,7 @@ export function TerminalClient({
   }, [terminalReady, sessionName, wsRef]);
 
   return (
-    <>
+    <div className="relative flex-1 min-h-0 flex flex-col">
       <div
         ref={terminalRef}
         role="application"
@@ -311,6 +311,6 @@ export function TerminalClient({
           onUploadFiles={handleUploadFiles}
         />
       )}
-    </>
+    </div>
   );
 }

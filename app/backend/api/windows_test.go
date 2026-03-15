@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"run-kit/internal/tmux"
 )
 
 func TestWindowCreate(t *testing.T) {
@@ -30,6 +32,29 @@ func TestWindowCreate(t *testing.T) {
 	}
 	if ops.createWindowName != "feature" {
 		t.Errorf("name = %q, want %q", ops.createWindowName, "feature")
+	}
+}
+
+func TestWindowCreateDefaultCwdFromFirstWindow(t *testing.T) {
+	ops := &mockTmuxOps{
+		listWindowsResult: []tmux.WindowInfo{
+			{Index: 0, Name: "main", WorktreePath: "/home/user/project"},
+			{Index: 1, Name: "tests", WorktreePath: "/home/user/other"},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"new-win"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusCreated)
+	}
+	if ops.createWindowCwd != "/home/user/project" {
+		t.Errorf("cwd = %q, want %q", ops.createWindowCwd, "/home/user/project")
 	}
 }
 

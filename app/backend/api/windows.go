@@ -44,6 +44,11 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resolvedCwd = expanded
+	} else {
+		// Default to the cwd of the first window in the session.
+		if windows, err := s.tmux.ListWindows(session); err == nil && len(windows) > 0 {
+			resolvedCwd = windows[0].WorktreePath
+		}
 	}
 
 	if err := s.tmux.CreateWindow(session, body.Name, resolvedCwd); err != nil {

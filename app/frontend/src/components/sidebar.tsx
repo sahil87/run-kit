@@ -68,7 +68,7 @@ export function Sidebar({
 
   return (
     <nav aria-label="Sessions" className="flex flex-col h-full py-2">
-      <div className="flex-1 overflow-y-auto px-3 sm:px-6">
+      <div className="flex-1 overflow-y-auto px-3 sm:px-4">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
             <span>No sessions</span>

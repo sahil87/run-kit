@@ -208,9 +208,14 @@ export function TopBar({
             <FixedWidthToggle />
           </span>
 
-          <kbd className="hidden sm:inline-flex px-1.5 py-0.5 rounded border border-border text-text-secondary">
+          <button
+            type="button"
+            onClick={() => document.dispatchEvent(new CustomEvent("palette:open"))}
+            aria-label="Open command palette"
+            className="hidden sm:inline-flex min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors items-center justify-center text-xs cursor-pointer"
+          >
             {"\u2318K"}
-          </kbd>
+          </button>
 
 
 
@@ -238,7 +243,7 @@ function FixedWidthToggle() {
       onClick={toggleFixedWidth}
       aria-label="Toggle fixed terminal width"
       aria-pressed={fixedWidth}
-      className={`px-1.5 py-0.5 rounded border transition-colors coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center ${
+      className={`min-w-[24px] min-h-[24px] rounded border transition-colors coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center ${
         fixedWidth
           ? "border-accent text-accent bg-accent/10"
           : "border-border text-text-secondary hover:border-text-secondary"

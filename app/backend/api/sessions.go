@@ -55,6 +55,34 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
 }
 
+func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if errMsg := validate.ValidateName(body.Name, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	if err := s.tmux.RenameSession(session, body.Name); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (s *Server) handleSessionKill(w http.ResponseWriter, r *http.Request) {
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {

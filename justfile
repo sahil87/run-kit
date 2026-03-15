@@ -40,9 +40,9 @@ test-backend:
 test-frontend:
     cd app/frontend && pnpm test
 
-# Run Playwright e2e tests
+# Run Playwright e2e tests (port 3020 to avoid colliding with dev server on 3000/3001)
 test-e2e:
-    cd app/frontend && pnpm exec playwright test
+    cd app/frontend && RK_PORT=3020 pnpm exec playwright test
 
 # ─── Quality ─────────────────────────────────────────────────
 

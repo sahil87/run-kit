@@ -23,6 +23,7 @@ type SessionFetcher interface {
 type TmuxOps interface {
 	CreateSession(name, cwd string) error
 	KillSession(session string) error
+	RenameSession(session, name string) error
 	CreateWindow(session, name, cwd string) error
 	KillWindow(session string, index int) error
 	RenameWindow(session string, index int, name string) error
@@ -64,6 +65,9 @@ func (p *prodTmuxOps) CreateSession(name, cwd string) error {
 }
 func (p *prodTmuxOps) KillSession(session string) error {
 	return tmux.KillSession(session)
+}
+func (p *prodTmuxOps) RenameSession(session, name string) error {
+	return tmux.RenameSession(session, name)
 }
 func (p *prodTmuxOps) CreateWindow(session, name, cwd string) error {
 	return tmux.CreateWindow(session, name, cwd)
@@ -130,6 +134,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/sessions", s.handleSessionsList)
 	r.Post("/api/sessions", s.handleSessionCreate)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)
+	r.Post("/api/sessions/{session}/rename", s.handleSessionRename)
 	r.Post("/api/sessions/{session}/windows", s.handleWindowCreate)
 	r.Post("/api/sessions/{session}/windows/{index}/kill", s.handleWindowKill)
 	r.Post("/api/sessions/{session}/windows/{index}/rename", s.handleWindowRename)

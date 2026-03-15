@@ -173,7 +173,7 @@ The breadcrumb dropdowns are the **primary quick-navigation** mechanism. They av
 - `Run Kit` — product name text, `text-text-secondary`, `text-xs`
 - `●` — green/gray connection dot. No text label — the dot color alone signals live (green) or disconnected (gray)
 - `⇔` — fixed-width toggle (unchanged)
-- `⌘K` — command palette hint (desktop only, `hidden sm:inline-flex`)
+- `⌘K` — command palette trigger (desktop only, `hidden sm:inline-flex`). Clickable — dispatches `palette:open` event.
 - `>_` — compose/terminal button (moved from bottom bar). Opens the compose buffer overlay.
 
 **Mobile right section**: Everything except `>_` is hidden. The compose button is the sole right-side element on mobile. Command palette remains accessible via `⌘K` on external keyboards or from the compose buffer / sidebar actions.
@@ -301,8 +301,8 @@ The sidebar replaces the old Dashboard and Project pages. It shows all sessions 
 **Session row**: Session name (left, collapsible), + new window (right), ✕ kill (right, always visible).
 
 **Window row**: Single line, three zones:
-- Left: Activity dot (● = active, dim/absent = idle) + window name
-- Right: Fab stage + progress icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows.
+- Left: Activity dot (● green = active, dim gray = idle) + window name. No ring on the dot — the left border accent is sufficient to indicate the selected window.
+- Right: Fab stage + progress icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows. Kill `✕` button (hover-reveal on desktop, always visible on mobile/touch).
 - Currently selected window gets `bg-accent/10` highlight + `border-accent` left border + `font-medium`
 - Tap → switches terminal to that session:window
 
@@ -392,7 +392,7 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 | 6 | Terminal max-width | No max-width on terminal — it fills all space right of sidebar. Top bar spans full width; bottom bar spans terminal width. |
 | 7 | Fn dropdown behavior | Closes after each selection — one key per open |
 | 8 | Mobile keyboard + modifier bar | Modifier bar pins above iOS keyboard. Terminal shrinks via `flex-1` + `FitAddon`. Prompt stays visible adjacent to modifier keys. Use `visualViewport` API for detection. |
-| 9 | Kill button (✕) | Always visible — no hover-reveal. Simpler, works on mobile and desktop equally. |
+| 9 | Kill button (✕) | Session kill: always visible. Window kill: hover-reveal on desktop, always visible on mobile (`coarse:opacity-100`). Both use the same confirmation dialog. Window kill calls `killWindow` API. |
 | 10 | Mobile Line 2 | Actions collapse into command palette via `⋯` button. Status text stays visible. `⋯` replaces `⌘K` as command palette trigger on mobile. |
 | 11 | Bottom bar keys | `Esc Tab │ Ctrl Alt │ F▴ ← → ↑ ↓`. Cmd removed (unused in terminal workflows). Compose (`>_`) moved to top bar. Arrow keys essential for mobile. Fn dropdown includes F1-F12 + PgUp/PgDn/Home/End. Larger touch targets (44px) with freed space. |
 | 12 | Breadcrumb format | `☰ run-kit / zsh` — hamburger (`☰`) toggles sidebar/drawer. Session name max 7 chars (truncated). `/` separator (no dropdown role). Session and window names are tappable dropdown triggers. Logo moved to right side as branding. |
@@ -410,6 +410,8 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 | 23 | Compose button location | Moved from bottom bar to top bar right section (rightmost item). Visible on all viewports including mobile. Frees bottom bar space for larger touch targets. |
 | 24 | Top bar branding | RunKit logo + "Run Kit" text on right side of top bar (desktop). Connection indicator reduced to dot-only (no "live"/"disconnected" text). Mobile hides all right-side elements except compose button. |
 | 25 | Session name max width | Session name in breadcrumb truncated at 7 characters (`max-w-[7ch]` + text overflow ellipsis). Keeps top bar compact on narrow screens. |
+| 26 | Top bar button sizing | FixedWidthToggle, ⌘K, and compose (`>_`) all use `min-w-[24px] min-h-[24px]` on desktop, matching bottom bar button proportions. Consistent visual weight across all chrome controls. |
+| 27 | Window info popover removed | Replaced the info `ⓘ` button + popover on window rows with a direct kill `✕` button. Reduces interaction complexity — window metadata (path, process, state) is available in the dashboard cards instead. |
 
 ## Open Design Questions
 

@@ -186,11 +186,22 @@ function AppShell() {
     sessionName,
     windowIndex: currentWindow?.index,
     onKillComplete: () => navigate({ to: "/", replace: true }),
+    onSessionRenamed: (newName) => {
+      if (windowIndex) {
+        navigate({
+          to: "/$session/$window",
+          params: { session: newName, window: windowIndex },
+          replace: true,
+        });
+      } else {
+        navigate({ to: "/", replace: true });
+      }
+    },
   });
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
   dialogOpenRef.current =
-    dialogs.showCreateDialog || dialogs.showRenameDialog || dialogs.showKillConfirm;
+    dialogs.showCreateDialog || dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -221,13 +232,37 @@ function AppShell() {
         label: "Create new session",
         onSelect: dialogs.openCreateDialog,
       },
-      ...(currentWindow
+      ...(sessionName
         ? [
             {
-              id: "kill-window",
-              label: "Kill current window",
-              onSelect: dialogs.openKillConfirm,
+              id: "rename-session",
+              label: "Rename current session",
+              onSelect: () => {
+                if (sessionName) {
+                  dialogs.openRenameSessionDialog(sessionName);
+                }
+              },
             },
+            {
+              id: "kill-session",
+              label: "Kill current session",
+              onSelect: dialogs.openKillSessionConfirm,
+            },
+          ]
+        : []),
+      ...(sessionName
+        ? [
+            {
+              id: "create-window",
+              label: "Create new window",
+              onSelect: () => {
+                if (sessionName) handleCreateWindow(sessionName);
+              },
+            },
+          ]
+        : []),
+      ...(currentWindow
+        ? [
             {
               id: "rename-window",
               label: "Rename current window",
@@ -237,20 +272,20 @@ function AppShell() {
                 }
               },
             },
+            {
+              id: "kill-window",
+              label: "Kill current window",
+              onSelect: dialogs.openKillConfirm,
+            },
           ]
         : []),
-      {
-        id: "upload-file",
-        label: "Upload file",
-        onSelect: () => fileInputRef.current?.click(),
-      },
       ...flatWindows.map((fw) => ({
         id: `terminal-${fw.session}-${fw.window.index}`,
         label: `Terminal: ${fw.session}/${fw.window.name}`,
         onSelect: () => navigateToWindow(fw.session, fw.window.index),
       })),
     ],
-    [currentWindow, flatWindows, navigateToWindow, dialogs],
+    [sessionName, currentWindow, flatWindows, navigateToWindow, handleCreateWindow, dialogs],
   );
 
   const displayName = currentWindow?.name ?? windowIndex ?? "";
@@ -398,6 +433,28 @@ function AppShell() {
         </Dialog>
       )}
 
+      {dialogs.showRenameSessionDialog && (
+        <Dialog title="Rename session" onClose={dialogs.closeRenameSessionDialog}>
+          <input
+            autoFocus
+            type="text"
+            value={dialogs.renameSessionName}
+            onChange={(e) => dialogs.setRenameSessionName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && dialogs.handleRenameSession()}
+            onFocus={(e) => e.target.select()}
+            aria-label="Session name"
+            placeholder="Session name..."
+            className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+          />
+          <button
+            onClick={dialogs.handleRenameSession}
+            className="mt-3 w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+          >
+            Rename
+          </button>
+        </Dialog>
+      )}
+
       {dialogs.showKillConfirm && (
         <Dialog title="Kill window?" onClose={dialogs.closeKillConfirm}>
           <p className="text-sm text-text-secondary mb-3">
@@ -412,6 +469,28 @@ function AppShell() {
             </button>
             <button
               onClick={dialogs.handleKillWindow}
+              className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+            >
+              Kill
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {dialogs.showKillSessionConfirm && (
+        <Dialog title="Kill session?" onClose={dialogs.closeKillSessionConfirm}>
+          <p className="text-sm text-text-secondary mb-3">
+            Kill session <strong>{displaySession}</strong> and all its windows? This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={dialogs.closeKillSessionConfirm}
+              className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={dialogs.handleKillSession}
               className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
             >
               Kill

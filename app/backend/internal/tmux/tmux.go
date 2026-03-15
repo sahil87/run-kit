@@ -227,6 +227,15 @@ func KillWindow(session string, index int) error {
 	return err
 }
 
+// RenameSession renames a tmux session.
+func RenameSession(session, name string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	_, err := tmuxExec(ctx, "rename-session", "-t", session, name)
+	return err
+}
+
 // RenameWindow renames a window by session and index.
 func RenameWindow(session string, index int, name string) error {
 	ctx, cancel := withTimeout()

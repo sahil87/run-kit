@@ -21,6 +21,12 @@ test.describe("API Integration", () => {
     } catch {
       // Best effort
     }
+    // Clean up the session created by the test
+    try {
+      execSync("tmux kill-session -t e2e-new-session", { stdio: "ignore" });
+    } catch {
+      // Best effort
+    }
   });
 
   test("create session via sidebar, verify it appears, then kill it", async ({
@@ -28,35 +34,38 @@ test.describe("API Integration", () => {
   }) => {
     await page.goto("/");
 
-    // Wait for the app to load with SSE data
-    await page.waitForSelector("nav[aria-label='Sessions']", { timeout: 10_000 });
+    // Wait for SSE to connect and dashboard to populate
+    await expect(
+      page.locator("[aria-label='Connected']"),
+    ).toBeVisible({ timeout: 10_000 });
 
-    // Click "+ New Session" button
-    await page.click("text=+ New Session");
+    // Click "+ New Session" button on the dashboard
+    await page.click("button:has-text('+ New Session')");
 
     // Fill in session name
     const nameInput = page.locator("input[aria-label='Session name']");
     await nameInput.fill("e2e-new-session");
 
-    // Click Create
+    // Click Create (enabled once name is filled)
     await page.click("button:has-text('Create')");
 
-    // Verify session appears in sidebar via SSE
+    // Verify session appears in the sidebar via SSE
+    const sidebar = page.locator("nav[aria-label='Sessions']");
     await expect(
-      page.locator("text=e2e-new-session"),
+      sidebar.locator(`text=e2e-new-session`).first(),
     ).toBeVisible({ timeout: 5_000 });
 
     // Kill the session
-    await page.click(
-      `button[aria-label='Kill session e2e-new-session']`,
-    );
+    await sidebar.locator(
+      "button[aria-label='Kill session e2e-new-session']",
+    ).click();
 
     // Confirm kill
     await page.click("button:has-text('Kill')");
 
-    // Verify session is removed
+    // Verify session is removed from sidebar (use Navigate button as unique anchor)
     await expect(
-      page.locator("text=e2e-new-session"),
+      sidebar.getByRole("button", { name: "Navigate to e2e-new-session" }),
     ).not.toBeVisible({ timeout: 5_000 });
   });
 });

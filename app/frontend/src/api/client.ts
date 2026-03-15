@@ -29,6 +29,22 @@ export async function createSession(
   return res.json();
 }
 
+export async function renameSession(
+  session: string,
+  name: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    `/api/sessions/${encodeURIComponent(session)}/rename`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function killSession(session: string): Promise<{ ok: boolean }> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(session)}/kill`, {
     method: "POST",

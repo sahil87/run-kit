@@ -143,30 +143,34 @@ export function TopBar({
             <HamburgerIcon isOpen={hamburgerOpen} />
           </button>
 
-          {sessionName && (
-            <BreadcrumbDropdown
-              items={sessionItems}
-              label="session"
-              icon={sessionName}
-              onNavigate={handleDropdownNavigate}
-              action={{ label: "+ New Session", onAction: onCreateSession }}
-              triggerClassName="max-w-[7ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
-            />
-          )}
+          {sessionName ? (
+            <>
+              <BreadcrumbDropdown
+                items={sessionItems}
+                label="session"
+                icon={sessionName}
+                onNavigate={handleDropdownNavigate}
+                action={{ label: "+ New Session", onAction: onCreateSession }}
+                triggerClassName="max-w-[7ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
+              />
 
-          {sessionName && windowName && (
-            <span className="text-text-secondary select-none" aria-hidden="true">/</span>
-          )}
+              {windowName && (
+                <span className="text-text-secondary select-none" aria-hidden="true">/</span>
+              )}
 
-          {windowName && (
-            <BreadcrumbDropdown
-              items={windowItems}
-              label="window"
-              icon={windowName}
-              onNavigate={handleDropdownNavigate}
-              action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
-              triggerClassName="text-text-primary font-medium hover:text-text-primary transition-colors text-sm"
-            />
+              {windowName && (
+                <BreadcrumbDropdown
+                  items={windowItems}
+                  label="window"
+                  icon={windowName}
+                  onNavigate={handleDropdownNavigate}
+                  action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
+                  triggerClassName="text-text-primary font-medium hover:text-text-primary transition-colors text-sm"
+                />
+              )}
+            </>
+          ) : (
+            <span className="text-text-primary font-medium ml-1.5">Dashboard</span>
           )}
         </nav>
 

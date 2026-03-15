@@ -4,10 +4,31 @@
 
 | Route | View | Component Pattern |
 |-------|------|-------------------|
-| `/:session/:window` | Single view (sidebar + terminal) | Layout component (SSE via `useSessions()` context) |
-| `/` | Redirect | Redirects to first session's first window (`/:session/0`). Also the target for relay `4004` (session not found) — shows "No sessions" or auto-redirects to first available session |
+| `/:session/:window` | Terminal (sidebar + terminal + bottom bar) | Layout component (SSE via `useSessions()` context) |
+| `/` | Dashboard | Renders `Dashboard` component in the terminal area. Shows session/window overview with expandable cards. Also the target for relay `4004` (session not found) and all kill redirects |
 
-Single-view model: sidebar shows session/window tree, terminal is always the main content area. No page transitions. When no sessions exist, sidebar shows "No sessions" with a `+ New Session` button and the terminal area shows a placeholder.
+Two-tier URL model: `/` is the Dashboard (session/window overview), `/:session/:window` is the terminal view. No intermediate `/:session` route. Sidebar shows session/window tree on both views. When no sessions exist, sidebar shows "No sessions" with a `+ New Session` button and the Dashboard shows a "New Session" card.
+
+## Dashboard
+
+`app/frontend/src/components/dashboard.tsx` — renders in the terminal area when no `/:session/:window` params are present (the `{sessionName && windowIndex ? <TerminalClient/> : <Dashboard/>}` branch in `app.tsx`).
+
+**Stats line**: Top of the Dashboard — `"{N} sessions, {M} windows"` (`text-sm text-text-secondary`). Counts derived from the existing `sessions` array.
+
+**Session cards grid**: `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3`. Each card is `bg-bg-card border border-border rounded`.
+
+**Session card header**: Button that toggles inline expansion. Shows session name (`text-text-primary font-medium text-sm`), window count, and activity summary (`{N} active, {M} idle`). Chevron indicator (▶ collapsed, ▼ expanded). Multiple sessions may be expanded simultaneously.
+
+**Window cards** (inside expanded session): Each window card is a button (`bg-bg-primary border border-border rounded`) that navigates to `/:session/:window` on click. Shows:
+- Window name (primary text) + fab stage badge (`bg-accent/10 text-accent`) when present
+- Running process (`paneCommand`), activity dot (green = active, dim = idle) with label + idle duration
+- Fab change ID + slug when present
+
+**New Window button**: Inside each expanded session card, dashed border button calling `createWindow` API.
+
+**New Session button**: Always-visible dashed border card in the grid, opens the existing create session dialog.
+
+**Touch targets**: Session card headers and window cards use `coarse:min-h-[44px]`.
 
 ## Chrome (Top Bar)
 
@@ -15,7 +36,9 @@ The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derive
 
 **Line 1** (fixed height, `border-b border-border`): hamburger toggle + name breadcrumbs + branding + controls. Single-line top bar — no Line 2.
 
-**Left section**: `☰ session / window` — hamburger icon (three SVG lines, animates to X via CSS `transition-transform` when sidebar/drawer is open) + session name (dropdown trigger, `max-w-[7ch] truncate`) + `/` plain text separator + window name (dropdown trigger). Syncs with tmux active window via SSE.
+**Dashboard route** (`/`): Hamburger toggle + "Dashboard" text label (`text-text-primary font-medium`). No session or window breadcrumb segments rendered (no session/window is selected). Connection indicator, FixedWidthToggle, and `⌘K`/`⋯` render as normal.
+
+**Terminal route** (`/:session/:window`): `☰ session / window` — hamburger icon (three SVG lines, animates to X via CSS `transition-transform` when sidebar/drawer is open) + session name (dropdown trigger, `max-w-[7ch] truncate`) + `/` plain text separator + window name (dropdown trigger). Syncs with tmux active window via SSE.
 
 - Hamburger icon (`☰`) — replaces logo as sidebar/drawer toggle. Animates to `✕` (X) when `sidebarOpen` (desktop >= 768px) or `drawerOpen` (mobile < 768px) is true
 - `/` — plain text separator between session and window names (replaces `❯` U+276F). Not a click target
@@ -63,7 +86,7 @@ Connection indicator: green/gray dot only (no text label), driven by `isConnecte
 
 **Padding**: `px-3 sm:px-6` (matches top bar and bottom bar chrome padding).
 
-**Session rows**: Session name (left, collapsible via triangle/chevron), ✕ kill button (right, always visible). Click session name to expand/collapse windows.
+**Session rows**: Chevron toggle (left, expands/collapses window list), session name (navigates to first window in session via `onSelectWindow(session, 0)`), + new window button (right), ✕ kill button (right, always visible). Click session name navigates to `/:session/0`; click chevron toggles expand/collapse.
 
 **Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
 
@@ -85,9 +108,9 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 
 **No footer** — session creation accessible via breadcrumb dropdown `+ New Session` action and sidebar empty state button.
 
-## Bottom Bar (Always Visible, Inside Terminal Column)
+## Bottom Bar (Terminal Pages Only, Inside Terminal Column)
 
-Single row of `<kbd>` styled buttons, always visible (terminal is always the main content). Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt | Fn▴ ArrowPad`. Compose button (`>_`) moved to top bar right section.
+Single row of `<kbd>` styled buttons, rendered only on terminal pages (`/:session/:window`). Hidden on the Dashboard route (`/`) — there is no terminal to send keys to. Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt | Fn▴ ArrowPad`. Compose button (`>_`) moved to top bar right section.
 
 **Modifier toggles** (Ctrl, Alt): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously. Cmd (`⌘`) removed — on desktop users hold the real Cmd key; on mobile Cmd combos aren't used in terminal workflows.
 
@@ -246,3 +269,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-13 | Removed single-key shortcuts — deleted `useKeyboardNav` (j/k/Enter), `useAppShortcuts` (c/r/Esc Esc), sidebar focus ring (`focusedIndex`). Cmd+K command palette is now the sole keyboard shortcut. Palette actions no longer show shortcut hints for create/rename | `260313-3brm-remove-single-key-shortcuts` |
 | 2026-03-13 | Remove top bar Line 2 — deleted action bar (+ Session, Rename, Kill, window status). FixedWidthToggle relocated to Line 1 (between connection indicator and ⌘K). BreadcrumbDropdown gains `action` prop for `+ New Session`/`+ New Window` as first dropdown item with divider. Sidebar empty state shows `+ New Session` button. Top bar is now single-line on all viewports | `260313-zvgc-remove-top-bar-line-2` |
 | 2026-03-14 | Top bar & bottom bar refresh — hamburger icon replaces logo as sidebar toggle (animates ☰→✕), `/` separator replaces `❯`, session/window names are dropdown triggers (max 7ch session name). Top bar right: logo (decorative) + "Run Kit" + green dot (no text) + toggle + ⌘K + >_ compose. Mobile right: ⋯ + >_. Bottom bar: removed Cmd modifier and compose button, button sizes increased to 36px desktop / 44px touch | `260314-9raw-top-bar-bottom-bar-refresh` |
+| 2026-03-15 | Dashboard view — `/` renders Dashboard component (session cards grid with expandable window cards, stats line, New Session/New Window buttons) instead of redirecting. Top bar shows "Dashboard" text on `/`, no breadcrumbs. Bottom bar hidden on Dashboard. Sidebar session name click navigates to first window (chevron toggles expand/collapse). All kill operations redirect to `/`. Stale URL detection redirects to `/` | `260313-ll1j-dashboard-project-page-views` |

@@ -69,6 +69,21 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
 describe("TopBar", () => {
   afterEach(cleanup);
 
+  it("shows Dashboard text when no session is selected", () => {
+    renderTopBar({ sessionName: "", windowName: "", currentSession: null, currentWindow: null });
+    expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    // Should not show session/window breadcrumbs
+    expect(screen.queryByText("run-kit")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Switch session")).not.toBeInTheDocument();
+  });
+
+  it("shows breadcrumbs when session is selected (not Dashboard)", () => {
+    renderTopBar();
+    expect(screen.getByText("run-kit")).toBeInTheDocument();
+    expect(screen.getByText("main")).toBeInTheDocument();
+    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
+  });
+
   it("renders breadcrumb with session and window names", () => {
     renderTopBar();
     expect(screen.getByText("run-kit")).toBeInTheDocument();

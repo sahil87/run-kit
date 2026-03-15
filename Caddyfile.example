@@ -10,5 +10,6 @@
 }
 
 {$RK_HTTPS_HOST:localhost}:{$RK_HTTPS_PORT:3443} {
+	tls keys/{$RK_HTTPS_HOST:localhost}.crt keys/{$RK_HTTPS_HOST:localhost}.key
 	reverse_proxy localhost:{$RK_PORT:3000}
 }

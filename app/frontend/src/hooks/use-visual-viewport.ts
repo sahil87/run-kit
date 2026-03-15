@@ -2,8 +2,16 @@ import { useEffect } from "react";
 
 export function useVisualViewport() {
   useEffect(() => {
+    // Activate fullbleed — enables position:fixed, overflow:hidden on html/body/.app-shell
+    // Applied unconditionally so it works even when visualViewport is unavailable.
+    document.documentElement.classList.add("fullbleed");
+
     const vv = window.visualViewport;
-    if (!vv) return;
+    if (!vv) {
+      return () => {
+        document.documentElement.classList.remove("fullbleed");
+      };
+    }
 
     let rafId: number | null = null;
     let lastHeight = 0;
@@ -26,9 +34,6 @@ export function useVisualViewport() {
       if (rafId) return;
       rafId = requestAnimationFrame(apply);
     }
-
-    // Activate fullbleed — enables position:fixed, overflow:hidden on html/body/.app-shell
-    document.documentElement.classList.add("fullbleed");
 
     // Initial sync
     lastHeight = vv.height;

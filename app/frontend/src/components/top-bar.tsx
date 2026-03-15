@@ -243,7 +243,7 @@ function FixedWidthToggle() {
           ? "border-accent text-accent bg-accent/10"
           : "border-border text-text-secondary hover:border-text-secondary"
       }`}
-      title={fixedWidth ? "Full width" : "Fixed width (965px)"}
+      title={fixedWidth ? "Full width" : "Fixed width (900px)"}
     >
       <svg
         width="14"

@@ -315,7 +315,7 @@ function AppShell() {
         <div className={`flex-1 min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-[#0a0c12]" : ""}`}>
           <div
             className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
-            style={fixedWidth ? { maxWidth: 965, width: "100%", marginInline: "auto" } : undefined}
+            style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
           >
             {sessionName && windowIndex ? (
               <>

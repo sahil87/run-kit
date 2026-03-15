@@ -27,6 +27,9 @@ export function useVisualViewport() {
       rafId = requestAnimationFrame(apply);
     }
 
+    // Activate fullbleed — enables position:fixed, overflow:hidden on html/body/.app-shell
+    document.documentElement.classList.add("fullbleed");
+
     // Initial sync
     lastHeight = vv.height;
     lastOffsetTop = vv.offsetTop;
@@ -40,6 +43,7 @@ export function useVisualViewport() {
       vv.removeEventListener("resize", onViewportChange);
       vv.removeEventListener("scroll", onViewportChange);
       if (rafId) cancelAnimationFrame(rafId);
+      document.documentElement.classList.remove("fullbleed");
       document.documentElement.style.removeProperty("--app-height");
       document.documentElement.style.removeProperty("--app-offset-top");
     };

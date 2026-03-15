@@ -37,7 +37,7 @@ start_caddy() {
   if command -v caddy &>/dev/null && [[ -f Caddyfile ]]; then
     # Run Caddy in a separate tmux window for clean log separation
     # exec ensures Caddy is the window's direct process so tmux SIGHUP reaches it
-    tmux new-window -t rk -n caddy "cd '$ROOT' && exec caddy run --config Caddyfile" 2>/dev/null || true
+    tmux new-window -t rk -n caddy "cd '$ROOT' && set -a && source .env && set +a && exec caddy run --config Caddyfile" 2>/dev/null || true
     echo "[sup] Caddy started in tmux window 'caddy'"
   else
     echo "[sup] Caddy not found or no Caddyfile — skipping HTTPS proxy"

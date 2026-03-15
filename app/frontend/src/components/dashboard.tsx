@@ -97,11 +97,18 @@ export function Dashboard({
                           <span className="text-text-primary text-sm font-medium truncate">
                             {win.name}
                           </span>
-                          {win.fabStage && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent shrink-0">
-                              {win.fabStage}
-                            </span>
-                          )}
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            {win.fabStage && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+                                {win.fabStage}
+                              </span>
+                            )}
+                            {win.worktreePath && (
+                              <span className="text-xs text-text-secondary">
+                                {win.worktreePath.split("/").pop()}
+                              </span>
+                            )}
+                          </span>
                         </div>
                         <div className="flex items-center gap-1.5 mt-1 text-xs text-text-secondary">
                           {win.paneCommand && (

@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
-import { killSession as killSessionApi } from "@/api/client";
+import { useState, useCallback } from "react";
+import { killSession as killSessionApi, killWindow as killWindowApi } from "@/api/client";
 import { Dialog } from "@/components/dialog";
-import { parseFabChange, getWindowDuration } from "@/lib/format";
+import { getWindowDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
 
 type SidebarProps = {
@@ -23,41 +23,24 @@ export function Sidebar({
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
-    name: string;
+    type: "session" | "window";
+    session: string;
+    windowIndex?: number;
     windowCount: number;
   } | null>(null);
-  const [popoverKey, setPopoverKey] = useState<string | null>(null);
 
   const toggleSession = useCallback((name: string) => {
     setCollapsed((prev) => ({ ...prev, [name]: !prev[name] }));
   }, []);
 
-  // Dismiss popover on outside click and Escape
-  useEffect(() => {
-    if (!popoverKey) return;
-    function handleClick(e: MouseEvent) {
-      const target = e.target as HTMLElement;
-      if (!target.closest("[data-info-popover]") && !target.closest("[data-info-btn]")) {
-        setPopoverKey(null);
-      }
-    }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setPopoverKey(null);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [popoverKey]);
-
-  async function handleKillSession() {
+  async function handleKill() {
     if (!killTarget) return;
     try {
-      await killSessionApi(killTarget.name);
+      if (killTarget.type === "window" && killTarget.windowIndex != null) {
+        await killWindowApi(killTarget.session, killTarget.windowIndex);
+      } else {
+        await killSessionApi(killTarget.session);
+      }
     } catch {
       // SSE will reflect
     }
@@ -110,19 +93,20 @@ export function Sidebar({
                     <button
                       onClick={() => onCreateWindow(session.name)}
                       aria-label={`New window in ${session.name}`}
-                      className="text-text-secondary hover:text-text-primary transition-colors text-xs px-1 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
+                      className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
                     >
                       +
                     </button>
                     <button
                       onClick={() =>
                         setKillTarget({
-                          name: session.name,
+                          type: "session",
+                          session: session.name,
                           windowCount: session.windows.length,
                         })
                       }
                       aria-label={`Kill session ${session.name}`}
-                      className="text-text-secondary hover:text-red-400 transition-colors text-xs px-1 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
+                      className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
                     >
                       {"\u2715"}
                     </button>
@@ -136,10 +120,7 @@ export function Sidebar({
                       const isSelected =
                         currentSession === session.name &&
                         currentWindowIndex === String(win.index);
-                      const winKey = `${session.name}:${win.index}`;
                       const duration = getWindowDuration(win, nowSeconds);
-                      const fabInfo = parseFabChange(win.fabChange ?? "");
-                      const isPopoverOpen = popoverKey === winKey;
 
 
                       return (
@@ -177,52 +158,23 @@ export function Sidebar({
                               )}
                             </span>
                           </button>
-                          {/* Info button: hover-reveal on desktop, always visible on mobile — sibling to avoid nested interactive elements */}
+                          {/* Kill window button: hover-reveal on desktop, always visible on mobile */}
                           <button
                             type="button"
-                            data-info-btn
-                            aria-label={`Info for ${win.name}`}
+                            aria-label={`Kill window ${win.name}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              setPopoverKey(isPopoverOpen ? null : winKey);
+                              setKillTarget({
+                                type: "window",
+                                session: session.name,
+                                windowIndex: win.index,
+                                windowCount: 1,
+                              });
                             }}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 min-w-[16px] min-h-[28px] coarse:min-h-[44px] flex items-center justify-center z-10"
+                            className="absolute right-0.5 top-1/2 -translate-y-1/2 text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-1 min-h-[28px] coarse:min-h-[44px] flex items-center justify-center z-10"
                           >
-                            {"\u24D8"}
+                            {"\u2715"}
                           </button>
-
-                          {/* Info popover */}
-                          {isPopoverOpen && (
-                            <div
-                              data-info-popover
-                              className="absolute right-0 top-full mt-1 bg-bg-primary border border-border shadow-2xl rounded py-1 px-2 text-xs z-50 w-[200px]"
-                            >
-                              {fabInfo && (
-                                <div className="flex justify-between py-1">
-                                  <span className="text-text-secondary">Change</span>
-                                  <span className="text-text-primary">{fabInfo.id} &middot; {fabInfo.slug}</span>
-                                </div>
-                              )}
-                              {win.paneCommand && (
-                                <div className="flex justify-between py-1">
-                                  <span className="text-text-secondary">Process</span>
-                                  <span className="text-text-primary">{win.paneCommand}</span>
-                                </div>
-                              )}
-                              <div className="flex justify-between py-1">
-                                <span className="text-text-secondary">Path</span>
-                                <span className="text-text-primary truncate ml-2 max-w-[180px]">{win.worktreePath}</span>
-                              </div>
-                              <div className="flex justify-between py-1">
-                                <span className="text-text-secondary">State</span>
-                                <span className="text-text-primary">
-                                  {win.activity}
-                                  {win.agentState && win.agentState !== "unknown" && ` \u00B7 ${win.agentState}`}
-                                  {duration && ` \u00B7 ${duration}`}
-                                </span>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       );
                     })}
@@ -234,13 +186,20 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Kill session confirmation */}
+      {/* Kill confirmation */}
       {killTarget && (
-        <Dialog title="Kill session?" onClose={() => setKillTarget(null)}>
+        <Dialog
+          title={killTarget.type === "window" ? "Kill window?" : "Kill session?"}
+          onClose={() => setKillTarget(null)}
+        >
           <p className="text-sm text-text-secondary mb-3">
-            Kill session <strong>{killTarget.name}</strong> and all{" "}
-            {killTarget.windowCount} window
-            {killTarget.windowCount !== 1 ? "s" : ""}?
+            {killTarget.type === "window" ? (
+              <>Kill this window in <strong>{killTarget.session}</strong>?</>
+            ) : (
+              <>Kill session <strong>{killTarget.session}</strong> and all{" "}
+              {killTarget.windowCount} window
+              {killTarget.windowCount !== 1 ? "s" : ""}?</>
+            )}
           </p>
           <div className="flex gap-2">
             <button
@@ -250,7 +209,7 @@ export function Sidebar({
               Cancel
             </button>
             <button
-              onClick={handleKillSession}
+              onClick={handleKill}
               className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
             >
               Kill

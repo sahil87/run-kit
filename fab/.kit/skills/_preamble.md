@@ -54,7 +54,9 @@ Read these files first — they define the project's identity, constraints, and 
 
 > **Note**: If the skill runs `fab/.kit/bin/fab preflight` (Section 2 above), the init check (config.yaml and constitution.md existence) is already covered by the script. Skills using preflight don't need separate existence checks for these files — they only need to read them for content.
 
-Also read **`fab/.kit/skills/_scripts.md`** — script invocation conventions (argument formats, stage transitions, error patterns). This is the authoritative reference for calling `fab status`, `fab change`, `fab score`, and `fab preflight`.
+Also read **`fab/.kit/skills/_cli-fab.md`** — script invocation conventions (argument formats, stage transitions, error patterns). This is the authoritative reference for calling `fab status`, `fab change`, `fab score`, and `fab preflight`.
+
+Also read **`fab/.kit/skills/_naming.md`** — naming conventions for change folders, git branches, worktree directories, and operator spawning rules.
 
 ### 2. Change Context (when operating on an active change)
 
@@ -163,7 +165,7 @@ When one skill invokes another internally (e.g., `/fab-ff` invoking `/fab-clarif
 | Calling skill | Called skill | Mode signaled |
 |---------------|-------------|---------------|
 | `/fab-fff` | `/fab-clarify` | `[AUTO-MODE]` → auto mode (autonomous gap resolution between planning stages) |
-| `/fab-ff` | `/fab-clarify` | `[AUTO-MODE]` → auto mode (autonomous gap resolution after tasks generation) |
+| `/fab-ff` | `/fab-clarify` | `[AUTO-MODE]` → auto mode (autonomous gap resolution between planning stages) |
 
 User-invoked skills never carry the `[AUTO-MODE]` prefix, so called skills default to interactive mode.
 
@@ -225,12 +227,12 @@ Each decision produces an assumption graded on a 4-level scale:
 
 ### Skill-Specific Autonomy Levels
 
-| Aspect | fab-new (adaptive) | fab-continue (deliberate) | fab-fff (full pipeline) | fab-ff (from-spec, gated) |
+| Aspect | fab-new (adaptive) | fab-continue (deliberate) | fab-fff (full pipeline) | fab-ff (fast-forward) |
 |--------|-------------------|---------------------------|-------------------------|--------------------------|
-| **Posture** | SRAD-driven: 0 questions for clear inputs, conversational for vague; gap analysis before folder creation | Surface tentative, ask top ~3 unresolved | Batch all unresolved upfront, then go; no confidence gate | Gated on confidence > 3.0; no frontloaded questions |
-| **Interruption budget** | SRAD-driven (no fixed cap); conversational mode for vague inputs | 1-2 per stage | 0-1 batch at start | 0 (interactive rework on failure) |
-| **Output** | Assumptions summary + "Run /fab-clarify to review" | Key Decisions block + Assumptions summary + [NEEDS CLARIFICATION] count | Cumulative Assumptions summary + apply/review/hydrate output | Tasks + apply/review/hydrate output |
-| **Escape valve** | `/fab-clarify` | `/fab-clarify` | `/fab-continue` (autonomous rework with retry cap, bail after 3 cycles) | `/fab-clarify` (interactive rework on review failure) |
+| **Posture** | SRAD-driven: 0 questions for clear inputs, conversational for vague; gap analysis before folder creation | Surface tentative, ask top ~3 unresolved | Gated on confidence; extends through ship + review-pr | Gated on confidence; stops at hydrate |
+| **Interruption budget** | SRAD-driven (no fixed cap); conversational mode for vague inputs | 1-2 per stage | 0 (autonomous rework, then stop) | 0 (autonomous rework, then stop) |
+| **Output** | Assumptions summary + "Run /fab-clarify to review" | Key Decisions block + Assumptions summary + [NEEDS CLARIFICATION] count | Cumulative Assumptions summary + apply/review/hydrate/ship/review-pr output | Tasks + apply/review/hydrate output |
+| **Escape valve** | `/fab-clarify` | `/fab-clarify` | `/fab-clarify`, `/fab-continue` (after rework cap) | `/fab-clarify`, `/fab-continue` (after rework cap) |
 | **Recomputes confidence?** | No | Spec stage only | No | No |
 
 ### Worked Examples
@@ -333,11 +335,11 @@ Where `total_decisions = certain + confident + tentative + unresolved` and `expe
 
 ### Gate Thresholds
 
-`/fab-ff` has two confidence gates. `/fab-fff` has no confidence gates.
+Both `/fab-ff` and `/fab-fff` have two identical confidence gates. The `--force` flag on either skill bypasses both gates.
 
-**Intake gate** (fixed threshold): `/fab-ff` computes an indicative score from `intake.md` via `fab score --check-gate --stage intake`. Threshold: **3.0** (fixed, not per-type).
+**Intake gate** (fixed threshold): Both `/fab-ff` and `/fab-fff` compute an indicative score from `intake.md` via `fab score --check-gate --stage intake`. Threshold: **3.0** (fixed, not per-type).
 
-**Spec gate** (dynamic per-type thresholds): `/fab-ff` checks the spec confidence score via `fab score --check-gate`.
+**Spec gate** (dynamic per-type thresholds): Both `/fab-ff` and `/fab-fff` check the spec confidence score via `fab score --check-gate`.
 
 | Type | Spec Gate Threshold |
 |------|---------------------|
@@ -354,7 +356,7 @@ Confidence is computed by `fab/.kit/bin/fab score`, invoked by:
 - `/fab-new` (intake stage, normal mode with `--stage intake`) — persists indicative score with `indicative: true`
 - `/fab-continue` (spec stage) and `/fab-clarify` (suggest mode) — persists spec score, clears `indicative` flag
 
-`/fab-ff` gates at two points: (1) intake gate via `fab score --check-gate --stage intake` before starting, and (2) spec gate via `fab score --check-gate` after spec generation. `/fab-fff` does not gate or recompute.
+Both `/fab-ff` and `/fab-fff` gate at two points: (1) intake gate via `fab score --check-gate --stage intake` before starting, and (2) spec gate via `fab score --check-gate` after spec generation. The `--force` flag on either skill bypasses both gates entirely.
 
 ### Indicative vs Spec Scores
 

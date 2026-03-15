@@ -1,9 +1,9 @@
 ---
 name: fab-ff
-description: "Full pipeline with safety gates — confidence-gated pipeline from intake through PR review, with sub-agent review, auto-rework loop, and stop on exhaustion."
+description: "Fast-forward through hydrate — confidence-gated pipeline from intake through hydrate, with sub-agent review, auto-rework loop, and stop on exhaustion."
 ---
 
-# /fab-ff [<change-name>]
+# /fab-ff [<change-name>] [--force]
 
 > Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.
 
@@ -11,13 +11,14 @@ description: "Full pipeline with safety gates — confidence-gated pipeline from
 
 ## Purpose
 
-Full pipeline with safety gates: intake → spec → tasks → apply → review → hydrate → ship → review-pr. Three gates where execution can stop: (1) intake gate — indicative confidence >= 3.0, (2) spec gate — confidence >= per-type threshold via `fab/.kit/bin/fab score --check-gate`, (3) review gate — stops after 3 autonomous rework cycles. On any gate stop, the user can intervene then re-run. Resumable — re-running picks up from the first incomplete stage.
+Fast-forward through hydrate: intake → spec → tasks → apply → review → hydrate. Three gates where execution can stop: (1) intake gate — indicative confidence >= 3.0, (2) spec gate — confidence >= per-type threshold via `fab/.kit/bin/fab score --check-gate`, (3) review gate — stops after 3 autonomous rework cycles. On any gate stop, the user can intervene then re-run. Resumable — re-running picks up from the first incomplete stage.
 
 ---
 
 ## Arguments
 
 - **`<change-name>`** *(optional)* — target a specific change instead of the active one resolved via `.fab-status.yaml`. Resolution per `_preamble.md` (Change-name override).
+- **`--force`** *(optional)* — bypass all confidence gates (intake gate and spec gate). All other behavior (auto-clarify, rework loop, etc.) is unchanged. Output header includes "(force mode -- gates bypassed)".
 
 ---
 
@@ -25,7 +26,7 @@ Full pipeline with safety gates: intake → spec → tasks → apply → review 
 
 1. Run preflight per `_preamble.md` Section 2. Pass `<change-name>` if provided.
 2. **Intake prerequisite**: Verify `intake.md` exists. If not, STOP: `Intake not found. Run /fab-new to create the intake first.`
-3. **Intake gate**: Run `fab/.kit/bin/fab score --check-gate --stage intake <change>`. If the gate fails → STOP: `Indicative confidence is {score} of 5.0 (need >= 3.0). Run /fab-clarify to resolve, then retry.`
+3. **Intake gate** *(skip if `--force`)*: Run `fab/.kit/bin/fab score --check-gate --stage intake <change>`. If the gate fails → STOP: `Indicative confidence is {score} of 5.0 (need >= 3.0). Run /fab-clarify to resolve, then retry.`
 
 ---
 
@@ -43,7 +44,7 @@ Load per `_preamble.md` Sections 1-3 (config, constitution, intake, memory index
 
 ### Resumability
 
-Check `progress` from preflight. Skip stages already `done`. If `review-pr: done`, pipeline is already complete.
+Check `progress` from preflight. Skip stages already `done`. If `hydrate: done`, pipeline is already complete.
 
 ### Step 1: Generate `spec.md`
 
@@ -51,7 +52,7 @@ Check `progress` from preflight. Skip stages already `done`. If `review-pr: done
 
 Follow **Spec Generation Procedure** (`_generation.md`). No frontloaded questions. Update `.status.yaml` via `fab/.kit/bin/fab status finish <change> intake fab-ff`.
 
-**Spec gate**: After spec generation, run `fab/.kit/bin/fab score --check-gate <change>`. If the gate fails → **STOP**: `Confidence is {score} of 5.0 (need > {threshold} for {change_type}). Run /fab-clarify to resolve, then retry /fab-ff.`
+**Spec gate** *(skip if `--force`)*: After spec generation, run `fab/.kit/bin/fab score --check-gate <change>`. If the gate fails → **STOP**: `Confidence is {score} of 5.0 (need >= {threshold} for {change_type}). Run /fab-clarify to resolve, then retry /fab-ff.`
 
 **Auto-Clarify**: Dispatch `/fab-clarify` as subagent — `[AUTO-MODE]`, target: `spec.md`, change: `{id}`. Returns `{resolved, blocking, non_blocking}`. If `blocking: 0` → continue. If `blocking > 0` → **BAIL**: report blocking issues, suggest `/fab-clarify` then `/fab-ff`.
 
@@ -124,28 +125,6 @@ The user can run `/fab-continue` for interactive rework, or `/fab-clarify` to de
 
 Dispatch `/fab-continue` as subagent — Hydrate Behavior, change: `{id}`. The subagent validates review passed, hydrates into `docs/memory/`, and runs `fab/.kit/bin/fab status finish <change> hydrate fab-ff`. Returns completion status.
 
-### Step 8: Ship
-
-*(Skip if `progress.ship` is `done`.)*
-
-Dispatch `/git-pr` as subagent — change: `{id}`. The subagent commits, pushes, and creates a GitHub PR. Handles statusman integration internally (start/finish ship stage). Returns PR URL or error.
-
-**If git-pr fails**: STOP with the error from git-pr. The ship stage remains `active` for user retry.
-
-On success: `progress.ship` becomes `done` (handled by git-pr's statusman calls), `progress.review-pr` auto-activates.
-
-### Step 9: Review-PR
-
-*(Skip if `progress.review-pr` is `done`.)*
-
-Dispatch `/git-pr-review` as subagent — change: `{id}`. The subagent detects reviews, triages comments, applies fixes, and pushes; requests Copilot as reviewer if no reviews exist, then polls for up to 8 minutes. Handles statusman integration internally (start/finish/fail review-pr stage). Returns completion status.
-
-**If review-pr fails** (no PR found, processing error): STOP with the error. The user can re-run `/fab-ff` or `/git-pr-review` directly.
-
-**If no reviews arrive** (Copilot unavailable or timeout): the stage completes as `done` — this is a successful no-op.
-
-On success: `progress.review-pr` becomes `done`.
-
 ---
 
 ## Output
@@ -164,12 +143,6 @@ On success: `progress.review-pr` becomes `done`.
 
 --- Hydrate ---
 {hydrate output}
-
---- Ship ---
-{git-pr output}
-
---- Review-PR ---
-{git-pr-review output}
 
 Pipeline complete.
 
@@ -191,5 +164,3 @@ Resuming shows `(resuming)...` header and `Skipping {stage} — already done.` f
 | Auto-clarify bails | Stop, report blocking issues, suggest `/fab-clarify` then `/fab-ff` |
 | Task fails | Stop: "Task {ID} failed: {reason}. Investigate and re-run /fab-ff." |
 | Review fails | Auto-rework loop: 3 cycles (each re-review by fresh sub-agent), escalation after 2 consecutive fix-code. Stops after 3 cycles with summary. |
-| Ship fails | Stop with git-pr error. User retries /fab-ff or /git-pr. |
-| Review-PR fails | Stop with git-pr-review error. User retries /fab-ff or /git-pr-review. |

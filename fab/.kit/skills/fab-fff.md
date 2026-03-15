@@ -1,9 +1,9 @@
 ---
 name: fab-fff
-description: "Full pipeline — planning, implementation, sub-agent review, hydrate, and PR — with frontloaded questions, auto-clarify, and autonomous rework with bounded retry."
+description: "Full pipeline — planning, implementation, sub-agent review, hydrate, ship, and PR review — confidence-gated, with auto-clarify and autonomous rework with bounded retry."
 ---
 
-# /fab-fff [<change-name>]
+# /fab-fff [<change-name>] [--force]
 
 > Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Then follow its instructions before proceeding.
 
@@ -11,13 +11,14 @@ description: "Full pipeline — planning, implementation, sub-agent review, hydr
 
 ## Purpose
 
-Run the entire Fab pipeline from the current stage through PR review in a single invocation. No confidence gates — forces through all stages regardless of scores. Frontloads questions, interleaves auto-clarify between planning stages, and autonomously reworks on review failure with bounded retry (3 cycles max, escalation after 2 consecutive fix-code failures). Resumable — re-running picks up from the first incomplete stage. Compare with `/fab-ff`, which has the same pipeline but with safety gates (intake score >= 3.0, spec confidence >= threshold, review 3-cycle stop). Both pipelines extend through ship and review-pr.
+Run the entire Fab pipeline from intake through PR review in a single invocation. Confidence-gated with identical gates to `/fab-ff`: (1) intake gate — indicative confidence >= 3.0, (2) spec gate — confidence >= per-type threshold. Interleaves auto-clarify between planning stages, and autonomously reworks on review failure with bounded retry (3 cycles max, escalation after 2 consecutive fix-code failures). Resumable — re-running picks up from the first incomplete stage. Compare with `/fab-ff`, which stops at hydrate. The difference is scope only: `/fab-fff` extends through ship and review-pr; `/fab-ff` stops at hydrate. Both have identical confidence gates.
 
 ---
 
 ## Arguments
 
 - **`<change-name>`** *(optional)* — target a specific change instead of the active one resolved via `.fab-status.yaml`. Resolution per `_preamble.md` (Change-name override).
+- **`--force`** *(optional)* — bypass all confidence gates (intake gate and spec gate). All other behavior (auto-clarify, rework loop, etc.) is unchanged. Output header includes "(force mode -- gates bypassed)".
 
 ---
 
@@ -25,6 +26,7 @@ Run the entire Fab pipeline from the current stage through PR review in a single
 
 1. Run preflight per `_preamble.md` Section 2. Pass `<change-name>` if provided.
 2. Verify `intake.md` exists. If not, STOP: `Intake not found. Run /fab-new to create the intake first, then run /fab-fff.`
+3. **Intake gate** (skip if `--force`): Run `fab/.kit/bin/fab score --check-gate --stage intake <change>`. If the gate fails → STOP: `Indicative confidence is {score} of 5.0 (need >= 3.0). Run /fab-clarify to resolve, then retry.`
 
 ---
 
@@ -44,40 +46,33 @@ Load per `_preamble.md` Sections 1-3 (config, constitution, intake, memory index
 
 Check `progress` from preflight. Skip stages already `done`. If `review-pr: done`, pipeline is already complete.
 
-### Step 1: Frontload All Questions
-
-Apply SRAD across the intake for all planning stages. Collect **Unresolved** decisions into a single batch. All four grades (Certain, Confident, Tentative, Unresolved) are tracked in the cumulative Assumptions summary.
-
-- **Unresolved exist**: Present as numbered list, wait for answers, then proceed.
-- **None**: Skip to Step 2.
-
-At most one Q&A round.
-
-### Step 2: Generate `spec.md`
+### Step 1: Generate `spec.md`
 
 *(Skip if `progress.spec` is `done`.)*
 
-Follow **Spec Generation Procedure** (`_generation.md`). Incorporate answers from Step 1 — no `[NEEDS CLARIFICATION]` markers. Update `.status.yaml` via `fab/.kit/bin/fab status finish <change> spec fab-fff`.
+Follow **Spec Generation Procedure** (`_generation.md`). No frontloaded questions. Update `.status.yaml` via `fab/.kit/bin/fab status finish <change> intake fab-fff`.
+
+**Spec gate** (skip if `--force`): After spec generation, run `fab/.kit/bin/fab score --check-gate <change>`. If the gate fails → **STOP**: `Confidence is {score} of 5.0 (need >= {threshold} for {change_type}). Run /fab-clarify to resolve, then retry /fab-fff.`
 
 **Auto-Clarify**: Dispatch `/fab-clarify` as subagent — `[AUTO-MODE]`, target: `spec.md`, change: `{id}`. Returns `{resolved, blocking, non_blocking}`. If `blocking: 0` → continue. If `blocking > 0` → **BAIL**: report blocking issues, suggest `/fab-clarify` then `/fab-fff`.
 
-### Step 3: Generate `tasks.md`
+### Step 2: Generate `tasks.md`
 
 *(Skip if `progress.tasks` is `done`.)*
 
 Follow **Tasks Generation Procedure** (`_generation.md`).
 
-**Auto-Clarify**: Dispatch `/fab-clarify` as subagent — `[AUTO-MODE]`, target: `tasks.md`, change: `{id}`. Same bail logic as Step 2.
+**Auto-Clarify**: Dispatch `/fab-clarify` as subagent — `[AUTO-MODE]`, target: `tasks.md`, change: `{id}`. Same bail logic as Step 1.
 
-### Step 4: Generate Quality Checklist
+### Step 3: Generate Quality Checklist
 
 Follow **Checklist Generation Procedure** (`_generation.md`).
 
-### Step 5: Update `.status.yaml` (Planning Complete)
+### Step 4: Update `.status.yaml` (Planning Complete)
 
 Run `fab/.kit/bin/fab status finish <change> tasks fab-fff`. Then set checklist fields via `fab/.kit/bin/fab status set-checklist <change> generated true`, `fab/.kit/bin/fab status set-checklist <change> total <count>`, `fab/.kit/bin/fab status set-checklist <change> completed 0`.
 
-### Step 6: Implementation
+### Step 5: Implementation
 
 *(Skip if `progress.apply` is `done`.)*
 
@@ -87,13 +82,13 @@ Dispatch `/fab-continue` as subagent — Apply Behavior, change: `{id}`. The sub
 
 On success: run `fab/.kit/bin/fab status finish <change> apply fab-fff`.
 
-### Step 7: Review
+### Step 6: Review
 
 *(Skip if `progress.review` is `done`.)*
 
 Dispatch `/fab-continue` as subagent — Review Behavior, change: `{id}`. The subagent dispatches validation to a review sub-agent, performs all checks, and returns structured findings (must-fix / should-fix / nice-to-have) with pass/fail status.
 
-**Pass**: run `fab/.kit/bin/fab status finish <change> review fab-fff`. Proceed to Step 8.
+**Pass**: run `fab/.kit/bin/fab status finish <change> review fab-fff`. Proceed to Step 7.
 
 **Fail**: Autonomous rework with bounded retry. Run `fab/.kit/bin/fab status fail <change> review` then `fab/.kit/bin/fab status reset <change> apply fab-fff`. The agent triages the sub-agent's prioritized findings and autonomously selects the rework path — no user interaction. Must-fix items are always addressed; should-fix items when clear and low-effort; nice-to-have items may be skipped.
 
@@ -114,13 +109,13 @@ Run /fab-continue for manual rework options.
 
 **Escalation rule**: If the agent chooses "Fix code" and the subsequent sub-agent review fails again on the same or similar issues, the agent MUST escalate to "Revise tasks" or "Revise spec" after **2 consecutive "fix code" attempts**. This is a hard rule — the agent SHALL NOT choose "Fix code" a third time in a row, even if it believes another code fix would work. Non-fix-code actions (revise tasks, revise spec) reset the consecutive counter.
 
-### Step 8: Hydrate
+### Step 7: Hydrate
 
 *(Skip if `progress.hydrate` is `done`.)*
 
 Dispatch `/fab-continue` as subagent — Hydrate Behavior, change: `{id}`. The subagent validates review passed, hydrates into `docs/memory/`, and runs `fab/.kit/bin/fab status finish <change> hydrate fab-fff`. Returns completion status.
 
-### Step 9: Ship
+### Step 8: Ship
 
 *(Skip if `progress.ship` is `done`.)*
 
@@ -130,7 +125,7 @@ Dispatch `/git-pr` as subagent — change: `{id}`. The subagent commits, pushes,
 
 On success: `progress.ship` becomes `done`, `progress.review-pr` auto-activates.
 
-### Step 10: Review-PR
+### Step 9: Review-PR
 
 *(Skip if `progress.review-pr` is `done`.)*
 
@@ -147,7 +142,7 @@ On success: `progress.review-pr` becomes `done`.
 ## Output
 
 ```
-/fab-fff — full pipeline, no gate.
+/fab-fff — confidence {score} of 5.0, gate passed.
 
 --- Planning ---
 {spec + tasks + checklist output, with auto-clarify results}
@@ -185,6 +180,8 @@ Resuming shows `(resuming)...` header and `Skipping {stage} — already done.` f
 |-----------|--------|
 | Preflight fails | Abort with stderr message |
 | `intake.md` missing | Abort: "Run /fab-new first." |
+| Intake gate fails (indicative < 3.0) | Stop with score and guidance |
+| Spec gate fails (confidence < threshold) | Stop with score, threshold, and guidance |
 | Auto-clarify bails | Stop, report blocking issues, suggest `/fab-clarify` then `/fab-fff` |
 | Task fails | Stop: "Task {ID} failed: {reason}. Investigate and re-run /fab-fff." |
 | Review fails | Autonomous rework: agent triages sub-agent's prioritized findings, selects path, 3-cycle retry cap (each re-review by fresh sub-agent), escalation after 2 consecutive fix-code. Bail after 3 cycles with summary. |

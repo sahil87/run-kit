@@ -60,7 +60,7 @@ stages:
     required: true
     initial_state: active
     allowed_states: [active, ready, done]
-    commands: [fab-new, fab-continue, fab-clarify]
+    commands: [fab-new, fab-continue, fab-clarify, fab-ff, fab-fff]
 
   - id: spec
     name: "Specification"
@@ -81,7 +81,7 @@ stages:
     initial_state: pending
     allowed_states: [pending, active, ready, done, skipped]
     auto_checklist: true
-    commands: [fab-continue, fab-ff, fab-clarify]
+    commands: [fab-continue, fab-clarify]
 
   - id: apply
     name: "Apply"

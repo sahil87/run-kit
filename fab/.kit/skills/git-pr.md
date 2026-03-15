@@ -6,6 +6,8 @@ allowed-tools: Bash(git:*), Bash(gh:*)
 
 # /git-pr
 
+> Branch naming conventions are defined in `_naming.md`.
+
 Autonomously ship local changes to a GitHub PR. No questions, no prompts — just execute.
 
 ---

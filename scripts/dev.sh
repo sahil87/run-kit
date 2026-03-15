@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Start Go backend (live-reload) + Vite dev server concurrently.
-# Usage: ./scripts/dev.sh [--port PORT]
+# Usage: ./scripts/dev.sh [--port PORT] [--host HOST]
 trap 'kill 0' EXIT
 
 # Parse --port flag (overrides RK_PORT)
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --port) export RK_PORT="$2"; shift 2 ;;
+    --host) export RK_HOST="$2"; shift 2 ;;
     *) shift ;;
   esac
 done

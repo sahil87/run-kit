@@ -1,0 +1,37 @@
+id: lnrb
+name: 260315-lnrb-dashboard-scroll-behavior
+created: 2026-03-15T17:13:57Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 6
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 85.0
+        reversibility: 90.0
+        competence: 88.8
+        disambiguation: 88.1
+stage_metrics:
+    intake: {started_at: "2026-03-15T17:13:57Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-03-15T17:21:30Z

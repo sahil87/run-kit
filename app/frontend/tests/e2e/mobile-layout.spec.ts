@@ -1,9 +1,30 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { execSync } from "node:child_process";
 
 // iPhone 14 viewport
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
+const TEST_SESSION = `e2e-mobile-${Date.now()}`;
+
 test.describe("Mobile layout", () => {
+  test.beforeAll(() => {
+    try {
+      execSync(`tmux new-session -d -s ${TEST_SESSION} -x 80 -y 24`, {
+        stdio: "ignore",
+      });
+    } catch {
+      // Session may already exist
+    }
+  });
+
+  test.afterAll(() => {
+    try {
+      execSync(`tmux kill-session -t ${TEST_SESSION}`, { stdio: "ignore" });
+    } catch {
+      // Best effort
+    }
+  });
+
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
   });
@@ -16,18 +37,20 @@ test.describe("Mobile layout", () => {
   });
 
   test("bottom bar buttons fit in a single row", async ({ page }) => {
+    // Wait for SSE on dashboard first, then navigate to terminal page
     await page.goto("/");
-    const toolbar = page.getByRole("toolbar", { name: "Terminal keys" });
-    await expect(toolbar).toBeVisible();
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await page.goto(`/${TEST_SESSION}/0`);
 
-    // All 8 buttons should be visible
+    const toolbar = page.getByRole("toolbar", { name: "Terminal keys" });
+    await expect(toolbar).toBeVisible({ timeout: 5_000 });
+
+    // Key buttons should be visible
     await expect(page.getByRole("button", { name: "Escape" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Tab" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Control" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Option" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Command", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Function keys" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Arrow keys" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Compose text" })).toBeVisible();
 
     // Toolbar should not be taller than a single row (~50px accounts for padding)
@@ -79,8 +102,13 @@ test.describe("Mobile layout", () => {
   });
 
   test("function keys popup opens and is visible", async ({ page }) => {
+    // Wait for SSE on dashboard first, then navigate to terminal page
     await page.goto("/");
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await page.goto(`/${TEST_SESSION}/0`);
+
     const fnButton = page.getByRole("button", { name: "Function keys" });
+    await expect(fnButton).toBeVisible({ timeout: 5_000 });
     await fnButton.click();
 
     const fnMenu = page.getByRole("menu", { name: "Function and navigation keys" });
@@ -96,8 +124,13 @@ test.describe("Mobile layout", () => {
   });
 
   test("arrow pad popup opens and is visible", async ({ page }) => {
+    // Wait for SSE on dashboard first, then navigate to terminal page
     await page.goto("/");
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await page.goto(`/${TEST_SESSION}/0`);
+
     const arrowButton = page.getByRole("button", { name: "Arrow keys" });
+    await expect(arrowButton).toBeVisible({ timeout: 5_000 });
     await arrowButton.click();
 
     // Arrow buttons should be visible

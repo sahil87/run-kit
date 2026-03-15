@@ -17,24 +17,24 @@ Every action reachable via keyboard. Mouse is supported but secondary. The comma
 
 ### 3. Fixed Chrome, Fluid Content
 
-The top bar and bottom bar are **architecturally immovable**. They never shift, resize, or reflow. The terminal fills the space between them. This creates spatial stability — your eyes always know where navigation, status, and modifier keys live.
+The top bar and bottom bar are **architecturally immovable**. They never shift, resize, or reflow. Content fills the space between them — the terminal on `/:session/:window`, the Dashboard on `/`. This creates spatial stability — your eyes always know where navigation, status, and modifier keys live.
 
-### 4. Single View, Not Pages
+### 4. Two Views, One Shell
 
-The entire UI is one view: sidebar + terminal. There are no page transitions.
+Two routes share the same app shell (top bar + sidebar + content area):
 
-- **One route**: `/:session/:window` (defaults to first session, first window)
-- **Sidebar** shows the full session → window tree (replaces Dashboard and Project pages)
-- **Main area** is always the terminal
-- **Breadcrumbs** in the top bar provide quick session/window switching without the sidebar
+- **Dashboard** (`/`): Session/window overview with expandable cards. Content area scrolls independently.
+- **Terminal** (`/:session/:window`): xterm.js canvas. Wheel/touch events scroll tmux scrollback, not the page.
 
-**Desktop (≥768px)**: Sidebar always visible (collapsible), terminal fills the rest.
+The **sidebar** shows the full session → window tree on both views, with its own independent scroll. The **top bar** is always fixed. The **bottom bar** renders only on the terminal view.
 
-**Mobile (<768px)**: Terminal is full-screen. Navigation via:
+**Desktop (≥768px)**: Sidebar always visible (collapsible), content fills the rest.
+
+**Mobile (<768px)**: Content is full-screen. Navigation via:
 1. **Breadcrumbs** — tap session name → dropdown of sessions; tap window name → dropdown of windows
-2. **Drawer** — logo icon opens the full session/window tree as an overlay. Pick a target → drawer closes → terminal resumes.
+2. **Drawer** — hamburger icon opens the full session/window tree as an overlay. Pick a target → drawer closes → terminal resumes.
 
-The drawer pattern (not a stack of pages) keeps one mental model across screen sizes. First-time mobile users land on the terminal — the logo icon and breadcrumbs provide discoverability.
+The drawer pattern (not a stack of pages) keeps one mental model across screen sizes.
 
 No settings pages, no admin panels. Configuration lives on disk.
 
@@ -138,6 +138,37 @@ h-screen flex flex-col
 
 On mobile (`<768px`), sidebar is `display: none` by default. Drawer is a fixed overlay triggered by the hamburger button. Bottom bar spans full width on mobile (no sidebar).
 
+### Scroll Behavior
+
+Each region has independent scroll semantics. The app shell (`html`/`body`) never scrolls — `overflow: hidden` and `overscroll-behavior: none` are always applied.
+
+| Region | Dashboard (`/`) | Terminal (`/:session/:window`) |
+|--------|----------------|-------------------------------|
+| **Top bar** | Fixed (`shrink-0`) | Fixed (`shrink-0`) |
+| **Bottom bar** | Not rendered | Fixed (`shrink-0`) |
+| **Sidebar** | `overflow-y: auto` — independent scroll | `overflow-y: auto` — independent scroll |
+| **Content area** | `overflow-y: auto` — normal document scroll within the content container | No browser scroll — wheel/touch events go to xterm.js, which handles tmux scrollback internally |
+
+**Dashboard content area**: The stats line ("N sessions, M windows") is **pinned** at the top of the content area (`shrink-0`). The session cards grid below it scrolls independently via `overflow-y: auto` on the scrollable container. This parallels the fixed chrome philosophy — the stats line orients you regardless of scroll position.
+
+**Terminal content area**: The xterm.js canvas fills the space between top bar and bottom bar. `touch-action: none` on the terminal container yields all touch gestures to xterm.js for scrollback handling. No browser scroll occurs.
+
+```
+Dashboard (/)                          Terminal (/:session/:window)
+┌────────────────────────────┐         ┌────────────────────────────┐
+│ Top bar (fixed)            │         │ Top bar (fixed)            │
+├──────────┬─────────────────┤         ├──────────┬─────────────────┤
+│ Sidebar  │ Stats (pinned)  │         │ Sidebar  │                 │
+│ (own     │─────────────────│         │ (own     │ Terminal        │
+│  scroll) │ Session cards   │         │  scroll) │ (xterm.js)     │
+│          │ ...        ↕    │         │          │ wheel = tmux   │
+│          │ + New Session   │         │          │ scrollback     │
+│          │                 │         │          ├─────────────────┤
+│          │                 │         │          │ Bottom bar      │
+├──────────┴─────────────────┤         ├──────────┴─────────────────┤
+         (no bottom bar)
+```
+
 ### Principle: Chrome Must Be Architecturally Immovable
 
 The top bar is **owned by the root layout**. No component can change the chrome's structure, padding, or height. The bottom bar is owned by the terminal column — it tracks the terminal's width and sits below it, not below the sidebar.
@@ -184,7 +215,7 @@ The breadcrumb dropdowns are the **primary quick-navigation** mechanism. They av
 
 **Purpose**: Browser terminals can't reliably capture F1-F12, Ctrl+C, Esc, and other modifier combos. The bottom bar provides clickable `<kbd>` buttons that inject these keystrokes into the active terminal.
 
-**Scope**: Always visible. Since the terminal is always the main content area, the bottom bar is always relevant.
+**Scope**: Rendered only on the terminal view (`/:session/:window`). Hidden on the Dashboard (`/`) — there is no terminal to send keys to.
 
 **Layout**: Single row of `<kbd>` styled buttons:
 
@@ -303,7 +334,7 @@ The sidebar replaces the old Dashboard and Project pages. It shows all sessions 
 **Window row**: Single line, three zones:
 - Left: Activity dot (● green = active, dim gray = idle) + window name. No ring on the dot — the left border accent is sufficient to indicate the selected window.
 - Right: Fab stage + progress icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows. Kill `✕` button (hover-reveal on desktop, always visible on mobile/touch).
-- Currently selected window gets `bg-accent/10` highlight + `border-accent` left border + `font-medium`
+- Currently selected window gets `bg-accent/10` highlight + `b order-accent` left border + `font-medium`
 - Tap → switches terminal to that session:window
 
 **Design constraints**:
@@ -384,7 +415,7 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 
 | # | Decision | Resolution |
 |---|----------|------------|
-| 1 | Page model | Single view — sidebar + terminal. No page transitions. One route: `/:session/:window`. |
+| 1 | Page model | Two views sharing one app shell: Dashboard (`/`) and Terminal (`/:session/:window`). Top bar + sidebar always present; bottom bar terminal-only. |
 | 2 | Mobile navigation | Drawer pattern (not page stack). Terminal is full-screen, drawer overlays from left. Breadcrumbs for quick switching. |
 | 3 | Bottom bar scope | Scoped to terminal column width. Always visible, but sits below the terminal only — does not extend under the sidebar. |
 | 4 | F1-F12 layout | Dropdown (`Fn ▾`) to keep the bar compact |
@@ -412,6 +443,7 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 | 25 | Session name max width | Session name in breadcrumb truncated at 7 characters (`max-w-[7ch]` + text overflow ellipsis). Keeps top bar compact on narrow screens. |
 | 26 | Top bar button sizing | FixedWidthToggle, ⌘K, and compose (`>_`) all use `min-w-[24px] min-h-[24px]` on desktop, matching bottom bar button proportions. Consistent visual weight across all chrome controls. |
 | 27 | Window info popover removed | Replaced the info `ⓘ` button + popover on window rows with a direct kill `✕` button. Reduces interaction complexity — window metadata (path, process, state) is available in the dashboard cards instead. |
+| 28 | Scroll behavior | Scoped per-region, never page-level. Sidebar: independent `overflow-y: auto`. Dashboard content: `overflow-y: auto` with pinned stats line. Terminal: no browser scroll — wheel/touch handled by xterm.js for tmux scrollback. `html`/`body` always `overflow: hidden`. |
 
 ## Open Design Questions
 

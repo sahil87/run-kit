@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-15T17:13:57Z"}
+{"args":"Implement per-region scroll behavior for Dashboard view","cmd":"fab-new","event":"command","ts":"2026-03-15T17:13:57Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-15T17:14:41Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-15T17:14:55Z"}
+{"delta":"-0.3","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-15T17:21:25Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-15T17:21:30Z"}

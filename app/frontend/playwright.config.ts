@@ -4,7 +4,7 @@ const port = Number(process.env.RK_PORT ?? "3000");
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  timeout: 30_000,
+  timeout: 10_000,
   retries: 1,
   fullyParallel: false,
   use: {

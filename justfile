@@ -67,7 +67,7 @@ verify: check test build
 
 # Run supervisor in background tmux session
 up:
-    tmux new-session -d -s rk './scripts/supervisor.sh'
+    tmux has-session -t rk 2>/dev/null && tmux new-window -t rk './scripts/supervisor.sh' || tmux new-session -d -s rk './scripts/supervisor.sh'
 
 # Stop supervisor and Caddy
 down:

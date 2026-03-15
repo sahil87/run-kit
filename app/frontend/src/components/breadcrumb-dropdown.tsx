@@ -7,9 +7,10 @@ type Props = {
   icon?: string;
   onNavigate?: (href: string) => void;
   action?: { label: string; onAction: () => void };
+  triggerClassName?: string;
 };
 
-export function BreadcrumbDropdown({ items, label, icon, onNavigate, action }: Props) {
+export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, triggerClassName }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,7 +93,7 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action }: P
         aria-expanded={open}
         aria-label={label ? `Switch ${label}` : "Switch"}
         onClick={toggle}
-        className="text-text-secondary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
+        className={`min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
       >
         {icon ?? "\u25BE"}
       </button>

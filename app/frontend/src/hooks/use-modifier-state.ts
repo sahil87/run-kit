@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
-type Modifier = "ctrl" | "alt" | "cmd";
+type Modifier = "ctrl" | "alt";
 
-export type ModifierSnapshot = { ctrl: boolean; alt: boolean; cmd: boolean };
+export type ModifierSnapshot = { ctrl: boolean; alt: boolean };
 
 export function useModifierState() {
-  const stateRef = useRef<ModifierSnapshot>({ ctrl: false, alt: false, cmd: false });
+  const stateRef = useRef<ModifierSnapshot>({ ctrl: false, alt: false });
   const [, rerender] = useState(0);
 
   const set = useCallback((mod: Modifier, value: boolean) => {
@@ -23,7 +23,7 @@ export function useModifierState() {
 
   const consume = useCallback((): ModifierSnapshot => {
     const snapshot = { ...stateRef.current };
-    stateRef.current = { ctrl: false, alt: false, cmd: false };
+    stateRef.current = { ctrl: false, alt: false };
     rerender((n) => n + 1);
     return snapshot;
   }, []);
@@ -32,14 +32,13 @@ export function useModifierState() {
 
   const isArmed = useCallback((): boolean => {
     const s = stateRef.current;
-    return s.ctrl || s.alt || s.cmd;
+    return s.ctrl || s.alt;
   }, []);
 
   return useMemo(
     () => ({
       ctrl: stateRef.current.ctrl,
       alt: stateRef.current.alt,
-      cmd: stateRef.current.cmd,
       arm,
       disarm,
       toggle,
@@ -48,6 +47,6 @@ export function useModifierState() {
       isArmed,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stateRef.current.ctrl, stateRef.current.alt, stateRef.current.cmd, arm, disarm, toggle, consume],
+    [stateRef.current.ctrl, stateRef.current.alt, arm, disarm, toggle, consume],
   );
 }

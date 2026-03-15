@@ -4,20 +4,18 @@ import { ArrowPad } from "@/components/arrow-pad";
 
 type BottomBarProps = {
   wsRef: React.RefObject<WebSocket | null>;
-  onOpenCompose: () => void;
 };
 
-/** xterm modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) + (meta?8:0) */
+/** xterm modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) */
 function modParam(mods: ModifierSnapshot): number {
   let p = 1;
   if (mods.alt) p += 2;
   if (mods.ctrl) p += 4;
-  if (mods.cmd) p += 8;
   return p;
 }
 
 function hasModifiers(mods: ModifierSnapshot): boolean {
-  return mods.ctrl || mods.alt || mods.cmd;
+  return mods.ctrl || mods.alt;
 }
 
 const FN_KEYS = [
@@ -45,15 +43,14 @@ const EXT_KEYS = [
 ] as const;
 
 const KBD_CLASS =
-  "min-h-[32px] min-w-[32px] coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-[36px] min-w-[36px] coarse:min-h-[44px] coarse:min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
 
 const MODIFIER_LABELS: Record<string, string> = {
   ctrl: "Control",
   alt: "Option",
-  cmd: "Command",
 };
 
-export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
+export function BottomBar({ wsRef }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
@@ -90,15 +87,15 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
 
       if (snapshot.ctrl && key.length === 1 && /[a-zA-Z]/.test(key)) {
         const ctrlChar = String.fromCharCode(key.toUpperCase().charCodeAt(0) - 64);
-        seq = (snapshot.alt || snapshot.cmd ? "\x1b" : "") + ctrlChar;
+        seq = (snapshot.alt ? "\x1b" : "") + ctrlChar;
       } else if (snapshot.ctrl && key.length === 1) {
         const c = key.charCodeAt(0);
         if (c >= 0x40 && c <= 0x7f) {
-          seq = (snapshot.alt || snapshot.cmd ? "\x1b" : "") + String.fromCharCode(c & 0x1f);
+          seq = (snapshot.alt ? "\x1b" : "") + String.fromCharCode(c & 0x1f);
         } else {
-          seq = (snapshot.alt || snapshot.cmd ? "\x1b" : "") + key;
+          seq = (snapshot.alt ? "\x1b" : "") + key;
         }
-      } else if (snapshot.alt || snapshot.cmd) {
+      } else if (snapshot.alt) {
         seq = "\x1b" + key;
       }
 
@@ -142,7 +139,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
   const sendSpecial = useCallback(
     (char: string) => {
       const snapshot = mods.consume();
-      const prefix = snapshot.alt || snapshot.cmd ? "\x1b" : "";
+      const prefix = snapshot.alt ? "\x1b" : "";
       if (snapshot.ctrl) mods.arm("ctrl");
       send(prefix + char);
     },
@@ -160,7 +157,7 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
 
       <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
 
-      {([["ctrl", "^"], ["alt", "\u2325"], ["cmd", "\u2318"]] as const).map(([key, symbol]) => (
+      {([["ctrl", "^"], ["alt", "\u2325"]] as const).map(([key, symbol]) => (
         <button
           key={key}
           aria-label={MODIFIER_LABELS[key]}
@@ -222,14 +219,6 @@ export function BottomBar({ wsRef, onOpenCompose }: BottomBarProps) {
       </div>
 
       <ArrowPad onArrow={sendArrow} />
-
-      <button
-        aria-label="Compose text"
-        className={`${KBD_CLASS} text-text-primary ml-auto`}
-        onClick={onOpenCompose}
-      >
-        <kbd aria-hidden="true">&gt;_</kbd>
-      </button>
     </div>
   );
 }

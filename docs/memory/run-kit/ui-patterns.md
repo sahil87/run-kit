@@ -13,19 +13,29 @@ Single-view model: sidebar shows session/window tree, terminal is always the mai
 
 The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derives its content from the current session:window selection via `ChromeProvider` context. No slot injection — the chrome reads the selection and renders directly.
 
-**Line 1** (fixed height, `border-b border-border`): logo toggle + icon breadcrumbs + connection indicator + FixedWidthToggle + `⌘K` (desktop) / `⋯` (mobile). Single-line top bar — no Line 2.
+**Line 1** (fixed height, `border-b border-border`): hamburger toggle + name breadcrumbs + branding + controls. Single-line top bar — no Line 2.
 
-Breadcrumb: `{logo} ❯ {session} ❯ {window}` (syncs with tmux active window via SSE). Logo toggles sidebar (desktop) or opens drawer (mobile) — no separate hamburger icon.
+**Left section**: `☰ session / window` — hamburger icon (three SVG lines, animates to X via CSS `transition-transform` when sidebar/drawer is open) + session name (dropdown trigger, `max-w-[7ch] truncate`) + `/` plain text separator + window name (dropdown trigger). Syncs with tmux active window via SSE.
 
-- Logo SVG (`logo.svg`) — clickable button that toggles sidebar/drawer (replaces `☰` hamburger)
-- ❯ — Unicode heavy right angle (U+276F), unified separator/dropdown trigger icon for both session and window segments (tapping opens respective dropdown)
-- Icons are rendered inside `BreadcrumbDropdown` via `icon` prop — no separate passive span, no `›` separator spans
-- All segments except the last are clickable links
+- Hamburger icon (`☰`) — replaces logo as sidebar/drawer toggle. Animates to `✕` (X) when `sidebarOpen` (desktop >= 768px) or `drawerOpen` (mobile < 768px) is true
+- `/` — plain text separator between session and window names (replaces `❯` U+276F). Not a click target
+- Session name and window name text are the dropdown triggers (tappable to open respective dropdowns). Replaces the `❯` icon-based trigger pattern
+- Session name capped at ~7 characters with ellipsis overflow (`max-w-[7ch] truncate`)
 - No text prefixes like "session:" or "window:"
+
+**Right section (desktop)**: `{logo} Run Kit  ●  ⇔  ⌘K  >_`
+- Logo SVG (`logo.svg`) — decorative (`aria-hidden="true"`), not a button
+- "Run Kit" text span (`text-xs text-text-secondary`)
+- Green/gray connection dot — no text label ("live"/"disconnected" text removed)
+- `FixedWidthToggle`
+- `⌘K` kbd hint
+- Compose button (`>_`) — rightmost item, opens compose buffer. `onOpenCompose` callback passed as prop to `TopBar`
+
+**Right section (mobile < 640px)**: `⋯  >_` — only command palette trigger and compose button visible. Logo, "Run Kit" text, dot, toggle, ⌘K hidden via `hidden sm:flex` / `hidden sm:inline-flex`
 
 ### Breadcrumb Dropdowns
 
-Breadcrumb segments with a `dropdownItems` array use the ❯ icon as the dropdown trigger. Split click-target pattern: clicking the label navigates (existing behavior), clicking the icon opens the dropdown.
+Session and window name text are the dropdown triggers. Clicking/tapping the name opens the respective dropdown. No split click-target pattern — the name itself is the trigger.
 
 **Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{session}/0`. First item: `+ New Session` action (opens session creation dialog).
 
@@ -33,11 +43,11 @@ Breadcrumb segments with a `dropdownItems` array use the ❯ icon as the dropdow
 
 **Action items in dropdowns**: `BreadcrumbDropdown` accepts an optional `action` prop of type `{ label: string; onAction: () => void }`. When provided, the action item renders before the selection list, separated by a divider (`border-t border-border`). Action items use `text-text-primary` styling (not `text-accent`), close the dropdown on click, and are excluded from ArrowUp/ArrowDown keyboard navigation among selection items.
 
-**Dropdown component** (`app/frontend/src/components/breadcrumb-dropdown.tsx`): Reusable dropdown accepting `icon` prop (rendered as trigger button content), with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Icon button has 24px minimum tap target (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
+**Dropdown component** (`app/frontend/src/components/breadcrumb-dropdown.tsx`): Reusable dropdown with outside-click dismiss, Escape dismiss, ArrowUp/ArrowDown keyboard navigation, ARIA `role="menu"`/`role="menuitem"`. Styled with `bg-bg-primary border-border shadow-2xl`, matching bottom-bar Fn key dropdown pattern. Name text serves as the trigger (44px on touch devices via `coarse:min-h-[44px]`). Long names truncated via `max-w-[240px]`.
 
-Connection indicator: green/gray dot with "live"/"disconnected" label, driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
+Connection indicator: green/gray dot only (no text label), driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
 
-**FixedWidthToggle** (in Line 1 right section): Renders between the connection indicator and `⌘K`/`⋯`. Order: `[● live] [⇔] [⌘K]`. Self-contained component using `useChrome()`/`useChromeDispatch()`. Touch target: `coarse:min-h-[36px] coarse:min-w-[28px]`. Visible on all viewports (desktop and mobile).
+**FixedWidthToggle** (in Line 1 right section): Renders between the connection dot and `⌘K`. Order: `[●] [⇔] [⌘K]`. Self-contained component using `useChrome()`/`useChromeDispatch()`. Touch target: `coarse:min-h-[36px] coarse:min-w-[28px]`. Hidden on mobile (< 640px).
 
 ### Sidebar Kill Controls
 
@@ -77,25 +87,25 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 
 ## Bottom Bar (Always Visible, Inside Terminal Column)
 
-Single row of `<kbd>` styled buttons, always visible (terminal is always the main content). Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt Cmd | Fn▴ ArrowPad | >_`.
+Single row of `<kbd>` styled buttons, always visible (terminal is always the main content). Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt | Fn▴ ArrowPad`. Compose button (`>_`) moved to top bar right section.
 
-**Modifier toggles** (Ctrl, Alt, Cmd): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously.
+**Modifier toggles** (Ctrl, Alt): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously. Cmd (`⌘`) removed — on desktop users hold the real Cmd key; on mobile Cmd combos aren't used in terminal workflows.
 
-**Armed modifier bridging**: When modifiers are armed, a capture-phase `keydown` listener intercepts physical keypresses and translates them to terminal escape sequences (Ctrl+letter → control characters, Alt/Cmd → ESC prefix). Sends via WebSocket, preventing xterm from receiving the unmodified key. Ignores real Cmd/Ctrl/Alt held by the OS.
+**Armed modifier bridging**: When modifiers are armed, a capture-phase `keydown` listener intercepts physical keypresses and translates them to terminal escape sequences (Ctrl+letter → control characters, Alt → ESC prefix). Sends via WebSocket, preventing xterm from receiving the unmodified key. Ignores real Cmd/Ctrl/Alt held by the OS.
 
-**ArrowPad** (`arrow-pad.tsx`): Combined directional pad replacing individual arrow buttons. Sends ANSI escape sequences (`[A/B/C/D`). With modifiers, use xterm parameter encoding (`[1;{mod}X`). Modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) + (cmd?8:0).
+**ArrowPad** (`arrow-pad.tsx`): Combined directional pad replacing individual arrow buttons. Sends ANSI escape sequences (`[A/B/C/D`). With modifiers, use xterm parameter encoding (`[1;{mod}X`). Modifier parameter: 1 + (alt?2:0) + (ctrl?4:0).
 
 **Function key dropdown** (F▴): Opens a combined popup above the button. Top section: F1-F12 in a 4-column grid. Divider (`border-t border-border`). Bottom section: PgUp, PgDn, Home, End, Ins, Del in a 3-column grid. Closes after each selection, on outside click, or on Escape.
 
-**Special keys** (Esc, Tab): Direct send. Ctrl is not consumed for Esc/Tab (Esc IS Ctrl+[, Tab IS Ctrl+I in terminal semantics) — Ctrl stays armed for the next key. Alt/Cmd prefix with ESC (Meta convention).
+**Special keys** (Esc, Tab): Direct send. Ctrl is not consumed for Esc/Tab (Esc IS Ctrl+[, Tab IS Ctrl+I in terminal semantics) — Ctrl stays armed for the next key. Alt prefix with ESC (Meta convention).
 
-**All buttons**: 32px minimum height on desktop, 44px on touch devices (`coarse:min-h-[44px]`). `text-xs`, `<kbd>` element styling.
+**All buttons**: 36px minimum height/width on desktop (`min-h-[36px] min-w-[36px]`), 44px height / 36px width on touch devices (`coarse:min-h-[44px] coarse:min-w-[36px]`). `text-xs`, `<kbd>` element styling.
 
 ### Compose Buffer
 
-Native `<textarea>` overlay triggered by the compose button. Appears above the bottom bar inside the content area. Terminal dims (`opacity-50`) while compose is open.
+Native `<textarea>` overlay triggered by the compose button (`>_` in top bar right section). Appears above the bottom bar inside the content area. Terminal dims (`opacity-50`) while compose is open.
 
-- **Open**: Tap compose button (`>_` icon)
+- **Open**: Tap compose button (`>_` icon in top bar)
 - **Send**: Click Send button or press Cmd/Ctrl+Enter — entire text transmitted as one WebSocket message
 - **Dismiss**: Press Escape — closes without sending, text discarded
 - **Why**: xterm is a `<canvas>`, not a native text input. iOS dictation, autocorrect, paste, IME all require a real DOM element. Also useful on desktop for pasting large text blocks over a laggy WebSocket.
@@ -130,11 +140,11 @@ All zones use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. 
 A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-variant coarse (@media (pointer: coarse))`. On touch devices, interactive elements get `coarse:min-h-[44px]` (Apple HIG minimum). This includes:
 - FixedWidthToggle (`coarse:min-h-[36px] coarse:min-w-[28px]`)
 - Sidebar session ✕ kill buttons + window rows
-- Breadcrumb dropdown chevrons
+- Breadcrumb name dropdown triggers
 - `⋯` command palette trigger
-- Logo button (sidebar/drawer toggle)
+- Hamburger icon (sidebar/drawer toggle)
 
-Bottom bar buttons use `min-h-[44px]` unconditionally (not `coarse:` gated) since the bottom bar is touch-primary.
+Bottom bar buttons use `coarse:min-h-[44px] coarse:min-w-[36px]` on touch devices, `min-h-[36px] min-w-[36px]` on desktop.
 
 ### Terminal Addons
 
@@ -235,3 +245,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-13 | xterm addon activation — ClipboardAddon (OSC 52), WebLinksAddon (clickable URLs), WebglAddon (GPU rendering with silent canvas fallback), Cmd+C selection-aware copy via `attachCustomKeyEventHandler` | `260313-dr60-xterm-clipboard-addons` |
 | 2026-03-13 | Removed single-key shortcuts — deleted `useKeyboardNav` (j/k/Enter), `useAppShortcuts` (c/r/Esc Esc), sidebar focus ring (`focusedIndex`). Cmd+K command palette is now the sole keyboard shortcut. Palette actions no longer show shortcut hints for create/rename | `260313-3brm-remove-single-key-shortcuts` |
 | 2026-03-13 | Remove top bar Line 2 — deleted action bar (+ Session, Rename, Kill, window status). FixedWidthToggle relocated to Line 1 (between connection indicator and ⌘K). BreadcrumbDropdown gains `action` prop for `+ New Session`/`+ New Window` as first dropdown item with divider. Sidebar empty state shows `+ New Session` button. Top bar is now single-line on all viewports | `260313-zvgc-remove-top-bar-line-2` |
+| 2026-03-14 | Top bar & bottom bar refresh — hamburger icon replaces logo as sidebar toggle (animates ☰→✕), `/` separator replaces `❯`, session/window names are dropdown triggers (max 7ch session name). Top bar right: logo (decorative) + "Run Kit" + green dot (no text) + toggle + ⌘K + >_ compose. Mobile right: ⋯ + >_. Bottom bar: removed Cmd modifier and compose button, button sizes increased to 36px desktop / 44px touch | `260314-9raw-top-bar-bottom-bar-refresh` |

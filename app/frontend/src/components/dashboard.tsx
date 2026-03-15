@@ -29,15 +29,18 @@ export function Dashboard({
   const nowSeconds = Math.floor(Date.now() / 1000);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-      {/* Stats line */}
-      <div className="text-sm text-text-secondary mb-4">
-        {sessions.length} session{sessions.length !== 1 ? "s" : ""},{" "}
-        {totalWindows} window{totalWindows !== 1 ? "s" : ""}
+    <div className="flex-1 flex flex-col">
+      {/* Stats line — pinned at top */}
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-6">
+        <div className="text-sm text-text-secondary mb-4">
+          {sessions.length} session{sessions.length !== 1 ? "s" : ""},{" "}
+          {totalWindows} window{totalWindows !== 1 ? "s" : ""}
+        </div>
       </div>
 
-      {/* Session cards grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {/* Scrollable card area */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 pb-4 sm:pb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {sessions.map((session) => {
           const isExpanded = expanded[session.name] ?? false;
           const activeCount = session.windows.filter(
@@ -161,6 +164,7 @@ export function Dashboard({
         >
           + New Session
         </button>
+        </div>
       </div>
     </div>
   );

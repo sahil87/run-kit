@@ -7,6 +7,7 @@ export default defineConfig({
   timeout: 10_000,
   retries: 1,
   fullyParallel: false,
+  globalTeardown: "./tests/e2e/global-teardown.ts",
   use: {
     baseURL: `http://localhost:${port}`,
     trace: "on-first-retry",
@@ -18,9 +19,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "just --justfile ../../justfile --working-directory ../.. dev",
+    command: `echo "webServer managed externally"`,
     port,
     reuseExistingServer: true,
-    timeout: 60_000,
+    timeout: 20_000,
   },
 });

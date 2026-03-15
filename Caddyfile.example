@@ -5,6 +5,7 @@
 # Caddy handles TLS termination — no routing needed.
 
 {
+	admin :2020
 	auto_https disable_redirects
 }
 

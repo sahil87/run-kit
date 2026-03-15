@@ -59,14 +59,24 @@ verify: check test build
 up:
     tmux new-session -d -s rk './scripts/supervisor.sh'
 
-# Stop supervisor
+# Stop supervisor and Caddy
 down:
+    caddy stop --address :2020 2>/dev/null || true
     tmux kill-session -t rk 2>/dev/null || true
 
 restart:
     touch .restart-requested
 
 # ─── HTTPS ───────────────────────────────────────────────────
+
+# One-time: allow current user to manage Tailscale without sudo
+ts-setup:
+    sudo tailscale set --operator=$USER
+
+# Provision Tailscale HTTPS certs into keys/
+ts:
+    mkdir -p keys
+    tailscale cert --cert-file keys/${RK_HTTPS_HOST:-ubuntu-vm3.bat-ordinal.ts.net}.crt --key-file keys/${RK_HTTPS_HOST:-ubuntu-vm3.bat-ordinal.ts.net}.key ${RK_HTTPS_HOST:-ubuntu-vm3.bat-ordinal.ts.net}
 
 # Start Caddy HTTPS proxy in front of dev server
 https:

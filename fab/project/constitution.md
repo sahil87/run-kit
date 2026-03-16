@@ -23,6 +23,9 @@ The tmux layer MUST be fully independent of the Go server. Agent sessions runnin
 ### VII. Convention Over Configuration
 run-kit SHOULD derive values from conventions rather than requiring explicit configuration. Project IDs from directory names, session prefixes from project names, worktree paths from fab-kit defaults. The `run-kit.yaml` config SHOULD require only project paths.
 
+### VIII. Thin Justfile
+Justfile recipes MUST be one-liners that delegate to `scripts/`. Logic, loops, and conditionals belong in shell scripts — the justfile is an index, not an implementation.
+
 ## Additional Constraints
 
 ### Test Integrity

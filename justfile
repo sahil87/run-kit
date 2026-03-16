@@ -65,9 +65,8 @@ verify: check test build
 up:
     tmux has-session -t rk 2>/dev/null && tmux new-window -t rk './scripts/supervisor.sh' || tmux new-session -d -s rk './scripts/supervisor.sh'
 
-# Stop supervisor and Caddy
+# Stop supervisor
 down:
-    caddy stop --address :2020 2>/dev/null || true
     tmux kill-session -t rk 2>/dev/null || true
 
 restart:

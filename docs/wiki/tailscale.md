@@ -11,14 +11,6 @@ For most setups, **Tailscale Serve is the recommended approach**.
 
 ## Prerequisites
 
-Both approaches require:
-
-```sh
-# One-time: allow your user to manage Tailscale without sudo
-just ts-setup
-# (runs: sudo tailscale set --operator=$USER)
-```
-
 Enable HTTPS on your tailnet in the [Tailscale admin console](https://login.tailscale.com/admin/dns) under **DNS > HTTPS Certificates**.
 
 ## Option 1: Tailscale Serve (recommended)
@@ -56,10 +48,10 @@ This gives you `https://runner1.tailnet-name.ts.net` — a clean URL that can be
    }
    ```
 
-2. Re-register the node with the tag:
+2. Re-register the node with the tag and allow your user to manage Tailscale without sudo:
 
    ```sh
-   sudo tailscale up --advertise-tags=tag:server
+   sudo tailscale up --advertise-tags=tag:server --operator=$USER
    ```
 
 3. Now the service command works:

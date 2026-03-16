@@ -2,6 +2,11 @@
 # run-kit supervisor: build, run, and auto-restart on .restart-requested signal.
 set -euo pipefail
 
+# Load environment: .env first, then .env.local overrides
+cd "$(dirname "$0")/.." || exit 1
+[[ -f .env ]] && set -a && source .env && set +a
+[[ -f .env.local ]] && set -a && source .env.local && set +a
+
 POLL=5
 SIGNAL=".restart-requested"
 BINARY="bin/run-kit"

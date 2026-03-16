@@ -38,13 +38,18 @@ tailscale serve --service=svc:runner1 http://localhost:3000
 
 This gives you `https://runner1.tailnet-name.ts.net` — a clean URL that can be moved between machines without changing.
 
-**Prerequisite:** Services require the node to be a **tagged node**. In your [Tailscale ACL policy](https://login.tailscale.com/admin/acls):
+**Setup:** Services require a **tagged node** and some ACL configuration. In your [Tailscale ACL policy](https://login.tailscale.com/admin/acls):
 
-1. Define a tag and grant yourself ownership:
+1. Define a tag, grant yourself ownership, and auto-approve service advertisements:
 
    ```jsonc
    "tagOwners": {
      "tag:server": ["your-email@example.com"]
+   },
+   "autoApprovers": {
+     "services": {
+       "svc:runner1": ["tag:server"]
+     }
    }
    ```
 
@@ -54,10 +59,12 @@ This gives you `https://runner1.tailnet-name.ts.net` — a clean URL that can be
    sudo tailscale up --advertise-tags=tag:server --operator=$USER
    ```
 
-3. Now the service command works:
+3. In the [admin console](https://login.tailscale.com/admin/machines), find the `svc:runner1` service and add `tcp:443` as an endpoint. Without this, you'll see "required ports are missing" even though the service is advertising.
+
+4. Now the service command works:
 
    ```sh
-   tailscale serve --service=svc:runner1 http://localhost:3000
+   tailscale serve --bg --service=svc:runner1 http://localhost:3000
    ```
 
 > **Note:** Tagging a node removes the association with your user identity — ACL rules that grant access by user won't apply. Make sure your ACLs grant the tag access to what it needs.

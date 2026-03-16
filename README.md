@@ -9,7 +9,7 @@ Web-based agent orchestration dashboard. Monitor and interact with tmux sessions
 - [tmux](https://github.com/tmux/tmux) installed and on your `PATH`
 - [just](https://github.com/casey/just) task runner
 - [air](https://github.com/air-verse/air) Go live-reload for development
-- [Caddy](https://caddyserver.com/) *(optional, for local HTTPS)*
+- [Caddy](https://caddyserver.com/) *(optional, for local HTTPS)* — see [Tailscale HTTPS guide](docs/wiki/tailscale.md)
 
 ```sh
 brew install node pnpm tmux just caddy

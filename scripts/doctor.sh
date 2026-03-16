@@ -25,7 +25,7 @@ check_cmd node "brew install node"
 check_cmd pnpm "brew install pnpm"
 check_cmd tmux "brew install tmux"
 check_cmd air "go install github.com/air-verse/air@latest"
-check_cmd caddy "brew install caddy"
+if command -v caddy &>/dev/null; then ok "caddy found (optional)"; else warn "caddy not found (optional) — brew install caddy"; fi
 
 echo ""
 echo "Checking versions..."

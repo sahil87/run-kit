@@ -21,6 +21,7 @@ function toByobuSafeName(dirName: string): string {
 
 function deriveNameFromPath(p: string): string {
   const trimmed = p.replace(/\/+$/, "");
+  if (trimmed === "~" || trimmed === "") return "";
   const segment = trimmed.split("/").pop() ?? "";
   return toByobuSafeName(segment);
 }
@@ -152,9 +153,15 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
   }, []);
 
   async function handleCreate() {
-    const trimmedName = name.trim();
+    let trimmedName = name.trim();
+    if (!trimmedName && path.trim()) {
+      trimmedName = deriveNameFromPath(path.trim());
+    }
     if (!trimmedName) return;
-    if (nameCollision) return;
+    if (existingNames.has(trimmedName)) {
+      setError(`Session "${trimmedName}" already exists`);
+      return;
+    }
     setError("");
     try {
       await createSession(trimmedName, path.trim() || undefined);
@@ -255,7 +262,7 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
 
       <button
         onClick={handleCreate}
-        disabled={!name.trim() || nameCollision}
+        disabled={(!name.trim() && !path.trim()) || nameCollision}
         className="w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Create

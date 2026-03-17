@@ -21,6 +21,7 @@ function toByobuSafeName(dirName: string): string {
 
 function deriveNameFromPath(p: string): string {
   const trimmed = p.replace(/\/+$/, "");
+  if (trimmed === "~" || trimmed === "") return "";
   const segment = trimmed.split("/").pop() ?? "";
   return toByobuSafeName(segment);
 }

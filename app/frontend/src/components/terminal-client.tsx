@@ -13,6 +13,7 @@ export async function copyToClipboard(text: string): Promise<void> {
       // Clipboard API failed (likely non-secure context) — fall through to fallback
     }
   }
+  const previousActiveElement = document.activeElement as HTMLElement | null;
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.style.position = "fixed";
@@ -25,6 +26,7 @@ export async function copyToClipboard(text: string): Promise<void> {
     // Both mechanisms failed — silently ignore
   } finally {
     document.body.removeChild(textarea);
+    previousActiveElement?.focus();
   }
 }
 

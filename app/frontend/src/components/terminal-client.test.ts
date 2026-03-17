@@ -3,10 +3,12 @@ import { copyToClipboard } from "./terminal-client";
 
 describe("copyToClipboard", () => {
   let originalClipboard: Clipboard;
+  let originalExecCommand: typeof document.execCommand;
   let execCommandSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     originalClipboard = navigator.clipboard;
+    originalExecCommand = document.execCommand;
     // jsdom doesn't define execCommand — stub it
     execCommandSpy = vi.fn().mockReturnValue(true);
     document.execCommand = execCommandSpy as typeof document.execCommand;
@@ -18,6 +20,7 @@ describe("copyToClipboard", () => {
       writable: true,
       configurable: true,
     });
+    document.execCommand = originalExecCommand;
   });
 
   it("uses Clipboard API when available", async () => {

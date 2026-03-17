@@ -78,7 +78,6 @@ line_ensure_merge() {
 
 # json_merge_permissions <source> <target> <label>
 #   If <target> absent, copy <source>. If present, merge permissions.allow arrays via jq.
-#   Warns and skips if jq is not available.
 json_merge_permissions() {
   local source="$1" target="$2" label="$3"
 
@@ -87,10 +86,8 @@ json_merge_permissions() {
   if [ ! -f "$target" ]; then
     cp "$source" "$target"
     local count
-    count=$(jq '.permissions.allow | length' "$target" 2>/dev/null || echo "?")
+    count=$(jq '.permissions.allow | length' "$target")
     echo "Created: $label ($count permission rules)"
-  elif ! command -v jq >/dev/null 2>&1; then
-    echo "WARN: jq not found — skipping $label merge"
   else
     local merged
     merged=$(jq -s '

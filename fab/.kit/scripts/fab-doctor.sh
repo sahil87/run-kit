@@ -20,7 +20,7 @@ if [[ "${1:-}" == "--porcelain" ]]; then
 fi
 
 failures=0
-total=5
+total=6
 
 if [[ "$porcelain" == false ]]; then
   echo "fab-doctor: checking prerequisites..."
@@ -89,7 +89,17 @@ else
   hint "Install: brew install yq"
 fi
 
-# ── 4. gh ───────────────────────────────────────────────────────────
+# ── 4. jq ──────────────────────────────────────────────────────────
+
+if command -v jq &>/dev/null; then
+  ver=$(jq --version | sed 's/jq-//')
+  pass "jq $ver"
+else
+  fail "jq — not found"
+  hint "Install: brew install jq"
+fi
+
+# ── 5. gh ───────────────────────────────────────────────────────────
 
 if command -v gh &>/dev/null; then
   ver=$(gh --version | head -1 | sed 's/.*version //' | sed 's/ .*//')
@@ -99,7 +109,7 @@ else
   hint "Install: brew install gh"
 fi
 
-# ── 5. direnv ───────────────────────────────────────────────────────
+# ── 6. direnv ───────────────────────────────────────────────────────
 
 if command -v direnv &>/dev/null; then
   ver=$(direnv version)

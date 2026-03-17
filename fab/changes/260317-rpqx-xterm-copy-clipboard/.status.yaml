@@ -1,0 +1,42 @@
+id: rpqx
+name: 260317-rpqx-xterm-copy-clipboard
+created: 2026-03-17T09:36:19Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 14
+    total: 14
+confidence:
+    certain: 6
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 77.9
+        reversibility: 93.6
+        competence: 87.9
+        disambiguation: 91.4
+stage_metrics:
+    intake: {started_at: "2026-03-17T09:36:19Z", driver: fab-new, iterations: 1, completed_at: "2026-03-17T11:08:03Z"}
+    spec: {started_at: "2026-03-17T11:08:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-17T11:08:40Z"}
+    tasks: {started_at: "2026-03-17T11:08:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-17T11:08:40Z"}
+    apply: {started_at: "2026-03-17T11:08:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-17T11:11:38Z"}
+    review: {started_at: "2026-03-17T11:11:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-17T11:13:43Z"}
+    hydrate: {started_at: "2026-03-17T11:13:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-17T11:14:18Z"}
+    ship: {started_at: "2026-03-17T11:14:18Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-17T11:14:18Z

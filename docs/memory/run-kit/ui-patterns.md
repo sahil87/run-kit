@@ -196,7 +196,7 @@ The `CommandPalette` component listens for a `palette:open` CustomEvent on `docu
 | Key | Action | Context |
 |-----|--------|---------|
 | `Cmd+K` | Open command palette | Always |
-| `Cmd+C` / `Ctrl+C` | Copy selection to clipboard (with selection) or send SIGINT (without selection) | Terminal focused — via `attachCustomKeyEventHandler`, `keydown` only |
+| `Cmd+C` / `Ctrl+C` | Copy selection to clipboard (with selection) or send SIGINT (without selection) | Terminal focused — via `attachCustomKeyEventHandler`, `keydown` only. Uses `navigator.clipboard.writeText()` with `document.execCommand('copy')` fallback for non-secure contexts (HTTP). Selection cleared after copy via `.finally()` |
 
 No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with xterm.js terminal input. All actions are accessible via `Cmd+K` command palette or top bar buttons.
 
@@ -274,3 +274,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-15 | Dashboard view — `/` renders Dashboard component (session cards grid with expandable window cards, stats line, New Session/New Window buttons) instead of redirecting. Top bar shows "Dashboard" text on `/`, no breadcrumbs. Bottom bar hidden on Dashboard. Sidebar session name click navigates to first window (chevron toggles expand/collapse). All kill operations redirect to `/`. Stale URL detection redirects to `/` | `260313-ll1j-dashboard-project-page-views` |
 | 2026-03-15 | Per-region scroll behavior — Dashboard split into pinned stats line (`shrink-0`) + scrollable card area (`flex-1 min-h-0 overflow-y-auto`). `useVisualViewport` hook now adds `fullbleed` class to `<html>` on mount (lifecycle management). Fullbleed activates `overflow: hidden` on html/body, preventing browser scrollbar on terminal pages | `260315-lnrb-dashboard-scroll-behavior` |
 | 2026-03-17 | Default session name from folder — Create Session dialog derives name from path when name field is empty at submit time. Create button enabled when path is set (even without explicit name). Derived name collision checked with error display | `260317-qiza-default-session-name-from-folder` |
+| 2026-03-17 | Fix xterm clipboard copy — `copyToClipboard` helper with `navigator.clipboard.writeText()` primary + `document.execCommand('copy')` fallback for non-secure HTTP contexts. Selection cleared via `.finally()`. Exported for testability | `260317-rpqx-xterm-copy-clipboard` |

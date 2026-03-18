@@ -10,10 +10,11 @@ Web-based agent orchestration dashboard. Monitor and interact with tmux sessions
 - [just](https://github.com/casey/just) task runner
 - [Go](https://go.dev/) (1.22+)
 - [air](https://github.com/air-verse/air) Go live-reload for development
+- [direnv](https://direnv.net/) for automatic `.env` loading via `.envrc`
 - [Caddy](https://caddyserver.com/) *(optional, for local HTTPS)* — see [Tailscale HTTPS guide](docs/wiki/tailscale.md)
 
 ```sh
-brew install node pnpm tmux just caddy go
+brew install node pnpm tmux just direnv caddy go
 go install github.com/air-verse/air@latest
 ```
 

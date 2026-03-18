@@ -1,6 +1,8 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useNavigate, useMatches } from "@tanstack/react-router";
 import { ChromeProvider, useChrome, useChromeDispatch } from "@/contexts/chrome-context";
+import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
+import type { ThemePreference } from "@/contexts/theme-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { useSessions } from "@/hooks/use-sessions";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
@@ -39,11 +41,13 @@ function readSidebarWidth(): number {
 
 export function App() {
   return (
-    <ChromeProvider>
-      <SessionProvider>
-        <AppShell />
-      </SessionProvider>
-    </ChromeProvider>
+    <ThemeProvider>
+      <ChromeProvider>
+        <SessionProvider>
+          <AppShell />
+        </SessionProvider>
+      </ChromeProvider>
+    </ThemeProvider>
   );
 }
 
@@ -222,6 +226,19 @@ function AppShell() {
     [],
   );
 
+  // Theme
+  const { preference: themePreference } = useTheme();
+  const { setTheme } = useThemeActions();
+
+  const themeActions: PaletteAction[] = useMemo(() => {
+    const options: ThemePreference[] = ["system", "light", "dark"];
+    return options.map((opt) => ({
+      id: `theme-${opt}`,
+      label: `Theme: ${opt.charAt(0).toUpperCase() + opt.slice(1)}${themePreference === opt ? " (current)" : ""}`,
+      onSelect: () => setTheme(opt),
+    }));
+  }, [themePreference, setTheme]);
+
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -279,13 +296,14 @@ function AppShell() {
             },
           ]
         : []),
+      ...themeActions,
       ...flatWindows.map((fw) => ({
         id: `terminal-${fw.session}-${fw.window.index}`,
         label: `Terminal: ${fw.session}/${fw.window.name}`,
         onSelect: () => navigateToWindow(fw.session, fw.window.index),
       })),
     ],
-    [sessionName, currentWindow, flatWindows, navigateToWindow, handleCreateWindow, dialogs],
+    [sessionName, currentWindow, flatWindows, navigateToWindow, handleCreateWindow, dialogs, themeActions],
   );
 
   const displayName = currentWindow?.name ?? windowIndex ?? "";
@@ -347,7 +365,7 @@ function AppShell() {
         )}
 
         {/* Terminal Column */}
-        <div className={`flex-1 min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-[#0a0c12]" : ""}`}>
+        <div className={`flex-1 min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-bg-inset" : ""}`}>
           <div
             className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
             style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}

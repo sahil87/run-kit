@@ -1,10 +1,24 @@
 <!DOCTYPE html>
-<html lang="en" class="dark fullbleed">
+<html lang="en" data-theme="dark" class="fullbleed">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <title>RunKit</title>
     <meta name="description" content="Web-based agent orchestration dashboard" />
+    <script>
+      // Blocking theme initialization — runs before first paint to prevent flicker.
+      // Reads user preference from localStorage and resolves to "dark" or "light".
+      ;(function() {
+        var pref = null;
+        try { pref = localStorage.getItem("runkit-theme"); } catch(e) {}
+        if (pref !== "light" && pref !== "dark" && pref !== "system") pref = "system";
+        var resolved = pref;
+        if (pref === "system") {
+          resolved = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = resolved;
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
   </head>
   <body class="h-screen antialiased">

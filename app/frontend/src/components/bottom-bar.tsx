@@ -219,6 +219,16 @@ export function BottomBar({ wsRef }: BottomBarProps) {
       </div>
 
       <ArrowPad onArrow={sendArrow} />
+
+      <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
+
+      <button
+        aria-label="Open command palette"
+        className={`${KBD_CLASS} text-text-secondary`}
+        onClick={() => document.dispatchEvent(new CustomEvent("palette:open"))}
+      >
+        <kbd aria-hidden="true">{"\u2318K"}</kbd>
+      </button>
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { useCallback } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { useChrome, useChromeDispatch } from "@/contexts/chrome-context";
+import { useTheme, useThemeActions } from "@/contexts/theme-context";
+import type { ThemePreference } from "@/contexts/theme-context";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -208,16 +210,9 @@ export function TopBar({
             <FixedWidthToggle />
           </span>
 
-          <button
-            type="button"
-            onClick={() => document.dispatchEvent(new CustomEvent("palette:open"))}
-            aria-label="Open command palette"
-            className="hidden sm:inline-flex min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors items-center justify-center text-xs cursor-pointer"
-          >
-            {"\u2318K"}
-          </button>
-
-
+          <span className="hidden sm:flex">
+            <ThemeToggle />
+          </span>
 
           {/* Compose button — always visible */}
           <button
@@ -231,6 +226,60 @@ export function TopBar({
         </div>
       </div>
     </header>
+  );
+}
+
+const THEME_CYCLE: ThemePreference[] = ["system", "light", "dark"];
+const THEME_LABELS: Record<ThemePreference, string> = {
+  system: "System theme",
+  light: "Light theme",
+  dark: "Dark theme",
+};
+
+function ThemeToggle() {
+  const { preference } = useTheme();
+  const { setTheme } = useThemeActions();
+
+  const cycle = () => {
+    const idx = THEME_CYCLE.indexOf(preference);
+    const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
+    setTheme(next);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={cycle}
+      aria-label={THEME_LABELS[preference]}
+      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center"
+      title={THEME_LABELS[preference]}
+    >
+      {preference === "light" ? (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <circle cx="8" cy="8" r="3" />
+          <g stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <line x1="8" y1="1" x2="8" y2="2.5" />
+            <line x1="8" y1="13.5" x2="8" y2="15" />
+            <line x1="1" y1="8" x2="2.5" y2="8" />
+            <line x1="13.5" y1="8" x2="15" y2="8" />
+            <line x1="3.05" y1="3.05" x2="4.11" y2="4.11" />
+            <line x1="11.89" y1="11.89" x2="12.95" y2="12.95" />
+            <line x1="3.05" y1="12.95" x2="4.11" y2="11.89" />
+            <line x1="11.89" y1="4.11" x2="12.95" y2="3.05" />
+          </g>
+        </svg>
+      ) : preference === "dark" ? (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M6 2a6 6 0 1 0 8 8c-3.3 0-6-2.7-6-6a6 6 0 0 0-2-2z" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <circle cx="8" cy="8" r="5" />
+          <path d="M8 3v10" />
+          <path d="M8 3a5 5 0 0 1 0 10" fill="currentColor" />
+        </svg>
+      )}
+    </button>
   );
 }
 

@@ -25,11 +25,13 @@ dev *args:
 
 # ─── Prod & Daemon mode ────────────────────────────────────────────────────
 
-# Build Go binary + frontend for production
+# Build Go binary + frontend for production (embedded assets + ldflags)
 build:
-    mkdir -p bin
-    cd app/backend && go build -o ../../bin/run-kit ./cmd/run-kit
-    cd app/frontend && pnpm build
+    ./scripts/build.sh
+
+# Tag and push a semver release (patch/minor/major)
+release bump:
+    ./scripts/release.sh {{bump}}
 
 # Build and run production binary
 prod:

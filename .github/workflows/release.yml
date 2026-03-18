@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/backend/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install frontend dependencies
+        run: cd app/frontend && pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: cd app/frontend && pnpm build
+
+      - name: Copy frontend dist to backend
+        run: |
+          rm -rf app/backend/frontend/dist
+          cp -r app/frontend/dist app/backend/frontend/dist
+
+      - name: Read version
+        id: version
+        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-compile
+        run: |
+          cd app/backend
+          targets="darwin/arm64 darwin/amd64 linux/arm64 linux/amd64"
+          for target in $targets; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            output="run-kit-${os}-${arch}"
+            echo "Building ${output}..."
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
+              -o "../../dist/${output}/run-kit" ./cmd/run-kit
+            tar -czf "../../dist/${output}.tar.gz" -C "../../dist/${output}" run-kit
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+echo "==> Building frontend..."
+cd "$REPO_ROOT/app/frontend"
+pnpm build
+
+echo "==> Copying frontend dist to backend embed directory..."
+rm -rf "$REPO_ROOT/app/backend/frontend/dist"
+cp -r "$REPO_ROOT/app/frontend/dist" "$REPO_ROOT/app/backend/frontend/dist"
+
+VERSION="$(cat "$REPO_ROOT/VERSION")"
+echo "==> Building run-kit v${VERSION}..."
+
+cd "$REPO_ROOT/app/backend"
+CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o "$REPO_ROOT/bin/run-kit" ./cmd/run-kit
+
+echo "==> Built bin/run-kit (v${VERSION})"

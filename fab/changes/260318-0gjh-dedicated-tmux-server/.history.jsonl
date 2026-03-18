@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-18T06:49:03Z"}
+{"args":"Replace byobu dependency with dedicated tmux server owned by run-kit","cmd":"fab-new","event":"command","ts":"2026-03-18T06:49:03Z"}
+{"delta":"+2.8","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-03-18T06:50:22Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-03-18T06:50:36Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-03-18T06:52:36Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-03-18T06:52:41Z"}
+{"delta":"+1.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-03-18T06:52:48Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-03-18T06:52:52Z"}

@@ -33,6 +33,7 @@ export function Sidebar({
   const [editingName, setEditingName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const cancelledRef = useRef(false);
+  const originalNameRef = useRef("");
 
   useEffect(() => {
     if (editingWindow && inputRef.current) {
@@ -42,18 +43,17 @@ export function Sidebar({
   }, [editingWindow]);
 
   function handleStartEditing(session: string, index: number, currentName: string) {
+    cancelledRef.current = true; // cancel any in-progress edit before switching
     setEditingWindow({ session, index });
     setEditingName(currentName);
+    originalNameRef.current = currentName;
     cancelledRef.current = false;
   }
 
   async function handleRenameCommit() {
     if (!editingWindow) return;
     const trimmed = editingName.trim();
-    const originalWin = sessions
-      .find((s) => s.name === editingWindow.session)
-      ?.windows.find((w) => w.index === editingWindow.index);
-    const originalName = originalWin?.name ?? "";
+    const originalName = originalNameRef.current;
     setEditingWindow(null);
     if (trimmed && trimmed !== originalName) {
       try {
@@ -206,6 +206,8 @@ export function Sidebar({
                                   onChange={(e) => setEditingName(e.target.value)}
                                   onKeyDown={handleRenameKeyDown}
                                   onBlur={handleRenameBlur}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}
                                   className="text-sm bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
                                   aria-label="Rename window"
                                 />

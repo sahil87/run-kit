@@ -350,6 +350,25 @@ describe("Sidebar", () => {
       expect(renameWindowMock).not.toHaveBeenCalled();
     });
 
+    it("double-click on window B cancels active edit on window A without committing", async () => {
+      const { renameWindow: renameWindowMock } = await import("@/api/client");
+      vi.mocked(renameWindowMock).mockClear();
+
+      renderSidebar();
+      // Start editing "main"
+      fireEvent.doubleClick(screen.getByText("main"));
+      const inputA = screen.getByLabelText("Rename window");
+      fireEvent.change(inputA, { target: { value: "renamed-main" } });
+
+      // Now double-click "scratch" — should cancel A's edit without committing
+      fireEvent.doubleClick(screen.getByText("scratch"));
+      const inputB = screen.getByLabelText("Rename window");
+      expect(inputB).toHaveValue("scratch");
+
+      // A's changed value should NOT have been committed
+      expect(renameWindowMock).not.toHaveBeenCalled();
+    });
+
     it("single-click navigates without triggering edit", () => {
       const onSelectWindow = vi.fn();
       renderSidebar({ onSelectWindow });

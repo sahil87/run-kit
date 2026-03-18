@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-17T15:33:29Z"}
+{"args":"Create a deployment system for run-kit using homebrew, modeled after tu's release flow","cmd":"fab-new","event":"command","ts":"2026-03-17T15:33:29Z"}
+{"delta":"+2.5","event":"confidence","score":2.5,"trigger":"calc-score","ts":"2026-03-17T15:34:25Z"}
+{"delta":"+0.0","event":"confidence","score":2.5,"trigger":"calc-score","ts":"2026-03-17T15:34:44Z"}
+{"delta":"+0.4","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-03-18T06:10:50Z"}
+{"delta":"+0.0","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-03-18T06:10:55Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-18T06:11:06Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-03-18T06:15:51Z"}
+{"delta":"+2.1","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-18T06:29:24Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-18T06:29:41Z"}

@@ -210,18 +210,9 @@ export function TopBar({
             <FixedWidthToggle />
           </span>
 
-          <ThemeToggle />
-
-          <button
-            type="button"
-            onClick={() => document.dispatchEvent(new CustomEvent("palette:open"))}
-            aria-label="Open command palette"
-            className="hidden sm:inline-flex min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors items-center justify-center text-xs cursor-pointer"
-          >
-            {"\u2318K"}
-          </button>
-
-
+          <span className="hidden sm:flex">
+            <ThemeToggle />
+          </span>
 
           {/* Compose button — always visible */}
           <button

@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { killSession as killSessionApi, killWindow as killWindowApi } from "@/api/client";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { getWindowDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
@@ -28,6 +28,61 @@ export function Sidebar({
     windowIndex?: number;
     windowCount: number;
   } | null>(null);
+
+  const [editingWindow, setEditingWindow] = useState<{ session: string; index: number } | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const cancelledRef = useRef(false);
+
+  useEffect(() => {
+    if (editingWindow && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingWindow]);
+
+  function handleStartEditing(session: string, index: number, currentName: string) {
+    setEditingWindow({ session, index });
+    setEditingName(currentName);
+    cancelledRef.current = false;
+  }
+
+  async function handleRenameCommit() {
+    if (!editingWindow) return;
+    const trimmed = editingName.trim();
+    const originalWin = sessions
+      .find((s) => s.name === editingWindow.session)
+      ?.windows.find((w) => w.index === editingWindow.index);
+    const originalName = originalWin?.name ?? "";
+    setEditingWindow(null);
+    if (trimmed && trimmed !== originalName) {
+      try {
+        await renameWindow(editingWindow.session, editingWindow.index, trimmed);
+      } catch {
+        // SSE will reflect actual state
+      }
+    }
+  }
+
+  function handleRenameCancel() {
+    cancelledRef.current = true;
+    setEditingWindow(null);
+  }
+
+  function handleRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleRenameCommit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleRenameCancel();
+    }
+  }
+
+  function handleRenameBlur() {
+    if (cancelledRef.current) return;
+    handleRenameCommit();
+  }
 
   const toggleSession = useCallback((name: string) => {
     setCollapsed((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -143,7 +198,26 @@ export function Sidebar({
                                 }`}
                                 aria-label={win.activity}
                               />
-                              <span className="truncate">{win.name}</span>
+                              {editingWindow?.session === session.name && editingWindow.index === win.index ? (
+                                <input
+                                  ref={inputRef}
+                                  type="text"
+                                  value={editingName}
+                                  onChange={(e) => setEditingName(e.target.value)}
+                                  onKeyDown={handleRenameKeyDown}
+                                  onBlur={handleRenameBlur}
+                                  className="text-sm bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
+                                  aria-label="Rename window"
+                                />
+                              ) : (
+                                <span
+                                  className="truncate"
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStartEditing(session.name, win.index, win.name);
+                                  }}
+                                >{win.name}</span>
+                              )}
                             </span>
                             <span className="flex items-center gap-1.5 shrink-0">
                               {win.fabStage && (

@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <title>RunKit</title>
     <meta name="description" content="Web-based agent orchestration dashboard" />
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <script>
       // Blocking theme initialization — runs before first paint to prevent flicker.
       // Reads user preference from localStorage and resolves to "dark" or "light".
@@ -20,6 +19,7 @@
         document.documentElement.dataset.theme = resolved;
       })();
     </script>
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
   </head>
   <body class="h-screen antialiased">
     <div id="root"></div>

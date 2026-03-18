@@ -153,7 +153,7 @@ No `max-w-4xl` constraint — all zones span full width. Terminal fills all avai
 
 **SessionProvider** (`app/frontend/src/contexts/session-context.tsx`) — layout-level React Context that owns the single `EventSource` connection to `/api/sessions/stream`. Exposes `{ sessions, isConnected }` via `useSessions()` hook. Forwards `isConnected` to `ChromeProvider` internally. Provider tree order: `ThemeProvider > ChromeProvider > SessionProvider > AppShell`.
 
-**TopBarChrome** (`app/frontend/src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Single line (`border-b border-border`). Left: hamburger icon (☰, animates to ✕ when sidebar/drawer open) + session name (dropdown trigger, max 7ch) + `/` separator + window name (dropdown trigger). Right (desktop): logo (decorative) + "Run Kit" text + green dot (no text label) + FixedWidthToggle + ⌘K + >_ compose. Right (mobile): ⋯ + >_. `onOpenCompose` callback received as prop.
+**TopBarChrome** (`app/frontend/src/components/top-bar-chrome.tsx`) — reads from ChromeProvider. Single line (`border-b border-border`). Left: hamburger icon (☰, animates to ✕ when sidebar/drawer open) + session name (dropdown trigger, max 7ch) + `/` separator + window name (dropdown trigger). Right (desktop): logo (decorative) + "Run Kit" text + green dot (no text label) + FixedWidthToggle + ThemeToggle (cycles system → light → dark) + >_ compose. Right (mobile): ⋯ + >_. `onOpenCompose` callback received as prop.
 
 **Sidebar** (`app/frontend/src/components/sidebar.tsx`) — session/window tree. Desktop: drag-resizable (default 220px, min 160, max 400, persisted to `localStorage`), collapsible via `☰`. No footer (create session moved to top bar). Mobile (< 768px): drawer overlay from the left, triggered by `☰`.
 

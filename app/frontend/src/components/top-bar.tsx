@@ -248,6 +248,7 @@ function ThemeToggle() {
 
   return (
     <button
+      type="button"
       onClick={cycle}
       aria-label={THEME_LABELS[preference]}
       className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center"

@@ -40,7 +40,7 @@ function applyTheme(resolved: ResolvedTheme): void {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [preference, setPreference] = useState<ThemePreference>(readPreference);
-  const [resolved, setResolved] = useState<ResolvedTheme>(() => resolveTheme(readPreference()));
+  const [resolved, setResolved] = useState<ResolvedTheme>(() => resolveTheme(preference));
 
   // Listen to OS preference changes when in "system" mode
   useEffect(() => {

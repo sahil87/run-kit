@@ -132,6 +132,49 @@ describe("ThemeProvider", () => {
     expect(screen.getByTestId("resolved").textContent).toBe("light");
   });
 
+  it("ignores matchMedia changes when preference is explicit light", () => {
+    localStorage.setItem("runkit-theme", "light");
+    document.documentElement.dataset.theme = "light"; // Simulates blocking script
+    const { simulateChange } = mockMatchMedia(false);
+
+    render(
+      <ThemeProvider>
+        <TestConsumer />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("resolved").textContent).toBe("light");
+
+    // Simulate OS switching to dark — should be ignored
+    act(() => {
+      simulateChange(true);
+    });
+
+    expect(screen.getByTestId("resolved").textContent).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("ignores matchMedia changes when preference is explicit dark", () => {
+    localStorage.setItem("runkit-theme", "dark");
+    const { simulateChange } = mockMatchMedia(true);
+
+    render(
+      <ThemeProvider>
+        <TestConsumer />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("resolved").textContent).toBe("dark");
+
+    // Simulate OS switching to light — should be ignored
+    act(() => {
+      simulateChange(false);
+    });
+
+    expect(screen.getByTestId("resolved").textContent).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
   it("listens to matchMedia changes when preference is system", () => {
     const { simulateChange } = mockMatchMedia(true);
 

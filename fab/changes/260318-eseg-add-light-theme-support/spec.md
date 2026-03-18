@@ -6,7 +6,7 @@
 
 ## Non-Goals
 
-- Settings page or preferences panel — theme switching lives in the command palette only
+- Settings page or preferences panel — theme switching lives in the command palette and top-bar toggle only
 - Per-session or per-window themes — one global theme for the entire app
 - Custom user-defined color palettes — only system/light/dark presets
 

@@ -92,6 +92,33 @@ describe("copyToClipboard", () => {
   });
 });
 
+describe("XTERM_THEMES theme selection", () => {
+  it("selects correct theme based on resolved theme value", () => {
+    // Simulates the logic in TerminalClient's useEffect:
+    // terminal.options.theme = XTERM_THEMES[resolvedTheme]
+    const resolvedDark = "dark" as const;
+    const resolvedLight = "light" as const;
+
+    expect(XTERM_THEMES[resolvedDark].background).toBe("#0f1117");
+    expect(XTERM_THEMES[resolvedLight].background).toBe("#f8f9fb");
+  });
+
+  it("initial theme reads from data-theme attribute", () => {
+    // Simulates the logic in TerminalClient's init():
+    // const initTheme = (document.documentElement.dataset.theme === "light" ? "light" : "dark")
+    document.documentElement.dataset.theme = "light";
+    const initTheme = (document.documentElement.dataset.theme === "light" ? "light" : "dark") as "light" | "dark";
+    expect(XTERM_THEMES[initTheme].background).toBe("#f8f9fb");
+
+    document.documentElement.dataset.theme = "dark";
+    const initThemeDark = (document.documentElement.dataset.theme === "light" ? "light" : "dark") as "light" | "dark";
+    expect(XTERM_THEMES[initThemeDark].background).toBe("#0f1117");
+
+    // Cleanup
+    delete document.documentElement.dataset.theme;
+  });
+});
+
 describe("XTERM_THEMES", () => {
   it("defines dark and light theme objects", () => {
     expect(XTERM_THEMES.dark).toBeDefined();

@@ -222,7 +222,7 @@ Theme is applied via `data-theme` attribute on `<html>` (`"dark"` or `"light"`).
 
 ### Theme Switching
 
-Preference stored in `localStorage` key `runkit-theme` (values: `"system"`, `"light"`, `"dark"`). Switching is done via command palette: `Cmd+K` → "Theme: System/Light/Dark". Current theme indicated with "(current)" suffix.
+Preference stored in `localStorage` key `runkit-theme` (values: `"system"`, `"light"`, `"dark"`). Two switching surfaces: (1) command palette (`Cmd+K` → "Theme: System/Light/Dark", current indicated with "(current)" suffix) and (2) top-bar ThemeToggle button (desktop only, hidden on mobile via `hidden sm:flex`). The toggle cycles system → light → dark on each click, displaying a half-circle (system), sun (light), or moon (dark) icon.
 
 ### No-Flicker Initialization
 

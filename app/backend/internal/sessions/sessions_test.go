@@ -84,12 +84,23 @@ func TestProjectSessionStruct(t *testing.T) {
 	}
 }
 
-func TestProjectSessionServerField(t *testing.T) {
-	// Verify the Server field serializes correctly for both values.
+func TestProjectSessionServerFieldJSON(t *testing.T) {
+	// Verify the Server field round-trips through JSON correctly for both values.
 	for _, server := range []string{"runkit", "default"} {
 		ps := ProjectSession{Name: "test", Server: server}
-		if ps.Server != server {
-			t.Errorf("Server = %q, want %q", ps.Server, server)
+		data, err := json.Marshal(ps)
+		if err != nil {
+			t.Fatalf("json.Marshal failed for server=%q: %v", server, err)
+		}
+		var decoded ProjectSession
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal failed for server=%q: %v", server, err)
+		}
+		if decoded.Server != server {
+			t.Errorf("round-trip Server = %q, want %q", decoded.Server, server)
+		}
+		if decoded.Name != "test" {
+			t.Errorf("round-trip Name = %q, want %q", decoded.Name, "test")
 		}
 	}
 }

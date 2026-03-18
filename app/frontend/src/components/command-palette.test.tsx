@@ -146,4 +146,51 @@ describe("CommandPalette", () => {
     fireEvent.keyDown(document, { key: "k", metaKey: true });
     expect(screen.queryByPlaceholderText("Type a command...")).not.toBeInTheDocument();
   });
+
+  it("shows theme actions with (current) suffix on active preference", () => {
+    const actions: PaletteAction[] = [
+      { id: "theme-system", label: "Theme: System (current)", onSelect: vi.fn() },
+      { id: "theme-light", label: "Theme: Light", onSelect: vi.fn() },
+      { id: "theme-dark", label: "Theme: Dark", onSelect: vi.fn() },
+    ];
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText("Theme: System (current)")).toBeInTheDocument();
+    expect(screen.getByText("Theme: Light")).toBeInTheDocument();
+    expect(screen.getByText("Theme: Dark")).toBeInTheDocument();
+  });
+
+  it("filters theme actions when typing 'theme'", () => {
+    const actions: PaletteAction[] = [
+      { id: "create-session", label: "Create new session", onSelect: vi.fn() },
+      { id: "theme-system", label: "Theme: System", onSelect: vi.fn() },
+      { id: "theme-light", label: "Theme: Light", onSelect: vi.fn() },
+      { id: "theme-dark", label: "Theme: Dark", onSelect: vi.fn() },
+    ];
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "theme" } });
+
+    expect(screen.getByText("Theme: System")).toBeInTheDocument();
+    expect(screen.getByText("Theme: Light")).toBeInTheDocument();
+    expect(screen.getByText("Theme: Dark")).toBeInTheDocument();
+    expect(screen.queryByText("Create new session")).not.toBeInTheDocument();
+  });
+
+  it("calls onSelect for theme action when selected", () => {
+    const setLight = vi.fn();
+    const actions: PaletteAction[] = [
+      { id: "theme-light", label: "Theme: Light", onSelect: setLight },
+    ];
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(setLight).toHaveBeenCalledOnce();
+  });
 });

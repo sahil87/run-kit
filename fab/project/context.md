@@ -52,7 +52,7 @@ Monorepo managed by pnpm workspaces. Task runner: `just` (see `justfile`).
 
 - State derived from tmux + filesystem at request time — no database, no in-memory caches
 - All Go subprocess calls use `exec.CommandContext` with timeouts — never shell strings
-- Dark theme only, monospace everywhere
+- Three-mode theme (system/light/dark), monospace everywhere
 - Keyboard-first — command palette (`Cmd+K`) is primary discovery mechanism
 - SSE for real-time session state, WebSocket for terminal I/O
 - Dev workflow: `just dev` (runs Go backend with air live-reload + Vite dev server concurrently)

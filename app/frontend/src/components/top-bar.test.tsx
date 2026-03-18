@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { TopBar } from "./top-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
+import { ThemeProvider } from "@/contexts/theme-context";
 import type { ProjectSession, WindowInfo } from "@/types";
 
 const nowSeconds = Math.floor(Date.now() / 1000);
@@ -44,30 +45,49 @@ const sessions: ProjectSession[] = [
 
 function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
   return render(
-    <ChromeProvider>
-      <TopBar
-        sessions={sessions}
-        currentSession={sessions[0]}
-        currentWindow={fabWindow}
-        sessionName="run-kit"
-        windowName="main"
-        isConnected={true}
-        sidebarOpen={false}
-        drawerOpen={false}
-        onNavigate={vi.fn()}
-        onToggleSidebar={vi.fn()}
-        onToggleDrawer={vi.fn()}
-        onCreateSession={vi.fn()}
-        onCreateWindow={vi.fn()}
-        onOpenCompose={vi.fn()}
-        {...overrides}
-      />
-    </ChromeProvider>,
+    <ThemeProvider>
+      <ChromeProvider>
+        <TopBar
+          sessions={sessions}
+          currentSession={sessions[0]}
+          currentWindow={fabWindow}
+          sessionName="run-kit"
+          windowName="main"
+          isConnected={true}
+          sidebarOpen={false}
+          drawerOpen={false}
+          onNavigate={vi.fn()}
+          onToggleSidebar={vi.fn()}
+          onToggleDrawer={vi.fn()}
+          onCreateSession={vi.fn()}
+          onCreateWindow={vi.fn()}
+          onOpenCompose={vi.fn()}
+          {...overrides}
+        />
+      </ChromeProvider>
+    </ThemeProvider>,
   );
 }
 
 describe("TopBar", () => {
-  afterEach(cleanup);
+  beforeEach(() => {
+    // ThemeProvider needs matchMedia
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: true,
+      media: "(prefers-color-scheme: dark)",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   it("shows Dashboard text when no session is selected", () => {
     renderTopBar({ sessionName: "", windowName: "", currentSession: null, currentWindow: null });

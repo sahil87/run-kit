@@ -1,7 +1,14 @@
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useFileUpload } from "@/hooks/use-file-upload";
+import { useTheme } from "@/contexts/theme-context";
+import type { ResolvedTheme } from "@/contexts/theme-context";
 import { ComposeBuffer } from "@/components/compose-buffer";
+
+export const XTERM_THEMES: Record<ResolvedTheme, { background: string; foreground: string; cursor: string; selectionBackground: string }> = {
+  dark: { background: "#0f1117", foreground: "#e8eaf0", cursor: "#e8eaf0", selectionBackground: "#2a3040" },
+  light: { background: "#f8f9fb", foreground: "#1a1d24", cursor: "#1a1d24", selectionBackground: "#c7d2fe" },
+};
 
 /** Copy text to clipboard — tries Clipboard API first, falls back to execCommand for non-secure contexts (HTTP). */
 export async function copyToClipboard(text: string): Promise<void> {
@@ -54,6 +61,7 @@ export function TerminalClient({
   const [dragOver, setDragOver] = useState(false);
   const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
   const { uploadFiles } = useFileUpload(sessionName, windowIndex);
+  const { resolved: resolvedTheme } = useTheme();
 
   const openComposeWithPaths = useCallback(
     (paths: string[]) => {
@@ -124,17 +132,17 @@ export function TerminalClient({
 
       const isMobile = !window.matchMedia("(min-width: 640px)").matches;
 
+      // Read the current data-theme to pick the right initial xterm theme.
+      // This avoids depending on React state which may not be current during
+      // the async init() flow.
+      const initTheme = (document.documentElement.dataset.theme === "light" ? "light" : "dark") as ResolvedTheme;
+
       terminal = new Terminal({
         cursorBlink: true,
         fontFamily:
           "JetBrains Mono, Fira Code, SF Mono, Menlo, Monaco, Consolas, monospace",
         fontSize: isMobile ? 11 : 13,
-        theme: {
-          background: "#0f1117",
-          foreground: "#e8eaf0",
-          cursor: "#e8eaf0",
-          selectionBackground: "#2a3040",
-        },
+        theme: XTERM_THEMES[initTheme],
       });
 
       const fitAddon = new FitAddon();
@@ -236,6 +244,12 @@ export function TerminalClient({
       setTerminalReady(false);
     };
   }, [wsRef]);
+
+  // Update xterm theme when the app theme changes
+  useEffect(() => {
+    if (!xtermRef.current) return;
+    xtermRef.current.options.theme = XTERM_THEMES[resolvedTheme];
+  }, [resolvedTheme]);
 
   // Keep a ref to windowIndex so the WS effect can read it without
   // depending on it. The relay uses `tmux attach-session` which follows

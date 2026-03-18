@@ -202,18 +202,41 @@ No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with
 
 ## Visual Design
 
-Dark theme only, blue-tinted palette. Linear/Raycast aesthetic.
+Three theme modes: **system** (follows OS), **light**, **dark**. Default: system. Linear/Raycast aesthetic.
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--color-bg-primary` | `#0f1117` | Page background (dark navy) |
-| `--color-bg-card` | `#171b24` | Card backgrounds (navy-gray) |
-| `--color-text-primary` | `#e8eaf0` | Primary text (soft white) |
-| `--color-text-secondary` | `#7a8394` | Secondary text, labels (cool gray-blue) |
-| `--color-border` | `#2a3040` | Borders, dividers (navy-tinted) |
-| `--color-accent` | `#5b8af0` | Active states, focus rings |
-| `--color-accent-green` | `#22c55e` | Activity indicators |
-| `--font-mono` | JetBrains Mono, etc. | Everywhere |
+Theme is applied via `data-theme` attribute on `<html>` (`"dark"` or `"light"`). CSS custom properties in `globals.css` switch values per `html[data-theme="dark"]` and `html[data-theme="light"]` selectors. The `@theme` block registers token names for Tailwind CSS 4 with dark palette as initial values.
+
+### Color Tokens
+
+| Token | Dark | Light | Usage |
+|-------|------|-------|-------|
+| `--color-bg-primary` | `#0f1117` | `#f8f9fb` | Page background |
+| `--color-bg-card` | `#171b24` | `#ffffff` | Card backgrounds |
+| `--color-bg-inset` | `#0a0c12` | `#e8eaef` | Fixed-width outer background |
+| `--color-text-primary` | `#e8eaf0` | `#1a1d24` | Primary text |
+| `--color-text-secondary` | `#7a8394` | `#6b7280` | Secondary text, labels |
+| `--color-border` | `#454d66` | `#d1d5db` | Borders, dividers |
+| `--color-accent` | `#5b8af0` | `#4a7ae8` | Active states, focus rings |
+| `--color-accent-green` | `#22c55e` | `#16a34a` | Activity indicators |
+| `--font-mono` | JetBrains Mono, etc. | (same) | Everywhere |
+
+### Theme Switching
+
+Preference stored in `localStorage` key `runkit-theme` (values: `"system"`, `"light"`, `"dark"`). Switching is done via command palette: `Cmd+K` → "Theme: System/Light/Dark". Current theme indicated with "(current)" suffix.
+
+### No-Flicker Initialization
+
+A blocking inline `<script>` in `index.html` `<head>` reads `localStorage("runkit-theme")`, resolves system preference via `matchMedia`, and sets `data-theme` on `<html>` before first paint. Static fallback: `data-theme="dark"` on the `<html>` tag.
+
+### ThemeProvider Context
+
+`app/frontend/src/contexts/theme-context.tsx` — split context (ThemeStateContext + ThemeActionsContext) following ChromeContext pattern. Provides `useTheme()` (preference + resolved) and `useThemeActions()` (setTheme). Listens to `matchMedia("(prefers-color-scheme: dark)")` change events when preference is "system" for real-time OS theme tracking.
+
+Provider order: `ThemeProvider > ChromeProvider > SessionProvider > AppShell`.
+
+### xterm Terminal Theme
+
+`terminal-client.tsx` defines `XTERM_THEMES` (dark/light) and uses `useTheme()` resolved value. Initial theme set at Terminal construction; live updates via `terminal.options.theme` in a `useEffect` — no terminal recreation needed.
 
 ## Component Conventions
 
@@ -275,3 +298,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-15 | Per-region scroll behavior — Dashboard split into pinned stats line (`shrink-0`) + scrollable card area (`flex-1 min-h-0 overflow-y-auto`). `useVisualViewport` hook now adds `fullbleed` class to `<html>` on mount (lifecycle management). Fullbleed activates `overflow: hidden` on html/body, preventing browser scrollbar on terminal pages | `260315-lnrb-dashboard-scroll-behavior` |
 | 2026-03-17 | Default session name from folder — Create Session dialog derives name from path when name field is empty at submit time. Create button enabled when path is set (even without explicit name). Derived name collision checked with error display | `260317-qiza-default-session-name-from-folder` |
 | 2026-03-17 | Fix xterm clipboard copy — `copyToClipboard` helper with `navigator.clipboard.writeText()` primary + `document.execCommand('copy')` fallback for non-secure HTTP contexts. Selection cleared via `.finally()`. Exported for testability | `260317-rpqx-xterm-copy-clipboard` |
+| 2026-03-18 | Light theme support — three-mode theme system (system/light/dark), `data-theme` attribute on `<html>`, CSS custom properties per theme, blocking init script for no-flicker, ThemeProvider context (split pattern), xterm live theme update, command palette theme switcher, `--color-bg-inset` token replaces hardcoded fixed-width bg | `260318-eseg-add-light-theme-support` |

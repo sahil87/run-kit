@@ -1,0 +1,37 @@
+id: 0gjh
+name: 260318-0gjh-dedicated-tmux-server
+created: 2026-03-18T06:49:03Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 5
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 80.6
+        reversibility: 85.0
+        competence: 85.6
+        disambiguation: 85.6
+stage_metrics:
+    intake: {started_at: "2026-03-18T06:49:03Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-03-18T06:53:14Z

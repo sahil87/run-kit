@@ -24,7 +24,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 9
 
       - name: Install frontend dependencies
         run: cd app/frontend && pnpm install --frozen-lockfile
@@ -44,12 +44,14 @@ jobs:
       - name: Cross-compile
         run: |
           cd app/backend
+          mkdir -p ../../dist
           targets="darwin/arm64 darwin/amd64 linux/arm64 linux/amd64"
           for target in $targets; do
             os="${target%/*}"
             arch="${target#*/}"
             output="run-kit-${os}-${arch}"
             echo "Building ${output}..."
+            mkdir -p "../../dist/${output}"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
               go build -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
               -o "../../dist/${output}/run-kit" ./cmd/run-kit

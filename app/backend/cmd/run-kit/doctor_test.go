@@ -1,16 +1,40 @@
 package main
 
 import (
-	"os/exec"
+	"bytes"
 	"testing"
 )
 
-func TestDoctorTmuxLookPath(t *testing.T) {
-	// This test verifies exec.LookPath works for tmux (the mechanism doctor uses).
-	// On CI or environments without tmux, this documents the expected behavior.
-	_, err := exec.LookPath("tmux")
+func TestDoctorCommandOutput(t *testing.T) {
+	// Execute doctorCmd and capture its output.
+	// The test result depends on whether tmux is installed,
+	// but we verify the command runs and produces expected output either way.
+	buf := new(bytes.Buffer)
+	doctorCmd.SetOut(buf)
+	doctorCmd.SetErr(buf)
+
+	err := doctorCmd.RunE(doctorCmd, nil)
+	output := buf.String()
+
 	if err != nil {
-		t.Skip("tmux not on PATH — skipping (expected in some CI environments)")
+		// tmux not found — verify failure output
+		if output == "" {
+			t.Error("expected output on failure, got empty string")
+		}
+		if !contains(output, "[FAIL]") {
+			t.Errorf("expected [FAIL] in output, got: %s", output)
+		}
+	} else {
+		// tmux found — verify success output
+		if !contains(output, "[ OK ] tmux") {
+			t.Errorf("expected '[ OK ] tmux' in output, got: %s", output)
+		}
+		if !contains(output, "All checks passed") {
+			t.Errorf("expected 'All checks passed' in output, got: %s", output)
+		}
 	}
-	// If tmux is found, the doctor check would pass.
+}
+
+func contains(s, substr string) bool {
+	return bytes.Contains([]byte(s), []byte(substr))
 }

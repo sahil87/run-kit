@@ -12,6 +12,13 @@ usage() {
 [ $# -eq 1 ] || usage
 
 BUMP="$1"
+
+# Abort if working tree has uncommitted changes
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "Error: working tree is not clean. Commit or stash changes before releasing."
+    exit 1
+fi
+
 CURRENT="$(cat "$VERSION_FILE")"
 
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"

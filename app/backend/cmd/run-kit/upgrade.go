@@ -35,10 +35,10 @@ var upgradeCmd = &cobra.Command{
 		fmt.Printf("run-kit version %s (Homebrew)\n", version)
 		fmt.Println("Updating Homebrew...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), brewTimeout)
-		defer cancel()
+		updateCtx, updateCancel := context.WithTimeout(context.Background(), brewTimeout)
+		defer updateCancel()
 
-		update := exec.CommandContext(ctx, "brew", "update")
+		update := exec.CommandContext(updateCtx, "brew", "update")
 		update.Stdout = os.Stdout
 		update.Stderr = os.Stderr
 		if err := update.Run(); err != nil {
@@ -47,7 +47,10 @@ var upgradeCmd = &cobra.Command{
 
 		fmt.Println("Upgrading run-kit...")
 
-		upgrade := exec.CommandContext(ctx, "brew", "upgrade", "run-kit")
+		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewTimeout)
+		defer upgradeCancel()
+
+		upgrade := exec.CommandContext(upgradeCtx, "brew", "upgrade", "run-kit")
 		upgrade.Stdout = os.Stdout
 		upgrade.Stderr = os.Stderr
 		if err := upgrade.Run(); err != nil {

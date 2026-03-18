@@ -58,11 +58,15 @@ func (s *Server) mountEmbeddedSPA(r chi.Router) {
 		}
 
 		// Try to serve the file directly from embedded FS.
+		// Only serve regular files — reject directories to prevent directory listings.
 		if urlPath != "" {
 			if f, err := sub.Open(urlPath); err == nil {
+				stat, statErr := f.Stat()
 				f.Close()
-				http.FileServer(fsys).ServeHTTP(w, req)
-				return
+				if statErr == nil && !stat.IsDir() {
+					http.FileServer(fsys).ServeHTTP(w, req)
+					return
+				}
 			}
 		}
 

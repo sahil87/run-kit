@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
+	"runtime"
 
 	"github.com/spf13/cobra"
 )
@@ -11,21 +11,26 @@ import (
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
 	Short: "Check runtime dependencies",
-	Run: func(cmd *cobra.Command, args []string) {
-		exitCode := 0
+	RunE: func(cmd *cobra.Command, args []string) error {
+		failed := false
 
-		fmt.Println("Checking runtime dependencies...")
+		cmd.Println("Checking runtime dependencies...")
 
 		if _, err := exec.LookPath("tmux"); err != nil {
-			fmt.Println("  [FAIL] tmux not found — install with: brew install tmux")
-			exitCode = 1
+			hint := "install tmux and ensure it is on PATH"
+			if runtime.GOOS == "darwin" {
+				hint = "install with: brew install tmux"
+			}
+			cmd.Printf("  [FAIL] tmux not found — %s\n", hint)
+			failed = true
 		} else {
-			fmt.Println("  [ OK ] tmux")
+			cmd.Println("  [ OK ] tmux")
 		}
 
-		if exitCode != 0 {
-			os.Exit(1)
+		if failed {
+			return fmt.Errorf("one or more dependency checks failed")
 		}
-		fmt.Println("\nAll checks passed.")
+		cmd.Println("\nAll checks passed.")
+		return nil
 	},
 }

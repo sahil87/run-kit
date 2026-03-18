@@ -70,7 +70,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	// Verify the session exists and select the target window
-	windows, err := s.tmux.ListWindows(session)
+	windows, err := s.tmux.ListWindows(session, "runkit")
 	if err != nil || windows == nil {
 		slog.Warn("session not found", "session", session)
 		conn.WriteMessage(websocket.CloseMessage,
@@ -85,7 +85,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Wait for the first resize message so we can start the PTY at the correct
-	// dimensions. Without this, tmux attaches at the default 80x24 and byobu's
+	// dimensions. Without this, tmux attaches at the default 80x24 and the
 	// status bar renders in the wrong position.
 	var initialSize pty.Winsize
 	initialSize.Cols = 80
@@ -103,7 +103,12 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 
 	// Attach to the session via PTY — renders the selected window as-is (no split)
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", session)
+	attachArgs := []string{"-L", "runkit"}
+	if confPath := os.Getenv("RK_TMUX_CONF"); confPath != "" {
+		attachArgs = append(attachArgs, "-f", confPath)
+	}
+	attachArgs = append(attachArgs, "attach-session", "-t", session)
+	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
 	cmd.Env = ensureTERM(os.Environ())
 
 	ptmx, err := pty.StartWithSize(cmd, &initialSize)

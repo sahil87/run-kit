@@ -14,7 +14,7 @@ vi.mock("@/api/client", async (importOriginal) => {
 const sessions: ProjectSession[] = [
   {
     name: "run-kit",
-    byobu: false,
+    server: "runkit",
     windows: [
       {
         index: 0,
@@ -45,7 +45,7 @@ const sessions: ProjectSession[] = [
   },
   {
     name: "ao-server",
-    byobu: false,
+    server: "default",
     windows: [
       {
         index: 0,
@@ -273,5 +273,21 @@ describe("Sidebar", () => {
       expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 1);
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
     });
+  });
+
+  it("shows external marker for default-server sessions", () => {
+    renderSidebar();
+    // ao-server has server: "default" — should show the arrow marker
+    const marker = screen.getByLabelText("external session");
+    expect(marker).toBeInTheDocument();
+    expect(marker.textContent).toBe("\u2197");
+  });
+
+  it("does not show external marker for runkit-server sessions", () => {
+    renderSidebar();
+    // run-kit has server: "runkit" — should have no external marker
+    const markers = screen.getAllByLabelText("external session");
+    // Only one marker total (for ao-server)
+    expect(markers).toHaveLength(1);
   });
 });

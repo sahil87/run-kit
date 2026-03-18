@@ -18,9 +18,10 @@ func windowLine(index int, name, path string, activityTs int64, active int, pane
 
 func TestParseSessions(t *testing.T) {
 	tests := []struct {
-		name  string
-		lines []string
-		want  []SessionInfo
+		name   string
+		lines  []string
+		server string
+		want   []SessionInfo
 	}{
 		{
 			name: "standard sessions with session_grouped=0",
@@ -28,7 +29,8 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("alpha", "0", "alpha"),
 				sessionLine("beta", "0", "beta"),
 			},
-			want: []SessionInfo{{Name: "alpha"}, {Name: "beta"}},
+			server: "runkit",
+			want:   []SessionInfo{{Name: "alpha", Server: "runkit"}, {Name: "beta", Server: "runkit"}},
 		},
 		{
 			name: "filters out session-group copies (grouped=1, name != group)",
@@ -36,24 +38,28 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("devshell", "0", "devshell"),
 				sessionLine("devshell-82", "1", "devshell"),
 			},
-			want: []SessionInfo{{Name: "devshell"}},
+			server: "default",
+			want:   []SessionInfo{{Name: "devshell", Server: "default"}},
 		},
 		{
-			name: "keeps group-named session (grouped=1, name == group) and marks as byobu",
+			name: "keeps group-named session (grouped=1, name == group)",
 			lines: []string{
 				sessionLine("mygroup", "1", "mygroup"),
 			},
-			want: []SessionInfo{{Name: "mygroup", Byobu: true}},
+			server: "default",
+			want:   []SessionInfo{{Name: "mygroup", Server: "default"}},
 		},
 		{
-			name:  "empty input returns nil",
-			lines: nil,
-			want:  nil,
+			name:   "empty input returns nil",
+			lines:  nil,
+			server: "runkit",
+			want:   nil,
 		},
 		{
-			name:  "empty slice returns nil",
-			lines: []string{},
-			want:  nil,
+			name:   "empty slice returns nil",
+			lines:  []string{},
+			server: "runkit",
+			want:   nil,
 		},
 		{
 			name: "malformed line with fewer than 2 fields is skipped",
@@ -61,14 +67,16 @@ func TestParseSessions(t *testing.T) {
 				"onlyname",
 				sessionLine("good", "0", "good"),
 			},
-			want: []SessionInfo{{Name: "good"}},
+			server: "runkit",
+			want:   []SessionInfo{{Name: "good", Server: "runkit"}},
 		},
 		{
 			name: "ungrouped session with no session_group field (2 fields only)",
 			lines: []string{
 				"mysession\t0",
 			},
-			want: []SessionInfo{{Name: "mysession"}},
+			server: "default",
+			want:   []SessionInfo{{Name: "mysession", Server: "default"}},
 		},
 		{
 			name: "multiple session-group copies filtered, original kept",
@@ -77,27 +85,54 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("proj-1", "1", "proj"),
 				sessionLine("proj-2", "1", "proj"),
 			},
-			want: []SessionInfo{{Name: "proj"}},
+			server: "runkit",
+			want:   []SessionInfo{{Name: "proj", Server: "runkit"}},
 		},
 		{
-			name: "mixed grouped and ungrouped sessions",
+			name: "mixed grouped and ungrouped sessions tagged with server",
 			lines: []string{
 				sessionLine("alpha", "0", "alpha"),
 				sessionLine("beta", "1", "beta"),
 				sessionLine("beta-N", "1", "beta"),
 				sessionLine("gamma", "0", "gamma"),
 			},
-			want: []SessionInfo{{Name: "alpha"}, {Name: "beta", Byobu: true}, {Name: "gamma"}},
+			server: "default",
+			want:   []SessionInfo{{Name: "alpha", Server: "default"}, {Name: "beta", Server: "default"}, {Name: "gamma", Server: "default"}},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseSessions(tt.lines)
+			got := parseSessions(tt.lines, tt.server)
 			if !sessionInfoSliceEqual(got, tt.want) {
 				t.Errorf("parseSessions() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseSessionsMultiServer(t *testing.T) {
+	// Simulate merging results from both servers as ListSessions does.
+	runkitLines := []string{
+		sessionLine("alpha", "0", "alpha"),
+		sessionLine("beta", "0", "beta"),
+	}
+	defaultLines := []string{
+		sessionLine("gamma", "0", "gamma"),
+	}
+
+	runkitSessions := parseSessions(runkitLines, "runkit")
+	defaultSessions := parseSessions(defaultLines, "default")
+	all := append(runkitSessions, defaultSessions...)
+
+	want := []SessionInfo{
+		{Name: "alpha", Server: "runkit"},
+		{Name: "beta", Server: "runkit"},
+		{Name: "gamma", Server: "default"},
+	}
+
+	if !sessionInfoSliceEqual(all, want) {
+		t.Errorf("multi-server merge = %v, want %v", all, want)
 	}
 }
 

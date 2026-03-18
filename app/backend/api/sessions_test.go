@@ -103,7 +103,7 @@ func (m *mockTmuxOps) SendKeys(session string, window int, keys string) error {
 	m.sendKeysKeys = keys
 	return m.err
 }
-func (m *mockTmuxOps) ListWindows(session string) ([]tmux.WindowInfo, error) {
+func (m *mockTmuxOps) ListWindows(session string, server string) ([]tmux.WindowInfo, error) {
 	return m.listWindowsResult, m.listWindowsErr
 }
 func (m *mockTmuxOps) SplitWindow(session string, window int) (string, error) {

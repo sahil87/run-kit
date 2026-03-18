@@ -139,8 +139,8 @@ export function Sidebar({
                       aria-label={`Navigate to ${session.name}`}
                     >
                       <span className="font-medium truncate">{session.name}</span>
-                      {session.byobu && (
-                        <span className="text-[10px] text-accent-green/70 shrink-0" aria-label="byobu session">b</span>
+                      {session.server === "default" && (
+                        <span className="text-[10px] text-text-secondary/50 shrink-0" aria-label="external session">{"\u2197"}</span>
                       )}
                     </button>
                   </div>

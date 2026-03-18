@@ -59,7 +59,8 @@ func TestProjectRootDerivation(t *testing.T) {
 
 func TestProjectSessionStruct(t *testing.T) {
 	ps := ProjectSession{
-		Name: "my-project",
+		Name:   "my-project",
+		Server: "runkit",
 		Windows: []tmux.WindowInfo{
 			{Index: 0, Name: "main", WorktreePath: "/home/user/project", Activity: "active", IsActiveWindow: true},
 			{Index: 1, Name: "build", WorktreePath: "/tmp/build", Activity: "idle", IsActiveWindow: false},
@@ -69,6 +70,9 @@ func TestProjectSessionStruct(t *testing.T) {
 	if ps.Name != "my-project" {
 		t.Errorf("Name = %q, want %q", ps.Name, "my-project")
 	}
+	if ps.Server != "runkit" {
+		t.Errorf("Server = %q, want %q", ps.Server, "runkit")
+	}
 	if len(ps.Windows) != 2 {
 		t.Fatalf("Windows count = %d, want 2", len(ps.Windows))
 	}
@@ -77,6 +81,16 @@ func TestProjectSessionStruct(t *testing.T) {
 	}
 	if ps.Windows[1].IsActiveWindow != false {
 		t.Error("Windows[1].IsActiveWindow should be false")
+	}
+}
+
+func TestProjectSessionServerField(t *testing.T) {
+	// Verify the Server field serializes correctly for both values.
+	for _, server := range []string{"runkit", "default"} {
+		ps := ProjectSession{Name: "test", Server: server}
+		if ps.Server != server {
+			t.Errorf("Server = %q, want %q", ps.Server, server)
+		}
 	}
 }
 

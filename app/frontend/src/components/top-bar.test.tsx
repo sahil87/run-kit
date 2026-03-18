@@ -33,12 +33,12 @@ const nonFabIdleWindow: WindowInfo = {
 const sessions: ProjectSession[] = [
   {
     name: "run-kit",
-    byobu: false,
+    server: "runkit",
     windows: [fabWindow],
   },
   {
     name: "ao-server",
-    byobu: false,
+    server: "runkit",
     windows: [nonFabIdleWindow],
   },
 ];

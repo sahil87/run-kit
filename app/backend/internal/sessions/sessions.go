@@ -17,7 +17,7 @@ import (
 // ProjectSession is a tmux session with its windows and optional fab enrichment.
 type ProjectSession struct {
 	Name    string            `json:"name"`
-	Byobu   bool              `json:"byobu"`
+	Server  string            `json:"server"` // "runkit" or "default"
 	Windows []tmux.WindowInfo `json:"windows"`
 }
 
@@ -122,7 +122,7 @@ func FetchSessions() ([]ProjectSession, error) {
 		wg.Add(1)
 		go func(idx int, si tmux.SessionInfo) {
 			defer wg.Done()
-			windows, _ := tmux.ListWindows(si.Name)
+			windows, _ := tmux.ListWindows(si.Name, si.Server)
 			if windows == nil {
 				windows = []tmux.WindowInfo{}
 			}
@@ -168,15 +168,16 @@ func FetchSessions() ([]ProjectSession, error) {
 				sd.windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
 			}
 		}
-		result[i] = ProjectSession{Name: sd.info.Name, Byobu: sd.info.Byobu, Windows: sd.windows}
+		result[i] = ProjectSession{Name: sd.info.Name, Server: sd.info.Server, Windows: sd.windows}
 	}
 
 	return result, nil
 }
 
 // ProjectRoot derives the project root from a session's target window.
+// Defaults to querying the runkit server.
 func ProjectRoot(session string, windowIndex int) (string, error) {
-	windows, err := tmux.ListWindows(session)
+	windows, err := tmux.ListWindows(session, "runkit")
 	if err != nil {
 		return "", err
 	}

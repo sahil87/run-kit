@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-18T06:32:31Z"}
+{"args":"Double-click on tab name to rename inline","cmd":"fab-new","event":"command","ts":"2026-03-18T06:32:31Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-18T06:34:29Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-18T06:35:10Z"}

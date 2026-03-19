@@ -28,8 +28,11 @@ type mockTmuxOps struct {
 	createSessionCalled bool
 	createSessionName   string
 	createSessionCwd    string
-	killSessionCalled   bool
-	killSessionName     string
+	killSessionCalled      bool
+	killSessionName        string
+	renameSessionCalled    bool
+	renameSessionSession   string
+	renameSessionName      string
 
 	createWindowCalled  bool
 	createWindowSession string
@@ -65,6 +68,12 @@ func (m *mockTmuxOps) CreateSession(name, cwd string) error {
 func (m *mockTmuxOps) KillSession(session string) error {
 	m.killSessionCalled = true
 	m.killSessionName = session
+	return m.err
+}
+func (m *mockTmuxOps) RenameSession(session, name string) error {
+	m.renameSessionCalled = true
+	m.renameSessionSession = session
+	m.renameSessionName = name
 	return m.err
 }
 func (m *mockTmuxOps) CreateWindow(session, name, cwd string) error {

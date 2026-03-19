@@ -1,6 +1,0 @@
-# run-kit configuration — copy to run-kit.yaml and edit as needed.
-# All values are optional; defaults shown below.
-
-server:
-  port: 3000        # Go server port (API + WebSocket relay + SPA)
-  host: 127.0.0.1   # Bind address (use 0.0.0.0 to expose to network)

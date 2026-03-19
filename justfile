@@ -1,13 +1,8 @@
 # run-kit task runner
 # Usage: just <recipe>    List all: just --list
 
+# This is automatically done by direnv
 set dotenv-load := false
-
-# ─── Development ──────────────────────────────────────────────
-
-# Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
-dev *args:
-    ./scripts/dev.sh {{args}}
 
 # ─── Doctor ──────────────────────────────────────────────────
 
@@ -15,12 +10,20 @@ dev *args:
 doctor:
     ./scripts/doctor.sh
 
-# ─── Setup & Build & Prod ────────────────────────────────────────────────────
+# ─── Setup & Development ──────────────────────────────────────────────
 
 # Copy default config files for local development
 setup:
     [ -f .env.local ] || cp .env .env.local
     [ -f Caddyfile ] || cp Caddyfile.example Caddyfile
+    pnpm exec playwright install --with-deps chromium
+
+# Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
+# Backend runs at Frontend port + 1. Default: 3000
+dev *args:
+    ./scripts/dev.sh {{args}}
+
+# ─── Prod & Daemon mode ────────────────────────────────────────────────────
 
 # Build Go binary + frontend for production
 build:
@@ -32,6 +35,17 @@ build:
 prod:
     just build
     ./scripts/prod.sh
+
+# Run supervisor in background tmux session
+up:
+    tmux has-session -t rk 2>/dev/null && tmux new-window -t rk './scripts/supervisor.sh' || tmux new-session -d -s rk './scripts/supervisor.sh'
+
+# Stop supervisor
+down:
+    tmux kill-session -t rk 2>/dev/null || true
+
+restart:
+    touch .restart-requested
 
 # ─── Test ────────────────────────────────────────────────────
 
@@ -58,35 +72,3 @@ check:
 
 # Full verification: type-check, test, build
 verify: check test build
-
-# ─── Daemon ──────────────────────────────────────────────
-
-# Run supervisor in background tmux session
-up:
-    tmux has-session -t rk 2>/dev/null && tmux new-window -t rk './scripts/supervisor.sh' || tmux new-session -d -s rk './scripts/supervisor.sh'
-
-# Stop supervisor
-down:
-    tmux kill-session -t rk 2>/dev/null || true
-
-restart:
-    touch .restart-requested
-
-# ─── HTTPS ───────────────────────────────────────────────────
-
-# One-time: allow current user to manage Tailscale without sudo
-ts-setup:
-    sudo tailscale set --operator=$USER
-
-# Provision Tailscale HTTPS certs into keys/
-ts:
-    mkdir -p keys
-    tailscale cert --cert-file keys/${RK_HTTPS_HOST:-ubuntu-vm3.bat-ordinal.ts.net}.crt --key-file keys/${RK_HTTPS_HOST:-ubuntu-vm3.bat-ordinal.ts.net}.key ${RK_HTTPS_HOST:-ubuntu-vm3.bat-ordinal.ts.net}
-
-# Start Caddy HTTPS proxy in front of dev server
-https:
-    caddy run --config Caddyfile
-
-# One-time: install Caddy's local CA into system trust store
-trust:
-    caddy trust

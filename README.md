@@ -11,10 +11,9 @@ Web-based agent orchestration dashboard. Monitor and interact with tmux sessions
 - [Go](https://go.dev/) (1.22+)
 - [air](https://github.com/air-verse/air) Go live-reload for development
 - [direnv](https://direnv.net/) for automatic `.env` loading via `.envrc`
-- [Caddy](https://caddyserver.com/) *(optional, for local HTTPS)* — see [Tailscale HTTPS guide](docs/wiki/tailscale.md)
 
 ```sh
-brew install node pnpm tmux just direnv caddy go
+brew install node pnpm tmux just direnv go
 go install github.com/air-verse/air@latest
 ```
 
@@ -22,53 +21,20 @@ Run `just doctor` to verify all dependencies are installed.
 
 ## Getting Started
 
-1. **Install dependencies and browsers**
-
-   ```sh
-   pnpm install
-   pnpm exec playwright install --with-deps chromium
-   ```
-
-   > **Note:** Use `chromium`, not `chrome` — Chrome doesn't ship ARM64 Linux binaries.
-   > The `--with-deps` flag installs required system libraries (will prompt for sudo).
-
-2. **Start in development mode**
-
-   ```sh
-   pnpm dev
-   ```
-
-   This starts the Go API server and the Vite dev server. The API serves on port 3000 by default; Vite proxies `/api` and `/relay` requests to it. Ctrl+C stops both.
-
-3. **Start in production mode**
-
-   Build and run both services with the supervisor:
-
-   ```sh
-   pnpm supervisor
-   ```
-
-   The supervisor manages the Go server as a single unit, with health checks and automatic rollback on failure. It reads `run-kit.yaml` for port/host configuration.
-
-## Configuration
-
-Create an optional `run-kit.yaml` at the repo root to override defaults:
-
-```yaml
-server:
-  port: 3000        # Go server port (default: 3000)
-  host: 127.0.0.1   # Bind address (default: 127.0.0.1)
+```bash
+just doctor
+just setup
+just dev  # watch mode
+# OR
+just prod # Runs from built binary
 ```
 
-All values are optional — defaults apply when the file is absent or a key is omitted. The Vite dev server reads `run-kit.yaml` at startup to configure its proxy targets automatically.
+## HTTPS
 
-CLI args override `run-kit.yaml` (useful for one-off overrides):
+To access run-kit over HTTPS (e.g., from other machines on your tailnet), see:
 
-```sh
-./bin/run-kit --port 4000 --host 0.0.0.0
-```
-
-**Security note:** The default host `127.0.0.1` restricts access to localhost. Setting `host: 0.0.0.0` exposes the terminal relay to the network.
+- [Tailscale guide](docs/wiki/tailscale.md) — zero-config with Tailscale Serve (recommended)
+- [Caddy guide](docs/wiki/caddy.md) — manual setup with Caddy reverse proxy
 
 ## Self-Improvement Loop
 

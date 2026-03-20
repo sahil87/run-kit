@@ -17,7 +17,7 @@ run-kit connects to **one tmux server at a time**, selected by the user via the 
 
 ## Repository Structure
 
-pnpm workspaces monorepo:
+Repository layout:
 
 ```
 app/
@@ -62,7 +62,6 @@ docs/               # Memory files
 supervisor.sh       # Production process manager
 justfile            # Task runner (dev, verify, test, build, release commands)
 Caddyfile.example   # HTTPS reverse proxy (TLS termination only)
-pnpm-workspace.yaml # ["app/frontend"] — Go is independent
 ```
 
 ## Data Model

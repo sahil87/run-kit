@@ -43,7 +43,7 @@ echo "Checking dependencies..."
 if [ -d app/frontend/node_modules ]; then
     ok "frontend node_modules installed"
 else
-    fail "frontend node_modules missing — run: pnpm install"
+    fail "frontend node_modules missing — run: cd app/frontend && pnpm install"
 fi
 if [ -f app/backend/go.sum ]; then
     cd app/backend

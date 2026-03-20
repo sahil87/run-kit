@@ -109,6 +109,10 @@ run-kit daemon started (rk-daemon/rk/serve)
 
 The embedded copy at `app/backend/internal/tmux/tmux.conf` is now the single source of truth. The `config/tmux.conf` file and the CI copy step are removed. Enhanced with TUI compatibility (passthrough, extended-keys, OSC 52 clipboard, focus-events, true color), 100k scrollback, heavy pane borders with status bar (command, path, git branch, worktree badge), and vi copy mode.
 
+### Keyboard shortcuts panel optimization
+
+The keyboard shortcuts overlay was showing duplicate entries (e.g., "Previous window" appeared twice for `F3` and `WheelUpStatus`). Reworked the frontend component to group bindings by label, merge keys into comma-separated `<kbd>` badges, and sort alphabetically within each section. Also added a border to the Close button for visual consistency.
+
 ### Command palette bug fix
 
 Fix: selecting a palette action via Enter that opens a dialog (e.g., Keyboard Shortcuts) caused the dialog to immediately close. Root cause: the Enter keypress's default behavior activated the dialog's auto-focused Close button. Fix: `e.preventDefault()` on Enter in the palette's key handler.
@@ -129,6 +133,7 @@ Fix: selecting a palette action via Enter that opens a dialog (e.g., Keyboard Sh
 - **Config**: `justfile` — `up`/`down`/`restart` updated + new dev recipes
 - **Config**: `config/tmux.conf` — deleted (canonical copy is embedded)
 - **CI**: `.github/workflows/release.yml` — removed tmux.conf copy step
+- **Frontend**: `app/frontend/src/components/keyboard-shortcuts.tsx` — group by label, deduplicate keys, sort alphabetically, Close button border
 - **Frontend**: `app/frontend/src/components/command-palette.tsx` — `e.preventDefault()` on Enter
 - **Docs**: `fab/project/constitution.md` — restart mechanism updated
 - **Docs**: `README.md` — updated self-improvement section, removed Caddy reference

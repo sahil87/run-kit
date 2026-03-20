@@ -29,7 +29,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 start() {
-  ./scripts/prod.sh &
+  ./"$BINARY" &
   pid=$!
   inode=$(binary_inode)
   echo "[sup] Started (PID $pid)"

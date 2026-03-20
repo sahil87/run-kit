@@ -37,7 +37,7 @@ release bump:
 # Build and run production binary
 prod:
     just build
-    ./scripts/prod.sh
+    ./dist/run-kit
 
 # Run supervisor in background tmux session
 up:

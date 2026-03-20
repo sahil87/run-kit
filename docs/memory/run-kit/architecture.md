@@ -11,7 +11,7 @@ In development, `just dev` runs two concurrent processes:
 - Vite dev server (`:RK_PORT`, default 3000) — HMR, proxies `/api/*` and `/relay/*` to Go backend
 - Go backend (`:RK_PORT+1`, default 3001) — API, WebSocket relay, SPA static serving
 
-Configuration via env vars: `.env` (committed) defines `RK_PORT`, `RK_HOST`, and `RK_TMUX_CONF`, `.env.local` (gitignored) for overrides. Scripts (`dev.sh`, `prod.sh`) translate user-facing `RK_*` into process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Go and Vite read only `BACKEND_*` vars. `dev.sh` accepts `--port` for ad-hoc overrides. `RK_TMUX_CONF` is read by `internal/tmux` at init and resolved to an absolute path (via `filepath.Abs`) so the config works regardless of CWD. All consumers use `tmux.ConfigPath()` getter — no direct env var reads elsewhere.
+Configuration via env vars: `.env` (committed) defines `RK_PORT` and `RK_HOST`, `.env.local` (gitignored) for overrides. Go backend and Vite both read `RK_PORT`/`RK_HOST` directly — no intermediate `BACKEND_*` vars. In dev mode, `dev.sh` is the translation layer: it passes `RK_PORT+1` to the Go backend and `RK_PORT` to Vite. `dev.sh` accepts `--port` for ad-hoc overrides. Tmux config defaults to `~/.run-kit/tmux.conf` (scaffolded by `run-kit init-conf`), overridable via `RK_TMUX_CONF` env var. The config is embedded in the binary via `go:embed` and written to disk by `init-conf`. All consumers use `tmux.ConfigPath()` getter — no direct env var reads elsewhere.
 
 run-kit sessions live on a **dedicated tmux server** named `runkit` (via `tmux -L runkit`). Sessions on the user's default tmux server are also discovered and displayed read-only. The tmux server is an external dependency — never started or stopped by run-kit.
 
@@ -51,7 +51,7 @@ config/
   tmux.conf           # tmux config for the runkit server (status bar, keybindings)
 VERSION             # Semver source of truth (e.g., 0.1.0) — injected via ldflags
 scripts/
-  build.sh          # Production build: frontend → copy dist → go build with ldflags
+  build.sh          # Production build: frontend → copy dist → copy tmux.conf → go build with ldflags
   release.sh        # Bump VERSION, commit, tag v{version}, push (triggers CI)
 .github/
   workflows/
@@ -78,10 +78,10 @@ Packages in `app/backend/internal/`:
 
 | Package | Responsibility |
 |---------|---------------|
-| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). Commands target the dedicated `runkit` server via `-L runkit` prefix (built by `runkitPrefix()`); optional `-f` config path from `RK_TMUX_CONF` env var, resolved to absolute path at init. `ConfigPath()` getter exposes the resolved path. `ListSessions()` queries both the runkit and default tmux servers, returning `SessionInfo` structs with a `Server` field (`"runkit"` or `"default"`). `ListWindows(session, server)` accepts a server parameter to route the query. `SelectWindowOnServer(session, index, server)` selects a window on the specified server. `ReloadConfig(server)` hot-reloads the tmux config via `source-file` on the specified server. `CreateSession()` creates sessions on the runkit server (plain `tmux new-session`, no byobu). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields, plus `AgentState`/`AgentIdleDuration` (populated by pane-map enrichment in sessions package). Both `tmuxExec` and `tmuxExecDefault` capture stderr in error messages for diagnostics |
+| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). Commands target the dedicated `runkit` server via `-L runkit` prefix (built by `runkitPrefix()`); config path defaults to `~/.run-kit/tmux.conf`, overridable via `RK_TMUX_CONF` env var, resolved to absolute path at init. `ConfigPath()` getter exposes the resolved path. `DefaultConfigBytes()` returns the embedded `config/tmux.conf` content (via `go:embed`). `ListSessions()` queries both the runkit and default tmux servers, returning `SessionInfo` structs with a `Server` field (`"runkit"` or `"default"`). `ListWindows(session, server)` accepts a server parameter to route the query. `SelectWindowOnServer(session, index, server)` selects a window on the specified server. `ReloadConfig(server)` hot-reloads the tmux config via `source-file` on the specified server. `CreateSession()` creates sessions on the runkit server (plain `tmux new-session`, no byobu). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields, plus `AgentState`/`AgentIdleDuration` (populated by pane-map enrichment in sessions package). Both `tmuxExec` and `tmuxExecDefault` capture stderr in error messages for diagnostics |
 | `internal/sessions` | Fetches windows for all sessions in parallel (passing each session's `Server` field to `ListWindows`), then enriches with fab state via a single `fab-go pane-map --json --all-sessions` subprocess call. `ProjectSession` struct includes `Server` field (`"runkit"` or `"default"`) propagated from `SessionInfo`. Per-window enrichment model: pane-map returns per-pane fab state, joined to windows by `session:windowIndex` key. `paneMapEntry` struct uses `*string` for nullable JSON fields (change, stage, agent_state, agent_idle_duration). `fetchPaneMap(repoRoot)` runs `fab-go` with 10s timeout. Graceful degradation: if pane-map fails, all windows get empty fab fields |
 | `internal/validate` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
-| `internal/config` | Server config (port, host) — reads `BACKEND_PORT` and `BACKEND_HOST` env vars with defaults (3000, 127.0.0.1) |
+| `internal/config` | Server config (port, host) — reads `RK_PORT` and `RK_HOST` env vars with defaults (3000, 127.0.0.1) |
 
 ### External Go Dependencies
 
@@ -148,9 +148,9 @@ Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, ma
 
 ## Supervisor
 
-Thin bash script (~30 lines). Delegates build to `just build` and run to `scripts/prod.sh`. Polling loop checks for `.restart-requested` file.
+Thin bash script (~30 lines). Delegates build to `just build` and runs `dist/run-kit` directly. Polling loop checks for `.restart-requested` file.
 
-On signal detection: kill server → rebuild via `just build` → restart via `prod.sh`.
+On signal detection: kill server → rebuild via `just build` → restart binary.
 Signal trapping: SIGINT/SIGTERM → kill server → clean exit.
 Auto-restart: detects if server process died and restarts automatically.
 
@@ -208,6 +208,7 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 | `upgrade` | `upgrade.go` | Detect Homebrew install (`os.Executable()` path contains `/Cellar/run-kit/`). If Homebrew: `brew update && brew upgrade run-kit`. Otherwise: print local install instructions. 120s timeout on brew commands |
 | `doctor` | `doctor.go` | Check runtime dependencies only — `exec.LookPath("tmux")`. Exit 1 if any check fails |
 | `status` | `status.go` | List tmux sessions with window counts via `internal/tmux.ListSessions()` + `ListWindows()`. No server required |
+| `init-conf` | `initconf.go` | Scaffold default tmux.conf to `~/.run-kit/tmux.conf` from embedded config. `--force` to overwrite |
 
 ## Embedded Frontend Assets
 
@@ -233,9 +234,10 @@ Both modes include SPA fallback (serve `index.html` for non-matching paths) and 
 1. `cd app/frontend && pnpm build` — produces `app/frontend/dist/`
 2. Copy `app/frontend/dist/` → `app/backend/frontend/dist/` (Go embed cannot reference `../` paths)
 3. Read version from `VERSION` file
-4. `CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o ../../bin/run-kit ./cmd/run-kit`
+4. Copy `config/tmux.conf` → `app/backend/internal/tmux/tmux.conf` (Go embed)
+5. `CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o ../../dist/run-kit ./cmd/run-kit`
 
-Output: `bin/run-kit` — single static binary with embedded frontend assets and baked-in version.
+Output: `dist/run-kit` — single static binary with embedded frontend assets, tmux config, and baked-in version.
 
 `justfile` recipes: `build` delegates to `scripts/build.sh`, `release` delegates to `scripts/release.sh`.
 
@@ -265,7 +267,7 @@ Install flow: `brew tap wvrdz/homebrew-tap && brew install run-kit` → download
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
 - **Independent panes per browser client** — no cursor fights, agent pane untouched. The relay pty follows tmux window switches natively (runs `tmux -L runkit attach-session`)
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
-- **Config via env vars (not YAML)** — `.env` committed with defaults, `.env.local` for overrides, loaded via `.envrc` (direnv). Scripts translate `RK_*` → `BACKEND_*`/`FRONTEND_*`. Go reads only `BACKEND_PORT`/`BACKEND_HOST`. No relay port — single port serves everything
+- **Config via env vars (not YAML)** — `.env` committed with defaults (`RK_PORT`, `RK_HOST`), `.env.local` for overrides, loaded via `.envrc` (direnv). Go and Vite read `RK_PORT`/`RK_HOST` directly. `dev.sh` translates `RK_PORT+1` for the backend subprocess. No relay port — single port serves everything
 - **Dedicated tmux server (`-L runkit`)** — run-kit sessions live on a named tmux server `runkit` with its own config (`config/tmux.conf` loaded via `-f`). The default tmux server is also queried for session discovery (read-only display of external sessions). This replaces byobu integration: `CreateSession()` uses plain `tmux new-session` on the runkit server (no byobu dependency). The `runkit` server provides isolation, a custom status bar matching run-kit's dark theme, and byobu-style F-key keybindings (F2/F3/F4). `SessionInfo` and `ProjectSession` structs carry a `Server` field (`"runkit"` or `"default"`) for routing commands and UI differentiation
 - **Multi-server session enumeration** — `ListSessions()` queries both the `runkit` and `default` tmux servers, merging results with server tagging. Session-group filtering applies to both servers. See `docs/memory/run-kit/tmux-sessions.md`
 - **Derived chrome (not slot injection)** — Single-view model means only one chrome state (terminal-focused). Top bar and bottom bar derive content from the current session:window selection. No `setLine2Left`/`setLine2Right`/`setBottomBar` setters. Split React Context preserved for performance (state vs dispatch).
@@ -348,7 +350,7 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-12 | **Cleanup old implementation** — removed legacy backend and frontend directories, `e2e/`, root `playwright.config.ts`. Updated `pnpm-workspace.yaml` to `["app/frontend"]`. Removed legacy test sections and stale path references from memory. | `260312-n11e-cleanup-old-implementation` |
 | 2026-03-12 | **UI chrome layout refinements** — bottom bar moved inside terminal column (width tracks terminal, not viewport). Sidebar drag-resizable (default 220px, min 160, max 400, localStorage persist). Top bar `border-b`, bottom bar `border-t`. Breadcrumbs simplified to `☰ {logo} ❯ session ❯ window`. `[+ Session]` button added to top bar line 2. | `260312-y4ci-ui-chrome-layout-refinements` |
 | 2026-03-13 | **Rich sidebar window status** — Backend: `internal/tmux` adds `PaneCommand` + `ActivityTimestamp` to `WindowInfo` via 6-field tmux format string. New `internal/fab/runtime.go` reads `.fab-runtime.yaml` for agent idle state. `internal/sessions` enriches with runtime state (cached per project root via `sync.Map`). Frontend: sidebar window rows gain activity dot ring, idle duration, info popover. Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Shared helpers in `lib/format.ts`. | `260313-txna-rich-sidebar-window-status` |
-| 2026-03-13 | **Env var config** — replaced `run-kit.yaml` with `.env`/`.env.local` (direnv). Two-tier env vars: user-facing `RK_PORT`/`RK_HOST` translated by scripts to process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Dev mode: Vite on `RK_PORT`, Go on `PORT+1`. Prod: Go on `RK_PORT`. All entry points accept `--port`. Removed CLI flag parsing and YAML config from Go. Supervisor slimmed to ~30 lines. | — |
+| 2026-03-13 | **Env var config** — replaced `run-kit.yaml` with `.env`/`.env.local` (direnv). Go and Vite read `RK_PORT`/`RK_HOST` directly. Dev mode: Vite on `RK_PORT`, Go on `PORT+1` (translated by `dev.sh`). Prod: Go on `RK_PORT`. All entry points accept `--port`. Removed CLI flag parsing and YAML config from Go. Supervisor slimmed to ~30 lines. | — |
 | 2026-03-13 | **Removed single-key shortcuts** — deleted `useKeyboardNav` (j/k/Enter sidebar nav), `useAppShortcuts` (c/r/Esc Esc), sidebar `focusedIndex` prop and focus ring styling. Cmd+K is now the sole keyboard shortcut. Palette actions no longer display shortcut hints. | `260313-3brm-remove-single-key-shortcuts` |
 | 2026-03-14 | **Relay session validation** — relay handler validates session/window exist before attaching PTY. Returns WebSocket close code `4004` for missing session or window (distinct from `4001` PTY failure). Frontend handles `4004` by navigating to `/` instead of reconnecting. Prevents infinite reconnect loops when navigating to a non-existent tmux session. | — |
 | 2026-03-14 | **Pane-map enrichment** — replaced per-session `.fab-status.yaml` + `.fab-runtime.yaml` file reading with single `fab-go pane-map --json --all-sessions` subprocess call. Per-window fab state (change, stage, agent state, idle duration) instead of per-session. Deleted `internal/fab/` package (4 files). `internal/sessions` simplified: removed `enrichSession()`, `hasFabKit()`, `runtimeCache sync.Map`. New `fetchPaneMap(repoRoot)` + map join. | `260313-3vlx-pane-map-enrichment` |

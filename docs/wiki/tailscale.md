@@ -5,9 +5,6 @@ run-kit binds to `127.0.0.1` by default — to access it from other machines on 
 | Approach | Complexity | Cert management | Flexibility |
 |----------|-----------|-----------------|-------------|
 | **Tailscale Serve** | Zero config | Automatic | Basic reverse proxy only |
-| **[Caddy](caddy.md) + `tailscale cert`** | Caddyfile + env vars | Manual provisioning | Full Caddy feature set |
-
-For most setups, **Tailscale Serve is the recommended approach**.
 
 ## Prerequisites
 
@@ -15,7 +12,7 @@ Enable HTTPS on your tailnet in the [Tailscale admin console](https://login.tail
 
 ## Option 1: Tailscale Serve (recommended)
 
-Tailscale Serve acts as a reverse proxy with automatic TLS — no Caddy, no cert files, no config.
+Tailscale Serve acts as a reverse proxy with automatic TLS — no cert files, no config.
 
 ```sh
 # Proxy HTTPS traffic to the run-kit Go server
@@ -86,19 +83,8 @@ tailscale funnel https / http://localhost:3000
 
 > **Warning:** Funnel makes your terminal relay publicly accessible. Only use this if you understand the security implications.
 
-## Option 2: Caddy + `tailscale cert`
-
-For full Caddy setup (cert provisioning, Caddyfile config, trust), see [Caddy HTTPS Proxy](caddy.md).
-
 ## Stopping
 
 ```sh
-# Tailscale Serve
 tailscale serve off
-
-# Caddy
-caddy stop --address :2020
-
-# Everything (supervisor + Caddy)
-just down
 ```

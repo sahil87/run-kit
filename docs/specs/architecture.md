@@ -94,7 +94,6 @@ run-kit/
 ├── supervisor.sh                      # Production process manager
 ├── justfile                           # Task runner (replaces dev.sh, npm scripts)
 ├── run-kit.yaml                       # Optional server config (gitignored)
-├── Caddyfile.example                  # TLS reverse proxy template
 ├── pnpm-workspace.yaml                # ["app/frontend"]
 ├── fab/                               # Fab-kit project config + changes
 └── docs/                              # Specs + memory
@@ -256,6 +255,6 @@ just dev
 # 6. On failure: git revert HEAD → rebuild → restart
 ```
 
-### Optional: TLS via Caddy
+### Optional: TLS via Tailscale Serve
 
-Caddy handles TLS termination only. Proxies to Go backend. Not required for local dev.
+TLS termination is handled by Tailscale Serve. Not required for local dev. See [Tailscale guide](../wiki/tailscale.md).

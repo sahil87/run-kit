@@ -16,13 +16,24 @@ doctor:
 setup:
     cd app/frontend && pnpm install
     [ -f .env.local ] || cp .env .env.local
-    [ -f Caddyfile ] || cp Caddyfile.example Caddyfile
     cd app/frontend && pnpm exec playwright install --with-deps chromium
 
 # Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
 # Backend runs at Frontend port + 1. Default: 3000
 dev *args:
     scripts/dev.sh {{args}}
+
+# Run any run-kit CLI command from source (just dev-run-kit serve -d)
+dev-run-kit *args:
+    cd app/backend && RK_PORT=$(( ${RK_PORT:-3000} + 1 )) go run ./cmd/run-kit {{args}}
+
+# Start only the Go backend with live-reload (port RK_PORT+1, default 3001)
+dev-backend:
+    cd app/backend && LOG_LEVEL=debug RK_PORT=$(( ${RK_PORT:-3000} + 1 )) air
+
+# Start only the Vite dev server (port RK_PORT, default 3000)
+dev-frontend:
+    cd app/frontend && pnpm dev --port "${RK_PORT:-3000}"
 
 # ─── Prod & Daemon mode ────────────────────────────────────────────────────
 

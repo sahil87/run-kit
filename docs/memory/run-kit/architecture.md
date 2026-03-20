@@ -293,7 +293,7 @@ Install flow: `brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git && brew 
 - **chi over stdlib ServeMux** — chi for middleware chaining (CORS, logging, recovery). Go 1.22+ ServeMux has pattern matching but lacks ergonomic middleware composition
 - **TanStack Router over React Router** — type-safe params and search params, built-in loader pattern. Single route `/:session/:window` in the new frontend
 - **Vite proxy in dev (not CORS)** — single browser URL, no CORS config needed. WebSocket upgrade works transparently. Go includes chi CORS middleware for production/non-browser clients
-- **SPA fallback in Go (not Caddy-only)** — Go serves standalone without requiring Caddy. Caddy is optional for TLS termination
+- **SPA fallback in Go** — Go serves standalone; TLS termination handled externally via Tailscale Serve when needed
 - **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient. Module-level hub deduplicates polling across tabs (one `FetchSessions()` per interval regardless of client count). SSE data includes `isActiveWindow` per window, enabling UI sync when users switch tmux/byobu windows via terminal shortcuts
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
 - **Independent panes per browser client** — no cursor fights, agent pane untouched. The relay pty follows tmux window switches natively (runs `tmux -L runkit attach-session`)
@@ -352,7 +352,7 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 - User input validated via `internal/validate` before reaching any subprocess
 - Directory listing restricted to `$HOME` via `ExpandTilde()` — rejects `..` traversal, absolute paths outside home, and `~username` syntax. Symlinks under `$HOME` are not resolved (accepted risk for local dev tool)
 - File uploads: filename sanitized via `SanitizeFilename()` (strips path separators, null bytes, leading dots, collapses dot sequences); 50MB size limit enforced server-side via `http.MaxBytesReader`; writes via `os.Create` (not subprocess)
-- CORS: permissive by default (`*` origin) for multi-client API flexibility. Caddy handles TLS in production
+- CORS: permissive by default (`*` origin) for multi-client API flexibility. TLS handled by Tailscale Serve in production
 
 ## Changelog
 

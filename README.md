@@ -49,7 +49,6 @@ just prod # Runs from built binary
 To access run-kit over HTTPS (e.g., from other machines on your tailnet), see:
 
 - [Tailscale guide](docs/wiki/tailscale.md) — zero-config with Tailscale Serve (recommended)
-- [Caddy guide](docs/wiki/caddy.md) — manual setup with Caddy reverse proxy
 
 ## Self-Improvement Loop
 

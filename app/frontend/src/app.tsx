@@ -15,6 +15,7 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { selectWindow, createWindow, reloadTmuxConfig, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
@@ -75,6 +76,7 @@ function AppShell() {
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
   const [createServerName, setCreateServerName] = useState("");
   const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
 
   // Fetch hostname once on mount (guarded for StrictMode double-invoke)
   const didFetchHostnameRef = useRef(false);
@@ -364,6 +366,11 @@ function AppShell() {
         id: "reload-tmux-config",
         label: "Reload tmux config",
         onSelect: () => { reloadTmuxConfig().catch(() => {}); },
+      },
+      {
+        id: "keyboard-shortcuts",
+        label: "Keyboard Shortcuts",
+        onSelect: () => setShowKeyboardShortcuts(true),
       },
       {
         id: "create-server",
@@ -688,6 +695,10 @@ function AppShell() {
       />
 
       <CommandPalette actions={paletteActions} />
+
+      {showKeyboardShortcuts && (
+        <KeyboardShortcuts onClose={() => setShowKeyboardShortcuts(false)} />
+      )}
     </div>
   );
 }

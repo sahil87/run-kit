@@ -82,6 +82,15 @@ Remove `justify-center` from the `BreadcrumbDropdown` trigger button in `app/fro
 
 - Change sidebar label from `"Server:"` to `"tmux server:"` — lowercase `tmux` matches official project styling
 
+### Keyboard Shortcuts Overlay
+
+- Add `GET /api/keybindings` endpoint that runs `tmux -L <server> list-keys`, parses the output, and filters to a whitelist of known commands
+- The whitelist doubles as the friendly-label map — if a command has a label, it's shown; otherwise it's excluded
+- Friendly labels for current config: `new-window` → "New window", `previous-window` → "Previous window", `next-window` → "Next window", `split-window -h` → "Split vertically", `split-window -v` → "Split horizontally", `select-pane -t :.-` → "Previous pane", `select-pane -t :.+` → "Next pane", `copy-mode` → "Scroll / copy mode", `command-prompt ... rename-window` → "Rename window"
+- Prefix-table bindings displayed as `Ctrl+B, <key>`, root-table bindings displayed as just `<key>`
+- Add "Keyboard Shortcuts" action to command palette that opens a modal showing the filtered bindings
+- Fetched on-demand when opened, not cached
+
 ### Kill tmux Server Fix
 
 - Investigate `POST /api/servers/kill` returning 500
@@ -94,8 +103,8 @@ Remove `justify-center` from the `BreadcrumbDropdown` trigger button in `app/fro
 
 ## Impact
 
-- **Frontend**: `breadcrumb-dropdown.tsx`, `sidebar.tsx`, `sidebar.test.tsx`, `bottom-bar.tsx`, `app.tsx`
-- **Backend**: `api/spa.go`, `internal/tmux/tmux.go`, `cmd/run-kit/serve.go`
+- **Frontend**: `breadcrumb-dropdown.tsx`, `sidebar.tsx`, `sidebar.test.tsx`, `bottom-bar.tsx`, `app.tsx`, `command-palette.tsx` (new action), new keyboard shortcuts modal component
+- **Backend**: `api/spa.go`, `api/keybindings.go` (new), `internal/tmux/tmux.go`, `cmd/run-kit/serve.go`
 - **Build**: `scripts/build.sh`, `.gitignore`
 - **Embed**: `app/backend/build/embed.go` (new), `app/backend/frontend/embed.go` (deleted)
 - **Memory**: `docs/memory/run-kit/architecture.md`
@@ -119,5 +128,7 @@ Remove `justify-center` from the `BreadcrumbDropdown` trigger button in `app/fro
 | 9 | Certain | Use lowercase `tmux` in label | Discussed — confirmed official styling is all lowercase | S:90 R:95 A:95 D:95 |
 | 10 | Certain | Dropdown density: `text-sm py-2` for all dropdowns | Discussed — user tried both densities, chose the top-bar density for all | S:85 R:90 A:85 D:85 |
 | 11 | Tentative | Kill server 500 is caused by tmux exit code on socket teardown | Observed error in logs but not yet reproduced locally — `tmux -L test kill-server` returned 0 in local test | S:50 R:70 A:50 D:60 |
+| 12 | Certain | Use `list-keys` + whitelist for keybindings overlay | Discussed — user chose dynamic `list-keys` filtered by friendly-label map over parsing tmux.conf or showing all bindings | S:95 R:90 A:90 D:95 |
+| 13 | Certain | Fetch keybindings on-demand, no caching | Discussed — aligns with "derive state at request time" principle | S:85 R:95 A:90 D:90 |
 
-11 assumptions (10 certain, 0 confident, 1 tentative, 0 unresolved).
+13 assumptions (12 certain, 0 confident, 1 tentative, 0 unresolved).

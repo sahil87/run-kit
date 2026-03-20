@@ -36,6 +36,7 @@ type TmuxOps interface {
 	KillPane(paneID, server string) error
 	ListServers() ([]string, error)
 	KillServer(server string) error
+	ListKeys(server string) ([]string, error)
 }
 
 // Server holds handler dependencies.
@@ -117,6 +118,9 @@ func (p *prodTmuxOps) ListServers() ([]string, error) {
 func (p *prodTmuxOps) KillServer(server string) error {
 	return tmux.KillServer(server)
 }
+func (p *prodTmuxOps) ListKeys(server string) ([]string, error) {
+	return tmux.ListKeys(server)
+}
 
 // NewRouter creates the chi router with all middleware and routes.
 // Uses production dependencies (live tmux, real session fetcher).
@@ -176,6 +180,9 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/servers", s.handleServersList)
 	r.Post("/api/servers", s.handleServerCreate)
 	r.Post("/api/servers/kill", s.handleServerKill)
+
+	// Keybindings
+	r.Get("/api/keybindings", s.handleKeybindings)
 
 	// WebSocket relay
 	r.Get("/relay/{session}/{window}", s.handleRelay)

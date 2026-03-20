@@ -202,7 +202,17 @@ The `CommandPalette` component listens for a `palette:open` CustomEvent on `docu
 
 No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with xterm.js terminal input. All actions are accessible via `Cmd+K` command palette or top bar buttons.
 
-Command palette actions include: create/rename/kill session, create/rename/kill window, theme switching, "Reload tmux config" (targets the active server via `?server=` param), "Create tmux server" (opens name dialog, creates session "0" in $HOME), "Kill tmux server" (confirmation dialog, kills active server, switches to next available), "Switch tmux server: {name}" (one entry per available server, current marked), and terminal navigation (jump to any session/window).
+Command palette actions include: create/rename/kill session, create/rename/kill window, theme switching, "Reload tmux config" (targets the active server via `?server=` param), "Create tmux server" (opens name dialog, creates session "0" in $HOME), "Kill tmux server" (confirmation dialog, kills active server, switches to next available), "Switch tmux server: {name}" (one entry per available server, current marked), "Keyboard Shortcuts" (opens modal showing curated tmux keybindings from `GET /api/keybindings` + hardcoded `Cmd+K`), and terminal navigation (jump to any session/window).
+
+### Keyboard Shortcuts Modal
+
+`app/frontend/src/components/keyboard-shortcuts.tsx` — opened via command palette "Keyboard Shortcuts" action. Fetches `GET /api/keybindings?server=...` on-demand each time (no caching). Displays bindings in three groups:
+
+1. **App** — hardcoded `Cmd+K` (command palette)
+2. **tmux** — root-table bindings displayed as bare key names (e.g., `F2`, `Shift+F3`)
+3. **tmux (prefix)** — prefix-table bindings displayed as `Ctrl+B, <key>` (e.g., `Ctrl+B, |`)
+
+Key name formatting: `S-` → `Shift+`, `C-` → `Ctrl+`. Shows "Loading..." during fetch, "No tmux server running" when response is empty. Uses the shared `Dialog` component.
 
 ## Visual Design
 
@@ -333,3 +343,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-20 | Multi-server terminal support — `TerminalClient` accepts `server` prop, WebSocket URL includes `?server=` param. "Reload tmux config" command palette action targets current session's server. `selectWindow` API call passes server for correct routing. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | PWA meta tags and theme-color sync — `theme-color`, `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style`, `apple-touch-icon` in `index.html`. Theme-color updated by blocking script (initial) and `applyTheme()` (runtime). Dark `#0f1117`, light `#f8f9fb`. Icon set in `public/icons/`. Standalone display mode. | `260320-j9a2-pwa-compliance` |
 | 2026-03-20 | Single-active-server model — Sidebar server selector at bottom (`Server: <dropdown>`, pinned below scrollable session tree). Command palette: "Create tmux server" (name dialog), "Kill tmux server" (confirmation), "Switch tmux server: {name}" per server. Removed `↗` external session marker and `ProjectSession.server` field. `SessionProvider` manages `server`/`setServer`/`servers`/`refreshServers` state. Active server persisted in localStorage `runkit-server` (default: `runkit`). All API calls append `?server=` via `setServerGetter()` mechanism. SSE reconnects on server switch. Navigate to `/` on switch. | `260320-1335-tmux-server-switcher` |
+| 2026-03-20 | UI polish + keyboard shortcuts — Breadcrumb left-aligned (removed `justify-center`). Sidebar server dropdown gains `+ tmux server` action. Hostname in bottom bar (hidden on mobile). Sidebar footer and bottom bar aligned at `h-[48px]`. Server label → "tmux server:". Consistent dropdown density (`text-sm py-2`). New "Keyboard Shortcuts" command palette action opens modal fetching `GET /api/keybindings` — shows curated tmux bindings grouped by table (root vs prefix), plus hardcoded `Cmd+K`. | `260320-9ldy-ui-polish-tmux-config-embed` |

@@ -121,6 +121,9 @@ func (m *mockTmuxOps) ListServers() ([]string, error) {
 func (m *mockTmuxOps) KillServer(server string) error {
 	return nil
 }
+func (m *mockTmuxOps) ListKeys(server string) ([]string, error) {
+	return nil, nil
+}
 
 func newTestRouter(sf SessionFetcher, ops TmuxOps) http.Handler {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))

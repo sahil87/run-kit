@@ -426,6 +426,24 @@ func ListServers() ([]string, error) {
 	return servers, nil
 }
 
+// ListKeys runs "tmux list-keys" on the given server and returns the raw output lines.
+// Returns nil (no error) if the server is not running.
+func ListKeys(server string) ([]string, error) {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-keys")
+	if err != nil {
+		// Server not running — return empty, not error
+		if strings.Contains(err.Error(), "No such file or directory") ||
+			strings.Contains(err.Error(), "no server running") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return lines, nil
+}
+
 // KillServer kills a tmux server by name.
 // Returns nil if the server is already gone (no socket).
 func KillServer(server string) error {

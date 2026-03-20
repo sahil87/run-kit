@@ -17,7 +17,6 @@ import (
 // ProjectSession is a tmux session with its windows and optional fab enrichment.
 type ProjectSession struct {
 	Name    string            `json:"name"`
-	Server  string            `json:"server"` // "runkit" or "default"
 	Windows []tmux.WindowInfo `json:"windows"`
 }
 
@@ -98,9 +97,9 @@ func derefStr(s *string) string {
 	return *s
 }
 
-// FetchSessions fetches all sessions, derives project roots from tmux, and enriches with fab state.
-func FetchSessions() ([]ProjectSession, error) {
-	sessionInfos, err := tmux.ListSessions()
+// FetchSessions fetches all sessions from the specified server, derives project roots from tmux, and enriches with fab state.
+func FetchSessions(server string) ([]ProjectSession, error) {
+	sessionInfos, err := tmux.ListSessions(server)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +121,7 @@ func FetchSessions() ([]ProjectSession, error) {
 		wg.Add(1)
 		go func(idx int, si tmux.SessionInfo) {
 			defer wg.Done()
-			windows, _ := tmux.ListWindows(si.Name, si.Server)
+			windows, _ := tmux.ListWindows(si.Name, server)
 			if windows == nil {
 				windows = []tmux.WindowInfo{}
 			}
@@ -168,16 +167,15 @@ func FetchSessions() ([]ProjectSession, error) {
 				sd.windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
 			}
 		}
-		result[i] = ProjectSession{Name: sd.info.Name, Server: sd.info.Server, Windows: sd.windows}
+		result[i] = ProjectSession{Name: sd.info.Name, Windows: sd.windows}
 	}
 
 	return result, nil
 }
 
 // ProjectRoot derives the project root from a session's target window.
-// Defaults to querying the runkit server.
-func ProjectRoot(session string, windowIndex int) (string, error) {
-	windows, err := tmux.ListWindows(session, "runkit")
+func ProjectRoot(session string, windowIndex int, server string) (string, error) {
+	windows, err := tmux.ListWindows(session, server)
 	if err != nil {
 		return "", err
 	}

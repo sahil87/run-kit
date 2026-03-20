@@ -15,7 +15,8 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
-import { selectWindow, createWindow, reloadTmuxConfig, getHealth } from "@/api/client";
+import { selectWindow, createWindow, reloadTmuxConfig, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 
 const SIDEBAR_STORAGE_KEY = "runkit-sidebar-width";
@@ -56,6 +57,7 @@ function AppShell() {
   useVisualViewport();
 
   const { sessions, isConnected } = useSessions();
+  const { server, setServer, servers, refreshServers } = useSessionContext();
   const { sidebarOpen, drawerOpen, fixedWidth } = useChrome();
   const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen } = useChromeDispatch();
   const navigate = useNavigate();
@@ -70,6 +72,9 @@ function AppShell() {
 
   const [composeOpen, setComposeOpen] = useState(false);
   const [hostname, setHostname] = useState("");
+  const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
+  const [createServerName, setCreateServerName] = useState("");
+  const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
 
   // Fetch hostname once on mount (guarded for StrictMode double-invoke)
   const didFetchHostnameRef = useRef(false);
@@ -194,10 +199,9 @@ function AppShell() {
       });
       setDrawerOpen(false);
       // Fire-and-forget: tell tmux to select this window too
-      const server = sessions.find((s) => s.name === session)?.server ?? "runkit";
-      selectWindow(session, windowIdx, server).catch(() => {});
+      selectWindow(session, windowIdx).catch(() => {});
     },
-    [navigate, setDrawerOpen, sessions],
+    [navigate, setDrawerOpen],
   );
 
   // Dialog state management
@@ -220,7 +224,7 @@ function AppShell() {
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
   dialogOpenRef.current =
-    dialogs.showCreateDialog || dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm;
+    dialogs.showCreateDialog || dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || showKillServerConfirm;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -253,6 +257,48 @@ function AppShell() {
       onSelect: () => setTheme(opt),
     }));
   }, [themePreference, setTheme]);
+
+  // Server management
+  const handleSwitchServer = useCallback(
+    (name: string) => {
+      if (name !== server) {
+        setServer(name);
+        navigate({ to: "/", replace: true });
+      }
+    },
+    [server, setServer, navigate],
+  );
+
+  const handleCreateServer = useCallback(async () => {
+    const trimmed = createServerName.trim();
+    if (!trimmed) return;
+    try {
+      await createServer(trimmed);
+      await refreshServers();
+      handleSwitchServer(trimmed);
+    } catch {
+      // error
+    }
+    setShowCreateServerDialog(false);
+    setCreateServerName("");
+  }, [createServerName, refreshServers, handleSwitchServer]);
+
+  const handleKillServer = useCallback(async () => {
+    try {
+      await killServerApi(server);
+      const res = await fetch("/api/servers");
+      if (res.ok) {
+        const remaining: string[] = await res.json();
+        refreshServers();
+        if (remaining.length > 0) {
+          handleSwitchServer(remaining[0]);
+        }
+      }
+    } catch {
+      // error
+    }
+    setShowKillServerConfirm(false);
+  }, [server, refreshServers, handleSwitchServer]);
 
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -315,15 +361,30 @@ function AppShell() {
       {
         id: "reload-tmux-config",
         label: "Reload tmux config",
-        onSelect: () => { reloadTmuxConfig(currentSession?.server ?? "runkit").catch(() => {}); },
+        onSelect: () => { reloadTmuxConfig().catch(() => {}); },
       },
+      {
+        id: "create-server",
+        label: "Create tmux server",
+        onSelect: () => setShowCreateServerDialog(true),
+      },
+      {
+        id: "kill-server",
+        label: "Kill tmux server",
+        onSelect: () => setShowKillServerConfirm(true),
+      },
+      ...servers.map((s) => ({
+        id: `switch-server-${s}`,
+        label: `Switch tmux server: ${s}${s === server ? " (current)" : ""}`,
+        onSelect: () => handleSwitchServer(s),
+      })),
       ...flatWindows.map((fw) => ({
         id: `terminal-${fw.session}-${fw.window.index}`,
         label: `Terminal: ${fw.session}/${fw.window.name}`,
         onSelect: () => navigateToWindow(fw.session, fw.window.index),
       })),
     ],
-    [sessionName, currentWindow, flatWindows, navigateToWindow, handleCreateWindow, dialogs, themeActions],
+    [sessionName, currentWindow, flatWindows, navigateToWindow, handleCreateWindow, dialogs, themeActions, servers, server, handleSwitchServer],
   );
 
   const displayName = currentWindow?.name ?? windowIndex ?? "";
@@ -367,6 +428,9 @@ function AppShell() {
                 onSelectWindow={navigateToWindow}
                 onCreateWindow={handleCreateWindow}
                 onCreateSession={dialogs.openCreateDialog}
+                server={server}
+                servers={servers}
+                onSwitchServer={handleSwitchServer}
               />
             </div>
             {/* Drag handle */}
@@ -396,7 +460,7 @@ function AppShell() {
                   <TerminalClient
                     sessionName={sessionName}
                     windowIndex={windowIndex}
-                    server={currentSession?.server ?? "runkit"}
+                    server={server}
                     wsRef={wsRef}
                     composeOpen={composeOpen}
                     setComposeOpen={setComposeOpen}
@@ -436,6 +500,9 @@ function AppShell() {
                 }}
                 onCreateWindow={handleCreateWindow}
                 onCreateSession={dialogs.openCreateDialog}
+                server={server}
+                servers={servers}
+                onSwitchServer={handleSwitchServer}
               />
             </div>
           </div>
@@ -530,6 +597,54 @@ function AppShell() {
             </button>
             <button
               onClick={dialogs.handleKillSession}
+              className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+            >
+              Kill
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {showCreateServerDialog && (
+        <Dialog title="Create tmux server" onClose={() => { setShowCreateServerDialog(false); setCreateServerName(""); }}>
+          <input
+            autoFocus
+            type="text"
+            value={createServerName}
+            onChange={(e) => setCreateServerName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateServer()}
+            onFocus={(e) => e.target.select()}
+            aria-label="Server name"
+            placeholder="Server name..."
+            className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+          />
+          <p className="text-xs text-text-secondary mt-1.5">
+            Alphanumeric, hyphens, and underscores only.
+          </p>
+          <button
+            onClick={handleCreateServer}
+            disabled={!createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim())}
+            className="mt-3 w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50"
+          >
+            Create
+          </button>
+        </Dialog>
+      )}
+
+      {showKillServerConfirm && (
+        <Dialog title="Kill tmux server?" onClose={() => setShowKillServerConfirm(false)}>
+          <p className="text-sm text-text-secondary mb-3">
+            Kill server <strong>{server}</strong> and all its sessions? This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowKillServerConfirm(false)}
+              className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleKillServer}
               className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
             >
               Kill

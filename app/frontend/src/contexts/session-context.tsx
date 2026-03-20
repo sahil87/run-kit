@@ -1,10 +1,28 @@
-import { createContext, useContext, useState, useEffect, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useChromeDispatch } from "./chrome-context";
+import { setServerGetter } from "@/api/client";
 import type { ProjectSession } from "@/types";
+
+const SERVER_STORAGE_KEY = "runkit-server";
+const DEFAULT_SERVER = "runkit";
+
+function readStoredServer(): string {
+  try {
+    const stored = localStorage.getItem(SERVER_STORAGE_KEY);
+    if (stored) return stored;
+  } catch {
+    // localStorage unavailable
+  }
+  return DEFAULT_SERVER;
+}
 
 type SessionContextType = {
   sessions: ProjectSession[];
   isConnected: boolean;
+  server: string;
+  setServer: (name: string) => void;
+  servers: string[];
+  refreshServers: () => void;
 };
 
 const SessionContext = createContext<SessionContextType | null>(null);
@@ -16,10 +34,46 @@ type SessionProviderProps = {
 export function SessionProvider({ children }: SessionProviderProps) {
   const [sessions, setSessions] = useState<ProjectSession[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [server, setServerState] = useState(readStoredServer);
+  const [servers, setServers] = useState<string[]>([]);
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
 
+  // Keep API client in sync with current server
+  const serverRef = useRef(server);
+  serverRef.current = server;
   useEffect(() => {
-    const es = new EventSource("/api/sessions/stream");
+    setServerGetter(() => serverRef.current);
+  }, []);
+
+  const fetchServers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/servers");
+      if (res.ok) {
+        const data = await res.json();
+        setServers(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Fetch server list on mount and when server changes
+  useEffect(() => {
+    fetchServers();
+  }, [fetchServers, server]);
+
+  const setServer = useCallback((name: string) => {
+    setServerState(name);
+    try {
+      localStorage.setItem(SERVER_STORAGE_KEY, name);
+    } catch {
+      // localStorage unavailable
+    }
+  }, []);
+
+  // SSE connection — reconnects when server changes
+  useEffect(() => {
+    const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
 
     es.addEventListener("sessions", (e) => {
       try {
@@ -45,9 +99,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return () => {
       es.close();
     };
-  }, [setChromeConnected]);
+  }, [setChromeConnected, server]);
 
-  const value = useMemo(() => ({ sessions, isConnected }), [sessions, isConnected]);
+  const value = useMemo(
+    () => ({ sessions, isConnected, server, setServer, servers, refreshServers: fetchServers }),
+    [sessions, isConnected, server, setServer, servers, fetchServers],
+  );
 
   return (
     <SessionContext.Provider value={value}>

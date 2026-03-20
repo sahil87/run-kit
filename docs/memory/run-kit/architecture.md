@@ -13,7 +13,7 @@ In development, `just dev` runs two concurrent processes:
 
 Configuration via env vars: `.env` (committed) defines `RK_PORT` and `RK_HOST`, `.env.local` (gitignored) for overrides. Go backend and Vite both read `RK_PORT`/`RK_HOST` directly — no intermediate `BACKEND_*` vars. In dev mode, `dev.sh` is the translation layer: it passes `RK_PORT+1` to the Go backend and `RK_PORT` to Vite. `dev.sh` accepts `--port` for ad-hoc overrides. Tmux config defaults to `~/.run-kit/tmux.conf` (scaffolded by `run-kit init-conf`), overridable via `RK_TMUX_CONF` env var. The config is embedded in the binary via `go:embed` and written to disk by `init-conf`. All consumers use `tmux.ConfigPath()` getter — no direct env var reads elsewhere.
 
-run-kit sessions live on a **dedicated tmux server** named `runkit` (via `tmux -L runkit`). Sessions on the user's default tmux server are also discovered and displayed read-only. The tmux server is an external dependency — never started or stopped by run-kit.
+run-kit connects to **one tmux server at a time**, selected by the user via the sidebar server selector or command palette. The active server is sent as a `?server=` query parameter on every API request (SSE, REST, WebSocket). The backend is stateless — it defaults to the `default` tmux server when the parameter is absent. Server discovery scans `/tmp/tmux-{uid}/` for socket files. The frontend persists the active server in localStorage (`runkit-server`, default `runkit`). Server lifecycle: create (implicit via first session creation), kill (`tmux kill-server`), switch (SSE reconnect + navigate to `/`).
 
 ## Repository Structure
 
@@ -41,6 +41,7 @@ app/
       sse.go          # GET /api/sessions/stream (hub singleton)
       relay.go        # WS /relay/:session/:window
       tmux_config.go  # POST /api/tmux/reload-config
+      servers.go      # GET /api/servers, POST /api/servers, POST /api/servers/kill
       spa.go          # SPA static serving — dual-mode (embedded FS or filesystem)
     frontend/         # Embedded frontend assets
       embed.go        # //go:embed all:dist → embed.FS
@@ -109,7 +110,10 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
 | `/api/sessions/:session/upload` | POST | File upload — session from URL path (not form field). Multipart with `file` field, optional `window` field (defaults to `"0"`). Resolves project root via `ListWindows`, writes to `.uploads/{timestamp}-{name}`, auto-manages `.gitignore`. 50MB limit. Returns `200 {"ok":true,"path":"..."}` |
 | `/api/sessions/stream` | GET | SSE — hub singleton polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection |
-| `/api/tmux/reload-config` | POST | Reload tmux config — JSON body `{"server":"runkit"|"default"}`. Runs `source-file` on the specified server. Returns `200 {"status":"ok"}` |
+| `/api/tmux/reload-config` | POST | Reload tmux config — server from `?server=` param (default `"default"`). Runs `source-file` on the specified server. Returns `200 {"status":"ok"}` |
+| `/api/servers` | GET | List available tmux servers — scans socket dir, returns JSON array of names |
+| `/api/servers` | POST | Create tmux server — JSON body `{"name":"..."}`. Creates session "0" in `$HOME`. Returns `201 {"ok":true}` |
+| `/api/servers/kill` | POST | Kill tmux server — JSON body `{"name":"..."}`. Returns `200 {"ok":true}` |
 
 ### Frontend API Client
 
@@ -126,11 +130,14 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `renameWindow(session, index, name)` | POST | `/api/sessions/:session/windows/:index/rename` |
 | `sendKeys(session, index, keys)` | POST | `/api/sessions/:session/windows/:index/keys` |
 | `getDirectories(prefix)` | GET | `/api/directories?prefix=...` |
-| `selectWindow(session, index, server?)` | POST | `/api/sessions/:session/windows/:index/select?server=...` |
-| `reloadTmuxConfig(server)` | POST | `/api/tmux/reload-config` |
-| `uploadFile(session, file, window?)` | POST | `/api/sessions/:session/upload` |
+| `selectWindow(session, index)` | POST | `/api/sessions/:session/windows/:index/select?server=...` |
+| `reloadTmuxConfig()` | POST | `/api/tmux/reload-config?server=...` |
+| `uploadFile(session, file, window?)` | POST | `/api/sessions/:session/upload?server=...` |
+| `listServers()` | GET | `/api/servers` |
+| `createServer(name)` | POST | `/api/servers` |
+| `killServer(name)` | POST | `/api/servers/kill` |
 
-No multiplexed `action` field — each mutation is a separate function with its own URL path.
+All API functions (except `listServers`, `createServer`, `killServer`, `getDirectories`, `getHealth`) append `?server={active}` via a module-level `setServerGetter()` mechanism. The `SessionProvider` sets the getter on mount. No multiplexed `action` field — each mutation is a separate function with its own URL path.
 
 ## Terminal Relay
 
@@ -385,3 +392,4 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-20 | **Hostname in browser title** — `Server` struct gains `hostname` field (computed once via `os.Hostname()` in `NewRouter()`, empty string fallback). `/api/health` response extended to `{"status":"ok","hostname":"..."}`. New `getHealth()` API client function. `useBrowserTitle` hook sets `document.title` dynamically: `RunKit — {hostname}` on Dashboard, `{session}/{window} — {hostname}` on terminal pages. Hostname suffix omitted when empty. | `260320-uq0k-hostname-browser-title` |
 | 2026-03-20 | **PWA compliance** — `vite-plugin-pwa` with autoUpdate, manifest from plugin config (standalone display, dark theme colors), Workbox service worker (precache static, NetworkOnly for API/WebSocket), iOS meta tags, theme-color sync. No backend changes. | `260320-j9a2-pwa-compliance` |
 | 2026-03-20 | **Release pipeline + update command** — `release.sh` rewritten (fab-kit/tu style: better arg parsing, help flag, detached HEAD guard). CI workflow gains "Update Homebrew tap" step: computes SHA256s from built tarballs, generates `Formula/run-kit.rb` in `wvrdz/homebrew-tap` via `BUILD_TOKEN` org secret. In-repo `Formula/run-kit.rb` deleted (now CI-generated). `upgrade` subcommand renamed to `update` (alias: `upgrade`): checks latest version via `brew info --json=v2`, skips if up-to-date, shows version transition. Mirrors tu's update UX. | — |
+| 2026-03-20 | **Single-active-server model** — Replaced dual-server merge with single-server-at-a-time. Backend stateless: `?server=` on every request, defaults to `"default"`. Unified `tmuxExec`/`tmuxExecDefault` into `tmuxExecServer`. All tmux functions accept `server` param. `serverFromRequest()` validates names. New `ListServers()` (socket scan), `KillServer()`. SSE hub polls per-server. Removed `SessionInfo.Server`, `ProjectSession.Server`. New `GET/POST /api/servers`, `POST /api/servers/kill`. Frontend: `SessionProvider` manages server state (localStorage `runkit-server`), sidebar server dropdown, palette commands (Create/Kill/Switch server). `setServerGetter()` mechanism appends `?server=` to all API calls. | `260320-1335-tmux-server-switcher` |

@@ -8,8 +8,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"run-kit/internal/tmux"
-
 	"run-kit/internal/validate"
 )
 
@@ -34,6 +32,8 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	server := serverFromRequest(r)
+
 	var resolvedCwd string
 	if body.CWD != "" {
 		if errMsg := validate.ValidatePath(body.CWD, "Working directory"); errMsg != "" {
@@ -48,12 +48,12 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		resolvedCwd = expanded
 	} else {
 		// Default to the cwd of the first window in the session.
-		if windows, err := s.tmux.ListWindows(session, "runkit"); err == nil && len(windows) > 0 {
+		if windows, err := s.tmux.ListWindows(session, server); err == nil && len(windows) > 0 {
 			resolvedCwd = windows[0].WorktreePath
 		}
 	}
 
-	if err := s.tmux.CreateWindow(session, body.Name, resolvedCwd); err != nil {
+	if err := s.tmux.CreateWindow(session, body.Name, resolvedCwd, server); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -84,7 +84,7 @@ func (s *Server) handleWindowKill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.KillWindow(session, index); err != nil {
+	if err := s.tmux.KillWindow(session, index, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -118,7 +118,7 @@ func (s *Server) handleWindowRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.RenameWindow(session, index, body.Name); err != nil {
+	if err := s.tmux.RenameWindow(session, index, body.Name, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -139,11 +139,7 @@ func (s *Server) handleWindowSelect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	server := r.URL.Query().Get("server")
-	if server != "default" {
-		server = "runkit"
-	}
-	if err := tmux.SelectWindowOnServer(session, index, server); err != nil {
+	if err := s.tmux.SelectWindow(session, index, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -177,7 +173,7 @@ func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.SendKeys(session, index, body.Keys); err != nil {
+	if err := s.tmux.SendKeys(session, index, body.Keys, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -19,7 +19,7 @@ type mockSessionFetcher struct {
 	err    error
 }
 
-func (m *mockSessionFetcher) FetchSessions() ([]sessions.ProjectSession, error) {
+func (m *mockSessionFetcher) FetchSessions(server string) ([]sessions.ProjectSession, error) {
 	return m.result, m.err
 }
 
@@ -59,60 +59,66 @@ type mockTmuxOps struct {
 	err error
 }
 
-func (m *mockTmuxOps) CreateSession(name, cwd string) error {
+func (m *mockTmuxOps) CreateSession(name, cwd, server string) error {
 	m.createSessionCalled = true
 	m.createSessionName = name
 	m.createSessionCwd = cwd
 	return m.err
 }
-func (m *mockTmuxOps) KillSession(session string) error {
+func (m *mockTmuxOps) KillSession(session, server string) error {
 	m.killSessionCalled = true
 	m.killSessionName = session
 	return m.err
 }
-func (m *mockTmuxOps) RenameSession(session, name string) error {
+func (m *mockTmuxOps) RenameSession(session, name, server string) error {
 	m.renameSessionCalled = true
 	m.renameSessionSession = session
 	m.renameSessionName = name
 	return m.err
 }
-func (m *mockTmuxOps) CreateWindow(session, name, cwd string) error {
+func (m *mockTmuxOps) CreateWindow(session, name, cwd, server string) error {
 	m.createWindowCalled = true
 	m.createWindowSession = session
 	m.createWindowName = name
 	m.createWindowCwd = cwd
 	return m.err
 }
-func (m *mockTmuxOps) KillWindow(session string, index int) error {
+func (m *mockTmuxOps) KillWindow(session string, index int, server string) error {
 	m.killWindowCalled = true
 	m.killWindowSession = session
 	m.killWindowIndex = index
 	return m.err
 }
-func (m *mockTmuxOps) RenameWindow(session string, index int, name string) error {
+func (m *mockTmuxOps) RenameWindow(session string, index int, name, server string) error {
 	m.renameWindowCalled = true
 	m.renameWindowSession = session
 	m.renameWindowIndex = index
 	m.renameWindowName = name
 	return m.err
 }
-func (m *mockTmuxOps) SendKeys(session string, window int, keys string) error {
+func (m *mockTmuxOps) SendKeys(session string, window int, keys, server string) error {
 	m.sendKeysCalled = true
 	m.sendKeysSession = session
 	m.sendKeysWindow = window
 	m.sendKeysKeys = keys
 	return m.err
 }
-func (m *mockTmuxOps) ListWindows(session string, server string) ([]tmux.WindowInfo, error) {
+func (m *mockTmuxOps) ListWindows(session, server string) ([]tmux.WindowInfo, error) {
 	return m.listWindowsResult, m.listWindowsErr
 }
-func (m *mockTmuxOps) SplitWindow(session string, window int) (string, error) {
+func (m *mockTmuxOps) SplitWindow(session string, window int, server string) (string, error) {
 	return m.splitWindowResult, m.splitWindowErr
 }
-func (m *mockTmuxOps) SelectWindow(session string, index int) error {
+func (m *mockTmuxOps) SelectWindow(session string, index int, server string) error {
 	return nil
 }
-func (m *mockTmuxOps) KillPane(paneID string) error {
+func (m *mockTmuxOps) KillPane(paneID, server string) error {
+	return nil
+}
+func (m *mockTmuxOps) ListServers() ([]string, error) {
+	return []string{"default"}, nil
+}
+func (m *mockTmuxOps) KillServer(server string) error {
 	return nil
 }
 

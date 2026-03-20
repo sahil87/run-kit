@@ -4,6 +4,7 @@ import { ArrowPad } from "@/components/arrow-pad";
 
 type BottomBarProps = {
   wsRef: React.RefObject<WebSocket | null>;
+  hostname?: string;
 };
 
 /** xterm modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) */
@@ -50,7 +51,7 @@ const MODIFIER_LABELS: Record<string, string> = {
   alt: "Option",
 };
 
-export function BottomBar({ wsRef }: BottomBarProps) {
+export function BottomBar({ wsRef, hostname }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
@@ -229,6 +230,10 @@ export function BottomBar({ wsRef }: BottomBarProps) {
       >
         <kbd aria-hidden="true">{"\u2318K"}</kbd>
       </button>
+
+      {hostname && (
+        <span className="hidden sm:inline ml-auto text-xs text-text-secondary truncate">{hostname}</span>
+      )}
     </div>
   );
 }

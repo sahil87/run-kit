@@ -14,6 +14,7 @@ type SidebarProps = {
   server: string;
   servers: string[];
   onSwitchServer: (name: string) => void;
+  onCreateServer: () => void;
 };
 
 export function Sidebar({
@@ -26,6 +27,7 @@ export function Sidebar({
   server,
   servers,
   onSwitchServer,
+  onCreateServer,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
@@ -126,7 +128,7 @@ export function Sidebar({
   const nowSeconds = Math.floor(Date.now() / 1000);
 
   return (
-    <nav aria-label="Sessions" className="flex flex-col h-full py-2">
+    <nav aria-label="Sessions" className="flex flex-col h-full pt-2">
       <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
@@ -281,9 +283,9 @@ export function Sidebar({
       </div>
 
       {/* Server selector — pinned at bottom */}
-      <div className="shrink-0 border-t border-border px-3 sm:px-4 py-2" ref={serverDropdownRef}>
+      <div className="shrink-0 border-t border-border px-3 sm:px-4 flex items-center h-[48px]" ref={serverDropdownRef}>
         <div className="flex items-center gap-1.5 relative">
-          <span className="text-xs text-text-secondary">Server:</span>
+          <span className="text-xs text-text-secondary">tmux server:</span>
           <button
             onClick={() => setServerDropdownOpen((v) => !v)}
             className="text-xs text-text-primary font-medium hover:text-accent transition-colors coarse:min-h-[44px] flex items-center"
@@ -295,8 +297,18 @@ export function Sidebar({
           </button>
           {serverDropdownOpen && (
             <div role="listbox" className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">
+              <button
+                onClick={() => {
+                  setServerDropdownOpen(false);
+                  onCreateServer();
+                }}
+                className="w-full text-left text-sm px-3 py-2 text-text-primary hover:bg-bg-card transition-colors"
+              >
+                + tmux server
+              </button>
+              <div className="border-t border-border" />
               {servers.length === 0 ? (
-                <div className="text-xs text-text-secondary px-3 py-1.5">No servers</div>
+                <div className="text-sm text-text-secondary px-3 py-2">No servers</div>
               ) : (
                 servers.map((s) => (
                   <button
@@ -305,7 +317,7 @@ export function Sidebar({
                       onSwitchServer(s);
                       setServerDropdownOpen(false);
                     }}
-                    className={`w-full text-left text-xs px-3 py-1.5 hover:bg-bg-card transition-colors ${
+                    className={`w-full text-left text-sm px-3 py-2 hover:bg-bg-card transition-colors ${
                       s === server ? "text-accent font-medium" : "text-text-primary"
                     }`}
                     role="option"

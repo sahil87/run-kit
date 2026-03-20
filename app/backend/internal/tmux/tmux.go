@@ -40,6 +40,30 @@ func ConfigPath() string {
 	return configPath
 }
 
+// configArgs returns ["-f", configPath] if a config path is set, or nil.
+// Used by commands that start the tmux server (CreateSession) or reload config.
+func configArgs() []string {
+	if configPath != "" {
+		return []string{"-f", configPath}
+	}
+	return nil
+}
+
+// EnsureConfig writes the embedded default tmux.conf to DefaultConfigPath
+// if the file does not already exist. No-op if the file exists or no home dir.
+func EnsureConfig() error {
+	if DefaultConfigPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(DefaultConfigPath); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(DefaultConfigPath), 0o755); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	return os.WriteFile(DefaultConfigPath, DefaultConfigBytes(), 0o644)
+}
+
 // ReloadConfig hot-reloads the tmux config via source-file on the specified server.
 // Returns an error if no config path is set or the source-file command fails.
 func ReloadConfig(server string) error {
@@ -48,22 +72,20 @@ func ReloadConfig(server string) error {
 	}
 	ctx, cancel := withTimeout()
 	defer cancel()
-	_, err := tmuxExecServer(ctx, server, "source-file", configPath)
+	args := append(configArgs(), "source-file", configPath)
+	_, err := tmuxExecServer(ctx, server, args...)
 	return err
 }
 
 // serverArgs returns the argument prefix for commands targeting a given server.
 // For "default", returns an empty slice (no -L flag). For any other name, returns
-// ["-L", name] plus the config flag included when a config path is available.
+// ["-L", name]. The -f config flag is only needed on server-creating commands
+// (CreateSession) and ReloadConfig — not on every command.
 func serverArgs(server string) []string {
 	if server == "default" {
 		return nil
 	}
-	args := []string{"-L", server}
-	if configPath != "" {
-		args = append(args, "-f", configPath)
-	}
-	return args
+	return []string{"-L", server}
 }
 
 const (
@@ -247,7 +269,9 @@ func CreateSession(name string, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	args := []string{"new-session", "-d", "-s", name}
+	// new-session may start the tmux server, so pass -f to load our config.
+	args := configArgs()
+	args = append(args, "new-session", "-d", "-s", name)
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}

@@ -52,6 +52,7 @@ prod:
 
 # Start run-kit daemon in background tmux session
 up:
+    just build
     ./dist/run-kit serve -d
 
 # Stop run-kit daemon

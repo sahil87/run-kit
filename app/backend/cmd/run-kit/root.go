@@ -25,6 +25,7 @@ func init() {
 	rootCmd.AddCommand(upgradeCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(initConfCmd)
 }
 
 func execute() {

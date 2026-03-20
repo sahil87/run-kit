@@ -11,11 +11,22 @@ import (
 	"time"
 )
 
-// configPath holds the tmux config file path read from RK_TMUX_CONF at init.
+// DefaultConfigPath is the default location for the tmux config file.
+var DefaultConfigPath string
+
+// configPath holds the resolved tmux config file path.
 var configPath string
 
 func init() {
+	home, err := os.UserHomeDir()
+	if err == nil {
+		DefaultConfigPath = filepath.Join(home, ".run-kit", "tmux.conf")
+	}
+
 	configPath = os.Getenv("RK_TMUX_CONF")
+	if configPath == "" {
+		configPath = DefaultConfigPath
+	}
 	if configPath != "" && !filepath.IsAbs(configPath) {
 		if abs, err := filepath.Abs(configPath); err == nil {
 			configPath = abs
@@ -32,7 +43,7 @@ func ConfigPath() string {
 // Returns an error if no config path is set or the source-file command fails.
 func ReloadConfig(server string) error {
 	if configPath == "" {
-		return fmt.Errorf("RK_TMUX_CONF not set")
+		return fmt.Errorf("no tmux config path (run 'run-kit init-conf' or set RK_TMUX_CONF)")
 	}
 	ctx, cancel := withTimeout()
 	defer cancel()

@@ -11,6 +11,9 @@ echo "==> Copying frontend dist to backend embed directory..."
 rm -rf "$REPO_ROOT/app/backend/frontend/dist"
 cp -r "$REPO_ROOT/app/frontend/dist" "$REPO_ROOT/app/backend/frontend/dist"
 
+echo "==> Copying tmux.conf to backend embed directory..."
+cp "$REPO_ROOT/config/tmux.conf" "$REPO_ROOT/app/backend/internal/tmux/tmux.conf"
+
 VERSION="$(cat "$REPO_ROOT/VERSION")"
 echo "==> Building run-kit v${VERSION}..."
 

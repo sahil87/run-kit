@@ -23,7 +23,7 @@ var statusCmd = &cobra.Command{
 		}
 
 		for _, s := range sessions {
-			windows, err := tmux.ListWindows(s.Name)
+			windows, err := tmux.ListWindows(s.Name, "")
 			if err != nil {
 				fmt.Printf("  %s (error listing windows)\n", s.Name)
 				continue

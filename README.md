@@ -6,7 +6,7 @@ Web-based agent orchestration dashboard. Monitor and interact with tmux sessions
 
 ```sh
 brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git
-brew install run-kit
+brew install wvrdz/tap/run-kit
 ```
 
 ## Prerequisites (development)

@@ -31,7 +31,9 @@ var updateCmd = &cobra.Command{
 
 		if !strings.Contains(resolved, "/Cellar/run-kit/") {
 			fmt.Printf("run-kit v%s was not installed via Homebrew.\n", version)
-			fmt.Println("Update manually, or reinstall with: brew install wvrdz/tap/run-kit")
+			fmt.Println("Update manually (git pull && just build), or reinstall with:")
+			fmt.Println("  brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git")
+			fmt.Println("  brew install wvrdz/tap/run-kit")
 			return nil
 		}
 
@@ -51,7 +53,7 @@ var updateCmd = &cobra.Command{
 		infoCtx, infoCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer infoCancel()
 
-		info := exec.CommandContext(infoCtx, "brew", "info", "--json=v2", "run-kit")
+		info := exec.CommandContext(infoCtx, "brew", "info", "--json=v2", "wvrdz/tap/run-kit")
 		infoOut, err := info.Output()
 		if err != nil {
 			return fmt.Errorf("could not determine latest version: %w", err)
@@ -72,7 +74,7 @@ var updateCmd = &cobra.Command{
 		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewTimeout)
 		defer upgradeCancel()
 
-		upgrade := exec.CommandContext(upgradeCtx, "brew", "upgrade", "run-kit")
+		upgrade := exec.CommandContext(upgradeCtx, "brew", "upgrade", "wvrdz/tap/run-kit")
 		upgrade.Stdout = os.Stdout
 		upgrade.Stderr = os.Stderr
 		if err := upgrade.Run(); err != nil {

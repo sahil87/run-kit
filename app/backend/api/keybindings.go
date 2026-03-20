@@ -15,7 +15,6 @@ type keybinding struct {
 
 // keybindingWhitelist maps tmux command patterns to human-friendly labels.
 // Only commands in this map are included in the API response.
-// Note: "command-prompt ... rename-window" is matched via special case in matchWhitelist().
 var keybindingWhitelist = map[string]string{
 	"new-window":           "New window",
 	"previous-window":      "Previous window",
@@ -99,19 +98,10 @@ func parseListKeysLine(line string) (keybinding, bool) {
 	}, true
 }
 
-// matchWhitelist checks if a command matches any whitelist entry.
-// Handles exact matches and prefix matches for commands like
-// "command-prompt ... rename-window ...".
+// matchWhitelist checks if a command matches any whitelist entry (exact match).
 func matchWhitelist(command string) (string, bool) {
-	// Exact match first
 	if label, ok := keybindingWhitelist[command]; ok {
 		return label, true
 	}
-
-	// Special case: rename-window via command-prompt
-	if strings.HasPrefix(command, "command-prompt") && strings.Contains(command, "rename-window") {
-		return "Rename window", true
-	}
-
 	return "", false
 }

@@ -8,3 +8,4 @@
 - [ ] [4hef] 2026-03-14: tapping on modifiers from bottom bar collapses the keyboard
 - [ ] [wq7h] 2026-03-14: get ssl
 - [ ] [rkx4] 2026-03-20: The text input dialog - show buttons at the bottom of that dialog in a section that represent 'most used commands' - Clicking on them enters that text in the input box - later parts of this list may also be exposed in the dashboard cards - a quick way send commands to different session. This could be used to send the text 'Create PR' or 'Merge PR' to sessions that are ready to do so
+- [ ] [ljhu] 2026-03-20: At the bottom of the left panel, add 'Server: <dropdown>' which shows you the current tmux server you are connected to allows you to change it. Add these to Command Palette: 'Create tmux server' (should show a dialog where you can select a tmux server name), 'Kill tmux server', 'Switch tmux server'. Change run-kit behaviour to connect only to one server at a time. We no longer need the server label in the session entries

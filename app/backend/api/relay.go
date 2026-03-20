@@ -114,6 +114,15 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			attachArgs = append(attachArgs, "-f", confPath)
 		}
 	}
+	// Source-file the config into the running server so terminal-overrides
+	// (true color) and style settings are active even if the server was
+	// created outside of run-kit. Best-effort — don't block the attach.
+	if server != "default" {
+		if err := tmux.ReloadConfig(server); err != nil {
+			slog.Debug("config reload before attach (best-effort)", "server", server, "err", err)
+		}
+	}
+
 	attachArgs = append(attachArgs, "attach-session", "-t", session)
 	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
 	cmd.Env = ensureTERM(os.Environ())

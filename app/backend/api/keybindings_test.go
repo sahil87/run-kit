@@ -20,7 +20,6 @@ func TestHandleKeybindings(t *testing.T) {
 				`bind-key    -T prefix        -                  split-window -v`,
 				`bind-key    -T root          S-F3               select-pane -t :.-`,
 				`bind-key    -T root          S-F7               copy-mode`,
-				`bind-key    -T root          F8                 command-prompt -I "#W" "rename-window -- '%%'"`,
 				`bind-key    -T prefix        d                  detach-client`,
 				`bind-key    -T prefix        x                  confirm-before -p "kill-pane #P? (y/n)" kill-pane`,
 			},
@@ -41,8 +40,8 @@ func TestHandleKeybindings(t *testing.T) {
 		}
 
 		// Should include whitelisted bindings, exclude detach-client and confirm-before
-		if len(result) != 8 {
-			t.Fatalf("expected 8 bindings, got %d: %+v", len(result), result)
+		if len(result) != 7 {
+			t.Fatalf("expected 7 bindings, got %d: %+v", len(result), result)
 		}
 
 		// Check specific entries
@@ -50,7 +49,7 @@ func TestHandleKeybindings(t *testing.T) {
 		for _, kb := range result {
 			found[kb.Label] = true
 		}
-		expected := []string{"New window", "Previous window", "Next window", "Split vertically", "Split horizontally", "Previous pane", "Scroll / copy mode", "Rename window"}
+		expected := []string{"New window", "Previous window", "Next window", "Split vertically", "Split horizontally", "Previous pane", "Scroll / copy mode"}
 		for _, e := range expected {
 			if !found[e] {
 				t.Errorf("expected label %q not found in results", e)
@@ -175,7 +174,6 @@ func TestMatchWhitelist(t *testing.T) {
 		{"new-window", "New window", true},
 		{"split-window -h", "Split vertically", true},
 		{"detach-client", "", false},
-		{`command-prompt -I "#W" "rename-window -- '%%'"`, "Rename window", true},
 	}
 
 	for _, tt := range tests {

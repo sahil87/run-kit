@@ -19,7 +19,7 @@ Tailscale Serve acts as a reverse proxy with automatic TLS — no Caddy, no cert
 
 ```sh
 # Proxy HTTPS traffic to the run-kit Go server
-tailscale serve https / http://localhost:3000
+tailscale serve --bg http://localhost:3000
 ```
 
 That's it. run-kit is now available at:

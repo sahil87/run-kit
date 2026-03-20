@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <title>RunKit</title>
     <meta name="description" content="Web-based agent orchestration dashboard" />
+    <meta name="theme-color" content="#0f1117" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <script>
       // Blocking theme initialization — runs before first paint to prevent flicker.
       // Reads user preference from localStorage and resolves to "dark" or "light".
@@ -17,6 +21,8 @@
           resolved = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         }
         document.documentElement.dataset.theme = resolved;
+        var tc = document.querySelector('meta[name="theme-color"]');
+        if (tc) tc.setAttribute('content', resolved === 'dark' ? '#0f1117' : '#f8f9fb');
       })();
     </script>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />

@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-20T06:53:28Z"}
+{"args":"Make the run-kit web app PWA compliant for homescreen install, standalone display, cached loads","cmd":"fab-new","event":"command","ts":"2026-03-20T06:53:28Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-20T06:55:01Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-20T06:55:06Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-20T06:58:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-20T06:59:04Z"}
+{"delta":"+0.9","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-20T07:00:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-20T07:00:55Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-20T07:01:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-20T07:01:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-20T07:01:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-20T07:05:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-20T07:09:08Z"}
+{"event":"review","result":"passed","ts":"2026-03-20T07:09:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-20T07:10:58Z"}

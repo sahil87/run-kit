@@ -36,6 +36,8 @@ function readPreference(): ThemePreference {
 
 function applyTheme(resolved: ResolvedTheme): void {
   document.documentElement.dataset.theme = resolved;
+  const tc = document.querySelector('meta[name="theme-color"]');
+  if (tc) tc.setAttribute("content", resolved === "dark" ? "#0f1117" : "#f8f9fb");
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {

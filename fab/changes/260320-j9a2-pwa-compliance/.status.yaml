@@ -1,0 +1,42 @@
+id: j9a2
+name: 260320-j9a2-pwa-compliance
+created: 2026-03-20T06:53:28Z
+created_by: arbaaz-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 18
+    total: 18
+confidence:
+    certain: 11
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 90.9
+        reversibility: 88.2
+        competence: 89.5
+        disambiguation: 91.4
+stage_metrics:
+    intake: {started_at: "2026-03-20T06:53:28Z", driver: fab-new, iterations: 1, completed_at: "2026-03-20T07:00:55Z"}
+    spec: {started_at: "2026-03-20T07:00:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-20T07:01:43Z"}
+    tasks: {started_at: "2026-03-20T07:01:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-20T07:01:43Z"}
+    apply: {started_at: "2026-03-20T07:01:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-20T07:05:53Z"}
+    review: {started_at: "2026-03-20T07:05:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-20T07:09:08Z"}
+    hydrate: {started_at: "2026-03-20T07:09:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-20T07:10:58Z"}
+    ship: {started_at: "2026-03-20T07:10:58Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-20T07:10:58Z

@@ -18,6 +18,19 @@ var DefaultConfigPath string
 // configPath holds the resolved tmux config file path.
 var configPath string
 
+// CleanEnv returns the current environment with the TMUX variable removed.
+// This prevents tmux commands from inheriting the parent server context
+// when the daemon runs inside a tmux pane (e.g. rk-daemon).
+func CleanEnv() []string {
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "TMUX=") {
+			env = append(env, e)
+		}
+	}
+	return env
+}
+
 func init() {
 	home, err := os.UserHomeDir()
 	if err == nil {
@@ -118,6 +131,7 @@ type WindowInfo struct {
 func tmuxExecServer(ctx context.Context, server string, args ...string) ([]string, error) {
 	full := append(serverArgs(server), args...)
 	cmd := exec.CommandContext(ctx, "tmux", full...)
+	cmd.Env = CleanEnv()
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -142,6 +156,7 @@ func tmuxExecServer(ctx context.Context, server string, args ...string) ([]strin
 func tmuxExecRawServer(ctx context.Context, server string, args ...string) (string, error) {
 	full := append(serverArgs(server), args...)
 	cmd := exec.CommandContext(ctx, "tmux", full...)
+	cmd.Env = CleanEnv()
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -418,6 +433,7 @@ func ListServers() ([]string, error) {
 	for _, name := range candidates {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		cmd := exec.CommandContext(ctx, "tmux", "-L", name, "list-sessions")
+		cmd.Env = CleanEnv()
 		err := cmd.Run()
 		cancel()
 		if err == nil {

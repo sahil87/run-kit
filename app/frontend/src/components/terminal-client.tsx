@@ -341,6 +341,7 @@ export function TerminalClient({
         className={`flex-1 min-h-0 overflow-hidden touch-none transition-opacity ${
           composeOpen ? "opacity-50" : ""
         } ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
+        onContextMenu={(e) => e.preventDefault()}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}

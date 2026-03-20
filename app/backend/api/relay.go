@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -125,7 +124,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 
 	attachArgs = append(attachArgs, "attach-session", "-t", session)
 	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
-	cmd.Env = ensureTERM(os.Environ())
+	cmd.Env = ensureTERM(tmux.CleanEnv())
 
 	ptmx, err := pty.StartWithSize(cmd, &initialSize)
 	if err != nil {

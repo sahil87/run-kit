@@ -112,7 +112,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
           aria-activedescendant={activeDescendant}
           role="combobox"
           aria-expanded="true"
-          className="w-full bg-transparent text-text-primary text-sm p-3 border-b border-border outline-none placeholder:text-text-secondary"
+          className="w-full bg-transparent text-text-primary text-[11px] p-2.5 border-b border-border outline-none placeholder:text-text-secondary"
         />
         <div
           id={listId}
@@ -132,7 +132,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
                 role="option"
                 aria-selected={i === selectedIndex}
                 onClick={() => handleSelect(action)}
-                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between cursor-pointer ${
+                className={`w-full text-left px-2.5 py-1.5 text-[11px] flex items-center justify-between cursor-pointer ${
                   i === selectedIndex
                     ? "bg-bg-card text-text-primary"
                     : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"

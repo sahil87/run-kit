@@ -32,10 +32,14 @@ jobs:
       - name: Build frontend
         run: cd app/frontend && pnpm build
 
-      - name: Copy frontend dist to backend
+      - name: Copy frontend dist to backend embed directory
         run: |
-          rm -rf app/backend/frontend/dist
-          cp -r app/frontend/dist app/backend/frontend/dist
+          rm -rf app/backend/build/frontend
+          cp -r app/frontend/dist app/backend/build/frontend
+          touch app/backend/build/frontend/.gitkeep
+
+      - name: Copy tmux.conf to backend embed directory
+        run: cp config/tmux.conf app/backend/internal/tmux/tmux.conf
 
       - name: Read version
         id: version

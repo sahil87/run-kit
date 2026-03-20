@@ -384,7 +384,8 @@ func CapturePane(paneID string, lines int, server string) (string, error) {
 }
 
 // ListServers discovers available tmux servers by scanning the tmux socket directory
-// at /tmp/tmux-{uid}/. Returns sorted server names.
+// at /tmp/tmux-{uid}/. Probes each socket to confirm the server is alive.
+// Returns sorted server names.
 func ListServers() ([]string, error) {
 	uid := os.Getuid()
 	socketDir := fmt.Sprintf("/tmp/tmux-%d", uid)
@@ -395,7 +396,7 @@ func ListServers() ([]string, error) {
 		return nil, nil
 	}
 
-	var servers []string
+	var candidates []string
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -407,17 +408,33 @@ func ListServers() ([]string, error) {
 		if info.Mode()&os.ModeSocket == 0 {
 			continue
 		}
-		servers = append(servers, e.Name())
+		candidates = append(candidates, e.Name())
+	}
+
+	// Probe each socket — only include servers that are actually running.
+	var servers []string
+	for _, name := range candidates {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		cmd := exec.CommandContext(ctx, "tmux", "-L", name, "list-sessions")
+		err := cmd.Run()
+		cancel()
+		if err == nil {
+			servers = append(servers, name)
+		}
 	}
 	sort.Strings(servers)
 	return servers, nil
 }
 
 // KillServer kills a tmux server by name.
+// Returns nil if the server is already gone (no socket).
 func KillServer(server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	_, err := tmuxExecServer(ctx, server, "kill-server")
+	if err != nil && strings.Contains(err.Error(), "No such file or directory") {
+		return nil
+	}
 	return err
 }

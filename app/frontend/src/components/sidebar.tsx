@@ -15,6 +15,7 @@ type SidebarProps = {
   servers: string[];
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
+  onRefreshServers: () => void;
 };
 
 export function Sidebar({
@@ -28,6 +29,7 @@ export function Sidebar({
   servers,
   onSwitchServer,
   onCreateServer,
+  onRefreshServers,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
@@ -287,7 +289,7 @@ export function Sidebar({
         <div className="flex items-center gap-1.5 relative">
           <span className="text-xs text-text-secondary">tmux server:</span>
           <button
-            onClick={() => setServerDropdownOpen((v) => !v)}
+            onClick={() => setServerDropdownOpen((v) => { if (!v) onRefreshServers(); return !v; })}
             className="text-xs text-text-primary font-medium hover:text-accent transition-colors coarse:min-h-[44px] flex items-center"
             aria-haspopup="listbox"
             aria-expanded={serverDropdownOpen}

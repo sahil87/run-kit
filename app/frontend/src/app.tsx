@@ -434,6 +434,7 @@ function AppShell() {
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
+                onRefreshServers={refreshServers}
               />
             </div>
             {/* Drag handle */}
@@ -507,6 +508,7 @@ function AppShell() {
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
+                onRefreshServers={refreshServers}
               />
             </div>
           </div>

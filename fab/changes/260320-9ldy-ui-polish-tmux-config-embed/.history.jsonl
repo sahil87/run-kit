@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-20T10:21:18Z"}
+{"args":"UI polish and backend fixes: breadcrumb alignment, embed restructure, tmux config auto-create, server dropdown, hostname display, bar alignment, kill server fix","cmd":"fab-new","event":"command","ts":"2026-03-20T10:21:18Z"}
+{"delta":"+4.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-03-20T10:22:19Z"}
+{"delta":"+0.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-03-20T10:22:26Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-03-20T10:22:35Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-20T10:23:34Z"}

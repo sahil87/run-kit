@@ -71,6 +71,7 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
       servers={["runkit"]}
       onSwitchServer={vi.fn()}
       onCreateServer={vi.fn()}
+      onRefreshServers={vi.fn()}
       {...overrides}
     />,
   );

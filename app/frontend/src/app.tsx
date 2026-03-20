@@ -71,8 +71,11 @@ function AppShell() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [hostname, setHostname] = useState("");
 
-  // Fetch hostname once on mount
+  // Fetch hostname once on mount (guarded for StrictMode double-invoke)
+  const didFetchHostnameRef = useRef(false);
   useEffect(() => {
+    if (didFetchHostnameRef.current) return;
+    didFetchHostnameRef.current = true;
     getHealth()
       .then((data) => setHostname(data.hostname ?? ""))
       .catch(() => {});

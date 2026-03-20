@@ -16,13 +16,24 @@ doctor:
 setup:
     cd app/frontend && pnpm install
     [ -f .env.local ] || cp .env .env.local
-    [ -f Caddyfile ] || cp Caddyfile.example Caddyfile
     cd app/frontend && pnpm exec playwright install --with-deps chromium
 
 # Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
 # Backend runs at Frontend port + 1. Default: 3000
 dev *args:
     scripts/dev.sh {{args}}
+
+# Run any run-kit CLI command from source (just dev-run-kit serve -d)
+dev-run-kit *args:
+    cd app/backend && RK_PORT=$(( ${RK_PORT:-3000} + 1 )) go run ./cmd/run-kit {{args}}
+
+# Start only the Go backend with live-reload (port RK_PORT+1, default 3001)
+dev-backend:
+    cd app/backend && LOG_LEVEL=debug RK_PORT=$(( ${RK_PORT:-3000} + 1 )) air
+
+# Start only the Vite dev server (port RK_PORT, default 3000)
+dev-frontend:
+    cd app/frontend && pnpm dev --port "${RK_PORT:-3000}"
 
 # ─── Prod & Daemon mode ────────────────────────────────────────────────────
 
@@ -39,16 +50,17 @@ prod:
     just build
     ./dist/run-kit
 
-# Run supervisor in dedicated tmux server (rk-sup)
+# Start run-kit daemon in background tmux session
 up:
-    tmux -L rk-sup has-session -t sup 2>/dev/null && tmux -L rk-sup new-window -t sup './scripts/supervisor.sh' || tmux -L rk-sup new-session -d -s sup './scripts/supervisor.sh'
+    run-kit serve -d
 
-# Stop supervisor
+# Stop run-kit daemon
 down:
-    tmux -L rk-sup kill-server 2>/dev/null || true
+    run-kit serve --stop
 
+# Restart run-kit daemon
 restart:
-    touch .restart-requested
+    run-kit serve --restart
 
 # ─── Test ────────────────────────────────────────────────────
 

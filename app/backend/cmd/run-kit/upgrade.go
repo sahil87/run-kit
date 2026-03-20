@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"run-kit/internal/daemon"
+
 	"github.com/spf13/cobra"
 )
 
@@ -82,6 +84,16 @@ var updateCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Updated to v%s.\n", latest)
+
+		// Restart daemon so it picks up the new binary.
+		// Idempotent: if no daemon is running, this starts one.
+		fmt.Println("Restarting run-kit daemon...")
+		if err := daemon.Restart(); err != nil {
+			return fmt.Errorf("restarting daemon after upgrade: %w", err)
+		}
+		fmt.Printf("run-kit daemon started (%s/%s/%s)\n",
+			daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
+
 		return nil
 	},
 }

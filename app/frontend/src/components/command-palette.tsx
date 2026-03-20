@@ -68,6 +68,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
       e.preventDefault();
       setSelectedIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter" && filtered[selectedIndex]) {
+      e.preventDefault();
       handleSelect(filtered[selectedIndex]);
     }
   }

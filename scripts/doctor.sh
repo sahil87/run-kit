@@ -60,7 +60,6 @@ fi
 echo ""
 echo "Checking config..."
 if [ -f .env.local ]; then ok ".env.local exists"; else warn ".env.local missing — run: just setup"; fi
-if [ -f Caddyfile ]; then ok "Caddyfile exists"; else warn "Caddyfile missing — run: just setup"; fi
 
 echo ""
 echo "────────────────────────────"

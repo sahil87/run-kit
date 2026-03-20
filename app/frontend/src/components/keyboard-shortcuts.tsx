@@ -7,15 +7,57 @@ type KeyboardShortcutsProps = {
 };
 
 /** Format a tmux key name for display (e.g., "S-F3" → "Shift+F3"). */
-function formatKey(key: string, table: string): string {
-  let display = key
-    .replace(/^S-/, "Shift+")
-    .replace(/^C-/, "Ctrl+");
+function formatKey(key: string): string {
+  return key.replace(/^S-/, "Shift+").replace(/^C-/, "Ctrl+");
+}
 
-  if (table === "prefix") {
-    return `Ctrl+B, ${display}`;
+type GroupedBinding = {
+  label: string;
+  keys: string[];
+};
+
+/** Group bindings by label, merge keys, sort alphabetically. */
+function groupBindings(
+  bindings: Keybinding[],
+  table: string,
+  prefix?: string,
+): GroupedBinding[] {
+  const map = new Map<string, string[]>();
+
+  for (const b of bindings) {
+    if (b.table !== table) continue;
+    const display = prefix
+      ? `${prefix}${formatKey(b.key)}`
+      : formatKey(b.key);
+    const existing = map.get(b.label);
+    if (existing) {
+      if (!existing.includes(display)) existing.push(display);
+    } else {
+      map.set(b.label, [display]);
+    }
   }
-  return display;
+
+  return Array.from(map, ([label, keys]) => ({ label, keys: keys.sort() })).sort(
+    (a, b) => a.label.localeCompare(b.label),
+  );
+}
+
+function ShortcutRow({ label, keys }: GroupedBinding) {
+  return (
+    <div className="flex items-center justify-between py-1 gap-3">
+      <span className="text-sm text-text-primary">{label}</span>
+      <span className="flex flex-wrap gap-1 shrink-0">
+        {keys.map((k) => (
+          <kbd
+            key={k}
+            className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border"
+          >
+            {k}
+          </kbd>
+        ))}
+      </span>
+    </div>
+  );
 }
 
 export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
@@ -27,9 +69,10 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
       .catch(() => setBindings([]));
   }, []);
 
-  const appBindings = [
-    { key: "⌘K", label: "Command palette" },
-  ];
+  const rootBindings = bindings ? groupBindings(bindings, "root") : [];
+  const prefixBindings = bindings
+    ? groupBindings(bindings, "prefix", "Ctrl+B, ")
+    : [];
 
   return (
     <Dialog title="Keyboard Shortcuts" onClose={onClose}>
@@ -38,14 +81,7 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
         <div>
           <h3 className="text-xs text-text-secondary font-medium mb-1">App</h3>
           <div className="space-y-1">
-            {appBindings.map((b) => (
-              <div key={b.key} className="flex items-center justify-between py-1">
-                <span className="text-sm text-text-primary">{b.label}</span>
-                <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
-                  {b.key}
-                </kbd>
-              </div>
-            ))}
+            <ShortcutRow label="Command palette" keys={["⌘K"]} />
           </div>
         </div>
 
@@ -53,43 +89,33 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
         {bindings === null ? (
           <div className="text-xs text-text-secondary py-2">Loading...</div>
         ) : bindings.length === 0 ? (
-          <div className="text-xs text-text-secondary py-2">No tmux server running</div>
+          <div className="text-xs text-text-secondary py-2">
+            No tmux server running
+          </div>
         ) : (
           <>
-            {/* Root bindings (no prefix needed) */}
-            {bindings.some((b) => b.table === "root") && (
+            {rootBindings.length > 0 && (
               <div>
-                <h3 className="text-xs text-text-secondary font-medium mb-1">tmux</h3>
+                <h3 className="text-xs text-text-secondary font-medium mb-1">
+                  tmux
+                </h3>
                 <div className="space-y-1">
-                  {bindings
-                    .filter((b) => b.table === "root")
-                    .map((b) => (
-                      <div key={`${b.table}-${b.key}`} className="flex items-center justify-between py-1">
-                        <span className="text-sm text-text-primary">{b.label}</span>
-                        <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
-                          {formatKey(b.key, b.table)}
-                        </kbd>
-                      </div>
-                    ))}
+                  {rootBindings.map((b) => (
+                    <ShortcutRow key={b.label} {...b} />
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* Prefix bindings */}
-            {bindings.some((b) => b.table === "prefix") && (
+            {prefixBindings.length > 0 && (
               <div>
-                <h3 className="text-xs text-text-secondary font-medium mb-1">tmux (prefix)</h3>
+                <h3 className="text-xs text-text-secondary font-medium mb-1">
+                  tmux (prefix)
+                </h3>
                 <div className="space-y-1">
-                  {bindings
-                    .filter((b) => b.table === "prefix")
-                    .map((b) => (
-                      <div key={`${b.table}-${b.key}`} className="flex items-center justify-between py-1">
-                        <span className="text-sm text-text-primary">{b.label}</span>
-                        <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
-                          {formatKey(b.key, b.table)}
-                        </kbd>
-                      </div>
-                    ))}
+                  {prefixBindings.map((b) => (
+                    <ShortcutRow key={b.label} {...b} />
+                  ))}
                 </div>
               </div>
             )}
@@ -100,7 +126,7 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
       <div className="mt-3 flex justify-end">
         <button
           onClick={onClose}
-          className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5"
+          className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded border border-border"
         >
           Close
         </button>

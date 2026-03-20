@@ -137,7 +137,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-Caddyfile
 keys/
 
 fab/.kit-sync-version

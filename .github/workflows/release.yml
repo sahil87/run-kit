@@ -90,20 +90,24 @@ jobs:
 
             on_macos do
               if Hardware::CPU.arm?
-                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-darwin-arm64.tar.gz"
+                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-darwin-arm64.tar.gz",
+                    using: GitHubPrivateRepositoryReleaseDownloadStrategy
                 sha256 "${sha_darwin_arm64}"
               else
-                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-darwin-amd64.tar.gz"
+                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-darwin-amd64.tar.gz",
+                    using: GitHubPrivateRepositoryReleaseDownloadStrategy
                 sha256 "${sha_darwin_amd64}"
               end
             end
 
             on_linux do
               if Hardware::CPU.arm?
-                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-linux-arm64.tar.gz"
+                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-linux-arm64.tar.gz",
+                    using: GitHubPrivateRepositoryReleaseDownloadStrategy
                 sha256 "${sha_linux_arm64}"
               else
-                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-linux-amd64.tar.gz"
+                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-linux-amd64.tar.gz",
+                    using: GitHubPrivateRepositoryReleaseDownloadStrategy
                 sha256 "${sha_linux_amd64}"
               end
             end

@@ -18,7 +18,7 @@ VERSION="$(cat "$REPO_ROOT/VERSION")"
 echo "==> Building run-kit v${VERSION}..."
 
 cd "$REPO_ROOT/app/backend"
-mkdir -p "$REPO_ROOT/bin"
-CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o "$REPO_ROOT/bin/run-kit" ./cmd/run-kit
+mkdir -p "$REPO_ROOT/dist"
+CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o "$REPO_ROOT/dist/run-kit" ./cmd/run-kit
 
-echo "==> Built bin/run-kit (v${VERSION})"
+echo "==> Built dist/run-kit (v${VERSION})"

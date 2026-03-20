@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.." || exit 1
 
 POLL=5
 SIGNAL=".restart-requested"
-BINARY="bin/run-kit"
+BINARY="dist/run-kit"
 pid=""
 inode=""
 

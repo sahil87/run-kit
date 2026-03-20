@@ -5,4 +5,4 @@
 export BACKEND_PORT="${RK_PORT:-3000}"
 export BACKEND_HOST="${RK_HOST:-127.0.0.1}"
 
-exec ./bin/run-kit
+exec ./dist/run-kit

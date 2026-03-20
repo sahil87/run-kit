@@ -186,6 +186,22 @@ Orchestrator skills (`/fab-ff`, `/fab-fff`) run multi-stage pipelines that invok
 3. The change ID for resolution
 4. Any mode prefix (`[AUTO-MODE]`)
 5. The expected return format
+6. The standard subagent context files (see below)
+
+### Standard Subagent Context
+
+Every subagent prompt MUST instruct the subagent to read the following project files **before** executing its task. This ensures subagents operate with full awareness of project principles, constraints, and conventions — regardless of nesting depth.
+
+**Required** (subagent reports error if missing):
+- `fab/project/config.yaml`
+- `fab/project/constitution.md`
+
+**Optional** (skip gracefully if missing):
+- `fab/project/context.md`
+- `fab/project/code-quality.md`
+- `fab/project/code-review.md`
+
+**Nested dispatch**: When a subagent dispatches its own sub-subagent (e.g., review sub-agent within `/fab-continue`), the inner prompt MUST also include the standard subagent context instruction. The same 5 files are loaded at every nesting level.
 
 `general-purpose` subagents have full tool access (Read, Edit, Write, Bash, Agent) and can execute any skill behavior including file modifications and nested subagent dispatch.
 

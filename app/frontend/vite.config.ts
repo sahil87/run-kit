@@ -2,10 +2,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 
-const backendPort = process.env.BACKEND_PORT ?? "3001";
-const host = process.env.BACKEND_HOST ?? "127.0.0.1";
-const backendTarget = `http://${host}:${backendPort}`;
-
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -14,15 +10,15 @@ export default defineConfig({
     },
   },
   server: {
-    host,
+    host: process.env.RK_HOST ?? "127.0.0.1",
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: backendTarget,
+        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
         changeOrigin: true,
       },
       "/relay": {
-        target: backendTarget.replace("http", "ws"),
+        target: `ws://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
         ws: true,
       },
     },

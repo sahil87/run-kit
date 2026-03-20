@@ -41,8 +41,8 @@ func TestDefaults(t *testing.T) {
 
 func TestLoad(t *testing.T) {
 	t.Run("reads port and host from env", func(t *testing.T) {
-		t.Setenv("BACKEND_PORT", "8080")
-		t.Setenv("BACKEND_HOST", "0.0.0.0")
+		t.Setenv("RK_PORT", "8080")
+		t.Setenv("RK_HOST", "0.0.0.0")
 
 		cfg := Load()
 		if cfg.Port != 8080 {
@@ -54,7 +54,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("ignores invalid port", func(t *testing.T) {
-		t.Setenv("BACKEND_PORT", "notanumber")
+		t.Setenv("RK_PORT", "notanumber")
 
 		cfg := Load()
 		if cfg.Port != defaults.Port {
@@ -63,7 +63,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("ignores out-of-range port", func(t *testing.T) {
-		t.Setenv("BACKEND_PORT", "99999")
+		t.Setenv("RK_PORT", "99999")
 
 		cfg := Load()
 		if cfg.Port != defaults.Port {
@@ -72,8 +72,8 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("falls back to defaults when unset", func(t *testing.T) {
-		os.Unsetenv("BACKEND_PORT")
-		os.Unsetenv("BACKEND_HOST")
+		os.Unsetenv("RK_PORT")
+		os.Unsetenv("RK_HOST")
 
 		cfg := Load()
 		if cfg.Port != defaults.Port {

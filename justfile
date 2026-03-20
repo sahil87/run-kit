@@ -14,9 +14,10 @@ doctor:
 
 # Copy default config files for local development
 setup:
+    pnpm install
     [ -f .env.local ] || cp .env .env.local
     [ -f Caddyfile ] || cp Caddyfile.example Caddyfile
-    pnpm exec playwright install --with-deps chromium
+    pnpm --filter run-kit-frontend exec playwright install --with-deps chromium
 
 # Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
 # Backend runs at Frontend port + 1. Default: 3000
@@ -25,24 +26,26 @@ dev *args:
 
 # ─── Prod & Daemon mode ────────────────────────────────────────────────────
 
-# Build Go binary + frontend for production
+# Build Go binary + frontend for production (embedded assets + ldflags)
 build:
-    mkdir -p bin
-    cd app/backend && go build -o ../../bin/run-kit ./cmd/run-kit
-    cd app/frontend && pnpm build
+    ./scripts/build.sh
+
+# Tag and push a semver release (patch/minor/major)
+release bump:
+    ./scripts/release.sh {{bump}}
 
 # Build and run production binary
 prod:
     just build
-    ./scripts/prod.sh
+    ./dist/run-kit
 
-# Run supervisor in background tmux session
+# Run supervisor in dedicated tmux server (rk-sup)
 up:
-    tmux has-session -t rk 2>/dev/null && tmux new-window -t rk './scripts/supervisor.sh' || tmux new-session -d -s rk './scripts/supervisor.sh'
+    tmux -L rk-sup has-session -t sup 2>/dev/null && tmux -L rk-sup new-window -t sup './scripts/supervisor.sh' || tmux -L rk-sup new-session -d -s sup './scripts/supervisor.sh'
 
 # Stop supervisor
 down:
-    tmux kill-session -t rk 2>/dev/null || true
+    tmux -L rk-sup kill-server 2>/dev/null || true
 
 restart:
     touch .restart-requested

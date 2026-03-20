@@ -19,18 +19,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 export LOG_LEVEL=debug
-
-# Derive process-level ports from RK_PORT (the "open in browser" port).
-# Dev mode: frontend gets RK_PORT, backend gets RK_PORT+1.
-export FRONTEND_PORT="${RK_PORT:-3000}"
-export BACKEND_PORT=$(( FRONTEND_PORT + 1 ))
-export BACKEND_HOST="${RK_HOST:-127.0.0.1}"
+export RK_PORT="${RK_PORT:-3000}"
+export RK_HOST="${RK_HOST:-0.0.0.0}"
 
 # Ensure cwd is repo root (supports invocation from any directory)
 cd "$(dirname "$0")/.." || exit 1
 
+# Dev mode: Vite serves on RK_PORT, Go backend on RK_PORT+1.
 command -v air &>/dev/null || { echo "error: air not found (go install github.com/air-verse/air@latest)"; exit 1; }
-(cd app/backend && air) &
+(cd app/backend && RK_PORT=$(( RK_PORT + 1 )) air) &
 
-(cd app/frontend && pnpm dev --port "$FRONTEND_PORT") &
+(cd app/frontend && pnpm dev --port "$RK_PORT") &
 wait

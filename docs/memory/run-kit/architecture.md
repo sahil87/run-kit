@@ -5,13 +5,13 @@
 run-kit is a web-based agent orchestration dashboard. Two independent processes in production, three in development:
 
 1. **Bash supervisor** (`supervisor.sh`) — builds Go binary + frontend, manages the server as a single deployment unit
-2. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port
+2. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port. Cobra CLI with subcommands: `serve` (default), `version`, `upgrade`, `doctor`, `status`
 
 In development, `just dev` runs two concurrent processes:
 - Vite dev server (`:RK_PORT`, default 3000) — HMR, proxies `/api/*` and `/relay/*` to Go backend
 - Go backend (`:RK_PORT+1`, default 3001) — API, WebSocket relay, SPA static serving
 
-Configuration via env vars: `.env` (committed) defines `RK_PORT`, `RK_HOST`, and `RK_TMUX_CONF`, `.env.local` (gitignored) for overrides. Scripts (`dev.sh`, `prod.sh`) translate user-facing `RK_*` into process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Go and Vite read only `BACKEND_*` vars. `dev.sh` accepts `--port` for ad-hoc overrides. `RK_TMUX_CONF` is read by `internal/tmux` at init and resolved to an absolute path (via `filepath.Abs`) so the config works regardless of CWD. All consumers use `tmux.ConfigPath()` getter — no direct env var reads elsewhere.
+Configuration via env vars: `.env` (committed) defines `RK_PORT` and `RK_HOST`, `.env.local` (gitignored) for overrides. Go backend and Vite both read `RK_PORT`/`RK_HOST` directly — no intermediate `BACKEND_*` vars. In dev mode, `dev.sh` is the translation layer: it passes `RK_PORT+1` to the Go backend and `RK_PORT` to Vite. `dev.sh` accepts `--port` for ad-hoc overrides. Tmux config defaults to `~/.run-kit/tmux.conf` (scaffolded by `run-kit init-conf`), overridable via `RK_TMUX_CONF` env var. The config is embedded in the binary via `go:embed` and written to disk by `init-conf`. All consumers use `tmux.ConfigPath()` getter — no direct env var reads elsewhere.
 
 run-kit sessions live on a **dedicated tmux server** named `runkit` (via `tmux -L runkit`). Sessions on the user's default tmux server are also discovered and displayed read-only. The tmux server is an external dependency — never started or stopped by run-kit.
 
@@ -22,7 +22,14 @@ pnpm workspaces monorepo:
 ```
 app/
   backend/            # Go module — backend
-    cmd/run-kit/      # Entry point (main.go)
+    cmd/run-kit/      # Cobra CLI entry point
+      main.go         # Calls execute()
+      root.go         # Root command, version var, subcommand registration
+      serve.go        # serve subcommand — HTTP server (default when no args)
+      version.go      # version subcommand — prints version string
+      upgrade.go      # upgrade subcommand — Homebrew or local upgrade
+      doctor.go       # doctor subcommand — runtime dependency checks
+      status.go       # status subcommand — tmux session summary
     internal/         # validate, config, tmux, sessions
     api/              # HTTP handlers — one file per resource domain
       router.go       # chi router, CORS/logger/recovery middleware, route registration
@@ -34,15 +41,27 @@ app/
       sse.go          # GET /api/sessions/stream (hub singleton)
       relay.go        # WS /relay/:session/:window
       tmux_config.go  # POST /api/tmux/reload-config
-      spa.go          # SPA static serving from app/frontend/dist/
+      spa.go          # SPA static serving — dual-mode (embedded FS or filesystem)
+    frontend/         # Embedded frontend assets
+      embed.go        # //go:embed all:dist → embed.FS
+      dist/           # Build output copied here at build time (.gitkeep for dev)
     go.mod, go.sum
   frontend/           # Vite + React SPA — single-view UI
 config/
   tmux.conf           # tmux config for the runkit server (status bar, keybindings)
+VERSION             # Semver source of truth (e.g., 0.1.0) — injected via ldflags
+scripts/
+  build.sh          # Production build: frontend → copy dist → copy tmux.conf → go build with ldflags
+  release.sh        # Bump VERSION, commit, tag v{version}, push (triggers CI)
+.github/
+  workflows/
+    release.yml     # CI: v* tag → cross-compile 4 targets → GitHub Release with tarballs
+Formula/
+  run-kit.rb        # Reference Homebrew formula template for wvrdz/homebrew-tap
 fab/                # Fab-kit project config + changes
 docs/               # Memory files
 supervisor.sh       # Production process manager
-justfile            # Task runner (dev, verify, test commands)
+justfile            # Task runner (dev, verify, test, build, release commands)
 Caddyfile.example   # HTTPS reverse proxy (TLS termination only)
 pnpm-workspace.yaml # ["app/frontend"] — Go is independent
 ```
@@ -59,10 +78,10 @@ Packages in `app/backend/internal/`:
 
 | Package | Responsibility |
 |---------|---------------|
-| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). Commands target the dedicated `runkit` server via `-L runkit` prefix (built by `runkitPrefix()`); optional `-f` config path from `RK_TMUX_CONF` env var, resolved to absolute path at init. `ConfigPath()` getter exposes the resolved path. `ListSessions()` queries both the runkit and default tmux servers, returning `SessionInfo` structs with a `Server` field (`"runkit"` or `"default"`). `ListWindows(session, server)` accepts a server parameter to route the query. `SelectWindowOnServer(session, index, server)` selects a window on the specified server. `ReloadConfig(server)` hot-reloads the tmux config via `source-file` on the specified server. `CreateSession()` creates sessions on the runkit server (plain `tmux new-session`, no byobu). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields, plus `AgentState`/`AgentIdleDuration` (populated by pane-map enrichment in sessions package). Both `tmuxExec` and `tmuxExecDefault` capture stderr in error messages for diagnostics |
+| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). Commands target the dedicated `runkit` server via `-L runkit` prefix (built by `runkitPrefix()`); config path defaults to `~/.run-kit/tmux.conf`, overridable via `RK_TMUX_CONF` env var, resolved to absolute path at init. `ConfigPath()` getter exposes the resolved path. `DefaultConfigBytes()` returns the embedded `config/tmux.conf` content (via `go:embed`). `ListSessions()` queries both the runkit and default tmux servers, returning `SessionInfo` structs with a `Server` field (`"runkit"` or `"default"`). `ListWindows(session, server)` accepts a server parameter to route the query. `SelectWindowOnServer(session, index, server)` selects a window on the specified server. `ReloadConfig(server)` hot-reloads the tmux config via `source-file` on the specified server. `CreateSession()` creates sessions on the runkit server (plain `tmux new-session`, no byobu). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields, plus `AgentState`/`AgentIdleDuration` (populated by pane-map enrichment in sessions package). Both `tmuxExec` and `tmuxExecDefault` capture stderr in error messages for diagnostics |
 | `internal/sessions` | Fetches windows for all sessions in parallel (passing each session's `Server` field to `ListWindows`), then enriches with fab state via a single `fab-go pane-map --json --all-sessions` subprocess call. `ProjectSession` struct includes `Server` field (`"runkit"` or `"default"`) propagated from `SessionInfo`. Per-window enrichment model: pane-map returns per-pane fab state, joined to windows by `session:windowIndex` key. `paneMapEntry` struct uses `*string` for nullable JSON fields (change, stage, agent_state, agent_idle_duration). `fetchPaneMap(repoRoot)` runs `fab-go` with 10s timeout. Graceful degradation: if pane-map fails, all windows get empty fab fields |
 | `internal/validate` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
-| `internal/config` | Server config (port, host) — reads `BACKEND_PORT` and `BACKEND_HOST` env vars with defaults (3000, 127.0.0.1) |
+| `internal/config` | Server config (port, host) — reads `RK_PORT` and `RK_HOST` env vars with defaults (3000, 127.0.0.1) |
 
 ### External Go Dependencies
 
@@ -72,6 +91,7 @@ Packages in `app/backend/internal/`:
 | `github.com/go-chi/cors` | CORS middleware (permissive by default for multi-client API) |
 | `github.com/gorilla/websocket` | WebSocket handling for terminal relay |
 | `github.com/creack/pty` | PTY allocation (replaces node-pty, no native module compilation) |
+| `github.com/spf13/cobra` | CLI framework — subcommand management (serve, version, upgrade, doctor, status) |
 | `gopkg.in/yaml.v3` | YAML parsing (legacy dependency — no longer imported after `internal/fab` removal, candidate for `go mod tidy`) |
 
 ## API Layer
@@ -128,17 +148,20 @@ Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, ma
 
 ## Supervisor
 
-Thin bash script (~30 lines). Delegates build to `just build` and run to `scripts/prod.sh`. Polling loop checks for `.restart-requested` file.
+Thin bash script (~30 lines). Delegates build to `just build` and runs `dist/run-kit` directly. Polling loop checks for `.restart-requested` file.
 
-On signal detection: kill server → rebuild via `just build` → restart via `prod.sh`.
+On signal detection: kill server → rebuild via `just build` → restart binary.
 Signal trapping: SIGINT/SIGTERM → kill server → clean exit.
 Auto-restart: detects if server process died and restarts automatically.
 
 ## SPA Static Serving
 
-The Go server serves static files from the built SPA directory (`app/frontend/dist/`). Any request not matching `/api/*` or `/relay/*` serves `index.html` for client-side routing (SPA fallback). Requests matching actual static file paths serve the file directly. Path traversal is prevented (resolved path must stay within SPA directory). Implementation in `app/backend/api/spa.go`.
+Dual-mode SPA serving in `app/backend/api/spa.go`. `hasEmbeddedAssets()` checks if the `embed.FS` contains real build output (more than `.gitkeep`):
 
-In development, Vite handles SPA fallback natively. In production, Go's catch-all handles it. Caddy is optional — used only for TLS termination, not routing.
+- **Production** (`mountEmbeddedSPA`): serves from `embed.FS` via `fs.Sub(frontend.Dist, "dist")` + `http.FS`. SPA fallback rewrites to `index.html`.
+- **Development** (`mountFilesystemSPA`): serves from `app/frontend/dist/` on the local filesystem. Path traversal prevented (resolved path must stay within SPA directory).
+
+Both modes: any request not matching `/api/*` or `/relay/*` serves `index.html` for client-side routing. In development, Vite handles SPA fallback natively. Caddy is optional — used only for TLS termination, not routing.
 
 ## Chrome Architecture
 
@@ -173,6 +196,65 @@ No `max-w-4xl` constraint — all zones span full width. Terminal fills all avai
 
 Single-view model: there are no page transitions or per-page chrome injection. The chrome reads the current selection and renders directly.
 
+## CLI Subcommands (Cobra)
+
+`app/backend/cmd/run-kit/` uses `spf13/cobra` for CLI management. `root.go` declares `var version = "dev"` (overridden by ldflags) and registers all subcommands. `main.go` just calls `execute()`.
+
+| Subcommand | File | Behavior |
+|------------|------|----------|
+| *(none)* | `root.go` | Defaults to `serve` (backwards compat) |
+| `serve` | `serve.go` | Start HTTP server — loads config from env vars, chi router, graceful shutdown via SIGINT/SIGTERM |
+| `version` | `version.go` | Print `run-kit version {version}` — version injected at build time via `-X main.version=...` |
+| `upgrade` | `upgrade.go` | Detect Homebrew install (`os.Executable()` path contains `/Cellar/run-kit/`). If Homebrew: `brew update && brew upgrade run-kit`. Otherwise: print local install instructions. 120s timeout on brew commands |
+| `doctor` | `doctor.go` | Check runtime dependencies only — `exec.LookPath("tmux")`. Exit 1 if any check fails |
+| `status` | `status.go` | List tmux sessions with window counts via `internal/tmux.ListSessions()` + `ListWindows()`. No server required |
+| `init-conf` | `initconf.go` | Scaffold default tmux.conf to `~/.run-kit/tmux.conf` from embedded config. `--force` to overwrite |
+
+## Embedded Frontend Assets
+
+`app/backend/frontend/embed.go` exposes `//go:embed all:dist` as `frontend.Dist` (`embed.FS`). During development, `dist/` contains only `.gitkeep` (empty FS). Production builds copy `app/frontend/dist/` into `app/backend/frontend/dist/` before `go build`.
+
+`api/spa.go` uses dual-mode serving:
+- **Production**: `hasEmbeddedAssets()` detects real build output (more than `.gitkeep`), serves from `embed.FS` via `mountEmbeddedSPA()`
+- **Development**: Falls back to filesystem-based serving from `app/frontend/dist/` via `mountFilesystemSPA()` (Vite dev server handles frontend)
+
+Both modes include SPA fallback (serve `index.html` for non-matching paths) and API/relay route guards.
+
+## Version Management
+
+- **Source of truth**: `VERSION` file at repo root — plain semver string (e.g., `0.1.0`), no `v` prefix
+- **Build injection**: `scripts/build.sh` reads `VERSION` and passes `-X main.version=$(cat VERSION)` via ldflags
+- **Go variable**: `var version = "dev"` in `root.go` — defaults to `"dev"` for local `go build` without ldflags
+- **Used by**: `run-kit version` (display), `run-kit upgrade` (shows current version before brew upgrade)
+
+## Build Pipeline
+
+`scripts/build.sh` encapsulates the full production build (frontend-first for embed):
+
+1. `cd app/frontend && pnpm build` — produces `app/frontend/dist/`
+2. Copy `app/frontend/dist/` → `app/backend/frontend/dist/` (Go embed cannot reference `../` paths)
+3. Read version from `VERSION` file
+4. Copy `config/tmux.conf` → `app/backend/internal/tmux/tmux.conf` (Go embed)
+5. `CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o ../../dist/run-kit ./cmd/run-kit`
+
+Output: `dist/run-kit` — single static binary with embedded frontend assets, tmux config, and baked-in version.
+
+`justfile` recipes: `build` delegates to `scripts/build.sh`, `release` delegates to `scripts/release.sh`.
+
+## Release Flow & CI/CD
+
+**Release script** (`scripts/release.sh`): accepts bump level (`patch`/`minor`/`major`), increments `VERSION` file semver, commits with message `v{version}`, creates git tag `v{version}`, pushes commit + tag. Tag push triggers CI.
+
+**GitHub Actions** (`.github/workflows/release.yml`): triggers on `v*` tag push. Steps: checkout → setup Go (from `go.mod`) → setup Node 20 + pnpm → install frontend deps → build frontend → copy dist to backend → cross-compile 4 targets → create GitHub Release with tarballs.
+
+Cross-compile targets: `darwin/arm64`, `darwin/amd64`, `linux/arm64`, `linux/amd64`. Each target built with `CGO_ENABLED=0` and ldflags. Output: `run-kit-{os}-{arch}.tar.gz` tarballs uploaded to GitHub Release via `softprops/action-gh-release`.
+
+## Homebrew Distribution
+
+**Formula**: `Formula/run-kit.rb` (reference template in-repo) for `wvrdz/homebrew-tap`. Downloads prebuilt binary from GitHub Release for the appropriate platform — zero build dependencies, zero runtime dependencies. Platform detection via `on_macos`/`on_linux` + `Hardware::CPU.arm?`. SHA256 placeholders updated after each release.
+
+Install flow: `brew tap wvrdz/homebrew-tap && brew install run-kit` → downloads single binary → installs to `$(brew --prefix)/bin/run-kit`. No compilation on user's machine.
+
 ## Design Decisions
 
 - **Go backend + Vite SPA over Next.js monolith** — decouples frontend and backend for independent iteration. Go backend is a stable, long-lived API that outlives any individual frontend. Multi-client API support (web, mobile, CLI) without split API surface
@@ -185,7 +267,7 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
 - **Independent panes per browser client** — no cursor fights, agent pane untouched. The relay pty follows tmux window switches natively (runs `tmux -L runkit attach-session`)
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`
-- **Config via env vars (not YAML)** — `.env` committed with defaults, `.env.local` for overrides, loaded via `.envrc` (direnv). Scripts translate `RK_*` → `BACKEND_*`/`FRONTEND_*`. Go reads only `BACKEND_PORT`/`BACKEND_HOST`. No relay port — single port serves everything
+- **Config via env vars (not YAML)** — `.env` committed with defaults (`RK_PORT`, `RK_HOST`), `.env.local` for overrides, loaded via `.envrc` (direnv). Go and Vite read `RK_PORT`/`RK_HOST` directly. `dev.sh` translates `RK_PORT+1` for the backend subprocess. No relay port — single port serves everything
 - **Dedicated tmux server (`-L runkit`)** — run-kit sessions live on a named tmux server `runkit` with its own config (`config/tmux.conf` loaded via `-f`). The default tmux server is also queried for session discovery (read-only display of external sessions). This replaces byobu integration: `CreateSession()` uses plain `tmux new-session` on the runkit server (no byobu dependency). The `runkit` server provides isolation, a custom status bar matching run-kit's dark theme, and byobu-style F-key keybindings (F2/F3/F4). `SessionInfo` and `ProjectSession` structs carry a `Server` field (`"runkit"` or `"default"`) for routing commands and UI differentiation
 - **Multi-server session enumeration** — `ListSessions()` queries both the `runkit` and `default` tmux servers, merging results with server tagging. Session-group filtering applies to both servers. See `docs/memory/run-kit/tmux-sessions.md`
 - **Derived chrome (not slot injection)** — Single-view model means only one chrome state (terminal-focused). Top bar and bottom bar derive content from the current session:window selection. No `setLine2Left`/`setLine2Right`/`setBottomBar` setters. Split React Context preserved for performance (state vs dispatch).
@@ -194,6 +276,11 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 - **Dashboard as inline component in app.tsx (not separate route layout)** — The Dashboard renders in the terminal area via a conditional branch (`sessionName && windowIndex ? <TerminalClient/> : <Dashboard/>`). This reuses the existing chrome skeleton (top bar, sidebar) and avoids duplicating the app shell layout. Rejected: separate route with dedicated layout — would require lifting sidebar/chrome into a shared layout component and restructuring the route tree.
 - **POST-only API client with path-based intent** — Each mutation is a separate function with its own URL (e.g., `killSession(session)` → `POST /api/sessions/:session/kill`). No multiplexed `action` field in request bodies.
 - **Sidebar + drawer pattern on mobile** — Desktop sidebar is drag-resizable (default 220px, min 160, max 400, localStorage persist), collapsible. Mobile (< 768px) uses a left-side drawer overlay triggered by `☰`. Preserves session/window tree layout across breakpoints.
+- **Prebuilt binaries over build-from-source Homebrew formula** — ship cross-compiled binaries via GitHub Release. Zero build dependencies on user's machine (no Go, Node.js, pnpm). Faster install. Rejected: build-from-source formula (like tu) which requires all build tools. (`260317-ukyz-homebrew-deployment`)
+- **`embed.FS` with copy step over restructuring repo** — copy `app/frontend/dist/` into `app/backend/frontend/dist/` at build time because Go's `//go:embed` cannot reference files outside the package directory. Simple build-time operation. Rejected: colocating frontend output with Go source (breaks dev workflow). (`260317-ukyz-homebrew-deployment`)
+- **VERSION file + ldflags over Go constant** — version sourced from `VERSION` file, injected via `-X main.version=...`. Shell scripts can read/write plain text. No code changes for version bumps. Rejected: Go constant (requires code change per release). (`260317-ukyz-homebrew-deployment`)
+- **Cobra over custom CLI parsing** — industry standard, auto-generates help, 5 subcommands is the sweet spot. Rejected: stdlib `flag` (no subcommand support), custom parsing (unnecessary). (`260317-ukyz-homebrew-deployment`)
+- **SPA handler dual-mode (embedded FS vs filesystem)** — `hasEmbeddedAssets()` checks whether `dist/` contains more than `.gitkeep`. Production uses `embed.FS`, dev uses filesystem (Vite handles frontend). Automatic detection, no build tags or env vars needed. (`260317-ukyz-homebrew-deployment`)
 - **Active window sync via `history.replaceState` (not `router.replace()`)** — When byobu switches windows, the terminal relay pty already shows the correct content. The UI syncs breadcrumb, URL, and action targets via SSE polling (2.5s). URL updates use `window.history.replaceState()` which is invisible to the router — no re-render, no terminal reinitialization.
 - **Sticky modifier state via useRef + forceUpdate** — `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders. Ensures `consume()` reads the latest value atomically without stale closure issues.
 - **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.
@@ -211,6 +298,7 @@ Go `testing` package with table-driven tests. Test files co-located with source 
 
 Current Go test coverage (`app/backend/`):
 - **Internal packages**: `internal/validate` (input validation + tilde expansion + filename sanitization), `internal/config` (env var reading, port validation, defaults), `internal/tmux` (listSessions parsing + byobu filtering, listWindows activity computation), `internal/sessions` (pane-map JSON parsing, per-window fab field join, graceful degradation on pane-map failure, nonexistent binary error)
+- **CLI command tests**: `cmd/run-kit/root_test.go` (no-args defaults to serve), `cmd/run-kit/version_test.go` (version output format), `cmd/run-kit/doctor_test.go` (LookPath-based dependency check)
 - **Handler integration tests**: `api/health_test.go`, `api/sessions_test.go`, `api/windows_test.go`, `api/directories_test.go`, `api/upload_test.go`, `api/sse_test.go`, `api/spa_test.go` — all use `httptest.NewRecorder` with the chi router and mock `SessionFetcher`/`TmuxOps` interfaces for tmux isolation. Cover response shapes, validation errors, URL param parsing, content-type enforcement. `api/relay.go` has no unit test (requires live tmux + PTY)
 
 ### Frontend Unit Tests (app/frontend/)
@@ -262,7 +350,7 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-12 | **Cleanup old implementation** — removed legacy backend and frontend directories, `e2e/`, root `playwright.config.ts`. Updated `pnpm-workspace.yaml` to `["app/frontend"]`. Removed legacy test sections and stale path references from memory. | `260312-n11e-cleanup-old-implementation` |
 | 2026-03-12 | **UI chrome layout refinements** — bottom bar moved inside terminal column (width tracks terminal, not viewport). Sidebar drag-resizable (default 220px, min 160, max 400, localStorage persist). Top bar `border-b`, bottom bar `border-t`. Breadcrumbs simplified to `☰ {logo} ❯ session ❯ window`. `[+ Session]` button added to top bar line 2. | `260312-y4ci-ui-chrome-layout-refinements` |
 | 2026-03-13 | **Rich sidebar window status** — Backend: `internal/tmux` adds `PaneCommand` + `ActivityTimestamp` to `WindowInfo` via 6-field tmux format string. New `internal/fab/runtime.go` reads `.fab-runtime.yaml` for agent idle state. `internal/sessions` enriches with runtime state (cached per project root via `sync.Map`). Frontend: sidebar window rows gain activity dot ring, idle duration, info popover. Top bar Line 2 enriched with paneCommand, duration, fab change ID+slug. Shared helpers in `lib/format.ts`. | `260313-txna-rich-sidebar-window-status` |
-| 2026-03-13 | **Env var config** — replaced `run-kit.yaml` with `.env`/`.env.local` (direnv). Two-tier env vars: user-facing `RK_PORT`/`RK_HOST` translated by scripts to process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Dev mode: Vite on `RK_PORT`, Go on `PORT+1`. Prod: Go on `RK_PORT`. All entry points accept `--port`. Removed CLI flag parsing and YAML config from Go. Supervisor slimmed to ~30 lines. | — |
+| 2026-03-13 | **Env var config** — replaced `run-kit.yaml` with `.env`/`.env.local` (direnv). Go and Vite read `RK_PORT`/`RK_HOST` directly. Dev mode: Vite on `RK_PORT`, Go on `PORT+1` (translated by `dev.sh`). Prod: Go on `RK_PORT`. All entry points accept `--port`. Removed CLI flag parsing and YAML config from Go. Supervisor slimmed to ~30 lines. | — |
 | 2026-03-13 | **Removed single-key shortcuts** — deleted `useKeyboardNav` (j/k/Enter sidebar nav), `useAppShortcuts` (c/r/Esc Esc), sidebar `focusedIndex` prop and focus ring styling. Cmd+K is now the sole keyboard shortcut. Palette actions no longer display shortcut hints. | `260313-3brm-remove-single-key-shortcuts` |
 | 2026-03-14 | **Relay session validation** — relay handler validates session/window exist before attaching PTY. Returns WebSocket close code `4004` for missing session or window (distinct from `4001` PTY failure). Frontend handles `4004` by navigating to `/` instead of reconnecting. Prevents infinite reconnect loops when navigating to a non-existent tmux session. | — |
 | 2026-03-14 | **Pane-map enrichment** — replaced per-session `.fab-status.yaml` + `.fab-runtime.yaml` file reading with single `fab-go pane-map --json --all-sessions` subprocess call. Per-window fab state (change, stage, agent state, idle duration) instead of per-session. Deleted `internal/fab/` package (4 files). `internal/sessions` simplified: removed `enrichSession()`, `hasFabKit()`, `runtimeCache sync.Map`. New `fetchPaneMap(repoRoot)` + map join. | `260313-3vlx-pane-map-enrichment` |
@@ -270,6 +358,7 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-14 | **Top bar & bottom bar refresh** — Top bar: hamburger icon (☰→✕ animation) replaces logo as toggle, `/` separator replaces `❯`, session/window names are dropdown triggers, session name max 7ch. Right section: logo (decorative) + "Run Kit" + green dot (no text) + toggle + ⌘K + >_ compose. Mobile: ⋯ + >_. Bottom bar: removed Cmd modifier and compose button, sizes increased to 36px/44px. `onOpenCompose` moved from BottomBarProps to TopBarProps. | `260314-9raw-top-bar-bottom-bar-refresh` |
 | 2026-03-15 | **Dashboard view** — `/` renders `Dashboard` component inline in `app.tsx` terminal area (not a separate route layout). Expandable session cards with window cards, stats line, create buttons. Bottom bar conditionally rendered (terminal pages only). Top bar adapts: shows "Dashboard" text on `/`, breadcrumbs on `/:session/:window`. Sidebar session name click navigates to first window; chevron toggles expand/collapse. All kill operations and stale URL detection redirect to `/`. Auto-redirect from `/` to first session removed. | `260313-ll1j-dashboard-project-page-views` |
 | 2026-03-15 | **Per-region scroll behavior** — Dashboard restructured: pinned stats line (`shrink-0`) + scrollable card area (`flex-1 min-h-0 overflow-y-auto`). `useVisualViewport` hook manages `fullbleed` class lifecycle on `<html>` (add on mount, remove on cleanup). Static `fullbleed` in `index.html` serves as FOUC prevention. | `260315-lnrb-dashboard-scroll-behavior` |
+| 2026-03-17 | **Homebrew deployment system** — Cobra CLI with 5 subcommands (serve, version, upgrade, doctor, status). `embed.FS` bundles frontend into single binary. `VERSION` file + ldflags injection. `scripts/build.sh` (frontend-first build), `scripts/release.sh` (semver bump + tag). GitHub Actions CI/CD cross-compiles 4 targets (darwin/linux x arm64/amd64) on `v*` tag push, creates GitHub Release with tarballs. Homebrew formula template (`Formula/run-kit.rb`) for `wvrdz/homebrew-tap` — prebuilt binaries, zero dependencies. SPA handler dual-mode: embedded FS (production) or filesystem (dev). | `260317-ukyz-homebrew-deployment` |
 | 2026-03-18 | **Light theme support** — ThemeProvider context (outermost, split pattern) with three modes (system/light/dark). CSS `data-theme` attribute on `<html>` switches color tokens via `globals.css` selectors. Blocking inline script in `index.html` for no-flicker init. xterm terminal theme updates live. Theme switcher in command palette. Provider tree: `ThemeProvider > ChromeProvider > SessionProvider > AppShell`. | `260318-eseg-add-light-theme-support` |
 | 2026-03-18 | **Dedicated tmux server** — All run-kit sessions live on a named tmux server `runkit` (via `tmux -L runkit`). `internal/tmux` commands prefixed with `-L runkit` and optional `-f` from `RK_TMUX_CONF` env var. `ListSessions()` queries both runkit and default servers, returning `SessionInfo` with `Server` field. `ListWindows()` accepts server parameter. `CreateSession()` uses plain `tmux new-session` on runkit server (byobu dependency removed, `sync.OnceValue` detection deleted). `ProjectSession` type gains `Server` field. Relay attaches to runkit server. New `config/tmux.conf` with dark-themed status bar and F2/F3/F4 keybindings. Frontend: `ProjectSession` type gains `server` field, sidebar shows `↗` marker for default-server sessions. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | **Multi-server relay + config reload** — `RK_TMUX_CONF` resolved to absolute path at init (fixes CWD-dependent config loading). Relay and select-window endpoints accept `?server=` query param to route to runkit or default tmux server (fixes default-server sessions not connecting). `SelectWindowOnServer()` added. `ReloadConfig(server)` hot-reloads tmux config via `source-file`. New `POST /api/tmux/reload-config` endpoint + `reloadTmuxConfig(server)` client function + "Reload tmux config" command palette action (targets current session's server). `tmuxExec`/`tmuxExecDefault` capture stderr in error messages. `TerminalClient` accepts `server` prop. | `260318-0gjh-dedicated-tmux-server` |

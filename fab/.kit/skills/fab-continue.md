@@ -150,7 +150,7 @@ The orchestrating LLM MAY use any review agent available in its environment (e.g
 
 The review sub-agent performs capable-tier work: deep reasoning, code analysis, spec comparison, and checklist validation.
 
-**Context provided to the sub-agent**: `spec.md`, `tasks.md`, `checklist.md`, relevant source files (files touched by the change), target memory file(s) from `docs/memory/`, `fab/project/constitution.md`, `fab/project/context.md` (if present), `fab/project/code-quality.md` (if present), and `fab/project/code-review.md` (if present).
+**Context provided to the sub-agent**: Standard subagent context files (per `_preamble.md` § Standard Subagent Context), plus change-specific files: `spec.md`, `tasks.md`, `checklist.md`, relevant source files (files touched by the change), and target memory file(s) from `docs/memory/`.
 
 ### Validation Steps
 

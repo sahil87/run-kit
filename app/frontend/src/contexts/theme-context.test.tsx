@@ -49,16 +49,24 @@ function mockMatchMedia(prefersDark: boolean) {
 }
 
 describe("ThemeProvider", () => {
+  let themeColorMeta: HTMLMetaElement;
+
   beforeEach(() => {
     localStorage.clear();
     mockMatchMedia(true); // Default to dark OS
     document.documentElement.dataset.theme = "dark";
+    // Add theme-color meta tag to the DOM (as index.html provides it)
+    themeColorMeta = document.createElement("meta");
+    themeColorMeta.setAttribute("name", "theme-color");
+    themeColorMeta.setAttribute("content", "#0f1117");
+    document.head.appendChild(themeColorMeta);
   });
 
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
     delete document.documentElement.dataset.theme;
+    themeColorMeta.remove();
   });
 
   it("defaults to system preference when no localStorage value", () => {
@@ -193,5 +201,71 @@ describe("ThemeProvider", () => {
 
     expect(screen.getByTestId("resolved").textContent).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  describe("theme-color meta tag synchronization", () => {
+    it("sets theme-color to dark value when dark theme is applied", () => {
+      render(
+        <ThemeProvider>
+          <TestConsumer />
+        </ThemeProvider>,
+      );
+      act(() => {
+        screen.getByText("Set Dark").click();
+      });
+      expect(document.documentElement.dataset.theme).toBe("dark");
+      expect(themeColorMeta.getAttribute("content")).toBe("#0f1117");
+    });
+
+    it("sets theme-color to light value when light theme is applied", () => {
+      render(
+        <ThemeProvider>
+          <TestConsumer />
+        </ThemeProvider>,
+      );
+      act(() => {
+        screen.getByText("Set Light").click();
+      });
+      expect(document.documentElement.dataset.theme).toBe("light");
+      expect(themeColorMeta.getAttribute("content")).toBe("#f8f9fb");
+    });
+
+    it("updates theme-color when switching from dark to light", () => {
+      render(
+        <ThemeProvider>
+          <TestConsumer />
+        </ThemeProvider>,
+      );
+      // Start with dark
+      act(() => {
+        screen.getByText("Set Dark").click();
+      });
+      expect(themeColorMeta.getAttribute("content")).toBe("#0f1117");
+
+      // Switch to light
+      act(() => {
+        screen.getByText("Set Light").click();
+      });
+      expect(themeColorMeta.getAttribute("content")).toBe("#f8f9fb");
+    });
+
+    it("updates theme-color when OS preference changes in system mode", () => {
+      const { simulateChange } = mockMatchMedia(true);
+
+      render(
+        <ThemeProvider>
+          <TestConsumer />
+        </ThemeProvider>,
+      );
+
+      // System mode starts with dark OS
+      expect(themeColorMeta.getAttribute("content")).toBe("#0f1117");
+
+      // OS switches to light
+      act(() => {
+        simulateChange(false);
+      });
+      expect(themeColorMeta.getAttribute("content")).toBe("#f8f9fb");
+    });
   });
 });

@@ -244,6 +244,22 @@ Output: `dist/run-kit` — single static binary with embedded frontend assets, t
 
 `justfile` recipes: `build` delegates to `scripts/build.sh`, `release` delegates to `scripts/release.sh`.
 
+## PWA Layer
+
+`vite-plugin-pwa` (devDependency) adds Progressive Web App support to the Vite build. Configured in `app/frontend/vite.config.ts` with `registerType: "autoUpdate"`.
+
+**Manifest**: Generated from the `VitePWA` plugin config in `vite.config.ts` — no separate `manifest.json` file. Specifies `display: "standalone"`, `start_url: "/"`, dark theme colors (`background_color` and `theme_color` set to `#0f1117`), and an icon array (192px, 512px, 512px maskable). The plugin injects a `<link rel="manifest">` tag into the built `index.html` automatically.
+
+**Service worker**: Workbox-generated (`sw.js`). Precaches all static assets (JS, CSS, HTML) from the Vite build output. Runtime caching rules:
+- `NetworkOnly` for URL patterns matching `/api/` and `/relay/` — SSE streams and WebSocket connections always hit the server
+- `navigateFallback: "/index.html"` — ensures TanStack Router client-side routes work when served from cache (e.g., homescreen launch to `/{session}/{window}`)
+
+Updates are silent (`registerType: "autoUpdate"`) — the service worker detects new builds and caches updated assets without user interaction or reload prompts.
+
+**Build output**: `app/frontend/dist/` gains `sw.js` and `manifest.webmanifest` alongside the existing Vite output. These files are copied into `app/backend/frontend/dist/` by `scripts/build.sh` and served by the Go backend via the existing SPA static serving — no backend changes required.
+
+**Icons**: `app/frontend/public/icons/` contains `icon-192.png`, `icon-512.png`, and `icon-512-maskable.png`. Based on the hexagonal logo from `logo.svg`.
+
 ## Release Flow & CI/CD
 
 **Release script** (`scripts/release.sh`): accepts bump level (`patch`/`minor`/`major`), increments `VERSION` file semver, commits with message `v{version}`, creates git tag `v{version}`, pushes commit + tag. Tag push triggers CI.
@@ -367,3 +383,4 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-18 | **Dedicated tmux server** — All run-kit sessions live on a named tmux server `runkit` (via `tmux -L runkit`). `internal/tmux` commands prefixed with `-L runkit` and optional `-f` from `RK_TMUX_CONF` env var. `ListSessions()` queries both runkit and default servers, returning `SessionInfo` with `Server` field. `ListWindows()` accepts server parameter. `CreateSession()` uses plain `tmux new-session` on runkit server (byobu dependency removed, `sync.OnceValue` detection deleted). `ProjectSession` type gains `Server` field. Relay attaches to runkit server. New `config/tmux.conf` with dark-themed status bar and F2/F3/F4 keybindings. Frontend: `ProjectSession` type gains `server` field, sidebar shows `↗` marker for default-server sessions. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | **Multi-server relay + config reload** — `RK_TMUX_CONF` resolved to absolute path at init (fixes CWD-dependent config loading). Relay and select-window endpoints accept `?server=` query param to route to runkit or default tmux server (fixes default-server sessions not connecting). `SelectWindowOnServer()` added. `ReloadConfig(server)` hot-reloads tmux config via `source-file`. New `POST /api/tmux/reload-config` endpoint + `reloadTmuxConfig(server)` client function + "Reload tmux config" command palette action (targets current session's server). `tmuxExec`/`tmuxExecDefault` capture stderr in error messages. `TerminalClient` accepts `server` prop. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | **Hostname in browser title** — `Server` struct gains `hostname` field (computed once via `os.Hostname()` in `NewRouter()`, empty string fallback). `/api/health` response extended to `{"status":"ok","hostname":"..."}`. New `getHealth()` API client function. `useBrowserTitle` hook sets `document.title` dynamically: `RunKit — {hostname}` on Dashboard, `{session}/{window} — {hostname}` on terminal pages. Hostname suffix omitted when empty. | `260320-uq0k-hostname-browser-title` |
+| 2026-03-20 | **PWA compliance** — `vite-plugin-pwa` with autoUpdate, manifest from plugin config (standalone display, dark theme colors), Workbox service worker (precache static, NetworkOnly for API/WebSocket), iOS meta tags, theme-color sync. No backend changes. | `260320-j9a2-pwa-compliance` |

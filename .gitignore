@@ -156,6 +156,7 @@ fab/changes/**/.pr-done
 .fab-status.yaml
 
 # Go binary output
+bin/
 dist/
 
 fab/.kit/bin/*

@@ -232,6 +232,31 @@ Preference stored in `localStorage` key `runkit-theme` (values: `"system"`, `"li
 
 A blocking inline `<script>` in `index.html` `<head>` reads `localStorage("runkit-theme")`, resolves system preference via `matchMedia`, and sets `data-theme` on `<html>` before first paint. Static fallback: `data-theme="dark"` on the `<html>` tag.
 
+### PWA Meta Tags & Theme Color
+
+`app/frontend/index.html` includes PWA-related tags in `<head>`:
+- `<meta name="theme-color" content="#0f1117" />` — initial value matching dark theme background
+- `<meta name="apple-mobile-web-app-capable" content="yes" />` — enables standalone mode on iOS
+- `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />` — content renders behind the status bar
+- `<link rel="apple-touch-icon" href="/icons/icon-192.png" />` — homescreen icon for iOS
+
+The `<link rel="manifest">` tag is injected automatically by `vite-plugin-pwa` during build.
+
+**Theme-color synchronization**: The `theme-color` meta tag value is kept in sync with the active theme via two mechanisms:
+1. **Initial load** — the blocking inline script in `index.html` sets the `theme-color` meta tag alongside `data-theme` before first paint
+2. **Runtime switch** — `applyTheme()` in `ThemeProvider` updates the meta tag when the user changes theme via command palette or ThemeToggle
+
+Theme color mapping (matches `--color-bg-primary` CSS custom properties):
+- Dark: `#0f1117`
+- Light: `#f8f9fb`
+
+**Icon set**: `app/frontend/public/icons/` contains three PNG files based on the hexagonal `logo.svg`:
+- `icon-192.png` — 192x192, standard purpose (homescreen icon)
+- `icon-512.png` — 512x512, standard purpose (splash screen)
+- `icon-512-maskable.png` — 512x512, maskable purpose (content within safe zone for adaptive icon shapes)
+
+**Standalone display mode**: When installed via "Add to Home Screen" (Android or iOS), the app runs without browser chrome (no address bar, no toolbar). The `display: "standalone"` manifest property and `apple-mobile-web-app-capable` meta tag enable this on their respective platforms.
+
 ### ThemeProvider Context
 
 `app/frontend/src/contexts/theme-context.tsx` — split context (ThemeStateContext + ThemeActionsContext) following ChromeContext pattern. Provides `useTheme()` (preference + resolved) and `useThemeActions()` (setTheme). Listens to `matchMedia("(prefers-color-scheme: dark)")` change events when preference is "system" for real-time OS theme tracking.
@@ -306,3 +331,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-18 | Inline tab rename — double-click window name in sidebar to edit inline (Enter/blur commits, Escape cancels, empty input cancels). Local state in Sidebar, no new dependencies. Existing command palette rename unchanged | `260318-dcl9-inline-tab-rename-double-click` |
 | 2026-03-18 | Sidebar external session marker — `ProjectSession` type gains `server` field (`"runkit"` or `"default"`). Session rows show `↗` marker for default-server sessions (`text-[10px] text-text-secondary/50`, `aria-label="external session"`). Runkit-server sessions have no marker. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | Multi-server terminal support — `TerminalClient` accepts `server` prop, WebSocket URL includes `?server=` param. "Reload tmux config" command palette action targets current session's server. `selectWindow` API call passes server for correct routing. | `260318-0gjh-dedicated-tmux-server` |
+| 2026-03-20 | PWA meta tags and theme-color sync — `theme-color`, `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style`, `apple-touch-icon` in `index.html`. Theme-color updated by blocking script (initial) and `applyTheme()` (runtime). Dark `#0f1117`, light `#f8f9fb`. Icon set in `public/icons/`. Standalone display mode. | `260320-j9a2-pwa-compliance` |

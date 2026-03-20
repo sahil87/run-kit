@@ -74,10 +74,51 @@ jobs:
         run: |
           version="${{ steps.version.outputs.version }}"
 
+          sha_darwin_arm64=$(sha256sum dist/run-kit-darwin-arm64.tar.gz | cut -d' ' -f1)
+          sha_darwin_amd64=$(sha256sum dist/run-kit-darwin-amd64.tar.gz | cut -d' ' -f1)
+          sha_linux_arm64=$(sha256sum dist/run-kit-linux-arm64.tar.gz | cut -d' ' -f1)
+          sha_linux_amd64=$(sha256sum dist/run-kit-linux-amd64.tar.gz | cut -d' ' -f1)
+
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/wvrdz/homebrew-tap.git" /tmp/homebrew-tap
 
-          # Update tag in formula (same pattern as tu)
-          sed -i "s|tag: \"v.*\"|tag: \"v${version}\"|" /tmp/homebrew-tap/Formula/run-kit.rb
+          cat > /tmp/homebrew-tap/Formula/run-kit.rb << FORMULA
+          class RunKit < Formula
+            desc "Tmux session manager with web UI"
+            homepage "https://github.com/wvrdz/run-kit"
+            version "${version}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-darwin-arm64.tar.gz"
+                sha256 "${sha_darwin_arm64}"
+              else
+                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-darwin-amd64.tar.gz"
+                sha256 "${sha_darwin_amd64}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-linux-arm64.tar.gz"
+                sha256 "${sha_linux_arm64}"
+              else
+                url "https://github.com/wvrdz/run-kit/releases/download/v#{version}/run-kit-linux-amd64.tar.gz"
+                sha256 "${sha_linux_amd64}"
+              end
+            end
+
+            def install
+              bin.install "run-kit"
+            end
+
+            test do
+              assert_match "run-kit version", shell_output("#{bin}/run-kit version")
+            end
+          end
+          FORMULA
+
+          sed -i 's/^          //' /tmp/homebrew-tap/Formula/run-kit.rb
 
           cd /tmp/homebrew-tap
           git config user.name "github-actions[bot]"

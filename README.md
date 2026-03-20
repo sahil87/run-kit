@@ -4,6 +4,14 @@ Web-based agent orchestration dashboard. Monitor and interact with tmux sessions
 
 ## Installation
 
+This is a private repo — Homebrew needs a GitHub token to download release assets. Add this to your shell profile (`.zshrc` / `.bashrc`):
+
+```sh
+export HOMEBREW_GITHUB_API_TOKEN=ghp_yourtoken
+```
+
+The token needs `repo` scope (for private repo access). Then:
+
 ```sh
 brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git
 brew install wvrdz/tap/run-kit

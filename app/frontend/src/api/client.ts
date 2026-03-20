@@ -8,6 +8,17 @@ async function throwOnError(res: Response): Promise<never> {
   throw new Error((data as { error?: string }).error ?? `Request failed: ${res.status}`);
 }
 
+export interface HealthResponse {
+  status: string;
+  hostname: string;
+}
+
+export async function getHealth(): Promise<HealthResponse> {
+  const res = await fetch("/api/health");
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function getSessions(): Promise<ProjectSession[]> {
   const res = await fetch("/api/sessions");
   if (!res.ok) await throwOnError(res);

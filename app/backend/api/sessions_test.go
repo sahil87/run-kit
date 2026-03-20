@@ -118,7 +118,7 @@ func (m *mockTmuxOps) KillPane(paneID string) error {
 
 func newTestRouter(sf SessionFetcher, ops TmuxOps) http.Handler {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	return NewTestRouter(logger, sf, ops)
+	return NewTestRouter(logger, sf, ops, "test-host")
 }
 
 func TestSessionsList(t *testing.T) {

@@ -15,7 +15,8 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
-import { selectWindow, createWindow, reloadTmuxConfig } from "@/api/client";
+import { selectWindow, createWindow, reloadTmuxConfig, getHealth } from "@/api/client";
+import { useBrowserTitle } from "@/hooks/use-browser-title";
 
 const SIDEBAR_STORAGE_KEY = "runkit-sidebar-width";
 const SIDEBAR_DEFAULT_WIDTH = 220;
@@ -68,6 +69,19 @@ function AppShell() {
   const windowIndex = params.window;
 
   const [composeOpen, setComposeOpen] = useState(false);
+  const [hostname, setHostname] = useState("");
+
+  // Fetch hostname once on mount (guarded for StrictMode double-invoke)
+  const didFetchHostnameRef = useRef(false);
+  useEffect(() => {
+    if (didFetchHostnameRef.current) return;
+    didFetchHostnameRef.current = true;
+    getHealth()
+      .then((data) => setHostname(data.hostname ?? ""))
+      .catch(() => {});
+  }, []);
+
+  useBrowserTitle(sessionName, windowIndex, hostname);
 
   // Sidebar drag-resize state (desktop only)
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);

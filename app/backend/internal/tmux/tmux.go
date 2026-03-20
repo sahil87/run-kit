@@ -57,6 +57,8 @@ func EnsureConfig() error {
 	}
 	if _, err := os.Stat(DefaultConfigPath); err == nil {
 		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking config file: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(DefaultConfigPath), 0o755); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)

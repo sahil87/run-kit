@@ -40,7 +40,7 @@ func (s *Server) mountSPA(r chi.Router) {
 
 // mountEmbeddedSPA serves the SPA from the embedded filesystem (production mode).
 func (s *Server) mountEmbeddedSPA(r chi.Router) {
-	// Sub into the "dist" subdirectory of the embed.FS.
+	// Sub into the "frontend" subdirectory of the embed.FS.
 	sub, err := fs.Sub(build.Frontend, "frontend")
 	if err != nil {
 		s.logger.Error("failed to open embedded frontend", "err", err)

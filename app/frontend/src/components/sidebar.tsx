@@ -298,8 +298,9 @@ export function Sidebar({
             <span className="ml-0.5 text-text-secondary text-[10px]">{serverDropdownOpen ? "\u25B4" : "\u25BE"}</span>
           </button>
           {serverDropdownOpen && (
-            <div role="listbox" className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">
+            <div role="menu" className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">
               <button
+                role="menuitem"
                 onClick={() => {
                   setServerDropdownOpen(false);
                   onCreateServer();
@@ -322,8 +323,8 @@ export function Sidebar({
                     className={`w-full text-left text-sm px-3 py-2 hover:bg-bg-card transition-colors ${
                       s === server ? "text-accent font-medium" : "text-text-primary"
                     }`}
-                    role="option"
-                    aria-selected={s === server}
+                    role="menuitem"
+                    aria-current={s === server ? "true" : undefined}
                   >
                     {s}
                   </button>

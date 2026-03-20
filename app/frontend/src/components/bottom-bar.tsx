@@ -232,7 +232,7 @@ export function BottomBar({ wsRef, hostname }: BottomBarProps) {
       </button>
 
       {hostname && (
-        <span className="hidden sm:inline ml-auto text-xs text-text-secondary truncate">{hostname}</span>
+        <span className="hidden sm:inline ml-auto min-w-0 text-xs text-text-secondary truncate">{hostname}</span>
       )}
     </div>
   );

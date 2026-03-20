@@ -93,7 +93,7 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, tri
         aria-expanded={open}
         aria-label={label ? `Switch ${label}` : "Switch"}
         onClick={toggle}
-        className={`min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
+        className={`min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
       >
         {icon ?? "\u25BE"}
       </button>

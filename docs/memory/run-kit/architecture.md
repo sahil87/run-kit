@@ -163,7 +163,7 @@ Auto-restart: detects if server process died and restarts automatically.
 
 Dual-mode SPA serving in `app/backend/api/spa.go`. `hasEmbeddedAssets()` checks if the `embed.FS` contains real build output (more than `.gitkeep`):
 
-- **Production** (`mountEmbeddedSPA`): serves from `embed.FS` via `fs.Sub(frontend.Dist, "dist")` + `http.FS`. SPA fallback rewrites to `index.html`.
+- **Production** (`mountEmbeddedSPA`): serves from `embed.FS` via `fs.Sub(build.Frontend, "frontend")` + `http.FS`. SPA fallback rewrites to `index.html`.
 - **Development** (`mountFilesystemSPA`): serves from `app/frontend/dist/` on the local filesystem. Path traversal prevented (resolved path must stay within SPA directory).
 
 Both modes: any request not matching `/api/*` or `/relay/*` serves `index.html` for client-side routing. In development, Vite handles SPA fallback natively. Caddy is optional — used only for TLS termination, not routing.
@@ -219,7 +219,7 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 
 ## Embedded Frontend Assets
 
-`app/backend/frontend/embed.go` exposes `//go:embed all:dist` as `frontend.Dist` (`embed.FS`). During development, `dist/` contains only `.gitkeep` (empty FS). Production builds copy `app/frontend/dist/` into `app/backend/frontend/dist/` before `go build`.
+`app/backend/build/embed.go` exposes `//go:embed all:frontend` as `build.Frontend` (`embed.FS`). During development, `frontend/` contains only `.gitkeep` (empty FS). Production builds copy `app/frontend/dist/` into `app/backend/build/frontend/` before `go build`.
 
 `api/spa.go` uses dual-mode serving:
 - **Production**: `hasEmbeddedAssets()` detects real build output (more than `.gitkeep`), serves from `embed.FS` via `mountEmbeddedSPA()`
@@ -239,7 +239,7 @@ Both modes include SPA fallback (serve `index.html` for non-matching paths) and 
 `scripts/build.sh` encapsulates the full production build (frontend-first for embed):
 
 1. `cd app/frontend && pnpm build` — produces `app/frontend/dist/`
-2. Copy `app/frontend/dist/` → `app/backend/frontend/dist/` (Go embed cannot reference `../` paths)
+2. Copy `app/frontend/dist/` → `app/backend/build/frontend/` (Go embed cannot reference `../` paths)
 3. Read version from `VERSION` file
 4. Copy `config/tmux.conf` → `app/backend/internal/tmux/tmux.conf` (Go embed)
 5. `CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o ../../dist/run-kit ./cmd/run-kit`
@@ -260,7 +260,7 @@ Output: `dist/run-kit` — single static binary with embedded frontend assets, t
 
 Updates are silent (`registerType: "autoUpdate"`) — the service worker detects new builds and caches updated assets without user interaction or reload prompts.
 
-**Build output**: `app/frontend/dist/` gains `sw.js` and `manifest.webmanifest` alongside the existing Vite output. These files are copied into `app/backend/frontend/dist/` by `scripts/build.sh` and served by the Go backend via the existing SPA static serving — no backend changes required.
+**Build output**: `app/frontend/dist/` gains `sw.js` and `manifest.webmanifest` alongside the existing Vite output. These files are copied into `app/backend/build/frontend/` by `scripts/build.sh` and served by the Go backend via the existing SPA static serving — no backend changes required.
 
 **Icons**: `app/frontend/public/icons/` contains `icon-192.png`, `icon-512.png`, and `icon-512-maskable.png`. Based on the hexagonal logo from `logo.svg`.
 
@@ -302,10 +302,10 @@ Install flow: `brew install wvrdz/tap/run-kit` → downloads single binary → i
 - **POST-only API client with path-based intent** — Each mutation is a separate function with its own URL (e.g., `killSession(session)` → `POST /api/sessions/:session/kill`). No multiplexed `action` field in request bodies.
 - **Sidebar + drawer pattern on mobile** — Desktop sidebar is drag-resizable (default 220px, min 160, max 400, localStorage persist), collapsible. Mobile (< 768px) uses a left-side drawer overlay triggered by `☰`. Preserves session/window tree layout across breakpoints.
 - **Prebuilt binaries over build-from-source Homebrew formula** — ship cross-compiled binaries via GitHub Release. Zero build dependencies on user's machine (no Go, Node.js, pnpm). Faster install. Rejected: build-from-source formula (like tu) which requires all build tools. (`260317-ukyz-homebrew-deployment`)
-- **`embed.FS` with copy step over restructuring repo** — copy `app/frontend/dist/` into `app/backend/frontend/dist/` at build time because Go's `//go:embed` cannot reference files outside the package directory. Simple build-time operation. Rejected: colocating frontend output with Go source (breaks dev workflow). (`260317-ukyz-homebrew-deployment`)
+- **`embed.FS` with copy step over restructuring repo** — copy `app/frontend/dist/` into `app/backend/build/frontend/` at build time because Go's `//go:embed` cannot reference files outside the package directory. Simple build-time operation. Rejected: colocating frontend output with Go source (breaks dev workflow). (`260317-ukyz-homebrew-deployment`)
 - **VERSION file + ldflags over Go constant** — version sourced from `VERSION` file, injected via `-X main.version=...`. Shell scripts can read/write plain text. No code changes for version bumps. Rejected: Go constant (requires code change per release). (`260317-ukyz-homebrew-deployment`)
 - **Cobra over custom CLI parsing** — industry standard, auto-generates help, 5 subcommands is the sweet spot. Rejected: stdlib `flag` (no subcommand support), custom parsing (unnecessary). (`260317-ukyz-homebrew-deployment`)
-- **SPA handler dual-mode (embedded FS vs filesystem)** — `hasEmbeddedAssets()` checks whether `dist/` contains more than `.gitkeep`. Production uses `embed.FS`, dev uses filesystem (Vite handles frontend). Automatic detection, no build tags or env vars needed. (`260317-ukyz-homebrew-deployment`)
+- **SPA handler dual-mode (embedded FS vs filesystem)** — `hasEmbeddedAssets()` checks whether `frontend/` contains more than `.gitkeep`. Production uses `embed.FS`, dev uses filesystem (Vite handles frontend). Automatic detection, no build tags or env vars needed. (`260317-ukyz-homebrew-deployment`)
 - **Active window sync via `history.replaceState` (not `router.replace()`)** — When byobu switches windows, the terminal relay pty already shows the correct content. The UI syncs breadcrumb, URL, and action targets via SSE polling (2.5s). URL updates use `window.history.replaceState()` which is invisible to the router — no re-render, no terminal reinitialization.
 - **Sticky modifier state via useRef + forceUpdate** — `useModifierState` uses a ref for the authoritative state and a counter state to trigger re-renders. Ensures `consume()` reads the latest value atomically without stale closure issues.
 - **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.

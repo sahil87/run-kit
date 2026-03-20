@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"run-kit/frontend"
+	"run-kit/build"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -18,7 +18,7 @@ var spaDir = "app/frontend/dist"
 // hasEmbeddedAssets reports whether the embedded frontend FS contains real build output
 // (i.e., more than just the .gitkeep placeholder).
 func hasEmbeddedAssets() bool {
-	entries, err := fs.ReadDir(frontend.Dist, "dist")
+	entries, err := fs.ReadDir(build.Frontend, "frontend")
 	if err != nil {
 		return false
 	}
@@ -41,7 +41,7 @@ func (s *Server) mountSPA(r chi.Router) {
 // mountEmbeddedSPA serves the SPA from the embedded filesystem (production mode).
 func (s *Server) mountEmbeddedSPA(r chi.Router) {
 	// Sub into the "dist" subdirectory of the embed.FS.
-	sub, err := fs.Sub(frontend.Dist, "dist")
+	sub, err := fs.Sub(build.Frontend, "frontend")
 	if err != nil {
 		s.logger.Error("failed to open embedded frontend", "err", err)
 		return

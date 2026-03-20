@@ -174,3 +174,7 @@ tmp
 .uploads/
 test-results/
 app/backend/run-kit
+
+# Go embed requires build/frontend/ to exist for compilation; track the .gitkeep
+app/backend/build/frontend/*
+!app/backend/build/frontend/.gitkeep

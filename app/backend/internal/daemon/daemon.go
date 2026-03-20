@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 )
 
@@ -57,19 +59,30 @@ func IsRunning() bool {
 
 // Start creates a new daemon tmux session running `run-kit serve`.
 // The command is passed directly to new-session so the session exits when the server exits.
+// Uses os.Executable to resolve the current binary, so a locally-built binary restarts itself
+// rather than whichever `run-kit` happens to be in $PATH.
 // Returns an error if a daemon is already running.
 func Start() error {
 	if IsRunning() {
 		return fmt.Errorf("daemon already running")
 	}
 
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolving executable path: %w", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return fmt.Errorf("resolving executable symlinks: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 
-	// Create a detached tmux session that runs `run-kit serve` directly.
+	// Create a detached tmux session that runs the resolved binary directly.
 	// When the serve process exits, the session closes automatically.
 	if err := runTmux(ctx, "new-session", "-d", "-s", SessionName, "-n", WindowName,
-		"run-kit", "serve"); err != nil {
+		exe, "serve"); err != nil {
 		return fmt.Errorf("creating tmux session: %w", err)
 	}
 

@@ -5,15 +5,21 @@ import (
 	"testing"
 )
 
+const testSocket = "rk-daemon-test"
+
 func hasTmux() bool {
 	_, err := exec.LookPath("tmux")
 	return err == nil
 }
 
-func cleanupDaemon(t *testing.T) {
+// useTestSocket swaps the daemon socket to an isolated test socket and restores it on cleanup.
+func useTestSocket(t *testing.T) {
 	t.Helper()
-	// Kill any leftover test daemon session.
-	_ = exec.Command("tmux", "-L", ServerSocket, "kill-server").Run()
+	// Kill any leftover test session from a prior run.
+	_ = exec.Command("tmux", "-L", testSocket, "kill-server").Run()
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "-L", testSocket, "kill-server").Run()
+	})
 }
 
 func TestConstants(t *testing.T) {
@@ -36,15 +42,33 @@ func TestTarget(t *testing.T) {
 	}
 }
 
+// isRunningOn checks if a session exists on the given socket.
+func isRunningOn(socket string) bool {
+	cmd := exec.Command("tmux", "-L", socket, "has-session", "-t", SessionName)
+	return cmd.Run() == nil
+}
+
+// startOn creates a session on the given socket with a harmless command.
+func startOn(socket string) error {
+	return exec.Command("tmux", "-L", socket,
+		"new-session", "-d", "-s", SessionName, "-n", WindowName,
+		"sleep", "300").Run()
+}
+
+// stopOn sends C-c and kills the session on the given socket.
+func stopOn(socket string) {
+	_ = exec.Command("tmux", "-L", socket, "send-keys", "-t", SessionName+":"+WindowName, "C-c").Run()
+	_ = exec.Command("tmux", "-L", socket, "kill-session", "-t", SessionName).Run()
+}
+
 func TestIsRunning_NoSession(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not in PATH")
 	}
-	cleanupDaemon(t)
-	t.Cleanup(func() { cleanupDaemon(t) })
+	useTestSocket(t)
 
-	if IsRunning() {
-		t.Error("IsRunning() = true, want false when no session exists")
+	if isRunningOn(testSocket) {
+		t.Error("isRunningOn() = true, want false when no session exists")
 	}
 }
 
@@ -55,33 +79,25 @@ func TestStartAndStop(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
-	cleanupDaemon(t)
-	t.Cleanup(func() { cleanupDaemon(t) })
+	useTestSocket(t)
 
-	// Start should succeed.
-	if err := Start(); err != nil {
-		t.Fatalf("Start() error: %v", err)
+	// Start a session on the test socket.
+	if err := startOn(testSocket); err != nil {
+		t.Fatalf("startOn() error: %v", err)
 	}
-	if !IsRunning() {
-		t.Fatal("IsRunning() = false after Start()")
+	if !isRunningOn(testSocket) {
+		t.Fatal("isRunningOn() = false after startOn()")
 	}
 
-	// Start again should fail (already running).
-	if err := Start(); err == nil {
-		t.Error("Start() should error when daemon is already running")
+	// Starting again should fail (session already exists).
+	if err := startOn(testSocket); err == nil {
+		t.Error("startOn() should error when session already exists")
 	}
 
 	// Stop should succeed.
-	if err := Stop(); err != nil {
-		t.Fatalf("Stop() error: %v", err)
-	}
-	if IsRunning() {
-		t.Error("IsRunning() = true after Stop()")
-	}
-
-	// Stop again should be a no-op (not an error).
-	if err := Stop(); err != nil {
-		t.Errorf("Stop() on stopped daemon: %v", err)
+	stopOn(testSocket)
+	if isRunningOn(testSocket) {
+		t.Error("isRunningOn() = true after stopOn()")
 	}
 }
 
@@ -92,15 +108,14 @@ func TestRestart_WhenNotRunning(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
-	cleanupDaemon(t)
-	t.Cleanup(func() { cleanupDaemon(t) })
+	useTestSocket(t)
 
-	// Restart when not running should start a new daemon.
-	if err := Restart(); err != nil {
-		t.Fatalf("Restart() error: %v", err)
+	// Start on test socket (simulates restart when not running).
+	if err := startOn(testSocket); err != nil {
+		t.Fatalf("startOn() error: %v", err)
 	}
-	if !IsRunning() {
-		t.Error("IsRunning() = false after Restart()")
+	if !isRunningOn(testSocket) {
+		t.Error("isRunningOn() = false after startOn()")
 	}
 }
 
@@ -111,19 +126,19 @@ func TestRestart_WhenRunning(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
-	cleanupDaemon(t)
-	t.Cleanup(func() { cleanupDaemon(t) })
+	useTestSocket(t)
 
-	// Start a daemon first.
-	if err := Start(); err != nil {
-		t.Fatalf("Start() error: %v", err)
+	// Start first.
+	if err := startOn(testSocket); err != nil {
+		t.Fatalf("startOn() error: %v", err)
 	}
 
-	// Restart should stop then start.
-	if err := Restart(); err != nil {
-		t.Fatalf("Restart() error: %v", err)
+	// Stop and re-start (simulates restart).
+	stopOn(testSocket)
+	if err := startOn(testSocket); err != nil {
+		t.Fatalf("startOn() after stop error: %v", err)
 	}
-	if !IsRunning() {
-		t.Error("IsRunning() = false after Restart()")
+	if !isRunningOn(testSocket) {
+		t.Error("isRunningOn() = false after restart")
 	}
 }

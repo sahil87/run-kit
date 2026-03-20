@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -26,16 +27,31 @@ func target() string {
 	return SessionName + ":" + WindowName
 }
 
+// runTmux executes a tmux command on the daemon server, capturing stderr for diagnostics.
+func runTmux(ctx context.Context, args ...string) error {
+	fullArgs := append([]string{"-L", ServerSocket}, args...)
+	cmd := exec.CommandContext(ctx, "tmux", fullArgs...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if stderr.Len() > 0 {
+			return fmt.Errorf("%w: %s", err, bytes.TrimSpace(stderr.Bytes()))
+		}
+		return err
+	}
+	return nil
+}
+
 // IsRunning returns true if the daemon tmux session exists.
 func IsRunning() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux", "-L", ServerSocket, "has-session", "-t", SessionName)
-	return cmd.Run() == nil
+	return runTmux(ctx, "has-session", "-t", SessionName) == nil
 }
 
-// Start creates a new daemon tmux session and sends the serve command.
+// Start creates a new daemon tmux session running `run-kit serve`.
+// The command is passed directly to new-session so the session exits when the server exits.
 // Returns an error if a daemon is already running.
 func Start() error {
 	if IsRunning() {
@@ -45,21 +61,11 @@ func Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 
-	// Create a detached tmux session with the specified window name.
-	create := exec.CommandContext(ctx, "tmux", "-L", ServerSocket,
-		"new-session", "-d", "-s", SessionName, "-n", WindowName)
-	if err := create.Run(); err != nil {
+	// Create a detached tmux session that runs `run-kit serve` directly.
+	// When the serve process exits, the session closes automatically.
+	if err := runTmux(ctx, "new-session", "-d", "-s", SessionName, "-n", WindowName,
+		"run-kit", "serve"); err != nil {
 		return fmt.Errorf("creating tmux session: %w", err)
-	}
-
-	// Send the serve command to the pane.
-	sendCtx, sendCancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer sendCancel()
-
-	send := exec.CommandContext(sendCtx, "tmux", "-L", ServerSocket,
-		"send-keys", "-t", target(), "run-kit serve", "Enter")
-	if err := send.Run(); err != nil {
-		return fmt.Errorf("sending serve command: %w", err)
 	}
 
 	return nil
@@ -76,9 +82,7 @@ func Stop() error {
 	defer cancel()
 
 	// Send C-c to trigger graceful shutdown.
-	interrupt := exec.CommandContext(ctx, "tmux", "-L", ServerSocket,
-		"send-keys", "-t", target(), "C-c")
-	if err := interrupt.Run(); err != nil {
+	if err := runTmux(ctx, "send-keys", "-t", target(), "C-c"); err != nil {
 		return fmt.Errorf("sending C-c to daemon: %w", err)
 	}
 
@@ -95,8 +99,7 @@ func Stop() error {
 	killCtx, killCancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer killCancel()
 
-	kill := exec.CommandContext(killCtx, "tmux", "-L", ServerSocket, "kill-session", "-t", SessionName)
-	if err := kill.Run(); err != nil {
+	if err := runTmux(killCtx, "kill-session", "-t", SessionName); err != nil {
 		return fmt.Errorf("killing daemon session after timeout: %w", err)
 	}
 

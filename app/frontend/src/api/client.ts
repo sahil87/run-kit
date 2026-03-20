@@ -168,6 +168,16 @@ export async function reloadTmuxConfig(): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
+export async function initTmuxConf(): Promise<{ ok: boolean }> {
+  const res = await fetch("/api/tmux/init-conf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) await throwOnError(res);
+  return { ok: true };
+}
+
 export async function uploadFile(
   session: string,
   file: File,

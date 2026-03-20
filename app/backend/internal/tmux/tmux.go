@@ -79,6 +79,18 @@ func EnsureConfig() error {
 	return os.WriteFile(DefaultConfigPath, DefaultConfigBytes(), 0o644)
 }
 
+// ForceWriteConfig writes the embedded default tmux.conf to DefaultConfigPath,
+// overwriting any existing file. Equivalent to `run-kit init-conf --force`.
+func ForceWriteConfig() error {
+	if DefaultConfigPath == "" {
+		return fmt.Errorf("could not determine home directory")
+	}
+	if err := os.MkdirAll(filepath.Dir(DefaultConfigPath), 0o755); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	return os.WriteFile(DefaultConfigPath, DefaultConfigBytes(), 0o644)
+}
+
 // ReloadConfig hot-reloads the tmux config via source-file on the specified server.
 // Returns an error if no config path is set or the source-file command fails.
 func ReloadConfig(server string) error {

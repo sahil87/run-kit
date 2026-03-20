@@ -16,7 +16,7 @@ import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
-import { selectWindow, createWindow, reloadTmuxConfig, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createWindow, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 
@@ -366,6 +366,11 @@ function AppShell() {
         id: "reload-tmux-config",
         label: "Reload tmux config",
         onSelect: () => { reloadTmuxConfig().catch(() => {}); },
+      },
+      {
+        id: "init-tmux-conf",
+        label: "Reset run-kit's tmux config to default",
+        onSelect: () => { initTmuxConf().then(() => reloadTmuxConfig()).catch(() => {}); },
       },
       {
         id: "keyboard-shortcuts",

@@ -175,6 +175,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
+	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
 
 	// Server management routes
 	r.Get("/api/servers", s.handleServersList)

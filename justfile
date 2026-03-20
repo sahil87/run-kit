@@ -14,9 +14,10 @@ doctor:
 
 # Copy default config files for local development
 setup:
+    pnpm install
     [ -f .env.local ] || cp .env .env.local
     [ -f Caddyfile ] || cp Caddyfile.example Caddyfile
-    pnpm exec playwright install --with-deps chromium
+    pnpm --filter run-kit-frontend exec playwright install --with-deps chromium
 
 # Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
 # Backend runs at Frontend port + 1. Default: 3000

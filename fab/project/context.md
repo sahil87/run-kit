@@ -23,7 +23,7 @@ app/
   frontend/    # Vite + React SPA
 ```
 
-Monorepo managed by pnpm workspaces. Task runner: `just` (see `justfile`).
+Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/frontend/`).
 
 ## Backend — `app/backend/`
 

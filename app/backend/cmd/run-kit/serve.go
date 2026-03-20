@@ -13,6 +13,7 @@ import (
 
 	"run-kit/api"
 	"run-kit/internal/config"
+	"run-kit/internal/tmux"
 
 	"github.com/spf13/cobra"
 )
@@ -22,6 +23,11 @@ var serveCmd = &cobra.Command{
 	Short: "Start the HTTP server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.Load()
+
+		// Ensure tmux config exists before starting (write embedded default if missing).
+		if err := tmux.EnsureConfig(); err != nil {
+			return fmt.Errorf("ensuring tmux config: %w", err)
+		}
 
 		logLevel := slog.LevelInfo
 		if strings.EqualFold(os.Getenv("LOG_LEVEL"), "debug") {

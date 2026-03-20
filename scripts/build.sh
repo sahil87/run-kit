@@ -8,8 +8,10 @@ cd "$REPO_ROOT/app/frontend"
 pnpm build
 
 echo "==> Copying frontend dist to backend embed directory..."
-rm -rf "$REPO_ROOT/app/backend/frontend/dist"
-cp -r "$REPO_ROOT/app/frontend/dist" "$REPO_ROOT/app/backend/frontend/dist"
+rm -rf "$REPO_ROOT/app/backend/build/frontend"
+cp -r "$REPO_ROOT/app/frontend/dist" "$REPO_ROOT/app/backend/build/frontend"
+# Restore .gitkeep so the embed directory stays tracked in git
+touch "$REPO_ROOT/app/backend/build/frontend/.gitkeep"
 
 echo "==> Copying tmux.conf to backend embed directory..."
 cp "$REPO_ROOT/config/tmux.conf" "$REPO_ROOT/app/backend/internal/tmux/tmux.conf"

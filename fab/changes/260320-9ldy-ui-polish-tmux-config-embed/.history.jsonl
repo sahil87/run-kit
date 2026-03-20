@@ -1,0 +1,23 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-20T10:21:18Z"}
+{"args":"UI polish and backend fixes: breadcrumb alignment, embed restructure, tmux config auto-create, server dropdown, hostname display, bar alignment, kill server fix","cmd":"fab-new","event":"command","ts":"2026-03-20T10:21:18Z"}
+{"delta":"+4.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-03-20T10:22:19Z"}
+{"delta":"+0.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-03-20T10:22:26Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-03-20T10:22:35Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-20T10:23:34Z"}
+{"cmd":"fab-discuss","event":"command","ts":"2026-03-20T10:34:40Z"}
+{"delta":"+0.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-03-20T10:47:45Z"}
+{"delta":"+0.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-03-20T10:47:52Z"}
+{"delta":"+0.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-03-20T10:48:00Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-20T10:49:21Z"}
+{"delta":"+1.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-20T10:52:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-20T10:52:40Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-03-20T10:53:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-20T10:54:35Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-03-20T10:55:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-20T10:57:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-20T11:02:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-20T11:04:44Z"}
+{"event":"review","result":"passed","ts":"2026-03-20T11:04:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-20T11:07:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review-pr","ts":"2026-03-20T11:08:32Z"}
+{"event":"review","result":"passed","ts":"2026-03-20T11:08:46Z"}

@@ -40,6 +40,32 @@ func ConfigPath() string {
 	return configPath
 }
 
+// configArgs returns ["-f", configPath] if a config path is set, or nil.
+// Used by commands that start the tmux server (CreateSession) or reload config.
+func configArgs() []string {
+	if configPath != "" {
+		return []string{"-f", configPath}
+	}
+	return nil
+}
+
+// EnsureConfig writes the embedded default tmux.conf to DefaultConfigPath
+// if the file does not already exist. No-op if the file exists or no home dir.
+func EnsureConfig() error {
+	if DefaultConfigPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(DefaultConfigPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking config file: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(DefaultConfigPath), 0o755); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	return os.WriteFile(DefaultConfigPath, DefaultConfigBytes(), 0o644)
+}
+
 // ReloadConfig hot-reloads the tmux config via source-file on the specified server.
 // Returns an error if no config path is set or the source-file command fails.
 func ReloadConfig(server string) error {
@@ -48,22 +74,20 @@ func ReloadConfig(server string) error {
 	}
 	ctx, cancel := withTimeout()
 	defer cancel()
-	_, err := tmuxExecServer(ctx, server, "source-file", configPath)
+	args := append(configArgs(), "source-file", configPath)
+	_, err := tmuxExecServer(ctx, server, args...)
 	return err
 }
 
 // serverArgs returns the argument prefix for commands targeting a given server.
 // For "default", returns an empty slice (no -L flag). For any other name, returns
-// ["-L", name] plus the config flag included when a config path is available.
+// ["-L", name]. The -f config flag is only needed on server-creating commands
+// (CreateSession) and ReloadConfig — not on every command.
 func serverArgs(server string) []string {
 	if server == "default" {
 		return nil
 	}
-	args := []string{"-L", server}
-	if configPath != "" {
-		args = append(args, "-f", configPath)
-	}
-	return args
+	return []string{"-L", server}
 }
 
 const (
@@ -247,7 +271,9 @@ func CreateSession(name string, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	args := []string{"new-session", "-d", "-s", name}
+	// new-session may start the tmux server, so pass -f to load our config.
+	args := configArgs()
+	args = append(args, "new-session", "-d", "-s", name)
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}
@@ -360,7 +386,8 @@ func CapturePane(paneID string, lines int, server string) (string, error) {
 }
 
 // ListServers discovers available tmux servers by scanning the tmux socket directory
-// at /tmp/tmux-{uid}/. Returns sorted server names.
+// at /tmp/tmux-{uid}/. Probes each socket to confirm the server is alive.
+// Returns sorted server names.
 func ListServers() ([]string, error) {
 	uid := os.Getuid()
 	socketDir := fmt.Sprintf("/tmp/tmux-%d", uid)
@@ -371,7 +398,7 @@ func ListServers() ([]string, error) {
 		return nil, nil
 	}
 
-	var servers []string
+	var candidates []string
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -383,17 +410,51 @@ func ListServers() ([]string, error) {
 		if info.Mode()&os.ModeSocket == 0 {
 			continue
 		}
-		servers = append(servers, e.Name())
+		candidates = append(candidates, e.Name())
+	}
+
+	// Probe each socket — only include servers that are actually running.
+	var servers []string
+	for _, name := range candidates {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		cmd := exec.CommandContext(ctx, "tmux", "-L", name, "list-sessions")
+		err := cmd.Run()
+		cancel()
+		if err == nil {
+			servers = append(servers, name)
+		}
 	}
 	sort.Strings(servers)
 	return servers, nil
 }
 
+// ListKeys runs "tmux list-keys" on the given server and returns the raw output lines.
+// Returns nil (no error) if the server is not running.
+func ListKeys(server string) ([]string, error) {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-keys")
+	if err != nil {
+		// Server not running — return empty, not error
+		if strings.Contains(err.Error(), "No such file or directory") ||
+			strings.Contains(err.Error(), "no server running") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return lines, nil
+}
+
 // KillServer kills a tmux server by name.
+// Returns nil if the server is already gone (no socket).
 func KillServer(server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	_, err := tmuxExecServer(ctx, server, "kill-server")
+	if err != nil && strings.Contains(err.Error(), "No such file or directory") {
+		return nil
+	}
 	return err
 }

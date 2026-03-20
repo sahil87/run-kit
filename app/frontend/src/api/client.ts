@@ -212,3 +212,16 @@ export async function killServer(name: string): Promise<{ ok: boolean }> {
   if (!res.ok) await throwOnError(res);
   return res.json();
 }
+
+export interface Keybinding {
+  key: string;
+  table: string;
+  command: string;
+  label: string;
+}
+
+export async function getKeybindings(): Promise<Keybinding[]> {
+  const res = await fetch(withServer("/api/keybindings"));
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}

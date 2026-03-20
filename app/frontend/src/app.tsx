@@ -15,6 +15,7 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { selectWindow, createWindow, reloadTmuxConfig, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
@@ -75,6 +76,7 @@ function AppShell() {
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
   const [createServerName, setCreateServerName] = useState("");
   const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
 
   // Fetch hostname once on mount (guarded for StrictMode double-invoke)
   const didFetchHostnameRef = useRef(false);
@@ -366,6 +368,11 @@ function AppShell() {
         onSelect: () => { reloadTmuxConfig().catch(() => {}); },
       },
       {
+        id: "keyboard-shortcuts",
+        label: "Keyboard Shortcuts",
+        onSelect: () => setShowKeyboardShortcuts(true),
+      },
+      {
         id: "create-server",
         label: "Create tmux server",
         onSelect: () => setShowCreateServerDialog(true),
@@ -433,6 +440,8 @@ function AppShell() {
                 server={server}
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
+                onCreateServer={() => setShowCreateServerDialog(true)}
+                onRefreshServers={refreshServers}
               />
             </div>
             {/* Drag handle */}
@@ -470,8 +479,8 @@ function AppShell() {
                   />
                 </div>
                 {/* Bottom Bar — only on terminal pages */}
-                <div className="shrink-0 border-t border-border px-1.5">
-                  <BottomBar wsRef={wsRef} />
+                <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
+                  <BottomBar wsRef={wsRef} hostname={hostname} />
                 </div>
               </>
             ) : (
@@ -505,6 +514,8 @@ function AppShell() {
                 server={server}
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
+                onCreateServer={() => setShowCreateServerDialog(true)}
+                onRefreshServers={refreshServers}
               />
             </div>
           </div>
@@ -684,6 +695,10 @@ function AppShell() {
       />
 
       <CommandPalette actions={paletteActions} />
+
+      {showKeyboardShortcuts && (
+        <KeyboardShortcuts onClose={() => setShowKeyboardShortcuts(false)} />
+      )}
     </div>
   );
 }

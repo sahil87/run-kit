@@ -17,6 +17,15 @@ brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git
 brew install wvrdz/tap/run-kit
 ```
 
+## Usage
+
+```bash
+run-kit serve -d          # start daemon (default :3000)
+run-kit serve --restart   # restart daemon (idempotent)
+run-kit serve --stop      # graceful shutdown
+run-kit update            # upgrade via Homebrew and restart
+```
+
 ## Prerequisites (development)
 
 - [Node.js](https://nodejs.org/) (v20+)

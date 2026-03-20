@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "JetBrainsMono Nerd Font";
+  src: url("/fonts/JetBrainsMonoNerdFont-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant coarse (@media (pointer: coarse));
 
 @theme {
@@ -11,8 +19,8 @@
   --color-border: #454d66;
   --color-accent: #5b8af0;
   --color-accent-green: #22c55e;
-  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Menlo", "Monaco",
-    "Consolas", monospace;
+  --font-mono: "JetBrainsMono Nerd Font", "JetBrains Mono", "Fira Code", "SF Mono",
+    "Menlo", "Monaco", "Consolas", monospace;
 }
 
 html[data-theme="dark"] {

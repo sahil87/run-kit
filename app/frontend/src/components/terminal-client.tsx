@@ -142,7 +142,7 @@ export function TerminalClient({
       terminal = new Terminal({
         cursorBlink: true,
         fontFamily:
-          "JetBrains Mono, Fira Code, SF Mono, Menlo, Monaco, Consolas, monospace",
+          "JetBrainsMono Nerd Font, JetBrains Mono, Fira Code, SF Mono, Menlo, Monaco, Consolas, monospace",
         fontSize: isMobile ? 11 : 13,
         theme: XTERM_THEMES[initTheme],
       });

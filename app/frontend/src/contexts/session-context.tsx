@@ -10,6 +10,7 @@ function readStoredServer(): string {
   try {
     const stored = localStorage.getItem(SERVER_STORAGE_KEY);
     if (stored) return stored;
+    localStorage.setItem(SERVER_STORAGE_KEY, DEFAULT_SERVER);
   } catch {
     // localStorage unavailable
   }

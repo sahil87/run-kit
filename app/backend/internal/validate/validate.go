@@ -32,6 +32,27 @@ func ValidateName(name, label string) string {
 	return ""
 }
 
+// serverNamePattern matches valid server names: alphanumeric, hyphens, underscores.
+var serverNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// MaxServerNameLength is the maximum allowed length for server names.
+const MaxServerNameLength = 64
+
+// ValidateServerName validates a tmux server name against a strict pattern.
+// Returns empty string if valid, error message if invalid.
+func ValidateServerName(name string) string {
+	if name == "" {
+		return "Server name cannot be empty"
+	}
+	if len(name) > MaxServerNameLength {
+		return fmt.Sprintf("Server name exceeds maximum length of %d characters", MaxServerNameLength)
+	}
+	if !serverNamePattern.MatchString(name) {
+		return "Server name must contain only alphanumeric characters, hyphens, and underscores"
+	}
+	return ""
+}
+
 // ExpandTilde expands a leading ~ to $HOME and resolves the path.
 // Returns the expanded path and an empty error string on success,
 // or an empty path and error message on failure.

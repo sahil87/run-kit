@@ -62,7 +62,7 @@ func serverFromRequest(r *http.Request) string {
 	if s == "" {
 		return "default"
 	}
-	if validate.ValidateName(s, "Server name") != "" {
+	if validate.ValidateServerName(s) != "" {
 		return "default"
 	}
 	return s

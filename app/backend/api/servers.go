@@ -29,7 +29,7 @@ func (s *Server) handleServerCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := validate.ValidateName(body.Name, "Server name"); errMsg != "" {
+	if errMsg := validate.ValidateServerName(body.Name); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
@@ -57,7 +57,7 @@ func (s *Server) handleServerKill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := validate.ValidateName(body.Name, "Server name"); errMsg != "" {
+	if errMsg := validate.ValidateServerName(body.Name); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}

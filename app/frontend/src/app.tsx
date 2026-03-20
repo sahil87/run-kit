@@ -271,7 +271,7 @@ function AppShell() {
 
   const handleCreateServer = useCallback(async () => {
     const trimmed = createServerName.trim();
-    if (!trimmed) return;
+    if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
     try {
       await createServer(trimmed);
       await refreshServers();
@@ -292,13 +292,15 @@ function AppShell() {
         refreshServers();
         if (remaining.length > 0) {
           handleSwitchServer(remaining[0]);
+        } else {
+          setServer("");
         }
       }
     } catch {
       // error
     }
     setShowKillServerConfirm(false);
-  }, [server, refreshServers, handleSwitchServer]);
+  }, [server, refreshServers, handleSwitchServer, setServer]);
 
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);

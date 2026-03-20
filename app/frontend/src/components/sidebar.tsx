@@ -294,7 +294,7 @@ export function Sidebar({
             <span className="ml-0.5 text-text-secondary text-[10px]">{serverDropdownOpen ? "\u25B4" : "\u25BE"}</span>
           </button>
           {serverDropdownOpen && (
-            <div className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">
+            <div role="listbox" className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">
               {servers.length === 0 ? (
                 <div className="text-xs text-text-secondary px-3 py-1.5">No servers</div>
               ) : (

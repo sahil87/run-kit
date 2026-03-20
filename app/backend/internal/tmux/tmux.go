@@ -54,7 +54,7 @@ func ReloadConfig(server string) error {
 
 // serverArgs returns the argument prefix for commands targeting a given server.
 // For "default", returns an empty slice (no -L flag). For any other name, returns
-// ["-L", name] plus the config flag if RK_TMUX_CONF is set.
+// ["-L", name] plus the config flag included when a config path is available.
 func serverArgs(server string) []string {
 	if server == "default" {
 		return nil
@@ -168,7 +168,14 @@ func ListSessions(server string) ([]SessionInfo, error) {
 
 	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}", listDelim, listDelim)
 
-	lines, _ := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
+	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no server running") || strings.Contains(errMsg, "failed to connect") {
+			return nil, nil
+		}
+		return nil, err
+	}
 	sessions := parseSessions(lines)
 
 	if len(sessions) == 0 {
@@ -366,9 +373,17 @@ func ListServers() ([]string, error) {
 
 	var servers []string
 	for _, e := range entries {
-		if !e.IsDir() {
-			servers = append(servers, e.Name())
+		if e.IsDir() {
+			continue
 		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSocket == 0 {
+			continue
+		}
+		servers = append(servers, e.Name())
 	}
 	sort.Strings(servers)
 	return servers, nil

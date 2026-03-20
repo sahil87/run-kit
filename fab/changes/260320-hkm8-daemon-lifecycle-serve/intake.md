@@ -92,24 +92,44 @@ run-kit daemon started (rk-daemon/rk/serve)
 
 - **`scripts/supervisor.sh`** — deleted entirely
 - **`.restart-requested` signal file** — no longer created or checked
-- **Justfile recipes** — `up`, `down`, `restart` updated to use the new CLI:
-  - `up` → `run-kit serve -d` (or `just build && ./dist/run-kit serve -d` for dev)
-  - `down` → `run-kit serve --stop`
-  - `restart` → `run-kit serve --restart`
-- **Constitution reference** — the `.restart-requested` file and signal-based restart mention in the constitution should be updated to reflect the new kill-and-restart approach
+- **`Caddyfile.example`** — removed; Tailscale Serve is the recommended HTTPS path
+- **`docs/wiki/caddy.md`** — removed; Caddy guide no longer needed
+- **`config/tmux.conf`** — removed; embedded copy in `app/backend/internal/tmux/tmux.conf` is now canonical
+- **CI tmux.conf copy step** — removed from `.github/workflows/release.yml` (no longer needed)
+- **Constitution reference** — the `.restart-requested` file and signal-based restart mention updated
+
+### Justfile updates
+
+- `up`/`down`/`restart` → use new CLI flags (`run-kit serve -d/--stop/--restart`)
+- New `dev-run-kit` recipe — run any `run-kit` CLI command from source (`just dev-run-kit serve -d`)
+- New `dev-backend` / `dev-frontend` recipes — run Go or Vite dev servers independently
+- Removed Caddyfile setup from `just setup`
+
+### Tmux config consolidation
+
+The embedded copy at `app/backend/internal/tmux/tmux.conf` is now the single source of truth. The `config/tmux.conf` file and the CI copy step are removed. Enhanced keybindings in the embedded config.
 
 ## Affected Memory
 
-- `run-kit/architecture`: (modify) Update daemon/supervisor section to reflect tmux-based lifecycle
+- `run-kit/architecture`: (modify) Update daemon/supervisor section, CLI subcommands, internal packages, repo structure
+- `run-kit/tmux-sessions`: (modify) Minor updates
 
 ## Impact
 
 - **CLI**: `app/backend/cmd/run-kit/serve.go` — new flags, daemon management logic
-- **CLI**: `app/backend/cmd/run-kit/upgrade.go` — `--restart` flag, post-upgrade restart
+- **CLI**: `app/backend/cmd/run-kit/upgrade.go` — auto-restart after upgrade
+- **Internal**: `app/backend/internal/daemon/` — new package for tmux daemon helpers
 - **Scripts**: `scripts/supervisor.sh` — deleted
-- **Config**: `justfile` — `up`/`down`/`restart` recipes updated
-- **Docs**: `fab/project/constitution.md` — restart mechanism description updated
-- **Internal**: May need a small `internal/daemon/` package for tmux daemon helpers (detect, start, stop, restart) to keep `serve.go` and `upgrade.go` DRY
+- **Scripts**: `scripts/build.sh` — removed tmux.conf copy step
+- **Scripts**: `scripts/doctor.sh` — removed caddy check
+- **Config**: `justfile` — `up`/`down`/`restart` updated + new dev recipes
+- **Config**: `config/tmux.conf` — deleted (canonical copy is embedded)
+- **CI**: `.github/workflows/release.yml` — removed tmux.conf copy step
+- **Docs**: `fab/project/constitution.md` — restart mechanism updated
+- **Docs**: `README.md` — updated self-improvement section, removed Caddy reference
+- **Docs**: `docs/wiki/caddy.md` — deleted
+- **Docs**: `docs/wiki/tailscale.md` — simplified (sole HTTPS guide)
+- **Docs**: `docs/specs/architecture.md` — minor supervisor reference cleanup
 
 ## Open Questions
 

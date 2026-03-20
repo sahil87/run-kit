@@ -107,7 +107,11 @@ run-kit daemon started (rk-daemon/rk/serve)
 
 ### Tmux config consolidation
 
-The embedded copy at `app/backend/internal/tmux/tmux.conf` is now the single source of truth. The `config/tmux.conf` file and the CI copy step are removed. Enhanced keybindings in the embedded config.
+The embedded copy at `app/backend/internal/tmux/tmux.conf` is now the single source of truth. The `config/tmux.conf` file and the CI copy step are removed. Enhanced with TUI compatibility (passthrough, extended-keys, OSC 52 clipboard, focus-events, true color), 100k scrollback, heavy pane borders with status bar (command, path, git branch, worktree badge), and vi copy mode.
+
+### Command palette bug fix
+
+Fix: selecting a palette action via Enter that opens a dialog (e.g., Keyboard Shortcuts) caused the dialog to immediately close. Root cause: the Enter keypress's default behavior activated the dialog's auto-focused Close button. Fix: `e.preventDefault()` on Enter in the palette's key handler.
 
 ## Affected Memory
 
@@ -125,6 +129,7 @@ The embedded copy at `app/backend/internal/tmux/tmux.conf` is now the single sou
 - **Config**: `justfile` — `up`/`down`/`restart` updated + new dev recipes
 - **Config**: `config/tmux.conf` — deleted (canonical copy is embedded)
 - **CI**: `.github/workflows/release.yml` — removed tmux.conf copy step
+- **Frontend**: `app/frontend/src/components/command-palette.tsx` — `e.preventDefault()` on Enter
 - **Docs**: `fab/project/constitution.md` — restart mechanism updated
 - **Docs**: `README.md` — updated self-improvement section, removed Caddy reference
 - **Docs**: `docs/wiki/caddy.md` — deleted

@@ -29,7 +29,7 @@ type TmuxOps interface {
 	RenameWindow(session string, index int, name string) error
 	SendKeys(session string, window int, keys string) error
 	SelectWindow(session string, index int) error
-	ListWindows(session string) ([]tmux.WindowInfo, error)
+	ListWindows(session string, server string) ([]tmux.WindowInfo, error)
 	SplitWindow(session string, window int) (string, error)
 	KillPane(paneID string) error
 }
@@ -84,8 +84,8 @@ func (p *prodTmuxOps) SendKeys(session string, window int, keys string) error {
 func (p *prodTmuxOps) SelectWindow(session string, index int) error {
 	return tmux.SelectWindow(session, index)
 }
-func (p *prodTmuxOps) ListWindows(session string) ([]tmux.WindowInfo, error) {
-	return tmux.ListWindows(session)
+func (p *prodTmuxOps) ListWindows(session string, server string) ([]tmux.WindowInfo, error) {
+	return tmux.ListWindows(session, server)
 }
 func (p *prodTmuxOps) SplitWindow(session string, window int) (string, error) {
 	return tmux.SplitWindow(session, window)
@@ -143,6 +143,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)
+	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
 
 	// WebSocket relay
 	r.Get("/relay/{session}/{window}", s.handleRelay)

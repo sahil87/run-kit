@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
+	"run-kit/internal/tmux"
 	"run-kit/internal/validate"
 )
 
@@ -69,15 +70,21 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	// Determine which tmux server this session lives on
+	server := r.URL.Query().Get("server")
+	if server != "default" {
+		server = "runkit"
+	}
+
 	// Verify the session exists and select the target window
-	windows, err := s.tmux.ListWindows(session)
+	windows, err := s.tmux.ListWindows(session, server)
 	if err != nil || windows == nil {
 		slog.Warn("session not found", "session", session)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4004, "Session not found"))
 		return
 	}
-	if err := s.tmux.SelectWindow(session, winIdx); err != nil {
+	if err := tmux.SelectWindowOnServer(session, winIdx, server); err != nil {
 		slog.Error("select-window failed", "err", err, "session", session, "window", windowIndex)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4004, "Window not found"))
@@ -85,7 +92,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Wait for the first resize message so we can start the PTY at the correct
-	// dimensions. Without this, tmux attaches at the default 80x24 and byobu's
+	// dimensions. Without this, tmux attaches at the default 80x24 and the
 	// status bar renders in the wrong position.
 	var initialSize pty.Winsize
 	initialSize.Cols = 80
@@ -103,7 +110,15 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 
 	// Attach to the session via PTY — renders the selected window as-is (no split)
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", session)
+	var attachArgs []string
+	if server == "runkit" {
+		attachArgs = []string{"-L", "runkit"}
+		if confPath := tmux.ConfigPath(); confPath != "" {
+			attachArgs = append(attachArgs, "-f", confPath)
+		}
+	}
+	attachArgs = append(attachArgs, "attach-session", "-t", session)
+	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
 	cmd.Env = ensureTERM(os.Environ())
 
 	ptmx, err := pty.StartWithSize(cmd, &initialSize)

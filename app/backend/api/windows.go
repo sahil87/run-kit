@@ -8,6 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"run-kit/internal/tmux"
+
 	"run-kit/internal/validate"
 )
 
@@ -46,7 +48,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		resolvedCwd = expanded
 	} else {
 		// Default to the cwd of the first window in the session.
-		if windows, err := s.tmux.ListWindows(session); err == nil && len(windows) > 0 {
+		if windows, err := s.tmux.ListWindows(session, "runkit"); err == nil && len(windows) > 0 {
 			resolvedCwd = windows[0].WorktreePath
 		}
 	}
@@ -137,7 +139,11 @@ func (s *Server) handleWindowSelect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.SelectWindow(session, index); err != nil {
+	server := r.URL.Query().Get("server")
+	if server != "default" {
+		server = "runkit"
+	}
+	if err := tmux.SelectWindowOnServer(session, index, server); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

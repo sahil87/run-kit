@@ -118,9 +118,10 @@ export async function sendKeys(
 export async function selectWindow(
   session: string,
   index: number,
+  server: "runkit" | "default" = "runkit",
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    `/api/sessions/${encodeURIComponent(session)}/windows/${index}/select`,
+    `/api/sessions/${encodeURIComponent(session)}/windows/${index}/select?server=${server}`,
     { method: "POST" },
   );
   if (!res.ok) await throwOnError(res);
@@ -132,6 +133,16 @@ export async function getDirectories(prefix: string): Promise<string[]> {
   if (!res.ok) return [];
   const data = await res.json();
   return data.directories ?? [];
+}
+
+export async function reloadTmuxConfig(server: "runkit" | "default"): Promise<{ ok: boolean }> {
+  const res = await fetch("/api/tmux/reload-config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ server }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return { ok: true };
 }
 
 export async function uploadFile(

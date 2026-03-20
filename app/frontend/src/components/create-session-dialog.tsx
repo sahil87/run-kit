@@ -8,10 +8,10 @@ type CreateSessionDialogProps = {
   onClose: () => void;
 };
 
-/** Convert a directory name into a byobu-safe session name.
- *  Byobu uses hyphens internally for session-group naming, so we replace
- *  them with underscores. Also strip colons and periods (tmux forbids them). */
-function toByobuSafeName(dirName: string): string {
+/** Convert a directory name into a tmux-safe session name.
+ *  Strip colons and periods (tmux forbids them), replace hyphens with
+ *  underscores to avoid collisions with session-group naming. */
+function toTmuxSafeName(dirName: string): string {
   return dirName
     .replace(/[-]/g, "_")
     .replace(/[:.]/g, "_")
@@ -23,7 +23,7 @@ function deriveNameFromPath(p: string): string {
   const trimmed = p.replace(/\/+$/, "");
   if (trimmed === "~" || trimmed === "") return "";
   const segment = trimmed.split("/").pop() ?? "";
-  return toByobuSafeName(segment);
+  return toTmuxSafeName(segment);
 }
 
 export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogProps) {

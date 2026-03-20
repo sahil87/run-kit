@@ -5,7 +5,7 @@ import type { ProjectSession } from "@/types";
 export const mockSessions: ProjectSession[] = [
   {
     name: "run-kit",
-    byobu: false,
+    server: "runkit",
     windows: [
       {
         index: 0,
@@ -29,7 +29,7 @@ export const mockSessions: ProjectSession[] = [
   },
   {
     name: "ao-server",
-    byobu: false,
+    server: "runkit",
     windows: [
       {
         index: 0,
@@ -60,7 +60,7 @@ export const handlers = [
     const body = (await request.json()) as { name: string; cwd?: string };
     const newSession: ProjectSession = {
       name: body.name,
-      byobu: false,
+      server: "runkit",
       windows: [
         {
           index: 0,

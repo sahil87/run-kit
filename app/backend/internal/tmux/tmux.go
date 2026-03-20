@@ -3,18 +3,55 @@ package tmux
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
-// hasByobu reports whether the byobu command is available on PATH.
-var hasByobu = sync.OnceValue(func() bool {
-	_, err := exec.LookPath("byobu")
-	return err == nil
-})
+// configPath holds the tmux config file path read from RK_TMUX_CONF at init.
+var configPath string
+
+func init() {
+	configPath = os.Getenv("RK_TMUX_CONF")
+	if configPath != "" && !filepath.IsAbs(configPath) {
+		if abs, err := filepath.Abs(configPath); err == nil {
+			configPath = abs
+		}
+	}
+}
+
+// ConfigPath returns the resolved tmux config path (empty if RK_TMUX_CONF was not set).
+func ConfigPath() string {
+	return configPath
+}
+
+// ReloadConfig hot-reloads the tmux config via source-file on the specified server.
+// Returns an error if no config path is set or the source-file command fails.
+func ReloadConfig(server string) error {
+	if configPath == "" {
+		return fmt.Errorf("RK_TMUX_CONF not set")
+	}
+	ctx, cancel := withTimeout()
+	defer cancel()
+	if server == "default" {
+		_, err := tmuxExecDefault(ctx, "source-file", configPath)
+		return err
+	}
+	_, err := tmuxExec(ctx, "source-file", configPath)
+	return err
+}
+
+// runkitPrefix returns the argument prefix for commands targeting the runkit server.
+func runkitPrefix() []string {
+	args := []string{"-L", "runkit"}
+	if configPath != "" {
+		args = append(args, "-f", configPath)
+	}
+	return args
+}
 
 const (
 	// TmuxTimeout is the default timeout for tmux commands.
@@ -40,12 +77,15 @@ type WindowInfo struct {
 	FabStage          string `json:"fabStage,omitempty"`
 }
 
-// tmuxExec runs a tmux command with a timeout and returns stdout lines (empty lines filtered).
+// tmuxExec runs a tmux command targeting the runkit server and returns stdout lines (empty lines filtered).
 func tmuxExec(ctx context.Context, args ...string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	full := append(runkitPrefix(), args...)
+	cmd := exec.CommandContext(ctx, "tmux", full...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	raw := strings.TrimSpace(string(out))
 	if raw == "" {
@@ -61,9 +101,10 @@ func tmuxExec(ctx context.Context, args ...string) ([]string, error) {
 	return result, nil
 }
 
-// tmuxExecRaw runs a tmux command and returns raw stdout.
+// tmuxExecRaw runs a tmux command targeting the runkit server and returns raw stdout.
 func tmuxExecRaw(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	full := append(runkitPrefix(), args...)
+	cmd := exec.CommandContext(ctx, "tmux", full...)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -71,20 +112,44 @@ func tmuxExecRaw(ctx context.Context, args ...string) (string, error) {
 	return string(out), nil
 }
 
+// tmuxExecDefault runs a tmux command against the default server (no -L, no -f).
+func tmuxExecDefault(ctx context.Context, args ...string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	raw := strings.TrimSpace(string(out))
+	if raw == "" {
+		return nil, nil
+	}
+	lines := strings.Split(raw, "\n")
+	var result []string
+	for _, l := range lines {
+		if l != "" {
+			result = append(result, l)
+		}
+	}
+	return result, nil
+}
+
 // withTimeout creates a context with the default tmux timeout.
 func withTimeout() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), TmuxTimeout)
 }
 
-// SessionInfo describes a tmux session with metadata about its type.
+// SessionInfo describes a tmux session with metadata about its origin server.
 type SessionInfo struct {
-	Name  string `json:"name"`
-	Byobu bool   `json:"byobu"` // true if the session belongs to a byobu session group
+	Name   string `json:"name"`
+	Server string `json:"server"` // "runkit" or "default"
 }
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
-// filtering out byobu session-group copies. Exported for testing.
-func parseSessions(lines []string) []SessionInfo {
+// filtering out session-group copies. The server parameter tags each result.
+// Exported for testing.
+func parseSessions(lines []string, server string) []SessionInfo {
 	var sessions []SessionInfo
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
@@ -99,28 +164,35 @@ func parseSessions(lines []string) []SessionInfo {
 		// Filter out session-group copies: keep if ungrouped or if name matches group
 		if grouped == "0" || name == group {
 			sessions = append(sessions, SessionInfo{
-				Name:  name,
-				Byobu: grouped == "1",
+				Name:   name,
+				Server: server,
 			})
 		}
 	}
 	return sessions
 }
 
-// ListSessions returns all tmux sessions, filtering out byobu session-group copies.
-// Returns nil if tmux server is not running.
+// ListSessions returns sessions from both the runkit and default tmux servers,
+// filtering out session-group copies. Returns nil if no servers are running.
 func ListSessions() ([]SessionInfo, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}", listDelim, listDelim)
-	lines, err := tmuxExec(ctx, "list-sessions", "-F", format)
-	if err != nil {
-		// tmux not running or no sessions
+
+	// Query runkit server
+	runkitLines, _ := tmuxExec(ctx, "list-sessions", "-F", format)
+	runkitSessions := parseSessions(runkitLines, "runkit")
+
+	// Query default server
+	defaultLines, _ := tmuxExecDefault(ctx, "list-sessions", "-F", format)
+	defaultSessions := parseSessions(defaultLines, "default")
+
+	all := append(runkitSessions, defaultSessions...)
+	if len(all) == 0 {
 		return nil, nil
 	}
-
-	return parseSessions(lines), nil
+	return all, nil
 }
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
@@ -157,8 +229,9 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	return windows
 }
 
-// ListWindows returns windows for a given session. Returns nil if session does not exist.
-func ListWindows(session string) ([]WindowInfo, error) {
+// ListWindows returns windows for a given session. The server parameter selects
+// which tmux server to query: "runkit" or "default". Returns nil if session does not exist.
+func ListWindows(session string, server string) ([]WindowInfo, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
@@ -171,7 +244,13 @@ func ListWindows(session string) ([]WindowInfo, error) {
 		"#{pane_current_command}",
 	}, listDelim)
 
-	lines, err := tmuxExec(ctx, "list-windows", "-t", session, "-F", format)
+	var lines []string
+	var err error
+	if server == "default" {
+		lines, err = tmuxExecDefault(ctx, "list-windows", "-t", session, "-F", format)
+	} else {
+		lines, err = tmuxExec(ctx, "list-windows", "-t", session, "-F", format)
+	}
 	if err != nil {
 		return nil, nil
 	}
@@ -179,8 +258,8 @@ func ListWindows(session string) ([]WindowInfo, error) {
 	return parseWindows(lines, time.Now().Unix()), nil
 }
 
-// CreateSession creates a new detached tmux session, optionally in a specific directory.
-// Uses byobu when available so sessions get the byobu status bar and keybindings.
+// CreateSession creates a new detached tmux session on the runkit server,
+// optionally in a specific directory.
 func CreateSession(name string, cwd string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -190,11 +269,6 @@ func CreateSession(name string, cwd string) error {
 		args = append(args, "-c", cwd)
 	}
 
-	if hasByobu() {
-		cmd := exec.CommandContext(ctx, "byobu", args...)
-		_, err := cmd.Output()
-		return err
-	}
 	_, err := tmuxExec(ctx, args...)
 	return err
 }
@@ -258,10 +332,19 @@ func SendKeys(session string, window int, keys string) error {
 
 // SelectWindow selects (focuses) a window by session and index.
 func SelectWindow(session string, index int) error {
+	return SelectWindowOnServer(session, index, "runkit")
+}
+
+// SelectWindowOnServer selects a window, targeting the specified server ("runkit" or "default").
+func SelectWindowOnServer(session string, index int, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	target := fmt.Sprintf("%s:%d", session, index)
+	if server == "default" {
+		_, err := tmuxExecDefault(ctx, "select-window", "-t", target)
+		return err
+	}
 	_, err := tmuxExec(ctx, "select-window", "-t", target)
 	return err
 }

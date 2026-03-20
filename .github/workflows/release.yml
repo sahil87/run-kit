@@ -38,6 +38,9 @@ jobs:
           cp -r app/frontend/dist app/backend/build/frontend
           touch app/backend/build/frontend/.gitkeep
 
+      - name: Copy tmux config to backend embed directory
+        run: cp configs/tmux/default.conf app/backend/build/tmux.conf
+
       - name: Read version
         id: version
         run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"

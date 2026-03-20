@@ -13,6 +13,7 @@ import (
 
 	"run-kit/api"
 	"run-kit/internal/config"
+	"run-kit/internal/daemon"
 	"run-kit/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -22,6 +23,62 @@ var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the HTTP server",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		daemonFlag, _ := cmd.Flags().GetBool("daemon")
+		restartFlag, _ := cmd.Flags().GetBool("restart")
+		stopFlag, _ := cmd.Flags().GetBool("stop")
+
+		// Mutual exclusivity check.
+		flagCount := 0
+		if daemonFlag {
+			flagCount++
+		}
+		if restartFlag {
+			flagCount++
+		}
+		if stopFlag {
+			flagCount++
+		}
+		if flagCount > 1 {
+			return fmt.Errorf("flags -d/--daemon, --restart, and --stop are mutually exclusive")
+		}
+
+		switch {
+		case daemonFlag:
+			if daemon.IsRunning() {
+				return fmt.Errorf("run-kit daemon already running (%s/%s/%s)",
+					daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
+			}
+			if err := daemon.Start(); err != nil {
+				return fmt.Errorf("starting daemon: %w", err)
+			}
+			fmt.Printf("run-kit daemon started (%s/%s/%s)\n",
+				daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
+			return nil
+
+		case restartFlag:
+			if daemon.IsRunning() {
+				fmt.Println("Restarting run-kit daemon...")
+			}
+			if err := daemon.Restart(); err != nil {
+				return fmt.Errorf("restarting daemon: %w", err)
+			}
+			fmt.Printf("run-kit daemon started (%s/%s/%s)\n",
+				daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
+			return nil
+
+		case stopFlag:
+			if !daemon.IsRunning() {
+				fmt.Println("run-kit daemon not running")
+				return nil
+			}
+			if err := daemon.Stop(); err != nil {
+				return fmt.Errorf("stopping daemon: %w", err)
+			}
+			fmt.Println("run-kit daemon stopped")
+			return nil
+		}
+
+		// Default: foreground serve (existing behavior).
 		cfg := config.Load()
 
 		// Ensure tmux config exists before starting (write embedded default if missing).
@@ -68,4 +125,10 @@ var serveCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+func init() {
+	serveCmd.Flags().BoolP("daemon", "d", false, "Start as a background daemon in a tmux session")
+	serveCmd.Flags().Bool("restart", false, "Restart the background daemon")
+	serveCmd.Flags().Bool("stop", false, "Stop the background daemon")
 }

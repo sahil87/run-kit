@@ -39,16 +39,17 @@ prod:
     just build
     ./dist/run-kit
 
-# Run supervisor in dedicated tmux server (rk-sup)
+# Start run-kit daemon in background tmux session
 up:
-    tmux -L rk-sup has-session -t sup 2>/dev/null && tmux -L rk-sup new-window -t sup './scripts/supervisor.sh' || tmux -L rk-sup new-session -d -s sup './scripts/supervisor.sh'
+    run-kit serve -d
 
-# Stop supervisor
+# Stop run-kit daemon
 down:
-    tmux -L rk-sup kill-server 2>/dev/null || true
+    run-kit serve --stop
 
+# Restart run-kit daemon
 restart:
-    touch .restart-requested
+    run-kit serve --restart
 
 # ─── Test ────────────────────────────────────────────────────
 

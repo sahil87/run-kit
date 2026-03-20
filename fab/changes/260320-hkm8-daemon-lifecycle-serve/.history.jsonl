@@ -1,0 +1,20 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-20T12:56:10Z"}
+{"args":"Add daemon lifecycle management to run-kit serve: -d, --restart, --stop flags","cmd":"fab-new","event":"command","ts":"2026-03-20T12:56:10Z"}
+{"delta":"+2.4","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-03-20T12:57:03Z"}
+{"delta":"+0.0","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-03-20T12:57:18Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-20T12:57:42Z"}
+{"delta":"+2.6","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-20T13:00:32Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-20T13:00:44Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-20T13:00:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-20T13:01:31Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-20T13:02:44Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-20T13:02:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-20T13:03:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-20T13:03:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-20T13:07:23Z"}
+{"event":"review","result":"failed","ts":"2026-03-20T13:09:12Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-20T13:09:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-20T13:11:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-20T13:12:59Z"}
+{"event":"review","result":"passed","ts":"2026-03-20T13:12:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-20T13:13:58Z"}

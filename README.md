@@ -53,21 +53,17 @@ To access run-kit over HTTPS (e.g., from other machines on your tailnet), see:
 
 ## Self-Improvement Loop
 
-run-kit supports a self-improvement cycle where an agent can modify the codebase and trigger a safe restart. This requires the **supervisor** (`pnpm supervisor`), not `pnpm dev`.
+run-kit runs as a daemon in a dedicated tmux session. Lifecycle is managed via CLI flags on `run-kit serve`:
 
-The flow:
+- `run-kit serve -d` — start daemon in a tmux session (`rk-daemon` server)
+- `run-kit serve --restart` — idempotent restart (stop existing if running, start new)
+- `run-kit serve --stop` — graceful shutdown via SIGINT
 
-1. Agent commits code changes to the repository
-2. Agent creates the restart signal: `touch .restart-requested`
-3. Supervisor detects the file (polls every 2s) and runs `pnpm build`
-4. If the build succeeds, supervisor restarts both Next.js and the terminal relay
-5. Supervisor polls `GET /api/health` — if it returns 200 within 10s, the restart is complete
-6. If the build or health check fails, supervisor rolls back (`git revert HEAD`), rebuilds, and restarts the previous version
+`run-kit update` automatically restarts the daemon after upgrading via Homebrew, so the new binary takes effect immediately.
 
 Key properties:
 
-- **Signal-based** — restarts only happen via the `.restart-requested` file, never on file change
-- **Build-gated** — compile errors are caught before the server goes down
-- **Health-verified** — `/api/health` must return 200 before the restart is considered successful
-- **Atomic rollback** — failed restarts revert to the last known-good commit automatically
-- **tmux-independent** — the supervisor never touches tmux; agent sessions survive restarts unaffected
+- **Tmux-based** — daemon runs in a dedicated tmux server (`rk-daemon`), separate from agent sessions (`runkit`)
+- **Kill-and-restart** — no polling loop or signal files; restart sends C-c then starts the new binary
+- **Idempotent** — `--restart` works whether or not a daemon is currently running
+- **tmux-independent** — the daemon server never touches agent tmux sessions; agent sessions survive restarts unaffected

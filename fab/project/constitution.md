@@ -35,7 +35,7 @@ Tests MUST conform to the implementation spec — never the other way around. Wh
 All `exec.CommandContext` calls MUST use a context with timeout (default 5-10 seconds for tmux operations, 30 seconds for build operations). Zombie processes from hung tmux commands MUST NOT block the server.
 
 ### Self-Improvement Safety
-The restart mechanism MUST be signal-based (`.restart-requested` file), never automatic on file change. Rollback MUST be atomic (`git revert HEAD`). The supervisor MUST verify health (`GET /api/health` returning 200) before considering a restart successful.
+The restart mechanism uses tmux-based kill-and-restart: `run-kit serve --restart` sends `C-c` to the daemon tmux pane, waits for graceful shutdown, then sends a fresh `run-kit serve` command. There is no supervisor loop, no `.restart-requested` signal file, and no automatic file-change watching. Rollback MUST be atomic (`git revert HEAD`).
 
 ## Governance
 

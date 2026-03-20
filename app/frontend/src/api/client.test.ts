@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { server } from "../../tests/msw/server";
 import { resetMockSessions } from "../../tests/msw/handlers";
 import {
+  getHealth,
   getSessions,
   createSession,
   killSession,
@@ -21,6 +22,12 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe("API client", () => {
+  it("getHealth fetches GET /api/health with hostname", async () => {
+    const health = await getHealth();
+    expect(health.status).toBe("ok");
+    expect(health.hostname).toBe("test-host");
+  });
+
   it("getSessions fetches GET /api/sessions", async () => {
     const sessions = await getSessions();
     expect(sessions).toHaveLength(2);

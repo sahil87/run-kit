@@ -1,0 +1,42 @@
+id: uq0k
+name: 260320-uq0k-hostname-browser-title
+created: 2026-03-20T05:57:01Z
+created_by: arbaaz-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 19
+    total: 0
+confidence:
+    certain: 6
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 79.4
+        reversibility: 91.7
+        competence: 85.6
+        disambiguation: 82.2
+stage_metrics:
+    intake: {started_at: "2026-03-20T05:57:01Z", driver: fab-new, iterations: 1, completed_at: "2026-03-20T06:16:07Z"}
+    spec: {started_at: "2026-03-20T06:16:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-20T06:18:52Z"}
+    tasks: {started_at: "2026-03-20T06:18:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-20T06:18:55Z"}
+    apply: {started_at: "2026-03-20T06:18:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-20T06:22:58Z"}
+    review: {started_at: "2026-03-20T06:22:58Z", driver: fab-continue, iterations: 1, completed_at: "2026-03-20T06:26:03Z"}
+    hydrate: {started_at: "2026-03-20T06:26:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-20T06:26:58Z"}
+    ship: {started_at: "2026-03-20T06:26:58Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-20T06:26:58Z

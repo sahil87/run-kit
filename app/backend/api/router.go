@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/go-chi/chi/v5"
@@ -39,6 +40,7 @@ type Server struct {
 	logger   *slog.Logger
 	sessions SessionFetcher
 	tmux     TmuxOps
+	hostname string
 	sseHub   *sseHub
 	sseOnce  sync.Once
 }
@@ -97,20 +99,23 @@ func (p *prodTmuxOps) KillPane(paneID string) error {
 // NewRouter creates the chi router with all middleware and routes.
 // Uses production dependencies (live tmux, real session fetcher).
 func NewRouter(logger *slog.Logger) chi.Router {
+	hostname, _ := os.Hostname()
 	s := &Server{
 		logger:   logger,
 		sessions: &prodSessionFetcher{},
 		tmux:     &prodTmuxOps{},
+		hostname: hostname,
 	}
 	return s.buildRouter()
 }
 
 // NewTestRouter creates a chi router with injectable dependencies for testing.
-func NewTestRouter(logger *slog.Logger, sf SessionFetcher, ops TmuxOps) chi.Router {
+func NewTestRouter(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, hostname string) chi.Router {
 	s := &Server{
 		logger:   logger,
 		sessions: sf,
 		tmux:     ops,
+		hostname: hostname,
 	}
 	return s.buildRouter()
 }

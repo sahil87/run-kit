@@ -80,7 +80,7 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/health` | GET | Returns `200 {"status":"ok"}` for supervisor health checks |
+| `/api/health` | GET | Returns `200 {"status":"ok","hostname":"..."}` for supervisor health checks. Hostname computed once at startup via `os.Hostname()`, stored in `Server` struct; falls back to `""` on error |
 | `/api/sessions` | GET | Returns `ProjectSession[]` — one per tmux session, with auto-detected fab enrichment (`fabChange`/`fabStage` on windows) |
 | `/api/sessions` | POST | Create session — JSON body `{"name":"...","cwd":"..."}`. Returns `201 {"ok":true}` |
 | `/api/sessions/:session/kill` | POST | Kill session — `:session` validated via `validate.ValidateName()`. Returns `200 {"ok":true}` |
@@ -99,6 +99,7 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 
 | Function | Method | Path |
 |----------|--------|------|
+| `getHealth()` | GET | `/api/health` |
 | `getSessions()` | GET | `/api/sessions` |
 | `createSession(name, cwd?)` | POST | `/api/sessions` |
 | `killSession(session)` | POST | `/api/sessions/:session/kill` |
@@ -171,6 +172,8 @@ No `max-w-4xl` constraint — all zones span full width. Terminal fills all avai
 
 **iOS Touch Scroll Prevention** — Fullbleed is always active in the single-view model. The `fullbleed` class is added to `<html>` by `useVisualViewport` on mount (also present as a static default in `index.html` for FOUC prevention). `globals.css` applies `overflow: hidden` and `overscroll-behavior: none` to both `html` and `body` via `html.fullbleed` selectors, preventing iOS Safari elastic bounce scrolling. The terminal container div uses `touch-none` (`touch-action: none`) so the browser yields touch gestures to xterm.js for scrollback handling.
 
+**Browser title** — `useBrowserTitle` hook sets `document.title` dynamically based on hostname (fetched once from `GET /api/health` on app init) and route params. Dashboard: `RunKit — {hostname}`. Terminal: `{session}/{window} — {hostname}`. Omits hostname suffix when empty. Static `<title>RunKit</title>` in `index.html` remains as pre-hydration fallback.
+
 Single-view model: there are no page transitions or per-page chrome injection. The chrome reads the current selection and renders directly.
 
 ## Design Decisions
@@ -200,7 +203,8 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 - **Armed modifiers bridge to physical keyboard** — When bottom-bar modifiers (Ctrl/Alt) are armed, a capture-phase `keydown` listener intercepts physical keypresses, translates them to terminal escape sequences (Ctrl+letter → control characters, Alt → ESC prefix), and sends via WebSocket. Prevents xterm from receiving the unmodified key. Ignores real Cmd/Ctrl/Alt held by the OS.
 - **File upload via server filesystem (not terminal binary injection)** — Browser uploads file to `POST /api/sessions/:session/upload`, server writes to `.uploads/` in project root, path auto-inserted into compose buffer. Works because run-kit server and tmux are always co-located; the browser is the remote part. Session identified by URL param (consistent with other session-scoped endpoints, replaces legacy form field approach)
 - **Handler files split by resource domain (not monolithic routes.go)** — Each handler file owns one resource: `sessions.go`, `windows.go`, `directories.go`, `upload.go`, `sse.go`, `relay.go`, `spa.go`, `health.go`. `router.go` owns middleware, dependency interfaces, and route registration only. (`260312-r4t9-go-backend-api`)
-- **Dependency injection via interfaces for handler testability** — `Server` struct holds `SessionFetcher` and `TmuxOps` interfaces. `NewRouter()` wires production implementations; `NewTestRouter()` accepts mocks. Enables `httptest.NewRecorder` tests without live tmux. (`260312-r4t9-go-backend-api`)
+- **Dependency injection via interfaces for handler testability** — `Server` struct holds `SessionFetcher` and `TmuxOps` interfaces, plus a `hostname` field (computed via `os.Hostname()` in `NewRouter()`, empty string on failure). `NewRouter()` wires production implementations; `NewTestRouter()` accepts mocks (including hostname). Enables `httptest.NewRecorder` tests without live tmux. (`260312-r4t9-go-backend-api`)
+- **Hostname via health endpoint (not a dedicated endpoint)** — hostname is an OS-level value computed once at startup and stored in `Server` struct. Exposed via `/api/health` response (adding a field to an existing endpoint) rather than a new `GET /api/hostname` route. Minimal surface area, consistent with the single-port architecture. (`260320-uq0k-hostname-browser-title`)
 - **Per-window fab enrichment via `fab-go pane-map` (replaces per-session file reading)** — Single `fab-go pane-map --json --all-sessions` subprocess call per SSE tick replaces per-session `.fab-status.yaml` + `.fab-runtime.yaml` file reads. Provides per-window resolution (each worktree window shows its own change/stage) instead of per-session (all windows inherited session-level state). Decouples from internal file formats. `internal/fab` package deleted entirely. (`260313-3vlx-pane-map-enrichment`, supersedes `260312-r4t9-go-backend-api` and `260313-txna-rich-sidebar-window-status` decisions)
 
 ## Testing
@@ -273,3 +277,4 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-18 | **Light theme support** — ThemeProvider context (outermost, split pattern) with three modes (system/light/dark). CSS `data-theme` attribute on `<html>` switches color tokens via `globals.css` selectors. Blocking inline script in `index.html` for no-flicker init. xterm terminal theme updates live. Theme switcher in command palette. Provider tree: `ThemeProvider > ChromeProvider > SessionProvider > AppShell`. | `260318-eseg-add-light-theme-support` |
 | 2026-03-18 | **Dedicated tmux server** — All run-kit sessions live on a named tmux server `runkit` (via `tmux -L runkit`). `internal/tmux` commands prefixed with `-L runkit` and optional `-f` from `RK_TMUX_CONF` env var. `ListSessions()` queries both runkit and default servers, returning `SessionInfo` with `Server` field. `ListWindows()` accepts server parameter. `CreateSession()` uses plain `tmux new-session` on runkit server (byobu dependency removed, `sync.OnceValue` detection deleted). `ProjectSession` type gains `Server` field. Relay attaches to runkit server. New `config/tmux.conf` with dark-themed status bar and F2/F3/F4 keybindings. Frontend: `ProjectSession` type gains `server` field, sidebar shows `↗` marker for default-server sessions. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | **Multi-server relay + config reload** — `RK_TMUX_CONF` resolved to absolute path at init (fixes CWD-dependent config loading). Relay and select-window endpoints accept `?server=` query param to route to runkit or default tmux server (fixes default-server sessions not connecting). `SelectWindowOnServer()` added. `ReloadConfig(server)` hot-reloads tmux config via `source-file`. New `POST /api/tmux/reload-config` endpoint + `reloadTmuxConfig(server)` client function + "Reload tmux config" command palette action (targets current session's server). `tmuxExec`/`tmuxExecDefault` capture stderr in error messages. `TerminalClient` accepts `server` prop. | `260318-0gjh-dedicated-tmux-server` |
+| 2026-03-20 | **Hostname in browser title** — `Server` struct gains `hostname` field (computed once via `os.Hostname()` in `NewRouter()`, empty string fallback). `/api/health` response extended to `{"status":"ok","hostname":"..."}`. New `getHealth()` API client function. `useBrowserTitle` hook sets `document.title` dynamically: `RunKit — {hostname}` on Dashboard, `{session}/{window} — {hostname}` on terminal pages. Hostname suffix omitted when empty. | `260320-uq0k-hostname-browser-title` |

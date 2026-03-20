@@ -11,7 +11,7 @@ import (
 
 func TestHealthEndpoint(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	router := NewTestRouter(logger, nil, nil)
+	router := NewTestRouter(logger, nil, nil, "test-host")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	rec := httptest.NewRecorder()
@@ -34,5 +34,36 @@ func TestHealthEndpoint(t *testing.T) {
 
 	if body["status"] != "ok" {
 		t.Errorf("body.status = %q, want %q", body["status"], "ok")
+	}
+
+	if body["hostname"] != "test-host" {
+		t.Errorf("body.hostname = %q, want %q", body["hostname"], "test-host")
+	}
+}
+
+func TestHealthEndpointEmptyHostname(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	router := NewTestRouter(logger, nil, nil, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body["status"] != "ok" {
+		t.Errorf("body.status = %q, want %q", body["status"], "ok")
+	}
+
+	if body["hostname"] != "" {
+		t.Errorf("body.hostname = %q, want %q", body["hostname"], "")
 	}
 }

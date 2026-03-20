@@ -50,6 +50,11 @@ export function resetMockSessions() {
 }
 
 export const handlers = [
+  // GET /api/health
+  http.get("/api/health", () => {
+    return HttpResponse.json({ status: "ok", hostname: "test-host" });
+  }),
+
   // GET /api/sessions
   http.get("/api/sessions", () => {
     return HttpResponse.json(sessions);

@@ -13,9 +13,6 @@ cp -r "$REPO_ROOT/app/frontend/dist" "$REPO_ROOT/app/backend/build/frontend"
 # Restore .gitkeep so the embed directory stays tracked in git
 touch "$REPO_ROOT/app/backend/build/frontend/.gitkeep"
 
-echo "==> Copying tmux.conf to backend embed directory..."
-cp "$REPO_ROOT/config/tmux.conf" "$REPO_ROOT/app/backend/internal/tmux/tmux.conf"
-
 VERSION="$(cat "$REPO_ROOT/VERSION")"
 echo "==> Building run-kit v${VERSION}..."
 

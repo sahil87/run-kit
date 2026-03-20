@@ -62,11 +62,36 @@ jobs:
             tar -czf "../../dist/${output}.tar.gz" -C "../../dist/${output}" run-kit
           done
 
+      - name: Determine release notes base tag
+        id: release-base
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          # Extract major.minor from current tag (e.g. v0.2.0 → 0.2)
+          current_minor=$(echo "$tag" | sed 's/^v//' | cut -d. -f1-2)
+          patch=$(echo "$tag" | sed 's/^v//' | cut -d. -f3)
+
+          if [ "$patch" = "0" ]; then
+            # Minor version bump — find the first tag of the previous minor version
+            major=$(echo "$current_minor" | cut -d. -f1)
+            minor=$(echo "$current_minor" | cut -d. -f2)
+            prev_minor=$((minor - 1))
+            prev_prefix="v${major}.${prev_minor}."
+            # Get the earliest tag matching the previous minor version
+            base_tag=$(git tag -l "${prev_prefix}*" --sort=version:refname | head -1)
+            if [ -n "$base_tag" ]; then
+              echo "base_tag=$base_tag" >> "$GITHUB_OUTPUT"
+              echo "Using base tag: $base_tag (minor version release)"
+            else
+              echo "No previous minor version tags found, using default"
+            fi
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.tar.gz
           generate_release_notes: true
+          previous_tag: ${{ steps.release-base.outputs.base_tag }}
 
       - name: Update Homebrew tap
         env:

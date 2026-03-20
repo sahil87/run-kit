@@ -202,6 +202,8 @@ The `CommandPalette` component listens for a `palette:open` CustomEvent on `docu
 
 No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with xterm.js terminal input. All actions are accessible via `Cmd+K` command palette or top bar buttons.
 
+Command palette actions include: create/rename/kill session, create/rename/kill window, theme switching, "Reload tmux config" (targets whichever tmux server the current session belongs to), and terminal navigation (jump to any session/window).
+
 ## Visual Design
 
 Three theme modes: **system** (follows OS), **light**, **dark**. Default: system. Linear/Raycast aesthetic.
@@ -303,3 +305,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-18 | Light theme support — three-mode theme system (system/light/dark), `data-theme` attribute on `<html>`, CSS custom properties per theme, blocking init script for no-flicker, ThemeProvider context (split pattern), xterm live theme update, command palette theme switcher, `--color-bg-inset` token replaces hardcoded fixed-width bg | `260318-eseg-add-light-theme-support` |
 | 2026-03-18 | Inline tab rename — double-click window name in sidebar to edit inline (Enter/blur commits, Escape cancels, empty input cancels). Local state in Sidebar, no new dependencies. Existing command palette rename unchanged | `260318-dcl9-inline-tab-rename-double-click` |
 | 2026-03-18 | Sidebar external session marker — `ProjectSession` type gains `server` field (`"runkit"` or `"default"`). Session rows show `↗` marker for default-server sessions (`text-[10px] text-text-secondary/50`, `aria-label="external session"`). Runkit-server sessions have no marker. | `260318-0gjh-dedicated-tmux-server` |
+| 2026-03-20 | Multi-server terminal support — `TerminalClient` accepts `server` prop, WebSocket URL includes `?server=` param. "Reload tmux config" command palette action targets current session's server. `selectWindow` API call passes server for correct routing. | `260318-0gjh-dedicated-tmux-server` |

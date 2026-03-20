@@ -11,7 +11,7 @@ In development, `just dev` runs two concurrent processes:
 - Vite dev server (`:RK_PORT`, default 3000) — HMR, proxies `/api/*` and `/relay/*` to Go backend
 - Go backend (`:RK_PORT+1`, default 3001) — API, WebSocket relay, SPA static serving
 
-Configuration via env vars: `.env` (committed) defines `RK_PORT`, `RK_HOST`, and `RK_TMUX_CONF`, `.env.local` (gitignored) for overrides. Scripts (`dev.sh`, `prod.sh`) translate user-facing `RK_*` into process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Go and Vite read only `BACKEND_*` vars. `dev.sh` accepts `--port` for ad-hoc overrides. `RK_TMUX_CONF` is read directly by `internal/tmux` (at init) and `api/relay.go` to pass `-f` to the runkit server.
+Configuration via env vars: `.env` (committed) defines `RK_PORT`, `RK_HOST`, and `RK_TMUX_CONF`, `.env.local` (gitignored) for overrides. Scripts (`dev.sh`, `prod.sh`) translate user-facing `RK_*` into process-level `BACKEND_PORT`/`BACKEND_HOST`/`FRONTEND_PORT`. Go and Vite read only `BACKEND_*` vars. `dev.sh` accepts `--port` for ad-hoc overrides. `RK_TMUX_CONF` is read by `internal/tmux` at init and resolved to an absolute path (via `filepath.Abs`) so the config works regardless of CWD. All consumers use `tmux.ConfigPath()` getter — no direct env var reads elsewhere.
 
 run-kit sessions live on a **dedicated tmux server** named `runkit` (via `tmux -L runkit`). Sessions on the user's default tmux server are also discovered and displayed read-only. The tmux server is an external dependency — never started or stopped by run-kit.
 
@@ -33,6 +33,7 @@ app/
       upload.go       # POST /api/sessions/:session/upload
       sse.go          # GET /api/sessions/stream (hub singleton)
       relay.go        # WS /relay/:session/:window
+      tmux_config.go  # POST /api/tmux/reload-config
       spa.go          # SPA static serving from app/frontend/dist/
     go.mod, go.sum
   frontend/           # Vite + React SPA — single-view UI
@@ -58,7 +59,7 @@ Packages in `app/backend/internal/`:
 
 | Package | Responsibility |
 |---------|---------------|
-| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). Commands target the dedicated `runkit` server via `-L runkit` prefix (built by `runkitPrefix()`); optional `-f` config path from `RK_TMUX_CONF` env var. `ListSessions()` queries both the runkit and default tmux servers, returning `SessionInfo` structs with a `Server` field (`"runkit"` or `"default"`). `ListWindows(session, server)` accepts a server parameter to route the query. `CreateSession()` creates sessions on the runkit server (plain `tmux new-session`, no byobu). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields, plus `AgentState`/`AgentIdleDuration` (populated by pane-map enrichment in sessions package) |
+| `internal/tmux` | All tmux operations via `os/exec.CommandContext` with argument slices + `context.WithTimeout` (10s). Commands target the dedicated `runkit` server via `-L runkit` prefix (built by `runkitPrefix()`); optional `-f` config path from `RK_TMUX_CONF` env var, resolved to absolute path at init. `ConfigPath()` getter exposes the resolved path. `ListSessions()` queries both the runkit and default tmux servers, returning `SessionInfo` structs with a `Server` field (`"runkit"` or `"default"`). `ListWindows(session, server)` accepts a server parameter to route the query. `SelectWindowOnServer(session, index, server)` selects a window on the specified server. `ReloadConfig(server)` hot-reloads the tmux config via `source-file` on the specified server. `CreateSession()` creates sessions on the runkit server (plain `tmux new-session`, no byobu). `ListWindows()` includes `isActiveWindow` flag from `#{window_active}`, `PaneCommand` from `#{pane_current_command}`, and raw `ActivityTimestamp` from `#{window_activity}`. `WindowInfo` struct uses `FabChange`/`FabStage` fields, plus `AgentState`/`AgentIdleDuration` (populated by pane-map enrichment in sessions package). Both `tmuxExec` and `tmuxExecDefault` capture stderr in error messages for diagnostics |
 | `internal/sessions` | Fetches windows for all sessions in parallel (passing each session's `Server` field to `ListWindows`), then enriches with fab state via a single `fab-go pane-map --json --all-sessions` subprocess call. `ProjectSession` struct includes `Server` field (`"runkit"` or `"default"`) propagated from `SessionInfo`. Per-window enrichment model: pane-map returns per-pane fab state, joined to windows by `session:windowIndex` key. `paneMapEntry` struct uses `*string` for nullable JSON fields (change, stage, agent_state, agent_idle_duration). `fetchPaneMap(repoRoot)` runs `fab-go` with 10s timeout. Graceful degradation: if pane-map fails, all windows get empty fab fields |
 | `internal/validate` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
 | `internal/config` | Server config (port, host) — reads `BACKEND_PORT` and `BACKEND_HOST` env vars with defaults (3000, 127.0.0.1) |
@@ -90,6 +91,7 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
 | `/api/sessions/:session/upload` | POST | File upload — session from URL path (not form field). Multipart with `file` field, optional `window` field (defaults to `"0"`). Resolves project root via `ListWindows`, writes to `.uploads/{timestamp}-{name}`, auto-manages `.gitignore`. 50MB limit. Returns `200 {"ok":true,"path":"..."}` |
 | `/api/sessions/stream` | GET | SSE — hub singleton polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection |
+| `/api/tmux/reload-config` | POST | Reload tmux config — JSON body `{"server":"runkit"|"default"}`. Runs `source-file` on the specified server. Returns `200 {"status":"ok"}` |
 
 ### Frontend API Client
 
@@ -105,22 +107,24 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `renameWindow(session, index, name)` | POST | `/api/sessions/:session/windows/:index/rename` |
 | `sendKeys(session, index, keys)` | POST | `/api/sessions/:session/windows/:index/keys` |
 | `getDirectories(prefix)` | GET | `/api/directories?prefix=...` |
+| `selectWindow(session, index, server?)` | POST | `/api/sessions/:session/windows/:index/select?server=...` |
+| `reloadTmuxConfig(server)` | POST | `/api/tmux/reload-config` |
 | `uploadFile(session, file, window?)` | POST | `/api/sessions/:session/upload` |
 
 No multiplexed `action` field — each mutation is a separate function with its own URL path.
 
 ## Terminal Relay
 
-WebSocket endpoint at `/relay/{session}/{window}` on the same port as the API — no separate relay port. Uses `gorilla/websocket` for WebSocket handling and `creack/pty` for PTY allocation. Implementation in `app/backend/api/relay.go`.
+WebSocket endpoint at `/relay/{session}/{window}?server=runkit|default` on the same port as the API — no separate relay port. Uses `gorilla/websocket` for WebSocket handling and `creack/pty` for PTY allocation. Implementation in `app/backend/api/relay.go`. The `server` query param determines which tmux server to attach to (defaults to `runkit`).
 
 Per connection:
-1. Validates session exists via `ListWindows` and selects the target window — returns WebSocket close code `4004` if session or window not found
-2. Spawns `tmux attach-session -t <session>` via `creack/pty` for real terminal I/O
+1. Validates session exists via `ListWindows(session, server)` and selects the target window via `SelectWindowOnServer` — returns WebSocket close code `4004` if session or window not found
+2. Spawns `tmux [-L runkit] attach-session -t <session>` via `creack/pty` for real terminal I/O (runkit server includes `-L runkit` and `-f` flags; default server uses plain `tmux`)
 3. Relays I/O between WebSocket and pty (goroutine for pty→WS, main loop for WS→pty)
 4. Handles resize messages (JSON `{"type":"resize","cols":N,"rows":N}`) via `pty.Setsize`
 5. On disconnect: kills pty + pane via `sync.Once` cleanup (no orphaned panes)
 
-Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, max 30s) on unexpected close. Shows `[reconnecting...]` in terminal. Re-sends resize on successful reconnect. Skips reconnect on component unmount. On close code `4004` (session/window not found): shows `[session not found]` and navigates to `/` instead of reconnecting. Terminal page connects via `ws://${location.host}/relay/{session}/{window}` — same host, no config needed.
+Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, max 30s) on unexpected close. Shows `[reconnecting...]` in terminal. Re-sends resize on successful reconnect. Skips reconnect on component unmount. On close code `4004` (session/window not found): shows `[session not found]` and navigates to `/` instead of reconnecting. Terminal page connects via `ws://${location.host}/relay/{session}/{window}?server={runkit|default}` — same host, server param from session metadata.
 
 ## Supervisor
 
@@ -268,3 +272,4 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-15 | **Per-region scroll behavior** — Dashboard restructured: pinned stats line (`shrink-0`) + scrollable card area (`flex-1 min-h-0 overflow-y-auto`). `useVisualViewport` hook manages `fullbleed` class lifecycle on `<html>` (add on mount, remove on cleanup). Static `fullbleed` in `index.html` serves as FOUC prevention. | `260315-lnrb-dashboard-scroll-behavior` |
 | 2026-03-18 | **Light theme support** — ThemeProvider context (outermost, split pattern) with three modes (system/light/dark). CSS `data-theme` attribute on `<html>` switches color tokens via `globals.css` selectors. Blocking inline script in `index.html` for no-flicker init. xterm terminal theme updates live. Theme switcher in command palette. Provider tree: `ThemeProvider > ChromeProvider > SessionProvider > AppShell`. | `260318-eseg-add-light-theme-support` |
 | 2026-03-18 | **Dedicated tmux server** — All run-kit sessions live on a named tmux server `runkit` (via `tmux -L runkit`). `internal/tmux` commands prefixed with `-L runkit` and optional `-f` from `RK_TMUX_CONF` env var. `ListSessions()` queries both runkit and default servers, returning `SessionInfo` with `Server` field. `ListWindows()` accepts server parameter. `CreateSession()` uses plain `tmux new-session` on runkit server (byobu dependency removed, `sync.OnceValue` detection deleted). `ProjectSession` type gains `Server` field. Relay attaches to runkit server. New `config/tmux.conf` with dark-themed status bar and F2/F3/F4 keybindings. Frontend: `ProjectSession` type gains `server` field, sidebar shows `↗` marker for default-server sessions. | `260318-0gjh-dedicated-tmux-server` |
+| 2026-03-20 | **Multi-server relay + config reload** — `RK_TMUX_CONF` resolved to absolute path at init (fixes CWD-dependent config loading). Relay and select-window endpoints accept `?server=` query param to route to runkit or default tmux server (fixes default-server sessions not connecting). `SelectWindowOnServer()` added. `ReloadConfig(server)` hot-reloads tmux config via `source-file`. New `POST /api/tmux/reload-config` endpoint + `reloadTmuxConfig(server)` client function + "Reload tmux config" command palette action (targets current session's server). `tmuxExec`/`tmuxExecDefault` capture stderr in error messages. `TerminalClient` accepts `server` prop. | `260318-0gjh-dedicated-tmux-server` |

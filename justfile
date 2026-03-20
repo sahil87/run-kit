@@ -8,7 +8,7 @@ set dotenv-load := false
 
 # Check that all required tools and dependencies are installed
 doctor:
-    ./scripts/doctor.sh
+    scripts/doctor.sh
 
 # ─── Setup & Development ──────────────────────────────────────────────
 
@@ -22,17 +22,17 @@ setup:
 # Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
 # Backend runs at Frontend port + 1. Default: 3000
 dev *args:
-    ./scripts/dev.sh {{args}}
+    scripts/dev.sh {{args}}
 
 # ─── Prod & Daemon mode ────────────────────────────────────────────────────
 
 # Build Go binary + frontend for production (embedded assets + ldflags)
 build:
-    ./scripts/build.sh
+    scripts/build.sh
 
-# Tag and push a semver release (patch/minor/major)
-release bump:
-    ./scripts/release.sh {{bump}}
+# Bump version, commit, tag, and push (CI handles the rest)
+release bump="patch":
+    scripts/release.sh {{bump}}
 
 # Build and run production binary
 prod:
@@ -65,7 +65,7 @@ test-frontend:
 
 # Run Playwright e2e tests (port 3020 to avoid colliding with dev server on 3000/3001)
 test-e2e:
-    ./scripts/test-e2e.sh
+    scripts/test-e2e.sh
 
 # ─── Quality ─────────────────────────────────────────────────
 

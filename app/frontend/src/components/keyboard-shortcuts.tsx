@@ -31,14 +31,14 @@ function groupBindings(
       : formatKey(b.key);
     const existing = map.get(b.label);
     if (existing) {
-      existing.push(display);
+      if (!existing.includes(display)) existing.push(display);
     } else {
       map.set(b.label, [display]);
     }
   }
 
-  return Array.from(map, ([label, keys]) => ({ label, keys })).sort((a, b) =>
-    a.label.localeCompare(b.label),
+  return Array.from(map, ([label, keys]) => ({ label, keys: keys.sort() })).sort(
+    (a, b) => a.label.localeCompare(b.label),
   );
 }
 

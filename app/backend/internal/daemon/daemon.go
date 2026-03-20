@@ -42,12 +42,17 @@ func runTmux(ctx context.Context, args ...string) error {
 	return nil
 }
 
+// isRunningCtx checks if the daemon tmux session exists using the provided context.
+func isRunningCtx(ctx context.Context) bool {
+	return runTmux(ctx, "has-session", "-t", SessionName) == nil
+}
+
 // IsRunning returns true if the daemon tmux session exists.
 func IsRunning() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 
-	return runTmux(ctx, "has-session", "-t", SessionName) == nil
+	return isRunningCtx(ctx)
 }
 
 // Start creates a new daemon tmux session running `run-kit serve`.
@@ -72,38 +77,38 @@ func Start() error {
 }
 
 // Stop sends C-c to the daemon pane and waits up to 5 seconds for it to exit.
+// A single context bounds the entire operation (send-keys + polling + kill).
 // Returns nil if the daemon is not running.
 func Stop() error {
-	if !IsRunning() {
-		return nil
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
+
+	if !isRunningCtx(ctx) {
+		return nil
+	}
 
 	// Send C-c to trigger graceful shutdown.
 	if err := runTmux(ctx, "send-keys", "-t", target(), "C-c"); err != nil {
 		return fmt.Errorf("sending C-c to daemon: %w", err)
 	}
 
-	// Poll until the session disappears or timeout.
-	deadline := time.Now().Add(cmdTimeout)
-	for time.Now().Before(deadline) {
-		if !IsRunning() {
+	// Poll until the session disappears or context expires.
+	for {
+		select {
+		case <-ctx.Done():
+			// Timeout — kill forcefully with a fresh short context.
+			killCtx, killCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer killCancel()
+			if err := runTmux(killCtx, "kill-session", "-t", SessionName); err != nil {
+				return fmt.Errorf("killing daemon session after timeout: %w", err)
+			}
 			return nil
+		case <-time.After(stopPollInterval):
+			if !isRunningCtx(ctx) {
+				return nil
+			}
 		}
-		time.Sleep(stopPollInterval)
 	}
-
-	// Session still exists after timeout — kill it forcefully.
-	killCtx, killCancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer killCancel()
-
-	if err := runTmux(killCtx, "kill-session", "-t", SessionName); err != nil {
-		return fmt.Errorf("killing daemon session after timeout: %w", err)
-	}
-
-	return nil
 }
 
 // Restart stops the daemon if running, then starts it.

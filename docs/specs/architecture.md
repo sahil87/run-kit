@@ -91,8 +91,7 @@ run-kit/
 │       ├── vitest.config.ts
 │       └── tsconfig.json
 │
-├── supervisor.sh                      # Production process manager
-├── justfile                           # Task runner (replaces dev.sh, npm scripts)
+├── justfile                           # Task runner (dev, build, test, daemon lifecycle)
 ├── run-kit.yaml                       # Optional server config (gitignored)
 ├── pnpm-workspace.yaml                # ["app/frontend"]
 ├── fab/                               # Fab-kit project config + changes

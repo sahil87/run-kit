@@ -143,6 +143,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)
+	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
 
 	// WebSocket relay
 	r.Get("/relay/{session}/{window}", s.handleRelay)

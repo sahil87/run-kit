@@ -40,6 +40,7 @@ export async function copyToClipboard(text: string): Promise<void> {
 type TerminalClientProps = {
   sessionName: string;
   windowIndex: string;
+  server: "runkit" | "default";
   wsRef: React.MutableRefObject<WebSocket | null>;
   composeOpen: boolean;
   setComposeOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
@@ -49,6 +50,7 @@ type TerminalClientProps = {
 export function TerminalClient({
   sessionName,
   windowIndex,
+  server,
   wsRef,
   composeOpen,
   setComposeOpen,
@@ -274,7 +276,7 @@ export function TerminalClient({
 
     function connect() {
       if (cancelled) return;
-      const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndexRef.current}`;
+      const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndexRef.current}?server=${server}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.binaryType = "arraybuffer";
@@ -328,7 +330,7 @@ export function TerminalClient({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalReady, sessionName, wsRef]);
+  }, [terminalReady, sessionName, server, wsRef]);
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">

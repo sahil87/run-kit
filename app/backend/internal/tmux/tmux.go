@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,32 @@ var configPath string
 
 func init() {
 	configPath = os.Getenv("RK_TMUX_CONF")
+	if configPath != "" && !filepath.IsAbs(configPath) {
+		if abs, err := filepath.Abs(configPath); err == nil {
+			configPath = abs
+		}
+	}
+}
+
+// ConfigPath returns the resolved tmux config path (empty if RK_TMUX_CONF was not set).
+func ConfigPath() string {
+	return configPath
+}
+
+// ReloadConfig hot-reloads the tmux config via source-file on the specified server.
+// Returns an error if no config path is set or the source-file command fails.
+func ReloadConfig(server string) error {
+	if configPath == "" {
+		return fmt.Errorf("RK_TMUX_CONF not set")
+	}
+	ctx, cancel := withTimeout()
+	defer cancel()
+	if server == "default" {
+		_, err := tmuxExecDefault(ctx, "source-file", configPath)
+		return err
+	}
+	_, err := tmuxExec(ctx, "source-file", configPath)
+	return err
 }
 
 // runkitPrefix returns the argument prefix for commands targeting the runkit server.
@@ -54,9 +81,11 @@ type WindowInfo struct {
 func tmuxExec(ctx context.Context, args ...string) ([]string, error) {
 	full := append(runkitPrefix(), args...)
 	cmd := exec.CommandContext(ctx, "tmux", full...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	raw := strings.TrimSpace(string(out))
 	if raw == "" {
@@ -86,9 +115,11 @@ func tmuxExecRaw(ctx context.Context, args ...string) (string, error) {
 // tmuxExecDefault runs a tmux command against the default server (no -L, no -f).
 func tmuxExecDefault(ctx context.Context, args ...string) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "tmux", args...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	raw := strings.TrimSpace(string(out))
 	if raw == "" {
@@ -301,10 +332,19 @@ func SendKeys(session string, window int, keys string) error {
 
 // SelectWindow selects (focuses) a window by session and index.
 func SelectWindow(session string, index int) error {
+	return SelectWindowOnServer(session, index, "runkit")
+}
+
+// SelectWindowOnServer selects a window, targeting the specified server ("runkit" or "default").
+func SelectWindowOnServer(session string, index int, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	target := fmt.Sprintf("%s:%d", session, index)
+	if server == "default" {
+		_, err := tmuxExecDefault(ctx, "select-window", "-t", target)
+		return err
+	}
 	_, err := tmuxExec(ctx, "select-window", "-t", target)
 	return err
 }

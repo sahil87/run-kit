@@ -15,7 +15,7 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
-import { selectWindow, createWindow } from "@/api/client";
+import { selectWindow, createWindow, reloadTmuxConfig } from "@/api/client";
 
 const SIDEBAR_STORAGE_KEY = "runkit-sidebar-width";
 const SIDEBAR_DEFAULT_WIDTH = 220;
@@ -180,9 +180,10 @@ function AppShell() {
       });
       setDrawerOpen(false);
       // Fire-and-forget: tell tmux to select this window too
-      selectWindow(session, windowIdx).catch(() => {});
+      const server = sessions.find((s) => s.name === session)?.server ?? "runkit";
+      selectWindow(session, windowIdx, server).catch(() => {});
     },
-    [navigate, setDrawerOpen],
+    [navigate, setDrawerOpen, sessions],
   );
 
   // Dialog state management
@@ -297,6 +298,11 @@ function AppShell() {
           ]
         : []),
       ...themeActions,
+      {
+        id: "reload-tmux-config",
+        label: "Reload tmux config",
+        onSelect: () => { reloadTmuxConfig(currentSession?.server ?? "runkit").catch(() => {}); },
+      },
       ...flatWindows.map((fw) => ({
         id: `terminal-${fw.session}-${fw.window.index}`,
         label: `Terminal: ${fw.session}/${fw.window.name}`,
@@ -376,6 +382,7 @@ function AppShell() {
                   <TerminalClient
                     sessionName={sessionName}
                     windowIndex={windowIndex}
+                    server={currentSession?.server ?? "runkit"}
                     wsRef={wsRef}
                     composeOpen={composeOpen}
                     setComposeOpen={setComposeOpen}

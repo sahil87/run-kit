@@ -5,7 +5,7 @@
 run-kit is a web-based agent orchestration dashboard. Two independent processes in production, three in development:
 
 1. **Bash supervisor** (`supervisor.sh`) — builds Go binary + frontend, manages the server as a single deployment unit
-2. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port. Cobra CLI with subcommands: `serve` (default), `version`, `upgrade`, `doctor`, `status`
+2. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port. Cobra CLI with subcommands: `serve` (default), `version`, `update` (alias: `upgrade`), `doctor`, `status`
 
 In development, `just dev` runs two concurrent processes:
 - Vite dev server (`:RK_PORT`, default 3000) — HMR, proxies `/api/*` and `/relay/*` to Go backend
@@ -27,7 +27,7 @@ app/
       root.go         # Root command, version var, subcommand registration
       serve.go        # serve subcommand — HTTP server (default when no args)
       version.go      # version subcommand — prints version string
-      upgrade.go      # upgrade subcommand — Homebrew or local upgrade
+      upgrade.go      # update subcommand (alias: upgrade) — Homebrew or local update
       doctor.go       # doctor subcommand — runtime dependency checks
       status.go       # status subcommand — tmux session summary
     internal/         # validate, config, tmux, sessions
@@ -56,8 +56,6 @@ scripts/
 .github/
   workflows/
     release.yml     # CI: v* tag → cross-compile 4 targets → GitHub Release with tarballs
-Formula/
-  run-kit.rb        # Reference Homebrew formula template for wvrdz/homebrew-tap
 fab/                # Fab-kit project config + changes
 docs/               # Memory files
 supervisor.sh       # Production process manager
@@ -91,7 +89,7 @@ Packages in `app/backend/internal/`:
 | `github.com/go-chi/cors` | CORS middleware (permissive by default for multi-client API) |
 | `github.com/gorilla/websocket` | WebSocket handling for terminal relay |
 | `github.com/creack/pty` | PTY allocation (replaces node-pty, no native module compilation) |
-| `github.com/spf13/cobra` | CLI framework — subcommand management (serve, version, upgrade, doctor, status) |
+| `github.com/spf13/cobra` | CLI framework — subcommand management (serve, version, update, doctor, status) |
 | `gopkg.in/yaml.v3` | YAML parsing (legacy dependency — no longer imported after `internal/fab` removal, candidate for `go mod tidy`) |
 
 ## API Layer
@@ -208,7 +206,7 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 | *(none)* | `root.go` | Defaults to `serve` (backwards compat) |
 | `serve` | `serve.go` | Start HTTP server — loads config from env vars, chi router, graceful shutdown via SIGINT/SIGTERM |
 | `version` | `version.go` | Print `run-kit version {version}` — version injected at build time via `-X main.version=...` |
-| `upgrade` | `upgrade.go` | Detect Homebrew install (`os.Executable()` path contains `/Cellar/run-kit/`). If Homebrew: `brew update && brew upgrade run-kit`. Otherwise: print local install instructions. 120s timeout on brew commands |
+| `update` | `upgrade.go` | Alias: `upgrade`. Detect Homebrew install (`os.Executable()` path contains `/Cellar/run-kit/`). If Homebrew: `brew update --quiet`, check latest version via `brew info --json=v2`, skip if already up to date, else `brew upgrade run-kit`. Non-Homebrew: print reinstall instructions. Mirrors tu's update UX |
 | `doctor` | `doctor.go` | Check runtime dependencies only — `exec.LookPath("tmux")`. Exit 1 if any check fails |
 | `status` | `status.go` | List tmux sessions with window counts via `internal/tmux.ListSessions()` + `ListWindows()`. No server required |
 | `init-conf` | `initconf.go` | Scaffold default tmux.conf to `~/.run-kit/tmux.conf` from embedded config. `--force` to overwrite |
@@ -228,7 +226,7 @@ Both modes include SPA fallback (serve `index.html` for non-matching paths) and 
 - **Source of truth**: `VERSION` file at repo root — plain semver string (e.g., `0.1.0`), no `v` prefix
 - **Build injection**: `scripts/build.sh` reads `VERSION` and passes `-X main.version=$(cat VERSION)` via ldflags
 - **Go variable**: `var version = "dev"` in `root.go` — defaults to `"dev"` for local `go build` without ldflags
-- **Used by**: `run-kit version` (display), `run-kit upgrade` (shows current version before brew upgrade)
+- **Used by**: `run-kit version` (display), `run-kit update` (shows current version, compares with latest via `brew info --json=v2`)
 
 ## Build Pipeline
 
@@ -264,15 +262,17 @@ Updates are silent (`registerType: "autoUpdate"`) — the service worker detects
 
 **Release script** (`scripts/release.sh`): accepts bump level (`patch`/`minor`/`major`), increments `VERSION` file semver, commits with message `v{version}`, creates git tag `v{version}`, pushes commit + tag. Tag push triggers CI.
 
-**GitHub Actions** (`.github/workflows/release.yml`): triggers on `v*` tag push. Steps: checkout → setup Go (from `go.mod`) → setup Node 20 + pnpm → install frontend deps → build frontend → copy dist to backend → cross-compile 4 targets → create GitHub Release with tarballs.
+**GitHub Actions** (`.github/workflows/release.yml`): triggers on `v*` tag push. Steps: checkout → setup Go (from `go.mod`) → setup Node 20 + pnpm → install frontend deps → build frontend → copy dist to backend → cross-compile 4 targets → create GitHub Release with tarballs → update Homebrew tap.
 
 Cross-compile targets: `darwin/arm64`, `darwin/amd64`, `linux/arm64`, `linux/amd64`. Each target built with `CGO_ENABLED=0` and ldflags. Output: `run-kit-{os}-{arch}.tar.gz` tarballs uploaded to GitHub Release via `softprops/action-gh-release`.
 
+**Homebrew tap update** (final CI step): computes SHA256 for all 4 tarballs, clones `wvrdz/homebrew-tap` via `BUILD_TOKEN` org secret, generates `Formula/run-kit.rb` with real version + SHA256 values, commits and pushes.
+
 ## Homebrew Distribution
 
-**Formula**: `Formula/run-kit.rb` (reference template in-repo) for `wvrdz/homebrew-tap`. Downloads prebuilt binary from GitHub Release for the appropriate platform — zero build dependencies, zero runtime dependencies. Platform detection via `on_macos`/`on_linux` + `Hardware::CPU.arm?`. SHA256 placeholders updated after each release.
+**Formula**: `Formula/run-kit.rb` in `wvrdz/homebrew-tap` (generated by CI, not stored in-repo). Downloads prebuilt binary from GitHub Release for the appropriate platform — zero build dependencies, zero runtime dependencies. Platform detection via `on_macos`/`on_linux` + `Hardware::CPU.arm?`. Version and SHA256 values written by the CI release workflow.
 
-Install flow: `brew tap wvrdz/homebrew-tap && brew install run-kit` → downloads single binary → installs to `$(brew --prefix)/bin/run-kit`. No compilation on user's machine.
+Install flow: `brew install wvrdz/tap/run-kit` → downloads single binary → installs to `$(brew --prefix)/bin/run-kit`. No compilation on user's machine. Update: `run-kit update`.
 
 ## Design Decisions
 
@@ -384,3 +384,4 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-20 | **Multi-server relay + config reload** — `RK_TMUX_CONF` resolved to absolute path at init (fixes CWD-dependent config loading). Relay and select-window endpoints accept `?server=` query param to route to runkit or default tmux server (fixes default-server sessions not connecting). `SelectWindowOnServer()` added. `ReloadConfig(server)` hot-reloads tmux config via `source-file`. New `POST /api/tmux/reload-config` endpoint + `reloadTmuxConfig(server)` client function + "Reload tmux config" command palette action (targets current session's server). `tmuxExec`/`tmuxExecDefault` capture stderr in error messages. `TerminalClient` accepts `server` prop. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | **Hostname in browser title** — `Server` struct gains `hostname` field (computed once via `os.Hostname()` in `NewRouter()`, empty string fallback). `/api/health` response extended to `{"status":"ok","hostname":"..."}`. New `getHealth()` API client function. `useBrowserTitle` hook sets `document.title` dynamically: `RunKit — {hostname}` on Dashboard, `{session}/{window} — {hostname}` on terminal pages. Hostname suffix omitted when empty. | `260320-uq0k-hostname-browser-title` |
 | 2026-03-20 | **PWA compliance** — `vite-plugin-pwa` with autoUpdate, manifest from plugin config (standalone display, dark theme colors), Workbox service worker (precache static, NetworkOnly for API/WebSocket), iOS meta tags, theme-color sync. No backend changes. | `260320-j9a2-pwa-compliance` |
+| 2026-03-20 | **Release pipeline + update command** — `release.sh` rewritten (fab-kit/tu style: better arg parsing, help flag, detached HEAD guard). CI workflow gains "Update Homebrew tap" step: computes SHA256s from built tarballs, generates `Formula/run-kit.rb` in `wvrdz/homebrew-tap` via `BUILD_TOKEN` org secret. In-repo `Formula/run-kit.rb` deleted (now CI-generated). `upgrade` subcommand renamed to `update` (alias: `upgrade`): checks latest version via `brew info --json=v2`, skips if up-to-date, shows version transition. Mirrors tu's update UX. | — |

@@ -15,7 +15,7 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 	expected := map[string]bool{
 		"serve":   false,
 		"version": false,
-		"upgrade": false,
+		"update":  false,
 		"doctor":  false,
 		"status":  false,
 	}

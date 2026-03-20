@@ -2,7 +2,14 @@
 
 Web-based agent orchestration dashboard. Monitor and interact with tmux sessions from the browser — session overview, live terminal windows, and fab-kit integration for change tracking.
 
-## Prerequisites
+## Installation
+
+```sh
+brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git
+brew install run-kit
+```
+
+## Prerequisites (development)
 
 - [Node.js](https://nodejs.org/) (v20+)
 - [pnpm](https://pnpm.io/)

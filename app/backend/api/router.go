@@ -13,26 +13,29 @@ import (
 
 	"run-kit/internal/sessions"
 	"run-kit/internal/tmux"
+	"run-kit/internal/validate"
 )
 
 // SessionFetcher fetches enriched session data.
 type SessionFetcher interface {
-	FetchSessions() ([]sessions.ProjectSession, error)
+	FetchSessions(server string) ([]sessions.ProjectSession, error)
 }
 
 // TmuxOps defines tmux operations used by handlers.
 type TmuxOps interface {
-	CreateSession(name, cwd string) error
-	KillSession(session string) error
-	RenameSession(session, name string) error
-	CreateWindow(session, name, cwd string) error
-	KillWindow(session string, index int) error
-	RenameWindow(session string, index int, name string) error
-	SendKeys(session string, window int, keys string) error
-	SelectWindow(session string, index int) error
-	ListWindows(session string, server string) ([]tmux.WindowInfo, error)
-	SplitWindow(session string, window int) (string, error)
-	KillPane(paneID string) error
+	CreateSession(name, cwd, server string) error
+	KillSession(session, server string) error
+	RenameSession(session, name, server string) error
+	CreateWindow(session, name, cwd, server string) error
+	KillWindow(session string, index int, server string) error
+	RenameWindow(session string, index int, name, server string) error
+	SendKeys(session string, window int, keys, server string) error
+	SelectWindow(session string, index int, server string) error
+	ListWindows(session, server string) ([]tmux.WindowInfo, error)
+	SplitWindow(session string, window int, server string) (string, error)
+	KillPane(paneID, server string) error
+	ListServers() ([]string, error)
+	KillServer(server string) error
 }
 
 // Server holds handler dependencies.
@@ -52,48 +55,67 @@ func (s *Server) initSSEHub() {
 	})
 }
 
+// serverFromRequest extracts and validates the server query parameter from the
+// request, defaulting to "default" if absent or invalid.
+func serverFromRequest(r *http.Request) string {
+	s := r.URL.Query().Get("server")
+	if s == "" {
+		return "default"
+	}
+	if validate.ValidateServerName(s) != "" {
+		return "default"
+	}
+	return s
+}
+
 // prodSessionFetcher wraps the sessions package for production use.
 type prodSessionFetcher struct{}
 
-func (p *prodSessionFetcher) FetchSessions() ([]sessions.ProjectSession, error) {
-	return sessions.FetchSessions()
+func (p *prodSessionFetcher) FetchSessions(server string) ([]sessions.ProjectSession, error) {
+	return sessions.FetchSessions(server)
 }
 
 // prodTmuxOps wraps the tmux package for production use.
 type prodTmuxOps struct{}
 
-func (p *prodTmuxOps) CreateSession(name, cwd string) error {
-	return tmux.CreateSession(name, cwd)
+func (p *prodTmuxOps) CreateSession(name, cwd, server string) error {
+	return tmux.CreateSession(name, cwd, server)
 }
-func (p *prodTmuxOps) KillSession(session string) error {
-	return tmux.KillSession(session)
+func (p *prodTmuxOps) KillSession(session, server string) error {
+	return tmux.KillSession(session, server)
 }
-func (p *prodTmuxOps) RenameSession(session, name string) error {
-	return tmux.RenameSession(session, name)
+func (p *prodTmuxOps) RenameSession(session, name, server string) error {
+	return tmux.RenameSession(session, name, server)
 }
-func (p *prodTmuxOps) CreateWindow(session, name, cwd string) error {
-	return tmux.CreateWindow(session, name, cwd)
+func (p *prodTmuxOps) CreateWindow(session, name, cwd, server string) error {
+	return tmux.CreateWindow(session, name, cwd, server)
 }
-func (p *prodTmuxOps) KillWindow(session string, index int) error {
-	return tmux.KillWindow(session, index)
+func (p *prodTmuxOps) KillWindow(session string, index int, server string) error {
+	return tmux.KillWindow(session, index, server)
 }
-func (p *prodTmuxOps) RenameWindow(session string, index int, name string) error {
-	return tmux.RenameWindow(session, index, name)
+func (p *prodTmuxOps) RenameWindow(session string, index int, name, server string) error {
+	return tmux.RenameWindow(session, index, name, server)
 }
-func (p *prodTmuxOps) SendKeys(session string, window int, keys string) error {
-	return tmux.SendKeys(session, window, keys)
+func (p *prodTmuxOps) SendKeys(session string, window int, keys, server string) error {
+	return tmux.SendKeys(session, window, keys, server)
 }
-func (p *prodTmuxOps) SelectWindow(session string, index int) error {
-	return tmux.SelectWindow(session, index)
+func (p *prodTmuxOps) SelectWindow(session string, index int, server string) error {
+	return tmux.SelectWindow(session, index, server)
 }
-func (p *prodTmuxOps) ListWindows(session string, server string) ([]tmux.WindowInfo, error) {
+func (p *prodTmuxOps) ListWindows(session, server string) ([]tmux.WindowInfo, error) {
 	return tmux.ListWindows(session, server)
 }
-func (p *prodTmuxOps) SplitWindow(session string, window int) (string, error) {
-	return tmux.SplitWindow(session, window)
+func (p *prodTmuxOps) SplitWindow(session string, window int, server string) (string, error) {
+	return tmux.SplitWindow(session, window, server)
 }
-func (p *prodTmuxOps) KillPane(paneID string) error {
-	return tmux.KillPane(paneID)
+func (p *prodTmuxOps) KillPane(paneID, server string) error {
+	return tmux.KillPane(paneID, server)
+}
+func (p *prodTmuxOps) ListServers() ([]string, error) {
+	return tmux.ListServers()
+}
+func (p *prodTmuxOps) KillServer(server string) error {
+	return tmux.KillServer(server)
 }
 
 // NewRouter creates the chi router with all middleware and routes.
@@ -149,6 +171,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
+
+	// Server management routes
+	r.Get("/api/servers", s.handleServersList)
+	r.Post("/api/servers", s.handleServerCreate)
+	r.Post("/api/servers/kill", s.handleServerKill)
 
 	// WebSocket relay
 	r.Get("/relay/{session}/{window}", s.handleRelay)

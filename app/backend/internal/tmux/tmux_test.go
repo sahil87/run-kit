@@ -18,10 +18,9 @@ func windowLine(index int, name, path string, activityTs int64, active int, pane
 
 func TestParseSessions(t *testing.T) {
 	tests := []struct {
-		name   string
-		lines  []string
-		server string
-		want   []SessionInfo
+		name  string
+		lines []string
+		want  []SessionInfo
 	}{
 		{
 			name: "standard sessions with session_grouped=0",
@@ -29,8 +28,7 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("alpha", "0", "alpha"),
 				sessionLine("beta", "0", "beta"),
 			},
-			server: "runkit",
-			want:   []SessionInfo{{Name: "alpha", Server: "runkit"}, {Name: "beta", Server: "runkit"}},
+			want: []SessionInfo{{Name: "alpha"}, {Name: "beta"}},
 		},
 		{
 			name: "filters out session-group copies (grouped=1, name != group)",
@@ -38,28 +36,24 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("devshell", "0", "devshell"),
 				sessionLine("devshell-82", "1", "devshell"),
 			},
-			server: "default",
-			want:   []SessionInfo{{Name: "devshell", Server: "default"}},
+			want: []SessionInfo{{Name: "devshell"}},
 		},
 		{
 			name: "keeps group-named session (grouped=1, name == group)",
 			lines: []string{
 				sessionLine("mygroup", "1", "mygroup"),
 			},
-			server: "default",
-			want:   []SessionInfo{{Name: "mygroup", Server: "default"}},
+			want: []SessionInfo{{Name: "mygroup"}},
 		},
 		{
-			name:   "empty input returns nil",
-			lines:  nil,
-			server: "runkit",
-			want:   nil,
+			name:  "empty input returns nil",
+			lines: nil,
+			want:  nil,
 		},
 		{
-			name:   "empty slice returns nil",
-			lines:  []string{},
-			server: "runkit",
-			want:   nil,
+			name:  "empty slice returns nil",
+			lines: []string{},
+			want:  nil,
 		},
 		{
 			name: "malformed line with fewer than 2 fields is skipped",
@@ -67,16 +61,14 @@ func TestParseSessions(t *testing.T) {
 				"onlyname",
 				sessionLine("good", "0", "good"),
 			},
-			server: "runkit",
-			want:   []SessionInfo{{Name: "good", Server: "runkit"}},
+			want: []SessionInfo{{Name: "good"}},
 		},
 		{
 			name: "ungrouped session with no session_group field (2 fields only)",
 			lines: []string{
 				"mysession\t0",
 			},
-			server: "default",
-			want:   []SessionInfo{{Name: "mysession", Server: "default"}},
+			want: []SessionInfo{{Name: "mysession"}},
 		},
 		{
 			name: "multiple session-group copies filtered, original kept",
@@ -85,25 +77,23 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("proj-1", "1", "proj"),
 				sessionLine("proj-2", "1", "proj"),
 			},
-			server: "runkit",
-			want:   []SessionInfo{{Name: "proj", Server: "runkit"}},
+			want: []SessionInfo{{Name: "proj"}},
 		},
 		{
-			name: "mixed grouped and ungrouped sessions tagged with server",
+			name: "mixed grouped and ungrouped sessions",
 			lines: []string{
 				sessionLine("alpha", "0", "alpha"),
 				sessionLine("beta", "1", "beta"),
 				sessionLine("beta-N", "1", "beta"),
 				sessionLine("gamma", "0", "gamma"),
 			},
-			server: "default",
-			want:   []SessionInfo{{Name: "alpha", Server: "default"}, {Name: "beta", Server: "default"}, {Name: "gamma", Server: "default"}},
+			want: []SessionInfo{{Name: "alpha"}, {Name: "beta"}, {Name: "gamma"}},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseSessions(tt.lines, tt.server)
+			got := parseSessions(tt.lines)
 			if !sessionInfoSliceEqual(got, tt.want) {
 				t.Errorf("parseSessions() = %v, want %v", got, tt.want)
 			}
@@ -121,14 +111,14 @@ func TestParseSessionsMultiServer(t *testing.T) {
 		sessionLine("gamma", "0", "gamma"),
 	}
 
-	runkitSessions := parseSessions(runkitLines, "runkit")
-	defaultSessions := parseSessions(defaultLines, "default")
+	runkitSessions := parseSessions(runkitLines)
+	defaultSessions := parseSessions(defaultLines)
 	all := append(runkitSessions, defaultSessions...)
 
 	want := []SessionInfo{
-		{Name: "alpha", Server: "runkit"},
-		{Name: "beta", Server: "runkit"},
-		{Name: "gamma", Server: "default"},
+		{Name: "alpha"},
+		{Name: "beta"},
+		{Name: "gamma"},
 	}
 
 	if !sessionInfoSliceEqual(all, want) {

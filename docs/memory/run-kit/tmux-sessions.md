@@ -1,12 +1,24 @@
 # tmux Session Enumeration
 
-## Multi-Server Architecture
+## Single-Active-Server Model
 
-run-kit uses a **dedicated tmux server** named `runkit` (via `tmux -L runkit`) for sessions it creates. It also discovers sessions on the user's **default tmux server** for read-only display. `ListSessions()` queries both servers and merges the results, tagging each `SessionInfo` with a `Server` field (`"runkit"` or `"default"`).
+run-kit connects to **one tmux server at a time**. The active server is selected by the user via the sidebar server selector or command palette. The backend is stateless — the frontend sends `?server={name}` on every API request (SSE, REST, WebSocket relay). If the parameter is omitted, the backend defaults to the `default` tmux server.
+
+All tmux operations use `tmuxExecServer(ctx, server, args...)` which prepends `-L {server}` for named servers. The `"default"` server uses no `-L` flag, connecting to the user's standard tmux server. The config flag `-f {path}` is applied to all named servers (not just runkit).
+
+### Server Discovery
+
+`ListServers()` discovers available tmux servers by scanning the socket directory at `/tmp/tmux-{uid}/`. Each socket file represents a running server. Returns sorted server names.
+
+### Server Lifecycle
+
+- **Create**: Implicit — `CreateSession("0", $HOME, serverName)` starts a new server when the first session is created on it
+- **Kill**: `KillServer(server)` runs `tmux [-L server] kill-server`, destroying all sessions
+- **Switch**: Frontend updates localStorage `"runkit-server"` and reconnects SSE with updated `?server=` param
 
 ## Session-Group Filtering
 
-tmux has a **session groups** feature. When multiple clients attach to the same session (e.g., via byobu or `tmux attach`), tmux may create derived session-group copies. This means `tmux list-sessions` returns both the original and derived copies:
+tmux has a **session groups** feature. When multiple clients attach to the same session (e.g., via `tmux attach`), tmux may create derived session-group copies. This means `tmux list-sessions` returns both the original and derived copies:
 
 ```
 devshell     grouped=1  group=devshell    ← primary
@@ -26,7 +38,7 @@ Grouped sessions share the same windows, so displaying both is incorrect — it 
 | `#{session_grouped}` | `1` if the session belongs to ANY group, `0` otherwise |
 | `#{session_group}` | The group name (e.g., `devshell`) — empty if not grouped |
 
-**Filter rule**: keep sessions where `grouped=0` OR `name === group`. Applied identically to both the runkit and default server results.
+**Filter rule**: keep sessions where `grouped=0` OR `name === group`. Applied to the queried server's results.
 
 - `devshell` → grouped=1, name=group → **keep** (primary)
 - `devshell-82` → grouped=1, name≠group → **filter out** (derived copy)
@@ -38,20 +50,34 @@ Grouped sessions share the same windows, so displaying both is incorrect — it 
 
 ## Impact on Other Operations
 
-- `ListWindows(session, server)` — accepts a `server` parameter (`"runkit"` or `"default"`) to route the query to the correct tmux server
-- `SelectWindowOnServer(session, index, server)` — selects a window on the specified server. The `handleWindowSelect` handler and relay handler read a `?server=` query param to determine the target
-- `CreateSession(name, cwd)` — creates sessions on the runkit server using plain `tmux new-session` (no byobu dependency). Sessions get the runkit server's custom config (`config/tmux.conf`)
-- `ReloadConfig(server)` — hot-reloads `config/tmux.conf` via `source-file` on the specified server. Exposed via `POST /api/tmux/reload-config` and the "Reload tmux config" command palette action (targets whichever server the current session belongs to)
-- `killSession(session)` — kills only the named session on the runkit server; other group members survive
-- `sendKeys(session, window, keys)` — targets the correct window on the runkit server regardless of group membership
+All tmux functions accept a `server string` parameter:
+
+- `ListSessions(server)` — queries only the specified server
+- `ListWindows(session, server)` — lists windows for a session on the specified server
+- `SelectWindow(session, index, server)` — selects a window on the specified server
+- `CreateSession(name, cwd, server)` — creates sessions on the specified server
+- `ReloadConfig(server)` — hot-reloads config via `source-file` on the specified server
+- `KillSession(session, server)` — kills the named session on the specified server
+- `SendKeys(session, window, keys, server)` — targets the correct window on the specified server
+
+## API Server Parameter
+
+All API endpoints accept `?server=` query parameter via `serverFromRequest(r)` helper. The helper validates the server name using `validate.ValidateName` and defaults to `"default"` on invalid/missing input. The SSE hub polls per-server — only servers with active SSE clients are polled.
+
+Server management endpoints:
+- `GET /api/servers` — lists available servers via socket directory scan
+- `POST /api/servers` — creates a server (starts session "0" in $HOME)
+- `POST /api/servers/kill` — kills a server via `tmux kill-server`
 
 ## Related Files
 
-- `app/backend/internal/tmux/tmux.go` — `ListSessions()` queries both servers, `parseSessions()` implements the filter, `CreateSession()` creates on the runkit server, `SelectWindowOnServer()` routes to correct server, `ReloadConfig()` hot-reloads config, `ConfigPath()` exposes resolved absolute config path
-- `app/backend/internal/sessions/sessions.go` — calls `ListSessions()` to build the dashboard view, propagates `Server` field to `ProjectSession`
+- `app/backend/internal/tmux/tmux.go` — `serverArgs()`, `tmuxExecServer()`, `ListSessions()`, `ListServers()`, `KillServer()`, `CreateSession()`, `SelectWindow()`, `ReloadConfig()`, `ConfigPath()`
+- `app/backend/internal/sessions/sessions.go` — `FetchSessions(server)` builds the dashboard view, `ProjectSession` has `Name` and `Windows` (no `Server` field)
+- `app/backend/api/router.go` — `serverFromRequest()` helper, `TmuxOps` interface with server params, route registration
+- `app/backend/api/servers.go` — server list/create/kill handlers
+- `app/backend/api/sse.go` — per-server SSE polling hub
 - `app/backend/api/relay.go` — WebSocket relay reads `?server=` query param to attach to the correct tmux server
-- `app/backend/api/tmux_config.go` — `POST /api/tmux/reload-config` handler
-- `config/tmux.conf` — tmux configuration for the runkit server (dark-themed status bar, F2/F3/F4 keybindings)
+- `config/tmux.conf` — tmux configuration (applied to all named servers)
 
 ## Changelog
 
@@ -59,3 +85,4 @@ Grouped sessions share the same windows, so displaying both is incorrect — it 
 |------|--------|-----------|
 | 2026-03-18 | Rewrote for multi-server architecture — dedicated `runkit` tmux server replaces byobu integration. `ListSessions()` queries both runkit and default servers. `parseSessions()` extracted as testable function with server tagging. `CreateSession()` uses plain `tmux new-session` (byobu dependency removed). `ListWindows()` accepts server parameter. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | Multi-server operations — `SelectWindowOnServer()` routes select-window to correct server. `ReloadConfig(server)` hot-reloads config on specified server. Relay and select-window endpoints accept `?server=` query param. `RK_TMUX_CONF` resolved to absolute path at init. Stderr captured in tmux exec errors. | `260318-0gjh-dedicated-tmux-server` |
+| 2026-03-20 | Single-active-server model — replaced dual-server merge with `?server=` on every request. All tmux functions accept `server` param. Unified `tmuxExec`/`tmuxExecDefault` into `tmuxExecServer`. Added `ListServers()` (socket scan), `KillServer()`. SSE hub polls per-server. Removed `SessionInfo.Server` and `ProjectSession.Server` fields. New endpoints: `GET/POST /api/servers`, `POST /api/servers/kill`. `serverFromRequest()` validates input. | `260320-1335-tmux-server-switcher` |

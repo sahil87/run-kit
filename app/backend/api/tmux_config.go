@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -9,15 +8,10 @@ import (
 )
 
 func (s *Server) handleTmuxReloadConfig(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Server string `json:"server"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || (body.Server != "default" && body.Server != "runkit") {
-		body.Server = "runkit"
-	}
+	server := serverFromRequest(r)
 
-	if err := tmux.ReloadConfig(body.Server); err != nil {
-		slog.Error("tmux config reload failed", "err", err, "server", body.Server)
+	if err := tmux.ReloadConfig(server); err != nil {
+		slog.Error("tmux config reload failed", "err", err, "server", server)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}

@@ -40,7 +40,7 @@ export async function copyToClipboard(text: string): Promise<void> {
 type TerminalClientProps = {
   sessionName: string;
   windowIndex: string;
-  server: "runkit" | "default";
+  server: string;
   wsRef: React.MutableRefObject<WebSocket | null>;
   composeOpen: boolean;
   setComposeOpen: (open: boolean | ((prev: boolean) => boolean)) => void;

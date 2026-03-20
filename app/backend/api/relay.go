@@ -71,10 +71,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	// Determine which tmux server this session lives on
-	server := r.URL.Query().Get("server")
-	if server != "default" {
-		server = "runkit"
-	}
+	server := serverFromRequest(r)
 
 	// Verify the session exists and select the target window
 	windows, err := s.tmux.ListWindows(session, server)
@@ -84,7 +81,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			websocket.FormatCloseMessage(4004, "Session not found"))
 		return
 	}
-	if err := tmux.SelectWindowOnServer(session, winIdx, server); err != nil {
+	if err := s.tmux.SelectWindow(session, winIdx, server); err != nil {
 		slog.Error("select-window failed", "err", err, "session", session, "window", windowIndex)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4004, "Window not found"))
@@ -111,8 +108,8 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	// Attach to the session via PTY — renders the selected window as-is (no split)
 	ctx, cancel := context.WithCancel(context.Background())
 	var attachArgs []string
-	if server == "runkit" {
-		attachArgs = []string{"-L", "runkit"}
+	if server != "default" {
+		attachArgs = []string{"-L", server}
 		if confPath := tmux.ConfigPath(); confPath != "" {
 			attachArgs = append(attachArgs, "-f", confPath)
 		}

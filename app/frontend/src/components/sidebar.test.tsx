@@ -14,7 +14,6 @@ vi.mock("@/api/client", async (importOriginal) => {
 const sessions: ProjectSession[] = [
   {
     name: "run-kit",
-    server: "runkit",
     windows: [
       {
         index: 0,
@@ -45,7 +44,6 @@ const sessions: ProjectSession[] = [
   },
   {
     name: "ao-server",
-    server: "default",
     windows: [
       {
         index: 0,
@@ -69,6 +67,9 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
       onSelectWindow={vi.fn()}
       onCreateWindow={vi.fn()}
       onCreateSession={vi.fn()}
+      server="runkit"
+      servers={["runkit"]}
+      onSwitchServer={vi.fn()}
       {...overrides}
     />,
   );
@@ -275,19 +276,8 @@ describe("Sidebar", () => {
     });
   });
 
-  it("shows external marker for default-server sessions", () => {
+  it("does not show external marker (removed in single-server model)", () => {
     renderSidebar();
-    // ao-server has server: "default" — should show the arrow marker
-    const marker = screen.getByLabelText("external session");
-    expect(marker).toBeInTheDocument();
-    expect(marker.textContent).toBe("\u2197");
-  });
-
-  it("does not show external marker for runkit-server sessions", () => {
-    renderSidebar();
-    // run-kit has server: "runkit" — should have no external marker
-    const markers = screen.getAllByLabelText("external session");
-    // Only one marker total (for ao-server)
-    expect(markers).toHaveLength(1);
+    expect(screen.queryByLabelText("external session")).not.toBeInTheDocument();
   });
 });

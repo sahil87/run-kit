@@ -11,6 +11,9 @@ type SidebarProps = {
   onSelectWindow: (session: string, windowIndex: number) => void;
   onCreateWindow: (session: string) => void;
   onCreateSession: () => void;
+  server: string;
+  servers: string[];
+  onSwitchServer: (name: string) => void;
 };
 
 export function Sidebar({
@@ -20,6 +23,9 @@ export function Sidebar({
   onSelectWindow,
   onCreateWindow,
   onCreateSession,
+  server,
+  servers,
+  onSwitchServer,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
@@ -34,6 +40,21 @@ export function Sidebar({
   const inputRef = useRef<HTMLInputElement>(null);
   const cancelledRef = useRef(false);
   const originalNameRef = useRef("");
+
+  const [serverDropdownOpen, setServerDropdownOpen] = useState(false);
+  const serverDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close server dropdown on outside click
+  useEffect(() => {
+    if (!serverDropdownOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (serverDropdownRef.current && !serverDropdownRef.current.contains(e.target as Node)) {
+        setServerDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [serverDropdownOpen]);
 
   useEffect(() => {
     if (editingWindow && inputRef.current) {
@@ -106,7 +127,7 @@ export function Sidebar({
 
   return (
     <nav aria-label="Sessions" className="flex flex-col h-full py-2">
-      <div className="flex-1 overflow-y-auto px-3 sm:px-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
             <span>No sessions</span>
@@ -139,9 +160,6 @@ export function Sidebar({
                       aria-label={`Navigate to ${session.name}`}
                     >
                       <span className="font-medium truncate">{session.name}</span>
-                      {session.server === "default" && (
-                        <span className="text-[10px] text-text-secondary/50 shrink-0" aria-label="external session">{"\u2197"}</span>
-                      )}
                     </button>
                   </div>
                   <div className="flex items-center">
@@ -260,6 +278,46 @@ export function Sidebar({
             );
           })
         )}
+      </div>
+
+      {/* Server selector — pinned at bottom */}
+      <div className="shrink-0 border-t border-border px-3 sm:px-4 py-2" ref={serverDropdownRef}>
+        <div className="flex items-center gap-1.5 relative">
+          <span className="text-xs text-text-secondary">Server:</span>
+          <button
+            onClick={() => setServerDropdownOpen((v) => !v)}
+            className="text-xs text-text-primary font-medium hover:text-accent transition-colors coarse:min-h-[44px] flex items-center"
+            aria-haspopup="listbox"
+            aria-expanded={serverDropdownOpen}
+          >
+            {server}
+            <span className="ml-0.5 text-text-secondary text-[10px]">{serverDropdownOpen ? "\u25B4" : "\u25BE"}</span>
+          </button>
+          {serverDropdownOpen && (
+            <div role="listbox" className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">
+              {servers.length === 0 ? (
+                <div className="text-xs text-text-secondary px-3 py-1.5">No servers</div>
+              ) : (
+                servers.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => {
+                      onSwitchServer(s);
+                      setServerDropdownOpen(false);
+                    }}
+                    className={`w-full text-left text-xs px-3 py-1.5 hover:bg-bg-card transition-colors ${
+                      s === server ? "text-accent font-medium" : "text-text-primary"
+                    }`}
+                    role="option"
+                    aria-selected={s === server}
+                  >
+                    {s}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Kill confirmation */}

@@ -88,7 +88,7 @@ Connection indicator: green/gray dot only (no text label), driven by `isConnecte
 
 **Padding**: `px-3 sm:px-6` (matches top bar and bottom bar chrome padding).
 
-**Session rows**: Chevron toggle (left, expands/collapses window list), session name (navigates to first window in session via `onSelectWindow(session, 0)`), optional `↗` marker for default-server (external) sessions (`text-[10px] text-text-secondary/50`, `aria-label="external session"`), + new window button (right), ✕ kill button (right, always visible). Click session name navigates to `/:session/0`; click chevron toggles expand/collapse.
+**Session rows**: Chevron toggle (left, expands/collapses window list), session name (navigates to first window in session via `onSelectWindow(session, 0)`), + new window button (right), ✕ kill button (right, always visible). Click session name navigates to `/:session/0`; click chevron toggles expand/collapse. No server marker — all sessions belong to the active server.
 
 **Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
 
@@ -110,7 +110,7 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 
 **Inline window rename** (double-click): Double-clicking a window name `<span>` replaces it with a text `<input>` pre-filled with the current name, auto-focused with all text selected. Enter or blur commits the rename via `renameWindow(session, index, newName)` from `api/client.ts` — SSE pushes the updated name automatically, no optimistic UI. Escape cancels editing and reverts to the original name. Empty or whitespace-only input cancels (same as Escape). If the name is unchanged, no API call is made. Single-click behavior (navigate to window) is preserved — only `onDoubleClick` triggers editing. Editing state is local to the `Sidebar` component: `editingWindow: { session: string; index: number } | null` and `editingName: string`. Only one window may be in editing mode at a time. A `cancelledRef` prevents blur from committing after an Escape cancel. The existing command palette "Rename current window" dialog remains unchanged — inline editing is an additional path.
 
-**No footer** — session creation accessible via breadcrumb dropdown `+ New Session` action and sidebar empty state button.
+**Server selector footer** — pinned at the bottom of the sidebar below the scrollable session tree, separated by `border-t border-border`. Displays `Server: {name}` with a dropdown trigger. Clicking opens a dropdown listing all available tmux servers (from `GET /api/servers`); the current server is highlighted with `text-accent`. Selecting a different server calls `setServer(name)`, which updates localStorage (`runkit-server`), reconnects SSE, and navigates to `/`. The session tree area is `flex-1 min-h-0 overflow-y-auto` above the pinned footer.
 
 ## Bottom Bar (Terminal Pages Only, Inside Terminal Column)
 
@@ -202,7 +202,7 @@ The `CommandPalette` component listens for a `palette:open` CustomEvent on `docu
 
 No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with xterm.js terminal input. All actions are accessible via `Cmd+K` command palette or top bar buttons.
 
-Command palette actions include: create/rename/kill session, create/rename/kill window, theme switching, "Reload tmux config" (targets whichever tmux server the current session belongs to), and terminal navigation (jump to any session/window).
+Command palette actions include: create/rename/kill session, create/rename/kill window, theme switching, "Reload tmux config" (targets the active server via `?server=` param), "Create tmux server" (opens name dialog, creates session "0" in $HOME), "Kill tmux server" (confirmation dialog, kills active server, switches to next available), "Switch tmux server: {name}" (one entry per available server, current marked), and terminal navigation (jump to any session/window).
 
 ## Visual Design
 
@@ -332,3 +332,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-18 | Sidebar external session marker — `ProjectSession` type gains `server` field (`"runkit"` or `"default"`). Session rows show `↗` marker for default-server sessions (`text-[10px] text-text-secondary/50`, `aria-label="external session"`). Runkit-server sessions have no marker. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | Multi-server terminal support — `TerminalClient` accepts `server` prop, WebSocket URL includes `?server=` param. "Reload tmux config" command palette action targets current session's server. `selectWindow` API call passes server for correct routing. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | PWA meta tags and theme-color sync — `theme-color`, `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style`, `apple-touch-icon` in `index.html`. Theme-color updated by blocking script (initial) and `applyTheme()` (runtime). Dark `#0f1117`, light `#f8f9fb`. Icon set in `public/icons/`. Standalone display mode. | `260320-j9a2-pwa-compliance` |
+| 2026-03-20 | Single-active-server model — Sidebar server selector at bottom (`Server: <dropdown>`, pinned below scrollable session tree). Command palette: "Create tmux server" (name dialog), "Kill tmux server" (confirmation), "Switch tmux server: {name}" per server. Removed `↗` external session marker and `ProjectSession.server` field. `SessionProvider` manages `server`/`setServer`/`servers`/`refreshServers` state. Active server persisted in localStorage `runkit-server` (default: `runkit`). All API calls append `?server=` via `setServerGetter()` mechanism. SSE reconnects on server switch. Navigate to `/` on switch. | `260320-1335-tmux-server-switcher` |

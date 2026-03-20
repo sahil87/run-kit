@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Server) handleSessionsList(w http.ResponseWriter, r *http.Request) {
-	result, err := s.sessions.FetchSessions()
+	result, err := s.sessions.FetchSessions(serverFromRequest(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -47,7 +47,7 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 		resolvedCwd = expanded
 	}
 
-	if err := s.tmux.CreateSession(body.Name, resolvedCwd); err != nil {
+	if err := s.tmux.CreateSession(body.Name, resolvedCwd, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -75,7 +75,7 @@ func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.RenameSession(session, body.Name); err != nil {
+	if err := s.tmux.RenameSession(session, body.Name, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -90,7 +90,7 @@ func (s *Server) handleSessionKill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.KillSession(session); err != nil {
+	if err := s.tmux.KillSession(session, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

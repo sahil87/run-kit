@@ -8,7 +8,6 @@ const nowSeconds = Math.floor(Date.now() / 1000);
 const sessions: ProjectSession[] = [
   {
     name: "run-kit",
-    server: "runkit",
     windows: [
       {
         index: 0,
@@ -35,7 +34,6 @@ const sessions: ProjectSession[] = [
   },
   {
     name: "ao-server",
-    server: "runkit",
     windows: [
       {
         index: 0,

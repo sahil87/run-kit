@@ -18,7 +18,7 @@ type slowSessionFetcher struct {
 	result []sessions.ProjectSession
 }
 
-func (s *slowSessionFetcher) FetchSessions() ([]sessions.ProjectSession, error) {
+func (s *slowSessionFetcher) FetchSessions(server string) ([]sessions.ProjectSession, error) {
 	return s.result, nil
 }
 

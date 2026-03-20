@@ -15,21 +15,23 @@ const (
 )
 
 type sseClient struct {
-	ch chan []byte
+	ch     chan []byte
+	server string
 }
 
 type sseHub struct {
 	mu           sync.RWMutex
 	clients      map[*sseClient]struct{}
-	previousJSON string
+	previousJSON map[string]string // per-server JSON cache
 	polling      bool
 	fetcher      SessionFetcher
 }
 
 func newSSEHub(fetcher SessionFetcher) *sseHub {
 	return &sseHub{
-		clients: make(map[*sseClient]struct{}),
-		fetcher: fetcher,
+		clients:      make(map[*sseClient]struct{}),
+		previousJSON: make(map[string]string),
+		fetcher:      fetcher,
 	}
 }
 
@@ -40,9 +42,9 @@ func (h *sseHub) addClient(c *sseClient) {
 	h.clients[c] = struct{}{}
 
 	// Send cached snapshot immediately
-	if h.previousJSON != "" {
+	if prev, ok := h.previousJSON[c.server]; ok && prev != "" {
 		select {
-		case c.ch <- []byte(fmt.Sprintf("event: sessions\ndata: %s\n\n", h.previousJSON)):
+		case c.ch <- []byte(fmt.Sprintf("event: sessions\ndata: %s\n\n", prev)):
 		default:
 		}
 	}
@@ -68,36 +70,45 @@ func (h *sseHub) poll() {
 			h.mu.Unlock()
 			return
 		}
+
+		// Collect distinct servers that have active clients
+		serverSet := make(map[string]struct{})
+		for c := range h.clients {
+			serverSet[c.server] = struct{}{}
+		}
 		h.mu.Unlock()
 
-		result, err := h.fetcher.FetchSessions()
-		if err != nil {
-			slog.Warn("SSE poll error", "err", err)
-			time.Sleep(ssePollInterval)
-			continue
-		}
+		// Poll each server and broadcast to matching clients
+		for server := range serverSet {
+			result, err := h.fetcher.FetchSessions(server)
+			if err != nil {
+				slog.Warn("SSE poll error", "err", err, "server", server)
+				continue
+			}
 
-		jsonBytes, err := json.Marshal(result)
-		if err != nil {
-			time.Sleep(ssePollInterval)
-			continue
-		}
-		jsonStr := string(jsonBytes)
+			jsonBytes, err := json.Marshal(result)
+			if err != nil {
+				continue
+			}
+			jsonStr := string(jsonBytes)
 
-		h.mu.Lock()
-		if jsonStr != h.previousJSON {
-			h.previousJSON = jsonStr
-			event := []byte(fmt.Sprintf("event: sessions\ndata: %s\n\n", jsonStr))
+			h.mu.Lock()
+			if jsonStr != h.previousJSON[server] {
+				h.previousJSON[server] = jsonStr
+				event := []byte(fmt.Sprintf("event: sessions\ndata: %s\n\n", jsonStr))
 
-			for c := range h.clients {
-				select {
-				case c.ch <- event:
-				default:
-					// Client buffer full — skip
+				for c := range h.clients {
+					if c.server == server {
+						select {
+						case c.ch <- event:
+						default:
+							// Client buffer full — skip
+						}
+					}
 				}
 			}
+			h.mu.Unlock()
 		}
-		h.mu.Unlock()
 
 		time.Sleep(ssePollInterval)
 	}
@@ -115,7 +126,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	client := &sseClient{
-		ch: make(chan []byte, 8),
+		ch:     make(chan []byte, 8),
+		server: serverFromRequest(r),
 	}
 
 	// Lazy-init the hub on first SSE connection

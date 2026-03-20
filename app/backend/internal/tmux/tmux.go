@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -47,17 +48,18 @@ func ReloadConfig(server string) error {
 	}
 	ctx, cancel := withTimeout()
 	defer cancel()
-	if server == "default" {
-		_, err := tmuxExecDefault(ctx, "source-file", configPath)
-		return err
-	}
-	_, err := tmuxExec(ctx, "source-file", configPath)
+	_, err := tmuxExecServer(ctx, server, "source-file", configPath)
 	return err
 }
 
-// runkitPrefix returns the argument prefix for commands targeting the runkit server.
-func runkitPrefix() []string {
-	args := []string{"-L", "runkit"}
+// serverArgs returns the argument prefix for commands targeting a given server.
+// For "default", returns an empty slice (no -L flag). For any other name, returns
+// ["-L", name] plus the config flag included when a config path is available.
+func serverArgs(server string) []string {
+	if server == "default" {
+		return nil
+	}
+	args := []string{"-L", server}
 	if configPath != "" {
 		args = append(args, "-f", configPath)
 	}
@@ -88,9 +90,9 @@ type WindowInfo struct {
 	FabStage          string `json:"fabStage,omitempty"`
 }
 
-// tmuxExec runs a tmux command targeting the runkit server and returns stdout lines (empty lines filtered).
-func tmuxExec(ctx context.Context, args ...string) ([]string, error) {
-	full := append(runkitPrefix(), args...)
+// tmuxExecServer runs a tmux command targeting the specified server and returns stdout lines (empty lines filtered).
+func tmuxExecServer(ctx context.Context, server string, args ...string) ([]string, error) {
+	full := append(serverArgs(server), args...)
 	cmd := exec.CommandContext(ctx, "tmux", full...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -112,9 +114,9 @@ func tmuxExec(ctx context.Context, args ...string) ([]string, error) {
 	return result, nil
 }
 
-// tmuxExecRaw runs a tmux command targeting the runkit server and returns raw stdout.
-func tmuxExecRaw(ctx context.Context, args ...string) (string, error) {
-	full := append(runkitPrefix(), args...)
+// tmuxExecRawServer runs a tmux command targeting the specified server and returns raw stdout.
+func tmuxExecRawServer(ctx context.Context, server string, args ...string) (string, error) {
+	full := append(serverArgs(server), args...)
 	cmd := exec.CommandContext(ctx, "tmux", full...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -123,44 +125,20 @@ func tmuxExecRaw(ctx context.Context, args ...string) (string, error) {
 	return string(out), nil
 }
 
-// tmuxExecDefault runs a tmux command against the default server (no -L, no -f).
-func tmuxExecDefault(ctx context.Context, args ...string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "tmux", args...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-	raw := strings.TrimSpace(string(out))
-	if raw == "" {
-		return nil, nil
-	}
-	lines := strings.Split(raw, "\n")
-	var result []string
-	for _, l := range lines {
-		if l != "" {
-			result = append(result, l)
-		}
-	}
-	return result, nil
-}
-
 // withTimeout creates a context with the default tmux timeout.
 func withTimeout() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), TmuxTimeout)
 }
 
-// SessionInfo describes a tmux session with metadata about its origin server.
+// SessionInfo describes a tmux session.
 type SessionInfo struct {
-	Name   string `json:"name"`
-	Server string `json:"server"` // "runkit" or "default"
+	Name string `json:"name"`
 }
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
-// filtering out session-group copies. The server parameter tags each result.
+// filtering out session-group copies.
 // Exported for testing.
-func parseSessions(lines []string, server string) []SessionInfo {
+func parseSessions(lines []string) []SessionInfo {
 	var sessions []SessionInfo
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
@@ -175,35 +153,35 @@ func parseSessions(lines []string, server string) []SessionInfo {
 		// Filter out session-group copies: keep if ungrouped or if name matches group
 		if grouped == "0" || name == group {
 			sessions = append(sessions, SessionInfo{
-				Name:   name,
-				Server: server,
+				Name: name,
 			})
 		}
 	}
 	return sessions
 }
 
-// ListSessions returns sessions from both the runkit and default tmux servers,
-// filtering out session-group copies. Returns nil if no servers are running.
-func ListSessions() ([]SessionInfo, error) {
+// ListSessions returns sessions from the specified tmux server,
+// filtering out session-group copies. Returns nil if no server is running.
+func ListSessions(server string) ([]SessionInfo, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}", listDelim, listDelim)
 
-	// Query runkit server
-	runkitLines, _ := tmuxExec(ctx, "list-sessions", "-F", format)
-	runkitSessions := parseSessions(runkitLines, "runkit")
+	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no server running") || strings.Contains(errMsg, "failed to connect") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	sessions := parseSessions(lines)
 
-	// Query default server
-	defaultLines, _ := tmuxExecDefault(ctx, "list-sessions", "-F", format)
-	defaultSessions := parseSessions(defaultLines, "default")
-
-	all := append(runkitSessions, defaultSessions...)
-	if len(all) == 0 {
+	if len(sessions) == 0 {
 		return nil, nil
 	}
-	return all, nil
+	return sessions, nil
 }
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
@@ -240,8 +218,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	return windows
 }
 
-// ListWindows returns windows for a given session. The server parameter selects
-// which tmux server to query: "runkit" or "default". Returns nil if session does not exist.
+// ListWindows returns windows for a given session on the specified server.
+// Returns nil if session does not exist.
 func ListWindows(session string, server string) ([]WindowInfo, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -255,13 +233,7 @@ func ListWindows(session string, server string) ([]WindowInfo, error) {
 		"#{pane_current_command}",
 	}, listDelim)
 
-	var lines []string
-	var err error
-	if server == "default" {
-		lines, err = tmuxExecDefault(ctx, "list-windows", "-t", session, "-F", format)
-	} else {
-		lines, err = tmuxExec(ctx, "list-windows", "-t", session, "-F", format)
-	}
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", session, "-F", format)
 	if err != nil {
 		return nil, nil
 	}
@@ -269,9 +241,9 @@ func ListWindows(session string, server string) ([]WindowInfo, error) {
 	return parseWindows(lines, time.Now().Unix()), nil
 }
 
-// CreateSession creates a new detached tmux session on the runkit server,
+// CreateSession creates a new detached tmux session on the specified server,
 // optionally in a specific directory.
-func CreateSession(name string, cwd string) error {
+func CreateSession(name string, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
@@ -280,93 +252,84 @@ func CreateSession(name string, cwd string) error {
 		args = append(args, "-c", cwd)
 	}
 
-	_, err := tmuxExec(ctx, args...)
+	_, err := tmuxExecServer(ctx, server, args...)
 	return err
 }
 
-// CreateWindow creates a new window in an existing session.
-func CreateWindow(session, name, cwd string) error {
+// CreateWindow creates a new window in an existing session on the specified server.
+func CreateWindow(session, name, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExec(ctx, "new-window", "-t", session, "-n", name, "-c", cwd)
+	_, err := tmuxExecServer(ctx, server, "new-window", "-t", session, "-n", name, "-c", cwd)
 	return err
 }
 
-// KillSession kills an entire tmux session.
-func KillSession(session string) error {
+// KillSession kills an entire tmux session on the specified server.
+func KillSession(session string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExec(ctx, "kill-session", "-t", session)
+	_, err := tmuxExecServer(ctx, server, "kill-session", "-t", session)
 	return err
 }
 
-// KillWindow kills a window by session and index.
-func KillWindow(session string, index int) error {
-	ctx, cancel := withTimeout()
-	defer cancel()
-
-	target := fmt.Sprintf("%s:%d", session, index)
-	_, err := tmuxExec(ctx, "kill-window", "-t", target)
-	return err
-}
-
-// RenameSession renames a tmux session.
-func RenameSession(session, name string) error {
-	ctx, cancel := withTimeout()
-	defer cancel()
-
-	_, err := tmuxExec(ctx, "rename-session", "-t", session, name)
-	return err
-}
-
-// RenameWindow renames a window by session and index.
-func RenameWindow(session string, index int, name string) error {
+// KillWindow kills a window by session and index on the specified server.
+func KillWindow(session string, index int, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	target := fmt.Sprintf("%s:%d", session, index)
-	_, err := tmuxExec(ctx, "rename-window", "-t", target, name)
+	_, err := tmuxExecServer(ctx, server, "kill-window", "-t", target)
 	return err
 }
 
-// SendKeys sends keystrokes to a tmux window.
-func SendKeys(session string, window int, keys string) error {
+// RenameSession renames a tmux session on the specified server.
+func RenameSession(session, name string, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "rename-session", "-t", session, name)
+	return err
+}
+
+// RenameWindow renames a window by session and index on the specified server.
+func RenameWindow(session string, index int, name string, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	target := fmt.Sprintf("%s:%d", session, index)
+	_, err := tmuxExecServer(ctx, server, "rename-window", "-t", target, name)
+	return err
+}
+
+// SendKeys sends keystrokes to a tmux window on the specified server.
+func SendKeys(session string, window int, keys string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	target := fmt.Sprintf("%s:%d", session, window)
-	_, err := tmuxExec(ctx, "send-keys", "-t", target, keys, "Enter")
+	_, err := tmuxExecServer(ctx, server, "send-keys", "-t", target, keys, "Enter")
 	return err
 }
 
-// SelectWindow selects (focuses) a window by session and index.
-func SelectWindow(session string, index int) error {
-	return SelectWindowOnServer(session, index, "runkit")
-}
-
-// SelectWindowOnServer selects a window, targeting the specified server ("runkit" or "default").
-func SelectWindowOnServer(session string, index int, server string) error {
+// SelectWindow selects (focuses) a window by session and index on the specified server.
+func SelectWindow(session string, index int, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	target := fmt.Sprintf("%s:%d", session, index)
-	if server == "default" {
-		_, err := tmuxExecDefault(ctx, "select-window", "-t", target)
-		return err
-	}
-	_, err := tmuxExec(ctx, "select-window", "-t", target)
+	_, err := tmuxExecServer(ctx, server, "select-window", "-t", target)
 	return err
 }
 
-// SplitWindow splits a window to create an independent pane. Returns the new pane ID.
-func SplitWindow(session string, window int) (string, error) {
+// SplitWindow splits a window to create an independent pane on the specified server. Returns the new pane ID.
+func SplitWindow(session string, window int, server string) (string, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	target := fmt.Sprintf("%s:%d", session, window)
-	lines, err := tmuxExec(ctx, "split-window", "-t", target, "-d", "-P", "-F", "#{pane_id}")
+	lines, err := tmuxExecServer(ctx, server, "split-window", "-t", target, "-d", "-P", "-F", "#{pane_id}")
 	if err != nil {
 		return "", err
 	}
@@ -376,22 +339,61 @@ func SplitWindow(session string, window int) (string, error) {
 	return lines[0], nil
 }
 
-// KillPane kills a specific pane by ID.
-func KillPane(paneID string) error {
+// KillPane kills a specific pane by ID on the specified server.
+func KillPane(paneID string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExec(ctx, "kill-pane", "-t", paneID)
+	_, err := tmuxExecServer(ctx, server, "kill-pane", "-t", paneID)
 	// Pane may already be dead — ignore errors
 	_ = err
 	return nil
 }
 
-// CapturePane captures pane content (last N lines). Preserves blank lines.
-func CapturePane(paneID string, lines int) (string, error) {
+// CapturePane captures pane content (last N lines) on the specified server. Preserves blank lines.
+func CapturePane(paneID string, lines int, server string) (string, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	start := -lines
-	return tmuxExecRaw(ctx, "capture-pane", "-t", paneID, "-p", "-S", strconv.Itoa(start))
+	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", paneID, "-p", "-S", strconv.Itoa(start))
+}
+
+// ListServers discovers available tmux servers by scanning the tmux socket directory
+// at /tmp/tmux-{uid}/. Returns sorted server names.
+func ListServers() ([]string, error) {
+	uid := os.Getuid()
+	socketDir := fmt.Sprintf("/tmp/tmux-%d", uid)
+
+	entries, err := os.ReadDir(socketDir)
+	if err != nil {
+		// Directory doesn't exist or can't be read — no servers running
+		return nil, nil
+	}
+
+	var servers []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSocket == 0 {
+			continue
+		}
+		servers = append(servers, e.Name())
+	}
+	sort.Strings(servers)
+	return servers, nil
+}
+
+// KillServer kills a tmux server by name.
+func KillServer(server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "kill-server")
+	return err
 }

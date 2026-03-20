@@ -63,7 +63,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get project root via tmux windows
-	windows, err := s.tmux.ListWindows(session, "runkit")
+	windows, err := s.tmux.ListWindows(session, serverFromRequest(r))
 	if err != nil || len(windows) == 0 {
 		writeError(w, http.StatusBadRequest, "Session not found or has no windows")
 		return

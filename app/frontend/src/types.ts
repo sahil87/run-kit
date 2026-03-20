@@ -1,7 +1,6 @@
 /** A tmux session with its windows and optional fab enrichment. */
 export type ProjectSession = {
   name: string;
-  server: "runkit" | "default";
   windows: WindowInfo[];
 };
 

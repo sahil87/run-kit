@@ -25,6 +25,9 @@ export RK_HOST="${RK_HOST:-0.0.0.0}"
 # Ensure cwd is repo root (supports invocation from any directory)
 cd "$(dirname "$0")/.." || exit 1
 
+# Ensure tmux.conf exists for Go embed (canonical source: configs/tmux/default.conf)
+cp "$PWD/configs/tmux/default.conf" "$PWD/app/backend/build/tmux.conf"
+
 # Dev mode: Vite serves on RK_PORT, Go backend on RK_PORT+1.
 command -v air &>/dev/null || { echo "error: air not found (go install github.com/air-verse/air@latest)"; exit 1; }
 (cd app/backend && RK_PORT=$(( RK_PORT + 1 )) air) &

@@ -3,6 +3,9 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+echo "==> Copying tmux config to backend embed directory..."
+cp "$REPO_ROOT/configs/tmux/default.conf" "$REPO_ROOT/app/backend/build/tmux.conf"
+
 echo "==> Building frontend..."
 cd "$REPO_ROOT/app/frontend"
 pnpm build

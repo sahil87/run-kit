@@ -60,10 +60,10 @@ export function Dialog({ title, onClose, children }: DialogProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative bg-bg-primary border border-border rounded-lg p-4 w-full max-w-sm shadow-2xl"
+        className="relative bg-bg-primary border border-border rounded-lg p-3 w-full max-w-sm shadow-2xl text-[11px]"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id={titleId} className="text-sm font-medium mb-3">{title}</h2>
+        <h2 id={titleId} className="text-xs font-medium mb-2.5">{title}</h2>
         {children}
       </div>
     </div>

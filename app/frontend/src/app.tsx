@@ -541,11 +541,11 @@ function AppShell() {
             onFocus={(e) => e.target.select()}
             aria-label="Window name"
             placeholder="Window name..."
-            className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
           />
           <button
             onClick={dialogs.handleRename}
-            className="mt-3 w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
           >
             Rename
           </button>
@@ -563,11 +563,11 @@ function AppShell() {
             onFocus={(e) => e.target.select()}
             aria-label="Session name"
             placeholder="Session name..."
-            className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
           />
           <button
             onClick={dialogs.handleRenameSession}
-            className="mt-3 w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
           >
             Rename
           </button>
@@ -576,19 +576,19 @@ function AppShell() {
 
       {dialogs.showKillConfirm && (
         <Dialog title="Kill window?" onClose={dialogs.closeKillConfirm}>
-          <p className="text-sm text-text-secondary mb-3">
+          <p className="text-text-secondary mb-2.5">
             Kill window <strong>{displayName}</strong>? This cannot be undone.
           </p>
           <div className="flex gap-2">
             <button
               onClick={dialogs.closeKillConfirm}
-              className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
             >
               Cancel
             </button>
             <button
               onClick={dialogs.handleKillWindow}
-              className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
             >
               Kill
             </button>
@@ -598,19 +598,19 @@ function AppShell() {
 
       {dialogs.showKillSessionConfirm && (
         <Dialog title="Kill session?" onClose={dialogs.closeKillSessionConfirm}>
-          <p className="text-sm text-text-secondary mb-3">
+          <p className="text-text-secondary mb-2.5">
             Kill session <strong>{displaySession}</strong> and all its windows? This cannot be undone.
           </p>
           <div className="flex gap-2">
             <button
               onClick={dialogs.closeKillSessionConfirm}
-              className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
             >
               Cancel
             </button>
             <button
               onClick={dialogs.handleKillSession}
-              className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
             >
               Kill
             </button>
@@ -629,7 +629,7 @@ function AppShell() {
             onFocus={(e) => e.target.select()}
             aria-label="Server name"
             placeholder="Server name..."
-            className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
           />
           <p className="text-xs text-text-secondary mt-1.5">
             Alphanumeric, hyphens, and underscores only.
@@ -637,7 +637,7 @@ function AppShell() {
           <button
             onClick={handleCreateServer}
             disabled={!createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim())}
-            className="mt-3 w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50"
+            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50"
           >
             Create
           </button>
@@ -646,19 +646,19 @@ function AppShell() {
 
       {showKillServerConfirm && (
         <Dialog title="Kill tmux server?" onClose={() => setShowKillServerConfirm(false)}>
-          <p className="text-sm text-text-secondary mb-3">
+          <p className="text-text-secondary mb-2.5">
             Kill server <strong>{server}</strong> and all its sessions? This cannot be undone.
           </p>
           <div className="flex gap-2">
             <button
               onClick={() => setShowKillServerConfirm(false)}
-              className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
             >
               Cancel
             </button>
             <button
               onClick={handleKillServer}
-              className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
             >
               Kill
             </button>

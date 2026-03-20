@@ -196,7 +196,7 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
           }
           aria-label="Project path"
           placeholder="~/code/..."
-          className="w-full bg-transparent text-text-primary text-sm p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+          className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
         />
         {showDropdown && dropdownItems.length > 0 && (
           <div
@@ -217,7 +217,7 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
                   selectPath(dir);
                   inputRef.current?.focus();
                 }}
-                className={`w-full text-left text-sm px-2 py-1.5 transition-colors ${
+                className={`w-full text-left px-2 py-1.5 transition-colors ${
                   i === highlightIndex
                     ? "bg-bg-card text-text-primary"
                     : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
@@ -244,7 +244,7 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
           aria-label="Session name"
           aria-invalid={nameCollision}
           placeholder="Session name..."
-          className={`w-full bg-transparent text-text-primary text-sm p-2 border rounded outline-none placeholder:text-text-secondary ${
+          className={`w-full bg-transparent text-text-primary p-2 border rounded outline-none placeholder:text-text-secondary ${
             nameCollision ? "border-red-500" : "border-border"
           }`}
         />
@@ -263,7 +263,7 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
       <button
         onClick={handleCreate}
         disabled={(!name.trim() && !path.trim()) || nameCollision}
-        className="w-full text-sm py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Create
       </button>

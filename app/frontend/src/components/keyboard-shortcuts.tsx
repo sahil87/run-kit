@@ -45,7 +45,7 @@ function groupBindings(
 function ShortcutRow({ label, keys }: GroupedBinding) {
   return (
     <div className="flex items-center justify-between py-1 gap-3">
-      <span className="text-sm text-text-primary">{label}</span>
+      <span className="text-text-primary">{label}</span>
       <span className="flex flex-wrap gap-1 shrink-0">
         {keys.map((k) => (
           <kbd
@@ -126,7 +126,7 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
       <div className="mt-3 flex justify-end">
         <button
           onClick={onClose}
-          className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded border border-border"
+          className="text-text-secondary hover:text-text-primary px-3 py-1.5 rounded border border-border"
         >
           Close
         </button>

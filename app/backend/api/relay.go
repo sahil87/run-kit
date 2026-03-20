@@ -35,15 +35,17 @@ type resizeMsg struct {
 }
 
 // ensureTERM returns a copy of env with TERM set to xterm-256color if absent.
-// tmux uses the attaching client's TERM to parse input escape sequences (e.g.,
-// function keys). Without a proper TERM, sequences like F2 are not recognized.
-func ensureTERM(env []string) []string {
+// forceTERM sets TERM=xterm-256color for relay clients, replacing any inherited
+// value. The relay PTY is always an xterm-256color terminal (xterm.js), and tmux
+// matches terminal-overrides against this value to enable true-color (RGB/Tc).
+func forceTERM(env []string) []string {
+	result := make([]string, 0, len(env)+1)
 	for _, e := range env {
-		if strings.HasPrefix(e, "TERM=") {
-			return env
+		if !strings.HasPrefix(e, "TERM=") {
+			result = append(result, e)
 		}
 	}
-	return append(env, "TERM=xterm-256color")
+	return append(result, "TERM=xterm-256color")
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
@@ -109,22 +111,20 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	var attachArgs []string
 	if server != "default" {
 		attachArgs = []string{"-L", server}
-		if confPath := tmux.ConfigPath(); confPath != "" {
-			attachArgs = append(attachArgs, "-f", confPath)
-		}
+	}
+	if confPath := tmux.ConfigPath(); confPath != "" {
+		attachArgs = append(attachArgs, "-f", confPath)
 	}
 	// Source-file the config into the running server so terminal-overrides
 	// (true color) and style settings are active even if the server was
 	// created outside of run-kit. Best-effort — don't block the attach.
-	if server != "default" {
-		if err := tmux.ReloadConfig(server); err != nil {
-			slog.Debug("config reload before attach (best-effort)", "server", server, "err", err)
-		}
+	if err := tmux.ReloadConfig(server); err != nil {
+		slog.Debug("config reload before attach (best-effort)", "server", server, "err", err)
 	}
 
 	attachArgs = append(attachArgs, "attach-session", "-t", session)
 	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
-	cmd.Env = ensureTERM(tmux.CleanEnv())
+	cmd.Env = forceTERM(tmux.CleanEnv())
 
 	ptmx, err := pty.StartWithSize(cmd, &initialSize)
 	if err != nil {

@@ -137,13 +137,16 @@ Single row of `<kbd>` styled buttons, rendered only on terminal pages (`/:sessio
 
 ### Compose Buffer
 
-Native `<textarea>` overlay triggered by the compose button (`>_` in top bar right section). Appears above the bottom bar inside the content area. Terminal dims (`opacity-50`) while compose is open.
+Modal dialog (`fixed inset-0 z-40`) triggered by the compose button (`>_` in top bar right section). Follows the same structural pattern as `dialog.tsx`: separate backdrop layer (`fixed inset-0 bg-black/50`, `aria-hidden`), `role="dialog"`, `aria-modal="true"`, `aria-labelledby`, focus trap (Tab/Shift+Tab cycling), two-layer click-outside close (outer `onClick={onClose}`, inner `stopPropagation`). Terminal dims (`opacity-50`) while compose is open.
 
+- **Title**: "Text Input" (`<h2>` with `aria-labelledby` ID)
 - **Open**: Tap compose button (`>_` icon in top bar)
 - **Send**: Click Send button or press Cmd/Ctrl+Enter — entire text transmitted as one WebSocket message
 - **Dismiss**: Press Escape — closes without sending, text discarded
 - **Why**: xterm is a `<canvas>`, not a native text input. iOS dictation, autocorrect, paste, IME all require a real DOM element. Also useful on desktop for pasting large text blocks over a laggy WebSocket.
-- **initialText prop**: Optional string that pre-populates the textarea. Used by file upload to insert paths. On subsequent prop changes while mounted, appends to existing textarea content with newline separator.
+- **initialText prop**: Optional string that pre-populates the textarea via imperative ref (no `defaultValue`). On subsequent prop changes while mounted, appends only new text.
+- **Image preview**: When files are uploaded, a horizontal thumbnail strip renders above the textarea (~60px height). Image files (`image/*`) show `<img>` thumbnails via `URL.createObjectURL()` blob URLs. Non-image files show filename text. Each item has a dismiss (×) button (visible on hover) that removes the file from preview and its path from the textarea. Clicking an image thumbnail toggles a larger constrained preview within the dialog. All blob URLs are revoked via `URL.revokeObjectURL()` when the dialog closes (unmount cleanup).
+- **Upload flow**: `useFileUpload` hook returns `{ path: string; file: File }[]` tuples. `terminal-client.tsx` stores both paths and `File` objects in state, passing `uploadedFiles` and `onRemoveFile` props to the compose buffer.
 
 ### File Upload
 

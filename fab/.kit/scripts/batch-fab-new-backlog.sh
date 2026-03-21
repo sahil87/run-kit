@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KIT_DIR="$(dirname "$SCRIPT_DIR")"
 FAB_DIR="$(dirname "$KIT_DIR")"
 BACKLOG_FILE="${FAB_DIR}/backlog.md"
+CONFIG_FILE="${FAB_DIR}/project/config.yaml"
+
+source "$SCRIPT_DIR/lib/spawn.sh"
 
 usage() {
   cat <<'EOF'
@@ -118,6 +121,8 @@ esac
 # Open tabs
 # ---------------------------------------------------------------------------
 
+SPAWN_CMD=$(fab_spawn_cmd "$CONFIG_FILE")
+
 for id in "${ids[@]}"; do
   content=$(extract_content "$id") || {
     echo "Warning: [$id] not found in backlog, skipping" >&2
@@ -141,5 +146,5 @@ for id in "${ids[@]}"; do
   safe="${content//"'"/"'\''"}"
 
   tmux new-window -n "fab-$id" -c "$wt_path" \
-    "claude --dangerously-skip-permissions '/fab-new ${safe}'"
+    "$SPAWN_CMD '/fab-new ${safe}'"
 done

@@ -141,7 +141,6 @@ keys/
 
 fab/.kit-sync-version
 fab/.kit/bin/fab-*
-fab/pipelines/.series-*.yaml
 fab/changes/**/.pr-done
 
 /.agents

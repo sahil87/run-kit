@@ -12,6 +12,8 @@ CHANGES_DIR="${FAB_DIR}/changes"
 CONFIG_FILE="${FAB_DIR}/project/config.yaml"
 FAB_BIN="$KIT_DIR/bin/fab"
 
+source "$SCRIPT_DIR/lib/spawn.sh"
+
 usage() {
   cat <<'EOF'
 Usage: batch-fab-switch-change <change> [<change>...]
@@ -108,6 +110,8 @@ esac
 # Open tabs
 # ---------------------------------------------------------------------------
 
+SPAWN_CMD=$(fab_spawn_cmd "$CONFIG_FILE")
+
 for change in "${changes[@]}"; do
   if ! match=$("$FAB_BIN" change resolve "$change"); then
     continue
@@ -130,5 +134,5 @@ for change in "${changes[@]}"; do
 
   # Call fab-switch (branch is already set up by the worktree)
   tmux new-window -n "${match}" -c "$wt_path" \
-    "claude --dangerously-skip-permissions '/fab-switch ${safe}'"
+    "$SPAWN_CMD '/fab-switch ${safe}'"
 done

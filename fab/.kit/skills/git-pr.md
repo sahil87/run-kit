@@ -228,9 +228,9 @@ Print: `  ✓ push   — origin/<branch>`
 
    If no fab change exists (`{has_fab}` is false), the pipeline line is omitted entirely.
 
-4. Create PR: `gh pr create --title "{pr_title}" --body "<body>"` (where `{pr_title}` is the already-prefixed title from step 2)
+4. Create PR: `gh pr create --draft --title "{pr_title}" --body "<body>"` (where `{pr_title}` is the already-prefixed title from step 2)
    - If PR creation fails → report the error and STOP
-   - Fall back to `gh pr create --fill` if body generation fails for any reason (silent fallback)
+   - Fall back to `gh pr create --draft --fill` if body generation fails for any reason (silent fallback)
 5. Get the PR URL: `gh pr view --json url -q '.url'`
 
 Print: `  ✓ pr     — <PR URL>`

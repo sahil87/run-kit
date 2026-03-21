@@ -9,7 +9,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KIT_DIR="$(dirname "$SCRIPT_DIR")"
 FAB_DIR="$(dirname "$KIT_DIR")"
 CHANGES_DIR="${FAB_DIR}/changes"
+CONFIG_FILE="${FAB_DIR}/project/config.yaml"
 FAB_BIN="$KIT_DIR/bin/fab"
+
+source "$SCRIPT_DIR/lib/spawn.sh"
 
 usage() {
   cat <<'EOF'
@@ -132,4 +135,5 @@ fi
 prompt="Run /fab-archive for each of these changes, one at a time: ${resolved[*]}"
 
 echo "Archiving: ${resolved[*]}"
-exec claude --dangerously-skip-permissions "$prompt"
+SPAWN_CMD=$(fab_spawn_cmd "$CONFIG_FILE")
+exec bash -c "$SPAWN_CMD \"\$1\"" -- "$prompt"

@@ -25,3 +25,8 @@ stage_directives:
   apply: []
   review: []
   hydrate: []
+
+agent:
+  # Base command for spawning agent sessions in scripts and operators.
+  # Shell expansions (e.g., $(basename "$(pwd)")) expand at invocation time.
+  spawn_command: 'claude --dangerously-skip-permissions --effort max -n "$(basename "$(pwd)")"'

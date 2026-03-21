@@ -51,6 +51,7 @@ export function ComposeBuffer({ wsRef, onClose, initialText, onUploadFiles }: Co
       }}
     >
       <div className="w-full max-w-[500px] mx-4 bg-bg-primary border border-border rounded-lg p-2 shadow-2xl">
+        <h2 className="text-xs font-medium mb-2.5">Text Input</h2>
         <textarea
           ref={textareaRef}
           autoFocus

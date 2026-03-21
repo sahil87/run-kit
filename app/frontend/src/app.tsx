@@ -16,7 +16,7 @@ import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
-import { selectWindow, createWindow, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createWindow, splitWindow, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 
@@ -60,7 +60,7 @@ function AppShell() {
   const { sessions, isConnected } = useSessions();
   const { server, setServer, servers, refreshServers } = useSessionContext();
   const { sidebarOpen, drawerOpen, fixedWidth } = useChrome();
-  const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen } = useChromeDispatch();
+  const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen, toggleFixedWidth } = useChromeDispatch();
   const navigate = useNavigate();
   const matches = useMatches();
   const wsRef = useRef<WebSocket | null>(null);
@@ -359,8 +359,36 @@ function AppShell() {
               label: "Kill current window",
               onSelect: dialogs.openKillConfirm,
             },
+            {
+              id: "split-vertical",
+              label: "Split vertically",
+              onSelect: () => {
+                if (sessionName) splitWindow(sessionName, currentWindow.index, true).catch(() => {});
+              },
+            },
+            {
+              id: "split-horizontal",
+              label: "Split horizontally",
+              onSelect: () => {
+                if (sessionName) splitWindow(sessionName, currentWindow.index, false).catch(() => {});
+              },
+            },
           ]
         : []),
+      ...(sessionName
+        ? [
+            {
+              id: "text-input",
+              label: "Text input",
+              onSelect: () => setComposeOpen(true),
+            },
+          ]
+        : []),
+      {
+        id: "toggle-fixed-width",
+        label: fixedWidth ? "Full width" : "Fixed width (900px)",
+        onSelect: toggleFixedWidth,
+      },
       ...themeActions,
       {
         id: "reload-tmux-config",
@@ -398,7 +426,7 @@ function AppShell() {
         onSelect: () => navigateToWindow(fw.session, fw.window.index),
       })),
     ],
-    [sessionName, currentWindow, flatWindows, navigateToWindow, handleCreateWindow, dialogs, themeActions, servers, server, handleSwitchServer],
+    [sessionName, currentWindow, flatWindows, navigateToWindow, handleCreateWindow, dialogs, fixedWidth, toggleFixedWidth, themeActions, servers, server, handleSwitchServer],
   );
 
   const displayName = currentWindow?.name ?? windowIndex ?? "";

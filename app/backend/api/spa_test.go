@@ -12,9 +12,11 @@ func setupSPADir(t *testing.T) (string, func()) {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Save original spaDir and restore after test
+	// Save originals and restore after test
 	orig := spaDir
+	origEmbed := useEmbeddedSPA
 	spaDir = dir
+	useEmbeddedSPA = false
 
 	// Create index.html
 	indexPath := filepath.Join(dir, "index.html")
@@ -33,6 +35,7 @@ func setupSPADir(t *testing.T) (string, func()) {
 
 	return dir, func() {
 		spaDir = orig
+		useEmbeddedSPA = origEmbed
 	}
 }
 
@@ -93,10 +96,12 @@ func TestSPAPathTraversal(t *testing.T) {
 }
 
 func TestSPANotBuilt(t *testing.T) {
-	// Point spaDir to a nonexistent directory
+	// Point spaDir to a nonexistent directory and force filesystem mode
 	orig := spaDir
+	origEmbed := useEmbeddedSPA
 	spaDir = "/tmp/nonexistent-spa-dir-12345"
-	defer func() { spaDir = orig }()
+	useEmbeddedSPA = false
+	defer func() { spaDir = orig; useEmbeddedSPA = origEmbed }()
 
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 

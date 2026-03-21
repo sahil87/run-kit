@@ -12,8 +12,12 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// spaDir is the directory containing the built SPA assets (used in dev mode).
+// spaDir is the directory containing the built SPA assets (used in dev/filesystem mode).
 var spaDir = "app/frontend/dist"
+
+// useEmbeddedSPA controls whether mountSPA serves from the embedded FS or the filesystem.
+// Defaults to the result of hasEmbeddedAssets(); overridden by tests to force filesystem mode.
+var useEmbeddedSPA = hasEmbeddedAssets()
 
 // hasEmbeddedAssets reports whether the embedded frontend FS contains real build output
 // (i.e., more than just the .gitkeep placeholder).
@@ -31,7 +35,7 @@ func hasEmbeddedAssets() bool {
 }
 
 func (s *Server) mountSPA(r chi.Router) {
-	if hasEmbeddedAssets() {
+	if useEmbeddedSPA {
 		s.mountEmbeddedSPA(r)
 	} else {
 		s.mountFilesystemSPA(r)

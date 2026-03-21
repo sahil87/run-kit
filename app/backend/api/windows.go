@@ -147,6 +147,36 @@ func (s *Server) handleWindowSelect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) handleWindowSplit(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	index, ok := parseWindowIndex(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid window index")
+		return
+	}
+
+	var body struct {
+		Horizontal bool `json:"horizontal"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	paneID, err := s.tmux.SplitWindow(session, index, body.Horizontal, serverFromRequest(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "true", "pane_id": paneID})
+}
+
 func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {

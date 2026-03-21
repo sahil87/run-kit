@@ -149,10 +149,10 @@ export function BottomBar({ wsRef, hostname }: BottomBarProps) {
 
   return (
     <div className="flex items-center gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
-      <button aria-label="Escape" className={`${KBD_CLASS} text-text-primary`} onClick={() => sendSpecial("\x1b")}>
+      <button aria-label="Escape" className={`${KBD_CLASS} text-text-secondary`} onClick={() => sendSpecial("\x1b")}>
         <kbd aria-hidden="true">{"\u238B"}</kbd>
       </button>
-      <button aria-label="Tab" className={`${KBD_CLASS} text-text-primary`} onClick={() => sendSpecial("\t")}>
+      <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onClick={() => sendSpecial("\t")}>
         <kbd aria-hidden="true">{"\u21E5"}</kbd>
       </button>
 
@@ -163,7 +163,7 @@ export function BottomBar({ wsRef, hostname }: BottomBarProps) {
           key={key}
           aria-label={MODIFIER_LABELS[key]}
           aria-pressed={mods[key]}
-          className={`${KBD_CLASS} ${mods[key] ? "bg-accent/20 border-accent text-accent" : "text-text-primary"}`}
+          className={`${KBD_CLASS} ${mods[key] ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
           onClick={() => mods.toggle(key)}
         >
           <kbd aria-hidden="true">{symbol}</kbd>
@@ -177,7 +177,7 @@ export function BottomBar({ wsRef, hostname }: BottomBarProps) {
           aria-label="Function keys"
           aria-haspopup="true"
           aria-expanded={fnOpen}
-          className={`${KBD_CLASS} text-text-primary`}
+          className={`${KBD_CLASS} text-text-secondary`}
           onClick={() => setFnOpen((v) => !v)}
         >
           <kbd aria-hidden="true">F&#x25B4;</kbd>

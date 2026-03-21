@@ -131,6 +131,7 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `sendKeys(session, index, keys)` | POST | `/api/sessions/:session/windows/:index/keys` |
 | `getDirectories(prefix)` | GET | `/api/directories?prefix=...` |
 | `selectWindow(session, index)` | POST | `/api/sessions/:session/windows/:index/select?server=...` |
+| `splitWindow(session, index, horizontal)` | POST | `/api/sessions/:session/windows/:index/split` |
 | `reloadTmuxConfig()` | POST | `/api/tmux/reload-config?server=...` |
 | `uploadFile(session, file, window?)` | POST | `/api/sessions/:session/upload?server=...` |
 | `listServers()` | GET | `/api/servers` |

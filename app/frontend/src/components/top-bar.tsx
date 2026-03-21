@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { useChrome, useChromeDispatch } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
+import { splitWindow } from "@/api/client";
 import type { ThemePreference } from "@/contexts/theme-context";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
@@ -210,6 +211,24 @@ export function TopBar({
             <FixedWidthToggle />
           </span>
 
+          {currentWindow && (
+            <>
+              <span className="hidden sm:flex">
+                <SplitButton
+                  horizontal
+                  session={sessionName}
+                  windowIndex={currentWindow.index}
+                />
+              </span>
+              <span className="hidden sm:flex">
+                <SplitButton
+                  session={sessionName}
+                  windowIndex={currentWindow.index}
+                />
+              </span>
+            </>
+          )}
+
           <span className="hidden sm:flex">
             <ThemeToggle />
           </span>
@@ -219,7 +238,7 @@ export function TopBar({
             type="button"
             onClick={onOpenCompose}
             aria-label="Compose text"
-            className="text-text-primary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] sm:min-w-[24px] sm:min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center border border-border rounded text-xs"
+            className="text-text-secondary hover:border-text-secondary transition-colors min-w-[24px] min-h-[24px] sm:min-w-[24px] sm:min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center border border-border rounded text-xs"
           >
             &gt;_
           </button>
@@ -279,6 +298,62 @@ function ThemeToggle() {
           <path d="M8 3a5 5 0 0 1 0 10" fill="currentColor" />
         </svg>
       )}
+    </button>
+  );
+}
+
+function SplitButton({
+  horizontal,
+  session,
+  windowIndex,
+}: {
+  horizontal?: boolean;
+  session: string;
+  windowIndex: number;
+}) {
+  const label = horizontal ? "Split vertically" : "Split horizontally";
+
+  const handleClick = () => {
+    splitWindow(session, windowIndex, !!horizontal).catch(() => {
+      // best-effort — tmux may reject if pane is too small
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      aria-label={label}
+      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center"
+      title={label}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {horizontal ? (
+          <>
+            {/* square-split-horizontal: vertical divider */}
+            <path d="M8 19H5c-1 0-2-1-2-2V7c0-1 1-2 2-2h3" />
+            <path d="M16 5h3c1 0 2 1 2 2v10c0 1-1 2-2 2h-3" />
+            <line x1="12" x2="12" y1="4" y2="20" />
+          </>
+        ) : (
+          <>
+            {/* square-split-vertical: horizontal divider */}
+            <path d="M5 8V5c0-1 1-2 2-2h10c1 0 2 1 2 2v3" />
+            <path d="M19 16v3c0 1-1 2-2 2H7c-1 0-2-1-2-2v-3" />
+            <line x1="4" x2="20" y1="12" y2="12" />
+          </>
+        )}
+      </svg>
     </button>
   );
 }

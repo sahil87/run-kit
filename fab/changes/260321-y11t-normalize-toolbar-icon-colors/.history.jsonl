@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-21T10:05:55Z"}
+{"args":"Normalize toolbar icon foreground colors — all toolbar buttons (top bar and bottom bar) should use text-text-secondary instead of mixed text-text-primary/text-text-secondary, for visual consistency across the UI chrome","cmd":"fab-new","event":"command","ts":"2026-03-21T10:05:55Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T10:06:25Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T10:06:31Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-21T10:06:48Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"spec","ts":"2026-03-21T10:07:55Z"}
+{"delta":"-2.0","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-03-21T10:09:57Z"}
+{"delta":"+0.0","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-03-21T10:10:02Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"tasks","ts":"2026-03-21T10:10:02Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"hydrate","ts":"2026-03-21T10:10:17Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"ship","ts":"2026-03-21T10:11:31Z"}

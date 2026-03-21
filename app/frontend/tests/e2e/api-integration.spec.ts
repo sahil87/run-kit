@@ -1,15 +1,17 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 
+const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
 const TEST_SESSION = `e2e-test-${Date.now()}`;
 
 test.describe("API Integration", () => {
   test.beforeAll(() => {
     // Create a self-managed tmux session for testing
     try {
-      execSync(`tmux new-session -d -s ${TEST_SESSION} -x 80 -y 24`, {
-        stdio: "ignore",
-      });
+      execSync(
+        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
+        { stdio: "ignore" },
+      );
     } catch {
       // Session may already exist
     }
@@ -17,13 +19,17 @@ test.describe("API Integration", () => {
 
   test.afterAll(() => {
     try {
-      execSync(`tmux kill-session -t ${TEST_SESSION}`, { stdio: "ignore" });
+      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
+        stdio: "ignore",
+      });
     } catch {
       // Best effort
     }
     // Clean up the session created by the test
     try {
-      execSync("tmux kill-session -t e2e-new-session", { stdio: "ignore" });
+      execSync(`tmux -L ${TMUX_SERVER} kill-session -t e2e-new-session`, {
+        stdio: "ignore",
+      });
     } catch {
       // Best effort
     }
@@ -32,7 +38,7 @@ test.describe("API Integration", () => {
   test("create session via sidebar, verify it appears, then kill it", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto(`/?server=${TMUX_SERVER}`);
 
     // Wait for SSE to connect and dashboard to populate
     await expect(

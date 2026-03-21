@@ -7,6 +7,12 @@ const SERVER_STORAGE_KEY = "runkit-server";
 const DEFAULT_SERVER = "runkit";
 
 function readStoredServer(): string {
+  // Query param override: ?server=name takes precedence and persists to localStorage
+  const param = new URLSearchParams(window.location.search).get("server");
+  if (param) {
+    try { localStorage.setItem(SERVER_STORAGE_KEY, param); } catch { /* */ }
+    return param;
+  }
   try {
     const stored = localStorage.getItem(SERVER_STORAGE_KEY);
     if (stored) return stored;

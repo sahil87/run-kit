@@ -1,14 +1,16 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 
+const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
 const TEST_SESSION = `e2e-sse-${Date.now()}`;
 
 test.describe("SSE Connection", () => {
   test.beforeAll(() => {
     try {
-      execSync(`tmux new-session -d -s ${TEST_SESSION} -x 80 -y 24`, {
-        stdio: "ignore",
-      });
+      execSync(
+        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
+        { stdio: "ignore" },
+      );
     } catch {
       // Session may already exist
     }
@@ -16,7 +18,9 @@ test.describe("SSE Connection", () => {
 
   test.afterAll(() => {
     try {
-      execSync(`tmux kill-session -t ${TEST_SESSION}`, { stdio: "ignore" });
+      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
+        stdio: "ignore",
+      });
     } catch {
       // Best effort
     }
@@ -25,7 +29,7 @@ test.describe("SSE Connection", () => {
   test("SSE delivers session data and connection status shows connected", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto(`/?server=${TMUX_SERVER}`);
 
     // Wait for the connection status dot to show "Connected"
     const status = page.locator("[aria-label='Connected']");

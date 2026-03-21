@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-21T06:55:03Z"}
+{"args":"Fix OSC 52 clipboard: tmux sends empty selection parameter, ClipboardAddon only accepts c","cmd":"fab-new","event":"command","ts":"2026-03-21T06:55:03Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T06:55:38Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T06:55:51Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-21T06:57:58Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-21T07:00:13Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T07:00:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-21T07:01:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-21T07:01:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-21T07:01:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-21T07:03:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-21T07:03:33Z"}
+{"event":"review","result":"passed","ts":"2026-03-21T07:03:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-21T07:04:16Z"}

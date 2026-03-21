@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { copyToClipboard, XTERM_THEMES } from "./terminal-client";
+import { copyToClipboard, clipboardProvider, XTERM_THEMES } from "./terminal-client";
 
 describe("copyToClipboard", () => {
   let originalClipboard: Clipboard;
@@ -89,6 +89,77 @@ describe("copyToClipboard", () => {
     // Should resolve (not reject) — both mechanisms failing is silently ignored
     await copyToClipboard("error test");
     expect(document.body.children.length).toBe(bodyChildCountBefore);
+  });
+});
+
+describe("clipboardProvider", () => {
+  let originalClipboard: Clipboard;
+
+  beforeEach(() => {
+    originalClipboard = navigator.clipboard;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: originalClipboard,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  function mockClipboard() {
+    const clipboard = {
+      writeText: vi.fn().mockResolvedValue(undefined),
+      readText: vi.fn().mockResolvedValue("clipboard content"),
+    };
+    Object.defineProperty(navigator, "clipboard", {
+      value: clipboard,
+      writable: true,
+      configurable: true,
+    });
+    return clipboard;
+  }
+
+  it("writeText calls clipboard API for empty selection (tmux default)", async () => {
+    const clipboard = mockClipboard();
+    await clipboardProvider.writeText("", "test text");
+    expect(clipboard.writeText).toHaveBeenCalledWith("test text");
+  });
+
+  it("writeText calls clipboard API for 'c' selection", async () => {
+    const clipboard = mockClipboard();
+    await clipboardProvider.writeText("c", "test text");
+    expect(clipboard.writeText).toHaveBeenCalledWith("test text");
+  });
+
+  it("writeText does not call clipboard API for 'p' selection", async () => {
+    const clipboard = mockClipboard();
+    await clipboardProvider.writeText("p", "test text");
+    expect(clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  it("writeText does not call clipboard API for 's' selection", async () => {
+    const clipboard = mockClipboard();
+    await clipboardProvider.writeText("s", "test text");
+    expect(clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  it("readText returns clipboard content for empty selection", async () => {
+    mockClipboard();
+    const result = await clipboardProvider.readText("");
+    expect(result).toBe("clipboard content");
+  });
+
+  it("readText returns clipboard content for 'c' selection", async () => {
+    mockClipboard();
+    const result = await clipboardProvider.readText("c");
+    expect(result).toBe("clipboard content");
+  });
+
+  it("readText returns empty string for 'p' selection", async () => {
+    mockClipboard();
+    const result = await clipboardProvider.readText("p");
+    expect(result).toBe("");
   });
 });
 

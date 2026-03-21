@@ -10,6 +10,22 @@ export const XTERM_THEMES: Record<ResolvedTheme, { background: string; foregroun
   light: { background: "#f8f9fb", foreground: "#1a1d24", cursor: "#1a1d24", selectionBackground: "#c7d2fe" },
 };
 
+/**
+ * Custom ClipboardProvider for the xterm.js ClipboardAddon.
+ * Accepts both "" (empty/default) and "c" (explicit clipboard) as valid OSC 52
+ * selection targets. Tmux sends "" by default; the built-in provider only accepts "c".
+ */
+export const clipboardProvider = {
+  async readText(selection: string): Promise<string> {
+    if (selection !== "c" && selection !== "") return "";
+    return navigator.clipboard.readText();
+  },
+  async writeText(selection: string, text: string): Promise<void> {
+    if (selection !== "c" && selection !== "") return;
+    await navigator.clipboard.writeText(text);
+  },
+};
+
 /** Copy text to clipboard — tries Clipboard API first, falls back to execCommand for non-secure contexts (HTTP). */
 export async function copyToClipboard(text: string): Promise<void> {
   if (navigator.clipboard) {
@@ -157,7 +173,7 @@ export function TerminalClient({
       // Clipboard addon — enriched clipboard support
       const { ClipboardAddon } = await import("@xterm/addon-clipboard");
       if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
-      terminal.loadAddon(new ClipboardAddon());
+      terminal.loadAddon(new ClipboardAddon(undefined, clipboardProvider));
 
       // Clickable URLs
       const { WebLinksAddon } = await import("@xterm/addon-web-links");

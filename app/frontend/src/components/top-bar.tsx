@@ -311,7 +311,7 @@ function SplitButton({
   session: string;
   windowIndex: number;
 }) {
-  const label = horizontal ? "Split vertically" : "Split horizontally";
+  const label = horizontal ? "Split horizontally" : "Split vertically";
 
   const handleClick = () => {
     splitWindow(session, windowIndex, !!horizontal).catch(() => {

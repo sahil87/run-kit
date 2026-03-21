@@ -174,7 +174,7 @@ func (s *Server) handleWindowSplit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "true", "pane_id": paneID})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pane_id": paneID})
 }
 
 func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {

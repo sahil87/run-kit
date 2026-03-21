@@ -143,7 +143,7 @@ export async function splitWindow(
   session: string,
   index: number,
   horizontal: boolean,
-): Promise<{ ok: string; pane_id: string }> {
+): Promise<{ ok: boolean; pane_id: string }> {
   const res = await fetch(
     withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/split`),
     {

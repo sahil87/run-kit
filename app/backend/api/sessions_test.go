@@ -53,8 +53,12 @@ type mockTmuxOps struct {
 	listWindowsResult []tmux.WindowInfo
 	listWindowsErr    error
 
-	splitWindowResult string
-	splitWindowErr    error
+	splitWindowCalled     bool
+	splitWindowSession    string
+	splitWindowIndex      int
+	splitWindowHorizontal bool
+	splitWindowResult     string
+	splitWindowErr        error
 
 	err error
 }
@@ -107,6 +111,10 @@ func (m *mockTmuxOps) ListWindows(session, server string) ([]tmux.WindowInfo, er
 	return m.listWindowsResult, m.listWindowsErr
 }
 func (m *mockTmuxOps) SplitWindow(session string, window int, horizontal bool, server string) (string, error) {
+	m.splitWindowCalled = true
+	m.splitWindowSession = session
+	m.splitWindowIndex = window
+	m.splitWindowHorizontal = horizontal
 	return m.splitWindowResult, m.splitWindowErr
 }
 func (m *mockTmuxOps) SelectWindow(session string, index int, server string) error {

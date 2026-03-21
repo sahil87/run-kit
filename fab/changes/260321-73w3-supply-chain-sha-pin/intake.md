@@ -53,7 +53,7 @@ None — no memory files affected. This is a CI-only change with no impact on ap
 
 ## Impact
 
-- **File**: `.github/workflows/release.yml` (only file changed)
+- **File**: `.github/workflows/release.yml` (only source/workflow file changed; fab tracking artifacts are also added)
 - **CI/CD**: Release workflow. No functional change — same action code executes, now referenced immutably.
 - **Risk**: Minimal. SHA-pinning is safe and non-functional. The workflow already has top-level `permissions: contents: write`.
 

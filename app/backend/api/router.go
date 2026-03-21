@@ -32,7 +32,7 @@ type TmuxOps interface {
 	SendKeys(session string, window int, keys, server string) error
 	SelectWindow(session string, index int, server string) error
 	ListWindows(session, server string) ([]tmux.WindowInfo, error)
-	SplitWindow(session string, window int, server string) (string, error)
+	SplitWindow(session string, window int, horizontal bool, server string) (string, error)
 	KillPane(paneID, server string) error
 	ListServers() ([]string, error)
 	KillServer(server string) error
@@ -106,8 +106,8 @@ func (p *prodTmuxOps) SelectWindow(session string, index int, server string) err
 func (p *prodTmuxOps) ListWindows(session, server string) ([]tmux.WindowInfo, error) {
 	return tmux.ListWindows(session, server)
 }
-func (p *prodTmuxOps) SplitWindow(session string, window int, server string) (string, error) {
-	return tmux.SplitWindow(session, window, server)
+func (p *prodTmuxOps) SplitWindow(session string, window int, horizontal bool, server string) (string, error) {
+	return tmux.SplitWindow(session, window, horizontal, server)
 }
 func (p *prodTmuxOps) KillPane(paneID, server string) error {
 	return tmux.KillPane(paneID, server)
@@ -171,6 +171,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/windows/{index}/rename", s.handleWindowRename)
 	r.Post("/api/sessions/{session}/windows/{index}/keys", s.handleWindowKeys)
 	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)
+	r.Post("/api/sessions/{session}/windows/{index}/split", s.handleWindowSplit)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)

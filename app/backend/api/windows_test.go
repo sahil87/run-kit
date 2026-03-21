@@ -232,3 +232,66 @@ func TestWindowKeysEmpty(t *testing.T) {
 		t.Errorf("error = %q, want %q", result["error"], "Keys cannot be empty")
 	}
 }
+
+func TestWindowSplit(t *testing.T) {
+	ops := &mockTmuxOps{splitWindowResult: "%5"}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"horizontal":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/split", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !ops.splitWindowCalled {
+		t.Error("SplitWindow was not called")
+	}
+	if ops.splitWindowSession != "run-kit" {
+		t.Errorf("session = %q, want %q", ops.splitWindowSession, "run-kit")
+	}
+	if ops.splitWindowIndex != 0 {
+		t.Errorf("window = %d, want %d", ops.splitWindowIndex, 0)
+	}
+	if !ops.splitWindowHorizontal {
+		t.Error("horizontal = false, want true")
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["pane_id"] != "%5" {
+		t.Errorf("pane_id = %q, want %%5", result["pane_id"])
+	}
+}
+
+func TestWindowSplitInvalidSession(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"horizontal":false}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;name/windows/0/split", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWindowSplitInvalidJSON(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/split", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}

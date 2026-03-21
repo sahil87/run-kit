@@ -82,28 +82,47 @@ export function SessionProvider({ children }: SessionProviderProps) {
   useEffect(() => {
     const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
 
+    let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const markConnected = () => {
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+      }
+      setIsConnected(true);
+      setChromeConnected(true);
+    };
+
+    const markDisconnected = () => {
+      setIsConnected(false);
+      setChromeConnected(false);
+    };
+
     es.addEventListener("sessions", (e) => {
       try {
         const data = JSON.parse(e.data) as ProjectSession[];
         setSessions(data);
-        setIsConnected(true);
-        setChromeConnected(true);
+        markConnected();
       } catch {
         // Malformed event — skip
       }
     });
 
     es.onerror = () => {
-      setIsConnected(false);
-      setChromeConnected(false);
+      // EventSource auto-reconnects, firing onerror + onopen in quick
+      // succession. Debounce so the dot only turns gray if the SSE
+      // hasn't recovered within 3 seconds.
+      if (!disconnectTimer) {
+        disconnectTimer = setTimeout(markDisconnected, 3000);
+      }
     };
 
     es.onopen = () => {
-      setIsConnected(true);
-      setChromeConnected(true);
+      markConnected();
     };
 
     return () => {
+      if (disconnectTimer) clearTimeout(disconnectTimer);
       es.close();
     };
   }, [setChromeConnected, server]);

@@ -369,12 +369,18 @@ func SelectWindow(session string, index int, server string) error {
 }
 
 // SplitWindow splits a window to create an independent pane on the specified server. Returns the new pane ID.
-func SplitWindow(session string, window int, server string) (string, error) {
+// If horizontal is true, the pane is split left/right (-h flag); otherwise top/bottom.
+func SplitWindow(session string, window int, horizontal bool, server string) (string, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	target := fmt.Sprintf("%s:%d", session, window)
-	lines, err := tmuxExecServer(ctx, server, "split-window", "-t", target, "-d", "-P", "-F", "#{pane_id}")
+	args := []string{"split-window"}
+	if horizontal {
+		args = append(args, "-h")
+	}
+	args = append(args, "-t", target, "-d", "-P", "-F", "#{pane_id}")
+	lines, err := tmuxExecServer(ctx, server, args...)
 	if err != nil {
 		return "", err
 	}

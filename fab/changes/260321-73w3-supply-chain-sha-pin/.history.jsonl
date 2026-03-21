@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-21T08:03:44Z"}
+{"args":"INFRA-345: Supply Chain Hardening — SHA-pin all external GitHub Actions in release.yml","cmd":"fab-new","event":"command","ts":"2026-03-21T08:03:44Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T08:04:32Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-21T08:04:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-21T08:05:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-21T08:05:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-21T08:05:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-21T08:05:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-21T08:07:13Z"}
+{"event":"review","result":"passed","ts":"2026-03-21T08:07:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-21T08:07:18Z"}

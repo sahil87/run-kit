@@ -265,6 +265,78 @@ func TestParseWindows(t *testing.T) {
 	}
 }
 
+func TestSanitizeEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []string
+		wantHas []string // entries that must be present
+		wantNot []string // prefixes that must be absent
+	}{
+		{
+			name:    "replaces PATH and strips DIRENV vars",
+			input:   []string{"HOME=/home/user", "PATH=/dirty/path:/usr/bin", "DIRENV_DIFF=abc", "DIRENV_DIR=/foo", "SHELL=/bin/zsh"},
+			wantHas: []string{"HOME=/home/user", "PATH=" + cleanPATH, "SHELL=/bin/zsh"},
+			wantNot: []string{"DIRENV_", "/dirty/path"},
+		},
+		{
+			name:    "adds PATH when missing",
+			input:   []string{"HOME=/home/user", "SHELL=/bin/zsh"},
+			wantHas: []string{"HOME=/home/user", "PATH=" + cleanPATH, "SHELL=/bin/zsh"},
+			wantNot: nil,
+		},
+		{
+			name:    "deduplicates multiple PATH entries",
+			input:   []string{"PATH=/first", "PATH=/second"},
+			wantHas: []string{"PATH=" + cleanPATH},
+			wantNot: []string{"/first", "/second"},
+		},
+		{
+			name:    "empty input still has PATH",
+			input:   nil,
+			wantHas: []string{"PATH=" + cleanPATH},
+			wantNot: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeEnv(tt.input)
+
+			for _, want := range tt.wantHas {
+				found := false
+				for _, e := range got {
+					if e == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("missing expected entry %q in %v", want, got)
+				}
+			}
+
+			for _, prefix := range tt.wantNot {
+				for _, e := range got {
+					if strings.Contains(e, prefix) {
+						t.Errorf("unexpected entry %q containing %q", e, prefix)
+					}
+				}
+			}
+
+			// PATH should appear exactly once.
+			pathCount := 0
+			for _, e := range got {
+				if strings.HasPrefix(e, "PATH=") {
+					pathCount++
+				}
+			}
+			if pathCount != 1 {
+				t.Errorf("PATH appears %d times, want 1", pathCount)
+			}
+		})
+	}
+}
+
 // sessionInfoSliceEqual compares two SessionInfo slices, treating nil and empty as equivalent.
 func sessionInfoSliceEqual(a, b []SessionInfo) bool {
 	if len(a) == 0 && len(b) == 0 {

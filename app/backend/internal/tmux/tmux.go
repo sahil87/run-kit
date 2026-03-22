@@ -286,6 +286,12 @@ func ListWindows(session string, server string) ([]WindowInfo, error) {
 
 // CreateSession creates a new detached tmux session on the specified server,
 // optionally in a specific directory.
+//
+// Because new-session may start the tmux server process, the command runs with
+// a sanitized environment: PATH is reset to a POSIX default and all DIRENV_*
+// vars are removed. Without this, the server inherits direnv-modified PATH from
+// the shell that launched run-kit, and every new pane gets stale/duplicated
+// PATH entries that corrupt direnv's diff computation.
 func CreateSession(name string, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -297,8 +303,61 @@ func CreateSession(name string, cwd string, server string) error {
 		args = append(args, "-c", cwd)
 	}
 
-	_, err := tmuxExecServer(ctx, server, args...)
-	return err
+	full := append(serverArgs(server), args...)
+	return runTmuxWithEnv(ctx, full, cleanEnvForServer())
+}
+
+// runTmuxWithEnv executes a tmux command with an optional environment override,
+// capturing stderr for diagnostics.
+func runTmuxWithEnv(ctx context.Context, args []string, env []string) error {
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	if env != nil {
+		cmd.Env = env
+	}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+		return err
+	}
+	return nil
+}
+
+// cleanPATH is the POSIX default PATH used to sanitize the tmux server environment.
+const cleanPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+// cleanEnvForServer returns a copy of the current environment with PATH reset
+// to a clean POSIX default and all DIRENV_* variables removed. This prevents
+// the tmux server process from inheriting direnv state.
+func cleanEnvForServer() []string {
+	return sanitizeEnv(os.Environ())
+}
+
+// sanitizeEnv filters an environment slice: replaces PATH with a clean POSIX
+// default (deduplicating if present multiple times), strips DIRENV_* vars,
+// and ensures PATH is always present.
+func sanitizeEnv(environ []string) []string {
+	env := make([]string, 0, len(environ)+1)
+	pathSeen := false
+	for _, e := range environ {
+		if strings.HasPrefix(e, "DIRENV_") {
+			continue
+		}
+		if strings.HasPrefix(e, "PATH=") {
+			if !pathSeen {
+				env = append(env, "PATH="+cleanPATH)
+				pathSeen = true
+			}
+			continue
+		}
+		env = append(env, e)
+	}
+	if !pathSeen {
+		env = append(env, "PATH="+cleanPATH)
+	}
+	return env
 }
 
 // CreateWindow creates a new window in an existing session on the specified server.

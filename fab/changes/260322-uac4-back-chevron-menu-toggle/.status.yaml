@@ -1,0 +1,42 @@
+id: uac4
+name: 260322-uac4-back-chevron-menu-toggle
+created: 2026-03-22T12:14:17Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 5
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 80.0
+        reversibility: 92.9
+        competence: 90.0
+        disambiguation: 89.3
+stage_metrics:
+    intake: {started_at: "2026-03-22T12:14:17Z", driver: fab-new, iterations: 1, completed_at: "2026-03-22T12:16:35Z"}
+    spec: {started_at: "2026-03-22T12:16:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-22T12:17:09Z"}
+    tasks: {started_at: "2026-03-22T12:17:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-22T12:17:09Z"}
+    apply: {started_at: "2026-03-22T12:17:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-22T12:29:37Z"}
+    review: {started_at: "2026-03-22T12:29:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-22T12:30:58Z"}
+    hydrate: {started_at: "2026-03-22T12:30:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-22T12:31:17Z"}
+    ship: {started_at: "2026-03-22T12:31:17Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-22T12:31:17Z

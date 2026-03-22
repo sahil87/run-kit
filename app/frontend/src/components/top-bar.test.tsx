@@ -143,6 +143,22 @@ describe("TopBar", () => {
     expect(toggleBtn.querySelector("img")).toBeNull();
   });
 
+  it("shows chevron transforms when sidebar is open on desktop", () => {
+    // Simulate desktop viewport
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1024);
+    renderTopBar({ sidebarOpen: true });
+    const toggleBtn = screen.getByLabelText("Toggle navigation");
+    const svg = toggleBtn.querySelector("svg")!;
+    const lines = svg.querySelectorAll("line");
+    expect(lines).toHaveLength(3);
+    // Top line has chevron rotation
+    expect(lines[0].style.transform).toContain("rotate(-40deg)");
+    // Middle line is hidden
+    expect(lines[1].style.opacity).toBe("0");
+    // Bottom line has chevron rotation
+    expect(lines[2].style.transform).toContain("rotate(40deg)");
+  });
+
   it("renders compose button in top bar", () => {
     renderTopBar();
     expect(screen.getByLabelText("Compose text")).toBeInTheDocument();

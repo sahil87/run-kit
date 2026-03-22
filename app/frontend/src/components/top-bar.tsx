@@ -36,7 +36,7 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
       strokeLinecap="round"
       aria-hidden="true"
     >
-      {/* Top line: slides down + rotates +45deg when open */}
+      {/* Top line → upper arm of chevron (<) */}
       <line
         x1="3"
         y1="4.5"
@@ -44,8 +44,10 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
         y2="4.5"
         style={{
           transition: "transform 200ms ease",
-          transformOrigin: "9px 9px",
-          transform: isOpen ? "rotate(45deg) translateY(4.5px)" : "none",
+          transformOrigin: "9px 4.5px",
+          transform: isOpen
+            ? "translate(-1px, 2px) rotate(-40deg) scaleX(0.65)"
+            : "none",
         }}
       />
       {/* Middle line: fades/scales out when open */}
@@ -61,7 +63,7 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
           transform: isOpen ? "scaleX(0)" : "scaleX(1)",
         }}
       />
-      {/* Bottom line: slides up + rotates -45deg when open */}
+      {/* Bottom line → lower arm of chevron (<) */}
       <line
         x1="3"
         y1="13.5"
@@ -69,8 +71,10 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
         y2="13.5"
         style={{
           transition: "transform 200ms ease",
-          transformOrigin: "9px 9px",
-          transform: isOpen ? "rotate(-45deg) translateY(-4.5px)" : "none",
+          transformOrigin: "9px 13.5px",
+          transform: isOpen
+            ? "translate(-1px, -2px) rotate(40deg) scaleX(0.65)"
+            : "none",
         }}
       />
     </svg>
@@ -128,7 +132,7 @@ export function TopBar({
   const hamburgerOpen = isDesktop ? sidebarOpen : drawerOpen;
 
   return (
-    <header className="px-3 sm:px-6 border-b-2 border-border">
+    <header className="px-3 border-b-2 border-border">
       <div className="flex items-center justify-between py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
           {/* Hamburger icon — toggles sidebar (desktop) / drawer (mobile) */}
@@ -141,7 +145,7 @@ export function TopBar({
               }
             }}
             aria-label="Toggle navigation"
-            className="text-text-secondary hover:text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
+            className="text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
           >
             <HamburgerIcon isOpen={hamburgerOpen} />
           </button>

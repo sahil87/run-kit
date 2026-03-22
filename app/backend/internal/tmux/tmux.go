@@ -286,6 +286,12 @@ func ListWindows(session string, server string) ([]WindowInfo, error) {
 
 // CreateSession creates a new detached tmux session on the specified server,
 // optionally in a specific directory.
+//
+// Because new-session may start the tmux server process, the command runs with
+// a sanitized environment: PATH is reset to a POSIX default and all DIRENV_*
+// vars are removed. Without this, the server inherits direnv-modified PATH from
+// the shell that launched run-kit, and every new pane gets stale/duplicated
+// PATH entries that corrupt direnv's diff computation.
 func CreateSession(name string, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -297,8 +303,34 @@ func CreateSession(name string, cwd string, server string) error {
 		args = append(args, "-c", cwd)
 	}
 
-	_, err := tmuxExecServer(ctx, server, args...)
-	return err
+	full := append(serverArgs(server), args...)
+	cmd := exec.CommandContext(ctx, "tmux", full...)
+	cmd.Env = cleanEnvForServer()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// cleanEnvForServer returns a copy of the current environment with PATH reset
+// to a clean POSIX default and all DIRENV_* variables removed. This prevents
+// the tmux server process from inheriting direnv state.
+func cleanEnvForServer() []string {
+	const cleanPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	var env []string
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "DIRENV_") {
+			continue
+		}
+		if strings.HasPrefix(e, "PATH=") {
+			env = append(env, "PATH="+cleanPATH)
+			continue
+		}
+		env = append(env, e)
+	}
+	return env
 }
 
 // CreateWindow creates a new window in an existing session on the specified server.

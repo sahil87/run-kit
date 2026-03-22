@@ -40,9 +40,9 @@ The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derive
 
 **Dashboard route** (`/`): Hamburger toggle + "Dashboard" text label (`text-text-primary font-medium`). No session or window breadcrumb segments rendered (no session/window is selected). Connection indicator, FixedWidthToggle, and `⌘K`/`⋯` render as normal.
 
-**Terminal route** (`/:session/:window`): `☰ session / window` — hamburger icon (three SVG lines, animates to X via CSS `transition-transform` when sidebar/drawer is open) + session name (dropdown trigger, `max-w-[7ch] truncate`) + `/` plain text separator + window name (dropdown trigger). Syncs with tmux active window via SSE.
+**Terminal route** (`/:session/:window`): `☰ session / window` — hamburger icon (three SVG lines, animates to left-pointing chevron `<` via CSS transforms when sidebar/drawer is open) + session name (dropdown trigger, `max-w-[7ch] truncate`) + `/` plain text separator + window name (dropdown trigger). Syncs with tmux active window via SSE.
 
-- Hamburger icon (`☰`) — replaces logo as sidebar/drawer toggle. Animates to `✕` (X) when `sidebarOpen` (desktop >= 768px) or `drawerOpen` (mobile < 768px) is true
+- Hamburger icon (`☰`) — replaces logo as sidebar/drawer toggle. Animates to back chevron (`<`) when `sidebarOpen` (desktop >= 768px) or `drawerOpen` (mobile < 768px) is true. Top and bottom lines rotate ±40deg and shorten to form chevron arms; middle line fades out. Always uses `text-text-primary` color
 - `/` — plain text separator between session and window names (replaces `❯` U+276F). Not a click target
 - Session name and window name text are the dropdown triggers (tappable to open respective dropdowns). Replaces the `❯` icon-based trigger pattern
 - Session name capped at ~7 characters with ellipsis overflow (`max-w-[7ch] truncate`)

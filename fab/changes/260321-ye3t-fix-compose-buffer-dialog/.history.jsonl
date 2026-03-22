@@ -1,0 +1,26 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-21T11:18:26Z"}
+{"args":"Fix compose buffer: image preview, path duplication, dialog pattern alignment","cmd":"fab-new","event":"command","ts":"2026-03-21T11:18:26Z"}
+{"delta":"+2.1","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-03-21T11:19:24Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-03-21T11:19:36Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-03-21T11:19:44Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-21T13:05:28Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-03-21T13:06:31Z"}
+{"delta":"+0.9","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-03-21T13:15:33Z"}
+{"delta":"+0.0","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-03-21T13:15:38Z"}
+{"delta":"+0.0","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-03-21T16:00:18Z"}
+{"delta":"+2.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T16:00:26Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T16:00:32Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T16:00:37Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T16:00:43Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T16:00:48Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-21T16:04:44Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-21T16:06:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-21T16:06:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-21T16:06:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-21T16:06:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-21T16:09:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-21T16:10:26Z"}
+{"event":"review","result":"passed","ts":"2026-03-21T16:10:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-21T16:10:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review-pr","ts":"2026-03-21T16:11:40Z"}
+{"event":"review","result":"passed","ts":"2026-03-21T16:11:55Z"}

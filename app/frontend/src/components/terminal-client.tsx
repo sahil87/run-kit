@@ -1,6 +1,7 @@
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useFileUpload } from "@/hooks/use-file-upload";
+import type { UploadedFile } from "@/hooks/use-file-upload";
 import { useTheme } from "@/contexts/theme-context";
 import type { ResolvedTheme } from "@/contexts/theme-context";
 import { ComposeBuffer } from "@/components/compose-buffer";
@@ -78,13 +79,15 @@ export function TerminalClient({
   const [terminalReady, setTerminalReady] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
+  const [composeFiles, setComposeFiles] = useState<UploadedFile[]>([]);
   const { uploadFiles } = useFileUpload(sessionName, windowIndex);
   const { resolved: resolvedTheme } = useTheme();
 
-  const openComposeWithPaths = useCallback(
-    (paths: string[]) => {
-      if (paths.length === 0) return;
-      setComposeInitialText(paths.join("\n"));
+  const openComposeWithUploads = useCallback(
+    (uploads: UploadedFile[]) => {
+      if (uploads.length === 0) return;
+      setComposeFiles((prev) => [...prev, ...uploads]);
+      setComposeInitialText(uploads.map((u) => u.path).join("\n"));
       setComposeOpen(true);
     },
     [setComposeOpen],
@@ -96,11 +99,11 @@ export function TerminalClient({
       const files = e.clipboardData?.files;
       if (!files || files.length === 0) return;
       e.preventDefault();
-      uploadFiles(files).then(openComposeWithPaths);
+      uploadFiles(files).then(openComposeWithUploads);
     }
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [uploadFiles, openComposeWithPaths]);
+  }, [uploadFiles, openComposeWithUploads]);
 
   // Drag and drop
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -120,16 +123,16 @@ export function TerminalClient({
       setDragOver(false);
       const files = e.dataTransfer.files;
       if (files.length === 0) return;
-      uploadFiles(files).then(openComposeWithPaths);
+      uploadFiles(files).then(openComposeWithUploads);
     },
-    [uploadFiles, openComposeWithPaths],
+    [uploadFiles, openComposeWithUploads],
   );
 
   const handleUploadFiles = useCallback(
     (files: FileList) => {
-      uploadFiles(files).then(openComposeWithPaths);
+      uploadFiles(files).then(openComposeWithUploads);
     },
-    [uploadFiles, openComposeWithPaths],
+    [uploadFiles, openComposeWithUploads],
   );
 
   // xterm.js init — mount only, creates terminal instance and resize observer.
@@ -368,10 +371,15 @@ export function TerminalClient({
           onClose={() => {
             setComposeOpen(false);
             setComposeInitialText(undefined);
+            setComposeFiles([]);
             xtermRef.current?.focus();
           }}
           initialText={composeInitialText}
+          uploadedFiles={composeFiles}
           onUploadFiles={handleUploadFiles}
+          onRemoveFile={(index) => {
+            setComposeFiles((prev) => prev.filter((_, i) => i !== index));
+          }}
         />
       )}
     </div>

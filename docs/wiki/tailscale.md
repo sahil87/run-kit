@@ -15,8 +15,7 @@ Enable HTTPS on your tailnet in the [Tailscale admin console](https://login.tail
 Tailscale Serve acts as a reverse proxy with automatic TLS — no cert files, no config.
 
 ```sh
-# Proxy HTTPS traffic to the run-kit Go server
-tailscale serve https / http://localhost:3000
+tailscale serve --bg http://localhost:3000
 ```
 
 That's it. run-kit is now available at:
@@ -78,7 +77,7 @@ tailscale serve off
 To expose run-kit to the public internet (not just your tailnet):
 
 ```sh
-tailscale funnel https / http://localhost:3000
+tailscale funnel --bg http://localhost:3000
 ```
 
 > **Warning:** Funnel makes your terminal relay publicly accessible. Only use this if you understand the security implications.

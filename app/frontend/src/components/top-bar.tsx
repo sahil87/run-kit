@@ -211,12 +211,11 @@ export function TopBar({
             />
           </span>
 
-          <span className="hidden sm:flex">
-            <FixedWidthToggle />
-          </span>
-
           {currentWindow && (
             <>
+              <span className="hidden sm:flex">
+                <FixedWidthToggle />
+              </span>
               <span className="hidden sm:flex">
                 <SplitButton
                   horizontal
@@ -230,22 +229,20 @@ export function TopBar({
                   windowIndex={currentWindow.index}
                 />
               </span>
+              <button
+                type="button"
+                onClick={onOpenCompose}
+                aria-label="Compose text"
+                className="text-text-secondary hover:border-text-secondary transition-colors min-w-[24px] min-h-[24px] sm:min-w-[24px] sm:min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center border border-border rounded text-xs"
+              >
+                &gt;_
+              </button>
             </>
           )}
 
           <span className="hidden sm:flex">
             <ThemeToggle />
           </span>
-
-          {/* Compose button — always visible */}
-          <button
-            type="button"
-            onClick={onOpenCompose}
-            aria-label="Compose text"
-            className="text-text-secondary hover:border-text-secondary transition-colors min-w-[24px] min-h-[24px] sm:min-w-[24px] sm:min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center border border-border rounded text-xs"
-          >
-            &gt;_
-          </button>
         </div>
       </div>
     </header>

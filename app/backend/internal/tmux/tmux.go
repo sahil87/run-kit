@@ -304,31 +304,58 @@ func CreateSession(name string, cwd string, server string) error {
 	}
 
 	full := append(serverArgs(server), args...)
-	cmd := exec.CommandContext(ctx, "tmux", full...)
-	cmd.Env = cleanEnvForServer()
+	return runTmuxWithEnv(ctx, full, cleanEnvForServer())
+}
+
+// runTmuxWithEnv executes a tmux command with an optional environment override,
+// capturing stderr for diagnostics.
+func runTmuxWithEnv(ctx context.Context, args []string, env []string) error {
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	if env != nil {
+		cmd.Env = env
+	}
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+		return err
 	}
 	return nil
 }
+
+// cleanPATH is the POSIX default PATH used to sanitize the tmux server environment.
+const cleanPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 // cleanEnvForServer returns a copy of the current environment with PATH reset
 // to a clean POSIX default and all DIRENV_* variables removed. This prevents
 // the tmux server process from inheriting direnv state.
 func cleanEnvForServer() []string {
-	const cleanPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-	var env []string
-	for _, e := range os.Environ() {
+	return sanitizeEnv(os.Environ())
+}
+
+// sanitizeEnv filters an environment slice: replaces PATH with a clean POSIX
+// default (deduplicating if present multiple times), strips DIRENV_* vars,
+// and ensures PATH is always present.
+func sanitizeEnv(environ []string) []string {
+	env := make([]string, 0, len(environ)+1)
+	pathSeen := false
+	for _, e := range environ {
 		if strings.HasPrefix(e, "DIRENV_") {
 			continue
 		}
 		if strings.HasPrefix(e, "PATH=") {
-			env = append(env, "PATH="+cleanPATH)
+			if !pathSeen {
+				env = append(env, "PATH="+cleanPATH)
+				pathSeen = true
+			}
 			continue
 		}
 		env = append(env, e)
+	}
+	if !pathSeen {
+		env = append(env, "PATH="+cleanPATH)
 	}
 	return env
 }

@@ -32,9 +32,9 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 - **WebSocket**: gorilla/websocket — terminal relay to tmux panes via creack/pty
 - **SSE**: custom handler for real-time session state
 - **Config**: environment variables (`RK_PORT`, `RK_HOST`) loaded via `.env` / `.env.local`
-- **Structure**: `cmd/run-kit/` (entrypoint), `api/` (HTTP handlers), `internal/` (config, fab, sessions, tmux, validate)
+- **Structure**: `cmd/rk/` (entrypoint), `api/` (HTTP handlers), `internal/` (config, fab, sessions, tmux, validate)
 - **Testing**: `go test ./...`
-- **Build**: `go build -o ../../bin/run-kit ./cmd/run-kit`
+- **Build**: `go build -o ../../bin/rk ./cmd/rk`
 
 ## Frontend — `app/frontend/`
 

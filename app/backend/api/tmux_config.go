@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"run-kit/internal/tmux"
+	"rk/internal/tmux"
 )
 
 func (s *Server) handleTmuxReloadConfig(w http.ResponseWriter, r *http.Request) {

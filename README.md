@@ -14,16 +14,16 @@ The token needs `repo` scope (for private repo access). Then:
 
 ```sh
 brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git
-brew install wvrdz/tap/run-kit
+brew install wvrdz/tap/rk
 ```
 
 ## Usage
 
 ```bash
-run-kit serve -d          # start daemon (default :3000)
-run-kit serve --restart   # restart daemon (idempotent)
-run-kit serve --stop      # graceful shutdown
-run-kit update            # upgrade via Homebrew and restart
+rk serve -d          # start daemon (default :3000)
+rk serve --restart   # restart daemon (idempotent)
+rk serve --stop      # graceful shutdown
+rk update            # upgrade via Homebrew and restart
 ```
 
 ## Prerequisites (development)
@@ -55,19 +55,19 @@ just prod # Runs from built binary
 
 ## HTTPS
 
-To access run-kit over HTTPS (e.g., from other machines on your tailnet), see:
+To access rk over HTTPS (e.g., from other machines on your tailnet), see:
 
 - [Tailscale guide](docs/wiki/tailscale.md) — zero-config with Tailscale Serve (recommended)
 
 ## Self-Improvement Loop
 
-run-kit runs as a daemon in a dedicated tmux session. Lifecycle is managed via CLI flags on `run-kit serve`:
+rk runs as a daemon in a dedicated tmux session. Lifecycle is managed via CLI flags on `rk serve`:
 
-- `run-kit serve -d` — start daemon in a tmux session (`rk-daemon` server)
-- `run-kit serve --restart` — idempotent restart (stop existing if running, start new)
-- `run-kit serve --stop` — graceful shutdown via SIGINT
+- `rk serve -d` — start daemon in a tmux session (`rk-daemon` server)
+- `rk serve --restart` — idempotent restart (stop existing if running, start new)
+- `rk serve --stop` — graceful shutdown via SIGINT
 
-`run-kit update` automatically restarts the daemon after upgrading via Homebrew, so the new binary takes effect immediately.
+`rk update` automatically restarts the daemon after upgrading via Homebrew, so the new binary takes effect immediately.
 
 Key properties:
 

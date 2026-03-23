@@ -17,8 +17,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
-	"run-kit/internal/tmux"
-	"run-kit/internal/validate"
+	"rk/internal/tmux"
+	"rk/internal/validate"
 )
 
 // No timeout for the attach command — it's a long-lived process that stays alive
@@ -118,7 +118,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	// Source-file the config into the running server so terminal-overrides
 	// (true color) and style settings are active even if the server was
-	// created outside of run-kit. Best-effort — don't block the attach.
+	// created outside of rk. Best-effort — don't block the attach.
 	if err := tmux.ReloadConfig(server); err != nil {
 		slog.Debug("config reload before attach (best-effort)", "server", server, "err", err)
 	}

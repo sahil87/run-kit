@@ -11,9 +11,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
-	"run-kit/internal/sessions"
-	"run-kit/internal/tmux"
-	"run-kit/internal/validate"
+	"rk/internal/sessions"
+	"rk/internal/tmux"
+	"rk/internal/validate"
 )
 
 // SessionFetcher fetches enriched session data.

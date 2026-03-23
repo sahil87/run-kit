@@ -14,7 +14,7 @@ func TestVersionOutput(t *testing.T) {
 	// Temporarily replace the Run func to use cmd.Print (which respects SetOut).
 	origRun := versionCmd.Run
 	versionCmd.Run = func(cmd *cobra.Command, args []string) {
-		cmd.Printf("run-kit version %s\n", version)
+		cmd.Printf("rk version %s\n", version)
 	}
 	defer func() { versionCmd.Run = origRun }()
 
@@ -26,7 +26,7 @@ func TestVersionOutput(t *testing.T) {
 	}
 
 	got := strings.TrimSpace(buf.String())
-	want := "run-kit version dev"
+	want := "rk version dev"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

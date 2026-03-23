@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"run-kit/internal/tmux"
-	"run-kit/internal/validate"
+	"rk/internal/tmux"
+	"rk/internal/validate"
 )
 
 const uploadMaxBytes = 50 * 1024 * 1024 // 50MB

@@ -15,7 +15,7 @@ const (
 	ServerSocket = "rk-daemon"
 	// SessionName is the tmux session name for the daemon.
 	SessionName = "rk"
-	// WindowName is the tmux window name where `run-kit serve` runs.
+	// WindowName is the tmux window name where `rk serve` runs.
 	WindowName = "serve"
 
 	// cmdTimeout is the default timeout for tmux commands.
@@ -57,10 +57,10 @@ func IsRunning() bool {
 	return isRunningCtx(ctx)
 }
 
-// Start creates a new daemon tmux session running `run-kit serve`.
+// Start creates a new daemon tmux session running `rk serve`.
 // The command is passed directly to new-session so the session exits when the server exits.
 // Uses os.Executable to resolve the current binary, so a locally-built binary restarts itself
-// rather than whichever `run-kit` happens to be in $PATH.
+// rather than whichever `rk` happens to be in $PATH.
 // Returns an error if a daemon is already running.
 func Start() error {
 	if IsRunning() {

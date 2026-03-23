@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"run-kit/internal/tmux"
+	"rk/internal/tmux"
 )
 
 func createMultipartRequest(t *testing.T, url string, fields map[string]string, fileName, fileContent string) *http.Request {

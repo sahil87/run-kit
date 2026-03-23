@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"run-kit/internal/tmux"
+	"rk/internal/tmux"
 )
 
 var initConfForce bool
 
 var initConfCmd = &cobra.Command{
 	Use:   "init-conf",
-	Short: "Scaffold default tmux.conf to ~/.run-kit/tmux.conf",
+	Short: "Scaffold default tmux.conf to ~/.rk/tmux.conf",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dest := tmux.DefaultConfigPath
 		if dest == "" {

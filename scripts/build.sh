@@ -17,10 +17,10 @@ cp -r "$REPO_ROOT/app/frontend/dist" "$REPO_ROOT/app/backend/build/frontend"
 touch "$REPO_ROOT/app/backend/build/frontend/.gitkeep"
 
 VERSION="$(cat "$REPO_ROOT/VERSION")"
-echo "==> Building run-kit v${VERSION}..."
+echo "==> Building rk v${VERSION}..."
 
 cd "$REPO_ROOT/app/backend"
 mkdir -p "$REPO_ROOT/dist"
-CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o "$REPO_ROOT/dist/run-kit" ./cmd/run-kit
+CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o "$REPO_ROOT/dist/rk" ./cmd/rk
 
-echo "==> Built dist/run-kit (v${VERSION})"
+echo "==> Built dist/rk (v${VERSION})"

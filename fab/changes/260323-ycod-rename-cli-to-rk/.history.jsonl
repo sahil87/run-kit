@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-23T09:25:31Z"}
+{"args":"Rename CLI binary and Homebrew distribution from run-kit to rk","cmd":"fab-new","event":"command","ts":"2026-03-23T09:25:31Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-23T09:26:22Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-23T09:26:28Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-23T09:26:48Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-23T09:27:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-23T09:27:44Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-23T09:28:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-23T09:29:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-23T09:29:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-23T09:35:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-23T09:37:17Z"}
+{"event":"review","result":"passed","ts":"2026-03-23T09:37:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-23T09:37:48Z"}

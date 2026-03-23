@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"run-kit/internal/tmux"
+	"rk/internal/tmux"
 )
 
 func TestProjectRootDerivation(t *testing.T) {

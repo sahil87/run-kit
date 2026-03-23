@@ -23,9 +23,9 @@ setup:
 dev *args:
     scripts/dev.sh {{args}}
 
-# Run any run-kit CLI command from source (just dev-run-kit serve -d)
-dev-run-kit *args:
-    cd app/backend && RK_PORT=$(( ${RK_PORT:-3000} + 1 )) go run ./cmd/run-kit {{args}}
+# Run any rk CLI command from source (just dev-rk serve -d)
+dev-rk *args:
+    cd app/backend && RK_PORT=$(( ${RK_PORT:-3000} + 1 )) go run ./cmd/rk {{args}}
 
 # Start only the Go backend with live-reload (port RK_PORT+1, default 3001)
 dev-backend:
@@ -48,21 +48,21 @@ release bump="patch":
 # Build and run production binary
 prod:
     just build
-    ./dist/run-kit
+    ./dist/rk
 
-# Start run-kit daemon in background tmux session
+# Start rk daemon in background tmux session
 up:
     just build
-    ./dist/run-kit serve -d
+    ./dist/rk serve -d
 
-# Stop run-kit daemon
+# Stop rk daemon
 down:
-    ./dist/run-kit serve --stop
+    ./dist/rk serve --stop
 
-# Restart run-kit daemon
+# Restart rk daemon
 restart:
     just build
-    ./dist/run-kit serve --restart
+    ./dist/rk serve --restart
 
 # ─── Test ────────────────────────────────────────────────────
 

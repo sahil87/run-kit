@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 
-	"run-kit/internal/validate"
+	"rk/internal/validate"
 )
 
 func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {

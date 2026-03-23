@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"run-kit/internal/tmux"
+	"rk/internal/tmux"
 )
 
 // ProjectSession is a tmux session with its windows and optional fab enrichment.

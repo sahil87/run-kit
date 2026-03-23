@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"run-kit/internal/validate"
+	"rk/internal/validate"
 )
 
 func (s *Server) handleDirectories(w http.ResponseWriter, r *http.Request) {

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"run-kit/build"
+	"rk/build"
 
 	"github.com/go-chi/chi/v5"
 )

@@ -8,6 +8,6 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version",
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd.Printf("run-kit version %s\n", version)
+		cmd.Printf("rk version %s\n", version)
 	},
 }

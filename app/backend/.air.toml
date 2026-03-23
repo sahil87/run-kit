@@ -2,8 +2,8 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "go build -o ./tmp/run-kit ./cmd/run-kit"
-  bin = "./tmp/run-kit"
+  cmd = "go build -o ./tmp/rk ./cmd/rk"
+  bin = "./tmp/rk"
   include_ext = ["go"]
   exclude_dir = ["tmp", "vendor"]
   delay = 500

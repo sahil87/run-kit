@@ -1,4 +1,4 @@
-# Intake: Arrow Pad Focus Steal & Popup Persistence
+# Intake: Arrow Pad Focus Steal, Popup Persistence & Keyboard Dismiss Button
 
 **Change**: 260323-k26m-arrow-pad-focus-popup
 **Created**: 2026-03-23
@@ -6,11 +6,12 @@
 
 ## Origin
 
-> fix: prevent arrow pad from stealing terminal focus and keep popup open for repeated taps
+> fix: prevent arrow pad from stealing terminal focus, keep popup open for repeated taps, and add mobile keyboard dismiss button
 
-Conversational — user identified two issues with the `ArrowPad` component during mobile testing:
+Conversational — user identified issues with the `ArrowPad` component during mobile testing and requested a dismiss-keyboard button:
 1. Tapping the arrow icon dismisses the mobile keyboard (steals focus from xterm textarea)
 2. Tapping any directional arrow in the popup closes it immediately, preventing repeated arrow key input
+3. No way to dismiss the on-screen keyboard without tapping outside the terminal
 
 ## Why
 
@@ -18,7 +19,9 @@ On mobile, the bottom bar buttons use `preventDefault` on `mousedown` to prevent
 
 Separately, the popup arrow buttons (`Up`, `Down`, `Left`, `Right`) each called `setOpen(false)` after sending the arrow sequence. This forced users to re-open the popup for every arrow press — unusable for navigation tasks that require multiple consecutive arrow key inputs (e.g., scrolling through command history, navigating editors).
 
-Without this fix, mobile users cannot use arrow keys without repeatedly re-opening the keyboard and the popup.
+Additionally, there is no way to dismiss the on-screen keyboard on mobile once it's open — users must tap outside the terminal area, which is awkward. A dedicated dismiss button in the bottom bar solves this.
+
+Without these fixes, mobile users cannot use arrow keys without repeatedly re-opening the keyboard and the popup, and have no clean way to dismiss the keyboard when done typing.
 
 ## What Changes
 
@@ -36,16 +39,20 @@ Add `onMouseDown={preventFocusSteal}` to all four directional arrow buttons in t
 
 Remove `setOpen(false)` from all four popup arrow button `onClick` handlers. The popup now stays open until the user taps outside it, which is handled by the existing `mousedown` document listener (lines 82–91 in the original file).
 
+### 4. Mobile keyboard dismiss button
+
+Add a down-chevron (⌄) button to the bottom bar's right edge that blurs the active element, dismissing the on-screen keyboard. Visible only on touch devices using the `coarse:` Tailwind custom variant (`@media (pointer: coarse)`). Uses `onMouseDown={preventFocusSteal}` for consistency, and `ml-auto` to push it to the trailing edge.
+
 ## Affected Memory
 
 - `run-kit/ui-patterns`: (modify) Document ArrowPad focus-steal prevention and popup persistence behavior
 
 ## Impact
 
-- **File changed**: `app/frontend/src/components/arrow-pad.tsx`
+- **Files changed**: `app/frontend/src/components/arrow-pad.tsx`, `app/frontend/src/components/bottom-bar.tsx`
 - **No API changes** — purely frontend component behavior
 - **No new dependencies**
-- **Mobile UX improvement** — arrow keys now usable without keyboard dismissal or popup re-opening
+- **Mobile UX improvement** — arrow keys now usable without keyboard dismissal or popup re-opening, and keyboard can be dismissed via dedicated button
 
 ## Open Questions
 
@@ -59,5 +66,7 @@ None — implementation is straightforward and matches established patterns.
 | 2 | Certain | Remove `setOpen(false)` from popup arrow buttons | Discussed — user explicitly requested popup stay open for repeated taps | S:95 R:95 A:90 D:95 |
 | 3 | Certain | Outside-click listener handles popup dismissal | Existing behavior — document mousedown listener already closes popup on outside click | S:90 R:95 A:95 D:95 |
 | 4 | Confident | Local `preventFocusSteal` helper rather than importing from bottom-bar | bottom-bar.tsx doesn't export it; one-liner not worth extracting to shared module | S:70 R:90 A:85 D:80 |
+| 5 | Certain | Down chevron (⌄) icon for dismiss button | Discussed — user chose chevron over checkmark as it maps to "push keyboard down" mental model | S:95 R:95 A:90 D:95 |
+| 6 | Certain | Button visible only on touch devices via `coarse:` variant | Discussed — user explicitly requested mobile-only visibility | S:95 R:95 A:95 D:95 |
 
-4 assumptions (3 certain, 1 confident, 0 tentative, 0 unresolved).
+6 assumptions (5 certain, 1 confident, 0 tentative, 0 unresolved).

@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"run-kit/internal/validate"
+	"rk/internal/validate"
 )
 
 func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {

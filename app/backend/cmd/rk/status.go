@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"run-kit/internal/tmux"
+	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
 )

@@ -397,7 +397,7 @@ function AppShell() {
       },
       {
         id: "init-tmux-conf",
-        label: "Reset run-kit's tmux config to default",
+        label: "Reset rk's tmux config to default",
         onSelect: () => { initTmuxConf().then(() => reloadTmuxConfig()).catch(() => {}); },
       },
       {

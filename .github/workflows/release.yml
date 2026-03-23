@@ -53,13 +53,13 @@ jobs:
           for target in $targets; do
             os="${target%/*}"
             arch="${target#*/}"
-            output="run-kit-${os}-${arch}"
+            output="rk-${os}-${arch}"
             echo "Building ${output}..."
             mkdir -p "../../dist/${output}"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
               go build -ldflags "-X main.version=${{ steps.version.outputs.version }}" \
-              -o "../../dist/${output}/run-kit" ./cmd/run-kit
-            tar -czf "../../dist/${output}.tar.gz" -C "../../dist/${output}" run-kit
+              -o "../../dist/${output}/rk" ./cmd/rk
+            tar -czf "../../dist/${output}.tar.gz" -C "../../dist/${output}" rk
           done
 
       - name: Determine release notes base tag
@@ -99,10 +99,10 @@ jobs:
         run: |
           version="${{ steps.version.outputs.version }}"
 
-          sha_darwin_arm64=$(sha256sum dist/run-kit-darwin-arm64.tar.gz | cut -d' ' -f1)
-          sha_darwin_amd64=$(sha256sum dist/run-kit-darwin-amd64.tar.gz | cut -d' ' -f1)
-          sha_linux_arm64=$(sha256sum dist/run-kit-linux-arm64.tar.gz | cut -d' ' -f1)
-          sha_linux_amd64=$(sha256sum dist/run-kit-linux-amd64.tar.gz | cut -d' ' -f1)
+          sha_darwin_arm64=$(sha256sum dist/rk-darwin-arm64.tar.gz | cut -d' ' -f1)
+          sha_darwin_amd64=$(sha256sum dist/rk-darwin-amd64.tar.gz | cut -d' ' -f1)
+          sha_linux_arm64=$(sha256sum dist/rk-linux-arm64.tar.gz | cut -d' ' -f1)
+          sha_linux_amd64=$(sha256sum dist/rk-linux-amd64.tar.gz | cut -d' ' -f1)
 
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/wvrdz/homebrew-tap.git" /tmp/homebrew-tap
 
@@ -112,11 +112,11 @@ jobs:
             -e "s/SHA_DARWIN_AMD64/${sha_darwin_amd64}/" \
             -e "s/SHA_LINUX_ARM64/${sha_linux_arm64}/" \
             -e "s/SHA_LINUX_AMD64/${sha_linux_amd64}/" \
-            .github/formula-template.rb > /tmp/homebrew-tap/Formula/run-kit.rb
+            .github/formula-template.rb > /tmp/homebrew-tap/Formula/rk.rb
 
           cd /tmp/homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/run-kit.rb
-          git commit -m "run-kit ${version}"
+          git add Formula/rk.rb
+          git commit -m "rk ${version}"
           git push

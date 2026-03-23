@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"run-kit/internal/tmux"
+	"rk/internal/tmux"
 )
 
 func TestWindowCreate(t *testing.T) {

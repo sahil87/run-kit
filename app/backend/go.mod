@@ -1,4 +1,4 @@
-module run-kit
+module rk
 
 go 1.22.0
 

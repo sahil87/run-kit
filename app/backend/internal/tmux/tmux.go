@@ -28,7 +28,7 @@ func init() {
 
 	home, err := os.UserHomeDir()
 	if err == nil {
-		DefaultConfigPath = filepath.Join(home, ".run-kit", "tmux.conf")
+		DefaultConfigPath = filepath.Join(home, ".rk", "tmux.conf")
 	}
 
 	configPath = os.Getenv("RK_TMUX_CONF")
@@ -74,7 +74,7 @@ func EnsureConfig() error {
 }
 
 // ForceWriteConfig writes the embedded default tmux.conf to DefaultConfigPath,
-// overwriting any existing file. Equivalent to `run-kit init-conf --force`.
+// overwriting any existing file. Equivalent to `rk init-conf --force`.
 func ForceWriteConfig() error {
 	if DefaultConfigPath == "" {
 		return fmt.Errorf("could not determine home directory")
@@ -89,7 +89,7 @@ func ForceWriteConfig() error {
 // Returns an error if no config path is set or the source-file command fails.
 func ReloadConfig(server string) error {
 	if configPath == "" {
-		return fmt.Errorf("no tmux config path (run 'run-kit init-conf' or set RK_TMUX_CONF)")
+		return fmt.Errorf("no tmux config path (run 'rk init-conf' or set RK_TMUX_CONF)")
 	}
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -290,7 +290,7 @@ func ListWindows(session string, server string) ([]WindowInfo, error) {
 // Because new-session may start the tmux server process, the command runs with
 // a sanitized environment: PATH is reset to a POSIX default and all DIRENV_*
 // vars are removed. Without this, the server inherits direnv-modified PATH from
-// the shell that launched run-kit, and every new pane gets stale/duplicated
+// the shell that launched rk, and every new pane gets stale/duplicated
 // PATH entries that corrupt direnv's diff computation.
 func CreateSession(name string, cwd string, server string) error {
 	ctx, cancel := withTimeout()

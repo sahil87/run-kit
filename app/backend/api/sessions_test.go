@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"run-kit/internal/sessions"
-	"run-kit/internal/tmux"
+	"rk/internal/sessions"
+	"rk/internal/tmux"
 )
 
 // mockSessionFetcher returns canned session data.

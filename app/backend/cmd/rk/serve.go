@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"run-kit/api"
-	"run-kit/internal/config"
-	"run-kit/internal/daemon"
-	"run-kit/internal/tmux"
+	"rk/api"
+	"rk/internal/config"
+	"rk/internal/daemon"
+	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
 )
@@ -45,36 +45,36 @@ var serveCmd = &cobra.Command{
 		switch {
 		case daemonFlag:
 			if daemon.IsRunning() {
-				return fmt.Errorf("run-kit daemon already running (%s/%s/%s)",
+				return fmt.Errorf("rk daemon already running (%s/%s/%s)",
 					daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
 			}
 			if err := daemon.Start(); err != nil {
 				return fmt.Errorf("starting daemon: %w", err)
 			}
-			fmt.Printf("run-kit daemon started (%s/%s/%s)\n",
+			fmt.Printf("rk daemon started (%s/%s/%s)\n",
 				daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
 			return nil
 
 		case restartFlag:
 			if daemon.IsRunning() {
-				fmt.Println("Restarting run-kit daemon...")
+				fmt.Println("Restarting rk daemon...")
 			}
 			if err := daemon.Restart(); err != nil {
 				return fmt.Errorf("restarting daemon: %w", err)
 			}
-			fmt.Printf("run-kit daemon started (%s/%s/%s)\n",
+			fmt.Printf("rk daemon started (%s/%s/%s)\n",
 				daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
 			return nil
 
 		case stopFlag:
 			if !daemon.IsRunning() {
-				fmt.Println("run-kit daemon not running")
+				fmt.Println("rk daemon not running")
 				return nil
 			}
 			if err := daemon.Stop(); err != nil {
 				return fmt.Errorf("stopping daemon: %w", err)
 			}
-			fmt.Println("run-kit daemon stopped")
+			fmt.Println("rk daemon stopped")
 			return nil
 		}
 

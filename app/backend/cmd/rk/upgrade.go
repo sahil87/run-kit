@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"run-kit/internal/daemon"
+	"rk/internal/daemon"
 
 	"github.com/spf13/cobra"
 )
@@ -20,7 +20,7 @@ const brewTimeout = 120 * time.Second
 var updateCmd = &cobra.Command{
 	Use:     "update",
 	Aliases: []string{"upgrade"},
-	Short:   "Update run-kit to the latest version",
+	Short:   "Update rk to the latest version",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		exePath, err := os.Executable()
 		if err != nil {
@@ -31,11 +31,11 @@ var updateCmd = &cobra.Command{
 			resolved = exePath
 		}
 
-		if !strings.Contains(resolved, "/Cellar/run-kit/") {
-			fmt.Printf("run-kit v%s was not installed via Homebrew.\n", version)
+		if !strings.Contains(resolved, "/Cellar/rk/") {
+			fmt.Printf("rk v%s was not installed via Homebrew.\n", version)
 			fmt.Println("Update manually (git pull && just build), or reinstall with:")
 			fmt.Println("  brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git")
-			fmt.Println("  brew install wvrdz/tap/run-kit")
+			fmt.Println("  brew install rk")
 			return nil
 		}
 
@@ -55,7 +55,7 @@ var updateCmd = &cobra.Command{
 		infoCtx, infoCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer infoCancel()
 
-		info := exec.CommandContext(infoCtx, "brew", "info", "--json=v2", "wvrdz/tap/run-kit")
+		info := exec.CommandContext(infoCtx, "brew", "info", "--json=v2", "wvrdz/tap/rk")
 		infoOut, err := info.Output()
 		if err != nil {
 			return fmt.Errorf("could not determine latest version: %w", err)
@@ -76,7 +76,7 @@ var updateCmd = &cobra.Command{
 		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewTimeout)
 		defer upgradeCancel()
 
-		upgrade := exec.CommandContext(upgradeCtx, "brew", "upgrade", "wvrdz/tap/run-kit")
+		upgrade := exec.CommandContext(upgradeCtx, "brew", "upgrade", "wvrdz/tap/rk")
 		upgrade.Stdout = os.Stdout
 		upgrade.Stderr = os.Stderr
 		if err := upgrade.Run(); err != nil {
@@ -87,11 +87,11 @@ var updateCmd = &cobra.Command{
 
 		// Restart daemon so it picks up the new binary.
 		// Idempotent: if no daemon is running, this starts one.
-		fmt.Println("Restarting run-kit daemon...")
+		fmt.Println("Restarting rk daemon...")
 		if err := daemon.Restart(); err != nil {
 			return fmt.Errorf("restarting daemon after upgrade: %w", err)
 		}
-		fmt.Printf("run-kit daemon started (%s/%s/%s)\n",
+		fmt.Printf("rk daemon started (%s/%s/%s)\n",
 			daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
 
 		return nil

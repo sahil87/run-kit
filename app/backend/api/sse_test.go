@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"run-kit/internal/sessions"
-	"run-kit/internal/tmux"
+	"rk/internal/sessions"
+	"rk/internal/tmux"
 )
 
 // slowSessionFetcher returns canned data with a small delay.

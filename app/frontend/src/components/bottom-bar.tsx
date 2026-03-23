@@ -52,6 +52,9 @@ const MODIFIER_LABELS: Record<string, string> = {
   alt: "Option",
 };
 
+/** Prevent mousedown from stealing focus away from the terminal. */
+const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
+
 export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
@@ -150,10 +153,10 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
 
   return (
     <div className="flex items-center gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
-      <button aria-label="Escape" className={`${KBD_CLASS} text-text-secondary`} onClick={() => sendSpecial("\x1b")}>
+      <button aria-label="Escape" className={`${KBD_CLASS} text-text-secondary`} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\x1b")}>
         <kbd aria-hidden="true">{"\u238B"}</kbd>
       </button>
-      <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onClick={() => sendSpecial("\t")}>
+      <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\t")}>
         <kbd aria-hidden="true">{"\u21E5"}</kbd>
       </button>
 
@@ -163,6 +166,7 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
           aria-label={MODIFIER_LABELS[key]}
           aria-pressed={mods[key]}
           className={`${KBD_CLASS} ${mods[key] ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
+          onMouseDown={preventFocusSteal}
           onClick={() => mods.toggle(key)}
         >
           <kbd aria-hidden="true">{symbol}</kbd>
@@ -175,6 +179,7 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
           aria-haspopup="true"
           aria-expanded={fnOpen}
           className={`${KBD_CLASS} text-text-secondary`}
+          onMouseDown={preventFocusSteal}
           onClick={() => setFnOpen((v) => !v)}
         >
           <kbd aria-hidden="true">F&#x25B4;</kbd>
@@ -192,6 +197,7 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
                   role="menuitem"
                   aria-label={fk.label}
                   className="px-2 py-1 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                  onMouseDown={preventFocusSteal}
                   onClick={() => { sendWithMods(fk.plain, fk.mod); setFnOpen(false); }}
                 >
                   {fk.label}
@@ -206,6 +212,7 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
                   role="menuitem"
                   aria-label={ek.label}
                   className="px-2 py-1 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                  onMouseDown={preventFocusSteal}
                   onClick={() => { sendWithMods(ek.plain, ek.mod); setFnOpen(false); }}
                 >
                   {ek.label}
@@ -223,6 +230,7 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
       {onOpenCompose && (
         <button
           type="button"
+          onMouseDown={preventFocusSteal}
           onClick={onOpenCompose}
           aria-label="Compose text"
           className={`${KBD_CLASS} text-text-secondary`}

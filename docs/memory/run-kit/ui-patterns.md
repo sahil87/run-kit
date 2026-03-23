@@ -135,6 +135,8 @@ Single row of `<kbd>` styled buttons, rendered only on terminal pages (`/:sessio
 
 **All buttons**: 36px minimum height/width on desktop (`min-h-[36px] min-w-[36px]`), 44px height / 36px width on touch devices (`coarse:min-h-[44px] coarse:min-w-[36px]`). `text-xs`, `<kbd>` element styling.
 
+**Focus preservation**: All bottom bar buttons that send terminal input or toggle modifier state have `onMouseDown={(e) => e.preventDefault()}` via a shared `preventFocusSteal` handler. This prevents the browser from shifting focus away from xterm.js's hidden textarea when buttons are tapped, keeping the on-screen keyboard visible on iOS/touch devices. The CmdK button is excluded (it intentionally opens a dialog that takes focus). The ArrowPad handles focus preservation independently via its own `onMouseDown` handler.
+
 ### Compose Buffer
 
 Modal dialog (`fixed inset-0 z-40`) triggered by the compose button (`>_` in top bar right section). Follows the same structural pattern as `dialog.tsx`: separate backdrop layer (`fixed inset-0 bg-black/50`, `aria-hidden`), `role="dialog"`, `aria-modal="true"`, `aria-labelledby`, focus trap (Tab/Shift+Tab cycling), two-layer click-outside close (outer `onClick={onClose}`, inner `stopPropagation`). Terminal dims (`opacity-50`) while compose is open.

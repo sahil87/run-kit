@@ -513,7 +513,7 @@ function AppShell() {
                 </div>
                 {/* Bottom Bar — only on terminal pages */}
                 <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
-                  <BottomBar wsRef={wsRef} hostname={hostname} />
+                  <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} />
                 </div>
               </>
             ) : (

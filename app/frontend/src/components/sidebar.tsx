@@ -152,7 +152,7 @@ export function Sidebar({
                   <div className="flex items-center gap-0.5 min-w-0">
                     <button
                       onClick={() => toggleSession(session.name)}
-                      className="text-xs text-text-secondary hover:text-text-primary transition-colors w-5 shrink-0 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
+                      className="text-xs text-text-secondary hover:text-text-primary transition-colors w-5 shrink-0 min-h-[36px] flex items-center justify-center"
                       aria-expanded={!isCollapsed}
                       aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${session.name}`}
                     >
@@ -160,7 +160,7 @@ export function Sidebar({
                     </button>
                     <button
                       onClick={() => onSelectWindow(session.name, session.windows[0]?.index ?? 0)}
-                      className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[32px] coarse:min-h-[44px] min-w-0"
+                      className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[36px] min-w-0"
                       aria-label={`Navigate to ${session.name}`}
                     >
                       <span className="font-medium truncate">{session.name}</span>
@@ -170,7 +170,7 @@ export function Sidebar({
                     <button
                       onClick={() => onCreateWindow(session.name)}
                       aria-label={`New window in ${session.name}`}
-                      className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
+                      className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
                     >
                       +
                     </button>
@@ -183,7 +183,7 @@ export function Sidebar({
                         })
                       }
                       aria-label={`Kill session ${session.name}`}
-                      className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[32px] coarse:min-h-[44px] flex items-center justify-center"
+                      className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
                     >
                       {"\u2715"}
                     </button>
@@ -204,7 +204,7 @@ export function Sidebar({
                         <div key={win.index} className="relative group">
                           <button
                             onClick={() => onSelectWindow(session.name, win.index)}
-                            className={`w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-6 text-sm transition-colors min-h-[28px] coarse:min-h-[44px] border-l-2 ${
+                            className={`w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-6 text-sm transition-colors min-h-[36px] border-l-2 ${
                               isSelected
                                 ? "bg-accent/10 border-accent text-text-primary font-medium rounded-r"
                                 : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 border-transparent rounded"
@@ -269,7 +269,7 @@ export function Sidebar({
                                 windowCount: 1,
                               });
                             }}
-                            className="absolute right-0.5 top-1/2 -translate-y-1/2 text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-1 min-h-[28px] coarse:min-h-[44px] flex items-center justify-center z-10"
+                            className="absolute right-0.5 top-1/2 -translate-y-1/2 text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-1 min-h-[36px] flex items-center justify-center z-10"
                           >
                             {"\u2715"}
                           </button>
@@ -290,7 +290,7 @@ export function Sidebar({
           <span className="text-xs text-text-secondary">tmux server:</span>
           <button
             onClick={() => setServerDropdownOpen((v) => { if (!v) onRefreshServers(); return !v; })}
-            className="text-xs text-text-primary font-medium hover:text-accent transition-colors coarse:min-h-[44px] flex items-center"
+            className="text-xs text-text-primary font-medium hover:text-accent transition-colors min-h-[36px] flex items-center"
             aria-haspopup="listbox"
             aria-expanded={serverDropdownOpen}
           >

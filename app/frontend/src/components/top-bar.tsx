@@ -145,7 +145,7 @@ export function TopBar({
               }
             }}
             aria-label="Toggle navigation"
-            className="text-text-primary transition-colors min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
+            className="text-text-primary transition-colors min-w-[24px] min-h-[24px] flex items-center justify-center"
           >
             <HamburgerIcon isOpen={hamburgerOpen} />
           </button>
@@ -182,8 +182,44 @@ export function TopBar({
         </nav>
 
         <div className="flex items-center gap-3 text-xs text-text-secondary">
-          {/* Logo + "Run Kit" — links to dashboard */}
+          <span className="hidden sm:flex">
+            <ThemeToggle />
+          </span>
+
+          {currentWindow && (
+            <>
+              <span className="hidden sm:flex">
+                <SplitButton
+                  session={sessionName}
+                  windowIndex={currentWindow.index}
+                />
+              </span>
+              <span className="hidden sm:flex">
+                <SplitButton
+                  horizontal
+                  session={sessionName}
+                  windowIndex={currentWindow.index}
+                />
+              </span>
+              <span className="hidden sm:flex">
+                <FixedWidthToggle />
+              </span>
+            </>
+          )}
+
+          {/* Connection dot */}
+          <span role="status" aria-live="polite" className="hidden sm:inline">
+            <span
+              className={`block w-2 h-2 rounded-full ${
+                isConnected ? "bg-accent-green" : "bg-text-secondary"
+              }`}
+              aria-label={isConnected ? "Connected" : "Disconnected"}
+            />
+          </span>
+
+          {/* "Run Kit" + Logo — links to dashboard */}
           <a href="/" className="flex items-center gap-3 text-text-secondary hover:text-text-primary transition-colors">
+            <span className="hidden sm:inline text-xs">Run Kit</span>
             <img
               src="/logo.svg"
               alt="Run Kit"
@@ -198,51 +234,7 @@ export function TopBar({
               height={30}
               className="sm:hidden"
             />
-            <span className="hidden sm:inline text-xs">Run Kit</span>
           </a>
-
-          {/* Connection dot — live region scoped to non-interactive status indicator */}
-          <span role="status" aria-live="polite" className="hidden sm:inline">
-            <span
-              className={`block w-2 h-2 rounded-full ${
-                isConnected ? "bg-accent-green" : "bg-text-secondary"
-              }`}
-              aria-label={isConnected ? "Connected" : "Disconnected"}
-            />
-          </span>
-
-          {currentWindow && (
-            <>
-              <span className="hidden sm:flex">
-                <FixedWidthToggle />
-              </span>
-              <span className="hidden sm:flex">
-                <SplitButton
-                  horizontal
-                  session={sessionName}
-                  windowIndex={currentWindow.index}
-                />
-              </span>
-              <span className="hidden sm:flex">
-                <SplitButton
-                  session={sessionName}
-                  windowIndex={currentWindow.index}
-                />
-              </span>
-              <button
-                type="button"
-                onClick={onOpenCompose}
-                aria-label="Compose text"
-                className="text-text-secondary hover:border-text-secondary transition-colors min-w-[24px] min-h-[24px] sm:min-w-[24px] sm:min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center border border-border rounded text-xs"
-              >
-                &gt;_
-              </button>
-            </>
-          )}
-
-          <span className="hidden sm:flex">
-            <ThemeToggle />
-          </span>
         </div>
       </div>
     </header>
@@ -271,7 +263,7 @@ function ThemeToggle() {
       type="button"
       onClick={cycle}
       aria-label={THEME_LABELS[preference]}
-      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center"
+      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
       title={THEME_LABELS[preference]}
     >
       {preference === "light" ? (
@@ -325,7 +317,7 @@ function SplitButton({
       type="button"
       onClick={handleClick}
       aria-label={label}
-      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center"
+      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
       title={label}
     >
       <svg
@@ -368,7 +360,7 @@ function FixedWidthToggle() {
       onClick={toggleFixedWidth}
       aria-label="Toggle fixed terminal width"
       aria-pressed={fixedWidth}
-      className={`min-w-[24px] min-h-[24px] rounded border transition-colors coarse:min-h-[36px] coarse:min-w-[28px] flex items-center justify-center ${
+      className={`min-w-[24px] min-h-[24px] rounded border transition-colors flex items-center justify-center ${
         fixedWidth
           ? "border-accent text-accent bg-accent/10"
           : "border-border text-text-secondary hover:border-text-secondary"

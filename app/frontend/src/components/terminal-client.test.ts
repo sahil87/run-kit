@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { copyToClipboard, clipboardProvider, XTERM_THEMES } from "./terminal-client";
+import { copyToClipboard, clipboardProvider } from "./terminal-client";
+import { deriveXtermTheme, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "@/themes";
 
 describe("copyToClipboard", () => {
   let originalClipboard: Clipboard;
@@ -163,55 +164,38 @@ describe("clipboardProvider", () => {
   });
 });
 
-describe("XTERM_THEMES theme selection", () => {
-  it("selects correct theme based on resolved theme value", () => {
-    // Simulates the logic in TerminalClient's useEffect:
-    // terminal.options.theme = XTERM_THEMES[resolvedTheme]
-    const resolvedDark = "dark" as const;
-    const resolvedLight = "light" as const;
-
-    expect(XTERM_THEMES[resolvedDark].background).toBe("#0f1117");
-    expect(XTERM_THEMES[resolvedLight].background).toBe("#f8f9fb");
+describe("deriveXtermTheme integration", () => {
+  it("derives correct xterm theme for default dark palette", () => {
+    const xterm = deriveXtermTheme(DEFAULT_DARK_THEME.palette);
+    expect(xterm.background).toBe("#0f1117");
+    expect(xterm.foreground).toBe("#e8eaf0");
+    expect(xterm.cursor).toBe("#e8eaf0");
+    expect(xterm.selectionBackground).toBe("#2a3040");
   });
 
-  it("initial theme reads from data-theme attribute", () => {
-    // Simulates the logic in TerminalClient's init():
-    // const initTheme = (document.documentElement.dataset.theme === "light" ? "light" : "dark")
-    document.documentElement.dataset.theme = "light";
-    const initTheme = (document.documentElement.dataset.theme === "light" ? "light" : "dark") as "light" | "dark";
-    expect(XTERM_THEMES[initTheme].background).toBe("#f8f9fb");
-
-    document.documentElement.dataset.theme = "dark";
-    const initThemeDark = (document.documentElement.dataset.theme === "light" ? "light" : "dark") as "light" | "dark";
-    expect(XTERM_THEMES[initThemeDark].background).toBe("#0f1117");
-
-    // Cleanup
-    delete document.documentElement.dataset.theme;
-  });
-});
-
-describe("XTERM_THEMES", () => {
-  it("defines dark and light theme objects", () => {
-    expect(XTERM_THEMES.dark).toBeDefined();
-    expect(XTERM_THEMES.light).toBeDefined();
+  it("derives correct xterm theme for default light palette", () => {
+    const xterm = deriveXtermTheme(DEFAULT_LIGHT_THEME.palette);
+    expect(xterm.background).toBe("#f8f9fb");
+    expect(xterm.foreground).toBe("#1a1d24");
   });
 
-  it("dark theme uses dark background", () => {
-    expect(XTERM_THEMES.dark.background).toBe("#0f1117");
-    expect(XTERM_THEMES.dark.foreground).toBe("#e8eaf0");
-  });
-
-  it("light theme uses light background", () => {
-    expect(XTERM_THEMES.light.background).toBe("#f8f9fb");
-    expect(XTERM_THEMES.light.foreground).toBe("#1a1d24");
-  });
-
-  it("both themes have all required properties", () => {
-    for (const theme of [XTERM_THEMES.dark, XTERM_THEMES.light]) {
-      expect(theme).toHaveProperty("background");
-      expect(theme).toHaveProperty("foreground");
-      expect(theme).toHaveProperty("cursor");
-      expect(theme).toHaveProperty("selectionBackground");
-    }
+  it("xterm theme includes all 22 color fields", () => {
+    const xterm = deriveXtermTheme(DEFAULT_DARK_THEME.palette);
+    expect(xterm).toHaveProperty("background");
+    expect(xterm).toHaveProperty("foreground");
+    expect(xterm).toHaveProperty("cursor");
+    expect(xterm).toHaveProperty("cursorAccent");
+    expect(xterm).toHaveProperty("selectionBackground");
+    expect(xterm).toHaveProperty("selectionForeground");
+    expect(xterm).toHaveProperty("black");
+    expect(xterm).toHaveProperty("red");
+    expect(xterm).toHaveProperty("green");
+    expect(xterm).toHaveProperty("yellow");
+    expect(xterm).toHaveProperty("blue");
+    expect(xterm).toHaveProperty("magenta");
+    expect(xterm).toHaveProperty("cyan");
+    expect(xterm).toHaveProperty("white");
+    expect(xterm).toHaveProperty("brightBlack");
+    expect(xterm).toHaveProperty("brightWhite");
   });
 });

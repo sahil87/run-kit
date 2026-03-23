@@ -13,7 +13,8 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@configs/*": ["../../configs/*"]
     }
   },
   "include": ["src", "tests", "vite-env.d.ts"],

@@ -29,7 +29,7 @@ app/
       upgrade.go      # update subcommand (alias: upgrade) — Homebrew or local update
       doctor.go       # doctor subcommand — runtime dependency checks
       status.go       # status subcommand — tmux session summary
-    internal/         # validate, config, tmux, sessions
+    internal/         # validate, config, tmux, sessions, settings
     api/              # HTTP handlers — one file per resource domain
       router.go       # chi router, CORS/logger/recovery middleware, route registration
       health.go       # GET /api/health
@@ -42,6 +42,7 @@ app/
       tmux_config.go  # POST /api/tmux/reload-config
       servers.go      # GET /api/servers, POST /api/servers, POST /api/servers/kill
       keybindings.go  # GET /api/keybindings (curated tmux keybindings via list-keys + whitelist)
+      settings.go     # GET /api/settings/theme, PUT /api/settings/theme
       spa.go          # SPA static serving — dual-mode (embedded FS or filesystem)
     frontend/         # Embedded frontend assets
       embed.go        # //go:embed all:dist → embed.FS
@@ -80,6 +81,7 @@ Packages in `app/backend/internal/`:
 | `internal/validate` | Input validation for names/paths + tilde expansion with `$HOME` security boundary + filename sanitization for uploads |
 | `internal/config` | Server config (port, host) — reads `RK_PORT` and `RK_HOST` env vars with defaults (3000, 127.0.0.1) |
 | `internal/daemon` | Daemon lifecycle management — `IsRunning()`, `Start()`, `Stop()`, `Restart()`. Manages `rk serve` in a dedicated tmux server (`rk-daemon`, session `rk`, window `serve`). All tmux calls use `exec.CommandContext` with 5s timeout. Used by `serve.go` (CLI flags) and `upgrade.go` (auto-restart after update) |
+| `internal/settings` | Global user settings persisted at `~/.rk/settings.yaml`. `Settings` struct with `Theme string` field. `Default()` returns `Settings{Theme: "system"}`. `Load()` reads the settings file, returns `Default()` if missing. `Save(s Settings)` writes the file, creating `~/.rk/` (mode 0755) if absent. Uses simple `key: value` text parsing (not yaml.v3) — one field, no heavy dependency needed |
 
 ### External Go Dependencies
 
@@ -90,7 +92,7 @@ Packages in `app/backend/internal/`:
 | `github.com/gorilla/websocket` | WebSocket handling for terminal relay |
 | `github.com/creack/pty` | PTY allocation (replaces node-pty, no native module compilation) |
 | `github.com/spf13/cobra` | CLI framework — subcommand management (serve, version, update, doctor, status) |
-| `gopkg.in/yaml.v3` | YAML parsing (legacy dependency — no longer imported after `internal/fab` removal, candidate for `go mod tidy`) |
+| `gopkg.in/yaml.v3` | YAML parsing (legacy dependency — no longer imported after `internal/fab` removal, candidate for `go mod tidy`). `internal/settings` deliberately uses simple text parsing to avoid re-importing this |
 
 ## API Layer
 
@@ -114,6 +116,8 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `/api/servers` | POST | Create tmux server — JSON body `{"name":"..."}`. Creates session "0" in `$HOME`. Returns `201 {"ok":true}` |
 | `/api/servers/kill` | POST | Kill tmux server — JSON body `{"name":"..."}`. Returns `200 {"ok":true}` |
 | `/api/keybindings` | GET | Curated tmux keybindings — runs `tmux list-keys` on `?server=`, filters through a whitelist map, returns JSON array `[{key, table, command, label}]`. Returns `[]` if server not running or on error |
+| `/api/settings/theme` | GET | Returns `{"theme": "..."}` — reads via `settings.Load()`. Returns `"system"` when no settings file exists. Not per-server (no `?server=` param) |
+| `/api/settings/theme` | PUT | Accepts `{"theme": "..."}` — writes via `settings.Save()`. Returns `{"status": "ok"}` on success, `400` if theme is empty. Not per-server |
 
 ### Frontend API Client
 
@@ -138,8 +142,10 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `createServer(name)` | POST | `/api/servers` |
 | `killServer(name)` | POST | `/api/servers/kill` |
 | `getKeybindings()` | GET | `/api/keybindings?server=...` |
+| `getThemePreference()` | GET | `/api/settings/theme` |
+| `setThemePreference(theme)` | PUT | `/api/settings/theme` |
 
-All API functions (except `listServers`, `createServer`, `killServer`, `getDirectories`, `getHealth`) append `?server={active}` via a module-level `setServerGetter()` mechanism. The `SessionProvider` sets the getter on mount. No multiplexed `action` field — each mutation is a separate function with its own URL path.
+All API functions (except `listServers`, `createServer`, `killServer`, `getDirectories`, `getHealth`, `getThemePreference`, `setThemePreference`) append `?server={active}` via a module-level `setServerGetter()` mechanism. The `SessionProvider` sets the getter on mount. No multiplexed `action` field — each mutation is a separate function with its own URL path.
 
 ## Terminal Relay
 
@@ -322,6 +328,9 @@ Install flow: `brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git && brew 
 - **Dependency injection via interfaces for handler testability** — `Server` struct holds `SessionFetcher` and `TmuxOps` interfaces, plus a `hostname` field (computed via `os.Hostname()` in `NewRouter()`, empty string on failure). `NewRouter()` wires production implementations; `NewTestRouter()` accepts mocks (including hostname). Enables `httptest.NewRecorder` tests without live tmux. (`260312-r4t9-go-backend-api`)
 - **Hostname via health endpoint (not a dedicated endpoint)** — hostname is an OS-level value computed once at startup and stored in `Server` struct. Exposed via `/api/health` response (adding a field to an existing endpoint) rather than a new `GET /api/hostname` route. Minimal surface area, consistent with the single-port architecture. (`260320-uq0k-hostname-browser-title`)
 - **Per-window fab enrichment via `fab-go pane-map` (replaces per-session file reading)** — Single `fab-go pane-map --json --all-sessions` subprocess call per SSE tick replaces per-session `.fab-status.yaml` + `.fab-runtime.yaml` file reads. Provides per-window resolution (each worktree window shows its own change/stage) instead of per-session (all windows inherited session-level state). Decouples from internal file formats. `internal/fab` package deleted entirely. (`260313-3vlx-pane-map-enrichment`, supersedes `260312-r4t9-go-backend-api` and `260313-txna-rich-sidebar-window-status` decisions)
+- **Backend settings file over localStorage-only** — `~/.rk/settings.yaml` via `internal/settings/` package + `GET/PUT /api/settings/theme` endpoints. Survives browser cache clears, works across devices accessing the same server. localStorage kept as synchronous cache for instant reads before API responds on page load. Simple `key: value` text parsing (not yaml.v3) — one field currently, avoids re-adding a heavyweight dependency. Settings are global (not per-server, no `?server=` param). (`260323-7wys-ansi-palette-theme-rework`)
+- **Full ANSI palette over minimal color set** — 22 canonical terminal colors per theme enables three consumers from one source: CSS (8 derived colors via `deriveUIColors`), xterm.js (full 22-color theme via `deriveXtermTheme`), and tmux (auto-themed via ANSI colour indices in static tmux.conf). Rejected: 8-color model with separate xterm colors (duplicative, inconsistent). (`260323-7wys-ansi-palette-theme-rework`)
+- **Static tmux.conf with ANSI indices over runtime `tmux set -g`** — tmux.conf uses `colour0`-`colour15` indices. Changing xterm.js palette auto-themes tmux chrome (status bar, pane borders, pane-border-format). Zero backend involvement for theme switching. Rejected: runtime tmux commands (complex, fragile, requires backend communication). (`260323-7wys-ansi-palette-theme-rework`)
 
 ## Testing
 
@@ -401,3 +410,4 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-20 | **Single-active-server model** — Replaced dual-server merge with single-server-at-a-time. Backend stateless: `?server=` on every request, defaults to `"default"`. Unified `tmuxExec`/`tmuxExecDefault` into `tmuxExecServer`. All tmux functions accept `server` param. `serverFromRequest()` validates names. New `ListServers()` (socket scan), `KillServer()`. SSE hub polls per-server. Removed `SessionInfo.Server`, `ProjectSession.Server`. New `GET/POST /api/servers`, `POST /api/servers/kill`. Frontend: `SessionProvider` manages server state (localStorage `runkit-server`), sidebar server dropdown, palette commands (Create/Kill/Switch server). `setServerGetter()` mechanism appends `?server=` to all API calls. | `260320-1335-tmux-server-switcher` |
 | 2026-03-20 | **Daemon lifecycle** — Replaced `supervisor.sh` (polling loop + `.restart-requested` signal file) with CLI-driven daemon management. New `internal/daemon/` package with `IsRunning`/`Start`/`Stop`/`Restart` helpers using `exec.CommandContext`. `run-kit serve` gains `-d` (start daemon, errors if running), `--restart` (idempotent stop+start), `--stop` (graceful C-c) flags — mutually exclusive. Daemon runs in dedicated tmux server `rk-daemon` (session `rk`, window `serve`), separate from agent `runkit` server. `run-kit update` auto-restarts daemon after successful `brew upgrade`. Justfile `up`/`down`/`restart` recipes updated. Constitution Self-Improvement Safety section rewritten. | `260320-hkm8-daemon-lifecycle-serve` |
 | 2026-03-20 | **UI polish, tmux config, keyboard shortcuts** — Embed restructured from `app/backend/frontend/` to `app/backend/build/` (package `build`, `//go:embed all:frontend`). Breadcrumb left-aligned (removed `justify-center`). `EnsureConfig()` auto-creates `~/.run-kit/tmux.conf` on serve startup. `-f` config flag scoped to `CreateSession`/`ReloadConfig` via `configArgs()`. Enhanced `internal/tmux/tmux.conf`: `escape-time 0`, `history-limit 50000`, `renumber-windows on`, `base-index 1`, explicit `prefix C-b`, pane splits (`prefix+\|`/`prefix+-`), pane navigation (`S-F3`/`S-F4`), `F8` rename, `S-F7` copy-mode. Sidebar server dropdown gains `+ tmux server` action. Hostname in bottom bar (hidden on mobile). Aligned sidebar footer and bottom bar heights (`h-[48px]`). Server label changed to "tmux server:". Kill server handles socket teardown gracefully. New `GET /api/keybindings` endpoint — runs `tmux list-keys`, filters via whitelist map, returns `[{key, table, command, label}]`. New "Keyboard Shortcuts" command palette action opens modal showing curated bindings grouped by key table (prefix vs root). | `260320-9ldy-ui-polish-tmux-config-embed` |
+| 2026-03-23 | **ANSI palette theme rework** — New `internal/settings/` package for backend settings persistence at `~/.rk/settings.yaml` (simple key:value parsing, no yaml.v3). New `GET/PUT /api/settings/theme` endpoints in `api/settings.go`. Frontend: `getThemePreference()`/`setThemePreference()` API client functions (not per-server). ThemeProvider uses API as canonical source with localStorage as synchronous cache. tmux.conf reworked from hardcoded hex to ANSI `colour{N}` indices for auto-theming via xterm.js palette. | `260323-7wys-ansi-palette-theme-rework` |

@@ -171,7 +171,7 @@ fab/.kit/bin/*
 tmp
 .uploads/
 test-results/
-app/backend/run-kit
+app/backend/rk
 
 # Go embed requires build/frontend/ to exist for compilation; track the .gitkeep
 app/backend/build/frontend/*

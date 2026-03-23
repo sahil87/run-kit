@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-23T08:52:21Z"}
+{"args":"Add static PWA manifest for Install as App support","cmd":"fab-new","event":"command","ts":"2026-03-23T08:52:21Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-23T08:52:48Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-23T08:53:00Z"}

@@ -65,6 +65,18 @@ The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derive
 
 **Toolbar button color convention**: All toolbar buttons (top bar and bottom bar) use `text-text-secondary` as their default foreground color. Active toggle states (Ctrl/Alt modifiers when armed, FixedWidthToggle when active) use `text-accent` with accent background. Hover state uses `hover:border-text-secondary` (border highlight). This convention applies to: compose button, theme toggle, fixed-width toggle, split buttons, Esc, Tab, Ctrl, Alt, Fn trigger, arrow pad, and ⌘K.
 
+### Theme System
+
+Three-mode theme preference: `"system"` (OS-driven), or any named theme ID (e.g., `"dracula"`, `"default-dark"`). 20 built-in themes (14 dark + 6 light) defined in `app/frontend/src/themes.ts`. Theme colors map to 8 CSS custom properties (`--color-bg-primary`, `--color-bg-card`, `--color-bg-inset`, `--color-text-primary`, `--color-text-secondary`, `--color-border`, `--color-accent`, `--color-accent-green`), applied via inline styles on `document.documentElement.style` overriding `globals.css` fallbacks. `data-theme` attribute set to theme's `category` ("dark" or "light") for CSS branching. Stored in localStorage key `"runkit-theme"` — unrecognized values fall back to `"system"`.
+
+**ThemeToggle** (top bar): Normal click cycles `system → default-light → default-dark`. **Ctrl+Click / Cmd+Click** dispatches `"theme-selector:open"` CustomEvent to open the theme selector.
+
+**Theme Selector** (`app/frontend/src/components/theme-selector.tsx`): Modal overlay matching CommandPalette structure (fixed z-50, backdrop, max-w-lg at 20vh). Search input filters by name (case-insensitive). Themes grouped under "Dark" / "Light" category headers. Arrow key navigation wraps and skips headers. Mouse hover and arrow navigation trigger live preview via `previewTheme()` — CSS custom properties update in real-time. Enter confirms (persists to localStorage), Escape/outside-click reverts to original theme via `cancelPreview()`. Opens via `"theme-selector:open"` custom event (same pattern as `"palette:open"`).
+
+**Command palette**: "Theme: Select Theme" action dispatches `"theme-selector:open"`. Individual "Theme: System", "Theme: Light", "Theme: Dark" quick-switch actions retained.
+
+**ThemeProvider** (`app/frontend/src/contexts/theme-context.tsx`): `useTheme()` returns `{ preference, resolved, theme }`. `useThemeActions()` returns `{ setTheme, previewTheme, cancelPreview }`. Preview applies colors to DOM without localStorage persistence. Cancel reverts to the last persisted theme. Uses stable `actionsRef` pattern for callback identity.
+
 ### Breadcrumb Dropdowns
 
 Session and window name text are the dropdown triggers. Clicking/tapping the name opens the respective dropdown. No split click-target pattern — the name itself is the trigger.

@@ -14,7 +14,7 @@ The token needs `repo` scope (for private repo access). Then:
 
 ```sh
 brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git
-brew install wvrdz/tap/rk
+brew install rk
 ```
 
 ## Usage

@@ -27,3 +27,4 @@
 | [Project Plan](project-plan.md) | 4-phase reimplementation plan: scaffold → backend → frontend → cleanup |
 | [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |
 | [Short-Term Goal](short-term-goal.md) | Minimum viable product requirements and priorities |
+| [Themes](themes.md) | Theme system architecture: ANSI palettes, derivation, tmux integration, import script |

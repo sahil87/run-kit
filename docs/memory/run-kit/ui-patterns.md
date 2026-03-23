@@ -67,6 +67,8 @@ The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derive
 
 ### Theme System
 
+> Full spec: [`docs/specs/themes.md`](../../specs/themes.md) — architecture, ANSI palette structure, tmux colour mapping, import script usage, persistence model.
+
 Palette-based theme model: each theme defines a `ThemePalette` with 22 canonical terminal colors — `foreground`, `background`, `cursorColor`, `cursorText`, `selectionBackground`, `selectionForeground`, plus 16 ANSI colors (indices 0-15) as a fixed-length readonly tuple. The `Theme` type has shape `{ id, name, category, palette }` — no `colors` or `themeColor` properties (both replaced by derivation from palette).
 
 20 built-in themes (14 dark + 6 light) defined in `app/frontend/src/themes.ts` with canonical ANSI palettes sourced from iTerm2-Color-Schemes / official theme repos. Three consumers derive from the same palette:

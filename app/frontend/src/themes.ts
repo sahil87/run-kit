@@ -32,6 +32,7 @@ export type Theme = {
   id: string;
   name: string;
   category: "dark" | "light";
+  source: string;
   palette: ThemePalette;
 };
 

@@ -104,6 +104,21 @@ func ValidatePath(path, label string) string {
 	return ""
 }
 
+// resolutionPattern matches valid resolution strings: {width}x{height} with 3-5 digit numbers.
+var resolutionPattern = regexp.MustCompile(`^\d{3,5}x\d{3,5}$`)
+
+// ValidateResolution validates a display resolution string (e.g. "1920x1080").
+// Returns empty string if valid, error message if invalid.
+func ValidateResolution(res string) string {
+	if res == "" {
+		return "Resolution cannot be empty"
+	}
+	if !resolutionPattern.MatchString(res) {
+		return "Resolution must be in WIDTHxHEIGHT format (e.g. 1920x1080)"
+	}
+	return ""
+}
+
 // SanitizeFilename sanitizes a user-provided filename for safe disk storage.
 func SanitizeFilename(name string) string {
 	// Strip null bytes

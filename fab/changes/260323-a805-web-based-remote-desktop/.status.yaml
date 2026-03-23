@@ -1,0 +1,42 @@
+id: a805
+name: 260323-a805-web-based-remote-desktop
+created: 2026-03-23T07:09:05Z
+created_by: vivek-weaver
+change_type: docs
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 38
+confidence:
+    certain: 16
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 91.7
+        reversibility: 80.0
+        competence: 84.2
+        disambiguation: 87.2
+stage_metrics:
+    intake: {started_at: "2026-03-23T07:09:05Z", driver: fab-new, iterations: 1, completed_at: "2026-03-23T07:39:14Z"}
+    spec: {started_at: "2026-03-23T07:39:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-23T07:44:12Z"}
+    tasks: {started_at: "2026-03-23T07:44:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-23T07:44:12Z"}
+    apply: {started_at: "2026-03-23T08:01:32Z", driver: fab-fff, iterations: 2, completed_at: "2026-03-23T08:05:00Z"}
+    review: {started_at: "2026-03-23T08:05:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-23T08:08:28Z"}
+    hydrate: {started_at: "2026-03-23T08:08:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-23T08:13:19Z"}
+    ship: {started_at: "2026-03-23T08:13:19Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-23T08:13:19Z

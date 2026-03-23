@@ -9,6 +9,7 @@ export const mockSessions: ProjectSession[] = [
       {
         index: 0,
         name: "main",
+        type: "terminal",
         worktreePath: "~/code/run-kit",
         activity: "active",
         isActiveWindow: true,
@@ -19,6 +20,7 @@ export const mockSessions: ProjectSession[] = [
       {
         index: 1,
         name: "scratch",
+        type: "terminal",
         worktreePath: "~/code/run-kit",
         activity: "idle",
         isActiveWindow: false,
@@ -32,6 +34,7 @@ export const mockSessions: ProjectSession[] = [
       {
         index: 0,
         name: "dev",
+        type: "terminal",
         worktreePath: "~/code/ao-server",
         activity: "idle",
         isActiveWindow: true,
@@ -67,6 +70,7 @@ export const handlers = [
         {
           index: 0,
           name: "main",
+          type: "terminal",
           worktreePath: body.cwd ?? "~",
           activity: "idle",
           isActiveWindow: true,
@@ -88,13 +92,16 @@ export const handlers = [
   // POST /api/sessions/:session/windows — create window
   http.post("/api/sessions/:session/windows", async ({ params, request }) => {
     const sessionName = params.session as string;
-    const body = (await request.json()) as { name: string; cwd?: string };
+    const body = (await request.json()) as { name: string; cwd?: string; type?: string };
     const session = sessions.find((s) => s.name === sessionName);
     if (!session) return HttpResponse.json({ error: "Not found" }, { status: 404 });
     const maxIndex = session.windows.reduce((m, w) => Math.max(m, w.index), -1);
+    const winType = body.type === "desktop" ? "desktop" as const : "terminal" as const;
+    const winName = body.type === "desktop" ? `desktop:${body.name}` : body.name;
     session.windows.push({
       index: maxIndex + 1,
-      name: body.name,
+      name: winName,
+      type: winType,
       worktreePath: body.cwd ?? session.windows[0]?.worktreePath ?? "~",
       activity: "idle",
       isActiveWindow: false,

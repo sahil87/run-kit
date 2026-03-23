@@ -18,6 +18,7 @@ const sessions: ProjectSession[] = [
       {
         index: 0,
         name: "main",
+        type: "terminal",
         worktreePath: "~/code/run-kit",
         activity: "active",
         isActiveWindow: true,
@@ -30,6 +31,7 @@ const sessions: ProjectSession[] = [
       {
         index: 1,
         name: "scratch",
+        type: "terminal",
         worktreePath: "~/code/run-kit",
         activity: "idle",
         isActiveWindow: false,
@@ -48,6 +50,7 @@ const sessions: ProjectSession[] = [
       {
         index: 0,
         name: "dev",
+        type: "terminal",
         worktreePath: "~/code/ao-server",
         activity: "idle",
         isActiveWindow: true,

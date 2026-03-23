@@ -69,6 +69,39 @@ Server management endpoints:
 - `POST /api/servers` — creates a server (starts session "0" in $HOME)
 - `POST /api/servers/kill` — kills a server via `tmux kill-server`
 
+## Desktop Window Type
+
+tmux windows have two types: `"terminal"` (default) and `"desktop"`. Type is derived from the window name prefix — windows named `desktop:{label}` have type `"desktop"`, all others are `"terminal"` (constitution VII — convention over configuration).
+
+### Naming Convention
+
+Desktop windows use the naming pattern `desktop:{label}` (e.g., `desktop:dev`, `desktop:browser`). The `desktop:` prefix is the sole type discriminator. `parseWindows()` checks `strings.HasPrefix(name, "desktop:")` and sets `WindowInfo.Type` accordingly. The `Type` field is included in JSON serialization via the `json:"type"` struct tag, automatically appearing in SSE payloads and API responses.
+
+### VNC Process Lifecycle
+
+A desktop window's tmux process is a VNC server stack instead of a shell:
+
+1. **Startup**: The Go backend sends a startup script via `tmux send-keys` that launches Xvfb (virtual framebuffer), optionally a window manager, and x11vnc (VNC server with WebSocket support)
+2. **Running**: All three processes (Xvfb, WM, x11vnc) run as children of the tmux window's shell process. The VNC port is stored as a per-window tmux option `@rk_vnc_port`
+3. **Destruction**: Killing the tmux window (via existing `KillWindow`) kills the entire process tree. No special cleanup needed — standard tmux process management applies
+
+### Per-Window Options
+
+Desktop windows use tmux user window options (prefixed with `@`) for metadata:
+
+| Option | Purpose | Set by | Read by |
+|--------|---------|--------|---------|
+| `@rk_vnc_port` | VNC WebSocket port number | `SetWindowOption()` during desktop creation | `GetWindowOption()` in relay handler and resolution change handler |
+
+These are set via `tmux set-option -w -t {session}:{window} @rk_vnc_port {port}` and read via `tmux show-options -wv -t {session}:{window} @rk_vnc_port`. Per-window scoping (not session-scoped `set-environment`) supports multiple desktop windows in the same session.
+
+### tmux Functions for Window Options
+
+| Function | Purpose |
+|----------|---------|
+| `GetWindowOption(session, windowIndex, key, server)` | Reads a tmux user window option via `show-options -wv` |
+| `SetWindowOption(session, windowIndex, key, value, server)` | Sets a tmux user window option via `set-option -w` |
+
 ## Related Files
 
 - `app/backend/internal/tmux/tmux.go` — `serverArgs()`, `tmuxExecServer()`, `ListSessions()`, `ListServers()`, `ListKeys()`, `KillServer()`, `CreateSession()`, `SelectWindow()`, `ReloadConfig()`, `EnsureConfig()`, `ConfigPath()`
@@ -88,3 +121,4 @@ Server management endpoints:
 | 2026-03-20 | Multi-server operations — `SelectWindowOnServer()` routes select-window to correct server. `ReloadConfig(server)` hot-reloads config on specified server. Relay and select-window endpoints accept `?server=` query param. `RK_TMUX_CONF` resolved to absolute path at init. Stderr captured in tmux exec errors. | `260318-0gjh-dedicated-tmux-server` |
 | 2026-03-20 | Single-active-server model — replaced dual-server merge with `?server=` on every request. All tmux functions accept `server` param. Unified `tmuxExec`/`tmuxExecDefault` into `tmuxExecServer`. Added `ListServers()` (socket scan), `KillServer()`. SSE hub polls per-server. Removed `SessionInfo.Server` and `ProjectSession.Server` fields. New endpoints: `GET/POST /api/servers`, `POST /api/servers/kill`. `serverFromRequest()` validates input. | `260320-1335-tmux-server-switcher` |
 | 2026-03-20 | tmux config and keybindings — `EnsureConfig()` auto-creates `~/.run-kit/tmux.conf` on serve startup. `-f` config flag scoped to `CreateSession`/`ReloadConfig` via `configArgs()`. Enhanced `internal/tmux/tmux.conf` with agent-optimized defaults and power-user keybindings. `ListKeys(server)` runs `tmux list-keys`, returns raw output (nil on "no server"). New `GET /api/keybindings` endpoint filters `list-keys` via whitelist map. `KillServer()` handles socket teardown gracefully (returns nil on "No such file or directory"). | `260320-9ldy-ui-polish-tmux-config-embed` |
+| 2026-03-23 | Desktop window type — `WindowInfo.Type` field (`"terminal"` or `"desktop"`) derived from `desktop:` name prefix in `parseWindows()`. New `GetWindowOption()`/`SetWindowOption()` for per-window tmux user options (`@rk_vnc_port`). Desktop windows run VNC server stack (Xvfb + WM + x11vnc) instead of a shell. | `260323-a805-web-based-remote-desktop` |

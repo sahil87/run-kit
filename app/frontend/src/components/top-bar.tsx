@@ -21,6 +21,7 @@ type TopBarProps = {
   onToggleDrawer: () => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
+  onCreateDesktopWindow: (session: string) => void;
   onOpenCompose: () => void;
 };
 
@@ -96,6 +97,7 @@ export function TopBar({
   onToggleDrawer,
   onCreateSession,
   onCreateWindow,
+  onCreateDesktopWindow,
   onOpenCompose,
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
@@ -172,7 +174,10 @@ export function TopBar({
                   label="window"
                   icon={windowName}
                   onNavigate={handleDropdownNavigate}
-                  action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
+                  actions={[
+                    { label: "+ New Window", onAction: () => onCreateWindow(sessionName) },
+                    { label: "+ New Desktop", onAction: () => onCreateDesktopWindow(sessionName) },
+                  ]}
                   triggerClassName="text-text-primary font-medium hover:text-text-primary transition-colors text-sm"
                 />
               )}

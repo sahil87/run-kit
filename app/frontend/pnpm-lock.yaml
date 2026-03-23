@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@novnc/novnc':
+        specifier: ^1.6.0
+        version: 1.6.0
       '@tanstack/react-router':
         specifier: ^1.114.0
         version: 1.166.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -1116,6 +1119,9 @@ packages:
   '@mswjs/interceptors@0.41.3':
     resolution: {integrity: sha512-cXu86tF4VQVfwz8W1SPbhoRyHJkti6mjH/XJIxp40jhO4j2k1m4KYrEykxqWPkFF3vrK4rgQppBh//AwyGSXPA==}
     engines: {node: '>=18'}
+
+  '@novnc/novnc@1.6.0':
+    resolution: {integrity: sha512-CJrmdSe9Yt2ZbLsJpVFoVkEu0KICEvnr3njW25Nz0jodaiFJtg8AYLGZogRYy0/N5HUWkGUsCmegKXYBSqwygw==}
 
   '@open-draft/deferred-promise@2.2.0':
     resolution: {integrity: sha512-CecwLWx3rhxVQF6V4bAgPS5t+So2sTbPgAzafKkVizyi7tlwpcFpdFqq+wqF2OwNBmqFuu6tOyouTuxgpMfzmA==}
@@ -4039,6 +4045,8 @@ snapshots:
       is-node-process: 1.2.0
       outvariant: 1.4.3
       strict-event-emitter: 0.5.1
+
+  '@novnc/novnc@1.6.0': {}
 
   '@open-draft/deferred-promise@2.2.0': {}
 

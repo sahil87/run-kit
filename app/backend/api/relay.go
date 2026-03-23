@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -75,7 +76,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	// Determine which tmux server this session lives on
 	server := serverFromRequest(r)
 
-	// Verify the session exists and select the target window
+	// Verify the session exists and detect window type
 	windows, err := s.tmux.ListWindows(r.Context(), session, server)
 	if err != nil || windows == nil {
 		slog.Warn("session not found", "session", session)
@@ -83,6 +84,30 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			websocket.FormatCloseMessage(4004, "Session not found"))
 		return
 	}
+
+	// Find the target window and check its type
+	var windowType string
+	windowFound := false
+	for _, win := range windows {
+		if win.Index == winIdx {
+			windowType = win.Type
+			windowFound = true
+			break
+		}
+	}
+	if !windowFound {
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4004, "Window not found"))
+		return
+	}
+
+	// Branch: desktop VNC proxy vs terminal PTY relay
+	if windowType == "desktop" {
+		s.handleDesktopRelay(conn, session, winIdx, server)
+		return
+	}
+
+	// Terminal relay (existing behavior)
 	if err := s.tmux.SelectWindow(session, winIdx, server); err != nil {
 		slog.Error("select-window failed", "err", err, "session", session, "window", windowIndex)
 		conn.WriteMessage(websocket.CloseMessage,
@@ -187,6 +212,74 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		// Send raw input to pty
 		if _, err := ptmx.Write(msg); err != nil {
 			break
+		}
+	}
+}
+
+// handleDesktopRelay proxies a WebSocket connection to the x11vnc VNC WebSocket.
+func (s *Server) handleDesktopRelay(conn *websocket.Conn, session string, windowIndex int, server string) {
+	// Read @rk_vnc_port from the tmux window option
+	portStr, err := s.tmux.GetWindowOption(session, windowIndex, "@rk_vnc_port", server)
+	if err != nil {
+		slog.Warn("VNC port not found for desktop window", "session", session, "window", windowIndex, "err", err)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4002, "VNC port not found"))
+		return
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		slog.Error("invalid VNC port value", "port", portStr, "err", err)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4002, "Invalid VNC port"))
+		return
+	}
+
+	// Dial the VNC WebSocket on localhost only (security: no external connections)
+	vncURL := fmt.Sprintf("ws://localhost:%d", port)
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+	vncConn, _, err := dialer.Dial(vncURL, nil)
+	if err != nil {
+		slog.Error("failed to connect to VNC WebSocket", "url", vncURL, "err", err)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4003, "VNC connection failed"))
+		return
+	}
+
+	var once sync.Once
+	cleanup := func() {
+		once.Do(func() {
+			conn.Close()
+			vncConn.Close()
+			slog.Debug("desktop relay cleanup", "session", session, "window", windowIndex)
+		})
+	}
+	defer cleanup()
+
+	// Bidirectional copy: browser -> VNC
+	go func() {
+		defer cleanup()
+		for {
+			msgType, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if err := vncConn.WriteMessage(msgType, msg); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Bidirectional copy: VNC -> browser
+	for {
+		msgType, msg, err := vncConn.ReadMessage()
+		if err != nil {
+			return
+		}
+		if err := conn.WriteMessage(msgType, msg); err != nil {
+			return
 		}
 	}
 }

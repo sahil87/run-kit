@@ -7,6 +7,7 @@ type DashboardProps = {
   onNavigate: (session: string, windowIndex: number) => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
+  onCreateDesktopWindow?: (session: string) => void;
 };
 
 export function Dashboard({
@@ -14,6 +15,7 @@ export function Dashboard({
   onNavigate,
   onCreateSession,
   onCreateWindow,
+  onCreateDesktopWindow,
 }: DashboardProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -101,6 +103,11 @@ export function Dashboard({
                             {win.name}
                           </span>
                           <span className="flex items-center gap-1.5 shrink-0">
+                            {win.type === "desktop" && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+                                Desktop
+                              </span>
+                            )}
                             {win.fabStage && (
                               <span className="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent">
                                 {win.fabStage}
@@ -141,16 +148,27 @@ export function Dashboard({
                     );
                   })}
 
-                  {/* New Window button */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onCreateWindow(session.name);
-                    }}
-                    className="text-sm text-text-secondary hover:text-text-primary transition-colors py-1.5 border border-dashed border-border rounded hover:border-text-secondary min-h-[36px] flex items-center justify-center"
-                  >
-                    + New Window
-                  </button>
+                  {/* New Window buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCreateWindow(session.name);
+                      }}
+                      className="flex-1 text-sm text-text-secondary hover:text-text-primary transition-colors py-1.5 border border-dashed border-border rounded hover:border-text-secondary min-h-[36px] flex items-center justify-center"
+                    >
+                      + New Window
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCreateDesktopWindow?.(session.name);
+                      }}
+                      className="flex-1 text-sm text-text-secondary hover:text-text-primary transition-colors py-1.5 border border-dashed border-border rounded hover:border-text-secondary min-h-[36px] flex items-center justify-center"
+                    >
+                      + New Desktop
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

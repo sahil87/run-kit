@@ -109,6 +109,42 @@ export async function createWindow(
   return res.json();
 }
 
+export async function createDesktopWindow(
+  session: string,
+  name?: string,
+  resolution?: string,
+): Promise<{ ok: boolean }> {
+  const body: Record<string, string> = {
+    name: name ?? "desktop",
+    type: "desktop",
+  };
+  if (resolution) body.resolution = resolution;
+  const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/windows`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+export async function changeDesktopResolution(
+  session: string,
+  windowIndex: number,
+  resolution: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${windowIndex}/resolution`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolution }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function killWindow(
   session: string,
   index: number,

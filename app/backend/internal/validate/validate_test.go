@@ -151,6 +151,45 @@ func TestExpandTilde(t *testing.T) {
 	}
 }
 
+func TestValidateResolution(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"valid 1920x1080", "1920x1080", false},
+		{"valid 800x600", "800x600", false},
+		{"valid 2560x1440", "2560x1440", false},
+		{"valid 1280x720", "1280x720", false},
+		{"valid small 320x240", "320x240", false},
+		{"valid 5 digits", "10000x10000", false},
+		{"empty string", "", true},
+		{"just text", "foo", true},
+		{"shell injection", "1920x1080; rm -rf /", true},
+		{"missing height", "1920x", true},
+		{"missing width", "x1080", true},
+		{"too few digits width", "12x1080", true},
+		{"too few digits height", "1920x10", true},
+		{"too many digits", "123456x1080", true},
+		{"float resolution", "1920.5x1080", true},
+		{"negative", "-1920x1080", true},
+		{"spaces", "1920 x 1080", true},
+		{"uppercase X", "1920X1080", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateResolution(tt.input)
+			if tt.wantErr && result == "" {
+				t.Error("expected error but got none")
+			}
+			if !tt.wantErr && result != "" {
+				t.Errorf("expected no error but got: %s", result)
+			}
+		})
+	}
+}
+
 func TestSanitizeFilename(t *testing.T) {
 	tests := []struct {
 		name  string

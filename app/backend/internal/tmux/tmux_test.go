@@ -144,7 +144,7 @@ func TestParseWindows(t *testing.T) {
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "dev", WorktreePath: "/home/user/project", Activity: "active", IsActiveWindow: true, PaneCommand: "claude", ActivityTimestamp: fakeNow - 1},
+				{Index: 0, Name: "dev", Type: "terminal", WorktreePath: "/home/user/project", Activity: "active", IsActiveWindow: true, PaneCommand: "claude", ActivityTimestamp: fakeNow - 1},
 			},
 		},
 		{
@@ -154,7 +154,7 @@ func TestParseWindows(t *testing.T) {
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "dev", WorktreePath: "/home/user/project", Activity: "idle", IsActiveWindow: false, PaneCommand: "zsh", ActivityTimestamp: fakeNow - ActivityThresholdSeconds - 100},
+				{Index: 0, Name: "dev", Type: "terminal", WorktreePath: "/home/user/project", Activity: "idle", IsActiveWindow: false, PaneCommand: "zsh", ActivityTimestamp: fakeNow - ActivityThresholdSeconds - 100},
 			},
 		},
 		{
@@ -165,8 +165,8 @@ func TestParseWindows(t *testing.T) {
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "dev", WorktreePath: "/home/user/project", Activity: "active", IsActiveWindow: true, PaneCommand: "claude", ActivityTimestamp: fakeNow},
-				{Index: 2, Name: "build", WorktreePath: "/tmp/build", Activity: "active", IsActiveWindow: false, PaneCommand: "make", ActivityTimestamp: fakeNow},
+				{Index: 0, Name: "dev", Type: "terminal", WorktreePath: "/home/user/project", Activity: "active", IsActiveWindow: true, PaneCommand: "claude", ActivityTimestamp: fakeNow},
+				{Index: 2, Name: "build", Type: "terminal", WorktreePath: "/tmp/build", Activity: "active", IsActiveWindow: false, PaneCommand: "make", ActivityTimestamp: fakeNow},
 			},
 		},
 		{
@@ -183,7 +183,7 @@ func TestParseWindows(t *testing.T) {
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 1, Name: "good", WorktreePath: "/home/user", Activity: "active", IsActiveWindow: true, PaneCommand: "zsh", ActivityTimestamp: fakeNow},
+				{Index: 1, Name: "good", Type: "terminal", WorktreePath: "/home/user", Activity: "active", IsActiveWindow: true, PaneCommand: "zsh", ActivityTimestamp: fakeNow},
 			},
 		},
 		{
@@ -193,7 +193,7 @@ func TestParseWindows(t *testing.T) {
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "edge", WorktreePath: "/path", Activity: "active", IsActiveWindow: false, PaneCommand: "bash", ActivityTimestamp: fakeNow - ActivityThresholdSeconds},
+				{Index: 0, Name: "edge", Type: "terminal", WorktreePath: "/path", Activity: "active", IsActiveWindow: false, PaneCommand: "bash", ActivityTimestamp: fakeNow - ActivityThresholdSeconds},
 			},
 		},
 		{
@@ -203,7 +203,7 @@ func TestParseWindows(t *testing.T) {
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "past", WorktreePath: "/path", Activity: "idle", IsActiveWindow: false, PaneCommand: "vim", ActivityTimestamp: fakeNow - ActivityThresholdSeconds - 1},
+				{Index: 0, Name: "past", Type: "terminal", WorktreePath: "/path", Activity: "idle", IsActiveWindow: false, PaneCommand: "vim", ActivityTimestamp: fakeNow - ActivityThresholdSeconds - 1},
 			},
 		},
 		{
@@ -213,7 +213,7 @@ func TestParseWindows(t *testing.T) {
 			},
 			now: fakeNow,
 			want: []WindowInfo{
-				{Index: 0, Name: "work", WorktreePath: "/home/user/code", Activity: "active", IsActiveWindow: true, PaneCommand: "node", ActivityTimestamp: fakeNow},
+				{Index: 0, Name: "work", Type: "terminal", WorktreePath: "/home/user/code", Activity: "active", IsActiveWindow: true, PaneCommand: "node", ActivityTimestamp: fakeNow},
 			},
 		},
 		{
@@ -223,7 +223,7 @@ func TestParseWindows(t *testing.T) {
 			},
 			now: 1710300100,
 			want: []WindowInfo{
-				{Index: 0, Name: "ts", WorktreePath: "/path", Activity: "idle", IsActiveWindow: false, PaneCommand: "zsh", ActivityTimestamp: 1710300000},
+				{Index: 0, Name: "ts", Type: "terminal", WorktreePath: "/path", Activity: "idle", IsActiveWindow: false, PaneCommand: "zsh", ActivityTimestamp: 1710300000},
 			},
 		},
 	}
@@ -247,6 +247,9 @@ func TestParseWindows(t *testing.T) {
 				if got[i].Name != tt.want[i].Name {
 					t.Errorf("window[%d].Name = %q, want %q", i, got[i].Name, tt.want[i].Name)
 				}
+				if got[i].Type != tt.want[i].Type {
+					t.Errorf("window[%d].Type = %q, want %q", i, got[i].Type, tt.want[i].Type)
+				}
 				if got[i].WorktreePath != tt.want[i].WorktreePath {
 					t.Errorf("window[%d].WorktreePath = %q, want %q", i, got[i].WorktreePath, tt.want[i].WorktreePath)
 				}
@@ -262,6 +265,37 @@ func TestParseWindows(t *testing.T) {
 				if got[i].ActivityTimestamp != tt.want[i].ActivityTimestamp {
 					t.Errorf("window[%d].ActivityTimestamp = %d, want %d", i, got[i].ActivityTimestamp, tt.want[i].ActivityTimestamp)
 				}
+			}
+		})
+	}
+}
+
+func TestParseWindowsDesktopType(t *testing.T) {
+	const fakeNow int64 = 1700000000
+
+	tests := []struct {
+		name     string
+		winName  string
+		wantType string
+	}{
+		{"desktop prefix sets type desktop", "desktop:dev", "desktop"},
+		{"desktop prefix with suffix", "desktop:my-env", "desktop"},
+		{"plain name sets type terminal", "zsh", "terminal"},
+		{"no prefix sets type terminal", "build", "terminal"},
+		{"desktop in middle is terminal", "my-desktop-win", "terminal"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := []string{
+				windowLine(0, tt.winName, "/home/user", fakeNow, 1, "bash"),
+			}
+			got := parseWindows(lines, fakeNow)
+			if len(got) != 1 {
+				t.Fatalf("expected 1 window, got %d", len(got))
+			}
+			if got[0].Type != tt.wantType {
+				t.Errorf("Type = %q, want %q", got[0].Type, tt.wantType)
 			}
 		})
 	}

@@ -8,13 +8,15 @@ import { useDialogState } from "@/hooks/use-dialog-state";
 import { TopBar } from "@/components/top-bar";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
+import { DesktopClient } from "@/components/desktop-client";
 import { BottomBar } from "@/components/bottom-bar";
+import { DesktopBottomBar } from "@/components/desktop-bottom-bar";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 
-import { selectWindow, createWindow, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createWindow, createDesktopWindow, changeDesktopResolution, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 
@@ -107,6 +109,7 @@ function AppShell() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [scrollLocked, setScrollLocked] = useState(false);
   const [hostname, setHostname] = useState("");
+  const rfbInstanceRef = useRef<import("@novnc/novnc/lib/rfb").default | null>(null);
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
   const [createServerName, setCreateServerName] = useState("");
   const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
@@ -281,6 +284,18 @@ function AppShell() {
     [],
   );
 
+  // Create a desktop window in a session
+  const handleCreateDesktopWindow = useCallback(
+    async (session: string) => {
+      try {
+        await createDesktopWindow(session);
+      } catch {
+        // SSE will reflect
+      }
+    },
+    [],
+  );
+
   // Theme
   const { preference: themePreference, resolved: themeResolved, themeDark, themeLight } = useTheme();
   const { setTheme } = useThemeActions();
@@ -383,6 +398,13 @@ function AppShell() {
                 if (sessionName) handleCreateWindow(sessionName);
               },
             },
+            {
+              id: "create-desktop",
+              label: "New Desktop Window",
+              onSelect: () => {
+                if (sessionName) handleCreateDesktopWindow(sessionName);
+              },
+            },
           ]
         : []),
       ...(currentWindow
@@ -434,12 +456,12 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, handleCreateWindow, dialogs],
+    [sessionName, currentWindow, handleCreateWindow, handleCreateDesktopWindow, dialogs],
   );
 
   const viewActions: PaletteAction[] = useMemo(
     () => [
-      ...(sessionName
+      ...(sessionName && currentWindow?.type !== "desktop"
         ? [
             {
               id: "text-input",
@@ -448,13 +470,20 @@ function AppShell() {
             },
           ]
         : []),
+      ...(sessionName && currentWindow?.type === "desktop"
+        ? [
+            { id: "resolution-1280x720", label: "Change desktop resolution: 1280x720", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1280x720").catch(() => {}) },
+            { id: "resolution-1920x1080", label: "Change desktop resolution: 1920x1080", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1920x1080").catch(() => {}) },
+            { id: "resolution-2560x1440", label: "Change desktop resolution: 2560x1440", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "2560x1440").catch(() => {}) },
+          ]
+        : []),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth],
+    [sessionName, currentWindow, fixedWidth, toggleFixedWidth],
   );
 
   const configActions: PaletteAction[] = useMemo(
@@ -540,6 +569,7 @@ function AppShell() {
           onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
           onCreateSession={dialogs.openCreateDialog}
           onCreateWindow={handleCreateWindow}
+          onCreateDesktopWindow={handleCreateDesktopWindow}
           onOpenCompose={() => setComposeOpen((v) => !v)}
         />
       </div>
@@ -589,31 +619,54 @@ function AppShell() {
             style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
           >
             {sessionName && windowIndex ? (
-              <>
-                <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
-                  <TerminalClient
-                    sessionName={sessionName}
-                    windowIndex={windowIndex}
-                    server={server}
-                    wsRef={wsRef}
-                    composeOpen={composeOpen}
-                    setComposeOpen={setComposeOpen}
-                    onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
-                    focusRef={focusTerminalRef}
-                    scrollLocked={scrollLocked}
-                  />
-                </div>
-                {/* Bottom Bar — only on terminal pages */}
-                <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
-                  <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
-                </div>
-              </>
+              currentWindow?.type === "desktop" ? (
+                <>
+                  <div className="flex-1 min-h-0 flex flex-col">
+                    <DesktopClient
+                      sessionName={sessionName}
+                      windowIndex={windowIndex}
+                      server={server}
+                      onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+                      onRfbRef={(rfb) => { rfbInstanceRef.current = rfb; }}
+                    />
+                  </div>
+                  <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
+                    <DesktopBottomBar
+                      rfbRef={rfbInstanceRef}
+                      sessionName={sessionName}
+                      windowIndex={currentWindow.index}
+                      hostname={hostname}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
+                    <TerminalClient
+                      sessionName={sessionName}
+                      windowIndex={windowIndex}
+                      server={server}
+                      wsRef={wsRef}
+                      composeOpen={composeOpen}
+                      setComposeOpen={setComposeOpen}
+                      onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+                      focusRef={focusTerminalRef}
+                      scrollLocked={scrollLocked}
+                    />
+                  </div>
+                  {/* Bottom Bar — only on terminal pages */}
+                  <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
+                    <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
+                  </div>
+                </>
+              )
             ) : (
               <Dashboard
                 sessions={sessions}
                 onNavigate={navigateToWindow}
                 onCreateSession={dialogs.openCreateDialog}
                 onCreateWindow={handleCreateWindow}
+                onCreateDesktopWindow={handleCreateDesktopWindow}
               />
             )}
           </div>

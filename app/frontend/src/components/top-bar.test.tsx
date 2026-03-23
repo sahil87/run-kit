@@ -19,6 +19,7 @@ const nowSeconds = Math.floor(Date.now() / 1000);
 const fabWindow: WindowInfo = {
   index: 0,
   name: "main",
+  type: "terminal",
   worktreePath: "~/code/run-kit",
   activity: "active",
   isActiveWindow: true,
@@ -32,6 +33,7 @@ const fabWindow: WindowInfo = {
 const nonFabIdleWindow: WindowInfo = {
   index: 0,
   name: "dev",
+  type: "terminal",
   worktreePath: "~/code/ao-server",
   activity: "idle",
   isActiveWindow: true,
@@ -69,6 +71,7 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
           onToggleDrawer={vi.fn()}
           onCreateSession={vi.fn()}
           onCreateWindow={vi.fn()}
+          onCreateDesktopWindow={vi.fn()}
           onOpenCompose={vi.fn()}
           {...overrides}
         />

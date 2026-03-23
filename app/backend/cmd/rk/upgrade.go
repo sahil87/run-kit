@@ -35,7 +35,7 @@ var updateCmd = &cobra.Command{
 			fmt.Printf("rk v%s was not installed via Homebrew.\n", version)
 			fmt.Println("Update manually (git pull && just build), or reinstall with:")
 			fmt.Println("  brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git")
-			fmt.Println("  brew install wvrdz/tap/rk")
+			fmt.Println("  brew install rk")
 			return nil
 		}
 

@@ -35,7 +35,14 @@ export function ThemeSelector() {
       openThemeRef.current = currentTheme;
       setOpen(true);
       setQuery("");
-      setSelectedIndex(0);
+      // Select the currently active theme in the unfiltered flat list
+      const allDarkThemes = THEMES.filter((t) => t.category === "dark");
+      const allLightThemes = THEMES.filter((t) => t.category === "light");
+      const allFlatThemes: Theme[] = [...allDarkThemes, ...allLightThemes];
+      const currentIndex = allFlatThemes.findIndex(
+        (t) => t.id === currentTheme.id,
+      );
+      setSelectedIndex(currentIndex >= 0 ? currentIndex : 0);
     }
     document.addEventListener("theme-selector:open", handleOpen);
     return () => document.removeEventListener("theme-selector:open", handleOpen);

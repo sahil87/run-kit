@@ -21,7 +21,7 @@ func (s *Server) handlePutTheme(w http.ResponseWriter, r *http.Request) {
 		Theme string `json:"theme"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 	if body.Theme == "" {

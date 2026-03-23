@@ -123,18 +123,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [preference]);
 
   const setTheme = useCallback((next: string) => {
+    // Normalize: accept "system" or a known theme id; fall back to "system"
+    const normalized =
+      next === "system" || getThemeById(next) ? next : "system";
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, next);
+      localStorage.setItem(THEME_STORAGE_KEY, normalized);
     } catch {
       // localStorage unavailable
     }
     // Fire-and-forget API persistence
-    setThemePreference(next).catch(() => {});
-    const nextTheme = resolveThemeObject(next);
-    setPreference(next);
+    setThemePreference(normalized).catch(() => {});
+    const nextTheme = resolveThemeObject(normalized);
+    setPreference(normalized);
     setActiveTheme(nextTheme);
     setIsPreview(false);
-    persistedPreferenceRef.current = next;
+    persistedPreferenceRef.current = normalized;
   }, []);
 
   const previewTheme = useCallback((theme: Theme) => {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -98,10 +99,15 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 			slog.Error("failed to set VNC port window option", "err", err)
 		}
 
-		// Generate and send startup script
+		// Write startup script to temp file (too large for send-keys buffer)
 		script := desktopStartupScript(displayNum, port, resolution)
-		if err := s.tmux.SendKeys(session, windowIndex, script, server); err != nil {
-			slog.Error("failed to send desktop startup script", "err", err)
+		scriptFile := fmt.Sprintf("/tmp/rk-desktop-%d.sh", port)
+		if err := os.WriteFile(scriptFile, []byte(script), 0700); err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to write startup script")
+			return
+		}
+		if err := s.tmux.SendKeys(session, windowIndex, scriptFile, server); err != nil {
+			slog.Error("failed to send desktop startup command", "err", err)
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -158,8 +164,20 @@ func allocateFreePort() (int, error) {
 // desktopStartupScript generates a bash script to launch Xvfb, detect WM, and x11vnc.
 // Written to a temp file and executed, avoiding send-keys one-liner parsing issues.
 func desktopStartupScript(displayNum, port int, resolution string) string {
-	return fmt.Sprintf(`bash -c '
+	return fmt.Sprintf(`#!/bin/bash
 export DISPLAY=:%d
+
+# Isolate per-desktop state so apps (browsers, etc.) don't collide across desktops.
+# Each desktop gets unique XDG dirs keyed by display number.
+DESKTOP_ID=desktop-%d
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$DESKTOP_ID"
+export XDG_CONFIG_HOME="$HOME/.config/$DESKTOP_ID"
+export XDG_DATA_HOME="$HOME/.local/share/$DESKTOP_ID"
+export XDG_CACHE_HOME="$HOME/.cache/$DESKTOP_ID"
+export XDG_STATE_HOME="$HOME/.local/state/$DESKTOP_ID"
+mkdir -p "$XDG_RUNTIME_DIR" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME"
+chmod 0700 "$XDG_RUNTIME_DIR"
+
 Xvfb :%d -screen 0 %sx24 &
 sleep 1
 
@@ -194,7 +212,7 @@ if [ -n "$WM" ]; then
 fi
 
 x11vnc -display :%d -rfbport %d -nopw -forever -shared -noxdamage
-'`, displayNum, displayNum, resolution, displayNum, port)
+`, displayNum, displayNum, displayNum, resolution, displayNum, port)
 }
 
 // parseWindowIndex extracts and validates the window index from the URL.
@@ -422,7 +440,12 @@ func (s *Server) handleWindowResolution(w http.ResponseWriter, r *http.Request) 
 	time.Sleep(1 * time.Second)
 
 	script := desktopStartupScript(displayNum, port, body.Resolution)
-	if err := s.tmux.SendKeys(session, index, script, server); err != nil {
+	scriptFile := fmt.Sprintf("/tmp/rk-desktop-%d.sh", port)
+	if err := os.WriteFile(scriptFile, []byte(script), 0700); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to write startup script")
+		return
+	}
+	if err := s.tmux.SendKeys(session, index, scriptFile, server); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

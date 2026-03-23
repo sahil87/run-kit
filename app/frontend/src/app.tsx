@@ -268,7 +268,7 @@ function AppShell() {
         label: `Theme: ${opt.label}${themePreference === opt.id ? " (current)" : ""}`,
         onSelect: () => setTheme(opt.id),
       })),
-    ];
+    ] satisfies PaletteAction[];
   }, [themePreference, setTheme]);
 
   // Server management
@@ -322,14 +322,14 @@ function AppShell() {
     () => [
       {
         id: "create-session",
-        label: "Create new session",
+        label: "Session: Create",
         onSelect: dialogs.openCreateDialog,
       },
       ...(sessionName
         ? [
             {
               id: "rename-session",
-              label: "Rename current session",
+              label: "Session: Rename",
               onSelect: () => {
                 if (sessionName) {
                   dialogs.openRenameSessionDialog(sessionName);
@@ -338,7 +338,7 @@ function AppShell() {
             },
             {
               id: "kill-session",
-              label: "Kill current session",
+              label: "Session: Kill",
               onSelect: dialogs.openKillSessionConfirm,
             },
           ]
@@ -347,7 +347,7 @@ function AppShell() {
         ? [
             {
               id: "create-window",
-              label: "Create new window",
+              label: "Window: Create",
               onSelect: () => {
                 if (sessionName) handleCreateWindow(sessionName);
               },
@@ -358,7 +358,7 @@ function AppShell() {
         ? [
             {
               id: "rename-window",
-              label: "Rename current window",
+              label: "Window: Rename",
               onSelect: () => {
                 if (currentWindow) {
                   dialogs.openRenameDialog(currentWindow.name);
@@ -367,19 +367,19 @@ function AppShell() {
             },
             {
               id: "kill-window",
-              label: "Kill current window",
+              label: "Window: Kill",
               onSelect: dialogs.openKillConfirm,
             },
             {
               id: "split-vertical",
-              label: "Split vertically",
+              label: "Window: Split Vertical",
               onSelect: () => {
                 if (sessionName) splitWindow(sessionName, currentWindow.index, true).catch(() => {});
               },
             },
             {
               id: "split-horizontal",
-              label: "Split horizontally",
+              label: "Window: Split Horizontal",
               onSelect: () => {
                 if (sessionName) splitWindow(sessionName, currentWindow.index, false).catch(() => {});
               },
@@ -390,45 +390,45 @@ function AppShell() {
         ? [
             {
               id: "text-input",
-              label: "Text input",
+              label: "View: Text Input",
               onSelect: () => setComposeOpen(true),
             },
           ]
         : []),
       {
         id: "toggle-fixed-width",
-        label: fixedWidth ? "Full width" : "Fixed width (900px)",
+        label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
       ...themeActions,
       {
         id: "reload-tmux-config",
-        label: "Reload tmux config",
+        label: "Config: Reload tmux",
         onSelect: () => { reloadTmuxConfig().catch(() => {}); },
       },
       {
         id: "init-tmux-conf",
-        label: "Reset rk's tmux config to default",
+        label: "Config: Reset tmux to default",
         onSelect: () => { initTmuxConf().then(() => reloadTmuxConfig()).catch(() => {}); },
       },
       {
         id: "keyboard-shortcuts",
-        label: "Keyboard Shortcuts",
+        label: "Help: Keyboard Shortcuts",
         onSelect: () => setShowKeyboardShortcuts(true),
       },
       {
         id: "create-server",
-        label: "Create tmux server",
+        label: "Server: Create",
         onSelect: () => setShowCreateServerDialog(true),
       },
       {
         id: "kill-server",
-        label: "Kill tmux server",
+        label: "Server: Kill",
         onSelect: () => setShowKillServerConfirm(true),
       },
       ...servers.map((s) => ({
         id: `switch-server-${s}`,
-        label: `Switch tmux server: ${s}${s === server ? " (current)" : ""}`,
+        label: `Server: Switch to ${s}${s === server ? " (current)" : ""}`,
         onSelect: () => handleSwitchServer(s),
       })),
       ...flatWindows.map((fw) => ({

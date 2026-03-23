@@ -16,6 +16,8 @@ export function ThemeSelector() {
 
   // Snapshot of the theme when the modal opens — used for cancel
   const openThemeRef = useRef<Theme>(currentTheme);
+  // Suppress mouse-enter during keyboard nav (scroll moves items under cursor)
+  const keyboardNavRef = useRef(false);
 
   // Filter themes by query
   const filtered = THEMES.filter((t) =>
@@ -92,11 +94,13 @@ export function ThemeSelector() {
       handleCancel();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
+      keyboardNavRef.current = true;
       if (flatThemes.length > 0) {
         setSelectedIndex((i) => (i + 1) % flatThemes.length);
       }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      keyboardNavRef.current = true;
       if (flatThemes.length > 0) {
         setSelectedIndex((i) => (i - 1 + flatThemes.length) % flatThemes.length);
       }
@@ -106,7 +110,12 @@ export function ThemeSelector() {
     }
   }
 
+  function handleMouseMove() {
+    keyboardNavRef.current = false;
+  }
+
   function handleMouseEnter(theme: Theme) {
+    if (keyboardNavRef.current) return;
     const idx = flatThemes.indexOf(theme);
     if (idx >= 0) {
       setSelectedIndex(idx);
@@ -161,6 +170,7 @@ export function ThemeSelector() {
           ref={listRef}
           role="listbox"
           aria-label="Themes"
+          onMouseMove={handleMouseMove}
           className="max-h-64 overflow-y-auto py-1"
         >
           {flatThemes.length === 0 ? (

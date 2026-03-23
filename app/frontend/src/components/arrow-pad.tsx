@@ -9,7 +9,7 @@ type ArrowPadProps = {
 };
 
 const ARROW_BTN =
-  "min-h-[30px] min-w-[30px] flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none active:bg-bg-card hover:border-text-secondary focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-[36px] min-w-[36px] flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none active:bg-bg-card hover:border-text-secondary focus-visible:outline-2 focus-visible:outline-accent";
 
 /**
  * Combined arrow key control:
@@ -96,7 +96,7 @@ export function ArrowPad({ onArrow, className }: ArrowPadProps) {
         aria-label="Arrow keys"
         aria-haspopup="true"
         aria-expanded={open}
-        className="min-h-[36px] min-w-[36px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent text-text-secondary touch-none"
+        className="min-h-[36px] min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent text-text-secondary touch-none"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onMouseDown={handleMouseDown}

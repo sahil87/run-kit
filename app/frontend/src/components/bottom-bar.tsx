@@ -5,6 +5,7 @@ import { ArrowPad } from "@/components/arrow-pad";
 type BottomBarProps = {
   wsRef: React.RefObject<WebSocket | null>;
   hostname?: string;
+  onOpenCompose?: () => void;
 };
 
 /** xterm modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) */
@@ -44,14 +45,14 @@ const EXT_KEYS = [
 ] as const;
 
 const KBD_CLASS =
-  "min-h-[36px] min-w-[36px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-[36px] min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
 
 const MODIFIER_LABELS: Record<string, string> = {
   ctrl: "Control",
   alt: "Option",
 };
 
-export function BottomBar({ wsRef, hostname }: BottomBarProps) {
+export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
@@ -156,8 +157,6 @@ export function BottomBar({ wsRef, hostname }: BottomBarProps) {
         <kbd aria-hidden="true">{"\u21E5"}</kbd>
       </button>
 
-      <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
-
       {([["ctrl", "^"], ["alt", "\u2325"]] as const).map(([key, symbol]) => (
         <button
           key={key}
@@ -169,8 +168,6 @@ export function BottomBar({ wsRef, hostname }: BottomBarProps) {
           <kbd aria-hidden="true">{symbol}</kbd>
         </button>
       ))}
-
-      <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
 
       <div ref={fnRef} className="relative">
         <button
@@ -194,7 +191,7 @@ export function BottomBar({ wsRef, hostname }: BottomBarProps) {
                   key={fk.label}
                   role="menuitem"
                   aria-label={fk.label}
-                  className="px-2 py-1 min-h-[30px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                  className="px-2 py-1 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
                   onClick={() => { sendWithMods(fk.plain, fk.mod); setFnOpen(false); }}
                 >
                   {fk.label}
@@ -208,7 +205,7 @@ export function BottomBar({ wsRef, hostname }: BottomBarProps) {
                   key={ek.label}
                   role="menuitem"
                   aria-label={ek.label}
-                  className="px-2 py-1 min-h-[30px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                  className="px-2 py-1 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
                   onClick={() => { sendWithMods(ek.plain, ek.mod); setFnOpen(false); }}
                 >
                   {ek.label}
@@ -223,6 +220,16 @@ export function BottomBar({ wsRef, hostname }: BottomBarProps) {
 
       <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
 
+      {onOpenCompose && (
+        <button
+          type="button"
+          onClick={onOpenCompose}
+          aria-label="Compose text"
+          className={`${KBD_CLASS} text-text-secondary`}
+        >
+          &gt;_
+        </button>
+      )}
       <button
         aria-label="Open command palette"
         className={`${KBD_CLASS} text-text-secondary`}

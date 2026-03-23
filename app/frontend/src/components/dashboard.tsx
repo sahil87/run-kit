@@ -56,7 +56,7 @@ export function Dashboard({
               {/* Session card header */}
               <button
                 onClick={() => toggleExpand(session.name)}
-                className="w-full text-left p-3 coarse:min-h-[44px] flex items-center justify-between"
+                className="w-full text-left p-3 min-h-[36px] flex items-center justify-between"
                 aria-expanded={isExpanded}
                 aria-label={`${isExpanded ? "Collapse" : "Expand"} ${session.name}`}
               >
@@ -93,7 +93,7 @@ export function Dashboard({
                       <button
                         key={win.index}
                         onClick={() => onNavigate(session.name, win.index)}
-                        className="w-full text-left p-2 rounded bg-bg-primary border border-border hover:border-text-secondary transition-colors coarse:min-h-[44px]"
+                        className="w-full text-left p-2 rounded bg-bg-primary border border-border hover:border-text-secondary transition-colors min-h-[36px]"
                         data-testid={`window-card-${session.name}-${win.index}`}
                       >
                         <div className="flex items-center justify-between gap-2">
@@ -147,7 +147,7 @@ export function Dashboard({
                       e.stopPropagation();
                       onCreateWindow(session.name);
                     }}
-                    className="text-sm text-text-secondary hover:text-text-primary transition-colors py-1.5 border border-dashed border-border rounded hover:border-text-secondary coarse:min-h-[44px] flex items-center justify-center"
+                    className="text-sm text-text-secondary hover:text-text-primary transition-colors py-1.5 border border-dashed border-border rounded hover:border-text-secondary min-h-[36px] flex items-center justify-center"
                   >
                     + New Window
                   </button>
@@ -160,7 +160,7 @@ export function Dashboard({
         {/* New Session button card */}
         <button
           onClick={onCreateSession}
-          className="border border-dashed border-border rounded p-3 text-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors coarse:min-h-[44px] flex items-center justify-center"
+          className="border border-dashed border-border rounded p-3 text-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors min-h-[36px] flex items-center justify-center"
         >
           + New Session
         </button>

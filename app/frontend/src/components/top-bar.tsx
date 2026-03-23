@@ -3,7 +3,6 @@ import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { useChrome, useChromeDispatch } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { splitWindow } from "@/api/client";
-import type { ThemePreference } from "@/contexts/theme-context";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -241,32 +240,40 @@ export function TopBar({
   );
 }
 
-const THEME_CYCLE: ThemePreference[] = ["system", "light", "dark"];
-const THEME_LABELS: Record<ThemePreference, string> = {
+const THEME_CYCLE = ["system", "default-light", "default-dark"];
+const THEME_LABELS: Record<string, string> = {
   system: "System theme",
-  light: "Light theme",
-  dark: "Dark theme",
+  "default-light": "Light theme",
+  "default-dark": "Dark theme",
 };
 
 function ThemeToggle() {
-  const { preference } = useTheme();
+  const { preference, resolved } = useTheme();
   const { setTheme } = useThemeActions();
 
-  const cycle = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      document.dispatchEvent(new CustomEvent("theme-selector:open"));
+      return;
+    }
+
     const idx = THEME_CYCLE.indexOf(preference);
     const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
     setTheme(next);
   };
 
+  const label = THEME_LABELS[preference] ?? `${preference} theme`;
+
   return (
     <button
       type="button"
-      onClick={cycle}
-      aria-label={THEME_LABELS[preference]}
+      onClick={handleClick}
+      aria-label={label}
       className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
-      title={THEME_LABELS[preference]}
+      title={label}
     >
-      {preference === "light" ? (
+      {resolved === "light" ? (
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <circle cx="8" cy="8" r="3" />
           <g stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -280,15 +287,9 @@ function ThemeToggle() {
             <line x1="11.89" y1="4.11" x2="12.95" y2="3.05" />
           </g>
         </svg>
-      ) : preference === "dark" ? (
+      ) : (
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <path d="M6 2a6 6 0 1 0 8 8c-3.3 0-6-2.7-6-6a6 6 0 0 0-2-2z" />
-        </svg>
-      ) : (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-          <circle cx="8" cy="8" r="5" />
-          <path d="M8 3v10" />
-          <path d="M8 3a5 5 0 0 1 0 10" fill="currentColor" />
         </svg>
       )}
     </button>

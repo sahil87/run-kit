@@ -2,7 +2,6 @@ import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useNavigate, useMatches } from "@tanstack/react-router";
 import { ChromeProvider, useChrome, useChromeDispatch } from "@/contexts/chrome-context";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
-import type { ThemePreference } from "@/contexts/theme-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { useSessions } from "@/hooks/use-sessions";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
@@ -12,6 +11,7 @@ import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
 import { BottomBar } from "@/components/bottom-bar";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
+import { ThemeSelector } from "@/components/theme-selector";
 import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
@@ -252,12 +252,23 @@ function AppShell() {
   const { setTheme } = useThemeActions();
 
   const themeActions: PaletteAction[] = useMemo(() => {
-    const options: ThemePreference[] = ["system", "light", "dark"];
-    return options.map((opt) => ({
-      id: `theme-${opt}`,
-      label: `Theme: ${opt.charAt(0).toUpperCase() + opt.slice(1)}${themePreference === opt ? " (current)" : ""}`,
-      onSelect: () => setTheme(opt),
-    }));
+    const options = [
+      { id: "system", label: "System" },
+      { id: "default-light", label: "Light" },
+      { id: "default-dark", label: "Dark" },
+    ];
+    return [
+      {
+        id: "theme-select",
+        label: "Theme: Select Theme",
+        onSelect: () => document.dispatchEvent(new CustomEvent("theme-selector:open")),
+      },
+      ...options.map((opt) => ({
+        id: `theme-${opt.id}`,
+        label: `Theme: ${opt.label}${themePreference === opt.id ? " (current)" : ""}`,
+        onSelect: () => setTheme(opt.id),
+      })),
+    ];
   }, [themePreference, setTheme]);
 
   // Server management
@@ -728,6 +739,7 @@ function AppShell() {
       />
 
       <CommandPalette actions={paletteActions} />
+      <ThemeSelector />
 
       {showKeyboardShortcuts && (
         <KeyboardShortcuts onClose={() => setShowKeyboardShortcuts(false)} />

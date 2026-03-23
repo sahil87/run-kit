@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-23T15:20:38Z"}
+{"args":"Rework theme system to use full ANSI terminal palettes (22 colors per theme). Three consumers: CSS, xterm.js, tmux. Backend settings persistence. tmux.conf uses ANSI colour indices.","cmd":"fab-new","event":"command","ts":"2026-03-23T15:20:38Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-23T15:23:04Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-23T15:23:11Z"}

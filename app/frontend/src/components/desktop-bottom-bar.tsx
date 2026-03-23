@@ -11,6 +11,21 @@ type DesktopBottomBarProps = {
 const KBD_CLASS =
   "min-h-[36px] min-w-[36px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center px-2 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
 
+// Map common keys to X11 keysyms for noVNC sendKey
+function keyToKeysym(key: string): number | null {
+  if (key.length === 1) return key.charCodeAt(0);
+  const map: Record<string, number> = {
+    Enter: 0xff0d, Backspace: 0xff08, Tab: 0xff09, Escape: 0xff1b,
+    Delete: 0xffff, Home: 0xff50, End: 0xff57, PageUp: 0xff55, PageDown: 0xff56,
+    ArrowLeft: 0xff51, ArrowUp: 0xff52, ArrowRight: 0xff53, ArrowDown: 0xff54,
+    Shift: 0xffe1, Control: 0xffe3, Alt: 0xffe9, Meta: 0xffe7,
+    F1: 0xffbe, F2: 0xffbf, F3: 0xffc0, F4: 0xffc1, F5: 0xffc2, F6: 0xffc3,
+    F7: 0xffc4, F8: 0xffc5, F9: 0xffc6, F10: 0xffc7, F11: 0xffc8, F12: 0xffc9,
+    " ": 0x20,
+  };
+  return map[key] ?? null;
+}
+
 const RESOLUTIONS = [
   { label: "1280x720", value: "1280x720" },
   { label: "1920x1080", value: "1920x1080" },
@@ -19,7 +34,9 @@ const RESOLUTIONS = [
 
 export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }: DesktopBottomBarProps) {
   const [resOpen, setResOpen] = useState(false);
+  const [kbdActive, setKbdActive] = useState(false);
   const resRef = useRef<HTMLDivElement>(null);
+  const kbdInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Close resolution picker on outside click
   useEffect(() => {
@@ -66,6 +83,53 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
     [sessionName, windowIndex],
   );
 
+  const handleKeyboard = useCallback(() => {
+    if (kbdActive) {
+      kbdInputRef.current?.blur();
+      setKbdActive(false);
+    } else {
+      kbdInputRef.current?.focus();
+      setKbdActive(true);
+    }
+  }, [kbdActive]);
+
+  // Send a keysym (down + up) to noVNC
+  const sendKey = useCallback((keysym: number) => {
+    const rfb = rfbRef.current;
+    if (!rfb) return;
+    if ("sendKey" in rfb && typeof (rfb as unknown as { sendKey: unknown }).sendKey === "function") {
+      const send = (rfb as unknown as { sendKey: (keysym: number, code: string | null, down?: boolean) => void }).sendKey;
+      send.call(rfb, keysym, null, true);  // keydown
+      send.call(rfb, keysym, null, false); // keyup
+    }
+  }, [rfbRef]);
+
+  // Handle special keys (Enter, Backspace, arrows, etc.) via keydown
+  const handleKbdKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!rfbRef.current) return;
+    // Only handle non-printable keys here — printable chars come via onInput
+    const keysym = keyToKeysym(e.key);
+    if (keysym && e.key.length > 1) {
+      // Special key (Enter, Backspace, etc.)
+      e.preventDefault();
+      sendKey(keysym);
+    }
+  }, [rfbRef, sendKey]);
+
+  // Handle typed characters via input event (mobile virtual keyboards)
+  const handleKbdTextInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
+    const textarea = e.currentTarget;
+    const text = textarea.value;
+    if (!text) return;
+    // Send each character as a keysym
+    for (const char of text) {
+      const keysym = char.charCodeAt(0);
+      if (keysym) sendKey(keysym);
+    }
+    // Clear the textarea for next input
+    textarea.value = "";
+  }, [sendKey]);
+
   const handleFullscreen = useCallback(() => {
     const el = document.documentElement;
     if (document.fullscreenElement) {
@@ -77,6 +141,21 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
 
   return (
     <div className="flex items-center gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Desktop controls">
+      {/* Hidden textarea to trigger mobile virtual keyboard */}
+      <textarea
+        ref={kbdInputRef}
+        aria-hidden="true"
+        className="absolute opacity-0 w-0 h-0 pointer-events-none"
+        style={{ position: "fixed", top: -9999, left: -9999 }}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        onKeyDown={handleKbdKeyDown}
+        onInput={handleKbdTextInput}
+        onBlur={() => setKbdActive(false)}
+      />
+
       {/* Clipboard paste */}
       <button
         aria-label="Paste clipboard"
@@ -142,6 +221,27 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
           <line x1="21" y1="3" x2="14" y2="10" />
           <line x1="3" y1="21" x2="10" y2="14" />
         </svg>
+      </button>
+
+      {/* Keyboard toggle — pushed right */}
+      <button
+        aria-label={kbdActive ? "Hide keyboard" : "Show keyboard"}
+        className={`ml-auto ${KBD_CLASS} ${kbdActive ? "text-accent border-accent/50 bg-accent/10" : "text-text-secondary"}`}
+        onClick={handleKeyboard}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="2" y="4" width="20" height="16" rx="2" ry="2" />
+          <line x1="6" y1="8" x2="6" y2="8" />
+          <line x1="10" y1="8" x2="10" y2="8" />
+          <line x1="14" y1="8" x2="14" y2="8" />
+          <line x1="18" y1="8" x2="18" y2="8" />
+          <line x1="6" y1="12" x2="6" y2="12" />
+          <line x1="10" y1="12" x2="10" y2="12" />
+          <line x1="14" y1="12" x2="14" y2="12" />
+          <line x1="18" y1="12" x2="18" y2="12" />
+          <line x1="7" y1="16" x2="17" y2="16" />
+        </svg>
+        <span className="ml-1 hidden sm:inline">Kbd</span>
       </button>
 
       <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />

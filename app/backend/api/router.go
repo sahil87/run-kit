@@ -187,6 +187,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/windows/{index}/split", s.handleWindowSplit)
 	r.Post("/api/sessions/{session}/windows/{index}/close-pane", s.handleClosePaneKill)
 	r.Post("/api/sessions/{session}/windows/{index}/resolution", s.handleWindowResolution)
+	r.Get("/api/sessions/{session}/windows/{index}/desktop-info", s.handleDesktopInfo)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)

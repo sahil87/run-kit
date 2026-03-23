@@ -220,13 +220,16 @@ function AppShell() {
       if (dialogOpenRef.current) return;
       const elapsed = Date.now() - userNavTimestampRef.current;
       if (elapsed < 3000) return;
+      // Skip for desktop windows — they connect via VNC, not tmux attach,
+      // so tmux's active window concept doesn't apply
+      if (currentWindow?.type === "desktop") return;
       navigate({
         to: "/$server/$session/$window",
         params: { server, session: sessionName, window: String(activeWindow.index) },
         replace: true,
       });
     }
-  }, [activeWindow, sessionName, windowIndex, navigate, server]);
+  }, [activeWindow, sessionName, windowIndex, currentWindow, navigate, server]);
 
   // Navigation callback for sidebar/breadcrumbs — syncs both UI route and tmux active window
   const navigateToWindow = useCallback(
@@ -639,7 +642,7 @@ function AppShell() {
                     />
                   </div>
                 </>
-              ) : (
+              ) : currentWindow?.type === "terminal" ? (
                 <>
                   <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
                     <TerminalClient
@@ -659,6 +662,12 @@ function AppShell() {
                     <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
                   </div>
                 </>
+              ) : (
+                /* Window type not yet known (waiting for SSE) — render nothing to avoid
+                   TerminalClient connecting to a desktop window's relay */
+                <div className="flex-1 min-h-0 flex items-center justify-center text-text-secondary text-sm">
+                  Connecting...
+                </div>
               )
             ) : (
               <Dashboard

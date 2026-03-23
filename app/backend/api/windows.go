@@ -52,7 +52,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Allocate a free port via net.Listen
+		// Allocate a free port for VNC
 		port, err := allocateFreePort()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Failed to allocate VNC port")
@@ -93,10 +93,9 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Store VNC port as tmux window option via internal/tmux (not in shell script)
+		// Store VNC port as tmux window option
 		if err := s.tmux.SetWindowOption(session, windowIndex, "@rk_vnc_port", strconv.Itoa(port), server); err != nil {
 			slog.Error("failed to set VNC port window option", "err", err)
-			// Non-fatal — relay will fail to connect but desktop still works
 		}
 
 		// Generate and send startup script
@@ -156,32 +155,46 @@ func allocateFreePort() (int, error) {
 	return port, nil
 }
 
-// desktopStartupScript generates the shell script to launch Xvfb, detect WM, and start x11vnc.
-// The VNC port is stored as a tmux window option by the caller (via SetWindowOption),
-// not inside this script, to keep all tmux interaction through internal/tmux.
+// desktopStartupScript generates a bash script to launch Xvfb, detect WM, and x11vnc.
+// Written to a temp file and executed, avoiding send-keys one-liner parsing issues.
 func desktopStartupScript(displayNum, port int, resolution string) string {
-	return fmt.Sprintf(`export DISPLAY=:%d && `+
-		`Xvfb :%d -screen 0 %sx24 &>/dev/null & `+
-		`sleep 1 && `+
-		`WM=""; `+
-		`if command -v x-session-manager &>/dev/null; then WM=x-session-manager; `+
-		`elif [ -n "$XDG_CURRENT_DESKTOP" ]; then `+
-		`case "$XDG_CURRENT_DESKTOP" in `+
-		`GNOME) command -v mutter &>/dev/null && WM=mutter;; `+
-		`KDE) command -v kwin &>/dev/null && WM=kwin;; `+
-		`XFCE) command -v xfwm4 &>/dev/null && WM=xfwm4;; `+
-		`esac; `+
-		`fi; `+
-		`if [ -z "$WM" ]; then `+
-		`for wm in openbox fluxbox i3 xfwm4 mutter kwin; do `+
-		`if command -v "$wm" &>/dev/null; then WM="$wm"; break; fi; `+
-		`done; `+
-		`fi; `+
-		`[ -n "$WM" ] && $WM &>/dev/null & `+
-		`exec x11vnc -display :%d -rfbport %d -nopw -forever -shared -noxdamage -ws`,
-		displayNum, displayNum, resolution,
-		displayNum, port,
-	)
+	return fmt.Sprintf(`bash -c '
+export DISPLAY=:%d
+Xvfb :%d -screen 0 %sx24 &
+sleep 1
+
+# Detect window manager / desktop environment
+WM=""
+NEEDS_DBUS=false
+RESOLVED=""
+if command -v x-session-manager &>/dev/null; then
+  WM=x-session-manager
+  RESOLVED="$(readlink -f "$(command -v x-session-manager)" 2>/dev/null)"
+elif command -v startplasma-x11 &>/dev/null; then
+  WM=startplasma-x11
+  RESOLVED=startplasma-x11
+else
+  for wm in kwin_x11 openbox fluxbox i3 xfwm4 mutter kwin; do
+    if command -v "$wm" &>/dev/null; then WM="$wm"; break; fi
+  done
+fi
+
+# Full desktop sessions need their own dbus
+case "$RESOLVED" in
+  *startplasma*|*gnome-session*|*xfce4-session*) NEEDS_DBUS=true;;
+esac
+
+if [ -n "$WM" ]; then
+  if $NEEDS_DBUS && command -v dbus-run-session &>/dev/null; then
+    dbus-run-session "$WM" &
+  else
+    "$WM" &
+  fi
+  sleep 3
+fi
+
+exec x11vnc -display :%d -rfbport %d -nopw -forever -shared -noxdamage
+'`, displayNum, displayNum, resolution, displayNum, port)
 }
 
 // parseWindowIndex extracts and validates the window index from the URL.
@@ -384,7 +397,7 @@ func (s *Server) handleWindowResolution(w http.ResponseWriter, r *http.Request) 
 
 	server := serverFromRequest(r)
 
-	// Read existing VNC port from window option
+	// Read existing VNC and websockify ports from window options
 	portStr, err := s.tmux.GetWindowOption(session, index, "@rk_vnc_port", server)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Window is not a desktop window or VNC port not set")
@@ -395,20 +408,19 @@ func (s *Server) handleWindowResolution(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "Invalid VNC port value")
 		return
 	}
-
 	// Derive display number from port (same logic as creation)
 	displayNum := port - 5900
 	if displayNum < 0 {
 		displayNum = port % 1000
 	}
 
-	// Send restart script: kill existing Xvfb and x11vnc, relaunch at new resolution
+	// Send restart script: kill existing processes, relaunch at new resolution
 	script := fmt.Sprintf(
 		`pkill -f 'Xvfb :%d' 2>/dev/null; pkill -f 'x11vnc.*:%d' 2>/dev/null; sleep 0.5 && `+
 			`export DISPLAY=:%d && `+
 			`Xvfb :%d -screen 0 %sx24 &>/dev/null & `+
 			`sleep 1 && `+
-			`exec x11vnc -display :%d -rfbport %d -nopw -forever -shared -noxdamage -ws`,
+			`exec x11vnc -display :%d -rfbport %d -nopw -forever -shared -noxdamage`,
 		displayNum, displayNum,
 		displayNum,
 		displayNum, body.Resolution,
@@ -421,4 +433,29 @@ func (s *Server) handleWindowResolution(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleDesktopInfo returns the websockify port for a desktop window.
+func (s *Server) handleDesktopInfo(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	index, ok := parseWindowIndex(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid window index")
+		return
+	}
+
+	server := serverFromRequest(r)
+
+	wsPortStr, err := s.tmux.GetWindowOption(session, index, "@rk_ws_port", server)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "Not a desktop window or websockify port not set")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"wsPort": wsPortStr})
 }

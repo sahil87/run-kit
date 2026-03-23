@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -66,26 +67,15 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		slog.Error("websocket upgrade failed", "err", err)
-		return
-	}
-	defer conn.Close()
-
 	// Determine which tmux server this session lives on
 	server := serverFromRequest(r)
 
-	// Verify the session exists and detect window type
+	// Detect window type BEFORE WebSocket upgrade so desktop can use hijack
 	windows, err := s.tmux.ListWindows(r.Context(), session, server)
 	if err != nil || windows == nil {
-		slog.Warn("session not found", "session", session)
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4004, "Session not found"))
+		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-
-	// Find the target window and check its type
 	var windowType string
 	windowFound := false
 	for _, win := range windows {
@@ -96,16 +86,26 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !windowFound {
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4004, "Window not found"))
+		http.Error(w, "Window not found", http.StatusNotFound)
 		return
 	}
 
-	// Branch: desktop VNC proxy vs terminal PTY relay
+	// Desktop: WebSocket-to-TCP proxy (browser WS ↔ x11vnc raw VNC)
 	if windowType == "desktop" {
-		s.handleDesktopRelay(conn, session, winIdx, server)
+		if err := s.tmux.SelectWindow(session, winIdx, server); err != nil {
+			slog.Error("select-window failed", "err", err)
+		}
+		s.handleDesktopRelay(w, r, session, winIdx, server)
 		return
 	}
+
+	// Terminal: proceed with Gorilla WebSocket upgrade
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("websocket upgrade failed", "err", err)
+		return
+	}
+	defer conn.Close()
 
 	// Terminal relay (existing behavior)
 	if err := s.tmux.SelectWindow(session, winIdx, server); err != nil {
@@ -216,69 +216,77 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleDesktopRelay proxies a WebSocket connection to the x11vnc VNC WebSocket.
-func (s *Server) handleDesktopRelay(conn *websocket.Conn, session string, windowIndex int, server string) {
+// desktopUpgrader negotiates the 'binary' subprotocol that noVNC/websockify use.
+var desktopUpgrader = websocket.Upgrader{
+	CheckOrigin:  func(r *http.Request) bool { return true },
+	Subprotocols: []string{"binary"},
+}
+
+// handleDesktopRelay proxies between a browser WebSocket and x11vnc's raw TCP VNC port.
+func (s *Server) handleDesktopRelay(w http.ResponseWriter, r *http.Request, session string, windowIndex int, server string) {
 	// Read @rk_vnc_port from the tmux window option
 	portStr, err := s.tmux.GetWindowOption(session, windowIndex, "@rk_vnc_port", server)
 	if err != nil {
-		slog.Warn("VNC port not found for desktop window", "session", session, "window", windowIndex, "err", err)
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4002, "VNC port not found"))
+		slog.Warn("VNC port not found", "session", session, "window", windowIndex, "err", err)
+		http.Error(w, "VNC port not found", http.StatusBadGateway)
 		return
 	}
-
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		slog.Error("invalid VNC port value", "port", portStr, "err", err)
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4002, "Invalid VNC port"))
+		http.Error(w, "Invalid VNC port", http.StatusBadGateway)
 		return
 	}
 
-	// Dial the VNC WebSocket on localhost only (security: no external connections)
-	vncURL := fmt.Sprintf("ws://localhost:%d", port)
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
-	}
-	vncConn, _, err := dialer.Dial(vncURL, nil)
+	// Dial x11vnc's raw TCP VNC port on localhost
+	vncAddr := fmt.Sprintf("127.0.0.1:%d", port)
+	vncConn, err := net.DialTimeout("tcp", vncAddr, 10*time.Second)
 	if err != nil {
-		slog.Error("failed to connect to VNC WebSocket", "url", vncURL, "err", err)
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4003, "VNC connection failed"))
+		slog.Error("failed to connect to VNC server", "addr", vncAddr, "err", err)
+		http.Error(w, "VNC connection failed", http.StatusBadGateway)
 		return
 	}
+
+	// Upgrade with 'binary' subprotocol support
+	conn, err := desktopUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		vncConn.Close()
+		slog.Error("desktop websocket upgrade failed", "err", err)
+		return
+	}
+
+	slog.Info("desktop relay connected", "session", session, "window", windowIndex, "vncAddr", vncAddr, "subprotocol", conn.Subprotocol())
 
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
 			conn.Close()
 			vncConn.Close()
-			slog.Debug("desktop relay cleanup", "session", session, "window", windowIndex)
 		})
 	}
 	defer cleanup()
 
-	// Bidirectional copy: browser -> VNC
+	// Browser WebSocket → VNC TCP
 	go func() {
 		defer cleanup()
 		for {
-			msgType, msg, err := conn.ReadMessage()
+			_, msg, err := conn.ReadMessage()
 			if err != nil {
 				return
 			}
-			if err := vncConn.WriteMessage(msgType, msg); err != nil {
+			if _, err := vncConn.Write(msg); err != nil {
 				return
 			}
 		}
 	}()
 
-	// Bidirectional copy: VNC -> browser
+	// VNC TCP → Browser WebSocket
+	buf := make([]byte, 32*1024)
 	for {
-		msgType, msg, err := vncConn.ReadMessage()
+		n, err := vncConn.Read(buf)
 		if err != nil {
 			return
 		}
-		if err := conn.WriteMessage(msgType, msg); err != nil {
+		if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
 			return
 		}
 	}

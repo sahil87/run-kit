@@ -213,23 +213,25 @@ function AppShell() {
     return currentSession.windows.find((w) => w.isActiveWindow) ?? null;
   }, [currentSession]);
 
+  // Track whether the current window is a desktop (via ref to avoid effect deps)
+  const isDesktopRef = useRef(false);
+  isDesktopRef.current = currentWindow?.type === "desktop";
+
   useEffect(() => {
-    if (!activeWindow || !sessionName) return;
+    if (!activeWindow || !sessionName || !windowIndex) return;
     if (String(activeWindow.index) !== windowIndex) {
-      // Skip if user recently navigated (e.g. clicked sidebar) or a dialog is open
       if (dialogOpenRef.current) return;
       const elapsed = Date.now() - userNavTimestampRef.current;
       if (elapsed < 3000) return;
-      // Skip for desktop windows — they connect via VNC, not tmux attach,
-      // so tmux's active window concept doesn't apply
-      if (currentWindow?.type === "desktop") return;
+      // Desktop windows connect via VNC, not tmux attach — skip activeWindow sync
+      if (isDesktopRef.current) return;
       navigate({
         to: "/$server/$session/$window",
         params: { server, session: sessionName, window: String(activeWindow.index) },
         replace: true,
       });
     }
-  }, [activeWindow, sessionName, windowIndex, currentWindow, navigate, server]);
+  }, [activeWindow, sessionName, windowIndex, navigate, server]);
 
   // Navigation callback for sidebar/breadcrumbs — syncs both UI route and tmux active window
   const navigateToWindow = useCallback(
@@ -475,9 +477,12 @@ function AppShell() {
         : []),
       ...(sessionName && currentWindow?.type === "desktop"
         ? [
-            { id: "resolution-1280x720", label: "Change desktop resolution: 1280x720", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1280x720").catch(() => {}) },
-            { id: "resolution-1920x1080", label: "Change desktop resolution: 1920x1080", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1920x1080").catch(() => {}) },
-            { id: "resolution-2560x1440", label: "Change desktop resolution: 2560x1440", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "2560x1440").catch(() => {}) },
+            { id: "resolution-720x1280", label: "Desktop resolution: 720x1280 (portrait)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "720x1280").catch(() => {}) },
+            { id: "resolution-1080x1920", label: "Desktop resolution: 1080x1920 (portrait)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1080x1920").catch(() => {}) },
+            { id: "resolution-1440x2560", label: "Desktop resolution: 1440x2560 (portrait)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1440x2560").catch(() => {}) },
+            { id: "resolution-1280x720", label: "Desktop resolution: 1280x720 (landscape)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1280x720").catch(() => {}) },
+            { id: "resolution-1920x1080", label: "Desktop resolution: 1920x1080 (landscape)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1920x1080").catch(() => {}) },
+            { id: "resolution-2560x1440", label: "Desktop resolution: 2560x1440 (landscape)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "2560x1440").catch(() => {}) },
           ]
         : []),
       {

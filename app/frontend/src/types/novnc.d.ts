@@ -11,6 +11,8 @@ declare module "@novnc/novnc/lib/rfb" {
     scaleViewport: boolean;
     /** Resize the remote display to match the container size. */
     resizeSession: boolean;
+    /** Clip the remote display to the container (show scrollbars). */
+    clipViewport: boolean;
     /** Show a dot cursor instead of no cursor. */
     showDotCursor: boolean;
     /** The background color of the container. */

@@ -193,7 +193,7 @@ if [ -n "$WM" ]; then
   sleep 3
 fi
 
-exec x11vnc -display :%d -rfbport %d -nopw -forever -shared -noxdamage
+x11vnc -display :%d -rfbport %d -nopw -forever -shared -noxdamage
 '`, displayNum, displayNum, resolution, displayNum, port)
 }
 
@@ -414,19 +414,14 @@ func (s *Server) handleWindowResolution(w http.ResponseWriter, r *http.Request) 
 		displayNum = port % 1000
 	}
 
-	// Send restart script: kill existing processes, relaunch at new resolution
-	script := fmt.Sprintf(
-		`pkill -f 'Xvfb :%d' 2>/dev/null; pkill -f 'x11vnc.*:%d' 2>/dev/null; sleep 0.5 && `+
-			`export DISPLAY=:%d && `+
-			`Xvfb :%d -screen 0 %sx24 &>/dev/null & `+
-			`sleep 1 && `+
-			`exec x11vnc -display :%d -rfbport %d -nopw -forever -shared -noxdamage`,
-		displayNum, displayNum,
-		displayNum,
-		displayNum, body.Resolution,
-		displayNum, port,
-	)
+	// Send C-c to kill the running bash -c (which kills Xvfb, x11vnc, WM),
+	// then send the full startup script at the new resolution.
+	if err := s.tmux.SendKeys(session, index, "C-c", server); err != nil {
+		slog.Error("failed to send C-c", "err", err)
+	}
+	time.Sleep(1 * time.Second)
 
+	script := desktopStartupScript(displayNum, port, body.Resolution)
 	if err := s.tmux.SendKeys(session, index, script, server); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

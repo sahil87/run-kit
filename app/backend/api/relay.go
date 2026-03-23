@@ -256,6 +256,12 @@ func (s *Server) handleDesktopRelay(w http.ResponseWriter, r *http.Request, sess
 
 	slog.Info("desktop relay connected", "session", session, "window", windowIndex, "vncAddr", vncAddr, "subprotocol", conn.Subprotocol())
 
+	// Set generous deadlines and enable pong handler to keep connection alive
+	conn.SetReadDeadline(time.Time{})  // no read deadline
+	conn.SetPongHandler(func(string) error {
+		return nil
+	})
+
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
@@ -264,6 +270,18 @@ func (s *Server) handleDesktopRelay(w http.ResponseWriter, r *http.Request, sess
 		})
 	}
 	defer cleanup()
+
+	// Keepalive pings every 10s
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
+				cleanup()
+				return
+			}
+		}
+	}()
 
 	// Browser WebSocket → VNC TCP
 	go func() {

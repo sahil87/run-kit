@@ -27,9 +27,12 @@ function keyToKeysym(key: string): number | null {
 }
 
 const RESOLUTIONS = [
-  { label: "1280x720", value: "1280x720" },
-  { label: "1920x1080", value: "1920x1080" },
-  { label: "2560x1440", value: "2560x1440" },
+  { label: "720x1280", value: "720x1280", group: "Portrait" },
+  { label: "1080x1920", value: "1080x1920", group: "Portrait" },
+  { label: "1440x2560", value: "1440x2560", group: "Portrait" },
+  { label: "1280x720", value: "1280x720", group: "Landscape" },
+  { label: "1920x1080", value: "1920x1080", group: "Landscape" },
+  { label: "2560x1440", value: "2560x1440", group: "Landscape" },
 ] as const;
 
 export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }: DesktopBottomBarProps) {
@@ -193,15 +196,20 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
             aria-label="Resolution options"
             className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[140px] z-50"
           >
-            {RESOLUTIONS.map((r) => (
-              <button
-                key={r.value}
-                role="menuitem"
-                className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
-                onClick={() => handleResolution(r.value)}
-              >
-                {r.label}
-              </button>
+            {(["Portrait", "Landscape"] as const).map((group) => (
+              <div key={group}>
+                <div className="px-3 py-1 text-xs text-text-secondary/60 font-medium">{group}</div>
+                {RESOLUTIONS.filter((r) => r.group === group).map((r) => (
+                  <button
+                    key={r.value}
+                    role="menuitem"
+                    className="w-full text-left px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
+                    onClick={() => handleResolution(r.value)}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
         )}

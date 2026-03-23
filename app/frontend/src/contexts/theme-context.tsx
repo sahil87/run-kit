@@ -4,8 +4,10 @@ import {
   DEFAULT_DARK_THEME,
   DEFAULT_LIGHT_THEME,
   COLOR_CSS_MAP,
+  deriveUIColors,
 } from "@/themes";
-import type { Theme } from "@/themes";
+import type { Theme, UIColors } from "@/themes";
+import { getThemePreference, setThemePreference } from "@/api/client";
 
 export type ResolvedTheme = "light" | "dark";
 
@@ -48,10 +50,13 @@ function readPreference(): string {
 function applyThemeToDOM(theme: Theme): void {
   const root = document.documentElement;
 
+  // Derive the 8 UI colors from the full palette
+  const uiColors: UIColors = deriveUIColors(theme.palette, theme.category);
+
   // Set all 8 CSS custom properties
-  const colorKeys = Object.keys(COLOR_CSS_MAP) as (keyof Theme["colors"])[];
+  const colorKeys = Object.keys(COLOR_CSS_MAP) as (keyof UIColors)[];
   for (const key of colorKeys) {
-    root.style.setProperty(COLOR_CSS_MAP[key], theme.colors[key]);
+    root.style.setProperty(COLOR_CSS_MAP[key], uiColors[key]);
   }
 
   // Set data-theme to category
@@ -62,7 +67,7 @@ function applyThemeToDOM(theme: Theme): void {
 
   // Update meta theme-color
   const tc = document.querySelector('meta[name="theme-color"]');
-  if (tc) tc.setAttribute("content", theme.themeColor);
+  if (tc) tc.setAttribute("content", theme.palette.background);
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -75,6 +80,33 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     applyThemeToDOM(activeTheme);
   }, [activeTheme]);
+
+  // On mount: load theme preference from API, fall back to localStorage
+  useEffect(() => {
+    let cancelled = false;
+    getThemePreference()
+      .then((apiPref) => {
+        if (cancelled) return;
+        // Validate the API value
+        const validPref =
+          apiPref === "system" || getThemeById(apiPref) ? apiPref : "system";
+        setPreference(validPref);
+        persistedPreferenceRef.current = validPref;
+        setActiveTheme(resolveThemeObject(validPref));
+        // Update localStorage cache
+        try {
+          localStorage.setItem(THEME_STORAGE_KEY, validPref);
+        } catch {
+          // localStorage unavailable
+        }
+      })
+      .catch(() => {
+        // API failed — keep localStorage/default value
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Listen to OS preference changes when in "system" mode
   useEffect(() => {
@@ -96,6 +128,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // localStorage unavailable
     }
+    // Fire-and-forget API persistence
+    setThemePreference(next).catch(() => {});
     const nextTheme = resolveThemeObject(next);
     setPreference(next);
     setActiveTheme(nextTheme);

@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ThemeSelector } from "./theme-selector";
-import { THEMES, getThemeById } from "@/themes";
+import { THEMES, getThemeById, deriveUIColors } from "@/themes";
+
+// Mock the API client module so we don't make real HTTP calls in tests
+vi.mock("@/api/client", () => ({
+  getThemePreference: vi.fn().mockRejectedValue(new Error("no API in test")),
+  setThemePreference: vi.fn().mockResolvedValue(undefined),
+}));
 
 // Mock matchMedia
 function mockMatchMedia(prefersDark: boolean) {
@@ -162,10 +168,11 @@ describe("ThemeSelector", () => {
     // Move down to Dracula
     fireEvent.keyDown(input, { key: "ArrowDown" });
 
-    // The DOM should have Dracula's bgPrimary
+    // The DOM should have Dracula's derived bgPrimary (palette.background)
     const dracula = getThemeById("dracula")!;
+    const draculaUI = deriveUIColors(dracula.palette, dracula.category);
     expect(document.documentElement.style.getPropertyValue("--color-bg-primary")).toBe(
-      dracula.colors.bgPrimary,
+      draculaUI.bgPrimary,
     );
   });
 

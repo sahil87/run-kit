@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, cleanup } from "@testing-library/react";
 import { ThemeProvider, useTheme, useThemeActions } from "./theme-context";
-import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, getThemeById } from "@/themes";
+import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, getThemeById, deriveUIColors } from "@/themes";
+
+// Mock the API client module so we don't make real HTTP calls in tests
+vi.mock("@/api/client", () => ({
+  getThemePreference: vi.fn().mockRejectedValue(new Error("no API in test")),
+  setThemePreference: vi.fn().mockResolvedValue(undefined),
+}));
 
 function TestConsumer() {
   const { preference, resolved, theme } = useTheme();
@@ -147,7 +153,7 @@ describe("ThemeProvider", () => {
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 
-  it("setTheme with named theme applies correct colors", () => {
+  it("setTheme with named theme applies correct derived colors", () => {
     render(
       <ThemeProvider>
         <TestConsumer />
@@ -158,6 +164,7 @@ describe("ThemeProvider", () => {
     });
     expect(screen.getByTestId("theme-id").textContent).toBe("dracula");
     expect(document.documentElement.dataset.theme).toBe("dark");
+    // bgPrimary is derived from palette.background
     expect(document.documentElement.style.getPropertyValue("--color-bg-primary")).toBe("#282a36");
   });
 
@@ -290,7 +297,7 @@ describe("ThemeProvider", () => {
   });
 
   describe("theme-color meta tag synchronization", () => {
-    it("sets theme-color to dark theme's themeColor when dark theme is applied", () => {
+    it("sets theme-color to palette.background when dark theme is applied", () => {
       render(
         <ThemeProvider>
           <TestConsumer />
@@ -299,10 +306,10 @@ describe("ThemeProvider", () => {
       act(() => {
         screen.getByText("Set Dark").click();
       });
-      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_DARK_THEME.themeColor);
+      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_DARK_THEME.palette.background);
     });
 
-    it("sets theme-color to light theme's themeColor when light theme is applied", () => {
+    it("sets theme-color to palette.background when light theme is applied", () => {
       render(
         <ThemeProvider>
           <TestConsumer />
@@ -311,10 +318,10 @@ describe("ThemeProvider", () => {
       act(() => {
         screen.getByText("Set Light").click();
       });
-      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_LIGHT_THEME.themeColor);
+      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_LIGHT_THEME.palette.background);
     });
 
-    it("sets theme-color to dracula's themeColor", () => {
+    it("sets theme-color to dracula's palette.background", () => {
       render(
         <ThemeProvider>
           <TestConsumer />
@@ -336,18 +343,18 @@ describe("ThemeProvider", () => {
       );
 
       // System mode starts with dark OS
-      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_DARK_THEME.themeColor);
+      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_DARK_THEME.palette.background);
 
       // OS switches to light
       act(() => {
         simulateChange(false);
       });
-      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_LIGHT_THEME.themeColor);
+      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_LIGHT_THEME.palette.background);
     });
   });
 
   describe("CSS custom properties", () => {
-    it("applies all 8 CSS custom properties to document.documentElement.style", () => {
+    it("applies all 8 CSS custom properties via deriveUIColors to document.documentElement.style", () => {
       render(
         <ThemeProvider>
           <TestConsumer />
@@ -355,14 +362,15 @@ describe("ThemeProvider", () => {
       );
 
       const style = document.documentElement.style;
-      expect(style.getPropertyValue("--color-bg-primary")).toBe(DEFAULT_DARK_THEME.colors.bgPrimary);
-      expect(style.getPropertyValue("--color-bg-card")).toBe(DEFAULT_DARK_THEME.colors.bgCard);
-      expect(style.getPropertyValue("--color-bg-inset")).toBe(DEFAULT_DARK_THEME.colors.bgInset);
-      expect(style.getPropertyValue("--color-text-primary")).toBe(DEFAULT_DARK_THEME.colors.textPrimary);
-      expect(style.getPropertyValue("--color-text-secondary")).toBe(DEFAULT_DARK_THEME.colors.textSecondary);
-      expect(style.getPropertyValue("--color-border")).toBe(DEFAULT_DARK_THEME.colors.border);
-      expect(style.getPropertyValue("--color-accent")).toBe(DEFAULT_DARK_THEME.colors.accent);
-      expect(style.getPropertyValue("--color-accent-green")).toBe(DEFAULT_DARK_THEME.colors.accentGreen);
+      const derived = deriveUIColors(DEFAULT_DARK_THEME.palette, "dark");
+      expect(style.getPropertyValue("--color-bg-primary")).toBe(derived.bgPrimary);
+      expect(style.getPropertyValue("--color-bg-card")).toBe(derived.bgCard);
+      expect(style.getPropertyValue("--color-bg-inset")).toBe(derived.bgInset);
+      expect(style.getPropertyValue("--color-text-primary")).toBe(derived.textPrimary);
+      expect(style.getPropertyValue("--color-text-secondary")).toBe(derived.textSecondary);
+      expect(style.getPropertyValue("--color-border")).toBe(derived.border);
+      expect(style.getPropertyValue("--color-accent")).toBe(derived.accent);
+      expect(style.getPropertyValue("--color-accent-green")).toBe(derived.accentGreen);
     });
 
     it("sets color-scheme CSS property", () => {
@@ -377,6 +385,25 @@ describe("ThemeProvider", () => {
         screen.getByText("Set Light").click();
       });
       expect(document.documentElement.style.getPropertyValue("color-scheme")).toBe("light");
+    });
+  });
+
+  describe("API persistence", () => {
+    it("setTheme calls setThemePreference fire-and-forget", async () => {
+      const { setThemePreference } = await import("@/api/client");
+      vi.mocked(setThemePreference).mockClear();
+
+      render(
+        <ThemeProvider>
+          <TestConsumer />
+        </ThemeProvider>,
+      );
+
+      act(() => {
+        screen.getByText("Set Dracula").click();
+      });
+
+      expect(setThemePreference).toHaveBeenCalledWith("dracula");
     });
   });
 });

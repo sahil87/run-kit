@@ -152,7 +152,7 @@ func (s *Server) buildRouter() chi.Router {
 	// Middleware stack
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: false,
 		MaxAge:           300,
@@ -185,6 +185,10 @@ func (s *Server) buildRouter() chi.Router {
 
 	// Keybindings
 	r.Get("/api/keybindings", s.handleKeybindings)
+
+	// Settings (global, not per-server)
+	r.Get("/api/settings/theme", s.handleGetTheme)
+	r.Put("/api/settings/theme", s.handlePutTheme)
 
 	// WebSocket relay
 	r.Get("/relay/{session}/{window}", s.handleRelay)

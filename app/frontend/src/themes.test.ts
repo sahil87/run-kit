@@ -5,8 +5,10 @@ import {
   DEFAULT_DARK_THEME,
   DEFAULT_LIGHT_THEME,
   COLOR_CSS_MAP,
+  deriveUIColors,
+  deriveXtermTheme,
 } from "./themes";
-import type { Theme } from "./themes";
+import type { Theme, ThemePalette, UIColors } from "./themes";
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
@@ -27,14 +29,18 @@ describe("themes", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("every theme has valid 8 hex color strings and a valid themeColor", () => {
+  it("every theme has a valid ThemePalette with 22 hex colors", () => {
     for (const theme of THEMES) {
-      const colorKeys = Object.keys(COLOR_CSS_MAP) as (keyof Theme["colors"])[];
-      expect(Object.keys(theme.colors)).toHaveLength(8);
-      for (const key of colorKeys) {
-        expect(theme.colors[key]).toMatch(HEX_RE);
+      expect(theme.palette.foreground).toMatch(HEX_RE);
+      expect(theme.palette.background).toMatch(HEX_RE);
+      expect(theme.palette.cursorColor).toMatch(HEX_RE);
+      expect(theme.palette.cursorText).toMatch(HEX_RE);
+      expect(theme.palette.selectionBackground).toMatch(HEX_RE);
+      expect(theme.palette.selectionForeground).toMatch(HEX_RE);
+      expect(theme.palette.ansi).toHaveLength(16);
+      for (const color of theme.palette.ansi) {
+        expect(color).toMatch(HEX_RE);
       }
-      expect(theme.themeColor).toMatch(HEX_RE);
     }
   });
 
@@ -44,33 +50,34 @@ describe("themes", () => {
     }
   });
 
+  it("no theme has colors or themeColor properties", () => {
+    for (const theme of THEMES) {
+      expect((theme as Record<string, unknown>).colors).toBeUndefined();
+      expect((theme as Record<string, unknown>).themeColor).toBeUndefined();
+    }
+  });
+
   describe("Default Dark theme", () => {
-    it("matches globals.css dark values", () => {
+    it("has correct palette values", () => {
       const t = DEFAULT_DARK_THEME;
       expect(t.id).toBe("default-dark");
-      expect(t.colors.bgPrimary).toBe("#0f1117");
-      expect(t.colors.bgCard).toBe("#171b24");
-      expect(t.colors.bgInset).toBe("#0a0c12");
-      expect(t.colors.textPrimary).toBe("#e8eaf0");
-      expect(t.colors.textSecondary).toBe("#7a8394");
-      expect(t.colors.border).toBe("#454d66");
-      expect(t.colors.accent).toBe("#5b8af0");
-      expect(t.colors.accentGreen).toBe("#22c55e");
+      expect(t.palette.background).toBe("#0f1117");
+      expect(t.palette.foreground).toBe("#e8eaf0");
+      expect(t.palette.ansi[4]).toBe("#5b8af0"); // accent (blue)
+      expect(t.palette.ansi[2]).toBe("#22c55e"); // accentGreen
+      expect(t.palette.ansi[8]).toBe("#7a8394"); // textSecondary (bright black)
     });
   });
 
   describe("Default Light theme", () => {
-    it("matches globals.css light values", () => {
+    it("has correct palette values", () => {
       const t = DEFAULT_LIGHT_THEME;
       expect(t.id).toBe("default-light");
-      expect(t.colors.bgPrimary).toBe("#f8f9fb");
-      expect(t.colors.bgCard).toBe("#ffffff");
-      expect(t.colors.bgInset).toBe("#e8eaef");
-      expect(t.colors.textPrimary).toBe("#1a1d24");
-      expect(t.colors.textSecondary).toBe("#6b7280");
-      expect(t.colors.border).toBe("#d1d5db");
-      expect(t.colors.accent).toBe("#4a7ae8");
-      expect(t.colors.accentGreen).toBe("#16a34a");
+      expect(t.palette.background).toBe("#f8f9fb");
+      expect(t.palette.foreground).toBe("#1a1d24");
+      expect(t.palette.ansi[4]).toBe("#4a7ae8"); // accent (blue)
+      expect(t.palette.ansi[2]).toBe("#16a34a"); // accentGreen
+      expect(t.palette.ansi[8]).toBe("#6b7280"); // textSecondary (bright black)
     });
   });
 
@@ -100,5 +107,91 @@ describe("themes", () => {
       expect(COLOR_CSS_MAP.bgPrimary).toBe("--color-bg-primary");
       expect(COLOR_CSS_MAP.accent).toBe("--color-accent");
     });
+  });
+});
+
+describe("deriveUIColors", () => {
+  it("derives correct colors for Dracula (dark)", () => {
+    const dracula = getThemeById("dracula")!;
+    const ui = deriveUIColors(dracula.palette, "dark");
+    expect(ui.bgPrimary).toBe("#282a36");
+    expect(ui.textPrimary).toBe("#f8f8f2");
+    expect(ui.textSecondary).toBe("#6272a4"); // ansi[8]
+    expect(ui.accent).toBe("#bd93f9"); // ansi[4]
+    expect(ui.accentGreen).toBe("#50fa7b"); // ansi[2]
+  });
+
+  it("derives bgCard as lightened background for dark themes", () => {
+    const dracula = getThemeById("dracula")!;
+    const ui = deriveUIColors(dracula.palette, "dark");
+    // bgCard should be lighter than background
+    expect(ui.bgCard).not.toBe(ui.bgPrimary);
+    expect(ui.bgCard).toMatch(HEX_RE);
+  });
+
+  it("derives bgCard as darkened background for light themes", () => {
+    const solarized = getThemeById("solarized-light")!;
+    const ui = deriveUIColors(solarized.palette, "light");
+    expect(ui.bgCard).not.toBe(ui.bgPrimary);
+    expect(ui.bgCard).toMatch(HEX_RE);
+  });
+
+  it("derives border via blend", () => {
+    const theme = DEFAULT_DARK_THEME;
+    const ui = deriveUIColors(theme.palette, "dark");
+    expect(ui.border).toMatch(HEX_RE);
+    // border should be between foreground and background
+    expect(ui.border).not.toBe(theme.palette.foreground);
+    expect(ui.border).not.toBe(theme.palette.background);
+  });
+
+  it("all 8 keys are valid hex", () => {
+    for (const theme of THEMES) {
+      const ui = deriveUIColors(theme.palette, theme.category);
+      const keys = Object.keys(ui) as (keyof UIColors)[];
+      expect(keys).toHaveLength(8);
+      for (const key of keys) {
+        expect(ui[key]).toMatch(HEX_RE);
+      }
+    }
+  });
+});
+
+describe("deriveXtermTheme", () => {
+  it("maps all 22 colors from palette", () => {
+    const dracula = getThemeById("dracula")!;
+    const xterm = deriveXtermTheme(dracula.palette);
+
+    expect(xterm.background).toBe("#282a36");
+    expect(xterm.foreground).toBe("#f8f8f2");
+    expect(xterm.cursor).toBe("#f8f8f2");
+    expect(xterm.cursorAccent).toBe("#282a36");
+    expect(xterm.selectionBackground).toBe("#44475a");
+    expect(xterm.selectionForeground).toBe("#f8f8f2");
+    expect(xterm.black).toBe("#21222c");
+    expect(xterm.red).toBe("#ff5555");
+    expect(xterm.green).toBe("#50fa7b");
+    expect(xterm.yellow).toBe("#f1fa8c");
+    expect(xterm.blue).toBe("#bd93f9");
+    expect(xterm.magenta).toBe("#ff79c6");
+    expect(xterm.cyan).toBe("#8be9fd");
+    expect(xterm.white).toBe("#f8f8f2");
+    expect(xterm.brightBlack).toBe("#6272a4");
+    expect(xterm.brightRed).toBe("#ff6e6e");
+    expect(xterm.brightGreen).toBe("#69ff94");
+    expect(xterm.brightYellow).toBe("#ffffa5");
+    expect(xterm.brightBlue).toBe("#d6acff");
+    expect(xterm.brightMagenta).toBe("#ff92df");
+    expect(xterm.brightCyan).toBe("#a4ffff");
+    expect(xterm.brightWhite).toBe("#ffffff");
+  });
+
+  it("produces valid hex for all themes", () => {
+    for (const theme of THEMES) {
+      const xterm = deriveXtermTheme(theme.palette);
+      for (const value of Object.values(xterm)) {
+        expect(value).toMatch(HEX_RE);
+      }
+    }
   });
 });

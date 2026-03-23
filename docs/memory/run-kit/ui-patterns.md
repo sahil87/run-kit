@@ -67,15 +67,23 @@ The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derive
 
 ### Theme System
 
-Three-mode theme preference: `"system"` (OS-driven), or any named theme ID (e.g., `"dracula"`, `"default-dark"`). 20 built-in themes (14 dark + 6 light) defined in `app/frontend/src/themes.ts`. Theme colors map to 8 CSS custom properties (`--color-bg-primary`, `--color-bg-card`, `--color-bg-inset`, `--color-text-primary`, `--color-text-secondary`, `--color-border`, `--color-accent`, `--color-accent-green`), applied via inline styles on `document.documentElement.style` overriding `globals.css` fallbacks. `data-theme` attribute set to theme's `category` ("dark" or "light") for CSS branching. Stored in localStorage key `"runkit-theme"` — unrecognized values fall back to `"system"`.
+Palette-based theme model: each theme defines a `ThemePalette` with 22 canonical terminal colors — `foreground`, `background`, `cursorColor`, `cursorText`, `selectionBackground`, `selectionForeground`, plus 16 ANSI colors (indices 0-15) as a fixed-length readonly tuple. The `Theme` type has shape `{ id, name, category, palette }` — no `colors` or `themeColor` properties (both replaced by derivation from palette).
+
+20 built-in themes (14 dark + 6 light) defined in `app/frontend/src/themes.ts` with canonical ANSI palettes sourced from iTerm2-Color-Schemes / official theme repos. Three consumers derive from the same palette:
+
+1. **Web UI CSS** — `deriveUIColors(palette, category)` produces 8 `UIColors` keys (`bgPrimary`, `bgCard`, `bgInset`, `textPrimary`, `textSecondary`, `border`, `accent`, `accentGreen`). Derivation: `bgPrimary` = background, `bgCard` = lighten/darken background, `bgInset` = darken background, `textPrimary` = foreground, `textSecondary` = ansi[8] (bright black), `border` = blend(fg, bg, 0.25), `accent` = ansi[4] (blue), `accentGreen` = ansi[2] (green). Color utility helpers (`hexToRgb`, `rgbToHex`, `lightenHex`, `darkenHex`, `blendHex`) are module-private. CSS custom properties (`--color-bg-primary`, etc.) applied via inline styles on `document.documentElement.style` overriding `globals.css` fallbacks.
+2. **xterm.js canvas** — `deriveXtermTheme(palette)` produces an xterm.js `ITheme` with all 22 colors mapped (background, foreground, cursor, cursorAccent, selectionBackground, selectionForeground, and 16 named ANSI colors black through brightWhite). Terminal content (syntax highlighting, colored prompts, git diff output) matches the selected theme.
+3. **tmux chrome** — `configs/tmux/default.conf` uses ANSI `colour{N}` indices (colour0-colour15) instead of hardcoded hex. Because tmux renders its chrome as escape sequences that xterm.js interprets, changing the xterm.js ANSI palette automatically themes tmux status bar, pane borders, and pane-border-format. No runtime `tmux set -g` calls needed — the tmux.conf is static.
+
+`data-theme` attribute set to theme's `category` ("dark" or "light") for CSS branching. Theme preference persisted to both backend API (`PUT /api/settings/theme` writing `~/.rk/settings.yaml`) and localStorage key `"runkit-theme"` as synchronous cache. On init, API is canonical source; localStorage is the fast fallback if API fails. Unrecognized values fall back to `"system"`.
 
 **ThemeToggle** (top bar): Normal click cycles `system → default-light → default-dark`. **Ctrl+Click / Cmd+Click** dispatches `"theme-selector:open"` CustomEvent to open the theme selector.
 
-**Theme Selector** (`app/frontend/src/components/theme-selector.tsx`): Modal overlay matching CommandPalette structure (fixed z-50, backdrop, max-w-lg at 20vh). Search input filters by name (case-insensitive). Themes grouped under "Dark" / "Light" category headers. Arrow key navigation wraps and skips headers. Mouse hover and arrow navigation trigger live preview via `previewTheme()` — CSS custom properties update in real-time. Enter confirms (persists to localStorage), Escape/outside-click reverts to original theme via `cancelPreview()`. Opens via `"theme-selector:open"` custom event (same pattern as `"palette:open"`).
+**Theme Selector** (`app/frontend/src/components/theme-selector.tsx`): Modal overlay matching CommandPalette structure (fixed z-50, backdrop, max-w-lg at 20vh). Search input filters by name (case-insensitive). Themes grouped under "Dark" / "Light" category headers. Arrow key navigation wraps and skips headers. Mouse hover and arrow navigation trigger live preview via `previewTheme()` — CSS custom properties update in real-time. Enter confirms (persists to API + localStorage), Escape/outside-click reverts to original theme via `cancelPreview()`. Opens via `"theme-selector:open"` custom event (same pattern as `"palette:open"`). Theme rows display multi-color palette swatches showing background plus representative ANSI colors (red, green, yellow, blue, magenta, cyan) instead of a single-color swatch.
 
 **Command palette**: "Theme: Select Theme" action dispatches `"theme-selector:open"`. Individual "Theme: System", "Theme: Light", "Theme: Dark" quick-switch actions retained.
 
-**ThemeProvider** (`app/frontend/src/contexts/theme-context.tsx`): `useTheme()` returns `{ preference, resolved, theme }`. `useThemeActions()` returns `{ setTheme, previewTheme, cancelPreview }`. Preview applies colors to DOM without localStorage persistence. Cancel reverts to the last persisted theme. Uses stable `actionsRef` pattern for callback identity.
+**ThemeProvider** (`app/frontend/src/contexts/theme-context.tsx`): `useTheme()` returns `{ preference, resolved, theme }`. `useThemeActions()` returns `{ setTheme, previewTheme, cancelPreview }`. Preview applies colors to DOM without persistence. Cancel reverts to the last persisted theme. Uses stable `actionsRef` pattern for callback identity. On init: calls `getThemePreference()` from API, falls back to localStorage / `"system"` if API fails. `setTheme` writes localStorage immediately (synchronous cache) and calls `setThemePreference(id)` fire-and-forget. Backend is canonical source of truth; localStorage is the fast fallback.
 
 ### Breadcrumb Dropdowns
 
@@ -264,7 +272,7 @@ Theme is applied via `data-theme` attribute on `<html>` (`"dark"` or `"light"`).
 
 ### Theme Switching
 
-Preference stored in `localStorage` key `runkit-theme` (values: `"system"`, `"light"`, `"dark"`). Two switching surfaces: (1) command palette (`Cmd+K` → "Theme: System/Light/Dark", current indicated with "(current)" suffix) and (2) top-bar ThemeToggle button (desktop only, hidden on mobile via `hidden sm:flex`). The toggle cycles system → light → dark on each click, displaying a half-circle (system), sun (light), or moon (dark) icon.
+Preference persisted to backend API (`PUT /api/settings/theme` → `~/.rk/settings.yaml`) with localStorage key `runkit-theme` as synchronous cache (values: any theme ID or `"system"`). On init, ThemeProvider calls `getThemePreference()` from API; falls back to localStorage / `"system"` if API fails. `setTheme` writes localStorage immediately and calls `setThemePreference(id)` fire-and-forget. Three switching surfaces: (1) command palette (`Cmd+K` → "Theme: System/Light/Dark", current indicated with "(current)" suffix), (2) top-bar ThemeToggle button (desktop only, hidden on mobile via `hidden sm:flex`, cycles system → default-light → default-dark), and (3) Theme Selector modal (Ctrl+Click / Cmd+Click on ThemeToggle, or command palette "Theme: Select Theme").
 
 ### No-Flicker Initialization
 
@@ -282,11 +290,9 @@ The `<link rel="manifest">` tag is injected automatically by `vite-plugin-pwa` d
 
 **Theme-color synchronization**: The `theme-color` meta tag value is kept in sync with the active theme via two mechanisms:
 1. **Initial load** — the blocking inline script in `index.html` sets the `theme-color` meta tag alongside `data-theme` before first paint
-2. **Runtime switch** — `applyTheme()` in `ThemeProvider` updates the meta tag when the user changes theme via command palette or ThemeToggle
+2. **Runtime switch** — `applyThemeToDOM` in `ThemeProvider` sets `theme-color` to `theme.palette.background` when the user changes theme
 
-Theme color mapping (matches `--color-bg-primary` CSS custom properties):
-- Dark: `#0f1117`
-- Light: `#f8f9fb`
+Theme color is per-theme (derived from `palette.background`), not a fixed dark/light pair.
 
 **Icon set**: `app/frontend/public/icons/` contains three PNG files based on the hexagonal `logo.svg`:
 - `icon-192.png` — 192x192, standard purpose (homescreen icon)
@@ -297,13 +303,13 @@ Theme color mapping (matches `--color-bg-primary` CSS custom properties):
 
 ### ThemeProvider Context
 
-`app/frontend/src/contexts/theme-context.tsx` — split context (ThemeStateContext + ThemeActionsContext) following ChromeContext pattern. Provides `useTheme()` (preference + resolved) and `useThemeActions()` (setTheme). Listens to `matchMedia("(prefers-color-scheme: dark)")` change events when preference is "system" for real-time OS theme tracking.
+`app/frontend/src/contexts/theme-context.tsx` — split context (ThemeStateContext + ThemeActionsContext) following ChromeContext pattern. Provides `useTheme()` (preference + resolved + theme object) and `useThemeActions()` (setTheme, previewTheme, cancelPreview). Listens to `matchMedia("(prefers-color-scheme: dark)")` change events when preference is "system" for real-time OS theme tracking. On init: calls `getThemePreference()` from API, falls back to localStorage / `"system"` if API fails. `setTheme` writes localStorage immediately and calls `setThemePreference(id)` fire-and-forget. `applyThemeToDOM` computes CSS values via `deriveUIColors(theme.palette, theme.category)` and sets `theme-color` meta tag to `theme.palette.background`.
 
 Provider order: `ThemeProvider > ChromeProvider > SessionProvider > AppShell`.
 
 ### xterm Terminal Theme
 
-`terminal-client.tsx` defines `XTERM_THEMES` (dark/light) and uses `useTheme()` resolved value. Initial theme set at Terminal construction; live updates via `terminal.options.theme` in a `useEffect` — no terminal recreation needed.
+`terminal-client.tsx` uses `useTheme()` to get the active `Theme` object. Initial theme set at Terminal construction via `deriveXtermTheme(activeTheme.palette)` — all 22 colors (background, foreground, cursor, cursorAccent, selectionBackground, selectionForeground, and 16 named ANSI colors). Live updates via `xtermRef.current.options.theme = deriveXtermTheme(theme.palette)` in a `useEffect` — no terminal recreation needed. The `XTERM_THEMES` constant has been removed.
 
 ## Component Conventions
 
@@ -373,3 +379,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-20 | Single-active-server model — Sidebar server selector at bottom (`Server: <dropdown>`, pinned below scrollable session tree). Command palette: "Create tmux server" (name dialog), "Kill tmux server" (confirmation), "Switch tmux server: {name}" per server. Removed `↗` external session marker and `ProjectSession.server` field. `SessionProvider` manages `server`/`setServer`/`servers`/`refreshServers` state. Active server persisted in localStorage `runkit-server` (default: `runkit`). All API calls append `?server=` via `setServerGetter()` mechanism. SSE reconnects on server switch. Navigate to `/` on switch. | `260320-1335-tmux-server-switcher` |
 | 2026-03-20 | UI polish + keyboard shortcuts — Breadcrumb left-aligned (removed `justify-center`). Sidebar server dropdown gains `+ tmux server` action. Hostname in bottom bar (hidden on mobile). Sidebar footer and bottom bar aligned at `h-[48px]`. Server label → "tmux server:". Consistent dropdown density (`text-sm py-2`). New "Keyboard Shortcuts" command palette action opens modal fetching `GET /api/keybindings` — shows curated tmux bindings grouped by table (root vs prefix), plus hardcoded `Cmd+K`. | `260320-9ldy-ui-polish-tmux-config-embed` |
 | 2026-03-21 | Fix OSC 52 clipboard — custom `ClipboardProvider` for `ClipboardAddon` that accepts empty selection parameter (`""`) in addition to `"c"`. Fixes tmux copy-mode yank not reaching browser clipboard (tmux sends `]52;;base64`, addon default provider only accepted `]52;c;base64`). Provider exported as `clipboardProvider` for testability | `260321-zbdq-fix-osc52-clipboard-provider` |
+| 2026-03-23 | ANSI palette theme rework — ThemePalette type (22 colors), deriveUIColors/deriveXtermTheme derivation layer, full xterm.js palette integration, tmux.conf ANSI colour indices (auto-theming via xterm.js), backend settings persistence (`~/.rk/settings.yaml`, `GET/PUT /api/settings/theme`), API + localStorage dual persistence in ThemeProvider, multi-color palette swatches in theme selector | `260323-7wys-ansi-palette-theme-rework` |

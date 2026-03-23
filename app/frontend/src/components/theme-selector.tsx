@@ -192,11 +192,24 @@ export function ThemeSelector() {
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      {/* Color swatch */}
-                      <span
-                        className="inline-block w-3 h-3 rounded-sm border border-border shrink-0"
-                        style={{ backgroundColor: theme.colors.bgPrimary }}
-                      />
+                      {/* Palette swatch: bg + representative ANSI colors */}
+                      <span className="inline-flex h-3 rounded-sm border border-border shrink-0 overflow-hidden">
+                        {[
+                          theme.palette.background,
+                          theme.palette.ansi[1],  // red
+                          theme.palette.ansi[2],  // green
+                          theme.palette.ansi[3],  // yellow
+                          theme.palette.ansi[4],  // blue
+                          theme.palette.ansi[5],  // magenta
+                          theme.palette.ansi[6],  // cyan
+                        ].map((color, i) => (
+                          <span
+                            key={i}
+                            className="inline-block w-1.5 h-full"
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </span>
                       <span>{theme.name}</span>
                     </div>
                     {isActive && (

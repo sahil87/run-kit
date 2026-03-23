@@ -252,3 +252,21 @@ export async function getKeybindings(): Promise<Keybinding[]> {
   if (!res.ok) await throwOnError(res);
   return res.json();
 }
+
+// --- Theme settings (global, not per-server) ---
+
+export async function getThemePreference(): Promise<string> {
+  const res = await fetch("/api/settings/theme");
+  if (!res.ok) await throwOnError(res);
+  const data: { theme: string } = await res.json();
+  return data.theme;
+}
+
+export async function setThemePreference(theme: string): Promise<void> {
+  const res = await fetch("/api/settings/theme", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ theme }),
+  });
+  if (!res.ok) await throwOnError(res);
+}

@@ -33,5 +33,6 @@ confidence:
         disambiguation: 90.0
 stage_metrics:
     intake: {started_at: "2026-03-23T08:52:21Z", driver: fab-new, iterations: 1}
-prs: []
-last_updated: 2026-03-23T08:53:02Z
+prs:
+    - https://github.com/wvrdz/run-kit/pull/72
+last_updated: 2026-03-23T08:54:10Z

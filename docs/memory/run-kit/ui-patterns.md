@@ -183,6 +183,10 @@ A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-var
 
 Bottom bar buttons use `coarse:min-h-[44px] coarse:min-w-[36px]` on touch devices, `min-h-[36px] min-w-[36px]` on desktop.
 
+### Viewport Zoom Prevention
+
+The viewport meta tag in `app/frontend/index.html` includes `maximum-scale=1.0` and `user-scalable=no` to prevent iOS Safari from auto-zooming when text inputs (command palette, compose buffer, text input dialog) receive focus. Without these directives, iOS zooms in on inputs with `font-size < 16px`, displacing the entire interface. Pinch-to-zoom is also disabled — acceptable tradeoff for a keyboard-first tool dashboard where zoom doesn't improve terminal readability. The existing `interactive-widget=resizes-content` directive is preserved (controls keyboard layout resizing, unrelated to zoom).
+
 ### Terminal Addons
 
 Addons loaded in `init()` via dynamic import, after `terminal.open()`, before `ResizeObserver` setup. Order: FitAddon (existing) → fit() → ClipboardAddon → WebLinksAddon → WebglAddon.

@@ -268,13 +268,12 @@ The `theme-selector.tsx` color swatch updates to show palette colors instead of 
 - [x] Import script: `app/frontend/scripts/import-theme.ts`
 - [x] Theme spec: `docs/specs/themes.md`
 
-### Remaining
+### Also Done (built by implementation agent, verified in code)
 
-- [ ] xterm.js integration: replace `XTERM_THEMES` constant with `deriveXtermTheme(palette)` in `terminal-client.tsx`
-- [ ] Backend settings: `internal/settings/` package, `~/.rk/settings.yaml`, `GET/PUT /api/settings/theme`
-- [ ] Frontend persistence: `theme-context.tsx` calls API, localStorage as sync cache
-- [ ] Frontend API client: `getThemePreference()`, `setThemePreference()` in `client.ts`
-- [ ] Update tests for new palette model and API persistence
+- [x] xterm.js integration: `deriveXtermTheme(palette)` in `terminal-client.tsx` (init + theme change effect)
+- [x] Backend settings: `internal/settings/settings.go` + `settings_test.go`, `GET/PUT /api/settings/theme` in router
+- [x] Frontend persistence: `theme-context.tsx` calls `getThemePreference()` on init, `setThemePreference()` fire-and-forget on change
+- [x] Frontend API client: `getThemePreference()`, `setThemePreference()` in `client.ts`
 
 ## Impact
 
@@ -290,14 +289,13 @@ The `theme-selector.tsx` color swatch updates to show palette colors instead of 
 - **New: `app/frontend/scripts/import-theme.ts`** — Theme import script
 - **New: `docs/specs/themes.md`** — Theme system spec
 
-### Still to modify
-- **`app/frontend/src/components/terminal-client.tsx`** — Remove XTERM_THEMES, use deriveXtermTheme
-- **`app/frontend/src/contexts/theme-context.tsx`** — API persistence
-- **`app/frontend/src/contexts/theme-context.test.tsx`** — Update for API persistence
-- **`app/frontend/src/api/client.ts`** — Add getThemePreference/setThemePreference
-- **New: `app/backend/internal/settings/settings.go`** — Settings package
+### Also modified (by implementation agent)
+- **`app/frontend/src/components/terminal-client.tsx`** — Uses `deriveXtermTheme(palette)`, `XTERM_THEMES` removed
+- **`app/frontend/src/contexts/theme-context.tsx`** — API persistence via `getThemePreference`/`setThemePreference`
+- **`app/frontend/src/api/client.ts`** — `getThemePreference()`, `setThemePreference()` added
+- **New: `app/backend/internal/settings/settings.go`** + `settings_test.go` — Settings package
 - **New: `app/backend/api/settings.go`** — Theme API handlers
-- **`app/backend/api/router.go`** — Register new routes
+- **`app/backend/api/router.go`** — `GET/PUT /api/settings/theme` registered
 
 ## Open Questions
 

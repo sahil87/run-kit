@@ -8,6 +8,7 @@ export type BreadcrumbDropdownItem = {
 };
 
 const FIXED_WIDTH_STORAGE_KEY = "runkit-fixed-width";
+const SIDEBAR_OPEN_STORAGE_KEY = "runkit-sidebar-open";
 
 function readFixedWidth(): boolean {
   try {
@@ -15,6 +16,14 @@ function readFixedWidth(): boolean {
   } catch {
     return false;
   }
+}
+
+function readSidebarOpen(): boolean {
+  try {
+    const stored = localStorage.getItem(SIDEBAR_OPEN_STORAGE_KEY);
+    if (stored === "false") return false;
+  } catch { /* noop */ }
+  return true;
 }
 
 type ChromeState = {
@@ -41,7 +50,12 @@ const ChromeDispatchContext = createContext<ChromeDispatch | null>(null);
 export function ChromeProvider({ children }: { children: React.ReactNode }) {
   const [currentSession, setCurrentSession] = useState<ProjectSession | null>(null);
   const [currentWindow, setCurrentWindow] = useState<WindowInfo | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpenState] = useState(readSidebarOpen);
+
+  const setSidebarOpen = useCallback((open: boolean) => {
+    try { localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(open)); } catch { /* noop */ }
+    setSidebarOpenState(open);
+  }, []);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [fixedWidth, setFixedWidth] = useState(readFixedWidth);

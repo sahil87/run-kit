@@ -249,6 +249,21 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
       {hostname && (
         <span className="hidden sm:inline ml-auto min-w-0 text-xs text-text-secondary truncate">{hostname}</span>
       )}
+
+      {/* Dismiss keyboard — visible only on touch devices */}
+      <button
+        type="button"
+        aria-label="Dismiss keyboard"
+        className={`${KBD_CLASS} hidden coarse:inline-flex ml-auto text-text-secondary`}
+        onMouseDown={preventFocusSteal}
+        onClick={() => {
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
+        }}
+      >
+        <kbd aria-hidden="true">{"\u2304"}</kbd>
+      </button>
     </div>
   );
 }

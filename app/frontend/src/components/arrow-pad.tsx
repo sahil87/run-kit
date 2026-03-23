@@ -3,6 +3,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 /** Minimum drag distance (px) to register a swipe vs a tap. */
 const DRAG_THRESHOLD = 20;
 
+/** Prevent mousedown from stealing focus away from the terminal. */
+const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
+
 type ArrowPadProps = {
   onArrow: (code: string) => void;
   className?: string;
@@ -50,6 +53,7 @@ export function ArrowPad({ onArrow, className }: ArrowPadProps) {
   );
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
     startRef.current = { x: e.clientX, y: e.clientY };
     didDragRef.current = false;
   }, []);
@@ -113,18 +117,18 @@ export function ArrowPad({ onArrow, className }: ArrowPadProps) {
           aria-label="Arrow keys"
         >
           <div className="flex justify-center mb-0.5">
-            <button aria-label="Up arrow" className={ARROW_BTN} onClick={() => { onArrow("A"); setOpen(false); }}>
+            <button aria-label="Up arrow" className={ARROW_BTN} onMouseDown={preventFocusSteal} onClick={() => onArrow("A")}>
               {"\u2191"}
             </button>
           </div>
           <div className="flex gap-0.5">
-            <button aria-label="Left arrow" className={ARROW_BTN} onClick={() => { onArrow("D"); setOpen(false); }}>
+            <button aria-label="Left arrow" className={ARROW_BTN} onMouseDown={preventFocusSteal} onClick={() => onArrow("D")}>
               {"\u2190"}
             </button>
-            <button aria-label="Down arrow" className={ARROW_BTN} onClick={() => { onArrow("B"); setOpen(false); }}>
+            <button aria-label="Down arrow" className={ARROW_BTN} onMouseDown={preventFocusSteal} onClick={() => onArrow("B")}>
               {"\u2193"}
             </button>
-            <button aria-label="Right arrow" className={ARROW_BTN} onClick={() => { onArrow("C"); setOpen(false); }}>
+            <button aria-label="Right arrow" className={ARROW_BTN} onMouseDown={preventFocusSteal} onClick={() => onArrow("C")}>
               {"\u2192"}
             </button>
           </div>

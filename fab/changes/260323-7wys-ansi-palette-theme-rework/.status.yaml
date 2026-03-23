@@ -2,7 +2,7 @@ id: 7wys
 name: 260323-7wys-ansi-palette-theme-rework
 created: 2026-03-23T15:20:38Z
 created_by: sahil-weaver
-change_type: refactor
+change_type: fix
 issues: []
 progress:
     intake: done
@@ -19,17 +19,18 @@ checklist:
     completed: 0
     total: 39
 confidence:
-    certain: 19
+    certain: 21
     confident: 0
     tentative: 0
     unresolved: 0
     score: 5.0
+    indicative: true
     fuzzy: true
     dimensions:
-        signal: 90.0
-        reversibility: 85.3
-        competence: 86.8
-        disambiguation: 88.2
+        signal: 91.7
+        reversibility: 84.5
+        competence: 87.6
+        disambiguation: 89.5
 stage_metrics:
     intake: {started_at: "2026-03-23T15:20:38Z", driver: fab-new, iterations: 1, completed_at: "2026-03-23T15:33:01Z"}
     spec: {started_at: "2026-03-23T15:33:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-23T15:34:04Z"}
@@ -41,4 +42,4 @@ stage_metrics:
     review-pr: {started_at: "2026-03-23T15:56:48Z", driver: git-pr, iterations: 1, completed_at: "2026-03-23T16:04:38Z"}
 prs:
     - https://github.com/wvrdz/run-kit/pull/79
-last_updated: 2026-03-23T16:04:38Z
+last_updated: 2026-03-23T17:43:36Z

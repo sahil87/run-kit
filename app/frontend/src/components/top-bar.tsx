@@ -220,14 +220,14 @@ export function TopBar({
           <a href="/" className="flex items-center gap-3 text-text-secondary hover:text-text-primary transition-colors">
             <span className="hidden sm:inline text-xs">Run Kit</span>
             <img
-              src="/logo.svg"
+              src="/icon.svg"
               alt="Run Kit"
               width={20}
               height={20}
               className="hidden sm:block"
             />
             <img
-              src="/logo.svg"
+              src="/icon.svg"
               alt="Run Kit"
               width={30}
               height={30}

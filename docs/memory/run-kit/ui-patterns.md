@@ -230,6 +230,10 @@ Terminal font size adapts at initialization: 13px on viewports >= 640px, 11px be
 
 The `CommandPalette` component listens for a `palette:open` CustomEvent on `document` (in addition to `⌘K`). The `⋯` button in Line 1 dispatches this event on mobile. This is the mobile equivalent of `⌘K` — physical keyboards aren't available on phones.
 
+### Keyboard-Navigable List Scroll Pattern
+
+Both `CommandPalette` and `ThemeSelector` use the same scroll-into-view pattern for arrow key navigation: a `listRef` on the listbox container plus a `useEffect` on `[selectedIndex, open]` that queries `[aria-selected="true"]` and calls `scrollIntoView({ block: "nearest" })`. This ensures the selected item stays visible when navigating past the `max-h-64` scroll boundary. New keyboard-navigable list components SHOULD follow this pattern.
+
 ## Keyboard Shortcuts
 
 ### Global

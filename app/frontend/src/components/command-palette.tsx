@@ -16,6 +16,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
 
   const filtered = actions.filter((a) =>
@@ -49,6 +50,15 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
       inputRef.current?.focus();
     }
   }, [open]);
+
+  // Scroll selected item into view
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    const selected = listRef.current.querySelector('[aria-selected="true"]');
+    if (selected && typeof selected.scrollIntoView === "function") {
+      selected.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedIndex, open]);
 
   const handleSelect = useCallback(
     (action: PaletteAction) => {
@@ -116,6 +126,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
         />
         <div
           id={listId}
+          ref={listRef}
           role="listbox"
           aria-label="Commands"
           className="max-h-64 overflow-y-auto py-1"

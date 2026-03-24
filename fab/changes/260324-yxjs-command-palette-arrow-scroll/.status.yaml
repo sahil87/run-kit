@@ -1,0 +1,42 @@
+id: yxjs
+name: 260324-yxjs-command-palette-arrow-scroll
+created: 2026-03-24T02:43:49Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 12
+    total: 12
+confidence:
+    certain: 4
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 86.0
+        reversibility: 93.0
+        competence: 91.0
+        disambiguation: 92.0
+stage_metrics:
+    intake: {started_at: "2026-03-24T02:43:49Z", driver: fab-new, iterations: 1, completed_at: "2026-03-24T03:02:39Z"}
+    spec: {started_at: "2026-03-24T03:02:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-24T03:03:15Z"}
+    tasks: {started_at: "2026-03-24T03:03:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-24T03:03:38Z"}
+    apply: {started_at: "2026-03-24T03:03:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-24T03:05:30Z"}
+    review: {started_at: "2026-03-24T03:05:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-24T03:06:50Z"}
+    hydrate: {started_at: "2026-03-24T03:06:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-24T03:07:17Z"}
+    ship: {started_at: "2026-03-24T03:07:17Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-24T03:07:17Z

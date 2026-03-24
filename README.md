@@ -59,6 +59,51 @@ To access rk over HTTPS (e.g., from other machines on your tailnet), see:
 
 - [Tailscale guide](docs/wiki/tailscale.md) — zero-config with Tailscale Serve (recommended)
 
+## Desktop Streaming (Linux)
+
+run-kit can stream graphical desktops to the browser alongside terminal windows. Create virtual desktops with KDE Plasma, GNOME, Xfce, or any window manager — each isolated with its own app state.
+
+### Server Requirements
+
+**Required:**
+
+```bash
+sudo apt install xvfb x11vnc
+```
+
+**Desktop environment** (install one):
+
+```bash
+# KDE Plasma (recommended — full desktop)
+sudo apt install kde-plasma-desktop
+
+# GNOME
+sudo apt install gnome-session
+
+# Xfce (lightweight)
+sudo apt install xfce4
+
+# Openbox (minimal — just window management)
+sudo apt install openbox
+
+# Or skip — bare X11 with no window manager
+```
+
+**Also needed for full DE support:**
+
+```bash
+# dbus-run-session (usually pre-installed, needed for Plasma/GNOME/Xfce)
+sudo apt install dbus
+```
+
+### Usage
+
+Create a desktop from the command palette (`Cmd+K` → "New Desktop Window"), the window breadcrumb dropdown (`+ New Desktop`), or the dashboard.
+
+Each desktop is a tmux window named `desktop:{label}`. The `desktop:` prefix identifies it as a desktop — rename freely, just keep the prefix.
+
+See [docs/desktop-streaming.md](docs/desktop-streaming.md) for the full architecture, DE support details, isolation model, and troubleshooting.
+
 ## Self-Improvement Loop
 
 rk runs as a daemon in a dedicated tmux session. Lifecycle is managed via CLI flags on `rk serve`:

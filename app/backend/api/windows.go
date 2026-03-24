@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,53 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		if errMsg := validate.ValidateResolution(resolution); errMsg != "" {
 			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
+
+		// macOS: connect to built-in Screen Sharing VNC server on port 5900
+		if runtime.GOOS == "darwin" {
+			desktopName := body.Name
+			if desktopName == "" || desktopName == "desktop" {
+				existingWindows, _ := s.tmux.ListWindows(session, server)
+				n := 1
+				for _, w := range existingWindows {
+					if strings.HasPrefix(w.Name, "desktop:") {
+						n++
+					}
+				}
+				desktopName = strconv.Itoa(n)
+			}
+			windowName := "desktop:" + desktopName
+			var resolvedCwd string
+			if windows, listErr := s.tmux.ListWindows(session, server); listErr == nil && len(windows) > 0 {
+				resolvedCwd = windows[0].WorktreePath
+			}
+			if err := s.tmux.CreateWindow(session, windowName, resolvedCwd, server); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			windows, err := s.tmux.ListWindows(session, server)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			windowIndex := -1
+			for _, win := range windows {
+				if win.Name == windowName {
+					windowIndex = win.Index
+				}
+			}
+			if windowIndex < 0 {
+				writeError(w, http.StatusInternalServerError, "Failed to find created desktop window")
+				return
+			}
+			if err := s.tmux.SetWindowOption(session, windowIndex, "@rk_vnc_port", "5900", server); err != nil {
+				slog.Error("failed to set VNC port window option", "err", err)
+			}
+			if err := s.tmux.SendKeys(session, windowIndex, "echo 'macOS Screen Sharing — connected via port 5900'", server); err != nil {
+				slog.Error("failed to send macOS desktop message", "err", err)
+			}
+			writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
 			return
 		}
 
@@ -430,6 +478,11 @@ func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {
 
 // handleWindowResolution changes the desktop resolution by restarting Xvfb + x11vnc.
 func (s *Server) handleWindowResolution(w http.ResponseWriter, r *http.Request) {
+	if runtime.GOOS == "darwin" {
+		writeError(w, http.StatusBadRequest, "Resolution change is not supported on macOS")
+		return
+	}
+
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)

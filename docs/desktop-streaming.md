@@ -191,9 +191,66 @@ Each desktop gets isolated directories keyed by display number:
 
 ## macOS Support
 
-macOS does not have Xvfb or X11. Possible future approaches:
-- Connect to macOS built-in VNC server (Screen Sharing on port 5900) — shares the real display, not virtual
-- No virtual display equivalent on macOS without third-party tools
+macOS does not have Xvfb or X11. run-kit uses the built-in Screen Sharing VNC server instead.
+
+### Current: Screen Sharing (Option 1)
+
+macOS has a built-in VNC server. run-kit connects to it on port 5900 — you see your real Mac screen in the browser.
+
+**Setup:**
+
+1. Open **System Settings → General → Sharing**
+2. Enable **Screen Sharing**
+3. (Optional) Under Screen Sharing options, set a VNC password if you want authentication
+
+That's it. When you create a desktop window on a Mac, run-kit detects macOS and connects to port 5900 instead of starting Xvfb.
+
+**Limitations:**
+- One screen — you see the real Mac display, not a virtual one
+- No multiple isolated desktops (all desktop windows show the same screen)
+- Resolution change not supported (it's the physical display)
+- No per-desktop app isolation (there's only one desktop)
+
+### Future: Docker-based Linux desktops (Option 2)
+
+Run a lightweight Linux container with Xvfb + x11vnc inside it. Reuses the entire Linux desktop stack.
+
+```bash
+# Conceptual — not yet implemented
+docker run -d --name desktop-1 \
+  -e DISPLAY=:1 \
+  ubuntu-desktop-vnc  # hypothetical image with Xvfb + x11vnc + DE
+```
+
+**What this gives you:**
+- Multiple isolated desktops on Mac (each container = one desktop)
+- Full isolation (network, filesystem, ports)
+- Same Xvfb + x11vnc stack as Linux
+- Works on any Mac with Docker
+
+**What it costs:**
+- Docker Desktop required
+- Heavier (VM overhead)
+- More complex lifecycle management
+
+### Future: Native virtual displays (Option 3)
+
+macOS 14+ has `CGVirtualDisplay` — a private API for creating virtual displays without hardware. Used by apps like BetterDisplay.
+
+**What this would need:**
+- A Swift/ObjC helper binary that creates virtual displays
+- Screen capture via `ScreenCaptureKit` (macOS 12.3+) + VNC encoding
+- Screen Recording permission from the user
+
+**What it gives you:**
+- Native performance, no VM
+- Multiple virtual displays possible
+- True macOS desktop experience per desktop
+
+**What it costs:**
+- Significant native code (Swift/Rust)
+- Private APIs may break across macOS versions
+- macOS 14+ only for virtual displays, 12.3+ for screen capture
 
 ## Troubleshooting
 

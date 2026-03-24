@@ -59,11 +59,19 @@ To access rk over HTTPS (e.g., from other machines on your tailnet), see:
 
 - [Tailscale guide](docs/wiki/tailscale.md) — zero-config with Tailscale Serve (recommended)
 
-## Desktop Streaming (Linux)
+## Desktop Streaming
 
-run-kit can stream graphical desktops to the browser alongside terminal windows. Create virtual desktops with KDE Plasma, GNOME, Xfce, or any window manager — each isolated with its own app state.
+run-kit can stream graphical desktops to the browser alongside terminal windows.
 
-### Server Requirements
+### macOS Setup
+
+Enable **Screen Sharing** in System Settings → General → Sharing. That's it — run-kit connects to the built-in VNC server on port 5900. You see your real Mac screen in the browser.
+
+> Note: macOS shares the real display (no virtual desktops). See [docs/desktop-streaming.md](docs/desktop-streaming.md) for future options (Docker-based Linux desktops, native virtual displays).
+
+### Linux Setup
+
+Create virtual desktops with KDE Plasma, GNOME, Xfce, or any window manager — each isolated with its own app state.
 
 **Required:**
 

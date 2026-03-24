@@ -187,16 +187,16 @@ describe("CommandPalette", () => {
 
     const listbox = screen.getByRole("listbox");
     const options = listbox.querySelectorAll('[role="option"]');
+    const secondOption = options[1];
     const scrollSpy = vi.fn();
-    options.forEach((opt) => {
-      opt.scrollIntoView = scrollSpy;
-    });
+    (secondOption as unknown as HTMLElement).scrollIntoView = scrollSpy;
 
     const input = screen.getByPlaceholderText("Type a command...");
     fireEvent.keyDown(input, { key: "ArrowDown" });
 
     const selected = listbox.querySelector('[aria-selected="true"]');
     expect(selected).toBeTruthy();
+    expect(selected).toBe(secondOption);
     expect(scrollSpy).toHaveBeenCalledWith({ block: "nearest" });
   });
 

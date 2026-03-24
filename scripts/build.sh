@@ -23,4 +23,16 @@ cd "$REPO_ROOT/app/backend"
 mkdir -p "$REPO_ROOT/dist"
 CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o "$REPO_ROOT/dist/rk" ./cmd/rk
 
+# macOS: build the virtual display helper if dependencies are available
+if [ "$(uname)" = "Darwin" ] && [ -f "$REPO_ROOT/tools/rk-virtual-display/Makefile" ]; then
+  if brew --prefix libvncserver &>/dev/null; then
+    echo "==> Building rk-virtual-display (macOS virtual display helper)..."
+    make -C "$REPO_ROOT/tools/rk-virtual-display" clean all
+    cp "$REPO_ROOT/tools/rk-virtual-display/rk-virtual-display" "$REPO_ROOT/dist/"
+    echo "==> Built dist/rk-virtual-display"
+  else
+    echo "==> Skipping rk-virtual-display (libvncserver not installed: brew install libvncserver)"
+  fi
+fi
+
 echo "==> Built dist/rk (v${VERSION})"

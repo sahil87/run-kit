@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -51,53 +52,6 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		if errMsg := validate.ValidateResolution(resolution); errMsg != "" {
 			writeError(w, http.StatusBadRequest, errMsg)
-			return
-		}
-
-		// macOS: connect to built-in Screen Sharing VNC server on port 5900
-		if runtime.GOOS == "darwin" {
-			desktopName := body.Name
-			if desktopName == "" || desktopName == "desktop" {
-				existingWindows, _ := s.tmux.ListWindows(session, server)
-				n := 1
-				for _, w := range existingWindows {
-					if strings.HasPrefix(w.Name, "desktop:") {
-						n++
-					}
-				}
-				desktopName = strconv.Itoa(n)
-			}
-			windowName := "desktop:" + desktopName
-			var resolvedCwd string
-			if windows, listErr := s.tmux.ListWindows(session, server); listErr == nil && len(windows) > 0 {
-				resolvedCwd = windows[0].WorktreePath
-			}
-			if err := s.tmux.CreateWindow(session, windowName, resolvedCwd, server); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			windows, err := s.tmux.ListWindows(session, server)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			windowIndex := -1
-			for _, win := range windows {
-				if win.Name == windowName {
-					windowIndex = win.Index
-				}
-			}
-			if windowIndex < 0 {
-				writeError(w, http.StatusInternalServerError, "Failed to find created desktop window")
-				return
-			}
-			if err := s.tmux.SetWindowOption(session, windowIndex, "@rk_vnc_port", "5900", server); err != nil {
-				slog.Error("failed to set VNC port window option", "err", err)
-			}
-			if err := s.tmux.SendKeys(session, windowIndex, "echo 'macOS Screen Sharing — connected via port 5900'", server); err != nil {
-				slog.Error("failed to send macOS desktop message", "err", err)
-			}
-			writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
 			return
 		}
 
@@ -221,14 +175,53 @@ func allocateFreePort() (int, error) {
 	return port, nil
 }
 
-// desktopStartupScript generates a bash script to launch Xvfb, detect WM, and x11vnc.
-// Written to a temp file and executed, avoiding send-keys one-liner parsing issues.
+// desktopStartupScript generates a platform-appropriate bash script.
+// Linux: Xvfb + x11vnc (virtual X display).
+// macOS: rk-virtual-display (native virtual display via CGVirtualDisplay + ScreenCaptureKit + libvncserver).
 func desktopStartupScript(displayNum, port int, resolution string) string {
+	if runtime.GOOS == "darwin" {
+		return desktopStartupScriptDarwin(port, resolution)
+	}
+	return desktopStartupScriptLinux(displayNum, port, resolution)
+}
+
+func desktopStartupScriptDarwin(port int, resolution string) string {
+	// Resolve the path to rk-virtual-display by looking next to our own executable
+	selfPath, _ := os.Executable()
+	selfDir := ""
+	if selfPath != "" {
+		selfDir = filepath.Dir(selfPath)
+	}
+
+	return fmt.Sprintf(`#!/bin/bash
+RES="%s"
+WIDTH="${RES%%x*}"
+HEIGHT="${RES##*x}"
+
+# Find rk-virtual-display binary
+RK_VD=""
+for p in \
+  "%s/rk-virtual-display" \
+  /usr/local/bin/rk-virtual-display \
+  "$HOME/.local/bin/rk-virtual-display"; do
+  [ -x "$p" ] && { RK_VD="$p"; break; }
+done
+
+if [ -z "$RK_VD" ]; then
+  echo "ERROR: rk-virtual-display not found."
+  echo "Build it: cd tools/rk-virtual-display && make && make install"
+  exit 1
+fi
+
+exec "$RK_VD" --width "$WIDTH" --height "$HEIGHT" --port %d
+`, resolution, selfDir, port)
+}
+
+func desktopStartupScriptLinux(displayNum, port int, resolution string) string {
 	return fmt.Sprintf(`#!/bin/bash
 export DISPLAY=:%d
 
 # Isolate per-desktop state so apps (browsers, etc.) don't collide across desktops.
-# Each desktop gets unique XDG dirs keyed by display number.
 DESKTOP_ID=desktop-%d
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$DESKTOP_ID"
 export XDG_CONFIG_HOME="$HOME/.config/$DESKTOP_ID"
@@ -250,20 +243,16 @@ WRAPPER_DIR="$XDG_RUNTIME_DIR/bin"
 DESKTOP_DIR="$XDG_DATA_HOME/applications"
 mkdir -p "$WRAPPER_DIR" "$DESKTOP_DIR"
 
-# Find all Chrome/Chromium .desktop files and patch them
 for df in /usr/share/applications/google-chrome*.desktop /usr/share/applications/chromium*.desktop; do
   [ -f "$df" ] || continue
-  # Extract the actual binary from the first Exec= line
   REAL=$(grep -m1 "^Exec=" "$df" | sed 's/^Exec=//; s/ .*//')
   BNAME=$(basename "$REAL")
   DATA_DIR="$HOME/.config/$DESKTOP_ID/$BNAME"
-  # Create wrapper (--password-store=basic skips KDE Wallet)
   cat > "$WRAPPER_DIR/$BNAME" << WRAPPER
 #!/bin/bash
 exec "$REAL" --user-data-dir="$DATA_DIR" --password-store=basic "\$@"
 WRAPPER
   chmod +x "$WRAPPER_DIR/$BNAME"
-  # Patch .desktop file to use wrapper
   sed "s|Exec=$REAL|Exec=$WRAPPER_DIR/$BNAME|g" "$df" > "$DESKTOP_DIR/$(basename "$df")"
 done
 export PATH="$WRAPPER_DIR:$PATH"
@@ -478,11 +467,6 @@ func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {
 
 // handleWindowResolution changes the desktop resolution by restarting Xvfb + x11vnc.
 func (s *Server) handleWindowResolution(w http.ResponseWriter, r *http.Request) {
-	if runtime.GOOS == "darwin" {
-		writeError(w, http.StatusBadRequest, "Resolution change is not supported on macOS")
-		return
-	}
-
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)

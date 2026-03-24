@@ -224,7 +224,6 @@ var desktopUpgrader = websocket.Upgrader{
 
 // handleDesktopRelay proxies between a browser WebSocket and x11vnc's raw TCP VNC port.
 func (s *Server) handleDesktopRelay(w http.ResponseWriter, r *http.Request, session string, windowIndex int, server string) {
-	// Read @rk_vnc_port from the tmux window option
 	portStr, err := s.tmux.GetWindowOption(session, windowIndex, "@rk_vnc_port", server)
 	if err != nil {
 		slog.Warn("VNC port not found", "session", session, "window", windowIndex, "err", err)
@@ -237,7 +236,6 @@ func (s *Server) handleDesktopRelay(w http.ResponseWriter, r *http.Request, sess
 		return
 	}
 
-	// Dial x11vnc's raw TCP VNC port on localhost
 	vncAddr := fmt.Sprintf("127.0.0.1:%d", port)
 	vncConn, err := net.DialTimeout("tcp", vncAddr, 10*time.Second)
 	if err != nil {
@@ -246,7 +244,6 @@ func (s *Server) handleDesktopRelay(w http.ResponseWriter, r *http.Request, sess
 		return
 	}
 
-	// Upgrade with 'binary' subprotocol support
 	conn, err := desktopUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		vncConn.Close()
@@ -256,11 +253,8 @@ func (s *Server) handleDesktopRelay(w http.ResponseWriter, r *http.Request, sess
 
 	slog.Info("desktop relay connected", "session", session, "window", windowIndex, "vncAddr", vncAddr, "subprotocol", conn.Subprotocol())
 
-	// Set generous deadlines and enable pong handler to keep connection alive
-	conn.SetReadDeadline(time.Time{})  // no read deadline
-	conn.SetPongHandler(func(string) error {
-		return nil
-	})
+	conn.SetReadDeadline(time.Time{})
+	conn.SetPongHandler(func(string) error { return nil })
 
 	var once sync.Once
 	cleanup := func() {

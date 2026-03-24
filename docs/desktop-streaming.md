@@ -13,12 +13,17 @@ run-kit can stream graphical desktops to the browser alongside terminal windows,
 - A window manager or desktop environment (KDE Plasma, GNOME, Xfce, Openbox, i3, etc.)
 - `websockify` — not required (run-kit has a built-in WebSocket-to-TCP relay)
 
-**Linux only.** macOS does not have Xvfb. See [macOS Support](#macos-support) for alternatives.
-
 Install on Ubuntu/Debian:
 ```bash
 sudo apt install xvfb x11vnc
 ```
+
+Install on macOS:
+```bash
+brew install --cask xquartz
+brew install x11vnc
+```
+After installing XQuartz, **log out and back in** (or reboot) so the X11 environment is available.
 
 ## How It Works
 
@@ -191,66 +196,33 @@ Each desktop gets isolated directories keyed by display number:
 
 ## macOS Support
 
-macOS does not have Xvfb or X11. run-kit uses the built-in Screen Sharing VNC server instead.
+macOS uses the same Xvfb + x11vnc pipeline as Linux, via [XQuartz](https://www.xquartz.org/).
 
-### Current: Screen Sharing (Option 1)
-
-macOS has a built-in VNC server. run-kit connects to it on port 5900 — you see your real Mac screen in the browser.
-
-**Setup:**
-
-1. Open **System Settings → General → Sharing**
-2. Enable **Screen Sharing**
-3. (Optional) Under Screen Sharing options, set a VNC password if you want authentication
-
-That's it. When you create a desktop window on a Mac, run-kit detects macOS and connects to port 5900 instead of starting Xvfb.
-
-**Limitations:**
-- One screen — you see the real Mac display, not a virtual one
-- No multiple isolated desktops (all desktop windows show the same screen)
-- Resolution change not supported (it's the physical display)
-- No per-desktop app isolation (there's only one desktop)
-
-### Future: Docker-based Linux desktops (Option 2)
-
-Run a lightweight Linux container with Xvfb + x11vnc inside it. Reuses the entire Linux desktop stack.
+### Setup
 
 ```bash
-# Conceptual — not yet implemented
-docker run -d --name desktop-1 \
-  -e DISPLAY=:1 \
-  ubuntu-desktop-vnc  # hypothetical image with Xvfb + x11vnc + DE
+brew install --cask xquartz
+brew install x11vnc
 ```
 
-**What this gives you:**
-- Multiple isolated desktops on Mac (each container = one desktop)
-- Full isolation (network, filesystem, ports)
-- Same Xvfb + x11vnc stack as Linux
-- Works on any Mac with Docker
+After installing XQuartz, **log out and back in** (or reboot) so the X11 environment is available. The startup script automatically adds `/opt/X11/bin` to PATH.
 
-**What it costs:**
-- Docker Desktop required
-- Heavier (VM overhead)
-- More complex lifecycle management
+### How It Works
 
-### Future: Native virtual displays (Option 3)
+Identical to Linux — Xvfb creates a virtual X display, x11vnc serves it over VNC, run-kit relays it to the browser. Each desktop is fully isolated with its own display number, VNC port, and XDG directories.
 
-macOS 14+ has `CGVirtualDisplay` — a private API for creating virtual displays without hardware. Used by apps like BetterDisplay.
+### Window Managers
 
-**What this would need:**
-- A Swift/ObjC helper binary that creates virtual displays
-- Screen capture via `ScreenCaptureKit` (macOS 12.3+) + VNC encoding
-- Screen Recording permission from the user
+XQuartz ships with `quartz-wm`, which is automatically detected and used if no other WM is found. You can also install X11 window managers via Homebrew (e.g., `brew install openbox`, `brew install i3`).
 
-**What it gives you:**
-- Native performance, no VM
-- Multiple virtual displays possible
-- True macOS desktop experience per desktop
+### Troubleshooting
 
-**What it costs:**
-- Significant native code (Swift/Rust)
-- Private APIs may break across macOS versions
-- macOS 14+ only for virtual displays, 12.3+ for screen capture
+| Symptom | Fix |
+|---------|-----|
+| `Xvfb not found` | Install XQuartz: `brew install --cask xquartz`, then log out/in |
+| `x11vnc not found` | `brew install x11vnc` |
+| Black screen after install | Reboot — XQuartz needs a fresh login session |
+| No window decorations | Install a WM: `brew install openbox` |
 
 ## Troubleshooting
 

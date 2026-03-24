@@ -65,21 +65,20 @@ run-kit can stream graphical desktops to the browser alongside terminal windows.
 
 ### macOS Setup
 
-Enable **Screen Sharing** in System Settings → General → Sharing. That's it — run-kit connects to the built-in VNC server on port 5900. You see your real Mac screen in the browser.
+```bash
+brew install --cask xquartz
+brew install x11vnc
+```
 
-> Note: macOS shares the real display (no virtual desktops). See [docs/desktop-streaming.md](docs/desktop-streaming.md) for future options (Docker-based Linux desktops, native virtual displays).
+**Log out and back in** (or reboot) after installing XQuartz.
 
 ### Linux Setup
-
-Create virtual desktops with KDE Plasma, GNOME, Xfce, or any window manager — each isolated with its own app state.
-
-**Required:**
 
 ```bash
 sudo apt install xvfb x11vnc
 ```
 
-**Desktop environment** (install one):
+**Desktop environment** (optional, install one):
 
 ```bash
 # KDE Plasma (recommended — full desktop)
@@ -95,13 +94,6 @@ sudo apt install xfce4
 sudo apt install openbox
 
 # Or skip — bare X11 with no window manager
-```
-
-**Also needed for full DE support:**
-
-```bash
-# dbus-run-session (usually pre-installed, needed for Plasma/GNOME/Xfce)
-sudo apt install dbus
 ```
 
 ### Usage

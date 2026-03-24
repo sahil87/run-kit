@@ -178,6 +178,29 @@ export XDG_STATE_HOME="$HOME/.local/state/$DESKTOP_ID"
 mkdir -p "$XDG_RUNTIME_DIR" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME"
 chmod 0700 "$XDG_RUNTIME_DIR"
 
+# Chrome/Chromium ignore XDG — patch .desktop files and create wrappers
+WRAPPER_DIR="$XDG_RUNTIME_DIR/bin"
+DESKTOP_DIR="$XDG_DATA_HOME/applications"
+mkdir -p "$WRAPPER_DIR" "$DESKTOP_DIR"
+
+# Find all Chrome/Chromium .desktop files and patch them
+for df in /usr/share/applications/google-chrome*.desktop /usr/share/applications/chromium*.desktop; do
+  [ -f "$df" ] || continue
+  # Extract the actual binary from the first Exec= line
+  REAL=$(grep -m1 "^Exec=" "$df" | sed 's/^Exec=//; s/ .*//')
+  BNAME=$(basename "$REAL")
+  DATA_DIR="$HOME/.config/$DESKTOP_ID/$BNAME"
+  # Create wrapper
+  cat > "$WRAPPER_DIR/$BNAME" << WRAPPER
+#!/bin/bash
+exec "$REAL" --user-data-dir="$DATA_DIR" "\$@"
+WRAPPER
+  chmod +x "$WRAPPER_DIR/$BNAME"
+  # Patch .desktop file to use wrapper
+  sed "s|Exec=$REAL|Exec=$WRAPPER_DIR/$BNAME|g" "$df" > "$DESKTOP_DIR/$(basename "$df")"
+done
+export PATH="$WRAPPER_DIR:$PATH"
+
 Xvfb :%d -screen 0 %sx24 &
 sleep 1
 

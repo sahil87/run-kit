@@ -180,6 +180,26 @@ describe("CommandPalette", () => {
     expect(screen.queryByText("Create new session")).not.toBeInTheDocument();
   });
 
+  it("scrolls selected item into view on ArrowDown", () => {
+    const actions = makeActions(["First", "Second", "Third"]);
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const listbox = screen.getByRole("listbox");
+    const options = listbox.querySelectorAll('[role="option"]');
+    const secondOption = options[1];
+    const scrollSpy = vi.fn();
+    (secondOption as unknown as HTMLElement).scrollIntoView = scrollSpy;
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+
+    const selected = listbox.querySelector('[aria-selected="true"]');
+    expect(selected).toBeTruthy();
+    expect(selected).toBe(secondOption);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: "nearest" });
+  });
+
   it("calls onSelect for theme action when selected", () => {
     const setLight = vi.fn();
     const actions: PaletteAction[] = [

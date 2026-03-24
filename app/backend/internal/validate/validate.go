@@ -26,8 +26,13 @@ func ValidateName(name, label string) string {
 	if forbiddenChars.MatchString(name) {
 		return fmt.Sprintf("%s contains forbidden characters", label)
 	}
-	if strings.Contains(name, ":") || strings.Contains(name, ".") {
-		return fmt.Sprintf("%s cannot contain colons or periods", label)
+	if strings.Contains(name, ".") {
+		return fmt.Sprintf("%s cannot contain periods", label)
+	}
+	// Allow colon only in "desktop:" prefix (used for desktop window type detection).
+	// Bare colons elsewhere are forbidden because tmux uses : as session:window separator.
+	if strings.Contains(name, ":") && !strings.HasPrefix(name, "desktop:") {
+		return fmt.Sprintf("%s cannot contain colons (except desktop: prefix)", label)
 	}
 	return ""
 }

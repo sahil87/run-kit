@@ -66,8 +66,20 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 			displayNum = port % 1000
 		}
 
-		// Create tmux window with desktop: prefix
-		windowName := "desktop:" + body.Name
+		// Create tmux window with desktop: prefix. Auto-number if no name given.
+		desktopName := body.Name
+		if desktopName == "" || desktopName == "desktop" {
+			// Count existing desktop windows to generate next number
+			existingWindows, _ := s.tmux.ListWindows(session, server)
+			n := 1
+			for _, w := range existingWindows {
+				if strings.HasPrefix(w.Name, "desktop:") {
+					n++
+				}
+			}
+			desktopName = strconv.Itoa(n)
+		}
+		windowName := "desktop:" + desktopName
 		var resolvedCwd string
 		if windows, listErr := s.tmux.ListWindows(session, server); listErr == nil && len(windows) > 0 {
 			resolvedCwd = windows[0].WorktreePath
@@ -178,6 +190,13 @@ export XDG_STATE_HOME="$HOME/.local/state/$DESKTOP_ID"
 mkdir -p "$XDG_RUNTIME_DIR" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME"
 chmod 0700 "$XDG_RUNTIME_DIR"
 
+# Disable KDE Wallet — it blocks browsers waiting for unlock in virtual sessions
+cat > "$XDG_CONFIG_HOME/kwalletrc" << KWALLET
+[Wallet]
+Enabled=false
+First Use=false
+KWALLET
+
 # Chrome/Chromium ignore XDG — patch .desktop files and create wrappers
 WRAPPER_DIR="$XDG_RUNTIME_DIR/bin"
 DESKTOP_DIR="$XDG_DATA_HOME/applications"
@@ -190,10 +209,10 @@ for df in /usr/share/applications/google-chrome*.desktop /usr/share/applications
   REAL=$(grep -m1 "^Exec=" "$df" | sed 's/^Exec=//; s/ .*//')
   BNAME=$(basename "$REAL")
   DATA_DIR="$HOME/.config/$DESKTOP_ID/$BNAME"
-  # Create wrapper
+  # Create wrapper (--password-store=basic skips KDE Wallet)
   cat > "$WRAPPER_DIR/$BNAME" << WRAPPER
 #!/bin/bash
-exec "$REAL" --user-data-dir="$DATA_DIR" "\$@"
+exec "$REAL" --user-data-dir="$DATA_DIR" --password-store=basic "\$@"
 WRAPPER
   chmod +x "$WRAPPER_DIR/$BNAME"
   # Patch .desktop file to use wrapper

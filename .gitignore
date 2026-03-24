@@ -172,6 +172,8 @@ tmp
 .uploads/
 test-results/
 app/backend/rk
+app/backend/rk-virtual-display
+tools/rk-virtual-display/rk-virtual-display
 
 # Go embed requires build/frontend/ to exist for compilation; track the .gitkeep
 app/backend/build/frontend/*

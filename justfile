@@ -81,6 +81,12 @@ test-frontend:
 test-e2e:
     scripts/test-e2e.sh
 
+# ─── Assets ──────────────────────────────────────────────────
+
+# Generate icon variants from canonical icon.svg
+icons:
+    scripts/generate-icons.sh
+
 # ─── Quality ─────────────────────────────────────────────────
 
 # Type-check frontend without emitting

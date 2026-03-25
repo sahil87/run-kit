@@ -255,18 +255,35 @@ export async function getKeybindings(): Promise<Keybinding[]> {
 
 // --- Theme settings (global, not per-server) ---
 
-export async function getThemePreference(): Promise<string> {
+export async function getThemePreference(): Promise<{
+  theme: string;
+  themeDark: string;
+  themeLight: string;
+}> {
   const res = await fetch("/api/settings/theme");
   if (!res.ok) await throwOnError(res);
-  const data: { theme: string } = await res.json();
-  return data.theme;
+  const data: { theme: string; theme_dark: string; theme_light: string } = await res.json();
+  return {
+    theme: data.theme,
+    themeDark: data.theme_dark,
+    themeLight: data.theme_light,
+  };
 }
 
-export async function setThemePreference(theme: string): Promise<void> {
+export async function setThemePreference(prefs: {
+  theme?: string;
+  themeDark?: string;
+  themeLight?: string;
+}): Promise<void> {
+  const body: Record<string, string> = {};
+  if (prefs.theme !== undefined) body.theme = prefs.theme;
+  if (prefs.themeDark !== undefined) body.theme_dark = prefs.themeDark;
+  if (prefs.themeLight !== undefined) body.theme_light = prefs.themeLight;
+  if (Object.keys(body).length === 0) return;
   const res = await fetch("/api/settings/theme", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) await throwOnError(res);
 }

@@ -10,11 +10,13 @@ vi.mock("@/api/client", () => ({
 }));
 
 function TestConsumer() {
-  const { preference, resolved, theme } = useTheme();
+  const { preference, themeDark, themeLight, resolved, theme } = useTheme();
   const { setTheme, previewTheme, cancelPreview } = useThemeActions();
   return (
     <div>
       <span data-testid="preference">{preference}</span>
+      <span data-testid="theme-dark">{themeDark}</span>
+      <span data-testid="theme-light">{themeLight}</span>
       <span data-testid="resolved">{resolved}</span>
       <span data-testid="theme-id">{theme.id}</span>
       <span data-testid="theme-name">{theme.name}</span>
@@ -90,8 +92,26 @@ describe("ThemeProvider", () => {
       </ThemeProvider>,
     );
     expect(screen.getByTestId("preference").textContent).toBe("system");
+    expect(screen.getByTestId("theme-dark").textContent).toBe("default-dark");
+    expect(screen.getByTestId("theme-light").textContent).toBe("default-light");
     expect(screen.getByTestId("resolved").textContent).toBe("dark");
     expect(screen.getByTestId("theme-id").textContent).toBe("default-dark");
+  });
+
+  it("reads stored per-mode preferences from localStorage", () => {
+    localStorage.setItem("runkit-theme", "system");
+    localStorage.setItem("runkit-theme-dark", "dracula");
+    localStorage.setItem("runkit-theme-light", "default-light");
+    render(
+      <ThemeProvider>
+        <TestConsumer />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId("preference").textContent).toBe("system");
+    expect(screen.getByTestId("theme-dark").textContent).toBe("dracula");
+    expect(screen.getByTestId("resolved").textContent).toBe("dark");
+    expect(screen.getByTestId("theme-id").textContent).toBe("dracula");
+    expect(screen.getByTestId("theme-name").textContent).toBe("Dracula");
   });
 
   it("reads stored theme ID from localStorage", () => {
@@ -137,7 +157,7 @@ describe("ThemeProvider", () => {
     expect(screen.getByTestId("preference").textContent).toBe("system");
   });
 
-  it("setTheme persists to localStorage and updates state", () => {
+  it("setTheme persists per-mode pref and stays in system mode", () => {
     render(
       <ThemeProvider>
         <TestConsumer />
@@ -146,8 +166,11 @@ describe("ThemeProvider", () => {
     act(() => {
       screen.getByText("Set Light").click();
     });
-    expect(localStorage.getItem("runkit-theme")).toBe("default-light");
-    expect(screen.getByTestId("preference").textContent).toBe("default-light");
+    // Preference stays system, themeLight is updated
+    expect(localStorage.getItem("runkit-theme")).toBe("system");
+    expect(localStorage.getItem("runkit-theme-light")).toBe("default-light");
+    expect(screen.getByTestId("preference").textContent).toBe("system");
+    expect(screen.getByTestId("theme-light").textContent).toBe("default-light");
     expect(screen.getByTestId("resolved").textContent).toBe("light");
     expect(screen.getByTestId("theme-id").textContent).toBe("default-light");
     expect(document.documentElement.dataset.theme).toBe("light");
@@ -169,7 +192,8 @@ describe("ThemeProvider", () => {
   });
 
   it("setTheme to dark updates data-theme attribute", () => {
-    localStorage.setItem("runkit-theme", "default-light");
+    // Start with light OS so default-light is active initially
+    mockMatchMedia(false);
     render(
       <ThemeProvider>
         <TestConsumer />
@@ -213,6 +237,28 @@ describe("ThemeProvider", () => {
     expect(screen.getByTestId("resolved").textContent).toBe("light");
     expect(screen.getByTestId("theme-id").textContent).toBe("default-light");
     expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("uses per-mode prefs when OS changes in system mode", () => {
+    localStorage.setItem("runkit-theme", "system");
+    localStorage.setItem("runkit-theme-dark", "dracula");
+    localStorage.setItem("runkit-theme-light", "default-light");
+    const { simulateChange } = mockMatchMedia(true);
+
+    render(
+      <ThemeProvider>
+        <TestConsumer />
+      </ThemeProvider>,
+    );
+
+    // Should use custom dark theme
+    expect(screen.getByTestId("theme-id").textContent).toBe("dracula");
+
+    // Simulate OS switching to light — uses custom light theme
+    act(() => {
+      simulateChange(false);
+    });
+    expect(screen.getByTestId("theme-id").textContent).toBe("default-light");
   });
 
   it("ignores matchMedia changes when preference is explicit theme", () => {
@@ -292,7 +338,9 @@ describe("ThemeProvider", () => {
       });
 
       expect(screen.getByTestId("theme-id").textContent).toBe("dracula");
-      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
+      // Preference stays system, per-mode dark is updated
+      expect(localStorage.getItem("runkit-theme")).toBe("system");
+      expect(localStorage.getItem("runkit-theme-dark")).toBe("dracula");
     });
   });
 
@@ -389,7 +437,7 @@ describe("ThemeProvider", () => {
   });
 
   describe("API persistence", () => {
-    it("setTheme calls setThemePreference fire-and-forget", async () => {
+    it("setTheme calls setThemePreference fire-and-forget with per-mode pref", async () => {
       const { setThemePreference } = await import("@/api/client");
       vi.mocked(setThemePreference).mockClear();
 
@@ -403,7 +451,10 @@ describe("ThemeProvider", () => {
         screen.getByText("Set Dracula").click();
       });
 
-      expect(setThemePreference).toHaveBeenCalledWith("dracula");
+      expect(setThemePreference).toHaveBeenCalledWith({
+        theme: "system",
+        themeDark: "dracula",
+      });
     });
   });
 });

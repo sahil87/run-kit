@@ -13,6 +13,8 @@ export type ResolvedTheme = "light" | "dark";
 
 type ThemeState = {
   preference: string;
+  themeDark: string;
+  themeLight: string;
   resolved: ResolvedTheme;
   theme: Theme;
 };
@@ -24,27 +26,46 @@ type ThemeActions = {
 };
 
 const THEME_STORAGE_KEY = "runkit-theme";
+const THEME_DARK_STORAGE_KEY = "runkit-theme-dark";
+const THEME_LIGHT_STORAGE_KEY = "runkit-theme-light";
 
 const ThemeStateContext = createContext<ThemeState | null>(null);
 const ThemeActionsContext = createContext<ThemeActions | null>(null);
 
-function resolveThemeObject(preference: string): Theme {
+function resolveThemeObject(preference: string, themeDark: string, themeLight: string): Theme {
   if (preference === "system") {
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    return prefersDark ? DEFAULT_DARK_THEME : DEFAULT_LIGHT_THEME;
+    if (prefersDark) {
+      return getThemeById(themeDark) ?? DEFAULT_DARK_THEME;
+    }
+    return getThemeById(themeLight) ?? DEFAULT_LIGHT_THEME;
   }
   return getThemeById(preference) ?? DEFAULT_DARK_THEME;
 }
 
-function readPreference(): string {
+function readPreference(): { preference: string; themeDark: string; themeLight: string } {
+  let preference = "system";
+  let themeDark = "default-dark";
+  let themeLight = "default-light";
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === "system") return "system";
-    if (stored && getThemeById(stored)) return stored;
+    if (stored === "system") {
+      preference = "system";
+    } else if (stored && getThemeById(stored)) {
+      preference = stored;
+    }
+    const storedDark = localStorage.getItem(THEME_DARK_STORAGE_KEY);
+    if (storedDark && getThemeById(storedDark)) {
+      themeDark = storedDark;
+    }
+    const storedLight = localStorage.getItem(THEME_LIGHT_STORAGE_KEY);
+    if (storedLight && getThemeById(storedLight)) {
+      themeLight = storedLight;
+    }
   } catch {
     // localStorage unavailable
   }
-  return "system";
+  return { preference, themeDark, themeLight };
 }
 
 function applyThemeToDOM(theme: Theme): void {
@@ -71,10 +92,17 @@ function applyThemeToDOM(theme: Theme): void {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [preference, setPreference] = useState<string>(readPreference);
-  const [activeTheme, setActiveTheme] = useState<Theme>(() => resolveThemeObject(preference));
+  const initial = readPreference();
+  const [preference, setPreference] = useState<string>(initial.preference);
+  const [themeDark, setThemeDark] = useState<string>(initial.themeDark);
+  const [themeLight, setThemeLight] = useState<string>(initial.themeLight);
+  const [activeTheme, setActiveTheme] = useState<Theme>(() =>
+    resolveThemeObject(initial.preference, initial.themeDark, initial.themeLight),
+  );
   const [isPreview, setIsPreview] = useState(false);
   const persistedPreferenceRef = useRef(preference);
+  const themeDarkRef = useRef(themeDark);
+  const themeLightRef = useRef(themeLight);
 
   // Apply theme to DOM whenever activeTheme changes
   useEffect(() => {
@@ -85,17 +113,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     getThemePreference()
-      .then((apiPref) => {
+      .then((apiPrefs) => {
         if (cancelled) return;
-        // Validate the API value
+        // Validate the API values
         const validPref =
-          apiPref === "system" || getThemeById(apiPref) ? apiPref : "system";
+          apiPrefs.theme === "system" || getThemeById(apiPrefs.theme) ? apiPrefs.theme : "system";
+        const validDark = getThemeById(apiPrefs.themeDark) ? apiPrefs.themeDark : "default-dark";
+        const validLight = getThemeById(apiPrefs.themeLight) ? apiPrefs.themeLight : "default-light";
+
         setPreference(validPref);
+        setThemeDark(validDark);
+        setThemeLight(validLight);
         persistedPreferenceRef.current = validPref;
-        setActiveTheme(resolveThemeObject(validPref));
+        themeDarkRef.current = validDark;
+        themeLightRef.current = validLight;
+        setActiveTheme(resolveThemeObject(validPref, validDark, validLight));
         // Update localStorage cache
         try {
           localStorage.setItem(THEME_STORAGE_KEY, validPref);
+          localStorage.setItem(THEME_DARK_STORAGE_KEY, validDark);
+          localStorage.setItem(THEME_LIGHT_STORAGE_KEY, validLight);
         } catch {
           // localStorage unavailable
         }
@@ -114,7 +151,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     const mql = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (e: MediaQueryListEvent) => {
-      const nextTheme = e.matches ? DEFAULT_DARK_THEME : DEFAULT_LIGHT_THEME;
+      const nextTheme = e.matches
+        ? (getThemeById(themeDarkRef.current) ?? DEFAULT_DARK_THEME)
+        : (getThemeById(themeLightRef.current) ?? DEFAULT_LIGHT_THEME);
       setActiveTheme(nextTheme);
     };
 
@@ -123,21 +162,76 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [preference]);
 
   const setTheme = useCallback((next: string) => {
-    // Normalize: accept "system" or a known theme id; fall back to "system"
-    const normalized =
-      next === "system" || getThemeById(next) ? next : "system";
+    const theme = getThemeById(next);
+
+    if (next === "system") {
+      // Reset to system mode without changing per-mode prefs
+      try {
+        localStorage.setItem(THEME_STORAGE_KEY, "system");
+      } catch {
+        // localStorage unavailable
+      }
+      setThemePreference({ theme: "system" }).catch(() => {});
+      setPreference("system");
+      persistedPreferenceRef.current = "system";
+      setActiveTheme(resolveThemeObject("system", themeDarkRef.current, themeLightRef.current));
+      setIsPreview(false);
+      return;
+    }
+
+    if (!theme) {
+      // Unknown theme ID, fall back to system
+      try {
+        localStorage.setItem(THEME_STORAGE_KEY, "system");
+      } catch {
+        // localStorage unavailable
+      }
+      setThemePreference({ theme: "system" }).catch(() => {});
+      setPreference("system");
+      persistedPreferenceRef.current = "system";
+      setActiveTheme(resolveThemeObject("system", themeDarkRef.current, themeLightRef.current));
+      setIsPreview(false);
+      return;
+    }
+
+    // Known theme: update per-mode preference based on category
+    let nextDark = themeDarkRef.current;
+    let nextLight = themeLightRef.current;
+
+    if (theme.category === "dark") {
+      nextDark = next;
+      setThemeDark(nextDark);
+      themeDarkRef.current = nextDark;
+    } else {
+      nextLight = next;
+      setThemeLight(nextLight);
+      themeLightRef.current = nextLight;
+    }
+
+    // Stay in system mode
+    setPreference("system");
+    persistedPreferenceRef.current = "system";
+    setActiveTheme(theme);
+    setIsPreview(false);
+
+    // Persist all values
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, normalized);
+      localStorage.setItem(THEME_STORAGE_KEY, "system");
+      localStorage.setItem(THEME_DARK_STORAGE_KEY, nextDark);
+      localStorage.setItem(THEME_LIGHT_STORAGE_KEY, nextLight);
     } catch {
       // localStorage unavailable
     }
-    // Fire-and-forget API persistence
-    setThemePreference(normalized).catch(() => {});
-    const nextTheme = resolveThemeObject(normalized);
-    setPreference(normalized);
-    setActiveTheme(nextTheme);
-    setIsPreview(false);
-    persistedPreferenceRef.current = normalized;
+
+    const apiPayload: { theme: string; themeDark?: string; themeLight?: string } = {
+      theme: "system",
+    };
+    if (theme.category === "dark") {
+      apiPayload.themeDark = nextDark;
+    } else {
+      apiPayload.themeLight = nextLight;
+    }
+    setThemePreference(apiPayload).catch(() => {});
   }, []);
 
   const previewTheme = useCallback((theme: Theme) => {
@@ -147,7 +241,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const cancelPreview = useCallback(() => {
     if (!isPreview) return;
-    const restoredTheme = resolveThemeObject(persistedPreferenceRef.current);
+    const restoredTheme = resolveThemeObject(
+      persistedPreferenceRef.current,
+      themeDarkRef.current,
+      themeLightRef.current,
+    );
     setActiveTheme(restoredTheme);
     setIsPreview(false);
   }, [isPreview]);
@@ -155,8 +253,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const resolved: ResolvedTheme = activeTheme.category;
 
   const stateValue = useMemo<ThemeState>(
-    () => ({ preference, resolved, theme: activeTheme }),
-    [preference, resolved, activeTheme],
+    () => ({ preference, themeDark, themeLight, resolved, theme: activeTheme }),
+    [preference, themeDark, themeLight, resolved, activeTheme],
   );
 
   // Stabilize actions via ref — but update the ref when callbacks change

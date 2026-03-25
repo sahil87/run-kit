@@ -1,0 +1,44 @@
+id: vxj6
+name: 260325-vxj6-per-mode-theme-preferences
+created: 2026-03-25T04:44:49Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+  intake: done
+  spec: done
+  tasks: done
+  apply: done
+  review: done
+  hydrate: done
+  ship: done
+  review-pr: active
+checklist:
+  generated: true
+  path: checklist.md
+  completed: 0
+  total: 22
+confidence:
+  certain: 8
+  confident: 2
+  tentative: 0
+  unresolved: 0
+  score: 4.4
+  fuzzy: true
+  dimensions:
+    signal: 79.5
+    reversibility: 87.5
+    competence: 88.5
+    disambiguation: 85.5
+stage_metrics:
+  intake: {started_at: "2026-03-25T04:44:49Z", driver: fab-new, iterations: 1, completed_at: "2026-03-25T04:48:42Z"}
+  spec: {started_at: "2026-03-25T04:48:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T04:49:19Z"}
+  tasks: {started_at: "2026-03-25T04:49:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T04:49:19Z"}
+  apply: {started_at: "2026-03-25T04:49:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T04:55:39Z"}
+  review: {started_at: "2026-03-25T04:55:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T04:57:54Z"}
+  hydrate: {started_at: "2026-03-25T04:57:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T04:58:48Z"}
+  ship: {started_at: "2026-03-25T04:58:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T04:59:53Z"}
+  review-pr: {started_at: "2026-03-25T04:59:53Z", driver: git-pr, iterations: 1, phase: fixing, reviewer: 'copilot-pull-request-reviewer[bot]'}
+prs:
+  - https://github.com/wvrdz/run-kit/pull/82
+last_updated: 2026-03-25T04:59:53Z

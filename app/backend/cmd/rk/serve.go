@@ -23,6 +23,11 @@ var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the HTTP server",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Verify tmux version supports synchronized output.
+		if err := tmux.CheckMinVersion(3, 3); err != nil {
+			return err
+		}
+
 		daemonFlag, _ := cmd.Flags().GetBool("daemon")
 		restartFlag, _ := cmd.Flags().GetBool("restart")
 		stopFlag, _ := cmd.Flags().GetBool("stop")

@@ -150,6 +150,7 @@ export function TerminalClient({
 
       terminal = new Terminal({
         cursorBlink: true,
+        scrollback: 0,
         fontFamily:
           "JetBrainsMono Nerd Font, JetBrains Mono, Fira Code, SF Mono, Menlo, Monaco, Consolas, monospace",
         fontSize: isMobile ? 11 : 13,

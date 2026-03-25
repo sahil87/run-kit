@@ -1,0 +1,5 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-25T12:19:21Z"}
+{"args":"Add tmux version check at server startup","cmd":"fab-new","event":"command","ts":"2026-03-25T12:19:21Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-25T12:19:55Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-25T12:20:12Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-03-25T12:20:21Z"}

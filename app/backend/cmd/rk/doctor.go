@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"runtime"
 
+	"rk/internal/tmux"
+
 	"github.com/spf13/cobra"
 )
 
@@ -23,8 +25,13 @@ var doctorCmd = &cobra.Command{
 			}
 			cmd.Printf("  [FAIL] tmux not found — %s\n", hint)
 			failed = true
+		} else if err := tmux.CheckMinVersion(3, 3); err != nil {
+			v, _ := tmux.Version()
+			cmd.Printf("  [FAIL] tmux %s — version 3.3+ required for synchronized output\n", v.Raw)
+			failed = true
 		} else {
-			cmd.Println("  [ OK ] tmux")
+			v, _ := tmux.Version()
+			cmd.Printf("  [ OK ] tmux %s\n", v.Raw)
 		}
 
 		if failed {

@@ -4,14 +4,19 @@
 
 | Route | View | Component Pattern |
 |-------|------|-------------------|
-| `/:session/:window` | Terminal (sidebar + terminal + bottom bar) | Layout component (SSE via `useSessions()` context) |
-| `/` | Dashboard | Renders `Dashboard` component in the terminal area. Shows session/window overview with expandable cards. Also the target for relay `4004` (session not found) and all kill redirects |
+| `/` | Server list | Standalone page (`ServerListPage`) — lists tmux servers with "+" creation button. No sidebar, no SSE. |
+| `/$server` | Session dashboard | `AppShell` layout with `Dashboard` content. SSE connected to the specified server. |
+| `/$server/$session/$window` | Terminal | `AppShell` layout with `TerminalClient` + `BottomBar`. SSE connected, WebSocket relay to tmux pane. |
 
-Two-tier URL model: `/` is the Dashboard (session/window overview), `/:session/:window` is the terminal view. No intermediate `/:session` route. Sidebar shows session/window tree on both views. When no sessions exist, sidebar shows "No sessions" with a `+ New Session` button and the Dashboard shows a "New Session" card.
+Three-tier URL model with server always in path. URLs are fully shareable — copying a URL and opening it elsewhere on the same host opens the same server, session, and window. TanStack Router uses nested routes: `/$server` is a layout route whose component (`ServerShell`) wraps `SessionProvider` + `AppShell`. Child routes (dashboard index and terminal) are matched by the router but rendered conditionally by `AppShell` based on whether session/window params exist.
+
+Server not found: if the `$server` segment doesn't match any known tmux server, a "Server not found" page renders with a link to `/`. Unmatched URLs (e.g., `/$server/$session` with no window) show a generic not-found page.
+
+Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server list). The user stays in their server context.
 
 ## Dashboard
 
-`app/frontend/src/components/dashboard.tsx` — renders in the terminal area when no `/:session/:window` params are present (the `{sessionName && windowIndex ? <TerminalClient/> : <Dashboard/>}` branch in `app.tsx`).
+`app/frontend/src/components/dashboard.tsx` — renders in the terminal area when no `/$session/$window` params are present (the `{sessionName && windowIndex ? <TerminalClient/> : <Dashboard/>}` branch in `app.tsx`).
 
 **Layout**: Outer wrapper is `flex-1 flex flex-col` containing two sibling regions: (1) pinned stats line (`shrink-0 px-4 sm:px-6 pt-4 sm:pt-6`) and (2) scrollable card area (`flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 pb-4 sm:pb-6`). The stats line stays fixed at the top of the Dashboard area regardless of scroll position; only the card grid scrolls.
 
@@ -91,9 +96,9 @@ Palette-based theme model: each theme defines a `ThemePalette` with 22 canonical
 
 Session and window name text are the dropdown triggers. Clicking/tapping the name opens the respective dropdown. No split click-target pattern — the name itself is the trigger.
 
-**Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{session}/0`. First item: `+ New Session` action (opens session creation dialog).
+**Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{server}/{session}/0`. First item: `+ New Session` action (opens session creation dialog).
 
-**Window dropdown**: Lists all windows in the current session. Current window highlighted. Selecting navigates to `/{session}/{index}`. First item: `+ New Window` action (creates new window in current session).
+**Window dropdown**: Lists all windows in the current session. Current window highlighted. Selecting navigates to `/{server}/{session}/{index}`. First item: `+ New Window` action (creates new window in current session).
 
 **Action items in dropdowns**: `BreadcrumbDropdown` accepts an optional `action` prop of type `{ label: string; onAction: () => void }`. When provided, the action item renders before the selection list, separated by a divider (`border-t border-border`). Action items use `text-text-primary` styling (not `text-accent`), close the dropdown on click, and are excluded from ArrowUp/ArrowDown keyboard navigation among selection items.
 

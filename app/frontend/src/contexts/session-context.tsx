@@ -4,30 +4,11 @@ import { setServerGetter } from "@/api/client";
 import type { ProjectSession } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
-const DEFAULT_SERVER = "runkit";
-
-function readStoredServer(): string {
-  // Query param override: ?server=name takes precedence and persists to localStorage
-  const param = new URLSearchParams(window.location.search).get("server");
-  if (param) {
-    try { localStorage.setItem(SERVER_STORAGE_KEY, param); } catch { /* */ }
-    return param;
-  }
-  try {
-    const stored = localStorage.getItem(SERVER_STORAGE_KEY);
-    if (stored) return stored;
-    localStorage.setItem(SERVER_STORAGE_KEY, DEFAULT_SERVER);
-  } catch {
-    // localStorage unavailable
-  }
-  return DEFAULT_SERVER;
-}
 
 type SessionContextType = {
   sessions: ProjectSession[];
   isConnected: boolean;
   server: string;
-  setServer: (name: string) => void;
   servers: string[];
   refreshServers: () => void;
 };
@@ -36,12 +17,12 @@ const SessionContext = createContext<SessionContextType | null>(null);
 
 type SessionProviderProps = {
   children: React.ReactNode;
+  server: string;
 };
 
-export function SessionProvider({ children }: SessionProviderProps) {
+export function SessionProvider({ children, server }: SessionProviderProps) {
   const [sessions, setSessions] = useState<ProjectSession[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [server, setServerState] = useState(readStoredServer);
   const [servers, setServers] = useState<string[]>([]);
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
 
@@ -51,6 +32,15 @@ export function SessionProvider({ children }: SessionProviderProps) {
   useEffect(() => {
     setServerGetter(() => serverRef.current);
   }, []);
+
+  // Persist last-used server to localStorage for convenience
+  useEffect(() => {
+    try {
+      localStorage.setItem(SERVER_STORAGE_KEY, server);
+    } catch {
+      // localStorage unavailable
+    }
+  }, [server]);
 
   const fetchServers = useCallback(async () => {
     try {
@@ -68,15 +58,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
   useEffect(() => {
     fetchServers();
   }, [fetchServers, server]);
-
-  const setServer = useCallback((name: string) => {
-    setServerState(name);
-    try {
-      localStorage.setItem(SERVER_STORAGE_KEY, name);
-    } catch {
-      // localStorage unavailable
-    }
-  }, []);
 
   // SSE connection — reconnects when server changes
   useEffect(() => {
@@ -109,9 +90,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
     });
 
     es.onerror = () => {
-      // EventSource auto-reconnects, firing onerror + onopen in quick
-      // succession. Debounce so the dot only turns gray if the SSE
-      // hasn't recovered within 3 seconds.
       if (!disconnectTimer) {
         disconnectTimer = setTimeout(markDisconnected, 3000);
       }
@@ -128,8 +106,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
   }, [setChromeConnected, server]);
 
   const value = useMemo(
-    () => ({ sessions, isConnected, server, setServer, servers, refreshServers: fetchServers }),
-    [sessions, isConnected, server, setServer, servers, fetchServers],
+    () => ({ sessions, isConnected, server, servers, refreshServers: fetchServers }),
+    [sessions, isConnected, server, servers, fetchServers],
   );
 
   return (

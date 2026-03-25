@@ -1,9 +1,8 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
-import { useNavigate, useMatches } from "@tanstack/react-router";
+import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
 import { ChromeProvider, useChrome, useChromeDispatch } from "@/contexts/chrome-context";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
 import { SessionProvider } from "@/contexts/session-context";
-import { useSessions } from "@/hooks/use-sessions";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { useDialogState } from "@/hooks/use-dialog-state";
 import { TopBar } from "@/components/top-bar";
@@ -42,32 +41,62 @@ function readSidebarWidth(): number {
   return SIDEBAR_DEFAULT_WIDTH;
 }
 
-export function App() {
+/** Root wrapper — provides theme and chrome contexts, renders matched route via Outlet. */
+export function RootWrapper() {
   return (
     <ThemeProvider>
       <ChromeProvider>
-        <SessionProvider>
-          <AppShell />
-        </SessionProvider>
+        <Outlet />
       </ChromeProvider>
     </ThemeProvider>
+  );
+}
+
+/** Server layout — wraps SessionProvider + AppShell for /$server routes. */
+export function ServerShell() {
+  const matches = useMatches();
+  const lastMatch = matches[matches.length - 1];
+  const params = (lastMatch?.params ?? {}) as { server: string };
+  const server = params.server;
+
+  return (
+    <SessionProvider server={server}>
+      <AppShell />
+    </SessionProvider>
+  );
+}
+
+/** Server not found UI — shown when server param doesn't match any known server. */
+function ServerNotFound({ serverName }: { serverName: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg-primary">
+      <h1 className="text-xl text-text-primary">Server not found</h1>
+      <p className="text-text-secondary">
+        No tmux server named <strong>{serverName}</strong> was found.
+      </p>
+      <a
+        href="/"
+        className="px-4 py-2 bg-bg-card border border-border rounded hover:border-text-secondary transition-colors text-text-primary"
+      >
+        Go to server list
+      </a>
+    </div>
   );
 }
 
 function AppShell() {
   useVisualViewport();
 
-  const { sessions, isConnected } = useSessions();
-  const { server, setServer, servers, refreshServers } = useSessionContext();
+  const { sessions, isConnected, server, servers, refreshServers } = useSessionContext();
   const { sidebarOpen, drawerOpen, fixedWidth } = useChrome();
   const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen, toggleFixedWidth } = useChromeDispatch();
   const navigate = useNavigate();
   const matches = useMatches();
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Extract params -- the route may be / (no params) or /:session/:window
+  // Extract params -- the route may be /$server (no session/window) or /$server/$session/$window
   const lastMatch = matches[matches.length - 1];
-  const params = (lastMatch?.params ?? {}) as { session?: string; window?: string };
+  const params = (lastMatch?.params ?? {}) as { server?: string; session?: string; window?: string };
   const sessionName = params.session;
   const windowIndex = params.window;
 
@@ -166,9 +195,9 @@ function AppShell() {
   useEffect(() => {
     if (!sessionName || !isConnected) return;
     if (!currentSession || (currentSession && windowIndex && !currentWindow)) {
-      navigate({ to: "/", replace: true });
+      navigate({ to: "/$server", params: { server }, replace: true });
     }
-  }, [sessionName, windowIndex, sessions, currentSession, currentWindow, isConnected, navigate]);
+  }, [sessionName, windowIndex, sessions, currentSession, currentWindow, isConnected, navigate, server]);
 
   // Active window sync: when SSE says isActiveWindow changed, update URL
   const activeWindow = useMemo(() => {
@@ -184,42 +213,42 @@ function AppShell() {
       const elapsed = Date.now() - userNavTimestampRef.current;
       if (elapsed < 3000) return;
       navigate({
-        to: "/$session/$window",
-        params: { session: sessionName, window: String(activeWindow.index) },
+        to: "/$server/$session/$window",
+        params: { server, session: sessionName, window: String(activeWindow.index) },
         replace: true,
       });
     }
-  }, [activeWindow, sessionName, windowIndex, navigate]);
+  }, [activeWindow, sessionName, windowIndex, navigate, server]);
 
   // Navigation callback for sidebar/breadcrumbs — syncs both UI route and tmux active window
   const navigateToWindow = useCallback(
     (session: string, windowIdx: number) => {
       userNavTimestampRef.current = Date.now();
       navigate({
-        to: "/$session/$window",
-        params: { session, window: String(windowIdx) },
+        to: "/$server/$session/$window",
+        params: { server, session, window: String(windowIdx) },
       });
       setDrawerOpen(false);
       // Fire-and-forget: tell tmux to select this window too
       selectWindow(session, windowIdx).catch(() => {});
     },
-    [navigate, setDrawerOpen],
+    [navigate, setDrawerOpen, server],
   );
 
   // Dialog state management
   const dialogs = useDialogState({
     sessionName,
     windowIndex: currentWindow?.index,
-    onKillComplete: () => navigate({ to: "/", replace: true }),
+    onKillComplete: () => navigate({ to: "/$server", params: { server }, replace: true }),
     onSessionRenamed: (newName) => {
       if (windowIndex) {
         navigate({
-          to: "/$session/$window",
-          params: { session: newName, window: windowIndex },
+          to: "/$server/$session/$window",
+          params: { server, session: newName, window: windowIndex },
           replace: true,
         });
       } else {
-        navigate({ to: "/", replace: true });
+        navigate({ to: "/$server", params: { server }, replace: true });
       }
     },
   });
@@ -277,11 +306,10 @@ function AppShell() {
   const handleSwitchServer = useCallback(
     (name: string) => {
       if (name !== server) {
-        setServer(name);
-        navigate({ to: "/", replace: true });
+        navigate({ to: "/$server", params: { server: name } });
       }
     },
-    [server, setServer, navigate],
+    [server, navigate],
   );
 
   const handleCreateServer = useCallback(async () => {
@@ -289,33 +317,23 @@ function AppShell() {
     if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
     try {
       await createServer(trimmed);
-      await refreshServers();
-      handleSwitchServer(trimmed);
+      navigate({ to: "/$server", params: { server: trimmed } });
     } catch {
       // error
     }
     setShowCreateServerDialog(false);
     setCreateServerName("");
-  }, [createServerName, refreshServers, handleSwitchServer]);
+  }, [createServerName, navigate]);
 
   const handleKillServer = useCallback(async () => {
     try {
       await killServerApi(server);
-      const res = await fetch("/api/servers");
-      if (res.ok) {
-        const remaining: string[] = await res.json();
-        refreshServers();
-        if (remaining.length > 0) {
-          handleSwitchServer(remaining[0]);
-        } else {
-          setServer("");
-        }
-      }
+      navigate({ to: "/" });
     } catch {
       // error
     }
     setShowKillServerConfirm(false);
-  }, [server, refreshServers, handleSwitchServer, setServer]);
+  }, [server, navigate]);
 
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -445,6 +463,11 @@ function AppShell() {
   const displayName = currentWindow?.name ?? windowIndex ?? "";
   const displaySession = sessionName ?? "";
 
+  // Server not found check — once server list loads, verify server exists
+  if (servers.length > 0 && !servers.includes(server)) {
+    return <ServerNotFound serverName={server} />;
+  }
+
   return (
     <div className="app-shell flex flex-col" style={{ height: "var(--app-height, 100vh)" }}>
       {/* Top Chrome */}
@@ -458,6 +481,7 @@ function AppShell() {
           isConnected={isConnected}
           sidebarOpen={sidebarOpen}
           drawerOpen={drawerOpen}
+          server={server}
           onNavigate={navigateToWindow}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
@@ -521,7 +545,7 @@ function AppShell() {
                     wsRef={wsRef}
                     composeOpen={composeOpen}
                     setComposeOpen={setComposeOpen}
-                    onSessionNotFound={() => navigate({ to: "/", replace: true })}
+                    onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
                   />
                 </div>
                 {/* Bottom Bar — only on terminal pages */}

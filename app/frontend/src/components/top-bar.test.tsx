@@ -54,6 +54,7 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
           isConnected={true}
           sidebarOpen={false}
           drawerOpen={false}
+          server="runkit"
           onNavigate={vi.fn()}
           onToggleSidebar={vi.fn()}
           onToggleDrawer={vi.fn()}

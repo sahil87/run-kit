@@ -1,0 +1,42 @@
+id: zbqf
+name: 260325-zbqf-shareable-urls
+created: 2026-03-25T18:08:36Z
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 27
+confidence:
+    certain: 10
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 83.8
+        reversibility: 84.6
+        competence: 87.1
+        disambiguation: 89.2
+stage_metrics:
+    intake: {started_at: "2026-03-25T18:08:36Z", driver: fab-new, iterations: 1, completed_at: "2026-03-25T18:36:17Z"}
+    spec: {started_at: "2026-03-25T18:36:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T18:39:33Z"}
+    tasks: {started_at: "2026-03-25T18:39:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T18:39:33Z"}
+    apply: {started_at: "2026-03-25T18:39:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T18:50:23Z"}
+    review: {started_at: "2026-03-25T18:50:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T18:54:24Z"}
+    hydrate: {started_at: "2026-03-25T18:54:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-25T18:55:08Z"}
+    ship: {started_at: "2026-03-25T18:55:08Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-25T18:55:08Z

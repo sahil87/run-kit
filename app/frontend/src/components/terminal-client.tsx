@@ -311,11 +311,15 @@ export function TerminalClient({
         const lines = Math.round(delta / LINE_HEIGHT);
         if (lines === 0) return;
 
-        // SGR mouse encoding: button 64 = scroll up (older), 65 = scroll down (newer)
-        // scrollTop increases on swipe-up (see newer → send 65)
-        // scrollTop decreases on swipe-down (see older → send 64)
+        // SGR mouse encoding: \x1b[<button;col;rowM
+        // button 64 = scroll up (older), 65 = scroll down (newer)
+        // col/row must be valid terminal coordinates (1-based) — tmux
+        // ignores events at 1;1 (status bar area). Use terminal center.
+        const term = xtermRef.current;
+        const col = term ? Math.ceil(term.cols / 2) : 40;
+        const row = term ? Math.ceil(term.rows / 2) : 12;
         const button = lines > 0 ? 65 : 64;
-        const seq = `\x1b[<${button};1;1M`;
+        const seq = `\x1b[<${button};${col};${row}M`;
         const count = Math.abs(lines);
         let payload = "";
         for (let i = 0; i < count; i++) payload += seq;

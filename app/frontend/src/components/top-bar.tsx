@@ -240,16 +240,12 @@ export function TopBar({
   );
 }
 
-const THEME_CYCLE = ["system", "default-light", "default-dark"];
-const THEME_LABELS: Record<string, string> = {
-  system: "System theme",
-  "default-light": "Light theme",
-  "default-dark": "Dark theme",
-};
-
 function ThemeToggle() {
-  const { preference, resolved } = useTheme();
+  const { preference, resolved, themeDark, themeLight } = useTheme();
   const { setTheme } = useThemeActions();
+
+  // Derive current mode: system, light, or dark
+  const mode = preference === "system" ? "system" : resolved;
 
   const handleClick = (e: React.MouseEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -258,12 +254,17 @@ function ThemeToggle() {
       return;
     }
 
-    const idx = THEME_CYCLE.indexOf(preference);
-    const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
-    setTheme(next);
+    // Cycle: system → light (themeLight) → dark (themeDark) → system
+    if (mode === "system") {
+      setTheme(themeLight);
+    } else if (mode === "light") {
+      setTheme(themeDark);
+    } else {
+      setTheme("system");
+    }
   };
 
-  const label = THEME_LABELS[preference] ?? `${preference} theme`;
+  const label = mode === "system" ? "System theme" : mode === "light" ? "Light theme" : "Dark theme";
 
   return (
     <button

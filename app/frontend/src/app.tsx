@@ -248,14 +248,16 @@ function AppShell() {
   );
 
   // Theme
-  const { preference: themePreference } = useTheme();
+  const { preference: themePreference, resolved: themeResolved, themeDark, themeLight } = useTheme();
   const { setTheme } = useThemeActions();
+
+  const themeMode = themePreference === "system" ? "system" : themeResolved;
 
   const themeActions: PaletteAction[] = useMemo(() => {
     const options = [
-      { id: "system", label: "System" },
-      { id: "default-light", label: "Light" },
-      { id: "default-dark", label: "Dark" },
+      { mode: "system", label: "System", action: "system" },
+      { mode: "light", label: "Light", action: themeLight },
+      { mode: "dark", label: "Dark", action: themeDark },
     ];
     return [
       {
@@ -264,12 +266,12 @@ function AppShell() {
         onSelect: () => document.dispatchEvent(new CustomEvent("theme-selector:open")),
       },
       ...options.map((opt) => ({
-        id: `theme-${opt.id}`,
-        label: `Theme: ${opt.label}${themePreference === opt.id ? " (current)" : ""}`,
-        onSelect: () => setTheme(opt.id),
+        id: `theme-${opt.mode}`,
+        label: `Theme: ${opt.label}${themeMode === opt.mode ? " (current)" : ""}`,
+        onSelect: () => setTheme(opt.action),
       })),
     ] satisfies PaletteAction[];
-  }, [themePreference, setTheme]);
+  }, [themeMode, themeDark, themeLight, setTheme]);
 
   // Server management
   const handleSwitchServer = useCallback(

@@ -1,0 +1,20 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-25T18:08:36Z"}
+{"args":"Make URLs copy-pasteable so that when I copy a URL and open it somewhere else on the same server, the same window, and the same session opens up","cmd":"fab-new","event":"command","ts":"2026-03-25T18:08:36Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-03-25T18:10:10Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-03-25T18:10:16Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-03-25T18:21:30Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-25T18:21:48Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-25T18:21:52Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-25T18:34:38Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-25T18:35:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-25T18:36:17Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-25T18:38:32Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-25T18:38:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-25T18:39:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-25T18:39:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-25T18:50:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-25T18:54:24Z"}
+{"event":"review","result":"passed","ts":"2026-03-25T18:54:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-25T18:55:08Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-03-25T18:58:27Z"}
+{"event":"review","result":"passed","ts":"2026-03-25T18:58:55Z"}

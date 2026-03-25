@@ -15,6 +15,7 @@ type TopBarProps = {
   isConnected: boolean;
   sidebarOpen: boolean;
   drawerOpen: boolean;
+  server: string;
   onNavigate: (session: string, windowIndex: number) => void;
   onToggleSidebar: () => void;
   onToggleDrawer: () => void;
@@ -89,6 +90,7 @@ export function TopBar({
   isConnected,
   sidebarOpen,
   drawerOpen,
+  server,
   onNavigate,
   onToggleSidebar,
   onToggleDrawer,
@@ -98,25 +100,25 @@ export function TopBar({
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
-    href: `/${encodeURIComponent(s.name)}/${s.windows[0]?.index ?? 0}`,
+    href: `/${encodeURIComponent(server)}/${encodeURIComponent(s.name)}/${s.windows[0]?.index ?? 0}`,
     current: s.name === sessionName,
   }));
 
   const windowItems: BreadcrumbDropdownItem[] = (currentSession?.windows ?? []).map(
     (w) => ({
       label: w.name,
-      href: `/${encodeURIComponent(sessionName)}/${w.index}`,
+      href: `/${encodeURIComponent(server)}/${encodeURIComponent(sessionName)}/${w.index}`,
       current: currentWindow ? w.index === currentWindow.index : false,
     }),
   );
 
   const handleDropdownNavigate = useCallback(
     (href: string) => {
-      // Parse href like "/sessionName/windowIndex"
+      // Parse href like "/server/sessionName/windowIndex"
       const parts = href.replace(/^\//, "").split("/");
-      if (parts.length >= 2) {
-        const session = decodeURIComponent(parts[0]);
-        const windowIdx = Number(parts[1]);
+      if (parts.length >= 3) {
+        const session = decodeURIComponent(parts[1]);
+        const windowIdx = Number(parts[2]);
         if (!isNaN(windowIdx)) {
           onNavigate(session, windowIdx);
         }

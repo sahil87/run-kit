@@ -29,7 +29,7 @@ https://your-machine.tailnet-name.ts.net
 Use a Tailscale service to serve run-kit under a dedicated hostname like `runner1.tailnet-name.ts.net` instead of the machine name:
 
 ```sh
-tailscale serve --service=svc:runner1 http://localhost:3000
+tailscale serve --bg --service=svc:runner1 http://localhost:3000
 ```
 
 This gives you `https://runner1.tailnet-name.ts.net` — a clean URL that can be moved between machines without changing.

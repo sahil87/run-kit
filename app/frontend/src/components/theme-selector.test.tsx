@@ -141,8 +141,9 @@ describe("ThemeSelector", () => {
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    // Should persist Dracula
-    expect(localStorage.getItem("runkit-theme")).toBe("dracula");
+    // Should persist Dracula as per-mode dark pref (preference stays system)
+    expect(localStorage.getItem("runkit-theme")).toBe("system");
+    expect(localStorage.getItem("runkit-theme-dark")).toBe("dracula");
     expect(screen.queryByPlaceholderText("Search themes...")).not.toBeInTheDocument();
   });
 
@@ -155,9 +156,11 @@ describe("ThemeSelector", () => {
     fireEvent.keyDown(input, { key: "ArrowUp" });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    // Last theme is Rose Pine Dawn
+    // Last theme wraps around — persist as per-mode pref based on its category
     const lastTheme = THEMES[THEMES.length - 1];
-    expect(localStorage.getItem("runkit-theme")).toBe(lastTheme.id);
+    expect(localStorage.getItem("runkit-theme")).toBe("system");
+    const storageKey = lastTheme.category === "dark" ? "runkit-theme-dark" : "runkit-theme-light";
+    expect(localStorage.getItem(storageKey)).toBe(lastTheme.id);
   });
 
   it("previews theme on navigation", () => {

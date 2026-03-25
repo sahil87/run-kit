@@ -311,8 +311,10 @@ export function TerminalClient({
         const lines = Math.round(delta / LINE_HEIGHT);
         if (lines === 0) return;
 
-        // SGR mouse encoding: button 64 = scroll up, 65 = scroll down
-        const button = lines > 0 ? 64 : 65;
+        // SGR mouse encoding: button 64 = scroll up (older), 65 = scroll down (newer)
+        // scrollTop increases on swipe-up (see newer → send 65)
+        // scrollTop decreases on swipe-down (see older → send 64)
+        const button = lines > 0 ? 65 : 64;
         const seq = `\x1b[<${button};1;1M`;
         const count = Math.abs(lines);
         let payload = "";

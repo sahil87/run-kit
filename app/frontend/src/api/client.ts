@@ -279,6 +279,7 @@ export async function setThemePreference(prefs: {
   if (prefs.theme !== undefined) body.theme = prefs.theme;
   if (prefs.themeDark !== undefined) body.theme_dark = prefs.themeDark;
   if (prefs.themeLight !== undefined) body.theme_light = prefs.themeLight;
+  if (Object.keys(body).length === 0) return;
   const res = await fetch("/api/settings/theme", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

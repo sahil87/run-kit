@@ -2,3 +2,12 @@
 {"args":"fix tmux scrolling on mobile - when you scroll in the terminal area on a touch device, tmux doesn't scroll properly","cmd":"fab-new","event":"command","ts":"2026-03-25T16:10:14Z"}
 {"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-25T16:10:54Z"}
 {"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-25T16:11:05Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-25T16:14:20Z"}
+{"delta":"+0.3","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-25T16:15:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-25T16:15:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-25T16:15:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-25T16:15:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-25T16:17:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-25T16:18:23Z"}
+{"event":"review","result":"passed","ts":"2026-03-25T16:18:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-25T16:18:46Z"}

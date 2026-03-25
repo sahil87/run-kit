@@ -256,6 +256,46 @@ export function TerminalClient({
     };
   }, [wsRef]);
 
+  // Touch-to-scroll: translate vertical swipe gestures into xterm scrollback.
+  // xterm.js intercepts touch events for mouse reporting (tmux mouse mode),
+  // so native CSS touch-action alone cannot scroll the viewport.
+  useEffect(() => {
+    const el = terminalRef.current;
+    const term = xtermRef.current;
+    if (!el || !term) return;
+
+    let startY = 0;
+    let accumulatedDelta = 0;
+    const LINE_HEIGHT = term.options.fontSize ?? 13;
+
+    function onTouchStart(e: TouchEvent) {
+      if (e.touches.length !== 1) return;
+      startY = e.touches[0].clientY;
+      accumulatedDelta = 0;
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      if (e.touches.length !== 1) return;
+      const currentY = e.touches[0].clientY;
+      const delta = startY - currentY;
+      accumulatedDelta += delta;
+      startY = currentY;
+
+      const lines = Math.trunc(accumulatedDelta / LINE_HEIGHT);
+      if (lines !== 0) {
+        xtermRef.current?.scrollLines(lines);
+        accumulatedDelta -= lines * LINE_HEIGHT;
+      }
+    }
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [terminalReady]);
+
   // Update xterm theme when the app theme changes
   useEffect(() => {
     if (!xtermRef.current) return;

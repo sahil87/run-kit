@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-25T16:10:14Z"}
+{"args":"fix tmux scrolling on mobile - when you scroll in the terminal area on a touch device, tmux doesn't scroll properly","cmd":"fab-new","event":"command","ts":"2026-03-25T16:10:14Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-25T16:10:54Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-25T16:11:05Z"}

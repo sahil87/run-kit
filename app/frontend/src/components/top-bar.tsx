@@ -274,7 +274,13 @@ function ThemeToggle() {
       className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
       title={label}
     >
-      {resolved === "light" ? (
+      {mode === "system" ? (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <rect x="1" y="2" width="14" height="9" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="5" y1="14" x2="11" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="8" y1="11" x2="8" y2="14" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      ) : resolved === "light" ? (
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <circle cx="8" cy="8" r="3" />
           <g stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

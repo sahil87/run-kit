@@ -8,7 +8,7 @@ import { useDialogState } from "@/hooks/use-dialog-state";
 import { TopBar } from "@/components/top-bar";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
-import { DesktopClient } from "@/components/desktop-client";
+import { DesktopClient, type TouchMode } from "@/components/desktop-client";
 import { BottomBar } from "@/components/bottom-bar";
 import { DesktopBottomBar } from "@/components/desktop-bottom-bar";
 import type { PaletteAction } from "@/components/command-palette";
@@ -114,6 +114,13 @@ function AppShell() {
   const [createServerName, setCreateServerName] = useState("");
   const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [touchMode, setTouchMode] = useState<TouchMode>(() => {
+    try {
+      const stored = localStorage.getItem("rk-desktop-touch-mode");
+      if (stored === "direct" || stored === "trackpad") return stored;
+    } catch { /* noop */ }
+    return "direct";
+  });
 
   // Fetch hostname once on mount (guarded for StrictMode double-invoke)
   const didFetchHostnameRef = useRef(false);
@@ -634,6 +641,7 @@ function AppShell() {
                       sessionName={sessionName}
                       windowIndex={windowIndex}
                       server={server}
+                      touchMode={touchMode}
                       onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
                       onRfbRef={(rfb) => { rfbInstanceRef.current = rfb; }}
                     />
@@ -644,6 +652,8 @@ function AppShell() {
                       sessionName={sessionName}
                       windowIndex={currentWindow.index}
                       hostname={hostname}
+                      touchMode={touchMode}
+                      onTouchModeChange={setTouchMode}
                     />
                   </div>
                 </>

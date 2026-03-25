@@ -1,12 +1,18 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { changeDesktopResolution } from "@/api/client";
+import type { TouchMode } from "@/components/desktop-client";
 
 type DesktopBottomBarProps = {
   rfbRef: React.RefObject<import("@novnc/novnc/lib/rfb").default | null>;
   sessionName: string;
   windowIndex: number;
   hostname?: string;
+  touchMode: TouchMode;
+  onTouchModeChange: (mode: TouchMode) => void;
 };
+
+type ModKeys = { ctrl: boolean; alt: boolean; shift: boolean; meta: boolean };
+type ModKey = keyof ModKeys;
 
 const KBD_CLASS =
   "min-h-[36px] min-w-[36px] coarse:min-h-[36px] coarse:min-w-[36px] flex items-center justify-center px-2 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
@@ -35,11 +41,23 @@ const RESOLUTIONS = [
   { label: "2560x1440", value: "2560x1440", group: "Landscape" },
 ] as const;
 
-export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }: DesktopBottomBarProps) {
+const MOD_KEYSYMS: Record<ModKey, number> = {
+  ctrl: 0xffe3,
+  alt: 0xffe9,
+  shift: 0xffe1,
+  meta: 0xffe7,
+};
+
+export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname, touchMode, onTouchModeChange }: DesktopBottomBarProps) {
   const [resOpen, setResOpen] = useState(false);
   const [kbdActive, setKbdActive] = useState(false);
   const resRef = useRef<HTMLDivElement>(null);
   const kbdInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Modifier key state: sticky (single tap) and locked (double tap)
+  const [mods, setMods] = useState<ModKeys>({ ctrl: false, alt: false, shift: false, meta: false });
+  const [locked, setLocked] = useState<ModKeys>({ ctrl: false, alt: false, shift: false, meta: false });
+  const lastModTapRef = useRef<Record<string, number>>({});
 
   // Close resolution picker on outside click
   useEffect(() => {
@@ -96,8 +114,8 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
     }
   }, [kbdActive]);
 
-  // Send a keysym (down + up) to noVNC
-  const sendKey = useCallback((keysym: number) => {
+  // Send a keysym (down + up) to noVNC — raw, no modifier wrapping
+  const sendKeyRaw = useCallback((keysym: number) => {
     const rfb = rfbRef.current;
     if (!rfb) return;
     if ("sendKey" in rfb && typeof (rfb as unknown as { sendKey: unknown }).sendKey === "function") {
@@ -106,6 +124,61 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
       send.call(rfb, keysym, null, false); // keyup
     }
   }, [rfbRef]);
+
+  // Send a keysym wrapped with active modifier keys, then clear non-locked mods
+  const sendKey = useCallback((keysym: number) => {
+    const rfb = rfbRef.current;
+    if (!rfb) return;
+    if (!("sendKey" in rfb) || typeof (rfb as unknown as { sendKey: unknown }).sendKey !== "function") return;
+    const send = (rfb as unknown as { sendKey: (keysym: number, code: string | null, down?: boolean) => void }).sendKey;
+
+    // Press active modifiers down
+    const activeMods: ModKey[] = [];
+    for (const key of ["ctrl", "alt", "shift", "meta"] as ModKey[]) {
+      if (mods[key]) {
+        activeMods.push(key);
+        send.call(rfb, MOD_KEYSYMS[key], null, true);
+      }
+    }
+
+    // Send the actual key
+    send.call(rfb, keysym, null, true);
+    send.call(rfb, keysym, null, false);
+
+    // Release modifiers
+    for (const key of activeMods) {
+      send.call(rfb, MOD_KEYSYMS[key], null, false);
+    }
+
+    // Clear non-locked mods
+    setMods((prev) => {
+      const next = { ...prev };
+      for (const key of activeMods) {
+        if (!locked[key]) next[key] = false;
+      }
+      return next;
+    });
+  }, [rfbRef, mods, locked]);
+
+  // Handle modifier tap: single tap = sticky, double tap (within 400ms) = lock
+  const handleModTap = useCallback((key: ModKey) => {
+    const now = Date.now();
+    const lastTap = lastModTapRef.current[key] ?? 0;
+    lastModTapRef.current[key] = now;
+
+    if (locked[key]) {
+      // If locked, tap unlocks
+      setLocked((prev) => ({ ...prev, [key]: false }));
+      setMods((prev) => ({ ...prev, [key]: false }));
+    } else if (mods[key] && now - lastTap < 400) {
+      // Double tap: lock
+      setLocked((prev) => ({ ...prev, [key]: true }));
+      // mods stays true
+    } else {
+      // Single tap: toggle sticky
+      setMods((prev) => ({ ...prev, [key]: !prev[key] }));
+    }
+  }, [mods, locked]);
 
   // Handle special keys (Enter, Backspace, arrows, etc.) via keydown
   const handleKbdKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -142,8 +215,25 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
     }
   }, []);
 
+  // Touch mode toggle handler
+  const handleTouchModeToggle = useCallback(() => {
+    const next = touchMode === "direct" ? "trackpad" : "direct";
+    onTouchModeChange(next);
+    try { localStorage.setItem("rk-desktop-touch-mode", next); } catch { /* noop */ }
+    if (rfbRef.current) {
+      rfbRef.current.showDotCursor = next === "trackpad";
+    }
+  }, [touchMode, onTouchModeChange, rfbRef]);
+
+  // Modifier button visual class helper
+  const modBtnClass = (key: ModKey) => {
+    if (locked[key]) return "text-accent bg-accent/10 underline";
+    if (mods[key]) return "text-accent bg-accent/10";
+    return "text-text-secondary";
+  };
+
   return (
-    <div className="flex items-center gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Desktop controls">
+    <div className="flex items-center gap-1 py-1.5 overflow-x-auto" role="toolbar" aria-label="Desktop controls">
       {/* Hidden textarea to trigger mobile virtual keyboard */}
       <textarea
         ref={kbdInputRef}
@@ -159,6 +249,15 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
         onBlur={() => setKbdActive(false)}
       />
 
+      {/* Touch mode toggle — visible only on touch devices */}
+      <button
+        aria-label={touchMode === "direct" ? "Switch to trackpad mode" : "Switch to direct touch mode"}
+        className={`${KBD_CLASS} hidden coarse:flex ${touchMode === "trackpad" ? "text-accent border-accent/50 bg-accent/10" : "text-text-secondary"}`}
+        onClick={handleTouchModeToggle}
+      >
+        {touchMode === "direct" ? "\u25CFTap" : "\u25CBPad"}
+      </button>
+
       {/* Clipboard paste */}
       <button
         aria-label="Paste clipboard"
@@ -172,7 +271,7 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
         <span className="ml-1">Paste</span>
       </button>
 
-      <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
+      <div className="w-px h-5 bg-border mx-0.5 shrink-0" aria-hidden="true" />
 
       {/* Resolution picker */}
       <div ref={resRef} className="relative">
@@ -215,7 +314,7 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
         )}
       </div>
 
-      <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
+      <div className="w-px h-5 bg-border mx-0.5 shrink-0" aria-hidden="true" />
 
       {/* Fullscreen toggle */}
       <button
@@ -231,10 +330,94 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
         </svg>
       </button>
 
-      {/* Keyboard toggle — pushed right */}
+      <div className="w-px h-5 bg-border mx-0.5 shrink-0" aria-hidden="true" />
+
+      {/* Modifier buttons — visible only on touch devices */}
+      <button
+        aria-label="Control"
+        aria-pressed={mods.ctrl}
+        className={`${KBD_CLASS} hidden coarse:flex ${modBtnClass("ctrl")}`}
+        onClick={() => handleModTap("ctrl")}
+      >
+        Ctrl
+      </button>
+      <button
+        aria-label="Alt"
+        aria-pressed={mods.alt}
+        className={`${KBD_CLASS} hidden coarse:flex ${modBtnClass("alt")}`}
+        onClick={() => handleModTap("alt")}
+      >
+        Alt
+      </button>
+      <button
+        aria-label="Shift"
+        aria-pressed={mods.shift}
+        className={`${KBD_CLASS} hidden coarse:flex ${modBtnClass("shift")}`}
+        onClick={() => handleModTap("shift")}
+      >
+        {"\u21E7"}
+      </button>
+      <button
+        aria-label="Meta"
+        aria-pressed={mods.meta}
+        className={`${KBD_CLASS} hidden coarse:flex ${modBtnClass("meta")}`}
+        onClick={() => handleModTap("meta")}
+      >
+        {"\u2318"}
+      </button>
+
+      {/* Esc and Tab */}
+      <button
+        aria-label="Escape"
+        className={`${KBD_CLASS} hidden coarse:flex text-text-secondary`}
+        onClick={() => sendKey(0xff1b)}
+      >
+        Esc
+      </button>
+      <button
+        aria-label="Tab"
+        className={`${KBD_CLASS} hidden coarse:flex text-text-secondary`}
+        onClick={() => sendKey(0xff09)}
+      >
+        Tab
+      </button>
+
+      {/* Arrow keys */}
+      <button
+        aria-label="Left arrow"
+        className={`${KBD_CLASS} hidden coarse:flex text-text-secondary`}
+        onClick={() => sendKey(0xff51)}
+      >
+        {"\u2190"}
+      </button>
+      <button
+        aria-label="Up arrow"
+        className={`${KBD_CLASS} hidden coarse:flex text-text-secondary`}
+        onClick={() => sendKey(0xff52)}
+      >
+        {"\u2191"}
+      </button>
+      <button
+        aria-label="Down arrow"
+        className={`${KBD_CLASS} hidden coarse:flex text-text-secondary`}
+        onClick={() => sendKey(0xff54)}
+      >
+        {"\u2193"}
+      </button>
+      <button
+        aria-label="Right arrow"
+        className={`${KBD_CLASS} hidden coarse:flex text-text-secondary`}
+        onClick={() => sendKey(0xff53)}
+      >
+        {"\u2192"}
+      </button>
+
+      <div className="w-px h-5 bg-border mx-0.5 shrink-0" aria-hidden="true" />
+
+      {/* Keyboard toggle */}
       <button
         aria-label={kbdActive ? "Hide keyboard" : "Show keyboard"}
-        className={`ml-auto ${KBD_CLASS} ${kbdActive ? "text-accent border-accent/50 bg-accent/10" : "text-text-secondary"}`}
+        className={`${KBD_CLASS} ${kbdActive ? "text-accent border-accent/50 bg-accent/10" : "text-text-secondary"}`}
         onClick={handleKeyboard}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -252,7 +435,7 @@ export function DesktopBottomBar({ rfbRef, sessionName, windowIndex, hostname }:
         <span className="ml-1 hidden sm:inline">Kbd</span>
       </button>
 
-      <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
+      <div className="w-px h-5 bg-border mx-0.5 shrink-0" aria-hidden="true" />
 
       {/* Command palette shortcut */}
       <button

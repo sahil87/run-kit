@@ -1,9 +1,12 @@
 import { useEffect, useRef } from "react";
 
+export type TouchMode = "direct" | "trackpad";
+
 type DesktopClientProps = {
   sessionName: string;
   windowIndex: string;
   server: string;
+  touchMode?: TouchMode;
   onSessionNotFound?: () => void;
   onRfbRef?: (rfb: import("@novnc/novnc/lib/rfb").default | null) => void;
 };
@@ -12,6 +15,7 @@ export function DesktopClient({
   sessionName,
   windowIndex,
   server,
+  touchMode = "direct",
   onSessionNotFound,
   onRfbRef,
 }: DesktopClientProps) {
@@ -28,6 +32,30 @@ export function DesktopClient({
   const pinchRef = useRef<{ startDist: number; startScale: number } | null>(null);
   const panRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
+  // Trackpad mode state
+  const touchModeRef = useRef<TouchMode>(touchMode);
+  const cursorRef = useRef({ x: 960, y: 540 });
+  const trackpadRef = useRef({ startX: 0, startY: 0, moved: false });
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep touchModeRef in sync with prop
+  useEffect(() => {
+    touchModeRef.current = touchMode;
+  }, [touchMode]);
+
+  // Sync canvas pointer-events and showDotCursor with touchMode
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const canvas = container.querySelector("canvas");
+    if (canvas) {
+      canvas.style.pointerEvents = touchMode === "trackpad" ? "none" : "";
+    }
+    if (rfbRef.current) {
+      rfbRef.current.showDotCursor = touchMode === "trackpad";
+    }
+  }, [touchMode]);
+
   // Apply CSS transform to the inner container
   function applyTransform() {
     if (!containerRef.current) return;
@@ -36,7 +64,41 @@ export function DesktopClient({
     containerRef.current.style.transformOrigin = "0 0";
   }
 
-  // Touch handlers for pinch-to-zoom and pan
+  // Send a synthetic mouse event at cursorRef position on the noVNC canvas
+  function sendPointerToCanvas(type: "mousemove" | "mousedown" | "mouseup", button = 0) {
+    const container = containerRef.current;
+    if (!container) return;
+    const canvas = container.querySelector("canvas");
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    // cursorRef is in VNC framebuffer coords; convert to screen coords
+    const fbWidth = canvas.width;
+    const fbHeight = canvas.height;
+    const scaleX = rect.width / fbWidth;
+    const scaleY = rect.height / fbHeight;
+
+    const screenX = rect.left + cursorRef.current.x * scaleX;
+    const screenY = rect.top + cursorRef.current.y * scaleY;
+
+    // Temporarily enable pointer-events so the event reaches noVNC
+    const prevPE = canvas.style.pointerEvents;
+    canvas.style.pointerEvents = "auto";
+
+    const evt = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX: screenX,
+      clientY: screenY,
+      button,
+      buttons: type === "mousedown" ? 1 : 0,
+    });
+    canvas.dispatchEvent(evt);
+
+    canvas.style.pointerEvents = prevPE;
+  }
+
+  // Touch handlers for pinch-to-zoom, pan, and trackpad
   useEffect(() => {
     const el = outerRef.current;
     if (!el) return;
@@ -49,18 +111,39 @@ export function DesktopClient({
       if (e.touches.length === 2) {
         // Start pinch
         e.preventDefault();
+        // Cancel any long press timer on pinch
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
         pinchRef.current = {
           startDist: dist(e.touches[0], e.touches[1]),
           startScale: zoomRef.current.scale,
         };
-      } else if (e.touches.length === 1 && zoomRef.current.scale > 1) {
-        // Start pan (only when zoomed in)
-        panRef.current = {
-          startX: e.touches[0].clientX,
-          startY: e.touches[0].clientY,
-          origX: zoomRef.current.x,
-          origY: zoomRef.current.y,
-        };
+      } else if (e.touches.length === 1) {
+        if (touchModeRef.current === "trackpad") {
+          // Trackpad mode: single finger
+          e.preventDefault();
+          trackpadRef.current = {
+            startX: e.touches[0].clientX,
+            startY: e.touches[0].clientY,
+            moved: false,
+          };
+          // Start long press timer (500ms) for right-click simulation
+          longPressTimerRef.current = setTimeout(() => {
+            longPressTimerRef.current = null;
+            sendPointerToCanvas("mousedown", 0);
+            sendPointerToCanvas("mouseup", 0);
+          }, 500);
+        } else if (zoomRef.current.scale > 1) {
+          // Start pan (only when zoomed in)
+          panRef.current = {
+            startX: e.touches[0].clientX,
+            startY: e.touches[0].clientY,
+            origX: zoomRef.current.x,
+            origY: zoomRef.current.y,
+          };
+        }
       }
     }
 
@@ -74,6 +157,41 @@ export function DesktopClient({
         // Clamp pan so we don't go out of bounds
         clampPan();
         applyTransform();
+      } else if (e.touches.length === 1 && touchModeRef.current === "trackpad") {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - trackpadRef.current.startX;
+        const dy = e.touches[0].clientY - trackpadRef.current.startY;
+
+        // Cancel long press if finger moved more than 3px
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }
+
+        // Update cursor position in VNC framebuffer coords
+        // Use a sensitivity multiplier for reasonable trackpad feel
+        const sensitivity = 1.5;
+        cursorRef.current.x = Math.max(0, cursorRef.current.x + dx * sensitivity);
+        cursorRef.current.y = Math.max(0, cursorRef.current.y + dy * sensitivity);
+
+        // Clamp to framebuffer bounds
+        const container = containerRef.current;
+        if (container) {
+          const canvas = container.querySelector("canvas");
+          if (canvas) {
+            cursorRef.current.x = Math.min(cursorRef.current.x, canvas.width);
+            cursorRef.current.y = Math.min(cursorRef.current.y, canvas.height);
+          }
+        }
+
+        // Update start position for frame-to-frame delta
+        trackpadRef.current.startX = e.touches[0].clientX;
+        trackpadRef.current.startY = e.touches[0].clientY;
+        trackpadRef.current.moved = true;
+
+        sendPointerToCanvas("mousemove");
       } else if (e.touches.length === 1 && panRef.current && zoomRef.current.scale > 1) {
         e.preventDefault();
         const dx = e.touches[0].clientX - panRef.current.startX;
@@ -86,6 +204,12 @@ export function DesktopClient({
     }
 
     function onTouchEnd(e: TouchEvent) {
+      // Always clear long press timer
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+
       if (e.touches.length < 2) pinchRef.current = null;
       if (e.touches.length < 1) panRef.current = null;
 
@@ -117,6 +241,7 @@ export function DesktopClient({
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // noVNC connection
@@ -145,6 +270,13 @@ export function DesktopClient({
         rfb.resizeSession = false;
         rfb.clipViewport = false;
         rfb.background = "rgb(15, 17, 23)";
+
+        // Apply trackpad mode settings to new RFB instance
+        if (touchModeRef.current === "trackpad") {
+          rfb.showDotCursor = true;
+          const canvas = containerRef.current.querySelector("canvas");
+          if (canvas) canvas.style.pointerEvents = "none";
+        }
 
         // Recalculate scale when container resizes
         const observer = new ResizeObserver(() => {

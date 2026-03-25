@@ -162,10 +162,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [preference]);
 
   const setTheme = useCallback((next: string) => {
-    const theme = getThemeById(next);
-
     if (next === "system") {
-      // Reset to system mode without changing per-mode prefs
+      // System mode — OS picks between per-mode prefs
       try {
         localStorage.setItem(THEME_STORAGE_KEY, "system");
       } catch {
@@ -179,6 +177,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const theme = getThemeById(next);
     if (!theme) {
       // Unknown theme ID, fall back to system
       try {
@@ -194,7 +193,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Known theme: update per-mode preference based on category
+    // Known theme: update per-mode slot and set preference to this theme ID
     let nextDark = themeDarkRef.current;
     let nextLight = themeLightRef.current;
 
@@ -208,15 +207,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       themeLightRef.current = nextLight;
     }
 
-    // Stay in system mode
-    setPreference("system");
-    persistedPreferenceRef.current = "system";
+    // Preference = the specific theme ID (not "system")
+    setPreference(next);
+    persistedPreferenceRef.current = next;
     setActiveTheme(theme);
     setIsPreview(false);
 
     // Persist all values
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, "system");
+      localStorage.setItem(THEME_STORAGE_KEY, next);
       localStorage.setItem(THEME_DARK_STORAGE_KEY, nextDark);
       localStorage.setItem(THEME_LIGHT_STORAGE_KEY, nextLight);
     } catch {
@@ -224,7 +223,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
 
     const apiPayload: { theme: string; themeDark?: string; themeLight?: string } = {
-      theme: "system",
+      theme: next,
     };
     if (theme.category === "dark") {
       apiPayload.themeDark = nextDark;

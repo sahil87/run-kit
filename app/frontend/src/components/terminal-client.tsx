@@ -256,17 +256,19 @@ export function TerminalClient({
     };
   }, [wsRef]);
 
-  // Touch-to-scroll: translate vertical swipe gestures into xterm scrollback.
-  // xterm.js intercepts touch events for mouse reporting (tmux mouse mode),
-  // so native CSS touch-action alone cannot scroll the viewport.
+  // Touch-to-scroll: translate vertical swipe gestures into synthetic wheel
+  // events. xterm.js's wheel handler sends arrow key escape sequences to tmux
+  // when mouse mode is active, or scrolls the local viewport otherwise.
+  // scrollLines() only moves the local xterm buffer — it doesn't reach tmux.
+  // Dispatching WheelEvent goes through xterm.js's own handler which does the
+  // right thing for both mouse-mode and non-mouse-mode terminals.
   useEffect(() => {
-    const el = terminalRef.current;
-    const term = xtermRef.current;
-    if (!el || !term) return;
+    const container = terminalRef.current;
+    if (!container) return;
 
     let startY = 0;
     let accumulatedDelta = 0;
-    const LINE_HEIGHT = term.options.fontSize ?? 13;
+    const SCROLL_THRESHOLD = 15; // pixels per synthetic wheel tick
 
     function onTouchStart(e: TouchEvent) {
       if (e.touches.length !== 1) return;
@@ -275,24 +277,34 @@ export function TerminalClient({
     }
 
     function onTouchMove(e: TouchEvent) {
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1 || !container) return;
       const currentY = e.touches[0].clientY;
-      const delta = startY - currentY;
-      accumulatedDelta += delta;
+      accumulatedDelta += startY - currentY;
       startY = currentY;
 
-      const lines = Math.trunc(accumulatedDelta / LINE_HEIGHT);
-      if (lines !== 0) {
-        xtermRef.current?.scrollLines(lines);
-        accumulatedDelta -= lines * LINE_HEIGHT;
+      // Find the xterm viewport (the element xterm.js listens on for wheel)
+      const target = container.querySelector(".xterm-viewport") ?? container;
+
+      while (Math.abs(accumulatedDelta) >= SCROLL_THRESHOLD) {
+        const direction = accumulatedDelta > 0 ? 1 : -1;
+        target.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: direction * 25,
+            deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        accumulatedDelta -= direction * SCROLL_THRESHOLD;
       }
     }
 
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    // Use capture phase to see events before xterm.js can stop propagation
+    container.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true, capture: true });
     return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchstart", onTouchStart, { capture: true });
+      container.removeEventListener("touchmove", onTouchMove, { capture: true });
     };
   }, [terminalReady]);
 

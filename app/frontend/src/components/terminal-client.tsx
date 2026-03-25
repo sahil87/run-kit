@@ -256,19 +256,24 @@ export function TerminalClient({
     };
   }, [wsRef]);
 
-  // Touch-to-scroll: translate vertical swipe gestures into synthetic wheel
-  // events. xterm.js's wheel handler sends arrow key escape sequences to tmux
-  // when mouse mode is active, or scrolls the local viewport otherwise.
-  // scrollLines() only moves the local xterm buffer — it doesn't reach tmux.
-  // Dispatching WheelEvent goes through xterm.js's own handler which does the
-  // right thing for both mouse-mode and non-mouse-mode terminals.
+  // Touch-to-scroll: translate vertical swipe gestures into mouse wheel escape
+  // sequences sent directly to tmux via WebSocket.
+  //
+  // Why not CSS touch-pan-y? xterm.js intercepts touch events for mouse
+  // reporting. Why not scrollLines()? It only moves the local xterm buffer —
+  // tmux manages scrollback server-side. Why not synthetic WheelEvent? xterm.js
+  // may ignore untrusted events or listen on a different element than expected.
+  //
+  // Direct approach: capture touch gestures, compute scroll delta, send mouse
+  // wheel escape sequences (SGR encoding) that tmux interprets as scroll.
+  // touch-action stays "none" to prevent iOS from consuming touchmove events.
   useEffect(() => {
     const container = terminalRef.current;
     if (!container) return;
 
     let startY = 0;
     let accumulatedDelta = 0;
-    const SCROLL_THRESHOLD = 15; // pixels per synthetic wheel tick
+    const LINE_HEIGHT = 20; // pixels per scroll line
 
     function onTouchStart(e: TouchEvent) {
       if (e.touches.length !== 1) return;
@@ -277,36 +282,36 @@ export function TerminalClient({
     }
 
     function onTouchMove(e: TouchEvent) {
-      if (e.touches.length !== 1 || !container) return;
+      if (e.touches.length !== 1) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
       const currentY = e.touches[0].clientY;
       accumulatedDelta += startY - currentY;
       startY = currentY;
 
-      // Find the xterm viewport (the element xterm.js listens on for wheel)
-      const target = container.querySelector(".xterm-viewport") ?? container;
+      const lines = Math.trunc(accumulatedDelta / LINE_HEIGHT);
+      if (lines === 0) return;
+      accumulatedDelta -= lines * LINE_HEIGHT;
 
-      while (Math.abs(accumulatedDelta) >= SCROLL_THRESHOLD) {
-        const direction = accumulatedDelta > 0 ? 1 : -1;
-        target.dispatchEvent(
-          new WheelEvent("wheel", {
-            deltaY: direction * 25,
-            deltaMode: WheelEvent.DOM_DELTA_PIXEL,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-        accumulatedDelta -= direction * SCROLL_THRESHOLD;
-      }
+      // SGR mouse encoding: \x1b[<button;col;rowM
+      // Button 64 = scroll up, 65 = scroll down. Col/row are 1-based.
+      const button = lines > 0 ? 64 : 65;
+      const seq = `\x1b[<${button};1;1M`;
+      const count = Math.abs(lines);
+      let payload = "";
+      for (let i = 0; i < count; i++) payload += seq;
+      ws.send(payload);
     }
 
-    // Use capture phase to see events before xterm.js can stop propagation
+    // Capture phase + passive: see events before xterm, don't block browser
     container.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
     container.addEventListener("touchmove", onTouchMove, { passive: true, capture: true });
     return () => {
       container.removeEventListener("touchstart", onTouchStart, { capture: true });
       container.removeEventListener("touchmove", onTouchMove, { capture: true });
     };
-  }, [terminalReady]);
+  }, [terminalReady, wsRef]);
 
   // Update xterm theme when the app theme changes
   useEffect(() => {
@@ -399,7 +404,7 @@ export function TerminalClient({
         ref={terminalRef}
         role="application"
         aria-label={`Terminal: ${sessionName}/${windowIndex}`}
-        className={`flex-1 min-h-0 overflow-hidden touch-pan-y transition-opacity ${
+        className={`flex-1 min-h-0 overflow-hidden touch-none transition-opacity ${
           composeOpen ? "opacity-50" : ""
         } ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
         onContextMenu={(e) => e.preventDefault()}

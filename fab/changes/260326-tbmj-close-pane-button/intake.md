@@ -25,21 +25,15 @@ Add a `ClosePaneButton` component in `app/frontend/src/components/top-bar.tsx`, 
 - Uses the same styling pattern as `SplitButton` (24x24 min size, rounded border, hover state)
 - Shows an "X" or close icon (an SVG matching the 14x14 viewBox convention used by the split icons)
 - Is hidden on mobile (`hidden sm:flex`) like the split buttons
-- Calls a new `killPane` API client function
-- Requires knowledge of the current pane ID to close
+- Calls a new `closePane` API client function targeting the active pane by window (no pane ID tracking needed)
 
 ### Frontend: API Client Function
 
-Add a `killPane(session: string, index: number, paneId: string)` function in `app/frontend/src/api/client.ts` that POSTs to a new backend endpoint.
+Add a `closePane(session: string, index: number)` function in `app/frontend/src/api/client.ts` that POSTs to `POST /api/sessions/{session}/windows/{index}/close-pane`.
 
-### Backend: Kill Pane API Endpoint
+### Backend: Close Pane API Endpoint
 
-Add a new route `POST /api/sessions/{session}/windows/{index}/panes/{paneId}/kill` in `app/backend/api/router.go` with a handler in the appropriate handler file. The backend already has `tmux.KillPane(paneID, server)` and the `TmuxOps.KillPane` interface method — the handler just needs to wire the HTTP layer to the existing function.
-
-### Pane ID Availability
-
-The frontend needs to know which pane ID to close. The current `WindowInfo` type and SSE data need to include the active pane ID so the button knows what to target. This may require checking how the WebSocket connection identifies its pane.
-<!-- assumed: The active pane ID is available from the terminal connection context or can be derived from the current window's pane list -->
+Add a new route `POST /api/sessions/{session}/windows/{index}/close-pane` in `app/backend/api/router.go` with a handler that kills the active pane of the specified window. Uses a `KillActivePane` tmux function that targets the active pane by window — no pane ID tracking or frontend-to-backend pane ID plumbing required.
 
 ## Affected Memory
 

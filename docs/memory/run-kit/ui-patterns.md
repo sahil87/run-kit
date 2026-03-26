@@ -57,10 +57,10 @@ The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derive
 - Logo SVG (`icon.svg`) — decorative (`aria-hidden="true"`), not a button
 - "Run Kit" text span (`text-xs text-text-secondary`)
 - Green/gray connection dot — no text label ("live"/"disconnected" text removed)
-- `FixedWidthToggle`
 - Split horizontal button (`SplitButton horizontal`) — splits pane left/right. Only rendered when `currentWindow` exists
 - Split vertical button (`SplitButton`) — splits pane top/bottom. Only rendered when `currentWindow` exists
 - Close pane button (`ClosePaneButton`) — kills the active pane of the current window. Only rendered when `currentWindow` exists
+- `FixedWidthToggle`
 - `ThemeToggle`
 - `⌘K` kbd hint
 - Compose button (`>_`) — rightmost item, opens compose buffer. `onOpenCompose` callback passed as prop to `TopBar`

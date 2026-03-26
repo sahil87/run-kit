@@ -6,7 +6,7 @@ const TEST_SESSION = `e2e-scroll-${Date.now()}`;
 const port = Number(process.env.RK_PORT ?? "3000");
 const BASE = `http://localhost:${port}`;
 
-// Mock pointer:coarse so the scroll proxy is created in desktop Chromium
+// Mock pointer:coarse so the touch scroll handler activates in desktop Chromium
 function mockTouchDevice(page: import("@playwright/test").Page) {
   return page.addInitScript(() => {
     const orig = window.matchMedia;
@@ -43,18 +43,15 @@ test.describe("Mobile touch scroll", () => {
       execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
         stdio: "ignore",
       });
-    } catch {
-      // Best effort
-    }
+    } catch {}
   });
 
-  test("scroll proxy enables touch scrolling in terminal", async ({
+  test("touch swipe sends SGR scroll sequences via WebSocket", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await mockTouchDevice(page);
 
-    // Route: /$server/$session/$window
     await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/0`);
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(2000);
@@ -62,16 +59,6 @@ test.describe("Mobile touch scroll", () => {
     // Generate scrollback
     await page.keyboard.type("seq 1 200\n", { delay: 10 });
     await page.waitForTimeout(2000);
-
-    // Verify scroll proxy was injected
-    const proxyScrollHeight = await page.evaluate(() => {
-      const container = document.querySelector('[role="application"]');
-      const proxy = container?.querySelector(
-        'div[style*="overflow-y"]',
-      ) as HTMLElement;
-      return proxy?.scrollHeight ?? 0;
-    });
-    expect(proxyScrollHeight).toBe(10000);
 
     // Intercept WebSocket sends
     await page.evaluate(() => {
@@ -85,37 +72,43 @@ test.describe("Mobile touch scroll", () => {
       };
     });
 
-    // Simulate native scroll on proxy (as iOS would on touch swipe-down)
-    await page.evaluate(() => {
-      const container = document.querySelector('[role="application"]');
-      const proxy = container?.querySelector(
-        'div[style*="overflow-y"]',
-      ) as HTMLElement;
-      if (proxy) proxy.scrollTop -= 300;
+    // Simulate touch swipe via CDP (closest to real iOS touch)
+    const box = await page.locator('[role="application"]').boundingBox();
+    expect(box).not.toBeNull();
+    const cx = Math.round(box!.x + box!.width / 2);
+    const startY = Math.round(box!.y + box!.height / 2);
+
+    const client = await page.context().newCDPSession(page);
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: cx, y: startY }],
+    });
+    await page.waitForTimeout(50);
+    // Swipe down (finger moves down) = see older content = scroll up
+    for (let i = 1; i <= 15; i++) {
+      await client.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: cx, y: startY + i * 20 }],
+      });
+      await page.waitForTimeout(30);
+    }
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
     });
     await page.waitForTimeout(500);
 
-    // Verify SGR scroll-up sequences were sent to tmux
+    // Verify SGR scroll-up sequences were sent
     const seqs = await page.evaluate(
       () => (window as any).__scrollSeqs as string[],
     );
     expect(seqs.length).toBeGreaterThan(0);
-    // Button 64 = scroll up, with valid terminal coordinates (not 1;1)
+    // Button 64 = scroll up, with valid terminal coordinates
     expect(seqs[0]).toMatch(/\x1b\[<64;\d+;\d+M/);
     expect(seqs[0]).not.toContain(";1;1M");
-
-    // Verify scrollTop was re-centered for continuous scrolling
-    const scrollTop = await page.evaluate(() => {
-      const container = document.querySelector('[role="application"]');
-      const proxy = container?.querySelector(
-        'div[style*="overflow-y"]',
-      ) as HTMLElement;
-      return proxy?.scrollTop ?? -1;
-    });
-    expect(scrollTop).toBe(5000);
   });
 
-  test("tap passthrough focuses terminal for keyboard", async ({ page }) => {
+  test("tap on terminal focuses textarea for keyboard", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await mockTouchDevice(page);
 
@@ -123,21 +116,31 @@ test.describe("Mobile touch scroll", () => {
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(2000);
 
-    // Tap the terminal area — the browser fires click (not scroll) for taps
+    // Blur any active element first
+    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+
+    // Tap via CDP (touch start + end, no movement = tap)
     const box = await page.locator('[role="application"]').boundingBox();
     expect(box).not.toBeNull();
+    const client = await page.context().newCDPSession(page);
+    const cx = Math.round(box!.x + box!.width / 2);
+    const cy = Math.round(box!.y + box!.height / 2);
 
-    await page.mouse.click(
-      box!.x + box!.width / 2,
-      box!.y + box!.height / 2,
-    );
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: cx, y: cy }],
+    });
+    await page.waitForTimeout(100);
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
     await page.waitForTimeout(500);
 
-    // Verify the xterm helper textarea received focus (keyboard trigger on iOS)
-    const focused = await page.evaluate(() => {
-      const active = document.activeElement;
-      return active?.classList.contains("xterm-helper-textarea") ?? false;
-    });
+    // Verify xterm textarea received focus (triggers keyboard on iOS)
+    const focused = await page.evaluate(() =>
+      document.activeElement?.classList.contains("xterm-helper-textarea"),
+    );
     expect(focused).toBe(true);
   });
 });

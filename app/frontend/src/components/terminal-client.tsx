@@ -256,103 +256,66 @@ export function TerminalClient({
     };
   }, [wsRef]);
 
-  // Mobile touch-to-scroll via scroll proxy.
+  // Mobile touch-to-scroll: translate vertical swipe gestures into SGR mouse
+  // wheel escape sequences sent to tmux via WebSocket.
   //
-  // On iOS Safari, touch events on a canvas (xterm.js WebGL) don't produce
-  // native scroll — the canvas isn't a "normal scrollable surface". JS-level
-  // touchmove handlers also fail because iOS suppresses them for non-scrollable
-  // elements even with touch-action: none.
-  //
-  // Solution: inject an invisible scrollable overlay ("scroll proxy") on top of
-  // the terminal. iOS natively handles touch-to-scroll on this div. We listen
-  // for the `scroll` event and translate delta into SGR mouse wheel escape
-  // sequences sent to tmux via WebSocket. The proxy's scrollTop is re-centered
-  // after each scroll so the user can scroll indefinitely in both directions.
-  //
-  // The proxy only activates on coarse-pointer (touch) devices. On desktop
-  // (fine pointer), native mouse wheel events go through xterm.js's own handler.
+  // No overlay/proxy needed — we listen for touchmove directly on the terminal
+  // container in the capture phase. touch-action: none on the container ensures
+  // iOS delivers all touchmove events to JS. Taps naturally reach xterm.js for
+  // keyboard focus since there's no overlay blocking them.
   useEffect(() => {
     const container = terminalRef.current;
     if (!container) return;
 
-    // Only create proxy on touch devices
+    // Only on touch devices — desktop uses native mouse wheel via xterm.js
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
     if (!isTouch) return;
 
     const LINE_HEIGHT = xtermRef.current?.options.fontSize ?? 13;
+    let startY = 0;
+    let accumulatedDelta = 0;
 
-    // Create scroll proxy: invisible div with tall content for native scroll
-    const proxy = document.createElement("div");
-    proxy.style.cssText =
-      "position:absolute;inset:0;z-index:5;overflow-y:scroll;opacity:0;" +
-      "-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:none;";
-    const spacer = document.createElement("div");
-    const SPACER_HEIGHT = 10000;
-    const CENTER = SPACER_HEIGHT / 2;
-    spacer.style.height = `${SPACER_HEIGHT}px`;
-    proxy.appendChild(spacer);
-    container.style.position = "relative";
-    container.appendChild(proxy);
-    proxy.scrollTop = CENTER;
-
-    let lastScrollTop = CENTER;
-    let rafId: number | null = null;
-
-    function onScroll() {
-      if (rafId) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        const ws = wsRef.current;
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-        const delta = proxy.scrollTop - lastScrollTop;
-        if (delta === 0) return;
-
-        const lines = Math.round(delta / LINE_HEIGHT);
-        if (lines === 0) return;
-
-        // SGR mouse encoding: \x1b[<button;col;rowM
-        // button 64 = scroll up (older), 65 = scroll down (newer)
-        // col/row must be valid terminal coordinates (1-based) — tmux
-        // ignores events at 1;1 (status bar area). Use terminal center.
-        const term = xtermRef.current;
-        const col = term ? Math.ceil(term.cols / 2) : 40;
-        const row = term ? Math.ceil(term.rows / 2) : 12;
-        const button = lines > 0 ? 65 : 64;
-        const seq = `\x1b[<${button};${col};${row}M`;
-        const count = Math.abs(lines);
-        let payload = "";
-        for (let i = 0; i < count; i++) payload += seq;
-        ws.send(payload);
-
-        // Re-center so user can keep scrolling in both directions
-        proxy.scrollTop = CENTER;
-        lastScrollTop = CENTER;
-      });
+    function onTouchStart(e: TouchEvent) {
+      if (e.touches.length !== 1) return;
+      startY = e.touches[0].clientY;
+      accumulatedDelta = 0;
     }
 
-    proxy.addEventListener("scroll", onScroll, { passive: true });
+    function onTouchMove(e: TouchEvent) {
+      if (e.touches.length !== 1) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    // Tap passthrough: the browser only fires `click` for taps, never for
-    // scrolls — no custom gesture detection needed. Forward the click to the
-    // element underneath so xterm.js receives focus (opens iOS keyboard).
-    function onClick(e: MouseEvent) {
-      proxy.style.pointerEvents = "none";
-      const target = document.elementFromPoint(e.clientX, e.clientY);
-      proxy.style.pointerEvents = "";
-      if (target instanceof HTMLElement) {
-        target.focus();
-        target.click();
-      }
+      const currentY = e.touches[0].clientY;
+      const dy = startY - currentY; // positive = swiped up
+      accumulatedDelta += dy;
+      startY = currentY;
+
+      const lines = Math.trunc(accumulatedDelta / LINE_HEIGHT);
+      if (lines === 0) return;
+      accumulatedDelta -= lines * LINE_HEIGHT;
+
+      // SGR mouse encoding: \x1b[<button;col;rowM
+      // button 64 = scroll up (older), 65 = scroll down (newer)
+      // col/row must be valid terminal coordinates — tmux ignores 1;1.
+      const term = xtermRef.current;
+      const col = term ? Math.ceil(term.cols / 2) : 40;
+      const row = term ? Math.ceil(term.rows / 2) : 12;
+      // Swipe up (dy > 0, lines > 0) = see newer content = scroll down = 65
+      // Swipe down (dy < 0, lines < 0) = see older content = scroll up = 64
+      const button = lines > 0 ? 65 : 64;
+      const seq = `\x1b[<${button};${col};${row}M`;
+      const count = Math.abs(lines);
+      let payload = "";
+      for (let i = 0; i < count; i++) payload += seq;
+      ws.send(payload);
     }
 
-    proxy.addEventListener("click", onClick);
-
+    container.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true, capture: true });
     return () => {
-      proxy.removeEventListener("scroll", onScroll);
-      proxy.removeEventListener("click", onClick);
-      if (rafId) cancelAnimationFrame(rafId);
-      proxy.remove();
+      container.removeEventListener("touchstart", onTouchStart, { capture: true });
+      container.removeEventListener("touchmove", onTouchMove, { capture: true });
     };
   }, [terminalReady, wsRef]);
 
@@ -447,7 +410,7 @@ export function TerminalClient({
         ref={terminalRef}
         role="application"
         aria-label={`Terminal: ${sessionName}/${windowIndex}`}
-        className={`flex-1 min-h-0 overflow-hidden touch-pan-y transition-opacity ${
+        className={`flex-1 min-h-0 overflow-hidden touch-none transition-opacity ${
           composeOpen ? "opacity-50" : ""
         } ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
         onContextMenu={(e) => e.preventDefault()}

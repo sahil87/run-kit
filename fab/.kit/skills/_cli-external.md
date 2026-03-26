@@ -50,6 +50,7 @@ fab/.kit/bin/idea <subcommand> [flags...]
 
 | Subcommand | Usage | Purpose |
 |------------|-------|---------|
+| *(bare)* | `idea <text>` | Shorthand for `idea add <text>` (no `--id`/`--date` flags) |
 | `add` | `add <text> [--id <4char>] [--date <YYYY-MM-DD>]` | Add a new idea |
 | `list` | `list [-a] [--done] [--json] [--sort <id\|date>] [--reverse]` | List ideas |
 | `show` | `show <query> [--json]` | Show a single idea |

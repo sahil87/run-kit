@@ -245,7 +245,9 @@ intake → spec → tasks → apply → review → hydrate → ship
 ```
 
 **Setup commands**: `/fab-new` (create change), `/fab-switch` (activate), `/git-branch` (align branch)
-**Pipeline commands**: `/fab-continue` (one stage), `/fab-fff` (full pipeline), `/fab-ff` (fast-forward to hydrate)
+
+**Pipeline commands**: `/fab-proceed` (auto-detect state, run `/fab-new` → `/fab-switch` → `/git-branch` as needed, then `/fab-fff`), `/fab-continue` (one stage), `/fab-fff` (full pipeline), `/fab-ff` (fast-forward to hydrate), `/git-pr` (commit, push, create PR)
+
 **Maintenance**: rebase onto `origin/main`, merge PR (`gh pr merge`), `/fab-archive`
 
 ### Spawning an Agent
@@ -260,6 +262,19 @@ tmux new-window -n "fab-<id>" -c <worktree-path> "<spawn_cmd> '<command>'"
 
 The operator accepts work in three forms:
 
+**From existing change** (already has intake or further):
+1. Create worktree (`wt create --non-interactive --worktree-name <name>`)
+2. Resolve dependencies (cherry-pick `depends_on` entries — see above)
+3. Spawn agent: `tmux new-window -n "fab-<id>" -c <worktree-path> "<spawn_cmd> '/fab-switch <change> && /fab-proceed'"`
+4. Enroll in monitored set
+5. On completion: merge PR, optionally archive
+
+`/fab-switch` activates the target change so `/fab-proceed` knows which one to run. `/fab-proceed` then handles `/git-branch` → `/fab-fff` automatically.
+
+**From raw text** (e.g., "fix login after password reset"):
+1. Create backlog entry: `idea add "<description>"` — captures the ID
+2. Proceed with the backlog flow below using the new ID
+
 **From backlog ID or Linear issue** (structured):
 1. Look up the idea (`idea show <id>`) or resolve the Linear issue
 2. Create worktree (`wt create --non-interactive --worktree-name <name>`)
@@ -268,14 +283,7 @@ The operator accepts work in three forms:
 5. Enroll in monitored set
 6. On completion: merge PR, optionally archive
 
-**From raw text** (e.g., "fix login after password reset"):
-1. Create backlog entry: `idea add "<description>"` — captures the ID
-2. Proceed with the structured flow above using the new ID
-
-This ensures every change gets a proper intake artifact with traceability, even for ad-hoc requests. The operator handles `idea add` internally — the user just says "fix [description]" and the operator does the rest.
-
-**From existing change** (already has intake or further):
-The operator determines which steps are needed from the change's current state. If intake already exists, skip `/fab-new`. If branch already matches, skip `/git-branch`.
+Both raw text and backlog paths use `/fab-new` to generate a proper intake with traceability.
 
 ### Autopilot
 

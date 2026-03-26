@@ -74,7 +74,7 @@ fab/.kit/bin/fab change <subcommand> [flags...]
 | `new` | `new --slug <slug> [--change-id <4char>] [--log-args <desc>]` | Create new change |
 | `rename` | `rename --folder <current-folder> --slug <new-slug>` | Rename change slug |
 | `resolve` | `resolve [<override>]` | Passthrough to resolve --folder |
-| `switch` | `switch <name> \| --blank` | Switch active change |
+| `switch` | `switch <name> \| --none` | Switch active change |
 | `list` | `list [--archive]` | List changes with stage info |
 | `archive` | `archive <change> --description "..."` | Clean .pr-done, move to archive/, update index, clear pointer |
 | `restore` | `restore <change> [--switch]` | Move from archive/, remove index entry, optionally activate |

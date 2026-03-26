@@ -3,7 +3,7 @@ name: fab-switch
 description: "Switch the active change to a different one. Lists available changes when called with no argument."
 ---
 
-# /fab-switch [change-name] [--blank]
+# /fab-switch [change-name] [--none]
 
 > Read `fab/.kit/skills/_preamble.md` first (path is relative to repo root). Only after that Read completes, proceed with any Bash calls.
 
@@ -12,9 +12,9 @@ description: "Switch the active change to a different one. Lists available chang
 ## Arguments
 
 - **`<change-name>`** *(optional)* — full or partial name of the change to switch to. Supports full folder names, partial slug matches, or any substring. Case-insensitive.
-- **`--blank`** — deactivate the current change by removing the `.fab-status.yaml` symlink. Mutually exclusive with `<change-name>` (if both given, prefer `--blank`).
+- **`--none`** — deactivate the current change by removing the `.fab-status.yaml` symlink. Mutually exclusive with `<change-name>` (if both given, prefer `--none`).
 
-If no argument (and no `--blank`): list all active changes and ask user to pick.
+If no argument (and no `--none`): list all active changes and ask user to pick.
 
 ---
 
@@ -46,9 +46,9 @@ If the command exits 1 and stderr contains "Multiple changes match": parse the c
 
 If the command exits 1 and stderr contains "No change matches": list all available changes, inform user.
 
-### Deactivation Flow (`--blank`)
+### Deactivation Flow (`--none`)
 
-Run `fab/.kit/bin/fab change switch --blank`. Display the command's stdout output.
+Run `fab/.kit/bin/fab change switch --none`. Display the command's stdout output.
 
 ### Switch Flow
 
@@ -61,7 +61,7 @@ The skill displays the command's stdout directly.
 
 ### Command Logging
 
-After a successful switch (not `--blank`), log the command invocation:
+After a successful switch (not `--none`), log the command invocation:
 
 ```bash
 fab/.kit/bin/fab log command "fab-switch" 2>/dev/null || true
@@ -71,7 +71,7 @@ This is best-effort — the logger resolves the active change via `.fab-status.y
 
 ### Hint Line
 
-After displaying the command's output, append (unless the operation was `--blank`):
+After displaying the command's output, append (unless the operation was `--none`):
 
 ```
 Tip: run /git-branch to create or switch to the matching branch
@@ -96,7 +96,7 @@ Where `{display_stage}` is "where you are" (last active or last done stage) and 
 
 For the no-argument flow (listing changes), the skill reads `fab change list` output (format `name:display_stage:display_state:score:indicative`) and displays confidence info alongside stage info in the numbered list.
 
-Tip line omitted for `--blank`. Deactivation shows `No active change.`. Already-blank shows `No active change (already blank).`
+Tip line omitted for `--none`. Deactivation shows `No active change.`. Already-deactivated shows `No active change (already deactivated).`
 
 ---
 
@@ -117,7 +117,7 @@ Tip line omitted for `--blank`. Deactivation shows `No active change.`. Already-
 |----------|-------|
 | Advances stage? | No — changes only the active pointer |
 | Idempotent? | Yes |
-| Modifies `.fab-status.yaml`? | Yes (creates symlink, or removes with `--blank`) |
+| Modifies `.fab-status.yaml`? | Yes (creates symlink, or removes with `--none`) |
 | Modifies `.status.yaml`? | No |
 | Modifies git state? | No |
 | Requires config/constitution? | No |

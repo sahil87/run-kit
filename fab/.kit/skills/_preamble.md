@@ -109,8 +109,8 @@ Every skill MUST end its output with a `Next:` line derived from the State Table
 | State | Available commands | Default |
 |-------|-------------------|---------|
 | (none) | /fab-setup | /fab-setup |
-| initialized | /fab-new, /docs-hydrate-memory | /fab-new |
-| intake | /fab-continue, /fab-ff, /fab-fff, /fab-clarify | /fab-continue |
+| initialized | /fab-new, /fab-proceed, /docs-hydrate-memory | /fab-new |
+| intake | /fab-continue, /fab-ff, /fab-fff, /fab-proceed, /fab-clarify | /fab-continue |
 | spec | /fab-continue, /fab-ff, /fab-clarify | /fab-continue |
 | tasks | /fab-continue, /fab-ff, /fab-clarify | /fab-continue |
 | apply | /fab-continue | /fab-continue |

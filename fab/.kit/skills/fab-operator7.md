@@ -27,6 +27,8 @@ Start via `fab/.kit/scripts/fab-operator7.sh` (singleton tmux tab named `operato
 
 **Self-manage context.** The operator is long-lived. When context approaches capacity, run `/clear` and restart the loop. Continuity is maintained via `.fab-operator.yaml` — the monitored set and autopilot queue survive a clear. After clearing, re-read context files, re-read `.fab-operator.yaml`, and resume.
 
+**Pipeline-first routing.** The operator MUST route all new work through `/fab-new` (to generate intake) then a pipeline command (`/fab-fff`, `/fab-ff`, or `/fab-continue`). The operator MUST NOT dispatch raw inline implementation instructions (e.g., "fix the login bug by changing line 42 in auth.ts") directly to agent panes. The operator MUST NOT send `/fab-continue` to skip intake for new work — `/fab-new` is always the entry point. Exception: operational maintenance commands (see "Coordinate, don't execute" above) are coordination-level actions and remain direct.
+
 ---
 
 ## 2. Startup
@@ -61,7 +63,7 @@ Error: operator requires tmux. Start a tmux session first.
 1. Read `.fab-operator.yaml` from the repo root. If missing, create with empty `monitored: {}`, `autopilot: null`, and `branch_map: {}`
 2. Restore monitored set, autopilot queue, and branch_map from the file (supports `/clear` recovery)
 3. Run `fab pane-map` and display the output
-4. If monitored set is non-empty, autopilot is active, or watches exist, start the loop: `/loop 3m "operator tick"`
+4. If any tracked items exist (monitored changes, active autopilot, or watches), start the loop: `/loop 3m "operator tick"`
 5. Output: `Operator ready.` (+ `Loop active (3m).` if loop started)
 
 ---
@@ -168,25 +170,47 @@ The top-level `branch_map` persists change ID → branch name mappings. Entries 
 
 On each tick:
 
-1. **Snapshot** — increment `tick_count`, run `fab pane-map`, read `.fab-operator.yaml`. Compute status for each monitored change: stage advances, completions, review failures, pane deaths. Output the status frame:
+1. **Snapshot** — increment `tick_count`, run `fab pane-map`, read `.fab-operator.yaml`. Compute status for all tracked items: stage advances, completions, review failures, pane deaths, and watch statuses from the last persisted check (`last_checked` / `last_error` / last counts). Output the status frame:
 
 ```
-── Operator ── 17:32 ── tick #47 ── 3 monitored · autopilot 1/3 · 1 watch ──
+── Operator ── 17:32 ── tick #47 ── 7 tracked ──
 
-  r3m7  🟢 apply → review
-  k8ds  🟡 review · idle 18m ⚠
-  ab12  🟢 hydrate ✓
-
-  👁 linear-bugs  2 known · 1 completed · last check 17:29
+  [change]  r3m7         ▶ 🟢 apply → review
+  [change]  k8ds         ▶ 🟡 review · idle 18m ⚠
+  [change]  ab12           🟢 hydrate ✓
+  [change]  ef56           🔴 spec · idle 32m ⚠
+  [watch]   gmail-deploys  🟡 1 new · 2m ago
+  [watch]   linear-bugs    🟢 2 known · 1 completed · 3m ago
+  [watch]   slack-alerts   🟢 0 new · 1m ago
 
 ───────────────────────────────────────────────────────────
 ```
 
-Stage indicators: 🟢 active, 🟡 idle, 🔴 stuck (>15m idle at non-terminal), ✓ complete. Watch indicator: 👁.
+All tracked items render in a single flat list. Every row follows a consistent column layout:
+
+| Column | Content |
+|--------|---------|
+| Type | `[change]` or `[watch]` — bracketed type prefix |
+| ID | Change ID (4-char) or watch name |
+| Autopilot | `▶` if autopilot-driven, blank otherwise |
+| Health | Status emoji — universal position across all types |
+| Detail | Type-specific status text |
+
+**Header**: `N tracked` is the total count of all entries (changes + watches). No per-type counts.
+
+**Ordering**: Changes first (sorted by enrollment time), then watches (sorted alphabetically by name).
+
+**Change health**: 🟢 active, 🟡 idle, 🔴 stuck (>15m idle at non-terminal), ✓ complete.
+
+**Watch health**: 🟢 healthy (last query succeeded, no new items), 🟡 has new unprocessed items, 🔴 errored (`last_error` set), ⏸ paused (`enabled: false`).
+
+**Autopilot marker**: `▶` marks changes driven by the autopilot queue. Non-autopilot changes (manually enrolled or watch-spawned) show blank. Queue state is readable from the list — which entries have `▶`, which are complete.
+
+**Watch timestamps**: Relative format (`{N}m ago`) matching the idle duration format: `{N}s ago` (< 60s), `{N}m ago` (60s–59m), `{N}h ago` (>= 60m). Floor division.
 
 2. **Auto-nudge** — for each idle agent, run question detection (§5). If a newly-spawned agent advances past intake, send `/git-branch` to align the branch.
 3. **Watches** — for each watch, query the source, compare against `known`, spawn on new matches (§7).
-4. **Autopilot step** — if an autopilot queue is active, run the next autopilot action (§6).
+4. **Autopilot dispatch** — if an autopilot queue is active, run the next autopilot action (§6). Autopilot-driven changes are visible in the frame via `▶`.
 5. **Removals** — remove completed changes (reached stop stage or terminal stage) and dead panes from the monitored set.
 6. **Persist** — write updated state to `.fab-operator.yaml`
 7. **Loop lifecycle** — if monitored set is empty, no autopilot, and no watches, stop the loop.
@@ -265,7 +289,9 @@ intake → spec → tasks → apply → review → hydrate → ship
 ```
 
 **Setup commands**: `/fab-new` (create change), `/fab-switch` (activate), `/git-branch` (align branch)
-**Pipeline commands**: `/fab-continue` (one stage), `/fab-fff` (full pipeline), `/fab-ff` (fast-forward to hydrate)
+
+**Pipeline commands**: `/fab-proceed` (auto-detect state, run `/fab-new` → `/fab-switch` → `/git-branch` as needed, then `/fab-fff`), `/fab-continue` (one stage), `/fab-fff` (full pipeline), `/fab-ff` (fast-forward to hydrate), `/git-pr` (commit, push, create PR)
+
 **Maintenance**: rebase onto `origin/main`, merge PR (`gh pr merge`), `/fab-archive`
 
 ### Spawning an Agent
@@ -329,7 +355,25 @@ Dependencies are declared through three conversational paths, all of which coexi
 
 ### Working a Change
 
+> **Pipeline-first routing (§1):** All three work paths below MUST go through the fab pipeline. For *new* work, this means `/fab-new` followed by a pipeline command; for already-intaked changes, start from the appropriate pipeline command stage instead of repeating `/fab-new`. The operator MUST NOT send raw implementation instructions directly to agent panes. See the "Pipeline-first routing" principle in §1.
+
 The operator accepts work in three forms:
+
+**From existing change** (already has intake or further):
+1. Create worktree (`wt create --non-interactive --worktree-name <name>`)
+2. Resolve dependencies (cherry-pick `depends_on` entries — see above)
+3. Spawn agent: `tmux new-window -n "fab-<id>" -c <worktree-path> "<spawn_cmd> '/fab-switch <change> && /fab-proceed'"`
+4. Enroll in monitored set
+5. On completion: merge PR, optionally archive
+
+`/fab-switch` activates the target change so `/fab-proceed` knows which one to run. `/fab-proceed` then handles `/git-branch` → `/fab-fff` automatically.
+
+**From raw text** (e.g., "fix login after password reset"):
+1. Create worktree (`wt create --non-interactive`)
+2. Resolve dependencies (cherry-pick `depends_on` entries — see above)
+3. Spawn agent: `tmux new-window -n "fab-<wt>" -c <worktree-path> "<spawn_cmd> '/fab-new <shell_escaped_description>'"` — where `<shell_escaped_description>` is the raw description text safely shell-escaped for inclusion in a single-quoted shell argument (do not insert unescaped raw text directly)
+4. Enroll in monitored set
+5. On completion: merge PR, optionally archive
 
 **From backlog ID or Linear issue** (structured):
 1. Look up the idea (`idea show <id>`) or resolve the Linear issue
@@ -339,14 +383,7 @@ The operator accepts work in three forms:
 5. Enroll in monitored set
 6. On completion: merge PR, optionally archive
 
-**From raw text** (e.g., "fix login after password reset"):
-1. Create backlog entry: `idea add "<description>"` — captures the ID
-2. Proceed with the structured flow above using the new ID
-
-This ensures every change gets a proper intake artifact with traceability, even for ad-hoc requests. The operator handles `idea add` internally — the user just says "fix [description]" and the operator does the rest.
-
-**From existing change** (already has intake or further):
-The operator determines which steps are needed from the change's current state. If intake already exists, skip `/fab-new`. If branch already matches, skip `/git-branch`. Dependency resolution still applies if `depends_on` is set.
+Both raw text and backlog paths use `/fab-new` to generate a proper intake with traceability. `/fab-new` captures the raw input in the intake's Origin section — the user just says "fix [description]" and the operator does the rest.
 
 ### Autopilot
 
@@ -369,6 +406,8 @@ The operator works each change through the pipeline, applying pre-send validatio
 7. **Rebase next** — rebase next queued change onto latest `origin/main`. On conflict: flag, skip
 8. **Cleanup** — optionally delete worktree after merge
 9. **Report** — `"ab12: merged. 1 of 3 complete. Starting cd34."`
+
+Autopilot-driven changes display `▶` in the status frame (§4). Queue progress is visible from the list — entries with `▶` that show ✓ are complete, the one showing 🟢/🟡 is current.
 
 Autopilot state (queue, current, completed) persists in `.fab-operator.yaml`.
 

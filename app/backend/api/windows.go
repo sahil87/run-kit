@@ -72,7 +72,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		desktopName := body.Name
 		if desktopName == "" || desktopName == "desktop" {
 			// Count existing desktop windows to generate next number
-			existingWindows, _ := s.tmux.ListWindows(session, server)
+			existingWindows, _ := s.tmux.ListWindows(r.Context(), session, server)
 			n := 1
 			for _, w := range existingWindows {
 				if strings.HasPrefix(w.Name, "desktop:") {
@@ -83,7 +83,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		windowName := "desktop:" + desktopName
 		var resolvedCwd string
-		if windows, listErr := s.tmux.ListWindows(session, server); listErr == nil && len(windows) > 0 {
+		if windows, listErr := s.tmux.ListWindows(r.Context(), session, server); listErr == nil && len(windows) > 0 {
 			resolvedCwd = windows[0].WorktreePath
 		}
 		if err := s.tmux.CreateWindow(session, windowName, resolvedCwd, server); err != nil {
@@ -92,7 +92,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Find the newly created window index
-		windows, err := s.tmux.ListWindows(session, server)
+		windows, err := s.tmux.ListWindows(r.Context(), session, server)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

@@ -192,6 +192,39 @@ export function DesktopClient({
         trackpadRef.current.moved = true;
 
         sendPointerToCanvas("mousemove");
+
+        // Auto-pan when zoomed: if cursor nears the edge of the visible area, scroll to follow
+        if (zoomRef.current.scale > 1 && outerRef.current && containerRef.current) {
+          const canvas = containerRef.current.querySelector("canvas");
+          if (canvas) {
+            const outer = outerRef.current.getBoundingClientRect();
+            const { scale, x: panX, y: panY } = zoomRef.current;
+            const fbW = canvas.width || 1920;
+            const fbH = canvas.height || 1080;
+
+            // Cursor position in screen pixels (relative to outer container)
+            const cursorScreenX = (cursorRef.current.x / fbW) * outer.width * scale + panX;
+            const cursorScreenY = (cursorRef.current.y / fbH) * outer.height * scale + panY;
+
+            // Edge margin where auto-pan kicks in (px)
+            const margin = 40;
+            const panSpeed = 15;
+            let newX = panX;
+            let newY = panY;
+
+            if (cursorScreenX < margin) newX += panSpeed;
+            else if (cursorScreenX > outer.width - margin) newX -= panSpeed;
+            if (cursorScreenY < margin) newY += panSpeed;
+            else if (cursorScreenY > outer.height - margin) newY -= panSpeed;
+
+            if (newX !== panX || newY !== panY) {
+              zoomRef.current.x = newX;
+              zoomRef.current.y = newY;
+              clampPan();
+              applyTransform();
+            }
+          }
+        }
       } else if (e.touches.length === 1 && panRef.current && zoomRef.current.scale > 1) {
         e.preventDefault();
         const dx = e.touches[0].clientX - panRef.current.startX;

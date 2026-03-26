@@ -123,23 +123,14 @@ test.describe("Mobile touch scroll", () => {
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(2000);
 
-    // Simulate a tap via CDP (short touch, no movement)
+    // Tap the terminal area — the browser fires click (not scroll) for taps
     const box = await page.locator('[role="application"]').boundingBox();
     expect(box).not.toBeNull();
 
-    const client = await page.context().newCDPSession(page);
-    const cx = Math.round(box!.x + box!.width / 2);
-    const cy = Math.round(box!.y + box!.height / 2);
-
-    await client.send("Input.dispatchTouchEvent", {
-      type: "touchStart",
-      touchPoints: [{ x: cx, y: cy }],
-    });
-    await page.waitForTimeout(50);
-    await client.send("Input.dispatchTouchEvent", {
-      type: "touchEnd",
-      touchPoints: [],
-    });
+    await page.mouse.click(
+      box!.x + box!.width / 2,
+      box!.y + box!.height / 2,
+    );
     await page.waitForTimeout(500);
 
     // Verify the xterm helper textarea received focus (keyboard trigger on iOS)

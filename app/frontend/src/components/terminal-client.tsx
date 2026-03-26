@@ -333,8 +333,50 @@ export function TerminalClient({
 
     proxy.addEventListener("scroll", onScroll, { passive: true });
 
+    // Tap passthrough: the proxy blocks taps from reaching xterm.js (needed
+    // for focusing the terminal / opening the iOS keyboard). Detect taps
+    // (short duration, minimal movement) and forward them to the element below.
+    let touchStartTime = 0;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    const TAP_MAX_DURATION = 300;
+    const TAP_MAX_DISTANCE = 10;
+
+    function onTouchStart(e: TouchEvent) {
+      if (e.touches.length !== 1) return;
+      touchStartTime = Date.now();
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }
+
+    function onTouchEnd(e: TouchEvent) {
+      const dt = Date.now() - touchStartTime;
+      if (dt > TAP_MAX_DURATION) return;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const dx = Math.abs(touch.clientX - touchStartX);
+      const dy = Math.abs(touch.clientY - touchStartY);
+      if (dx > TAP_MAX_DISTANCE || dy > TAP_MAX_DISTANCE) return;
+
+      // It's a tap — forward to the element underneath
+      proxy.style.pointerEvents = "none";
+      const target = document.elementFromPoint(touch.clientX, touch.clientY);
+      proxy.style.pointerEvents = "";
+      if (target) {
+        target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: touch.clientX, clientY: touch.clientY }));
+        target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: touch.clientX, clientY: touch.clientY }));
+        target.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: touch.clientX, clientY: touch.clientY }));
+        if (target instanceof HTMLElement) target.focus();
+      }
+    }
+
+    proxy.addEventListener("touchstart", onTouchStart, { passive: true });
+    proxy.addEventListener("touchend", onTouchEnd, { passive: true });
+
     return () => {
       proxy.removeEventListener("scroll", onScroll);
+      proxy.removeEventListener("touchstart", onTouchStart);
+      proxy.removeEventListener("touchend", onTouchEnd);
       if (rafId) cancelAnimationFrame(rafId);
       proxy.remove();
     };

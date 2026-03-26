@@ -5,6 +5,15 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import type { ProjectSession, WindowInfo } from "@/types";
 
+vi.mock("@/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
+  return {
+    ...actual,
+    splitWindow: vi.fn().mockResolvedValue({ ok: true, pane_id: "%1" }),
+    closePane: vi.fn().mockResolvedValue({ ok: true }),
+  };
+});
+
 const nowSeconds = Math.floor(Date.now() / 1000);
 
 const fabWindow: WindowInfo = {
@@ -219,5 +228,22 @@ describe("TopBar", () => {
     expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
     // Menu should close after action
     expect(screen.queryByText("+ New Window")).not.toBeInTheDocument();
+  });
+
+  it("renders ClosePaneButton when a window is selected", () => {
+    renderTopBar();
+    expect(screen.getByLabelText("Close pane")).toBeInTheDocument();
+  });
+
+  it("does not render ClosePaneButton on dashboard (no window)", () => {
+    renderTopBar({ currentWindow: null, windowName: "" });
+    expect(screen.queryByLabelText("Close pane")).not.toBeInTheDocument();
+  });
+
+  it("calls closePane API when ClosePaneButton is clicked", async () => {
+    const { closePane } = await import("@/api/client");
+    renderTopBar();
+    fireEvent.click(screen.getByLabelText("Close pane"));
+    expect(closePane).toHaveBeenCalledWith("run-kit", 0);
   });
 });

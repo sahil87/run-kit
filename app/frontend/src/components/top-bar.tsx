@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { useChrome, useChromeDispatch } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
-import { splitWindow } from "@/api/client";
+import { splitWindow, closePane } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -203,6 +203,12 @@ export function TopBar({
                 />
               </span>
               <span className="hidden sm:flex">
+                <ClosePaneButton
+                  session={sessionName}
+                  windowIndex={currentWindow.index}
+                />
+              </span>
+              <span className="hidden sm:flex">
                 <FixedWidthToggle />
               </span>
             </>
@@ -356,6 +362,45 @@ function SplitButton({
             <line x1="4" x2="20" y1="12" y2="12" />
           </>
         )}
+      </svg>
+    </button>
+  );
+}
+
+function ClosePaneButton({
+  session,
+  windowIndex,
+}: {
+  session: string;
+  windowIndex: number;
+}) {
+  const handleClick = () => {
+    closePane(session, windowIndex).catch(() => {
+      // best-effort — pane may already be dead
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      aria-label="Close pane"
+      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+      title="Close pane"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
     </button>
   );

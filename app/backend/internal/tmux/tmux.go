@@ -449,6 +449,19 @@ func SplitWindow(session string, window int, horizontal bool, server string) (st
 	return lines[0], nil
 }
 
+// KillActivePane kills the active pane of the specified window on the given server.
+// Errors are silently ignored (pane may already be dead), matching KillPane pattern.
+func KillActivePane(session string, window int, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	target := fmt.Sprintf("%s:%d", session, window)
+	_, err := tmuxExecServer(ctx, server, "kill-pane", "-t", target)
+	// Pane may already be dead — ignore errors
+	_ = err
+	return nil
+}
+
 // KillPane kills a specific pane by ID on the specified server.
 func KillPane(paneID string, server string) error {
 	ctx, cancel := withTimeout()

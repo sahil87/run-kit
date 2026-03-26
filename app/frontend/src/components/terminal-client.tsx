@@ -256,6 +256,69 @@ export function TerminalClient({
     };
   }, [wsRef]);
 
+  // Mobile touch-to-scroll: translate vertical swipe gestures into SGR mouse
+  // wheel escape sequences sent to tmux via WebSocket.
+  //
+  // No overlay/proxy needed — we listen for touchmove directly on the terminal
+  // container in the capture phase. touch-action: none on the container ensures
+  // iOS delivers all touchmove events to JS. Taps naturally reach xterm.js for
+  // keyboard focus since there's no overlay blocking them.
+  useEffect(() => {
+    const container = terminalRef.current;
+    if (!container) return;
+
+    // Only on touch devices — desktop uses native mouse wheel via xterm.js
+    const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    if (!isTouch) return;
+
+    const LINE_HEIGHT = xtermRef.current?.options.fontSize ?? 13;
+    let startY = 0;
+    let accumulatedDelta = 0;
+
+    function onTouchStart(e: TouchEvent) {
+      if (e.touches.length !== 1) return;
+      startY = e.touches[0].clientY;
+      accumulatedDelta = 0;
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      if (e.touches.length !== 1) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const currentY = e.touches[0].clientY;
+      const dy = startY - currentY; // positive = swiped up
+      accumulatedDelta += dy;
+      startY = currentY;
+
+      const lines = Math.trunc(accumulatedDelta / LINE_HEIGHT);
+      if (lines === 0) return;
+      accumulatedDelta -= lines * LINE_HEIGHT;
+
+      // SGR mouse encoding: \x1b[<button;col;rowM
+      // button 64 = scroll up (older), 65 = scroll down (newer)
+      // col/row must be valid terminal coordinates — tmux ignores 1;1.
+      const term = xtermRef.current;
+      const col = term ? Math.ceil(term.cols / 2) : 40;
+      const row = term ? Math.ceil(term.rows / 2) : 12;
+      // Swipe up (dy > 0, lines > 0) = see newer content = scroll down = 65
+      // Swipe down (dy < 0, lines < 0) = see older content = scroll up = 64
+      const button = lines > 0 ? 65 : 64;
+      const seq = `\x1b[<${button};${col};${row}M`;
+      const count = Math.abs(lines);
+      let payload = "";
+      for (let i = 0; i < count; i++) payload += seq;
+      ws.send(payload);
+    }
+
+    container.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true, capture: true });
+    return () => {
+      container.removeEventListener("touchstart", onTouchStart, { capture: true });
+      container.removeEventListener("touchmove", onTouchMove, { capture: true });
+    };
+  }, [terminalReady, wsRef]);
+
   // Update xterm theme when the app theme changes
   useEffect(() => {
     if (!xtermRef.current) return;

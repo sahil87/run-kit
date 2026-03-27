@@ -411,6 +411,15 @@ function AppShell() {
                 if (sessionName) closePane(sessionName, currentWindow.index).catch(() => {});
               },
             },
+            {
+              id: "copy-tmux-attach",
+              label: "Copy: tmux Attach Command",
+              onSelect: () => {
+                if (sessionName) {
+                  navigator.clipboard.writeText(`tmux attach-session -t ${sessionName}:${currentWindow.name}`).catch(() => {});
+                }
+              },
+            },
           ]
         : []),
       ...(sessionName

@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-27T11:14:10Z"}
+{"args":"Move the escape button from the bottom bar into the Function button menu. Only tab, ctrl, alt, fn, arrow inputs remain in the bottom bar, then console (text input) and Cmd K buttons. Also a right-aligned down caret in mobile view. Change the down caret icon to a keyboard icon and make it toggle instead of just keyboard-down — in mobile I should also be able to bring the keyboard up with its help.","cmd":"fab-new","event":"command","ts":"2026-03-27T11:14:10Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-27T11:15:39Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-27T11:16:14Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-27T11:18:28Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-27T11:19:42Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-27T11:21:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-27T11:21:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-27T11:22:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-27T11:22:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-27T11:26:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-27T11:29:34Z"}
+{"event":"review","result":"passed","ts":"2026-03-27T11:29:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-27T11:30:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review-pr","ts":"2026-03-27T11:34:29Z"}

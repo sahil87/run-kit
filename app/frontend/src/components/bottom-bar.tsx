@@ -6,6 +6,7 @@ type BottomBarProps = {
   wsRef: React.RefObject<WebSocket | null>;
   hostname?: string;
   onOpenCompose?: () => void;
+  onFocusTerminal?: () => void;
 };
 
 /** xterm modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) */
@@ -55,7 +56,7 @@ const MODIFIER_LABELS: Record<string, string> = {
 /** Prevent mousedown from stealing focus away from the terminal. */
 const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
-export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
+export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
@@ -117,6 +118,27 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
     return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
   }, [mods, wsRef]);
 
+  const [termFocused, setTermFocused] = useState(false);
+
+  useEffect(() => {
+    function onFocusIn(e: FocusEvent) {
+      if (e.target instanceof HTMLElement && e.target.closest(".xterm")) {
+        setTermFocused(true);
+      }
+    }
+    function onFocusOut(e: FocusEvent) {
+      if (e.target instanceof HTMLElement && e.target.closest(".xterm")) {
+        setTermFocused(false);
+      }
+    }
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
+
   const send = useCallback(
     (data: string) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -153,9 +175,6 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
 
   return (
     <div className="flex items-center gap-1 py-1.5 flex-wrap" role="toolbar" aria-label="Terminal keys">
-      <button aria-label="Escape" className={`${KBD_CLASS} text-text-secondary`} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\x1b")}>
-        <kbd aria-hidden="true">{"\u238B"}</kbd>
-      </button>
       <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\t")}>
         <kbd aria-hidden="true">{"\u21E5"}</kbd>
       </button>
@@ -206,6 +225,15 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
             </div>
             <div className="border-t border-border my-1" />
             <div className="grid grid-cols-3 gap-0.5">
+              <button
+                role="menuitem"
+                aria-label="Escape"
+                className="px-2 py-1 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                onMouseDown={preventFocusSteal}
+                onClick={() => { sendSpecial("\x1b"); setFnOpen(false); }}
+              >
+                Esc
+              </button>
               {EXT_KEYS.map((ek) => (
                 <button
                   key={ek.label}
@@ -246,24 +274,28 @@ export function BottomBar({ wsRef, hostname, onOpenCompose }: BottomBarProps) {
         <kbd aria-hidden="true">{"\u2318K"}</kbd>
       </button>
 
-      {hostname && (
-        <span className="hidden sm:inline ml-auto min-w-0 text-xs text-text-secondary truncate">{hostname}</span>
-      )}
+      <div className="ml-auto flex items-center gap-1">
+        {hostname && (
+          <span className="hidden sm:inline min-w-0 text-xs text-text-secondary truncate">{hostname}</span>
+        )}
 
-      {/* Dismiss keyboard — visible only on touch devices */}
-      <button
-        type="button"
-        aria-label="Dismiss keyboard"
-        className={`${KBD_CLASS} hidden coarse:inline-flex ml-auto text-text-secondary`}
-        onMouseDown={preventFocusSteal}
-        onClick={() => {
-          if (document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur();
-          }
-        }}
-      >
-        <kbd aria-hidden="true">{"\u2304"}</kbd>
-      </button>
+        {/* Keyboard toggle — visible only on touch devices */}
+        <button
+          type="button"
+          aria-label={termFocused ? "Hide keyboard" : "Show keyboard"}
+          className={`${KBD_CLASS} hidden coarse:inline-flex text-text-secondary`}
+          onMouseDown={preventFocusSteal}
+          onClick={() => {
+            if (termFocused && document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            } else {
+              onFocusTerminal?.();
+            }
+          }}
+        >
+          <kbd aria-hidden="true">{"\u2328"}</kbd>
+        </button>
+      </div>
     </div>
   );
 }

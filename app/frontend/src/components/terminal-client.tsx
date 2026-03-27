@@ -57,6 +57,7 @@ type TerminalClientProps = {
   composeOpen: boolean;
   setComposeOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   onSessionNotFound?: () => void;
+  focusRef?: React.MutableRefObject<(() => void) | null>;
 };
 
 export function TerminalClient({
@@ -67,6 +68,7 @@ export function TerminalClient({
   composeOpen,
   setComposeOpen,
   onSessionNotFound,
+  focusRef,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
@@ -235,6 +237,7 @@ export function TerminalClient({
       }
 
       resizeObserver.observe(terminalRef.current);
+      if (focusRef) focusRef.current = () => xtermRef.current?.focus();
       setTerminalReady(true);
     }
 
@@ -249,12 +252,13 @@ export function TerminalClient({
         wsRef.current.close();
         wsRef.current = null;
       }
+      if (focusRef) focusRef.current = null;
       xtermRef.current = null;
       fitAddonRef.current = null;
       try { terminal?.dispose(); } catch { /* WebGL addon may throw during teardown */ }
       setTerminalReady(false);
     };
-  }, [wsRef]);
+  }, [wsRef, focusRef]);
 
   // Mobile touch-to-scroll: translate vertical swipe gestures into SGR mouse
   // wheel escape sequences sent to tmux via WebSocket.

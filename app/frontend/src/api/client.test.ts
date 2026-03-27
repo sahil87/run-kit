@@ -13,6 +13,7 @@ import {
   sendKeys,
   getDirectories,
   uploadFile,
+  setThemePreference,
 } from "./client";
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -166,5 +167,45 @@ describe("API request deduplication", () => {
     await Promise.all([getHealth(), getSessions()]);
     expect(healthCount).toBe(1);
     expect(sessionsCount).toBe(1);
+  });
+
+  it("both callers can independently read the JSON body", async () => {
+    server.use(
+      http.get("/api/health", () => {
+        return HttpResponse.json({ status: "ok", hostname: "clone-test" });
+      }),
+    );
+
+    const [a, b] = await Promise.all([getHealth(), getHealth()]);
+    expect(a.hostname).toBe("clone-test");
+    expect(b.hostname).toBe("clone-test");
+  });
+
+  it("does not deduplicate PUT requests", async () => {
+    let callCount = 0;
+    server.use(
+      http.put("/api/settings/theme", async () => {
+        callCount++;
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+
+    await Promise.all([
+      setThemePreference({ theme: "dark" }),
+      setThemePreference({ theme: "light" }),
+    ]);
+    expect(callCount).toBe(2);
+  });
+
+  it("concurrent callers both receive the same rejection on failure", async () => {
+    server.use(
+      http.get("/api/health", () => {
+        return HttpResponse.json({ error: "server down" }, { status: 500 });
+      }),
+    );
+
+    const results = await Promise.allSettled([getHealth(), getHealth()]);
+    expect(results[0].status).toBe("rejected");
+    expect(results[1].status).toBe("rejected");
   });
 });

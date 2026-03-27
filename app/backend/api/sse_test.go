@@ -221,3 +221,211 @@ func TestSSEHubDropLogging(t *testing.T) {
 		t.Error("expected client.dropped to be reset to false after successful send")
 	}
 }
+
+// perServerSessionFetcher returns different data per server so we can verify isolation.
+type perServerSessionFetcher struct {
+	mu   sync.Mutex
+	data map[string][]sessions.ProjectSession
+}
+
+func (f *perServerSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.data[server], nil
+}
+
+func TestSSEHubMultiServerIsolation(t *testing.T) {
+	sf := &perServerSessionFetcher{
+		data: map[string][]sessions.ProjectSession{
+			"runkit":  {{Name: "rk-session", Windows: []tmux.WindowInfo{}}},
+			"default": {{Name: "default-session", Windows: []tmux.WindowInfo{}}},
+		},
+	}
+
+	hub := newSSEHub(sf)
+	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
+	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
+
+	hub.addClient(rkClient)
+	hub.addClient(dfClient)
+	defer hub.removeClient(rkClient)
+	defer hub.removeClient(dfClient)
+
+	// Wait for at least one poll cycle
+	time.Sleep(ssePollInterval + 500*time.Millisecond)
+
+	// Drain both channels and check content
+	var rkEvents, dfEvents []string
+	for len(rkClient.ch) > 0 {
+		rkEvents = append(rkEvents, string(<-rkClient.ch))
+	}
+	for len(dfClient.ch) > 0 {
+		dfEvents = append(dfEvents, string(<-dfClient.ch))
+	}
+
+	if len(rkEvents) == 0 {
+		t.Fatal("runkit client received no events")
+	}
+	if len(dfEvents) == 0 {
+		t.Fatal("default client received no events")
+	}
+
+	// Verify isolation: runkit client only sees rk-session, default only sees default-session
+	for _, ev := range rkEvents {
+		if strings.Contains(ev, "default-session") {
+			t.Errorf("runkit client received default server data: %s", ev)
+		}
+		if !strings.Contains(ev, "rk-session") {
+			t.Errorf("runkit client event missing rk-session: %s", ev)
+		}
+	}
+	for _, ev := range dfEvents {
+		if strings.Contains(ev, "rk-session") {
+			t.Errorf("default client received runkit server data: %s", ev)
+		}
+		if !strings.Contains(ev, "default-session") {
+			t.Errorf("default client event missing default-session: %s", ev)
+		}
+	}
+}
+
+func TestSSEHubRemoveClientSwapDelete(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf)
+
+	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
+	c2 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
+	c3 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
+
+	hub.addClient(c1)
+	hub.addClient(c2)
+	hub.addClient(c3)
+
+	hub.mu.RLock()
+	if len(hub.clients["runkit"]) != 3 {
+		t.Fatalf("expected 3 clients, got %d", len(hub.clients["runkit"]))
+	}
+	hub.mu.RUnlock()
+
+	// Remove the middle client
+	hub.removeClient(c2)
+
+	hub.mu.RLock()
+	remaining := hub.clients["runkit"]
+	hub.mu.RUnlock()
+
+	if len(remaining) != 2 {
+		t.Fatalf("expected 2 clients after remove, got %d", len(remaining))
+	}
+
+	// c1 and c3 should still be present (order may differ due to swap-delete)
+	found1, found3 := false, false
+	for _, c := range remaining {
+		if c == c1 {
+			found1 = true
+		}
+		if c == c3 {
+			found3 = true
+		}
+	}
+	if !found1 {
+		t.Error("c1 should still be in the slice after removing c2")
+	}
+	if !found3 {
+		t.Error("c3 should still be in the slice after removing c2")
+	}
+}
+
+func TestSSEHubRemoveLastClientDeletesKey(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf)
+
+	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
+	c2 := &sseClient{ch: make(chan []byte, 8), server: "default"}
+
+	hub.addClient(c1)
+	hub.addClient(c2)
+
+	hub.mu.RLock()
+	if len(hub.clients) != 2 {
+		t.Fatalf("expected 2 server keys, got %d", len(hub.clients))
+	}
+	hub.mu.RUnlock()
+
+	// Remove the only runkit client
+	hub.removeClient(c1)
+
+	hub.mu.RLock()
+	_, exists := hub.clients["runkit"]
+	defaultLen := len(hub.clients["default"])
+	hub.mu.RUnlock()
+
+	if exists {
+		t.Error("runkit key should be deleted after removing its last client")
+	}
+	if defaultLen != 1 {
+		t.Errorf("default slice should still have 1 client, got %d", defaultLen)
+	}
+}
+
+func TestSSEHubConcurrentAddRemove(t *testing.T) {
+	sf := &slowSessionFetcher{
+		result: []sessions.ProjectSession{
+			{Name: "s", Windows: []tmux.WindowInfo{}},
+		},
+	}
+
+	hub := newSSEHub(sf)
+
+	// Seed one client to start polling
+	seed := &sseClient{ch: make(chan []byte, 32), server: "default"}
+	hub.addClient(seed)
+
+	var wg sync.WaitGroup
+	const n = 20
+
+	// Concurrently add and remove clients while polling is active
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c := &sseClient{ch: make(chan []byte, 32), server: "default"}
+			hub.addClient(c)
+			time.Sleep(10 * time.Millisecond)
+			hub.removeClient(c)
+		}()
+	}
+
+	// Also add clients on a different server concurrently
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c := &sseClient{ch: make(chan []byte, 32), server: "runkit"}
+			hub.addClient(c)
+			time.Sleep(10 * time.Millisecond)
+			hub.removeClient(c)
+		}()
+	}
+
+	wg.Wait()
+	hub.removeClient(seed)
+
+	// Wait for polling to stop
+	time.Sleep(ssePollInterval + 500*time.Millisecond)
+
+	hub.mu.RLock()
+	totalClients := 0
+	for _, cs := range hub.clients {
+		totalClients += len(cs)
+	}
+	isPolling := hub.polling
+	hub.mu.RUnlock()
+
+	if totalClients != 0 {
+		t.Errorf("expected 0 clients after all removed, got %d", totalClients)
+	}
+	if isPolling {
+		t.Error("hub should have stopped polling after all clients removed")
+	}
+}

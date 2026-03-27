@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -48,7 +50,13 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		resolvedCwd = expanded
 	} else {
 		// Default to the cwd of the first window in the session.
-		if windows, err := s.tmux.ListWindows(r.Context(), session, server); err == nil && len(windows) > 0 {
+		// Use a dedicated timeout context (not the request context) because the
+		// result feeds into the subsequent CreateWindow mutation. If we used
+		// r.Context() and the client disconnected, ListWindows would return
+		// (nil, nil) and the mutation would create the window with an empty cwd.
+		cwdCtx, cwdCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cwdCancel()
+		if windows, err := s.tmux.ListWindows(cwdCtx, session, server); err == nil && len(windows) > 0 {
 			resolvedCwd = windows[0].WorktreePath
 		}
 	}

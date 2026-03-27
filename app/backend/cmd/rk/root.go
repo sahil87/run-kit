@@ -10,8 +10,9 @@ import (
 var version = "dev"
 
 var rootCmd = &cobra.Command{
-	Use:   "rk",
-	Short: "rk — tmux session manager with web UI",
+	Use:     "rk",
+	Short:   "rk — tmux session manager with web UI",
+	Version: version,
 	// No-args invocation defaults to serve (backwards compat).
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return serveCmd.RunE(cmd, args)
@@ -21,7 +22,6 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(statusCmd)

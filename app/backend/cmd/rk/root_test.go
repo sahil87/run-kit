@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -13,11 +15,10 @@ func TestRootCmdDefaultsToServe(t *testing.T) {
 
 func TestRootCmdHasSubcommands(t *testing.T) {
 	expected := map[string]bool{
-		"serve":   false,
-		"version": false,
-		"update":  false,
-		"doctor":  false,
-		"status":  false,
+		"serve":  false,
+		"update": false,
+		"doctor": false,
+		"status": false,
 	}
 
 	for _, cmd := range rootCmd.Commands() {
@@ -30,5 +31,21 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		if !found {
 			t.Errorf("expected subcommand %q not found", name)
 		}
+	}
+}
+
+func TestVersionFlag(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetArgs([]string{"--version"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("--version flag failed: %v", err)
+	}
+
+	got := strings.TrimSpace(buf.String())
+	want := "rk version dev"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

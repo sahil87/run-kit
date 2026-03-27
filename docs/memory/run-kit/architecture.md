@@ -4,7 +4,7 @@
 
 run-kit is a web-based agent orchestration dashboard. In production, a single Go binary runs as a daemon in a dedicated tmux session:
 
-1. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port. Cobra CLI with subcommands: `serve` (default, with `-d`/`--restart`/`--stop` daemon flags), `version`, `update` (alias: `upgrade`), `doctor`, `status`
+1. **Go backend** (`app/backend/`, default port 3000) — single binary serving REST API, SSE, WebSocket terminal relay, and SPA static files on one port. Cobra CLI with subcommands: `serve` (default, with `-d`/`--restart`/`--stop` daemon flags), `update` (alias: `upgrade`), `doctor`, `status`. Version info via `--version`/`-v` global flag (Cobra built-in)
 
 In development, `just dev` runs two concurrent processes:
 - Vite dev server (`:RK_PORT`, default 3000) — HMR, proxies `/api/*` and `/relay/*` to Go backend
@@ -23,9 +23,8 @@ app/
   backend/            # Go module — backend
     cmd/rk/           # Cobra CLI entry point
       main.go         # Calls execute()
-      root.go         # Root command, version var, subcommand registration
+      root.go         # Root command, version var, --version flag, subcommand registration
       serve.go        # serve subcommand — HTTP server (default when no args)
-      version.go      # version subcommand — prints version string
       upgrade.go      # update subcommand (alias: upgrade) — Homebrew or local update
       doctor.go       # doctor subcommand — runtime dependency checks
       status.go       # status subcommand — tmux session summary
@@ -91,7 +90,7 @@ Packages in `app/backend/internal/`:
 | `github.com/go-chi/cors` | CORS middleware (permissive by default for multi-client API) |
 | `github.com/gorilla/websocket` | WebSocket handling for terminal relay |
 | `github.com/creack/pty` | PTY allocation (replaces node-pty, no native module compilation) |
-| `github.com/spf13/cobra` | CLI framework — subcommand management (serve, version, update, doctor, status) |
+| `github.com/spf13/cobra` | CLI framework — subcommand management (serve, update, doctor, status) + built-in `--version` flag |
 | `gopkg.in/yaml.v3` | YAML parsing (legacy dependency — no longer imported after `internal/fab` removal, candidate for `go mod tidy`). `internal/settings` deliberately uses simple text parsing to avoid re-importing this |
 
 ## API Layer

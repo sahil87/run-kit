@@ -49,3 +49,35 @@ func TestVersionFlag(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestShortVersionFlag(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetArgs([]string{"-v"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("-v flag failed: %v", err)
+	}
+
+	got := strings.TrimSpace(buf.String())
+	want := "rk version dev"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestVersionSubcommandRemoved(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetArgs([]string{"version"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for removed 'version' subcommand, got nil")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "unknown command") || !strings.Contains(errMsg, "version") {
+		t.Fatalf("unexpected error for 'version' subcommand: %v", err)
+	}
+}

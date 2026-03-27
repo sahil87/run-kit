@@ -14,12 +14,13 @@ import { Dialog } from "@/components/dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 
-const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
-const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
-const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 import { selectWindow, createWindow, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
+
+const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
+const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
+const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 
 const SIDEBAR_STORAGE_KEY = "runkit-sidebar-width";
 const SIDEBAR_DEFAULT_WIDTH = 220;

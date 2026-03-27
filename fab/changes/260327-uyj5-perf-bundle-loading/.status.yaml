@@ -16,7 +16,7 @@ progress:
 checklist:
     generated: true
     path: checklist.md
-    completed: 20
+    completed: 0
     total: 20
 confidence:
     certain: 10
@@ -41,4 +41,4 @@ stage_metrics:
     review-pr: {started_at: "2026-03-27T10:42:07Z", driver: git-pr, iterations: 1}
 prs:
     - https://github.com/wvrdz/run-kit/pull/95
-last_updated: 2026-03-27T10:42:07Z
+last_updated: 2026-03-27T10:47:25Z

@@ -24,7 +24,7 @@
 - [x] CHK-013 Build output: Production build produces separate xterm and router chunk files
 
 ## Edge Cases & Error Handling
-- [x] CHK-014 **N/A**: Lazy components use `fallback={null}` so chunk load failure renders nothing rather than crashing — no explicit error boundary added but Suspense prevents blank screen
+- [x] CHK-014 **N/A**: No dedicated error boundary was added for lazy-loaded chunks in this change; Suspense with `fallback={null}` only covers the loading state and chunk load failures would still surface as React errors
 - [x] CHK-015 Different servers: Requests to same endpoint but different server param are not deduplicated
 
 ## Code Quality

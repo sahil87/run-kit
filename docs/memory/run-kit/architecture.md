@@ -120,7 +120,7 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `/api/sessions/:session/windows/:index/keys` | POST | Send keys — JSON body `{"keys":"..."}` (non-empty after trim). Returns `200 {"ok":true}` |
 | `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
 | `/api/sessions/:session/upload` | POST | File upload — session from URL path (not form field). Multipart with `file` field, optional `window` field (defaults to `"0"`). Resolves project root via `ListWindows`, writes to `.uploads/{timestamp}-{name}`, auto-manages `.gitignore`. 50MB limit. Returns `200 {"ok":true,"path":"..."}` |
-| `/api/sessions/stream` | GET | SSE — hub singleton polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection |
+| `/api/sessions/stream` | GET | SSE — hub singleton polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection. Hub clients map is `map[string][]*sseClient` keyed by server name for O(1) server-scoped broadcast. `sync.RWMutex` — `RLock()` for read-only operations in `poll()` (collecting server keys, counting clients), `Lock()` for writes (broadcasting, updating `previousJSON`). Channel buffer 32. Drop logging via `slog.Warn` with per-client boolean debounce (resets on successful send) |
 | `/api/tmux/reload-config` | POST | Reload tmux config — server from `?server=` param (default `"default"`). Runs `source-file` on the specified server. Returns `200 {"status":"ok"}` |
 | `/api/servers` | GET | List available tmux servers — scans socket dir, returns JSON array of names |
 | `/api/servers` | POST | Create tmux server — JSON body `{"name":"..."}`. Creates session "0" in `$HOME`. Returns `201 {"ok":true}` |
@@ -168,7 +168,7 @@ Per connection:
 2. Spawns `tmux [-L runkit] attach-session -t <session>` via `creack/pty` for real terminal I/O (runkit server includes `-L runkit` and `-f` flags; default server uses plain `tmux`)
 3. Relays I/O between WebSocket and pty (goroutine for pty→WS, main loop for WS→pty)
 4. Handles resize messages (JSON `{"type":"resize","cols":N,"rows":N}`) via `pty.Setsize`
-5. On disconnect: kills pty + pane via `sync.Once` cleanup (no orphaned panes)
+5. On disconnect: `sync.Once` cleanup cancels context, closes PTY, kills process. PTY reader goroutine calls `cleanup()` (not `conn.Close()`) on read failure — eliminates concurrent WebSocket close race. WebSocket connection closed only by `defer conn.Close()` on the main goroutine
 
 Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, max 30s) on unexpected close. Shows `[reconnecting...]` in terminal. Re-sends resize on successful reconnect. Skips reconnect on component unmount. On close code `4004` (session/window not found): shows `[session not found]` and navigates to `/` instead of reconnecting. Terminal page connects via `ws://${location.host}/relay/{session}/{window}?server={runkit|default}` — same host, server param from session metadata.
 
@@ -315,7 +315,7 @@ Install flow: `brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git && brew 
 - **TanStack Router over React Router** — type-safe params and search params, built-in loader pattern. Single route `/:session/:window` in the new frontend
 - **Vite proxy in dev (not CORS)** — single browser URL, no CORS config needed. WebSocket upgrade works transparently. Go includes chi CORS middleware for production/non-browser clients
 - **SPA fallback in Go** — Go serves standalone; TLS termination handled externally via Tailscale Serve when needed
-- **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient. Module-level hub deduplicates polling across tabs (one `FetchSessions()` per interval regardless of client count). SSE data includes `isActiveWindow` per window, enabling UI sync when users switch tmux/byobu windows via terminal shortcuts
+- **SSE (not WebSocket) for session state** — simpler, server-push only, naturally resilient. Module-level hub deduplicates polling across tabs (one `FetchSessions()` per server per interval). Clients indexed by server name (`map[string][]*sseClient`) — broadcast iterates only the target server's slice. `sync.RWMutex` with `RLock` for read-only poll operations, `Lock` for writes. SSE data includes `isActiveWindow` per window, enabling UI sync when users switch tmux/byobu windows via terminal shortcuts
 - **Full snapshots (not diffs)** — small payload (<100 sessions), simple client logic
 - **Independent panes per browser client** — no cursor fights, agent pane untouched. The relay pty follows tmux window switches natively (runs `tmux -L runkit attach-session`)
 - **Every tmux session is a project** — no config, no "Other" bucket. Project root derived from window 0's `pane_current_path`

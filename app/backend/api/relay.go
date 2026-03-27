@@ -144,6 +144,9 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			if cmd.Process != nil {
 				cmd.Process.Kill()
 			}
+			// Set a short read deadline to unblock the main goroutine's
+			// conn.ReadMessage() when the PTY dies while the client is idle.
+			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 			slog.Debug("relay cleanup", "session", session, "window", windowIndex)
 		})
 	}
@@ -158,7 +161,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 				if err != io.EOF {
 					slog.Debug("pty read error", "err", err)
 				}
-				conn.Close()
+				cleanup()
 				return
 			}
 			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {

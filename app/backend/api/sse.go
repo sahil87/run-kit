@@ -25,14 +25,15 @@ type cachedResult struct {
 }
 
 type sseClient struct {
-	ch     chan []byte
-	server string
+	ch      chan []byte
+	server  string
+	dropped bool
 }
 
 type sseHub struct {
 	mu           sync.RWMutex
-	clients      map[*sseClient]struct{}
-	previousJSON map[string]string // per-server JSON dedup cache
+	clients      map[string][]*sseClient
+	previousJSON map[string]string                // per-server JSON dedup cache
 	cache        map[string]*cachedResult // per-server session fetch cache (500ms TTL)
 	polling      bool
 	fetcher      SessionFetcher
@@ -40,7 +41,7 @@ type sseHub struct {
 
 func newSSEHub(fetcher SessionFetcher) *sseHub {
 	return &sseHub{
-		clients:      make(map[*sseClient]struct{}),
+		clients:      make(map[string][]*sseClient),
 		previousJSON: make(map[string]string),
 		cache:        make(map[string]*cachedResult),
 		fetcher:      fetcher,
@@ -51,7 +52,7 @@ func (h *sseHub) addClient(c *sseClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.clients[c] = struct{}{}
+	h.clients[c.server] = append(h.clients[c.server], c)
 
 	// Send cached snapshot immediately
 	if prev, ok := h.previousJSON[c.server]; ok && prev != "" {
@@ -71,27 +72,55 @@ func (h *sseHub) removeClient(c *sseClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	delete(h.clients, c)
+	cs := h.clients[c.server]
+	for i, cl := range cs {
+		if cl == c {
+			cs[i] = cs[len(cs)-1]
+			cs[len(cs)-1] = nil // avoid leak
+			cs = cs[:len(cs)-1]
+			break
+		}
+	}
+	if len(cs) == 0 {
+		delete(h.clients, c.server)
+	} else {
+		h.clients[c.server] = cs
+	}
 }
 
 func (h *sseHub) poll() {
 	for {
-		h.mu.Lock()
-		if len(h.clients) == 0 {
-			h.polling = false
+		// Read-only check: count clients and collect server keys
+		h.mu.RLock()
+		total := 0
+		for _, cs := range h.clients {
+			total += len(cs)
+		}
+		if total == 0 {
+			h.mu.RUnlock()
+			// Upgrade to write lock to set polling = false
+			h.mu.Lock()
+			// Re-check under write lock — a client may have been added
+			recheck := 0
+			for _, cs := range h.clients {
+				recheck += len(cs)
+			}
+			if recheck == 0 {
+				h.polling = false
+				h.mu.Unlock()
+				return
+			}
 			h.mu.Unlock()
-			return
+			continue
 		}
-
-		// Collect distinct servers that have active clients
-		serverSet := make(map[string]struct{})
-		for c := range h.clients {
-			serverSet[c.server] = struct{}{}
+		servers := make([]string, 0, len(h.clients))
+		for server := range h.clients {
+			servers = append(servers, server)
 		}
-		h.mu.Unlock()
+		h.mu.RUnlock()
 
-		// Poll each server and broadcast to matching clients
-		for server := range serverSet {
+		// Poll each server and broadcast to its clients
+		for _, server := range servers {
 			// Check session fetch cache (500ms TTL)
 			var result []sessions.ProjectSession
 			if cached, ok := h.cache[server]; ok && time.Since(cached.fetchedAt) < sseCacheTTL {
@@ -117,12 +146,14 @@ func (h *sseHub) poll() {
 				h.previousJSON[server] = jsonStr
 				event := []byte(fmt.Sprintf("event: sessions\ndata: %s\n\n", jsonStr))
 
-				for c := range h.clients {
-					if c.server == server {
-						select {
-						case c.ch <- event:
-						default:
-							// Client buffer full — skip
+				for _, c := range h.clients[server] {
+					select {
+					case c.ch <- event:
+						c.dropped = false
+					default:
+						if !c.dropped {
+							slog.Warn("SSE event dropped", "server", server)
+							c.dropped = true
 						}
 					}
 				}
@@ -146,7 +177,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	client := &sseClient{
-		ch:     make(chan []byte, 8),
+		ch:     make(chan []byte, 32),
 		server: serverFromRequest(r),
 	}
 

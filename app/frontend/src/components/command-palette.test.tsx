@@ -200,6 +200,43 @@ describe("CommandPalette", () => {
     expect(scrollSpy).toHaveBeenCalledWith({ block: "nearest" });
   });
 
+  it("copy tmux attach command action copies correct string to clipboard", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const originalClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+
+    const sessionName = "main";
+    const windowName = "editor";
+    const actions: PaletteAction[] = [
+      {
+        id: "copy-tmux-attach",
+        label: "Copy: tmux Attach Command",
+        onSelect: () => {
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+            navigator.clipboard.writeText(`tmux attach-session -t ${sessionName}:${windowName}`).catch(() => {});
+          }
+        },
+      },
+    ];
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(writeText).toHaveBeenCalledWith("tmux attach-session -t main:editor");
+
+    Object.defineProperty(navigator, "clipboard", {
+      value: originalClipboard,
+      writable: true,
+      configurable: true,
+    });
+  });
+
   it("calls onSelect for theme action when selected", () => {
     const setLight = vi.fn();
     const actions: PaletteAction[] = [

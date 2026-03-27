@@ -63,6 +63,9 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
   const prevSseDataRef = useRef("");
 
   useEffect(() => {
+    // Reset diff cache so the first event from a new server always applies
+    prevSseDataRef.current = "";
+
     const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
 
     let disconnectTimer: ReturnType<typeof setTimeout> | null = null;

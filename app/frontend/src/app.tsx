@@ -15,7 +15,7 @@ import { Dialog } from "@/components/dialog";
 import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
-import { selectWindow, createWindow, splitWindow, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createWindow, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 
@@ -402,6 +402,13 @@ function AppShell() {
               label: "Window: Split Horizontal",
               onSelect: () => {
                 if (sessionName) splitWindow(sessionName, currentWindow.index, false).catch(() => {});
+              },
+            },
+            {
+              id: "close-pane",
+              label: "Pane: Close",
+              onSelect: () => {
+                if (sessionName) closePane(sessionName, currentWindow.index).catch(() => {});
               },
             },
           ]

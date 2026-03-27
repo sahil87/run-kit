@@ -53,22 +53,25 @@ The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derive
 - Session name capped at ~7 characters with ellipsis overflow (`max-w-[7ch] truncate`)
 - No text prefixes like "session:" or "window:"
 
-**Right section (desktop)**: `{logo} Run Kit  ●  ⇔  ⫼  ⊟  ◑  ⌘K  >_`
+**Right section (desktop)**: `{logo} Run Kit  ●  ⇔  ⫼  ⊟  ✕  ◑  ⌘K  >_`
 - Logo SVG (`icon.svg`) — decorative (`aria-hidden="true"`), not a button
 - "Run Kit" text span (`text-xs text-text-secondary`)
 - Green/gray connection dot — no text label ("live"/"disconnected" text removed)
-- `FixedWidthToggle`
 - Split horizontal button (`SplitButton horizontal`) — splits pane left/right. Only rendered when `currentWindow` exists
 - Split vertical button (`SplitButton`) — splits pane top/bottom. Only rendered when `currentWindow` exists
+- Close pane button (`ClosePaneButton`) — kills the active pane of the current window. Only rendered when `currentWindow` exists
+- `FixedWidthToggle`
 - `ThemeToggle`
 - `⌘K` kbd hint
 - Compose button (`>_`) — rightmost item, opens compose buffer. `onOpenCompose` callback passed as prop to `TopBar`
 
-**Right section (mobile < 640px)**: `⋯  >_` — only command palette trigger and compose button visible. Logo, "Run Kit" text, dot, toggle, split buttons, ⌘K hidden via `hidden sm:flex` / `hidden sm:inline-flex`
+**Right section (mobile < 640px)**: `⋯  >_` — only command palette trigger and compose button visible. Logo, "Run Kit" text, dot, toggle, split buttons, close pane button, ⌘K hidden via `hidden sm:flex` / `hidden sm:inline-flex`
 
 **Split buttons** (`SplitButton` in `top-bar.tsx`): Two inline components calling `splitWindow(session, windowIndex, horizontal)` from `api/client.ts`. Custom SVG icons (square-split pattern). Best-effort error handling — tmux may reject if pane is too small. `POST /api/sessions/{session}/windows/{index}/split` with `{ "horizontal": bool }`.
 
-**Toolbar button color convention**: All toolbar buttons (top bar and bottom bar) use `text-text-secondary` as their default foreground color. Active toggle states (Ctrl/Alt modifiers when armed, FixedWidthToggle when active) use `text-accent` with accent background. Hover state uses `hover:border-text-secondary` (border highlight). This convention applies to: compose button, theme toggle, fixed-width toggle, split buttons, Esc, Tab, Ctrl, Alt, Fn trigger, arrow pad, and ⌘K.
+**Close pane button** (`ClosePaneButton` in `top-bar.tsx`): Inline component calling `closePane(session, windowIndex)` from `api/client.ts`. X-shaped close icon SVG (`width="14" height="14" viewBox="0 0 24 24"`). Same base styling as `SplitButton` (`min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary`). Hidden on mobile (`hidden sm:flex`). Only rendered when `currentWindow` exists. Best-effort error handling (`.catch(() => {})`), matching split button pattern. Kills the active pane of the current window — no pane ID tracking needed, targets via `POST /api/sessions/{session}/windows/{index}/close-pane`. Also available as "Pane: Close" in the command palette.
+
+**Toolbar button color convention**: All toolbar buttons (top bar and bottom bar) use `text-text-secondary` as their default foreground color. Active toggle states (Ctrl/Alt modifiers when armed, FixedWidthToggle when active) use `text-accent` with accent background. Hover state uses `hover:border-text-secondary` (border highlight). This convention applies to: compose button, theme toggle, fixed-width toggle, split buttons, close pane button, Esc, Tab, Ctrl, Alt, Fn trigger, arrow pad, and ⌘K.
 
 ### Theme System
 

@@ -60,6 +60,10 @@ type mockTmuxOps struct {
 	splitWindowResult     string
 	splitWindowErr        error
 
+	killActivePaneCalled  bool
+	killActivePaneSession string
+	killActivePaneIndex   int
+
 	err error
 }
 
@@ -122,6 +126,12 @@ func (m *mockTmuxOps) SelectWindow(session string, index int, server string) err
 }
 func (m *mockTmuxOps) KillPane(paneID, server string) error {
 	return nil
+}
+func (m *mockTmuxOps) KillActivePane(session string, window int, server string) error {
+	m.killActivePaneCalled = true
+	m.killActivePaneSession = session
+	m.killActivePaneIndex = window
+	return m.err
 }
 func (m *mockTmuxOps) ListServers() ([]string, error) {
 	return []string{"default"}, nil
@@ -291,6 +301,77 @@ func TestSessionKill(t *testing.T) {
 	}
 	if ops.killSessionName != "test-session" {
 		t.Errorf("killSessionName = %q, want %q", ops.killSessionName, "test-session")
+	}
+}
+
+func TestClosePaneSuccess(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/main/windows/0/close-pane", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !ops.killActivePaneCalled {
+		t.Error("KillActivePane was not called")
+	}
+	if ops.killActivePaneSession != "main" {
+		t.Errorf("killActivePaneSession = %q, want %q", ops.killActivePaneSession, "main")
+	}
+	if ops.killActivePaneIndex != 0 {
+		t.Errorf("killActivePaneIndex = %d, want %d", ops.killActivePaneIndex, 0)
+	}
+
+	var result map[string]bool
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !result["ok"] {
+		t.Error("expected ok: true")
+	}
+}
+
+func TestClosePaneInvalidSession(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/test;rm/windows/0/close-pane", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !strings.Contains(result["error"], "forbidden characters") {
+		t.Errorf("error = %q, want containing %q", result["error"], "forbidden characters")
+	}
+}
+
+func TestClosePaneInvalidIndex(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/main/windows/abc/close-pane", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !strings.Contains(result["error"], "Invalid window index") {
+		t.Errorf("error = %q, want containing %q", result["error"], "Invalid window index")
 	}
 }
 

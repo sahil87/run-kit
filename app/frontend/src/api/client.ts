@@ -156,6 +156,18 @@ export async function splitWindow(
   return res.json();
 }
 
+export async function closePane(
+  session: string,
+  index: number,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/close-pane`),
+    { method: "POST" },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function selectWindow(
   session: string,
   index: number,

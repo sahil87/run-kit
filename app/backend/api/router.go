@@ -34,6 +34,7 @@ type TmuxOps interface {
 	ListWindows(session, server string) ([]tmux.WindowInfo, error)
 	SplitWindow(session string, window int, horizontal bool, server string) (string, error)
 	KillPane(paneID, server string) error
+	KillActivePane(session string, window int, server string) error
 	ListServers() ([]string, error)
 	KillServer(server string) error
 	ListKeys(server string) ([]string, error)
@@ -112,6 +113,9 @@ func (p *prodTmuxOps) SplitWindow(session string, window int, horizontal bool, s
 func (p *prodTmuxOps) KillPane(paneID, server string) error {
 	return tmux.KillPane(paneID, server)
 }
+func (p *prodTmuxOps) KillActivePane(session string, window int, server string) error {
+	return tmux.KillActivePane(session, window, server)
+}
 func (p *prodTmuxOps) ListServers() ([]string, error) {
 	return tmux.ListServers()
 }
@@ -172,6 +176,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/windows/{index}/keys", s.handleWindowKeys)
 	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)
 	r.Post("/api/sessions/{session}/windows/{index}/split", s.handleWindowSplit)
+	r.Post("/api/sessions/{session}/windows/{index}/close-pane", s.handleClosePaneKill)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)

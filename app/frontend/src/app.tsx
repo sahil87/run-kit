@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
 import { ChromeProvider, useChrome, useChromeDispatch } from "@/contexts/chrome-context";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
@@ -9,12 +9,14 @@ import { TopBar } from "@/components/top-bar";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
 import { BottomBar } from "@/components/bottom-bar";
-import { CommandPalette, type PaletteAction } from "@/components/command-palette";
-import { ThemeSelector } from "@/components/theme-selector";
+import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
-import { CreateSessionDialog } from "@/components/create-session-dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+
+const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
+const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
+const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 import { selectWindow, createWindow, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
@@ -610,10 +612,12 @@ function AppShell() {
 
       {/* Dialogs */}
       {dialogs.showCreateDialog && (
-        <CreateSessionDialog
-          sessions={sessions}
-          onClose={dialogs.closeCreateDialog}
-        />
+        <Suspense fallback={null}>
+          <CreateSessionDialog
+            sessions={sessions}
+            onClose={dialogs.closeCreateDialog}
+          />
+        </Suspense>
       )}
 
       {dialogs.showRenameDialog && (
@@ -780,8 +784,12 @@ function AppShell() {
         }}
       />
 
-      <CommandPalette actions={paletteActions} />
-      <ThemeSelector />
+      <Suspense fallback={null}>
+        <CommandPalette actions={paletteActions} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ThemeSelector />
+      </Suspense>
 
       {showKeyboardShortcuts && (
         <KeyboardShortcuts onClose={() => setShowKeyboardShortcuts(false)} />

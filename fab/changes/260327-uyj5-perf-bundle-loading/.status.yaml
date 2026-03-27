@@ -1,0 +1,42 @@
+id: uyj5
+name: 260327-uyj5-perf-bundle-loading
+created: 2026-03-27T10:25:08Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 20
+    total: 20
+confidence:
+    certain: 10
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 86.5
+        reversibility: 91.0
+        competence: 90.5
+        disambiguation: 89.5
+stage_metrics:
+    intake: {started_at: "2026-03-27T10:25:08Z", driver: fab-new, iterations: 1, completed_at: "2026-03-27T10:30:26Z"}
+    spec: {started_at: "2026-03-27T10:30:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:31:23Z"}
+    tasks: {started_at: "2026-03-27T10:31:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:31:23Z"}
+    apply: {started_at: "2026-03-27T10:31:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:36:49Z"}
+    review: {started_at: "2026-03-27T10:36:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:39:02Z"}
+    hydrate: {started_at: "2026-03-27T10:39:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:40:33Z"}
+    ship: {started_at: "2026-03-27T10:40:33Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-27T10:40:33Z

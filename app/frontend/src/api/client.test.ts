@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import { http, HttpResponse } from "msw";
 import { server } from "../../tests/msw/server";
 import { resetMockSessions } from "../../tests/msw/handlers";
 import {
@@ -80,5 +81,90 @@ describe("API client", () => {
     const result = await uploadFile("run-kit", file, "0");
     expect(result.ok).toBe(true);
     expect(result.path).toContain("run-kit");
+  });
+});
+
+describe("API request deduplication", () => {
+  it("deduplicates concurrent GET requests to the same endpoint", async () => {
+    let callCount = 0;
+    server.use(
+      http.get("/api/health", () => {
+        callCount++;
+        return HttpResponse.json({ status: "ok", hostname: "test-host" });
+      }),
+    );
+
+    const [a, b] = await Promise.all([getHealth(), getHealth()]);
+    expect(callCount).toBe(1);
+    expect(a.status).toBe("ok");
+    expect(b.status).toBe("ok");
+  });
+
+  it("does not deduplicate POST requests", async () => {
+    let callCount = 0;
+    server.use(
+      http.post("/api/sessions", async ({ request }) => {
+        callCount++;
+        await request.json();
+        return HttpResponse.json({ ok: true }, { status: 201 });
+      }),
+    );
+
+    await Promise.all([
+      createSession("proj-a"),
+      createSession("proj-b"),
+    ]);
+    expect(callCount).toBe(2);
+  });
+
+  it("cleans up after resolve so sequential calls make fresh requests", async () => {
+    let callCount = 0;
+    server.use(
+      http.get("/api/health", () => {
+        callCount++;
+        return HttpResponse.json({ status: "ok", hostname: "test-host" });
+      }),
+    );
+
+    await getHealth();
+    expect(callCount).toBe(1);
+
+    await getHealth();
+    expect(callCount).toBe(2);
+  });
+
+  it("cleans up after reject so subsequent calls make fresh requests", async () => {
+    let callCount = 0;
+    server.use(
+      http.get("/api/health", () => {
+        callCount++;
+        return HttpResponse.json({ error: "boom" }, { status: 500 });
+      }),
+    );
+
+    await expect(getHealth()).rejects.toThrow();
+    expect(callCount).toBe(1);
+
+    await expect(getHealth()).rejects.toThrow();
+    expect(callCount).toBe(2);
+  });
+
+  it("concurrent GET calls to different URLs are not deduplicated", async () => {
+    let healthCount = 0;
+    let sessionsCount = 0;
+    server.use(
+      http.get("/api/health", () => {
+        healthCount++;
+        return HttpResponse.json({ status: "ok", hostname: "test-host" });
+      }),
+      http.get("/api/sessions", () => {
+        sessionsCount++;
+        return HttpResponse.json([]);
+      }),
+    );
+
+    await Promise.all([getHealth(), getSessions()]);
+    expect(healthCount).toBe(1);
+    expect(sessionsCount).toBe(1);
   });
 });

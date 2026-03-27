@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { renameSession, renameWindow, killSession, killWindow } from "@/api/client";
 
 type UseDialogStateOptions = {
@@ -90,7 +90,7 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
     }
   }, [sessionName, windowIndex, onKillComplete]);
 
-  return {
+  return useMemo(() => ({
     showCreateDialog,
     showRenameDialog,
     showRenameSessionDialog,
@@ -114,5 +114,27 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
     handleRenameSession,
     handleKillSession,
     handleKillWindow,
-  };
+  }), [
+    showCreateDialog,
+    showRenameDialog,
+    showRenameSessionDialog,
+    showKillConfirm,
+    showKillSessionConfirm,
+    renameName,
+    renameSessionName,
+    openCreateDialog,
+    closeCreateDialog,
+    openRenameDialog,
+    closeRenameDialog,
+    openRenameSessionDialog,
+    closeRenameSessionDialog,
+    openKillConfirm,
+    closeKillConfirm,
+    openKillSessionConfirm,
+    closeKillSessionConfirm,
+    handleRename,
+    handleRenameSession,
+    handleKillSession,
+    handleKillWindow,
+  ]);
 }

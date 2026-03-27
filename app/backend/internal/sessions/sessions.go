@@ -73,6 +73,49 @@ func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
 	return m, nil
 }
 
+// Pane-map cache: package-level with sync.RWMutex protection.
+// Avoids re-running fab-go pane-map on every SSE tick (5s TTL).
+var (
+	paneMapCache     map[string]paneMapEntry
+	paneMapCacheTime time.Time
+	paneMapCacheMu   sync.RWMutex
+	paneMapCacheTTL  = 5 * time.Second
+)
+
+// fetchPaneMapCached wraps fetchPaneMap with a TTL cache.
+// Uses a double-check pattern after write lock acquisition to prevent thundering herd.
+// On fetch error, the stale cache entry is preserved (if one exists).
+func fetchPaneMapCached(repoRoot string) (map[string]paneMapEntry, error) {
+	paneMapCacheMu.RLock()
+	if paneMapCache != nil && time.Since(paneMapCacheTime) < paneMapCacheTTL {
+		cached := paneMapCache
+		paneMapCacheMu.RUnlock()
+		return cached, nil
+	}
+	paneMapCacheMu.RUnlock()
+
+	paneMapCacheMu.Lock()
+	defer paneMapCacheMu.Unlock()
+
+	// Double-check: another goroutine may have refreshed while we waited for the write lock.
+	if paneMapCache != nil && time.Since(paneMapCacheTime) < paneMapCacheTTL {
+		return paneMapCache, nil
+	}
+
+	m, err := fetchPaneMap(repoRoot)
+	if err != nil {
+		// Preserve stale cache entry on error (graceful degradation).
+		if paneMapCache != nil {
+			return paneMapCache, nil
+		}
+		return nil, err
+	}
+
+	paneMapCache = m
+	paneMapCacheTime = time.Now()
+	return m, nil
+}
+
 // findRepoRoot walks up from dir until it finds a directory containing
 // fab/.kit/bin/fab-go, returning that directory. Returns "" if not found.
 func findRepoRoot(dir string) string {
@@ -98,8 +141,8 @@ func derefStr(s *string) string {
 }
 
 // FetchSessions fetches all sessions from the specified server, derives project roots from tmux, and enriches with fab state.
-func FetchSessions(server string) ([]ProjectSession, error) {
-	sessionInfos, err := tmux.ListSessions(server)
+func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error) {
+	sessionInfos, err := tmux.ListSessions(ctx, server)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +164,7 @@ func FetchSessions(server string) ([]ProjectSession, error) {
 		wg.Add(1)
 		go func(idx int, si tmux.SessionInfo) {
 			defer wg.Done()
-			windows, _ := tmux.ListWindows(si.Name, server)
+			windows, _ := tmux.ListWindows(ctx, si.Name, server)
 			if windows == nil {
 				windows = []tmux.WindowInfo{}
 			}
@@ -152,7 +195,7 @@ func FetchSessions(server string) ([]ProjectSession, error) {
 	// and all windows get empty fab fields (graceful degradation).
 	var paneMap map[string]paneMapEntry
 	if repoRoot != "" {
-		paneMap, _ = fetchPaneMap(repoRoot)
+		paneMap, _ = fetchPaneMapCached(repoRoot)
 	}
 
 	// Build result with per-window fab enrichment from pane-map.
@@ -174,8 +217,8 @@ func FetchSessions(server string) ([]ProjectSession, error) {
 }
 
 // ProjectRoot derives the project root from a session's target window.
-func ProjectRoot(session string, windowIndex int, server string) (string, error) {
-	windows, err := tmux.ListWindows(session, server)
+func ProjectRoot(ctx context.Context, session string, windowIndex int, server string) (string, error) {
+	windows, err := tmux.ListWindows(ctx, session, server)
 	if err != nil {
 		return "", err
 	}

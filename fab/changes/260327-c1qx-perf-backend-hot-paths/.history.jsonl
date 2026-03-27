@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-27T09:55:08Z"}
+{"args":"Performance Phase 1 — Backend Hot Paths: (1) Parallelize ListServers() socket probing with bounded goroutine pool in internal/tmux/tmux.go, (2) Cache SSE session fetches with 500ms TTL in api/sse.go, (3) Cache fetchPaneMap() with 5s TTL in internal/sessions/sessions.go, (4) Propagate HTTP request context to tmux calls.","cmd":"fab-new","event":"command","ts":"2026-03-27T09:55:08Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-27T09:56:34Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-27T09:56:53Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-27T09:58:05Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-27T10:01:14Z"}
+{"delta":"+0.6","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-27T10:03:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-27T10:04:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-27T10:05:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-27T10:05:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-27T10:15:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-27T10:18:54Z"}
+{"event":"review","result":"passed","ts":"2026-03-27T10:18:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-27T10:20:11Z"}

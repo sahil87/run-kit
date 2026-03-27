@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -18,7 +19,7 @@ import (
 
 // SessionFetcher fetches enriched session data.
 type SessionFetcher interface {
-	FetchSessions(server string) ([]sessions.ProjectSession, error)
+	FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error)
 }
 
 // TmuxOps defines tmux operations used by handlers.
@@ -31,11 +32,11 @@ type TmuxOps interface {
 	RenameWindow(session string, index int, name, server string) error
 	SendKeys(session string, window int, keys, server string) error
 	SelectWindow(session string, index int, server string) error
-	ListWindows(session, server string) ([]tmux.WindowInfo, error)
+	ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error)
 	SplitWindow(session string, window int, horizontal bool, server string) (string, error)
 	KillPane(paneID, server string) error
 	KillActivePane(session string, window int, server string) error
-	ListServers() ([]string, error)
+	ListServers(ctx context.Context) ([]string, error)
 	KillServer(server string) error
 	ListKeys(server string) ([]string, error)
 }
@@ -73,8 +74,8 @@ func serverFromRequest(r *http.Request) string {
 // prodSessionFetcher wraps the sessions package for production use.
 type prodSessionFetcher struct{}
 
-func (p *prodSessionFetcher) FetchSessions(server string) ([]sessions.ProjectSession, error) {
-	return sessions.FetchSessions(server)
+func (p *prodSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	return sessions.FetchSessions(ctx, server)
 }
 
 // prodTmuxOps wraps the tmux package for production use.
@@ -104,8 +105,8 @@ func (p *prodTmuxOps) SendKeys(session string, window int, keys, server string) 
 func (p *prodTmuxOps) SelectWindow(session string, index int, server string) error {
 	return tmux.SelectWindow(session, index, server)
 }
-func (p *prodTmuxOps) ListWindows(session, server string) ([]tmux.WindowInfo, error) {
-	return tmux.ListWindows(session, server)
+func (p *prodTmuxOps) ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error) {
+	return tmux.ListWindows(ctx, session, server)
 }
 func (p *prodTmuxOps) SplitWindow(session string, window int, horizontal bool, server string) (string, error) {
 	return tmux.SplitWindow(session, window, horizontal, server)
@@ -116,8 +117,8 @@ func (p *prodTmuxOps) KillPane(paneID, server string) error {
 func (p *prodTmuxOps) KillActivePane(session string, window int, server string) error {
 	return tmux.KillActivePane(session, window, server)
 }
-func (p *prodTmuxOps) ListServers() ([]string, error) {
-	return tmux.ListServers()
+func (p *prodTmuxOps) ListServers(ctx context.Context) ([]string, error) {
+	return tmux.ListServers(ctx)
 }
 func (p *prodTmuxOps) KillServer(server string) error {
 	return tmux.KillServer(server)

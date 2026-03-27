@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Server) handleSessionsList(w http.ResponseWriter, r *http.Request) {
-	result, err := s.sessions.FetchSessions(serverFromRequest(r))
+	result, err := s.sessions.FetchSessions(r.Context(), serverFromRequest(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

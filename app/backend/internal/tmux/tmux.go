@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -205,8 +206,8 @@ func parseSessions(lines []string) []SessionInfo {
 
 // ListSessions returns sessions from the specified tmux server,
 // filtering out session-group copies. Returns nil if no server is running.
-func ListSessions(server string) ([]SessionInfo, error) {
-	ctx, cancel := withTimeout()
+func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
 	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}", listDelim, listDelim)
@@ -263,8 +264,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 
 // ListWindows returns windows for a given session on the specified server.
 // Returns nil if session does not exist.
-func ListWindows(session string, server string) ([]WindowInfo, error) {
-	ctx, cancel := withTimeout()
+func ListWindows(ctx context.Context, session string, server string) ([]WindowInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
 	format := strings.Join([]string{
@@ -485,7 +486,7 @@ func CapturePane(paneID string, lines int, server string) (string, error) {
 // ListServers discovers available tmux servers by scanning the tmux socket directory
 // at /tmp/tmux-{uid}/. Probes each socket to confirm the server is alive.
 // Returns sorted server names.
-func ListServers() ([]string, error) {
+func ListServers(ctx context.Context) ([]string, error) {
 	uid := os.Getuid()
 	socketDir := fmt.Sprintf("/tmp/tmux-%d", uid)
 
@@ -510,17 +511,30 @@ func ListServers() ([]string, error) {
 		candidates = append(candidates, e.Name())
 	}
 
-	// Probe each socket — only include servers that are actually running.
+	// Probe each socket concurrently — bounded goroutine pool.
+	sem := make(chan struct{}, 10)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	var servers []string
+
 	for _, name := range candidates {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		cmd := exec.CommandContext(ctx, "tmux", "-L", name, "list-sessions")
-		err := cmd.Run()
-		cancel()
-		if err == nil {
-			servers = append(servers, name)
-		}
+		wg.Add(1)
+		sem <- struct{}{} // acquire semaphore slot
+		go func(name string) {
+			defer wg.Done()
+			defer func() { <-sem }() // release
+			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(probeCtx, "tmux", "-L", name, "list-sessions")
+			if cmd.Run() == nil {
+				mu.Lock()
+				servers = append(servers, name)
+				mu.Unlock()
+			}
+		}(name)
 	}
+	wg.Wait()
+
 	sort.Strings(servers)
 	return servers, nil
 }

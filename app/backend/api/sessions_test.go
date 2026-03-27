@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -19,7 +20,7 @@ type mockSessionFetcher struct {
 	err    error
 }
 
-func (m *mockSessionFetcher) FetchSessions(server string) ([]sessions.ProjectSession, error) {
+func (m *mockSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
 	return m.result, m.err
 }
 
@@ -111,7 +112,7 @@ func (m *mockTmuxOps) SendKeys(session string, window int, keys, server string) 
 	m.sendKeysKeys = keys
 	return m.err
 }
-func (m *mockTmuxOps) ListWindows(session, server string) ([]tmux.WindowInfo, error) {
+func (m *mockTmuxOps) ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error) {
 	return m.listWindowsResult, m.listWindowsErr
 }
 func (m *mockTmuxOps) SplitWindow(session string, window int, horizontal bool, server string) (string, error) {
@@ -133,7 +134,7 @@ func (m *mockTmuxOps) KillActivePane(session string, window int, server string) 
 	m.killActivePaneIndex = window
 	return m.err
 }
-func (m *mockTmuxOps) ListServers() ([]string, error) {
+func (m *mockTmuxOps) ListServers(ctx context.Context) ([]string, error) {
 	return []string{"default"}, nil
 }
 func (m *mockTmuxOps) KillServer(server string) error {

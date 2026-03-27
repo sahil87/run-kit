@@ -1,18 +1,28 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
+
+	"rk/internal/sessions"
 )
 
 const (
 	ssePollInterval = 2500 * time.Millisecond
+	sseCacheTTL     = 500 * time.Millisecond
 	maxLifetime     = 30 * time.Minute
 )
+
+// cachedResult holds a cached FetchSessions result with a timestamp.
+type cachedResult struct {
+	data      []sessions.ProjectSession
+	fetchedAt time.Time
+}
 
 type sseClient struct {
 	ch     chan []byte
@@ -22,7 +32,8 @@ type sseClient struct {
 type sseHub struct {
 	mu           sync.RWMutex
 	clients      map[*sseClient]struct{}
-	previousJSON map[string]string // per-server JSON cache
+	previousJSON map[string]string // per-server JSON dedup cache
+	cache        map[string]*cachedResult // per-server session fetch cache (500ms TTL)
 	polling      bool
 	fetcher      SessionFetcher
 }
@@ -31,6 +42,7 @@ func newSSEHub(fetcher SessionFetcher) *sseHub {
 	return &sseHub{
 		clients:      make(map[*sseClient]struct{}),
 		previousJSON: make(map[string]string),
+		cache:        make(map[string]*cachedResult),
 		fetcher:      fetcher,
 	}
 }
@@ -80,10 +92,18 @@ func (h *sseHub) poll() {
 
 		// Poll each server and broadcast to matching clients
 		for server := range serverSet {
-			result, err := h.fetcher.FetchSessions(server)
-			if err != nil {
-				slog.Warn("SSE poll error", "err", err, "server", server)
-				continue
+			// Check session fetch cache (500ms TTL)
+			var result []sessions.ProjectSession
+			if cached, ok := h.cache[server]; ok && time.Since(cached.fetchedAt) < sseCacheTTL {
+				result = cached.data
+			} else {
+				var err error
+				result, err = h.fetcher.FetchSessions(context.Background(), server)
+				if err != nil {
+					slog.Warn("SSE poll error", "err", err, "server", server)
+					continue
+				}
+				h.cache[server] = &cachedResult{data: result, fetchedAt: time.Now()}
 			}
 
 			jsonBytes, err := json.Marshal(result)

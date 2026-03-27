@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
-	servers, err := s.tmux.ListServers()
+	servers, err := s.tmux.ListServers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

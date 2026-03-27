@@ -25,6 +25,7 @@ describe("BottomBar scroll-lock", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 

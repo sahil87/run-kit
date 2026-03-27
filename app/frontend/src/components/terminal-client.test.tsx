@@ -103,6 +103,7 @@ describe("TerminalClient scroll-lock focus prevention", () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 

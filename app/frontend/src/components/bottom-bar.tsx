@@ -177,9 +177,10 @@ export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal, onS
         longPressTimerRef.current = null;
         didLongPressRef.current = true;
         const next = !scrollLocked;
-        // Auto-dismiss keyboard before locking
-        if (next && document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
+        // Auto-dismiss keyboard before locking, but only if focus is within the terminal
+        const activeEl = document.activeElement;
+        if (next && activeEl instanceof HTMLElement && activeEl.closest(".xterm")) {
+          activeEl.blur();
         }
         toggleScrollLock(next);
         navigator.vibrate?.(50);

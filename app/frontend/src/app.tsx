@@ -96,6 +96,7 @@ function AppShell() {
   const navigate = useNavigate();
   const matches = useMatches();
   const wsRef = useRef<WebSocket | null>(null);
+  const focusTerminalRef = useRef<(() => void) | null>(null);
 
   // Extract params -- the route may be /$server (no session/window) or /$server/$session/$window
   const lastMatch = matches[matches.length - 1];
@@ -597,11 +598,12 @@ function AppShell() {
                     composeOpen={composeOpen}
                     setComposeOpen={setComposeOpen}
                     onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+                    focusRef={focusTerminalRef}
                   />
                 </div>
                 {/* Bottom Bar — only on terminal pages */}
                 <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
-                  <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} />
+                  <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} />
                 </div>
               </>
             ) : (

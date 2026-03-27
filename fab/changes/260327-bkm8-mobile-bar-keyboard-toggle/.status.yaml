@@ -1,0 +1,42 @@
+id: bkm8
+name: 260327-bkm8-mobile-bar-keyboard-toggle
+created: 2026-03-27T11:14:10Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 6
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 82.8
+        reversibility: 90.6
+        competence: 87.8
+        disambiguation: 86.7
+stage_metrics:
+    intake: {started_at: "2026-03-27T11:14:10Z", driver: fab-new, iterations: 1, completed_at: "2026-03-27T11:21:19Z"}
+    spec: {started_at: "2026-03-27T11:21:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T11:22:21Z"}
+    tasks: {started_at: "2026-03-27T11:22:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T11:22:21Z"}
+    apply: {started_at: "2026-03-27T11:22:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T11:26:34Z"}
+    review: {started_at: "2026-03-27T11:26:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T11:29:34Z"}
+    hydrate: {started_at: "2026-03-27T11:29:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T11:30:51Z"}
+    ship: {started_at: "2026-03-27T11:30:51Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-27T11:30:51Z

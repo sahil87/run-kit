@@ -151,7 +151,7 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 
 ## Bottom Bar (Terminal Pages Only, Inside Terminal Column)
 
-Single row of `<kbd>` styled buttons, rendered only on terminal pages (`/:session/:window`). Hidden on the Dashboard route (`/`) — there is no terminal to send keys to. Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Esc Tab | Ctrl Alt | Fn▴ ArrowPad`. Compose button (`>_`) moved to top bar right section.
+Single row of `<kbd>` styled buttons, rendered only on terminal pages (`/:session/:window`). Hidden on the Dashboard route (`/`) — there is no terminal to send keys to. Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Tab Ctrl Alt Fn▴ ArrowPad | >_ ⌘K [hostname] ⌨`. Escape moved to the Function key dropdown's extended-keys section. Compose button (`>_`) conditionally rendered when `onOpenCompose` is provided.
 
 **Modifier toggles** (Ctrl, Alt): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously. Cmd (`⌘`) removed — on desktop users hold the real Cmd key; on mobile Cmd combos aren't used in terminal workflows.
 
@@ -159,9 +159,9 @@ Single row of `<kbd>` styled buttons, rendered only on terminal pages (`/:sessio
 
 **ArrowPad** (`arrow-pad.tsx`): Combined directional pad replacing individual arrow buttons. Sends ANSI escape sequences (`[A/B/C/D`). With modifiers, use xterm parameter encoding (`[1;{mod}X`). Modifier parameter: 1 + (alt?2:0) + (ctrl?4:0).
 
-**Function key dropdown** (F▴): Opens a combined popup above the button. Top section: F1-F12 in a 4-column grid. Divider (`border-t border-border`). Bottom section: PgUp, PgDn, Home, End, Ins, Del in a 3-column grid. Closes after each selection, on outside click, or on Escape.
+**Function key dropdown** (F▴): Opens a combined popup above the button. Top section: F1-F12 in a 4-column grid. Divider (`border-t border-border`). Bottom section: Esc, PgUp, PgDn, Home, End, Ins, Del in a 3-column grid (3x3, 7 items). Escape uses `sendSpecial` (preserves Ctrl re-arm semantics); other extended keys use `sendWithMods`. Closes after each selection, on outside click, or on Escape.
 
-**Special keys** (Esc, Tab): Direct send. Ctrl is not consumed for Esc/Tab (Esc IS Ctrl+[, Tab IS Ctrl+I in terminal semantics) — Ctrl stays armed for the next key. Alt prefix with ESC (Meta convention).
+**Special keys** (Tab in bottom bar, Esc in Fn menu): Direct send via `sendSpecial`. Ctrl is not consumed for Esc/Tab (Esc IS Ctrl+[, Tab IS Ctrl+I in terminal semantics) — Ctrl stays armed for the next key. Alt prefix with ESC (Meta convention).
 
 **All buttons**: 36px minimum height/width on desktop (`min-h-[36px] min-w-[36px]`), 44px height / 36px width on touch devices (`coarse:min-h-[44px] coarse:min-w-[36px]`). `text-xs`, `<kbd>` element styling.
 
@@ -193,6 +193,8 @@ After upload: file path auto-inserted into compose buffer (opens compose if clos
 ### iOS Keyboard Support
 
 `useVisualViewport` hook (`app/frontend/src/hooks/use-visual-viewport.ts`) manages all viewport-related CSS side effects: adds the `fullbleed` class to `<html>` on mount (removed on cleanup), and listens to both `resize` and `scroll` events on `window.visualViewport`, setting `--app-height` CSS custom property from `visualViewport.height`. The `scroll` listener catches iOS Safari viewport panning that doesn't trigger `resize`. In fullbleed mode, `globals.css` applies `position: fixed` to the `.app-shell` container with `inset: 0` and `height: var(--app-height, 100vh)`, pinning it to the viewport regardless of document scroll. When the iOS keyboard appears, the bottom bar stays pinned above it, the terminal shrinks, and xterm refits via the existing `ResizeObserver`. The `fullbleed` class is also present in `index.html` as a static default (FOUC prevention); the hook takes over lifecycle management at runtime.
+
+**Keyboard toggle** (`⌨` U+2328): Right-aligned button in the bottom bar, visible only on touch devices (`hidden coarse:inline-flex`). Bidirectional toggle: when terminal is focused (detected via `document.activeElement.closest(".xterm")`), tapping blurs to dismiss the keyboard; when not focused, tapping calls `onFocusTerminal` callback which chains through `app.tsx` → `TerminalClient.focusRef` → `xtermRef.current.focus()` to summon the keyboard. Dynamic `aria-label`: "Hide keyboard" / "Show keyboard". Uses `preventFocusSteal` to avoid stealing focus on the dismiss path.
 
 ### Terminal Touch Scroll
 

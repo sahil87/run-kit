@@ -88,7 +88,7 @@ var updateCmd = &cobra.Command{
 		// Restart daemon so it picks up the new binary.
 		// Idempotent: if no daemon is running, this starts one.
 		fmt.Println("Restarting rk daemon...")
-		if err := daemon.Restart(); err != nil {
+		if err := daemon.RestartWithBinary(exePath); err != nil {
 			return fmt.Errorf("restarting daemon after upgrade: %w", err)
 		}
 		fmt.Printf("rk daemon started (%s/%s/%s)\n",

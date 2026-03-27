@@ -76,6 +76,29 @@ func Start() error {
 		return fmt.Errorf("resolving executable symlinks: %w", err)
 	}
 
+	return startSession(exe)
+}
+
+// StartWithBinary creates a new daemon tmux session using the provided binary path.
+// The binPath is resolved via filepath.EvalSymlinks before use, so callers can pass
+// a symlink (e.g. the Homebrew bin symlink) that points to the current version.
+// Use this instead of Start when the running process's os.Executable path may be stale
+// (e.g. after brew upgrade deletes the old Cellar directory).
+func StartWithBinary(binPath string) error {
+	if IsRunning() {
+		return fmt.Errorf("daemon already running")
+	}
+
+	exe, err := filepath.EvalSymlinks(binPath)
+	if err != nil {
+		return fmt.Errorf("resolving executable symlinks: %w", err)
+	}
+
+	return startSession(exe)
+}
+
+// startSession creates the daemon tmux session with the given resolved binary path.
+func startSession(exe string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 
@@ -133,4 +156,15 @@ func Restart() error {
 		}
 	}
 	return Start()
+}
+
+// RestartWithBinary stops the daemon if running, then starts it using the provided binary path.
+// Use this instead of Restart when the running process's os.Executable path may be stale.
+func RestartWithBinary(binPath string) error {
+	if IsRunning() {
+		if err := Stop(); err != nil {
+			return fmt.Errorf("stopping daemon: %w", err)
+		}
+	}
+	return StartWithBinary(binPath)
 }

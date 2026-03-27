@@ -179,7 +179,9 @@ The Go binary manages its own daemon lifecycle via `run-kit serve` flags. The da
 - `run-kit serve -d` — start daemon (errors if already running)
 - `run-kit serve --restart` — idempotent: stop existing daemon (C-c → wait 5s) then start new one; starts fresh if no daemon running
 - `run-kit serve --stop` — graceful shutdown via C-c to the tmux pane
-- `run-kit update` — auto-restarts daemon after successful `brew upgrade`
+- `run-kit update` — auto-restarts daemon after successful `brew upgrade` using `RestartWithBinary(exePath)` where `exePath` is the Homebrew bin symlink (resolves to the new Cellar version post-upgrade, avoiding stale `os.Executable()` path from the running process)
+
+Binary resolution: `Start()` uses `os.Executable()` + `filepath.EvalSymlinks()` (works for `serve -d` / `--restart` where the running binary is valid). `StartWithBinary(path)` accepts an explicit binary path and resolves its symlinks (used by `update` after `brew upgrade` deletes the old Cellar directory). Both delegate to shared `startSession(exe)` for tmux session creation.
 
 Detection: `tmux -L rk-daemon has-session -t rk`. No polling loop, no signal files, no supervisor script.
 
@@ -238,7 +240,7 @@ Single-view model: there are no page transitions or per-page chrome injection. T
 | *(none)* | `root.go` | Defaults to `serve` (backwards compat) |
 | `serve` | `serve.go` | Start HTTP server — loads config from env vars, chi router, graceful shutdown via SIGINT/SIGTERM. Flags: `-d`/`--daemon` (start as daemon in tmux), `--restart` (idempotent restart), `--stop` (graceful stop). Uses `internal/daemon/` helpers |
 | `version` | `version.go` | Print `run-kit version {version}` — version injected at build time via `-X main.version=...` |
-| `update` | `upgrade.go` | Alias: `upgrade`. Detect Homebrew install (`os.Executable()` path contains `/Cellar/run-kit/`). If Homebrew: `brew update --quiet`, check latest version via `brew info --json=v2`, skip if already up to date, else `brew upgrade run-kit` + auto-restart daemon via `daemon.Restart()`. Non-Homebrew: print reinstall instructions |
+| `update` | `upgrade.go` | Alias: `upgrade`. Detect Homebrew install (`os.Executable()` path contains `/Cellar/rk/`). If Homebrew: `brew update --quiet`, check latest version via `brew info --json=v2`, skip if already up to date, else `brew upgrade wvrdz/tap/rk` + auto-restart daemon via `daemon.RestartWithBinary(exePath)` (uses the brew bin symlink, not stale `os.Executable()` Cellar path). Non-Homebrew: print reinstall instructions |
 | `doctor` | `doctor.go` | Check runtime dependencies only — `exec.LookPath("tmux")`. Exit 1 if any check fails |
 | `status` | `status.go` | List tmux sessions with window counts via `internal/tmux.ListSessions()` + `ListWindows()`. No server required |
 | `init-conf` | `initconf.go` | Scaffold default tmux.conf to `~/.run-kit/tmux.conf` from embedded config. `--force` to overwrite |

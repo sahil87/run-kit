@@ -144,6 +144,9 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			if cmd.Process != nil {
 				cmd.Process.Kill()
 			}
+			// Set a short read deadline to unblock the main goroutine's
+			// conn.ReadMessage() when the PTY dies while the client is idle.
+			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 			slog.Debug("relay cleanup", "session", session, "window", windowIndex)
 		})
 	}

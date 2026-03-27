@@ -65,18 +65,22 @@ Always run tests through `just` recipes — never invoke `go test`, `pnpm test`,
 - `just test-backend` — Go tests only
 - `just test-frontend` — Vitest unit tests only
 - `just test-e2e` — Playwright e2e tests (port 3020, isolated tmux server)
+- `just pw` — ad-hoc Playwright commands (port 3020, e.g., `just pw test mobile-layout`)
+
+The Playwright fallback port is 3333 (not 3000) — if `RK_PORT` is unset and Playwright runs directly, it will fail to connect rather than hitting a live `rk serve` instance.
 
 ## Playwright-Driven Development
 
 When making UI changes — especially mobile/responsive work — use Playwright MCP as the primary verification tool:
 
-1. Start the dev server: `just dev --port <port>` (use a port that won't collide with the user's running instance)
+1. Start a dev server on the e2e port: `RK_PORT=3020 just dev`
 2. Set viewport size to simulate the target device (e.g., 375×812 for iPhone)
 3. Navigate, click, and screenshot to verify layout changes visually
 4. Test interactive elements: popups, drawers, toggles — confirm they render within bounds and aren't clipped
 5. Resize viewport to verify desktop layout isn't broken
+6. Run individual tests with `just pw test <name>` (uses port 3020 by default)
 
-This workflow catches overflow issues, clipping, and layout regressions that unit tests miss. Always verify both mobile (375px) and desktop (1024px+) viewports after responsive changes.
+Never run `npx playwright test` directly — always use `just test-e2e` or `just pw` to ensure correct port isolation. This workflow catches overflow issues, clipping, and layout regressions that unit tests miss. Always verify both mobile (375px) and desktop (1024px+) viewports after responsive changes.
 
 ## Mobile Responsive Design
 

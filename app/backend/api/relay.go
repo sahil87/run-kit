@@ -76,7 +76,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	server := serverFromRequest(r)
 
 	// Verify the session exists and select the target window
-	windows, err := s.tmux.ListWindows(session, server)
+	windows, err := s.tmux.ListWindows(r.Context(), session, server)
 	if err != nil || windows == nil {
 		slog.Warn("session not found", "session", session)
 		conn.WriteMessage(websocket.CloseMessage,

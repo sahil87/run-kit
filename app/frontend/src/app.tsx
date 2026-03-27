@@ -415,7 +415,7 @@ function AppShell() {
               id: "copy-tmux-attach",
               label: "Copy: tmux Attach Command",
               onSelect: () => {
-                if (sessionName) {
+                if (sessionName && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
                   navigator.clipboard.writeText(`tmux attach-session -t ${sessionName}:${currentWindow.name}`).catch(() => {});
                 }
               },

@@ -57,6 +57,15 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 - SSE for real-time session state, WebSocket for terminal I/O
 - Dev workflow: `just dev` (runs Go backend with air live-reload + Vite dev server concurrently)
 
+## Testing
+
+Always run tests through `just` recipes — never invoke `go test`, `pnpm test`, or `playwright test` directly. The `just test-e2e` recipe (via `scripts/test-e2e.sh`) starts a dedicated dev server on port 3020 with an isolated tmux server (`rk-e2e`), so e2e tests won't collide with a running `rk serve` instance on the default port. Running Playwright directly would fall back to port 3000 and interfere with the live instance.
+
+- `just test` — all tests (backend + frontend + e2e)
+- `just test-backend` — Go tests only
+- `just test-frontend` — Vitest unit tests only
+- `just test-e2e` — Playwright e2e tests (port 3020, isolated tmux server)
+
 ## Playwright-Driven Development
 
 When making UI changes — especially mobile/responsive work — use Playwright MCP as the primary verification tool:

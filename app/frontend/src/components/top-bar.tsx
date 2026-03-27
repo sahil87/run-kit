@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
-import { useChrome, useChromeDispatch } from "@/contexts/chrome-context";
+import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { splitWindow, closePane } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
@@ -407,7 +407,7 @@ function ClosePaneButton({
 }
 
 function FixedWidthToggle() {
-  const { fixedWidth } = useChrome();
+  const { fixedWidth } = useChromeState();
   const { toggleFixedWidth } = useChromeDispatch();
 
   return (

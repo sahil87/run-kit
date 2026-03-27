@@ -346,6 +346,23 @@ export function TerminalClient({
     const wsProto =
       window.location.protocol === "https:" ? "wss:" : "ws:";
 
+    // Write batching: accumulate WebSocket data and flush once per animation frame
+    let textBuffer = "";
+    let binaryBuffers: Uint8Array[] = [];
+    let flushRafId: number | null = null;
+
+    function flushToTerminal() {
+      flushRafId = null;
+      if (textBuffer) {
+        terminal.write(textBuffer);
+        textBuffer = "";
+      }
+      for (const buf of binaryBuffers) {
+        terminal.write(buf);
+      }
+      binaryBuffers = [];
+    }
+
     function connect() {
       if (cancelled) return;
       const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndexRef.current}?server=${server}`;
@@ -368,11 +385,24 @@ export function TerminalClient({
           needsReset = false;
           terminal.reset();
         }
-        if (typeof event.data === "string") terminal.write(event.data);
-        else terminal.write(new Uint8Array(event.data));
+        if (typeof event.data === "string") {
+          textBuffer += event.data;
+        } else {
+          binaryBuffers.push(new Uint8Array(event.data));
+        }
+        if (!flushRafId) {
+          flushRafId = requestAnimationFrame(flushToTerminal);
+        }
       };
 
       ws.onclose = (event) => {
+        // Flush any buffered data before handling close
+        if (flushRafId) {
+          cancelAnimationFrame(flushRafId);
+          flushRafId = null;
+        }
+        try { flushToTerminal(); } catch { /* terminal may be disposed */ }
+
         if (cancelled) return;
         // 4004 = session or window not found — redirect instead of reconnecting
         if (event.code === 4004) {
@@ -395,6 +425,7 @@ export function TerminalClient({
 
     return () => {
       cancelled = true;
+      if (flushRafId) cancelAnimationFrame(flushRafId);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (wsRef.current) {
         wsRef.current.close();

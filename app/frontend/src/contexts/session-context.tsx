@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef, startTransition } from "react";
 import { useChromeDispatch } from "./chrome-context";
 import { setServerGetter } from "@/api/client";
 import type { ProjectSession } from "@/types";
@@ -60,6 +60,8 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
   }, [fetchServers, server]);
 
   // SSE connection — reconnects when server changes
+  const prevSseDataRef = useRef("");
+
   useEffect(() => {
     const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
 
@@ -81,8 +83,15 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
 
     es.addEventListener("sessions", (e) => {
       try {
+        if (e.data === prevSseDataRef.current) {
+          markConnected();
+          return;
+        }
+        prevSseDataRef.current = e.data;
         const data = JSON.parse(e.data) as ProjectSession[];
-        setSessions(data);
+        startTransition(() => {
+          setSessions(data);
+        });
         markConnected();
       } catch {
         // Malformed event — skip

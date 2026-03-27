@@ -101,6 +101,12 @@ export function useChrome(): ChromeState & ChromeDispatch {
   return useMemo(() => ({ ...state, ...dispatch }), [state, dispatch]);
 }
 
+export function useChromeState(): ChromeState {
+  const state = useContext(ChromeStateContext);
+  if (!state) throw new Error("useChromeState must be used within ChromeProvider");
+  return state;
+}
+
 export function useChromeDispatch(): ChromeDispatch {
   const dispatch = useContext(ChromeDispatchContext);
   if (!dispatch) throw new Error("useChromeDispatch must be used within ChromeProvider");

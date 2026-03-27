@@ -1,6 +1,6 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
-import { ChromeProvider, useChrome, useChromeDispatch } from "@/contexts/chrome-context";
+import { ChromeProvider, useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
@@ -88,7 +88,7 @@ function AppShell() {
   useVisualViewport();
 
   const { sessions, isConnected, server, servers, refreshServers } = useSessionContext();
-  const { sidebarOpen, drawerOpen, fixedWidth } = useChrome();
+  const { sidebarOpen, drawerOpen, fixedWidth } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen, toggleFixedWidth } = useChromeDispatch();
   const navigate = useNavigate();
   const matches = useMatches();
@@ -338,7 +338,7 @@ function AppShell() {
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const paletteActions: PaletteAction[] = useMemo(
+  const sessionActions: PaletteAction[] = useMemo(
     () => [
       {
         id: "create-session",
@@ -363,6 +363,12 @@ function AppShell() {
             },
           ]
         : []),
+    ],
+    [sessionName, dialogs],
+  );
+
+  const windowActions: PaletteAction[] = useMemo(
+    () => [
       ...(sessionName
         ? [
             {
@@ -422,6 +428,12 @@ function AppShell() {
             },
           ]
         : []),
+    ],
+    [sessionName, currentWindow, handleCreateWindow, dialogs],
+  );
+
+  const viewActions: PaletteAction[] = useMemo(
+    () => [
       ...(sessionName
         ? [
             {
@@ -436,7 +448,12 @@ function AppShell() {
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
-      ...themeActions,
+    ],
+    [sessionName, fixedWidth, toggleFixedWidth],
+  );
+
+  const configActions: PaletteAction[] = useMemo(
+    () => [
       {
         id: "reload-tmux-config",
         label: "Config: Reload tmux",
@@ -452,6 +469,12 @@ function AppShell() {
         label: "Help: Keyboard Shortcuts",
         onSelect: () => setShowKeyboardShortcuts(true),
       },
+    ],
+    [],
+  );
+
+  const serverActions: PaletteAction[] = useMemo(
+    () => [
       {
         id: "create-server",
         label: "Server: Create",
@@ -467,13 +490,22 @@ function AppShell() {
         label: `Server: Switch to ${s}${s === server ? " (current)" : ""}`,
         onSelect: () => handleSwitchServer(s),
       })),
-      ...flatWindows.map((fw) => ({
-        id: `terminal-${fw.session}-${fw.window.index}`,
-        label: `Terminal: ${fw.session}/${fw.window.name}`,
-        onSelect: () => navigateToWindow(fw.session, fw.window.index),
-      })),
     ],
-    [sessionName, currentWindow, flatWindows, navigateToWindow, handleCreateWindow, dialogs, fixedWidth, toggleFixedWidth, themeActions, servers, server, handleSwitchServer],
+    [servers, server, handleSwitchServer],
+  );
+
+  const terminalActions: PaletteAction[] = useMemo(
+    () => flatWindows.map((fw) => ({
+      id: `terminal-${fw.session}-${fw.window.index}`,
+      label: `Terminal: ${fw.session}/${fw.window.name}`,
+      onSelect: () => navigateToWindow(fw.session, fw.window.index),
+    })),
+    [flatWindows, navigateToWindow],
+  );
+
+  const paletteActions: PaletteAction[] = useMemo(
+    () => [...sessionActions, ...windowActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
+    [sessionActions, windowActions, viewActions, themeActions, configActions, serverActions, terminalActions],
   );
 
   const displayName = currentWindow?.name ?? windowIndex ?? "";

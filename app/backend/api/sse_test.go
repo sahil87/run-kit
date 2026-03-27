@@ -3,9 +3,11 @@ package api
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -100,7 +102,7 @@ func TestSSEHubDeduplication(t *testing.T) {
 	}
 
 	hub := newSSEHub(sf)
-	client := &sseClient{ch: make(chan []byte, 16)}
+	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
 
 	hub.addClient(client)
 	defer hub.removeClient(client)
@@ -141,7 +143,7 @@ func TestSSEHubStopsPollingWhenNoClients(t *testing.T) {
 	}
 
 	hub := newSSEHub(sf)
-	client := &sseClient{ch: make(chan []byte, 8)}
+	client := &sseClient{ch: make(chan []byte, 8), server: "default"}
 
 	hub.addClient(client)
 
@@ -165,5 +167,57 @@ func TestSSEHubStopsPollingWhenNoClients(t *testing.T) {
 	hub.mu.RUnlock()
 	if isPolling {
 		t.Error("hub should stop polling when no clients")
+	}
+}
+
+// countingSessionFetcher returns incrementing data so each poll produces a new event.
+type countingSessionFetcher struct {
+	mu    sync.Mutex
+	count int
+}
+
+func (f *countingSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.count++
+	return []sessions.ProjectSession{
+		{Name: fmt.Sprintf("session-%d", f.count), Windows: []tmux.WindowInfo{}},
+	}, nil
+}
+
+func TestSSEHubDropLogging(t *testing.T) {
+	sf := &countingSessionFetcher{}
+	hub := newSSEHub(sf)
+
+	// Use a buffer of 1 so it fills immediately
+	client := &sseClient{ch: make(chan []byte, 1), server: "default"}
+	hub.addClient(client)
+	defer hub.removeClient(client)
+
+	// Wait for at least two poll cycles to fill the tiny buffer and trigger drops
+	time.Sleep(ssePollInterval*3 + 500*time.Millisecond)
+
+	hub.mu.RLock()
+	dropped := client.dropped
+	hub.mu.RUnlock()
+
+	if !dropped {
+		t.Error("expected client.dropped to be true after buffer overflow")
+	}
+
+	// Drain the channel to simulate recovery
+	for len(client.ch) > 0 {
+		<-client.ch
+	}
+
+	// Wait for another poll cycle — successful send should reset dropped
+	time.Sleep(ssePollInterval + 500*time.Millisecond)
+
+	hub.mu.RLock()
+	dropped = client.dropped
+	hub.mu.RUnlock()
+
+	if dropped {
+		t.Error("expected client.dropped to be reset to false after successful send")
 	}
 }

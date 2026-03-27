@@ -158,7 +158,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 				if err != io.EOF {
 					slog.Debug("pty read error", "err", err)
 				}
-				conn.Close()
+				cleanup()
 				return
 			}
 			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {

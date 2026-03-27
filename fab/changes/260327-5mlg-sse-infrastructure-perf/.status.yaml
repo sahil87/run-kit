@@ -1,0 +1,42 @@
+id: 5mlg
+name: 260327-5mlg-sse-infrastructure-perf
+created: 2026-03-27T10:35:01Z
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 22
+confidence:
+    certain: 7
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 86.7
+        reversibility: 87.8
+        competence: 89.4
+        disambiguation: 87.8
+stage_metrics:
+    intake: {started_at: "2026-03-27T10:35:01Z", driver: fab-new, iterations: 1, completed_at: "2026-03-27T10:42:01Z"}
+    spec: {started_at: "2026-03-27T10:42:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:47:46Z"}
+    tasks: {started_at: "2026-03-27T10:47:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:47:46Z"}
+    apply: {started_at: "2026-03-27T10:47:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:52:53Z"}
+    review: {started_at: "2026-03-27T10:52:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:55:54Z"}
+    hydrate: {started_at: "2026-03-27T10:55:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-27T10:56:57Z"}
+    ship: {started_at: "2026-03-27T10:56:57Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-27T10:56:57Z

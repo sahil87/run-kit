@@ -118,6 +118,27 @@ export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal }: B
     return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
   }, [mods, wsRef]);
 
+  const [termFocused, setTermFocused] = useState(false);
+
+  useEffect(() => {
+    function onFocusIn(e: FocusEvent) {
+      if (e.target instanceof HTMLElement && e.target.closest(".xterm")) {
+        setTermFocused(true);
+      }
+    }
+    function onFocusOut(e: FocusEvent) {
+      if (e.target instanceof HTMLElement && e.target.closest(".xterm")) {
+        setTermFocused(false);
+      }
+    }
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
+
   const send = useCallback(
     (data: string) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -253,26 +274,28 @@ export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal }: B
         <kbd aria-hidden="true">{"\u2318K"}</kbd>
       </button>
 
-      {hostname && (
-        <span className="hidden sm:inline ml-auto min-w-0 text-xs text-text-secondary truncate">{hostname}</span>
-      )}
+      <div className="ml-auto flex items-center gap-1">
+        {hostname && (
+          <span className="hidden sm:inline min-w-0 text-xs text-text-secondary truncate">{hostname}</span>
+        )}
 
-      {/* Keyboard toggle — visible only on touch devices */}
-      <button
-        type="button"
-        aria-label={document.activeElement instanceof HTMLElement && document.activeElement.closest(".xterm") ? "Hide keyboard" : "Show keyboard"}
-        className={`${KBD_CLASS} hidden coarse:inline-flex ml-auto text-text-secondary`}
-        onMouseDown={preventFocusSteal}
-        onClick={() => {
-          if (document.activeElement instanceof HTMLElement && document.activeElement.closest(".xterm")) {
-            document.activeElement.blur();
-          } else {
-            onFocusTerminal?.();
-          }
-        }}
-      >
-        <kbd aria-hidden="true">{"\u2328"}</kbd>
-      </button>
+        {/* Keyboard toggle — visible only on touch devices */}
+        <button
+          type="button"
+          aria-label={termFocused ? "Hide keyboard" : "Show keyboard"}
+          className={`${KBD_CLASS} hidden coarse:inline-flex text-text-secondary`}
+          onMouseDown={preventFocusSteal}
+          onClick={() => {
+            if (termFocused && document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            } else {
+              onFocusTerminal?.();
+            }
+          }}
+        >
+          <kbd aria-hidden="true">{"\u2328"}</kbd>
+        </button>
+      </div>
     </div>
   );
 }

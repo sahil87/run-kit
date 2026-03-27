@@ -7,6 +7,7 @@ type BottomBarProps = {
   hostname?: string;
   onOpenCompose?: () => void;
   onFocusTerminal?: () => void;
+  onScrollLockChange?: (locked: boolean) => void;
 };
 
 /** xterm modifier parameter: 1 + (alt?2:0) + (ctrl?4:0) */
@@ -48,6 +49,12 @@ const EXT_KEYS = [
 const KBD_CLASS =
   "min-h-[36px] min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
 
+/** Long-press duration (ms) to toggle scroll-lock. */
+const LONG_PRESS_MS = 500;
+
+/** Touch move distance (px) that cancels a long-press. */
+const LONG_PRESS_MOVE_THRESHOLD = 10;
+
 const MODIFIER_LABELS: Record<string, string> = {
   ctrl: "Control",
   alt: "Option",
@@ -56,9 +63,10 @@ const MODIFIER_LABELS: Record<string, string> = {
 /** Prevent mousedown from stealing focus away from the terminal. */
 const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
-export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal }: BottomBarProps) {
+export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal, onScrollLockChange }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
+  const [scrollLocked, setScrollLocked] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -138,6 +146,82 @@ export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal }: B
       document.removeEventListener("focusout", onFocusOut);
     };
   }, []);
+
+  // Long-press detection state for keyboard toggle button
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTouchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const didLongPressRef = useRef(false);
+
+  const toggleScrollLock = useCallback(
+    (locked: boolean) => {
+      setScrollLocked(locked);
+      onScrollLockChange?.(locked);
+    },
+    [onScrollLockChange],
+  );
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressTouchStartRef.current = null;
+  }, []);
+
+  const handleKbdTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      longPressTouchStartRef.current = { x: t.clientX, y: t.clientY };
+      didLongPressRef.current = false;
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null;
+        didLongPressRef.current = true;
+        const next = !scrollLocked;
+        // Auto-dismiss keyboard before locking
+        if (next && document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        toggleScrollLock(next);
+        navigator.vibrate?.(50);
+      }, LONG_PRESS_MS);
+    },
+    [scrollLocked, toggleScrollLock],
+  );
+
+  const handleKbdTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (!longPressTouchStartRef.current) return;
+      const t = e.touches[0];
+      const dx = t.clientX - longPressTouchStartRef.current.x;
+      const dy = t.clientY - longPressTouchStartRef.current.y;
+      if (Math.sqrt(dx * dx + dy * dy) > LONG_PRESS_MOVE_THRESHOLD) {
+        cancelLongPress();
+      }
+    },
+    [cancelLongPress],
+  );
+
+  const handleKbdTouchEnd = useCallback(() => {
+    cancelLongPress();
+  }, [cancelLongPress]);
+
+  const handleKbdClick = useCallback(() => {
+    if (didLongPressRef.current) {
+      didLongPressRef.current = false;
+      return;
+    }
+    if (scrollLocked) {
+      // Tap in locked mode: unlock and summon keyboard
+      toggleScrollLock(false);
+      onFocusTerminal?.();
+      return;
+    }
+    if (termFocused && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    } else {
+      onFocusTerminal?.();
+    }
+  }, [scrollLocked, termFocused, toggleScrollLock, onFocusTerminal]);
 
   const send = useCallback(
     (data: string) => {
@@ -279,21 +363,18 @@ export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal }: B
           <span className="hidden sm:inline min-w-0 text-xs text-text-secondary truncate">{hostname}</span>
         )}
 
-        {/* Keyboard toggle — visible only on touch devices */}
+        {/* Keyboard toggle — visible only on touch devices; long-press for scroll-lock */}
         <button
           type="button"
-          aria-label={termFocused ? "Hide keyboard" : "Show keyboard"}
-          className={`${KBD_CLASS} hidden coarse:inline-flex text-text-secondary`}
+          aria-label={scrollLocked ? "Scroll lock on \u2014 tap to unlock" : termFocused ? "Hide keyboard" : "Show keyboard"}
+          className={`${KBD_CLASS} hidden coarse:inline-flex ${scrollLocked ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
           onMouseDown={preventFocusSteal}
-          onClick={() => {
-            if (termFocused && document.activeElement instanceof HTMLElement) {
-              document.activeElement.blur();
-            } else {
-              onFocusTerminal?.();
-            }
-          }}
+          onTouchStart={handleKbdTouchStart}
+          onTouchMove={handleKbdTouchMove}
+          onTouchEnd={handleKbdTouchEnd}
+          onClick={handleKbdClick}
         >
-          <kbd aria-hidden="true">{"\u2328"}</kbd>
+          <kbd aria-hidden="true">{scrollLocked ? "\uD83D\uDD12" : "\u2328"}</kbd>
         </button>
       </div>
     </div>

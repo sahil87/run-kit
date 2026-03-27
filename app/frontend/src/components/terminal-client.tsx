@@ -58,6 +58,7 @@ type TerminalClientProps = {
   setComposeOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   onSessionNotFound?: () => void;
   focusRef?: React.MutableRefObject<(() => void) | null>;
+  scrollLocked?: boolean;
 };
 
 export function TerminalClient({
@@ -69,6 +70,7 @@ export function TerminalClient({
   setComposeOpen,
   onSessionNotFound,
   focusRef,
+  scrollLocked,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
@@ -259,6 +261,23 @@ export function TerminalClient({
       setTerminalReady(false);
     };
   }, [wsRef, focusRef]);
+
+  // Scroll-lock: prevent xterm textarea from gaining focus when locked.
+  // Uses capture-phase focusin listener to blur any .xterm element immediately.
+  useEffect(() => {
+    if (!scrollLocked) return;
+    const container = terminalRef.current;
+    if (!container) return;
+
+    function onFocusIn(e: FocusEvent) {
+      if (e.target instanceof HTMLElement && e.target.closest(".xterm")) {
+        e.target.blur();
+      }
+    }
+
+    container.addEventListener("focusin", onFocusIn, { capture: true });
+    return () => container.removeEventListener("focusin", onFocusIn, { capture: true });
+  }, [scrollLocked]);
 
   // Mobile touch-to-scroll: translate vertical swipe gestures into SGR mouse
   // wheel escape sequences sent to tmux via WebSocket.

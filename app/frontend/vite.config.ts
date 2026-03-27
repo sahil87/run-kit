@@ -12,6 +12,16 @@ export default defineConfig({
       "@configs": resolve(__dirname, "../../configs"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          xterm: ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links"],
+          router: ["@tanstack/react-router"],
+        },
+      },
+    },
+  },
   server: {
     host: process.env.RK_HOST ?? "127.0.0.1",
     allowedHosts: true,

@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-27T10:25:08Z"}
+{"args":"Performance Phase 4 — Bundle and Loading: lazy-load components, Vite manual chunks, API request deduplication","cmd":"fab-new","event":"command","ts":"2026-03-27T10:25:08Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-27T10:26:04Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-27T10:26:09Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-27T10:27:35Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-27T10:29:01Z"}
+{"delta":"+0.9","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-03-27T10:30:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-27T10:30:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-27T10:31:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-27T10:31:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-27T10:36:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-27T10:39:02Z"}
+{"event":"review","result":"passed","ts":"2026-03-27T10:39:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-27T10:40:33Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-03-27T10:42:07Z"}
+{"event":"review","result":"passed","ts":"2026-03-27T10:49:36Z"}

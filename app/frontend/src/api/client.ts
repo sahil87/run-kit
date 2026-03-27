@@ -15,6 +15,22 @@ function withServer(url: string): string {
   return `${url}${sep}server=${encodeURIComponent(_getServer())}`;
 }
 
+/** In-flight GET request deduplication map. */
+const inFlight = new Map<string, Promise<Response>>();
+
+/** Deduplicate concurrent GET requests to the same URL. Non-GET requests pass through. */
+async function deduplicatedFetch(url: string, init?: RequestInit): Promise<Response> {
+  const method = init?.method?.toUpperCase() ?? "GET";
+  if (method !== "GET") return fetch(url, init);
+
+  const existing = inFlight.get(url);
+  if (existing) return existing.then(r => r.clone());
+
+  const promise = fetch(url, init).finally(() => inFlight.delete(url));
+  inFlight.set(url, promise);
+  return promise.then(r => r.clone());
+}
+
 /** Throw an error from a JSON error response, falling back to status text. */
 async function throwOnError(res: Response): Promise<never> {
   const data = await res.json().catch(() => ({}));
@@ -27,13 +43,13 @@ export interface HealthResponse {
 }
 
 export async function getHealth(): Promise<HealthResponse> {
-  const res = await fetch("/api/health");
+  const res = await deduplicatedFetch("/api/health");
   if (!res.ok) await throwOnError(res);
   return res.json();
 }
 
 export async function getSessions(): Promise<ProjectSession[]> {
-  const res = await fetch(withServer("/api/sessions"));
+  const res = await deduplicatedFetch(withServer("/api/sessions"));
   if (!res.ok) await throwOnError(res);
   return res.json();
 }
@@ -181,7 +197,7 @@ export async function selectWindow(
 }
 
 export async function getDirectories(prefix: string): Promise<string[]> {
-  const res = await fetch(`/api/directories?prefix=${encodeURIComponent(prefix)}`);
+  const res = await deduplicatedFetch(`/api/directories?prefix=${encodeURIComponent(prefix)}`);
   if (!res.ok) return [];
   const data = await res.json();
   return data.directories ?? [];
@@ -227,7 +243,7 @@ export async function uploadFile(
 // --- Server management ---
 
 export async function listServers(): Promise<string[]> {
-  const res = await fetch("/api/servers");
+  const res = await deduplicatedFetch("/api/servers");
   if (!res.ok) await throwOnError(res);
   return res.json();
 }
@@ -260,7 +276,7 @@ export interface Keybinding {
 }
 
 export async function getKeybindings(): Promise<Keybinding[]> {
-  const res = await fetch(withServer("/api/keybindings"));
+  const res = await deduplicatedFetch(withServer("/api/keybindings"));
   if (!res.ok) await throwOnError(res);
   return res.json();
 }
@@ -272,7 +288,7 @@ export async function getThemePreference(): Promise<{
   themeDark: string;
   themeLight: string;
 }> {
-  const res = await fetch("/api/settings/theme");
+  const res = await deduplicatedFetch("/api/settings/theme");
   if (!res.ok) await throwOnError(res);
   const data: { theme: string; theme_dark: string; theme_light: string } = await res.json();
   return {

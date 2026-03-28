@@ -300,9 +300,9 @@ Read `agent.spawn_command` from `config.yaml` (loaded at startup). Default: `cla
 
 The spawn sequence is:
 
-1. **Create worktree** — `wt create --non-interactive --worktree-name <name> [<branch>]`
+1. **Create worktree** — `wt create --non-interactive --worktree-name <wt> [<branch>]`
 2. **Resolve dependencies** — if the change has a non-empty `depends_on` list, cherry-pick dependency content into the worktree (see below)
-3. **Open agent tab** — `tmux new-window -n "fab-<id>" -c <worktree-path> "<spawn_cmd> '<command>'"`
+3. **Open agent tab** — `tmux new-window -n "⚡<wt>" -c <worktree-path> "<spawn_cmd> '<command>'"` (where `<wt>` is the worktree name from step 1)`
 4. **Enroll in monitored set** — record pane, stage, branch, depends_on in `.fab-operator.yaml`; add branch to `branch_map`
 
 ### Dependency Resolution
@@ -350,8 +350,8 @@ Before opening the agent tab, given this change's `depends_on` list:
 Dependencies are declared through three conversational paths, all of which coexist:
 
 1. **Explicit**: "cd34 depends on ab12" — operator sets `depends_on: [ab12]` on the monitored entry
-2. **Autopilot queue**: "run ab12 then cd34, cd34 depends on ab12" — operator populates `depends_on` during queue setup
-3. **`--base` flag**: autopilot `--base <prev-change>` implies `depends_on: [<prev-change-id>]` for the subsequent change
+2. **Autopilot queue (implicit)**: user-provided ordering implies `--base` chaining by default — every change after the first automatically gets `depends_on: [<prev-change-id>]`
+3. **`--base` flag (explicit)**: autopilot `--base <prev-change>` explicitly sets `depends_on: [<prev-change-id>]` for the subsequent change (redundant with path 2 for user-provided ordering, but available for ad-hoc use)
 
 ### Working a Change
 
@@ -360,40 +360,46 @@ Dependencies are declared through three conversational paths, all of which coexi
 The operator accepts work in three forms:
 
 **From existing change** (already has intake or further):
-1. Create worktree (`wt create --non-interactive --worktree-name <name>`)
+1. Create worktree (`wt create --non-interactive --worktree-name <wt>`)
 2. Resolve dependencies (cherry-pick `depends_on` entries — see above)
-3. Spawn agent: `tmux new-window -n "fab-<id>" -c <worktree-path> "<spawn_cmd> '/fab-switch <change> && /fab-proceed'"`
+3. Spawn agent: `tmux new-window -n "⚡<wt>" -c <worktree-path> "<spawn_cmd> '/fab-switch <change> && /fab-proceed'"`
 4. Enroll in monitored set
-5. On completion: merge PR, optionally archive
+5. On completion: PR ready, optionally archive
 
 `/fab-switch` activates the target change so `/fab-proceed` knows which one to run. `/fab-proceed` then handles `/git-branch` → `/fab-fff` automatically.
 
 **From raw text** (e.g., "fix login after password reset"):
 1. Create worktree (`wt create --non-interactive`)
 2. Resolve dependencies (cherry-pick `depends_on` entries — see above)
-3. Spawn agent: `tmux new-window -n "fab-<wt>" -c <worktree-path> "<spawn_cmd> '/fab-new <shell_escaped_description>'"` — where `<shell_escaped_description>` is the raw description text safely shell-escaped for inclusion in a single-quoted shell argument (do not insert unescaped raw text directly)
+3. Spawn agent: `tmux new-window -n "⚡<wt>" -c <worktree-path> "<spawn_cmd> '/fab-new <shell_escaped_description>'"` — where `<shell_escaped_description>` is the raw description text safely shell-escaped for inclusion in a single-quoted shell argument (do not insert unescaped raw text directly)
 4. Enroll in monitored set
-5. On completion: merge PR, optionally archive
+5. On completion: PR ready, optionally archive
 
 **From backlog ID or Linear issue** (structured):
 1. Look up the idea (`idea show <id>`) or resolve the Linear issue
-2. Create worktree (`wt create --non-interactive --worktree-name <name>`)
+2. Create worktree (`wt create --non-interactive --worktree-name <wt>`)
 3. Resolve dependencies (cherry-pick `depends_on` entries — see above)
-4. Spawn agent: `tmux new-window -n "fab-<id>" -c <worktree-path> "<spawn_cmd> '/fab-new <id>'"`
+4. Spawn agent: `tmux new-window -n "⚡<wt>" -c <worktree-path> "<spawn_cmd> '/fab-new <id>'"`
 5. Enroll in monitored set
-6. On completion: merge PR, optionally archive
+6. On completion: PR ready, optionally archive
 
 Both raw text and backlog paths use `/fab-new` to generate a proper intake with traceability. `/fab-new` captures the raw input in the intake's Origin section — the user just says "fix [description]" and the operator does the rest.
 
 ### Autopilot
 
-User provides a queue of changes. Confirm upfront (merges PRs). Queue ordering:
+User provides a queue of changes. Confirmation prompt reflects the active mode:
+- **Default (stack-then-review):** "Confirm upfront (creates PRs — merge after review)."
+- **`--merge-on-complete`:** "Confirm upfront (merges PRs on completion)."
+
+Queue ordering:
 
 | Strategy | Description |
 |----------|-------------|
-| User-provided | Run in the exact order given. Use `--base <prev-change-folder-name>` for sequential chaining (implies `depends_on`) |
+| User-provided | Run in the exact order given. Implicit `--base` chaining by default: every change after the first gets `depends_on: [<prev-change-id>]`. No explicit `--base` flag required. |
 | Confidence-based | Sort by confidence score descending. Highest-confidence first (independent changes) |
 | Hybrid | User provides constraints (partial order); operator sorts unconstrained by confidence |
+
+**`--merge-on-complete`** — opt-in flag that reverts to the previous merge-as-you-go behavior: merge each PR on completion, rebase next change onto `origin/main`. Implicit `--base` chaining is disabled under this flag — each change rebases onto `origin/main` independently instead of stacking on the previous change's branch. Natural language equivalents: "merge as you go", "merge on complete", "merge each when done". Without this flag, the default is stack-then-review: PRs are created but not merged until the user explicitly requests merging, and implicit `--base` chaining is active (every change after the first gets `depends_on: [<prev-change-id>]`).
 
 The operator works each change through the pipeline, applying pre-send validation (§3) before dispatching:
 
@@ -402,16 +408,44 @@ The operator works each change through the pipeline, applying pre-send validatio
 3. **Gate** — check confidence score. If below threshold, flag and wait
 4. **Dispatch** — send `/fab-fff` (or appropriate command based on current stage)
 5. **Monitor** — normal tick detection handles progress
-6. **Merge** — on completion, merge PR from operator's shell
-7. **Rebase next** — rebase next queued change onto latest `origin/main`. On conflict: flag, skip
-8. **Cleanup** — optionally delete worktree after merge
-9. **Report** — `"ab12: merged. 1 of 3 complete. Starting cd34."`
+6. **Record** — on completion, record branch in `branch_map`, collect PR URL
+7. **Dispatch next** — spawn next change (with implicit `depends_on: [<prev-change-id>]`), cherry-pick deps, dispatch
+8. **Report** — `"ab12: PR ready. 1 of 3 complete. Starting cd34."`
+9. **(After all complete) Summary** — list all PR links with dependency annotations and merge order suggestion (see Queue Completion Summary below)
+
+When `--merge-on-complete` is active, steps 6–9 revert to the previous merge-as-you-go behavior: merge PR on completion, rebase next change onto `origin/main`, report merge.
 
 Autopilot-driven changes display `▶` in the status frame (§4). Queue progress is visible from the list — entries with `▶` that show ✓ are complete, the one showing 🟢/🟡 is current.
 
+#### Queue Completion Summary
+
+When all changes in a stack-then-review autopilot queue complete, the operator displays a completion summary:
+
+```
+Queue complete. 3 PRs ready for review:
+1. ab12: <PR-URL-1> (base)
+2. cd34: <PR-URL-2> (depends on ab12)
+3. ef56: <PR-URL-3> (depends on cd34)
+Merge in order (1→2→3) when ready, or ask me to merge all.
+```
+
+For a single-item queue: `"ab12: PR ready. Queue complete."`
+
+#### Ordered Merge
+
+When the user says "merge all" or "merge the queue" after a stack-then-review queue completes, the operator merges PRs in dependency order (base-first), waiting for CI to pass on each before proceeding to the next:
+
+1. Merge PR 1 (base) — wait for CI pass
+2. Merge PR 2 — wait for CI pass
+3. Merge PR 3 — wait for CI pass
+
+Report each merge: `"ab12: merged (1/3)"`, `"cd34: merged (2/3)"`, `"ef56: merged (3/3)"`.
+
+**CI failure during ordered merge**: If CI fails on any PR, the operator stops merging and reports: `"{change}: CI failed. Merge halted at {completed}/{total}. Fix and retry."` It does not attempt to merge subsequent PRs.
+
 Autopilot state (queue, current, completed) persists in `.fab-operator.yaml`.
 
-**Failures**: review exhausted → skip. Rebase conflict → skip. Cherry-pick conflict → escalate (do not skip). Pane dies → 1 respawn (`--reuse`), then skip. Stage timeout (>30m) → flag. Total timeout (>2h) → flag.
+**Failures**: review exhausted → skip. Rebase conflict → skip (`--merge-on-complete` only; does not apply in default stack-then-review mode since there are no rebase steps). Cherry-pick conflict → escalate (do not skip). Pane dies → 1 respawn (`--reuse`), then skip. Stage timeout (>30m) → flag. Total timeout (>2h) → flag.
 
 **Interrupts**: "stop after current", "skip <change>", "pause", "resume" — acknowledged immediately.
 

@@ -66,7 +66,9 @@ func EnsureConfig() error {
 		return nil
 	}
 	// Always ensure tmux.d/ exists for drop-in configs.
-	ensureDropInDir()
+	if err := ensureDropInDir(); err != nil {
+		return err
+	}
 	if _, err := os.Stat(DefaultConfigPath); err == nil {
 		return nil
 	} else if !os.IsNotExist(err) {
@@ -88,16 +90,23 @@ func ForceWriteConfig() error {
 	if err := os.MkdirAll(filepath.Dir(DefaultConfigPath), 0o755); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
-	ensureDropInDir()
+	if err := ensureDropInDir(); err != nil {
+		return err
+	}
 	return os.WriteFile(DefaultConfigPath, DefaultConfigBytes(), 0o644)
 }
 
-// ensureDropInDir creates ~/.rk/tmux.d/ for user drop-in configs. Best-effort — errors are ignored.
-func ensureDropInDir() {
+// ensureDropInDir creates a tmux.d/ drop-in directory alongside DefaultConfigPath
+// for user drop-in configs.
+func ensureDropInDir() error {
 	if DefaultConfigPath == "" {
-		return
+		return nil
 	}
-	_ = os.MkdirAll(filepath.Join(filepath.Dir(DefaultConfigPath), "tmux.d"), 0o755)
+	dropInDir := filepath.Join(filepath.Dir(DefaultConfigPath), "tmux.d")
+	if err := os.MkdirAll(dropInDir, 0o755); err != nil {
+		return fmt.Errorf("creating tmux drop-in directory: %w", err)
+	}
+	return nil
 }
 
 // ReloadConfig hot-reloads the tmux config via source-file on the specified server.

@@ -350,20 +350,32 @@ func TestEnsureConfigCreatesDropInDir(t *testing.T) {
 		t.Fatalf("EnsureConfig() error: %v", err)
 	}
 	dropInDir := filepath.Join(tmpDir, ".rk", "tmux.d")
-	if _, err := os.Stat(dropInDir); os.IsNotExist(err) {
+	fi, err := os.Stat(dropInDir)
+	if os.IsNotExist(err) {
 		t.Error("tmux.d/ not created on fresh install")
+	} else if err != nil {
+		t.Fatalf("stat tmux.d/: %v", err)
+	} else if !fi.IsDir() {
+		t.Error("tmux.d/ exists but is not a directory")
 	}
 	if _, err := os.Stat(DefaultConfigPath); os.IsNotExist(err) {
 		t.Error("tmux.conf not created on fresh install")
 	}
 
 	// Remove tmux.d/ but keep config — EnsureConfig should recreate tmux.d/.
-	os.RemoveAll(dropInDir)
+	if err := os.RemoveAll(dropInDir); err != nil {
+		t.Fatalf("failed to remove tmux.d/: %v", err)
+	}
 	if err := EnsureConfig(); err != nil {
 		t.Fatalf("EnsureConfig() second call error: %v", err)
 	}
-	if _, err := os.Stat(dropInDir); os.IsNotExist(err) {
+	fi, err = os.Stat(dropInDir)
+	if os.IsNotExist(err) {
 		t.Error("tmux.d/ not recreated when config exists but dir missing")
+	} else if err != nil {
+		t.Fatalf("stat tmux.d/: %v", err)
+	} else if !fi.IsDir() {
+		t.Error("tmux.d/ exists but is not a directory after recreation")
 	}
 }
 
@@ -377,8 +389,13 @@ func TestForceWriteConfigCreatesDropInDir(t *testing.T) {
 		t.Fatalf("ForceWriteConfig() error: %v", err)
 	}
 	dropInDir := filepath.Join(tmpDir, ".rk", "tmux.d")
-	if _, err := os.Stat(dropInDir); os.IsNotExist(err) {
+	fi, err := os.Stat(dropInDir)
+	if os.IsNotExist(err) {
 		t.Error("tmux.d/ not created by ForceWriteConfig")
+	} else if err != nil {
+		t.Fatalf("stat tmux.d/: %v", err)
+	} else if !fi.IsDir() {
+		t.Error("tmux.d/ exists but is not a directory")
 	}
 }
 

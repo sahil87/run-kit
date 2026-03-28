@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -65,6 +66,11 @@ type mockTmuxOps struct {
 	killActivePaneSession string
 	killActivePaneIndex   int
 
+	getWindowOptionResult string
+	setWindowOptionCalled bool
+	setWindowOptionKey    string
+	setWindowOptionValue  string
+
 	err error
 }
 
@@ -90,6 +96,20 @@ func (m *mockTmuxOps) CreateWindow(session, name, cwd, server string) error {
 	m.createWindowSession = session
 	m.createWindowName = name
 	m.createWindowCwd = cwd
+	// Append the created window to listWindowsResult so subsequent ListWindows
+	// calls can find it (needed for desktop window creation flow).
+	if m.err == nil {
+		nextIndex := len(m.listWindowsResult)
+		winType := "terminal"
+		if len(name) > 8 && name[:8] == "desktop:" {
+			winType = "desktop"
+		}
+		m.listWindowsResult = append(m.listWindowsResult, tmux.WindowInfo{
+			Index: nextIndex,
+			Name:  name,
+			Type:  winType,
+		})
+	}
 	return m.err
 }
 func (m *mockTmuxOps) KillWindow(session string, index int, server string) error {
@@ -142,6 +162,18 @@ func (m *mockTmuxOps) KillServer(server string) error {
 }
 func (m *mockTmuxOps) ListKeys(server string) ([]string, error) {
 	return nil, nil
+}
+func (m *mockTmuxOps) GetWindowOption(session string, windowIndex int, key, server string) (string, error) {
+	if m.getWindowOptionResult != "" {
+		return m.getWindowOptionResult, nil
+	}
+	return "", fmt.Errorf("option not set")
+}
+func (m *mockTmuxOps) SetWindowOption(session string, windowIndex int, key, value, server string) error {
+	m.setWindowOptionCalled = true
+	m.setWindowOptionKey = key
+	m.setWindowOptionValue = value
+	return m.err
 }
 
 func newTestRouter(sf SessionFetcher, ops TmuxOps) http.Handler {

@@ -7,24 +7,26 @@ type Props = {
   icon?: string;
   onNavigate?: (href: string) => void;
   action?: { label: string; onAction: () => void };
+  actions?: { label: string; onAction: () => void }[];
   triggerClassName?: string;
 };
 
-export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, triggerClassName }: Props) {
+export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, actions, triggerClassName }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const actionRef = useRef<HTMLButtonElement | null>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // When action exists, index 0 = action button, indices 1..N = items.
-  // When no action, indices 0..N-1 = items directly.
-  const offset = action ? 1 : 0;
+  // Merge single action and actions array into one list for offset calculation.
+  const allActions = actions ?? (action ? [action] : []);
+  const offset = allActions.length;
   const totalCount = items.length + offset;
 
+  const actionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
   function getFocusableRef(index: number): HTMLButtonElement | null {
-    if (action && index === 0) return actionRef.current;
+    if (index < offset) return actionRefs.current[index] ?? null;
     return itemRefs.current[index - offset] ?? null;
   }
 
@@ -103,21 +105,24 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, tri
           aria-label={label ? `Switch ${label}` : "Switch"}
           className="absolute top-full left-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] max-w-[240px] z-50"
         >
-          {action && (
+          {allActions.length > 0 && (
             <>
-              <button
-                ref={(el) => { actionRef.current = el; }}
-                type="button"
-                role="menuitem"
-                tabIndex={focusedIndex === 0 ? 0 : -1}
-                onClick={() => {
-                  setOpen(false);
-                  action.onAction();
-                }}
-                className="w-full text-left block px-3 py-2 text-sm text-text-primary hover:bg-bg-card transition-colors"
-              >
-                {action.label}
-              </button>
+              {allActions.map((act, ai) => (
+                <button
+                  key={act.label}
+                  ref={(el) => { actionRefs.current[ai] = el; }}
+                  type="button"
+                  role="menuitem"
+                  tabIndex={focusedIndex === ai ? 0 : -1}
+                  onClick={() => {
+                    setOpen(false);
+                    act.onAction();
+                  }}
+                  className="w-full text-left block px-3 py-2 text-sm text-text-primary hover:bg-bg-card transition-colors"
+                >
+                  {act.label}
+                </button>
+              ))}
               <div className="border-t border-border" />
             </>
           )}

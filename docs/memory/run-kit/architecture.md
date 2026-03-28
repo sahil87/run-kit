@@ -114,10 +114,11 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `/api/sessions` | GET | Returns `ProjectSession[]` — one per tmux session, with auto-detected fab enrichment (`fabChange`/`fabStage` on windows) |
 | `/api/sessions` | POST | Create session — JSON body `{"name":"...","cwd":"..."}`. Returns `201 {"ok":true}` |
 | `/api/sessions/:session/kill` | POST | Kill session — `:session` validated via `validate.ValidateName()`. Returns `200 {"ok":true}` |
-| `/api/sessions/:session/windows` | POST | Create window — JSON body `{"name":"...","cwd":"..."}`. Returns `201 {"ok":true}` |
+| `/api/sessions/:session/windows` | POST | Create window — JSON body `{"name":"...","cwd":"..."}` for terminals, `{"name":"...","type":"desktop","resolution":"1920x1080"}` for desktops. Returns `201 {"ok":true}` |
 | `/api/sessions/:session/windows/:index/kill` | POST | Kill window — `:index` must be non-negative integer. Returns `200 {"ok":true}` |
 | `/api/sessions/:session/windows/:index/rename` | POST | Rename window — JSON body `{"name":"..."}`. Returns `200 {"ok":true}` |
 | `/api/sessions/:session/windows/:index/keys` | POST | Send keys — JSON body `{"keys":"..."}` (non-empty after trim). Returns `200 {"ok":true}` |
+| `/api/sessions/:session/windows/:index/resolution` | POST | Change desktop resolution — JSON body `{"resolution":"2560x1440"}`. Validates `^\d{3,5}x\d{3,5}$`. Reads `@rk_vnc_port` window option, kills existing Xvfb+x11vnc, relaunches at new resolution (same display/port). Returns `200 {"ok":true}` |
 | `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
 | `/api/sessions/:session/upload` | POST | File upload — session from URL path (not form field). Multipart with `file` field, optional `window` field (defaults to `"0"`). Resolves project root via `ListWindows`, writes to `.uploads/{timestamp}-{name}`, auto-manages `.gitignore`. 50MB limit. Returns `200 {"ok":true,"path":"..."}` |
 | `/api/sessions/stream` | GET | SSE — hub singleton polls tmux every 2.5s, fans out full snapshots to all connected clients on change. Deduplicates polling across browser tabs. 30-minute lifetime cap per connection. Hub clients map is `map[string][]*sseClient` keyed by server name for O(1) server-scoped broadcast. `sync.RWMutex` — `RLock()` for read-only operations in `poll()` (collecting server keys, counting clients), `Lock()` for writes (broadcasting, updating `previousJSON`). Channel buffer 32. Drop logging via `slog.Warn` with per-client boolean debounce (resets on successful send) |
@@ -144,6 +145,8 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `renameWindow(session, index, name)` | POST | `/api/sessions/:session/windows/:index/rename` |
 | `sendKeys(session, index, keys)` | POST | `/api/sessions/:session/windows/:index/keys` |
 | `getDirectories(prefix)` | GET | `/api/directories?prefix=...` |
+| `createDesktopWindow(session, name?, resolution?)` | POST | `/api/sessions/:session/windows` (body: `{name, type:"desktop", resolution?}`) |
+| `changeDesktopResolution(session, index, resolution)` | POST | `/api/sessions/:session/windows/:index/resolution?server=...` |
 | `selectWindow(session, index)` | POST | `/api/sessions/:session/windows/:index/select?server=...` |
 | `splitWindow(session, index, horizontal)` | POST | `/api/sessions/:session/windows/:index/split` |
 | `reloadTmuxConfig()` | POST | `/api/tmux/reload-config?server=...` |
@@ -159,9 +162,13 @@ All API functions (except `listServers`, `createServer`, `killServer`, `getDirec
 
 **Request deduplication**: A module-level `deduplicatedFetch` wrapper maintains a `Map<string, Promise<Response>>` of in-flight GET requests. When a GET to a URL already has an in-flight promise, the existing promise is returned (with `Response.clone()` so each caller can independently consume the body). POST/PUT requests always make fresh `fetch()` calls. Promises are cleaned up via `.finally()` on resolve or reject. All GET functions (`getHealth`, `getSessions`, `getDirectories`, `listServers`, `getKeybindings`, `getThemePreference`) use `deduplicatedFetch`; all mutation functions use plain `fetch`. Deduplication key is the full URL string (after `withServer()` appends `?server=`), so requests scoped to different tmux servers are not incorrectly merged.
 
-## Terminal Relay
+## Terminal & Desktop Relay
 
-WebSocket endpoint at `/relay/{session}/{window}?server=runkit|default` on the same port as the API — no separate relay port. Uses `gorilla/websocket` for WebSocket handling and `creack/pty` for PTY allocation. Implementation in `app/backend/api/relay.go`. The `server` query param determines which tmux server to attach to (defaults to `runkit`).
+WebSocket endpoint at `/relay/{session}/{window}?server=runkit|default` on the same port as the API — no separate relay port. Uses `gorilla/websocket` for WebSocket handling. Implementation in `app/backend/api/relay.go`. The `server` query param determines which tmux server to attach to (defaults to `runkit`).
+
+The relay auto-detects window type by checking `WindowInfo.Type` from `ListWindows()`. The handler branches based on type:
+
+### Terminal relay (type: "terminal")
 
 Per connection:
 1. Validates session exists via `ListWindows(session, server)` and selects the target window via `SelectWindowOnServer` — returns WebSocket close code `4004` if session or window not found
@@ -169,6 +176,16 @@ Per connection:
 3. Relays I/O between WebSocket and pty (goroutine for pty→WS, main loop for WS→pty)
 4. Handles resize messages (JSON `{"type":"resize","cols":N,"rows":N}`) via `pty.Setsize`
 5. On disconnect: `sync.Once` cleanup cancels context, closes PTY, kills process. PTY reader goroutine calls `cleanup()` (not `conn.Close()`) on read failure — eliminates concurrent WebSocket close race. WebSocket connection closed only by `defer conn.Close()` on the main goroutine
+
+### Desktop relay (type: "desktop")
+
+WebSocket-to-WebSocket proxy between the browser and x11vnc. No PTY involved.
+
+Per connection:
+1. Reads `@rk_vnc_port` window option via `tmux show-options -wv -t {session}:{window} @rk_vnc_port` — returns WebSocket close code `4002` if not found
+2. Dials `ws://localhost:{port}` to connect to x11vnc's built-in WebSocket server (localhost only, no external connections)
+3. Bidirectional copy: two goroutines relay messages between browser WebSocket and VNC WebSocket
+4. On disconnect (either side): `sync.Once` cleanup closes both WebSocket connections
 
 Client-side WebSocket reconnection: exponential backoff (1s, 2s, 4s, 8s, 16s, max 30s) on unexpected close. Shows `[reconnecting...]` in terminal. Re-sends resize on successful reconnect. Skips reconnect on component unmount. On close code `4004` (session/window not found): shows `[session not found]` and navigates to `/` instead of reconnecting. Terminal page connects via `ws://${location.host}/relay/{session}/{window}?server={runkit|default}` — same host, server param from session metadata.
 
@@ -184,6 +201,37 @@ The Go binary manages its own daemon lifecycle via `run-kit serve` flags. The da
 Binary resolution: `Start()` uses `os.Executable()` + `filepath.EvalSymlinks()` (works for `serve -d` / `--restart` where the running binary is valid). `StartWithBinary(path)` accepts an explicit binary path and resolves its symlinks (used by `update` after `brew upgrade` deletes the old Cellar directory). Both delegate to shared `startSession(exe)` for tmux session creation.
 
 Detection: `tmux -L rk-daemon has-session -t rk`. No polling loop, no signal files, no supervisor script.
+
+## Desktop Streaming Architecture
+
+run-kit supports remote desktop windows alongside terminal windows. A desktop window is a tmux window whose process is a VNC server stack (Xvfb + x11vnc) instead of a shell.
+
+### VNC Server Stack
+
+Each desktop window runs three processes inside a tmux window:
+1. **Xvfb** `:N -screen 0 {width}x{height}x24` — virtual framebuffer (software rendering, default 1920x1080)
+2. **Window manager** (optional) — auto-detected from host: `x-session-manager` > `$XDG_CURRENT_DESKTOP` mapping > PATH probe (`openbox`, `fluxbox`, `i3`, `xfwm4`, `mutter`, `kwin`). Bare X11 if nothing found
+3. **x11vnc** `-display :N -rfbport {port} -nopw -forever -shared -noxdamage -ws` — VNC server with built-in WebSocket support (`-ws` flag)
+
+### Port and Display Allocation
+
+VNC ports allocated dynamically via `net.Listen("tcp", ":0")` in Go (finds a free port, releases it immediately). Display number derived from port: `port - 5900` (or `port % 1000` if negative). Avoids collisions for multiple desktops.
+
+### VNC Port Storage
+
+The VNC port is stored as a tmux per-window user option: `tmux set-option -w -t {session}:{window} @rk_vnc_port {port}`. Read by the relay handler via `tmux show-options -wv`. Uses per-window options (not session-scoped `set-environment`) to support multiple desktops per session without collisions.
+
+### Desktop Lifecycle
+
+- **Create**: `POST /api/sessions/{session}/windows` with `type: "desktop"`. Allocates port, creates tmux window named `desktop:{label}`, sends startup script via `send-keys`, stores `@rk_vnc_port` window option
+- **Connect**: `/relay/{session}/{window}` auto-detects desktop type and proxies WebSocket-to-WebSocket to x11vnc
+- **Resolution change**: `POST /api/sessions/{session}/windows/{index}/resolution`. Kills existing Xvfb+x11vnc, relaunches at new resolution (reuses same display/port)
+- **Destroy**: Killing the tmux window kills the entire process tree (Xvfb + WM + x11vnc). No special cleanup
+- **Survive restarts**: tmux owns the processes — desktops survive Go server restarts (constitution VI)
+
+### System Dependencies
+
+Host must have `Xvfb` and `x11vnc` installed. Window manager optional. No GPU required (software rendering via Xvfb). No VNC-level authentication (matches run-kit's security posture).
 
 ## SPA Static Serving
 
@@ -340,6 +388,9 @@ Install flow: `brew tap wvrdz/tap git@github.com:wvrdz/homebrew-tap.git && brew 
 - **Compose buffer as native textarea (not xterm input)** — xterm renders to `<canvas>`, blocking OS-level input features. The compose buffer provides a real `<textarea>` where dictation, autocorrect, paste, and IME all work. Text sent as a single WebSocket message.
 - **Armed modifiers bridge to physical keyboard** — When bottom-bar modifiers (Ctrl/Alt) are armed, a capture-phase `keydown` listener intercepts physical keypresses, translates them to terminal escape sequences (Ctrl+letter → control characters, Alt → ESC prefix), and sends via WebSocket. Prevents xterm from receiving the unmodified key. Ignores real Cmd/Ctrl/Alt held by the OS.
 - **File upload via server filesystem (not terminal binary injection)** — Browser uploads file to `POST /api/sessions/:session/upload`, server writes to `.uploads/` in project root, path auto-inserted into compose buffer. Works because run-kit server and tmux are always co-located; the browser is the remote part. Session identified by URL param (consistent with other session-scoped endpoints, replaces legacy form field approach)
+- **Unified relay route for terminal and desktop (not separate endpoints)** — Single `/relay/{session}/{window}` auto-detects window type server-side from the `desktop:` naming convention and branches to VNC proxy or PTY relay. Keeps API surface minimal (constitution IV). Rejected: separate `/relay/{session}/{window}/desktop` route
+- **VNC port in tmux window option (not session env or file)** — `@rk_vnc_port` stored via `tmux set-option -w` per window. Fits "state from tmux" (constitution II). Per-window scoping supports multiple desktops per session. Rejected: `set-environment` (session-scoped, collides with multiple desktops), PID files, port registry
+- **Desktop startup script via send-keys (not external script file)** — Inline shell script sent to the tmux window. Same pattern as existing window creation. No additional files to manage
 - **Handler files split by resource domain (not monolithic routes.go)** — Each handler file owns one resource: `sessions.go`, `windows.go`, `directories.go`, `upload.go`, `sse.go`, `relay.go`, `spa.go`, `health.go`. `router.go` owns middleware, dependency interfaces, and route registration only. (`260312-r4t9-go-backend-api`)
 - **Dependency injection via interfaces for handler testability** — `Server` struct holds `SessionFetcher` and `TmuxOps` interfaces, plus a `hostname` field (computed via `os.Hostname()` in `NewRouter()`, empty string on failure). `NewRouter()` wires production implementations; `NewTestRouter()` accepts mocks (including hostname). Enables `httptest.NewRecorder` tests without live tmux. (`260312-r4t9-go-backend-api`)
 - **Hostname via health endpoint (not a dedicated endpoint)** — hostname is an OS-level value computed once at startup and stored in `Server` struct. Exposed via `/api/health` response (adding a field to an existing endpoint) rather than a new `GET /api/hostname` route. Minimal surface area, consistent with the single-port architecture. (`260320-uq0k-hostname-browser-title`)
@@ -427,6 +478,7 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-20 | **Daemon lifecycle** — Replaced `supervisor.sh` (polling loop + `.restart-requested` signal file) with CLI-driven daemon management. New `internal/daemon/` package with `IsRunning`/`Start`/`Stop`/`Restart` helpers using `exec.CommandContext`. `run-kit serve` gains `-d` (start daemon, errors if running), `--restart` (idempotent stop+start), `--stop` (graceful C-c) flags — mutually exclusive. Daemon runs in dedicated tmux server `rk-daemon` (session `rk`, window `serve`), separate from agent `runkit` server. `run-kit update` auto-restarts daemon after successful `brew upgrade`. Justfile `up`/`down`/`restart` recipes updated. Constitution Self-Improvement Safety section rewritten. | `260320-hkm8-daemon-lifecycle-serve` |
 | 2026-03-20 | **UI polish, tmux config, keyboard shortcuts** — Embed restructured from `app/backend/frontend/` to `app/backend/build/` (package `build`, `//go:embed all:frontend`). Breadcrumb left-aligned (removed `justify-center`). `EnsureConfig()` auto-creates `~/.run-kit/tmux.conf` on serve startup. `-f` config flag scoped to `CreateSession`/`ReloadConfig` via `configArgs()`. Enhanced `internal/tmux/tmux.conf`: `escape-time 0`, `history-limit 50000`, `renumber-windows on`, `base-index 1`, explicit `prefix C-s`, pane splits (`prefix+\|`/`prefix+-`), pane navigation (`S-F3`/`S-F4`), `F8` rename, `S-F7` copy-mode. Sidebar server dropdown gains `+ tmux server` action. Hostname in bottom bar (hidden on mobile). Aligned sidebar footer and bottom bar heights (`h-[48px]`). Server label changed to "tmux server:". Kill server handles socket teardown gracefully. New `GET /api/keybindings` endpoint — runs `tmux list-keys`, filters via whitelist map, returns `[{key, table, command, label}]`. New "Keyboard Shortcuts" command palette action opens modal showing curated bindings grouped by key table (prefix vs root). | `260320-9ldy-ui-polish-tmux-config-embed` |
 | 2026-03-23 | **ANSI palette theme rework** — New `internal/settings/` package for backend settings persistence at `~/.rk/settings.yaml` (simple key:value parsing, no yaml.v3). New `GET/PUT /api/settings/theme` endpoints in `api/settings.go`. Frontend: `getThemePreference()`/`setThemePreference()` API client functions (not per-server). ThemeProvider uses API as canonical source with localStorage as synchronous cache. tmux.conf reworked from hardcoded hex to ANSI `colour{N}` indices for auto-theming via xterm.js palette. | `260323-7wys-ansi-palette-theme-rework` |
+| 2026-03-23 | **Web-based remote desktop** — Desktop streaming via Xvfb + x11vnc + noVNC. `WindowInfo.Type` field (`"terminal"` or `"desktop"`) derived from `desktop:` name prefix. Unified relay auto-detects window type, branches to VNC WebSocket proxy for desktops. VNC port stored in tmux per-window option `@rk_vnc_port` (via `GetWindowOption`/`SetWindowOption`). Dynamic port allocation via `net.Listen(":0")`. Desktop startup script sent via `send-keys` (Xvfb + WM detection + x11vnc). New `POST .../windows/:index/resolution` endpoint for resolution changes. Frontend: `DesktopClient` component (noVNC with `scaleViewport`), `DesktopBottomBar` (clipboard paste, resolution picker, fullscreen), window type switch in `app.tsx`. Desktop creation from breadcrumb dropdown, dashboard, and command palette. New `@novnc/novnc` npm dependency. | `260323-a805-web-based-remote-desktop` |
 | 2026-03-27 | **Bundle & loading performance** — Lazy-load `CommandPalette`, `ThemeSelector`, `CreateSessionDialog` via `React.lazy()` + `<Suspense fallback={null}>` (named export re-wrapping). Vite `manualChunks` splits xterm family and TanStack Router into separate vendor chunks. API request deduplication via `deduplicatedFetch` wrapper with in-flight `Map<string, Promise<Response>>` — GET-only, URL-keyed, `.finally()` cleanup, `Response.clone()` for multi-consumer safety. | `260327-uyj5-perf-bundle-loading` |
 | 2026-03-28 | **tmux prefix key change** — Changed tmux prefix from `C-b` to `C-s` in `configs/tmux/default.conf` and `configs/tmux/simple.conf` to avoid conflict with Claude Code's `Ctrl+B` shortcuts. Added `unbind C-b` and `bind-key C-s send-prefix`. Frontend keyboard shortcuts label updated from `Ctrl+B, ` to `Ctrl+S, `. `byobu.conf` (`C-a`) and `poweruser.conf` (`C-s`) unchanged. | `260328-d7s5-change-tmux-prefix` |
 | 2026-03-28 | **Multi-file tmux config sourcing** — `~/.rk/tmux.d/` drop-in directory for user extensions. `configs/tmux/default.conf` appends `source-file -q ~/.rk/tmux.d/*.conf` (lexicographic order, `-q` silences empty/missing dir). `EnsureConfig()`, `ForceWriteConfig()`, and `rk init-conf` all create the directory idempotently. `EnsureConfig()` creates `tmux.d/` even when config already exists. `ReloadConfig()` unchanged — transitive sourcing picks up new drop-ins. | `260328-wxrh-source-rk-tmux-configs` |

@@ -6,9 +6,9 @@
 |-------|------|-------------------|
 | `/` | Server list | Standalone page (`ServerListPage`) — lists tmux servers with "+" creation button. No sidebar, no SSE. |
 | `/$server` | Session dashboard | `AppShell` layout with `Dashboard` content. SSE connected to the specified server. |
-| `/$server/$session/$window` | Terminal | `AppShell` layout with `TerminalClient` + `BottomBar`. SSE connected, WebSocket relay to tmux pane. |
+| `/$server/$session/$window` | Terminal or Desktop | `AppShell` layout with `TerminalClient` + `BottomBar` or `DesktopClient` + `DesktopBottomBar` based on window type. SSE connected, WebSocket relay to tmux pane. |
 
-Three-tier URL model with server always in path. URLs are fully shareable — copying a URL and opening it elsewhere on the same host opens the same server, session, and window. TanStack Router uses nested routes: `/$server` is a layout route whose component (`ServerShell`) wraps `SessionProvider` + `AppShell`. Child routes (dashboard index and terminal) are matched by the router but rendered conditionally by `AppShell` based on whether session/window params exist.
+Three-tier URL model with server always in path. URLs are fully shareable — copying a URL and opening it elsewhere on the same host opens the same server, session, and window. TanStack Router uses nested routes: `/$server` is a layout route whose component (`ServerShell`) wraps `SessionProvider` + `AppShell`. Child routes (dashboard index and terminal/desktop) are matched by the router but rendered conditionally by `AppShell` based on whether session/window params exist. When a window has `type === "desktop"`, `DesktopClient` (noVNC) is rendered instead of `TerminalClient`.
 
 Server not found: if the `$server` segment doesn't match any known tmux server, a "Server not found" page renders with a link to `/`. Unmatched URLs (e.g., `/$server/$session` with no window) show a generic not-found page.
 
@@ -31,7 +31,11 @@ Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server li
 - Running process (`paneCommand`), activity dot (green = active, dim = idle) with label + idle duration
 - Fab change ID + slug when present
 
+**Desktop badge**: Desktop window cards display a "Desktop" badge (`bg-accent/10 text-accent`) to distinguish them from terminal windows.
+
 **New Window button**: Inside each expanded session card, dashed border button calling `createWindow` API.
+
+**New Desktop button**: Inside each expanded session card, alongside the New Window button. Calls `createDesktopWindow` API to create a desktop window in the session.
 
 **New Session button**: Always-visible dashed border card in the grid, opens the existing create session dialog.
 
@@ -101,7 +105,7 @@ Session and window name text are the dropdown triggers. Clicking/tapping the nam
 
 **Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{server}/{session}/0`. First item: `+ New Session` action (opens session creation dialog).
 
-**Window dropdown**: Lists all windows in the current session. Current window highlighted. Selecting navigates to `/{server}/{session}/{index}`. First item: `+ New Window` action (creates new window in current session).
+**Window dropdown**: Lists all windows in the current session. Current window highlighted. Selecting navigates to `/{server}/{session}/{index}`. Action items: `+ New Window` (creates terminal window) and `+ New Desktop` (creates desktop window) in current session.
 
 **Action items in dropdowns**: `BreadcrumbDropdown` accepts an optional `action` prop of type `{ label: string; onAction: () => void }`. When provided, the action item renders before the selection list, separated by a divider (`border-t border-border`). Action items use `text-text-primary` styling (not `text-accent`), close the dropdown on click, and are excluded from ArrowUp/ArrowDown keyboard navigation among selection items.
 
@@ -148,6 +152,60 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 **Inline window rename** (double-click): Double-clicking a window name `<span>` replaces it with a text `<input>` pre-filled with the current name, auto-focused with all text selected. Enter or blur commits the rename via `renameWindow(session, index, newName)` from `api/client.ts` — SSE pushes the updated name automatically, no optimistic UI. Escape cancels editing and reverts to the original name. Empty or whitespace-only input cancels (same as Escape). If the name is unchanged, no API call is made. Single-click behavior (navigate to window) is preserved — only `onDoubleClick` triggers editing. Editing state is local to the `Sidebar` component: `editingWindow: { session: string; index: number } | null` and `editingName: string`. Only one window may be in editing mode at a time. A `cancelledRef` prevents blur from committing after an Escape cancel. The existing command palette "Rename current window" dialog remains unchanged — inline editing is an additional path.
 
 **Server selector footer** — pinned at the bottom of the sidebar below the scrollable session tree, separated by `border-t border-border`. Displays `Server: {name}` with a dropdown trigger. Clicking opens a dropdown listing all available tmux servers (from `GET /api/servers`); the current server is highlighted with `text-accent`. Selecting a different server calls `setServer(name)`, which updates localStorage (`runkit-server`), reconnects SSE, and navigates to `/`. The session tree area is `flex-1 min-h-0 overflow-y-auto` above the pinned footer.
+
+## Window Type Switch
+
+`app.tsx` determines the content renderer based on the current window's `type` field from SSE metadata:
+
+```tsx
+{sessionName && windowIndex ? (
+  currentWindow?.type === "desktop" ? (
+    <DesktopClient /> + <DesktopBottomBar />
+  ) : (
+    <TerminalClient /> + <BottomBar />
+  )
+) : (
+  <Dashboard />
+)}
+```
+
+Terminal windows render `TerminalClient` + `BottomBar` (terminal controls). Desktop windows render `DesktopClient` + `DesktopBottomBar` (desktop controls). Dashboard renders when no session/window is selected.
+
+## DesktopClient
+
+`app/frontend/src/components/desktop-client.tsx` — noVNC canvas for remote desktop windows. Parallel to `TerminalClient` for terminal windows.
+
+**Connection**: Dynamically imports `@novnc/novnc/lib/rfb` and creates an RFB instance connecting to `/relay/{session}/{window}?server={server}` via WebSocket. The relay auto-detects desktop window type server-side and proxies to the VNC WebSocket.
+
+**Scaling**: `scaleViewport: true` scales the VM display to fit the container while maintaining aspect ratio. `resizeSession: false` keeps the VM at its native resolution. Works on mobile via letterboxing/pillarboxing.
+
+**Reconnection**: Exponential backoff (1s, doubling, max 30s). After several failed reconnects (delay >= 16s), calls `onSessionNotFound` to navigate to Dashboard. Reconnect delay resets on successful connect.
+
+**Props**: `sessionName`, `windowIndex`, `server`, optional `onSessionNotFound` callback, optional `onRfbRef` callback (exposes the RFB instance for clipboard operations in `DesktopBottomBar`).
+
+**Styling**: `flex-1 min-h-0 overflow-hidden bg-bg-inset` with `touch-action: none` for touch passthrough to noVNC.
+
+## DesktopBottomBar
+
+`app/frontend/src/components/desktop-bottom-bar.tsx` — desktop-specific controls replacing the terminal `BottomBar` when a desktop window is active.
+
+**Controls** (left to right):
+1. **Clipboard paste** button — reads browser clipboard via `navigator.clipboard.readText()`, sends to VNC session via `rfb.clipboardPasteFrom`. Graceful degradation if clipboard API unavailable
+2. **Resolution picker** — dropdown with preset options (1280x720, 1920x1080, 2560x1440). Calls `changeDesktopResolution(session, windowIndex, resolution)` API. The backend kills existing Xvfb+x11vnc and relaunches at the new resolution
+3. **Fullscreen** toggle — enters/exits browser fullscreen via `document.documentElement.requestFullscreen()`
+4. **Command palette** shortcut button (`Cmd+K`) — dispatches `palette:open` custom event
+
+**Props**: `rfbRef` (React ref to noVNC RFB instance), `sessionName`, `windowIndex`, optional `hostname` (displayed right-aligned on desktop viewports).
+
+**Styling**: Same toolbar button convention as terminal `BottomBar` — `min-h-[36px] min-w-[36px]` base, `text-xs`, border + hover styles.
+
+## Desktop Creation Entry Points
+
+Desktop windows can be created from three UI locations (all call `createDesktopWindow(session)` which sends `POST /api/sessions/{session}/windows` with `type: "desktop"`):
+
+1. **Window breadcrumb dropdown** — `+ New Desktop` action item alongside `+ New Window`
+2. **Dashboard session cards** — `+ New Desktop` button alongside `+ New Window`
+3. **Command palette** (`Cmd+K`) — "New Desktop Window" action (only when a session is active)
 
 ## Bottom Bar (Terminal Pages Only, Inside Terminal Column)
 
@@ -261,7 +319,7 @@ Both `CommandPalette` and `ThemeSelector` use the same scroll-into-view pattern 
 
 No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with xterm.js terminal input. All actions are accessible via `Cmd+K` command palette or top bar buttons.
 
-Command palette actions include: create/rename/kill session, create/rename/kill window, theme switching, "Reload tmux config" (targets the active server via `?server=` param), "Create tmux server" (opens name dialog, creates session "0" in $HOME), "Kill tmux server" (confirmation dialog, kills active server, switches to next available), "Switch tmux server: {name}" (one entry per available server, current marked), "Keyboard Shortcuts" (opens modal showing curated tmux keybindings from `GET /api/keybindings` + hardcoded `Cmd+K`), "Copy: tmux Attach Command" (copies `tmux attach-session -t {session}:{window}` to clipboard — only visible on terminal route when `currentWindow` is available), and terminal navigation (jump to any session/window).
+Command palette actions include: create/rename/kill session, create/rename/kill window, "New Desktop Window" (when session active), "Change desktop resolution: {res}" (when desktop window active — 1280x720, 1920x1080, 2560x1440), "Text input" (only for terminal windows, not desktop), theme switching, "Reload tmux config" (targets the active server via `?server=` param), "Create tmux server" (opens name dialog, creates session "0" in $HOME), "Kill tmux server" (confirmation dialog, kills active server, switches to next available), "Switch tmux server: {name}" (one entry per available server, current marked), "Keyboard Shortcuts" (opens modal showing curated tmux keybindings from `GET /api/keybindings` + hardcoded `Cmd+K`), "Copy: tmux Attach Command" (copies `tmux attach-session -t {session}:{window}` to clipboard — only visible on terminal route when `currentWindow` is available), and terminal navigation (jump to any session/window).
 
 ### Keyboard Shortcuts Modal
 
@@ -410,6 +468,7 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-20 | UI polish + keyboard shortcuts — Breadcrumb left-aligned (removed `justify-center`). Sidebar server dropdown gains `+ tmux server` action. Hostname in bottom bar (hidden on mobile). Sidebar footer and bottom bar aligned at `h-[48px]`. Server label → "tmux server:". Consistent dropdown density (`text-sm py-2`). New "Keyboard Shortcuts" command palette action opens modal fetching `GET /api/keybindings` — shows curated tmux bindings grouped by table (root vs prefix), plus hardcoded `Cmd+K`. | `260320-9ldy-ui-polish-tmux-config-embed` |
 | 2026-03-21 | Fix OSC 52 clipboard — custom `ClipboardProvider` for `ClipboardAddon` that accepts empty selection parameter (`""`) in addition to `"c"`. Fixes tmux copy-mode yank not reaching browser clipboard (tmux sends `]52;;base64`, addon default provider only accepted `]52;c;base64`). Provider exported as `clipboardProvider` for testability | `260321-zbdq-fix-osc52-clipboard-provider` |
 | 2026-03-23 | ANSI palette theme rework — ThemePalette type (22 colors), deriveUIColors/deriveXtermTheme derivation layer, full xterm.js palette integration, tmux.conf ANSI colour indices (auto-theming via xterm.js), backend settings persistence (`~/.rk/settings.yaml`, `GET/PUT /api/settings/theme`), API + localStorage dual persistence in ThemeProvider, multi-color palette swatches in theme selector | `260323-7wys-ansi-palette-theme-rework` |
+| 2026-03-23 | Web-based remote desktop UI — Window type switch in `app.tsx` renders `DesktopClient` (noVNC) or `TerminalClient` (xterm.js) based on `currentWindow.type`. New `DesktopBottomBar` with clipboard paste, resolution picker (1280x720/1920x1080/2560x1440), fullscreen toggle. Desktop creation from breadcrumb dropdown (`+ New Desktop`), dashboard (`+ New Desktop` button), and command palette ("New Desktop Window"). Desktop resolution change actions in command palette when desktop window active. "Text input" compose action hidden for desktop windows. Dashboard cards show "Desktop" badge for desktop windows. `@novnc/novnc` npm dependency added. | `260323-a805-web-based-remote-desktop` |
 | 2026-03-25 | Per-mode theme preferences — `theme_dark`/`theme_light` settings stored alongside `theme` in `~/.rk/settings.yaml` and localStorage. System mode resolves to user's preferred dark/light theme instead of hard-coded defaults. Theme selection saves to matching per-mode slot (by category) and stays in system mode. API extended: GET returns all three fields, PUT accepts partial updates. | `260325-vxj6-per-mode-theme-preferences` |
 | 2026-03-27 | Frontend rendering perf — SSE string diff + `startTransition` in SessionProvider (skips ~90% redundant re-renders), `useChromeState()` hook export (state-only consumers avoid merged object allocation), palette actions split into 7 independently memoized groups (session/window/view/theme/config/server/terminal), xterm.js write batching via `requestAnimationFrame` (coalesces WebSocket messages per frame) | `260327-cnav-perf-frontend-rendering` |
 | 2026-03-27 | Mobile keyboard scroll-lock — long-press on keyboard toggle (>= 500ms) activates scroll-lock mode preventing soft keyboard from appearing on terminal tap. Focus prevention via capture-phase `focusin` listener. Tap-in-locked-mode unlocks + summons keyboard in one action. Visual indicator uses modifier armed-state pattern (`bg-accent/20 border-accent text-accent`, lock icon). Session-scoped state, optional haptic feedback | `260327-4azv-mobile-keyboard-scroll-lock` |

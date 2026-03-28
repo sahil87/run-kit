@@ -146,6 +146,7 @@ const (
 type WindowInfo struct {
 	Index             int    `json:"index"`
 	Name              string `json:"name"`
+	Type              string `json:"type"`
 	WorktreePath      string `json:"worktreePath"`
 	Activity          string `json:"activity"` // "active" or "idle"
 	IsActiveWindow    bool   `json:"isActiveWindow"`
@@ -272,9 +273,15 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		isActive := strings.TrimSpace(parts[4]) == "1"
 		paneCmd := strings.TrimSpace(parts[5])
 
+		winType := "terminal"
+		if strings.HasPrefix(parts[1], "desktop:") {
+			winType = "desktop"
+		}
+
 		windows = append(windows, WindowInfo{
 			Index:             index,
 			Name:              parts[1],
+			Type:              winType,
 			WorktreePath:      parts[2],
 			Activity:          activity,
 			IsActiveWindow:    isActive,
@@ -590,5 +597,32 @@ func KillServer(server string) error {
 	if err != nil && strings.Contains(err.Error(), "No such file or directory") {
 		return nil
 	}
+	return err
+}
+
+// GetWindowOption reads a tmux user window option (e.g. @rk_vnc_port) from a specific window.
+// Returns the value and nil on success, or empty string and error if not set or command fails.
+func GetWindowOption(session string, windowIndex int, key string, server string) (string, error) {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	target := fmt.Sprintf("%s:%d", session, windowIndex)
+	lines, err := tmuxExecServer(ctx, server, "show-options", "-wv", "-t", target, key)
+	if err != nil {
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("window option %s not set", key)
+	}
+	return strings.TrimSpace(lines[0]), nil
+}
+
+// SetWindowOption sets a tmux user window option (e.g. @rk_vnc_port) on a specific window.
+func SetWindowOption(session string, windowIndex int, key, value string, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	target := fmt.Sprintf("%s:%d", session, windowIndex)
+	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", target, key, value)
 	return err
 }

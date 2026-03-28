@@ -283,6 +283,138 @@ func TestWindowSplitInvalidSession(t *testing.T) {
 	}
 }
 
+func TestWindowCreateDesktop(t *testing.T) {
+	ops := &mockTmuxOps{
+		listWindowsResult: []tmux.WindowInfo{
+			{Index: 0, Name: "zsh", Type: "terminal", WorktreePath: "/home/user"},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"dev","type":"desktop"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	if !ops.createWindowCalled {
+		t.Error("CreateWindow was not called")
+	}
+	// Desktop window should have desktop: prefix
+	if ops.createWindowName != "desktop:dev" {
+		t.Errorf("name = %q, want %q", ops.createWindowName, "desktop:dev")
+	}
+	// SendKeys should have been called with the startup script
+	if !ops.sendKeysCalled {
+		t.Error("SendKeys was not called (expected startup script)")
+	}
+}
+
+func TestWindowCreateDesktopDefaultResolution(t *testing.T) {
+	ops := &mockTmuxOps{
+		listWindowsResult: []tmux.WindowInfo{
+			{Index: 0, Name: "zsh", Type: "terminal", WorktreePath: "/home/user"},
+			{Index: 1, Name: "desktop:dev", Type: "desktop", WorktreePath: "/home/user"},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"test","type":"desktop"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	// The startup script should contain the default resolution 1920x1080
+	if !strings.Contains(ops.sendKeysKeys, "1920x1080") {
+		t.Errorf("startup script does not contain default resolution 1920x1080: %s", ops.sendKeysKeys)
+	}
+}
+
+func TestWindowCreateDesktopCustomResolution(t *testing.T) {
+	ops := &mockTmuxOps{
+		listWindowsResult: []tmux.WindowInfo{
+			{Index: 0, Name: "zsh", Type: "terminal", WorktreePath: "/home/user"},
+			{Index: 1, Name: "desktop:hires", Type: "desktop", WorktreePath: "/home/user"},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"hires","type":"desktop","resolution":"2560x1440"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	if !strings.Contains(ops.sendKeysKeys, "2560x1440") {
+		t.Errorf("startup script does not contain custom resolution 2560x1440: %s", ops.sendKeysKeys)
+	}
+}
+
+func TestWindowCreateDesktopInvalidResolution(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"name":"bad","type":"desktop","resolution":"foo; rm -rf /"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWindowResolutionChange(t *testing.T) {
+	ops := &mockTmuxOps{
+		getWindowOptionResult: "59234",
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"resolution":"2560x1440"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/1/resolution", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	if !ops.sendKeysCalled {
+		t.Error("SendKeys was not called (expected restart script)")
+	}
+	if !strings.Contains(ops.sendKeysKeys, "2560x1440") {
+		t.Errorf("restart script does not contain new resolution: %s", ops.sendKeysKeys)
+	}
+}
+
+func TestWindowResolutionChangeInvalidResolution(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"resolution":"bad"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/1/resolution", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
 func TestWindowSplitInvalidJSON(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 

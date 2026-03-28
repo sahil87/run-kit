@@ -133,11 +133,11 @@ func Stop() error {
 		select {
 		case <-ctx.Done():
 			// Timeout — kill forcefully with a fresh short context.
+			// kill-session may return an error if the tmux server exits when
+			// the last session is killed — that's still a successful stop.
 			killCtx, killCancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer killCancel()
-			if err := runTmux(killCtx, "kill-session", "-t", SessionName); err != nil {
-				return fmt.Errorf("killing daemon session after timeout: %w", err)
-			}
+			_ = runTmux(killCtx, "kill-session", "-t", SessionName)
 			return nil
 		case <-time.After(stopPollInterval):
 			if !isRunningCtx(ctx) {

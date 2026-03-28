@@ -8,6 +8,7 @@ export type ProjectSession = {
 export type WindowInfo = {
   index: number;
   name: string;
+  type: "terminal" | "desktop";
   worktreePath: string;
   activity: "active" | "idle";
   isActiveWindow: boolean;

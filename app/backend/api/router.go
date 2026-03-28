@@ -39,6 +39,8 @@ type TmuxOps interface {
 	ListServers(ctx context.Context) ([]string, error)
 	KillServer(server string) error
 	ListKeys(server string) ([]string, error)
+	GetWindowOption(session string, windowIndex int, key, server string) (string, error)
+	SetWindowOption(session string, windowIndex int, key, value, server string) error
 }
 
 // Server holds handler dependencies.
@@ -126,6 +128,12 @@ func (p *prodTmuxOps) KillServer(server string) error {
 func (p *prodTmuxOps) ListKeys(server string) ([]string, error) {
 	return tmux.ListKeys(server)
 }
+func (p *prodTmuxOps) GetWindowOption(session string, windowIndex int, key, server string) (string, error) {
+	return tmux.GetWindowOption(session, windowIndex, key, server)
+}
+func (p *prodTmuxOps) SetWindowOption(session string, windowIndex int, key, value, server string) error {
+	return tmux.SetWindowOption(session, windowIndex, key, value, server)
+}
 
 // NewRouter creates the chi router with all middleware and routes.
 // Uses production dependencies (live tmux, real session fetcher).
@@ -178,6 +186,8 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)
 	r.Post("/api/sessions/{session}/windows/{index}/split", s.handleWindowSplit)
 	r.Post("/api/sessions/{session}/windows/{index}/close-pane", s.handleClosePaneKill)
+	r.Post("/api/sessions/{session}/windows/{index}/resolution", s.handleWindowResolution)
+	r.Get("/api/sessions/{session}/windows/{index}/desktop-info", s.handleDesktopInfo)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)

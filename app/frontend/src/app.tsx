@@ -8,13 +8,15 @@ import { useDialogState } from "@/hooks/use-dialog-state";
 import { TopBar } from "@/components/top-bar";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
+import { DesktopClient, type TouchMode } from "@/components/desktop-client";
 import { BottomBar } from "@/components/bottom-bar";
+import { DesktopBottomBar } from "@/components/desktop-bottom-bar";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 
-import { selectWindow, createWindow, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createWindow, createDesktopWindow, changeDesktopResolution, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 
@@ -107,10 +109,18 @@ function AppShell() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [scrollLocked, setScrollLocked] = useState(false);
   const [hostname, setHostname] = useState("");
+  const rfbInstanceRef = useRef<import("@novnc/novnc/lib/rfb").default | null>(null);
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
   const [createServerName, setCreateServerName] = useState("");
   const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [touchMode, setTouchMode] = useState<TouchMode>(() => {
+    try {
+      const stored = localStorage.getItem("rk-desktop-touch-mode");
+      if (stored === "direct" || stored === "trackpad") return stored;
+    } catch { /* noop */ }
+    return "direct";
+  });
 
   // Fetch hostname once on mount (guarded for StrictMode double-invoke)
   const didFetchHostnameRef = useRef(false);
@@ -210,13 +220,18 @@ function AppShell() {
     return currentSession.windows.find((w) => w.isActiveWindow) ?? null;
   }, [currentSession]);
 
+  // Track whether the current window is a desktop (via ref to avoid effect deps)
+  const isDesktopRef = useRef(false);
+  isDesktopRef.current = currentWindow?.type === "desktop";
+
   useEffect(() => {
-    if (!activeWindow || !sessionName) return;
+    if (!activeWindow || !sessionName || !windowIndex) return;
     if (String(activeWindow.index) !== windowIndex) {
-      // Skip if user recently navigated (e.g. clicked sidebar) or a dialog is open
       if (dialogOpenRef.current) return;
       const elapsed = Date.now() - userNavTimestampRef.current;
       if (elapsed < 3000) return;
+      // Desktop windows connect via VNC, not tmux attach — skip activeWindow sync
+      if (isDesktopRef.current) return;
       navigate({
         to: "/$server/$session/$window",
         params: { server, session: sessionName, window: String(activeWindow.index) },
@@ -274,6 +289,18 @@ function AppShell() {
     async (session: string) => {
       try {
         await createWindow(session, "zsh");
+      } catch {
+        // SSE will reflect
+      }
+    },
+    [],
+  );
+
+  // Create a desktop window in a session
+  const handleCreateDesktopWindow = useCallback(
+    async (session: string) => {
+      try {
+        await createDesktopWindow(session);
       } catch {
         // SSE will reflect
       }
@@ -383,6 +410,13 @@ function AppShell() {
                 if (sessionName) handleCreateWindow(sessionName);
               },
             },
+            {
+              id: "create-desktop",
+              label: "New Desktop Window",
+              onSelect: () => {
+                if (sessionName) handleCreateDesktopWindow(sessionName);
+              },
+            },
           ]
         : []),
       ...(currentWindow
@@ -434,12 +468,12 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, handleCreateWindow, dialogs],
+    [sessionName, currentWindow, handleCreateWindow, handleCreateDesktopWindow, dialogs],
   );
 
   const viewActions: PaletteAction[] = useMemo(
     () => [
-      ...(sessionName
+      ...(sessionName && currentWindow?.type !== "desktop"
         ? [
             {
               id: "text-input",
@@ -448,13 +482,23 @@ function AppShell() {
             },
           ]
         : []),
+      ...(sessionName && currentWindow?.type === "desktop"
+        ? [
+            { id: "resolution-720x1280", label: "Desktop resolution: 720x1280 (portrait)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "720x1280").catch(() => {}) },
+            { id: "resolution-1080x1920", label: "Desktop resolution: 1080x1920 (portrait)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1080x1920").catch(() => {}) },
+            { id: "resolution-1440x2560", label: "Desktop resolution: 1440x2560 (portrait)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1440x2560").catch(() => {}) },
+            { id: "resolution-1280x720", label: "Desktop resolution: 1280x720 (landscape)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1280x720").catch(() => {}) },
+            { id: "resolution-1920x1080", label: "Desktop resolution: 1920x1080 (landscape)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "1920x1080").catch(() => {}) },
+            { id: "resolution-2560x1440", label: "Desktop resolution: 2560x1440 (landscape)", onSelect: () => changeDesktopResolution(sessionName, currentWindow.index, "2560x1440").catch(() => {}) },
+          ]
+        : []),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth],
+    [sessionName, currentWindow, fixedWidth, toggleFixedWidth],
   );
 
   const configActions: PaletteAction[] = useMemo(
@@ -540,6 +584,7 @@ function AppShell() {
           onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
           onCreateSession={dialogs.openCreateDialog}
           onCreateWindow={handleCreateWindow}
+          onCreateDesktopWindow={handleCreateDesktopWindow}
           onOpenCompose={() => setComposeOpen((v) => !v)}
         />
       </div>
@@ -589,31 +634,63 @@ function AppShell() {
             style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
           >
             {sessionName && windowIndex ? (
-              <>
-                <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
-                  <TerminalClient
-                    sessionName={sessionName}
-                    windowIndex={windowIndex}
-                    server={server}
-                    wsRef={wsRef}
-                    composeOpen={composeOpen}
-                    setComposeOpen={setComposeOpen}
-                    onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
-                    focusRef={focusTerminalRef}
-                    scrollLocked={scrollLocked}
-                  />
+              currentWindow?.type === "desktop" ? (
+                <>
+                  <div className="flex-1 min-h-0 flex flex-col">
+                    <DesktopClient
+                      sessionName={sessionName}
+                      windowIndex={windowIndex}
+                      server={server}
+                      touchMode={touchMode}
+                      onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+                      onRfbRef={(rfb) => { rfbInstanceRef.current = rfb; }}
+                    />
+                  </div>
+                  <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
+                    <DesktopBottomBar
+                      rfbRef={rfbInstanceRef}
+                      sessionName={sessionName}
+                      windowIndex={currentWindow.index}
+                      hostname={hostname}
+                      touchMode={touchMode}
+                      onTouchModeChange={setTouchMode}
+                    />
+                  </div>
+                </>
+              ) : currentWindow?.type === "terminal" ? (
+                <>
+                  <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
+                    <TerminalClient
+                      sessionName={sessionName}
+                      windowIndex={windowIndex}
+                      server={server}
+                      wsRef={wsRef}
+                      composeOpen={composeOpen}
+                      setComposeOpen={setComposeOpen}
+                      onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+                      focusRef={focusTerminalRef}
+                      scrollLocked={scrollLocked}
+                    />
+                  </div>
+                  {/* Bottom Bar — only on terminal pages */}
+                  <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
+                    <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
+                  </div>
+                </>
+              ) : (
+                /* Window type not yet known (waiting for SSE) — render nothing to avoid
+                   TerminalClient connecting to a desktop window's relay */
+                <div className="flex-1 min-h-0 flex items-center justify-center text-text-secondary text-sm">
+                  Connecting...
                 </div>
-                {/* Bottom Bar — only on terminal pages */}
-                <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
-                  <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
-                </div>
-              </>
+              )
             ) : (
               <Dashboard
                 sessions={sessions}
                 onNavigate={navigateToWindow}
                 onCreateSession={dialogs.openCreateDialog}
                 onCreateWindow={handleCreateWindow}
+                onCreateDesktopWindow={handleCreateDesktopWindow}
               />
             )}
           </div>

@@ -262,7 +262,7 @@ Command palette actions include: create/rename/kill session, create/rename/kill 
 
 1. **App** — hardcoded `Cmd+K` (command palette)
 2. **tmux** — root-table bindings displayed as bare key names (e.g., `F2`, `Shift+F3`)
-3. **tmux (prefix)** — prefix-table bindings displayed as `Ctrl+B, <key>` (e.g., `Ctrl+B, |`)
+3. **tmux (prefix)** — prefix-table bindings displayed as `Ctrl+S, <key>` (e.g., `Ctrl+S, \`)
 
 Key name formatting: `S-` → `Shift+`, `C-` → `Ctrl+`. Shows "Loading..." during fetch, "No tmux server running" when response is empty. Uses the shared `Dialog` component.
 

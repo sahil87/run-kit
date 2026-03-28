@@ -71,7 +71,7 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
 
   const rootBindings = bindings ? groupBindings(bindings, "root") : [];
   const prefixBindings = bindings
-    ? groupBindings(bindings, "prefix", "Ctrl+B, ")
+    ? groupBindings(bindings, "prefix", "Ctrl+S, ")
     : [];
 
   return (

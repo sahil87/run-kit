@@ -261,7 +261,7 @@ Both `CommandPalette` and `ThemeSelector` use the same scroll-into-view pattern 
 
 No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with xterm.js terminal input. All actions are accessible via `Cmd+K` command palette or top bar buttons.
 
-Command palette actions include: create/rename/kill session, create/rename/kill window, theme switching, "Reload tmux config" (targets the active server via `?server=` param), "Create tmux server" (opens name dialog, creates session "0" in $HOME), "Kill tmux server" (confirmation dialog, kills active server, switches to next available), "Switch tmux server: {name}" (one entry per available server, current marked), "Keyboard Shortcuts" (opens modal showing curated tmux keybindings from `GET /api/keybindings` + hardcoded `Cmd+K`), "Copy: tmux Attach Command" (copies `tmux attach-session -t {session}:{window}` to clipboard — only visible on terminal route when `currentWindow` is available), and terminal navigation (jump to any session/window).
+Command palette actions include: create/rename/kill session, create/rename/kill window, theme switching, "Reload tmux config" (targets the active server via `?server=` param), "Create tmux server" (opens name dialog, creates session "0" in $HOME), "Kill tmux server" (confirmation dialog, kills active server, switches to next available), "Switch tmux server: {name}" (one entry per available server, current marked), "Keyboard Shortcuts" (opens modal showing curated tmux keybindings from `GET /api/keybindings` + hardcoded `Cmd+K`), "Copy: tmux Commands" (opens tmux commands dialog — only visible on terminal route when `currentWindow` is available), and terminal navigation (jump to any session/window).
 
 ### Keyboard Shortcuts Modal
 
@@ -272,6 +272,22 @@ Command palette actions include: create/rename/kill session, create/rename/kill 
 3. **tmux (prefix)** — prefix-table bindings displayed as `Ctrl+S, <key>` (e.g., `Ctrl+S, \`)
 
 Key name formatting: `S-` → `Shift+`, `C-` → `Ctrl+`. Shows "Loading..." during fetch, "No tmux server running" when response is empty. Uses the shared `Dialog` component.
+
+### Tmux Commands Dialog
+
+`app/frontend/src/components/tmux-commands-dialog.tsx` — opened via command palette "Copy: tmux Commands" action (id `copy-tmux-attach`). Only available on terminal pages when `currentWindow` exists. Opens a `Dialog` with title "tmux commands" showing three copyable tmux command rows:
+
+| Label | Command |
+|-------|---------|
+| Attach | `tmux [-L {server}] attach-session -t {session}:{window}` |
+| New window | `tmux [-L {server}] new-window -t {session}` |
+| Detach | `tmux [-L {server}] detach-client -t {session}` |
+
+**Server-aware command generation**: Commands include the `-L {server}` flag only when the server is not `"default"`. When the server is `"default"`, the flag is omitted. This matches the `tmuxExecServer` convention in the backend (see `tmux-sessions.md`).
+
+Each row has a label (`text-text-secondary text-[11px]`), a monospace code block (`bg-bg-inset border border-border rounded px-2 py-1.5 font-mono text-[11px] select-all`), and a copy button. Clicking the copy button writes the command to the clipboard via `navigator.clipboard.writeText` and swaps the copy icon to a checkmark for 1.5 seconds before reverting. Clipboard failure is silently caught.
+
+Dialog state is a `showTmuxCommands` boolean in `app.tsx` (same pattern as `showCreateServerDialog` / `showKillServerConfirm`). Props: `server`, `session`, `window`, `onClose`.
 
 ## Visual Design
 
@@ -413,3 +429,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-25 | Per-mode theme preferences — `theme_dark`/`theme_light` settings stored alongside `theme` in `~/.rk/settings.yaml` and localStorage. System mode resolves to user's preferred dark/light theme instead of hard-coded defaults. Theme selection saves to matching per-mode slot (by category) and stays in system mode. API extended: GET returns all three fields, PUT accepts partial updates. | `260325-vxj6-per-mode-theme-preferences` |
 | 2026-03-27 | Frontend rendering perf — SSE string diff + `startTransition` in SessionProvider (skips ~90% redundant re-renders), `useChromeState()` hook export (state-only consumers avoid merged object allocation), palette actions split into 7 independently memoized groups (session/window/view/theme/config/server/terminal), xterm.js write batching via `requestAnimationFrame` (coalesces WebSocket messages per frame) | `260327-cnav-perf-frontend-rendering` |
 | 2026-03-27 | Mobile keyboard scroll-lock — long-press on keyboard toggle (>= 500ms) activates scroll-lock mode preventing soft keyboard from appearing on terminal tap. Focus prevention via capture-phase `focusin` listener. Tap-in-locked-mode unlocks + summons keyboard in one action. Visual indicator uses modifier armed-state pattern (`bg-accent/20 border-accent text-accent`, lock icon). Session-scoped state, optional haptic feedback | `260327-4azv-mobile-keyboard-scroll-lock` |
+| 2026-03-28 | Tmux commands dialog — replaced direct clipboard copy with a dialog showing three tmux commands (attach, new-window, detach) with per-row copy buttons and checkmark feedback. Server-aware command generation includes `-L {server}` flag for named servers, omits it for `"default"` | `260328-6xey-tmux-commands-dialog` |

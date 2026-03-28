@@ -13,6 +13,7 @@ import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
 import { selectWindow, createWindow, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
@@ -111,6 +112,7 @@ function AppShell() {
   const [createServerName, setCreateServerName] = useState("");
   const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [showTmuxCommands, setShowTmuxCommands] = useState(false);
 
   // Fetch hostname once on mount (guarded for StrictMode double-invoke)
   const didFetchHostnameRef = useRef(false);
@@ -260,7 +262,7 @@ function AppShell() {
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
   dialogOpenRef.current =
-    dialogs.showCreateDialog || dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || showKillServerConfirm;
+    dialogs.showCreateDialog || dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || showKillServerConfirm || showTmuxCommands;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -424,12 +426,8 @@ function AppShell() {
             },
             {
               id: "copy-tmux-attach",
-              label: "Copy: tmux Attach Command",
-              onSelect: () => {
-                if (sessionName && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-                  navigator.clipboard.writeText(`tmux attach-session -t ${sessionName}:${currentWindow.name}`).catch(() => {});
-                }
-              },
+              label: "Copy: tmux Commands",
+              onSelect: () => setShowTmuxCommands(true),
             },
           ]
         : []),
@@ -791,6 +789,15 @@ function AppShell() {
             </button>
           </div>
         </Dialog>
+      )}
+
+      {showTmuxCommands && sessionName && currentWindow && (
+        <TmuxCommandsDialog
+          server={server}
+          session={sessionName}
+          window={currentWindow.name}
+          onClose={() => setShowTmuxCommands(false)}
+        />
       )}
 
       <input

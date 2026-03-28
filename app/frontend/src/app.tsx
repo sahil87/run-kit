@@ -105,6 +105,7 @@ function AppShell() {
   const windowIndex = params.window;
 
   const [composeOpen, setComposeOpen] = useState(false);
+  const [scrollLocked, setScrollLocked] = useState(false);
   const [hostname, setHostname] = useState("");
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
   const [createServerName, setCreateServerName] = useState("");
@@ -599,11 +600,12 @@ function AppShell() {
                     setComposeOpen={setComposeOpen}
                     onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
                     focusRef={focusTerminalRef}
+                    scrollLocked={scrollLocked}
                   />
                 </div>
                 {/* Bottom Bar — only on terminal pages */}
                 <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
-                  <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} />
+                  <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
                 </div>
               </>
             ) : (

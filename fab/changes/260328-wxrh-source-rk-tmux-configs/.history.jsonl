@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-28T04:27:22Z"}
+{"args":"Add the ability to read multiple tmux configs from the .rk folder — so the user can add plugins, add customizations etc.","cmd":"fab-new","event":"command","ts":"2026-03-28T04:27:22Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-28T04:28:10Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-28T04:28:14Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-28T04:29:50Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-28T04:30:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-28T04:31:13Z"}
+{"delta":"+0.6","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-28T04:31:53Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-28T04:31:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-28T04:32:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-28T04:32:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-28T04:34:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-28T04:36:34Z"}
+{"event":"review","result":"passed","ts":"2026-03-28T04:36:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-28T04:37:55Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-03-28T04:39:55Z"}

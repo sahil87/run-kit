@@ -58,10 +58,16 @@ func configArgs() []string {
 }
 
 // EnsureConfig writes the embedded default tmux.conf to DefaultConfigPath
-// if the file does not already exist. No-op if the file exists or no home dir.
+// if the file does not already exist. Always creates the tmux.d/ drop-in
+// directory alongside the config (even if the config already exists).
+// No-op if no home dir.
 func EnsureConfig() error {
 	if DefaultConfigPath == "" {
 		return nil
+	}
+	// Always ensure tmux.d/ exists for drop-in configs.
+	if err := ensureDropInDir(); err != nil {
+		return err
 	}
 	if _, err := os.Stat(DefaultConfigPath); err == nil {
 		return nil
@@ -75,7 +81,8 @@ func EnsureConfig() error {
 }
 
 // ForceWriteConfig writes the embedded default tmux.conf to DefaultConfigPath,
-// overwriting any existing file. Equivalent to `rk init-conf --force`.
+// overwriting any existing file. Also creates the tmux.d/ drop-in directory.
+// Equivalent to `rk init-conf --force`.
 func ForceWriteConfig() error {
 	if DefaultConfigPath == "" {
 		return fmt.Errorf("could not determine home directory")
@@ -83,7 +90,23 @@ func ForceWriteConfig() error {
 	if err := os.MkdirAll(filepath.Dir(DefaultConfigPath), 0o755); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
+	if err := ensureDropInDir(); err != nil {
+		return err
+	}
 	return os.WriteFile(DefaultConfigPath, DefaultConfigBytes(), 0o644)
+}
+
+// ensureDropInDir creates a tmux.d/ drop-in directory alongside DefaultConfigPath
+// for user drop-in configs.
+func ensureDropInDir() error {
+	if DefaultConfigPath == "" {
+		return nil
+	}
+	dropInDir := filepath.Join(filepath.Dir(DefaultConfigPath), "tmux.d")
+	if err := os.MkdirAll(dropInDir, 0o755); err != nil {
+		return fmt.Errorf("creating tmux drop-in directory: %w", err)
+	}
+	return nil
 }
 
 // ReloadConfig hot-reloads the tmux config via source-file on the specified server.

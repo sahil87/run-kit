@@ -13,7 +13,7 @@ var initConfForce bool
 
 var initConfCmd = &cobra.Command{
 	Use:   "init-conf",
-	Short: "Scaffold default tmux.conf to ~/.rk/tmux.conf",
+	Short: "Scaffold default tmux.conf and tmux.d/ drop-in directory to ~/.rk/",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dest := tmux.DefaultConfigPath
 		if dest == "" {
@@ -34,7 +34,14 @@ var initConfCmd = &cobra.Command{
 			return fmt.Errorf("writing config: %w", err)
 		}
 
+		// Create drop-in config directory alongside the config file.
+		dropInDir := filepath.Join(filepath.Dir(dest), "tmux.d")
+		if err := os.MkdirAll(dropInDir, 0o755); err != nil {
+			return fmt.Errorf("creating tmux.d directory: %w", err)
+		}
+
 		fmt.Printf("Wrote %s\n", dest)
+		fmt.Printf("Drop-in configs: %s/*.conf\n", dropInDir)
 		return nil
 	},
 }

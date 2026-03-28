@@ -53,15 +53,22 @@ export function TmuxCommandsDialog({ server, session, window, onClose }: TmuxCom
   }, []);
 
   const handleCopy = useCallback((command: string, index: number) => {
-    navigator.clipboard.writeText(command).catch(() => {});
-    if (timerRef.current !== null) {
-      clearTimeout(timerRef.current);
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      return;
     }
-    setCopiedIndex(index);
-    timerRef.current = setTimeout(() => {
-      setCopiedIndex(null);
-      timerRef.current = null;
-    }, 1500);
+    navigator.clipboard
+      .writeText(command)
+      .then(() => {
+        if (timerRef.current !== null) {
+          clearTimeout(timerRef.current);
+        }
+        setCopiedIndex(index);
+        timerRef.current = setTimeout(() => {
+          setCopiedIndex(null);
+          timerRef.current = null;
+        }, 1500);
+      })
+      .catch(() => {});
   }, []);
 
   return (

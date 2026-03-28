@@ -1,0 +1,44 @@
+id: 6xey
+name: 260328-6xey-tmux-commands-dialog
+created: 2026-03-28T08:15:19Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 18
+confidence:
+    certain: 5
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 79.3
+        reversibility: 90.7
+        competence: 88.6
+        disambiguation: 86.4
+stage_metrics:
+    intake: {started_at: "2026-03-28T08:15:19Z", driver: fab-new, iterations: 1, completed_at: "2026-03-28T08:23:23Z"}
+    spec: {started_at: "2026-03-28T08:23:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T08:23:59Z"}
+    tasks: {started_at: "2026-03-28T08:23:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T08:23:59Z"}
+    apply: {started_at: "2026-03-28T08:23:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T08:26:44Z"}
+    review: {started_at: "2026-03-28T08:26:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T08:28:22Z"}
+    hydrate: {started_at: "2026-03-28T08:28:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T08:29:42Z"}
+    ship: {started_at: "2026-03-28T08:29:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T08:31:10Z"}
+    review-pr: {started_at: "2026-03-28T08:31:10Z", driver: fab-fff, iterations: 1}
+prs:
+    - https://github.com/wvrdz/run-kit/pull/102
+last_updated: 2026-03-28T08:31:10Z

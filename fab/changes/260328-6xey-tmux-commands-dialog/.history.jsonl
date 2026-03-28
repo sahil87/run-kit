@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-28T08:15:19Z"}
+{"args":"Fix copy tmux attach command to include -L server-name flag, and replace direct copy with a Copy tmux commands dialog showing multiple command variants (attach, spawn, detach) with copy icons next to each","cmd":"fab-new","event":"command","ts":"2026-03-28T08:15:19Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-28T08:16:12Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-03-28T08:16:23Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-03-28T08:21:13Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-03-28T08:22:01Z"}
+{"delta":"+0.3","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-03-28T08:23:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-03-28T08:23:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-03-28T08:23:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-03-28T08:23:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-03-28T08:26:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-03-28T08:28:22Z"}
+{"event":"review","result":"passed","ts":"2026-03-28T08:28:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-03-28T08:29:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review-pr","ts":"2026-03-28T08:31:10Z"}

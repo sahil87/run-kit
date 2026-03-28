@@ -107,35 +107,26 @@ describe("TerminalClient scroll-lock focus prevention", () => {
     vi.restoreAllMocks();
   });
 
-  it("blocks focusin on .xterm elements when scrollLocked is true", async () => {
+  it("prevents focus via touchend preventDefault when scrollLocked is true", async () => {
     const { container } = renderTerminalClient(true);
 
-    // Wait for the terminal init effect to run
     await act(async () => {});
 
     const terminalDiv = container.querySelector("[role='application']");
     expect(terminalDiv).toBeTruthy();
 
-    // Create a mock .xterm element inside the terminal container
-    const xtermEl = document.createElement("textarea");
-    xtermEl.className = "xterm-helper-textarea";
-    const xtermWrapper = document.createElement("div");
-    xtermWrapper.className = "xterm";
-    xtermWrapper.appendChild(xtermEl);
-    terminalDiv!.appendChild(xtermWrapper);
+    // Dispatch a touchend event — it should be preventDefault'd
+    const touchEnd = new TouchEvent("touchend", { bubbles: true, cancelable: true });
+    const preventSpy = vi.spyOn(touchEnd, "preventDefault");
 
-    // Spy on blur
-    const blurSpy = vi.spyOn(xtermEl, "blur");
-
-    // Dispatch focusin event
     act(() => {
-      xtermEl.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      terminalDiv!.dispatchEvent(touchEnd);
     });
 
-    expect(blurSpy).toHaveBeenCalled();
+    expect(preventSpy).toHaveBeenCalled();
   });
 
-  it("allows focusin on .xterm elements when scrollLocked is false", async () => {
+  it("does not prevent touchend when scrollLocked is false", async () => {
     const { container } = renderTerminalClient(false);
 
     await act(async () => {});
@@ -143,19 +134,13 @@ describe("TerminalClient scroll-lock focus prevention", () => {
     const terminalDiv = container.querySelector("[role='application']");
     expect(terminalDiv).toBeTruthy();
 
-    const xtermEl = document.createElement("textarea");
-    xtermEl.className = "xterm-helper-textarea";
-    const xtermWrapper = document.createElement("div");
-    xtermWrapper.className = "xterm";
-    xtermWrapper.appendChild(xtermEl);
-    terminalDiv!.appendChild(xtermWrapper);
-
-    const blurSpy = vi.spyOn(xtermEl, "blur");
+    const touchEnd = new TouchEvent("touchend", { bubbles: true, cancelable: true });
+    const preventSpy = vi.spyOn(touchEnd, "preventDefault");
 
     act(() => {
-      xtermEl.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      terminalDiv!.dispatchEvent(touchEnd);
     });
 
-    expect(blurSpy).not.toHaveBeenCalled();
+    expect(preventSpy).not.toHaveBeenCalled();
   });
 });

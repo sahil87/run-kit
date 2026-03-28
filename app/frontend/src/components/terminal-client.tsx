@@ -263,20 +263,21 @@ export function TerminalClient({
   }, [wsRef, focusRef]);
 
   // Scroll-lock: prevent xterm textarea from gaining focus when locked.
-  // Uses capture-phase focusin listener to blur any .xterm element immediately.
+  // Instead of reactively blurring on focusin (which disrupts active touch
+  // sequences and can corrupt xterm.js internal state), we preventDefault()
+  // on touchend to suppress the synthetic mousedown → focusin → click chain.
+  // touchstart/touchmove still fire normally so SGR scroll keeps working.
   useEffect(() => {
     if (!scrollLocked) return;
     const container = terminalRef.current;
     if (!container) return;
 
-    function onFocusIn(e: FocusEvent) {
-      if (e.target instanceof HTMLElement && e.target.closest(".xterm")) {
-        e.target.blur();
-      }
+    function onTouchEnd(e: TouchEvent) {
+      e.preventDefault();
     }
 
-    container.addEventListener("focusin", onFocusIn, { capture: true });
-    return () => container.removeEventListener("focusin", onFocusIn, { capture: true });
+    container.addEventListener("touchend", onTouchEnd, { capture: true });
+    return () => container.removeEventListener("touchend", onTouchEnd, { capture: true });
   }, [scrollLocked]);
 
   // Mobile touch-to-scroll: translate vertical swipe gestures into SGR mouse

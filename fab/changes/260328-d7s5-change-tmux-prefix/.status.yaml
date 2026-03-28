@@ -1,0 +1,42 @@
+id: d7s5
+name: 260328-d7s5-change-tmux-prefix
+created: 2026-03-28T04:29:35Z
+created_by: sahil-weaver
+change_type: chore
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 12
+    total: 12
+confidence:
+    certain: 3
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 77.0
+        reversibility: 92.0
+        competence: 89.0
+        disambiguation: 85.0
+stage_metrics:
+    intake: {started_at: "2026-03-28T04:29:35Z", driver: fab-new, iterations: 1, completed_at: "2026-03-28T04:41:28Z"}
+    spec: {started_at: "2026-03-28T04:41:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:41:53Z"}
+    tasks: {started_at: "2026-03-28T04:41:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:41:53Z"}
+    apply: {started_at: "2026-03-28T04:41:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:43:18Z"}
+    review: {started_at: "2026-03-28T04:43:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:44:17Z"}
+    hydrate: {started_at: "2026-03-28T04:44:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:45:27Z"}
+    ship: {started_at: "2026-03-28T04:45:27Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-28T04:45:27Z

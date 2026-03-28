@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +117,37 @@ func TestRestart_WhenNotRunning(t *testing.T) {
 	}
 	if !isRunningOn(testSocket) {
 		t.Error("isRunningOn() = false after startOn()")
+	}
+}
+
+func TestStartWithBinary_InvalidPath(t *testing.T) {
+	if IsRunning() {
+		t.Skip("skipping — production daemon is running")
+	}
+
+	// StartWithBinary should return an error for a nonexistent path.
+	err := StartWithBinary("/nonexistent/path/rk")
+	if err == nil {
+		t.Fatal("StartWithBinary with invalid path should return error")
+	}
+	wantMsg := "resolving executable symlinks"
+	if !strings.Contains(err.Error(), wantMsg) {
+		t.Errorf("error = %q, want it to contain %q", err, wantMsg)
+	}
+}
+
+func TestRestartWithBinary_InvalidPath(t *testing.T) {
+	if IsRunning() {
+		t.Skip("skipping — production daemon is running")
+	}
+
+	err := RestartWithBinary("/nonexistent/path/rk")
+	if err == nil {
+		t.Fatal("RestartWithBinary with invalid path should return error")
+	}
+	wantMsg := "resolving executable symlinks"
+	if !strings.Contains(err.Error(), wantMsg) {
+		t.Errorf("error = %q, want it to contain %q", err, wantMsg)
 	}
 }
 

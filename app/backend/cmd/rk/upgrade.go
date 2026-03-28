@@ -85,10 +85,19 @@ var updateCmd = &cobra.Command{
 
 		fmt.Printf("Updated to v%s.\n", latest)
 
+		// Derive the stable Homebrew bin symlink from the Cellar path.
+		// resolved is e.g. /opt/homebrew/Cellar/rk/0.5.3/bin/rk
+		// We want:         /opt/homebrew/bin/rk
+		cellarIdx := strings.Index(resolved, "/Cellar/rk/")
+		if cellarIdx == -1 {
+			return fmt.Errorf("could not derive brew prefix from %s", resolved)
+		}
+		brewBinPath := resolved[:cellarIdx] + "/bin/rk"
+
 		// Restart daemon so it picks up the new binary.
 		// Idempotent: if no daemon is running, this starts one.
 		fmt.Println("Restarting rk daemon...")
-		if err := daemon.Restart(); err != nil {
+		if err := daemon.RestartWithBinary(brewBinPath); err != nil {
 			return fmt.Errorf("restarting daemon after upgrade: %w", err)
 		}
 		fmt.Printf("rk daemon started (%s/%s/%s)\n",

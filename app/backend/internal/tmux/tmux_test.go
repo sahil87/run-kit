@@ -2,6 +2,8 @@ package tmux
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -335,6 +337,65 @@ func TestSanitizeEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnsureConfigCreatesDropInDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDefault := DefaultConfigPath
+	defer func() { DefaultConfigPath = origDefault }()
+	DefaultConfigPath = filepath.Join(tmpDir, ".rk", "tmux.conf")
+
+	// Fresh install — both config and tmux.d/ should be created.
+	if err := EnsureConfig(); err != nil {
+		t.Fatalf("EnsureConfig() error: %v", err)
+	}
+	dropInDir := filepath.Join(tmpDir, ".rk", "tmux.d")
+	if _, err := os.Stat(dropInDir); os.IsNotExist(err) {
+		t.Error("tmux.d/ not created on fresh install")
+	}
+	if _, err := os.Stat(DefaultConfigPath); os.IsNotExist(err) {
+		t.Error("tmux.conf not created on fresh install")
+	}
+
+	// Remove tmux.d/ but keep config — EnsureConfig should recreate tmux.d/.
+	os.RemoveAll(dropInDir)
+	if err := EnsureConfig(); err != nil {
+		t.Fatalf("EnsureConfig() second call error: %v", err)
+	}
+	if _, err := os.Stat(dropInDir); os.IsNotExist(err) {
+		t.Error("tmux.d/ not recreated when config exists but dir missing")
+	}
+}
+
+func TestForceWriteConfigCreatesDropInDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	origDefault := DefaultConfigPath
+	defer func() { DefaultConfigPath = origDefault }()
+	DefaultConfigPath = filepath.Join(tmpDir, ".rk", "tmux.conf")
+
+	if err := ForceWriteConfig(); err != nil {
+		t.Fatalf("ForceWriteConfig() error: %v", err)
+	}
+	dropInDir := filepath.Join(tmpDir, ".rk", "tmux.d")
+	if _, err := os.Stat(dropInDir); os.IsNotExist(err) {
+		t.Error("tmux.d/ not created by ForceWriteConfig")
+	}
+}
+
+func TestDefaultConfigContainsSourceDirective(t *testing.T) {
+	content := string(DefaultConfigBytes())
+	if !strings.Contains(content, "source-file -q ~/.rk/tmux.d/*.conf") {
+		t.Error("embedded default config missing source-file directive for tmux.d/")
+	}
+}
+
+func TestEnsureDropInDirNoHomeDir(t *testing.T) {
+	origDefault := DefaultConfigPath
+	defer func() { DefaultConfigPath = origDefault }()
+	DefaultConfigPath = ""
+
+	// Should be a no-op, not panic.
+	ensureDropInDir()
 }
 
 // sessionInfoSliceEqual compares two SessionInfo slices, treating nil and empty as equivalent.

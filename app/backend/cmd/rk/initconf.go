@@ -34,6 +34,12 @@ var initConfCmd = &cobra.Command{
 			return fmt.Errorf("writing config: %w", err)
 		}
 
+		// Create drop-in config directory alongside the config file.
+		dropInDir := filepath.Join(filepath.Dir(dest), "tmux.d")
+		if err := os.MkdirAll(dropInDir, 0o755); err != nil {
+			return fmt.Errorf("creating tmux.d directory: %w", err)
+		}
+
 		fmt.Printf("Wrote %s\n", dest)
 		return nil
 	},

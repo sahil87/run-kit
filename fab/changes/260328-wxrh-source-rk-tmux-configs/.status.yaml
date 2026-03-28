@@ -1,0 +1,42 @@
+id: wxrh
+name: 260328-wxrh-source-rk-tmux-configs
+created: 2026-03-28T04:27:22Z
+created_by: sahil-weaver
+change_type: docs
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 13
+    total: 13
+confidence:
+    certain: 6
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 77.9
+        reversibility: 91.4
+        competence: 87.1
+        disambiguation: 86.4
+stage_metrics:
+    intake: {started_at: "2026-03-28T04:27:22Z", driver: fab-new, iterations: 1, completed_at: "2026-03-28T04:31:13Z"}
+    spec: {started_at: "2026-03-28T04:31:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:32:04Z"}
+    tasks: {started_at: "2026-03-28T04:32:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:32:32Z"}
+    apply: {started_at: "2026-03-28T04:32:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:34:45Z"}
+    review: {started_at: "2026-03-28T04:34:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:36:34Z"}
+    hydrate: {started_at: "2026-03-28T04:36:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-03-28T04:37:55Z"}
+    ship: {started_at: "2026-03-28T04:37:55Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-03-28T04:37:55Z

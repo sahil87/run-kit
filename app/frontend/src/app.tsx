@@ -795,7 +795,7 @@ function AppShell() {
         <TmuxCommandsDialog
           server={server}
           session={sessionName}
-          window={currentWindow.name}
+          window={String(currentWindow.index)}
           onClose={() => setShowTmuxCommands(false)}
         />
       )}

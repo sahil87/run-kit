@@ -24,7 +24,6 @@ var keybindingWhitelist = map[string]string{
 	"select-pane -t :.-":   "Previous pane",
 	"select-pane -t :.+":   "Next pane",
 	"copy-mode":            "Scroll / copy mode",
-	"send-prefix":          "Prefix key",
 }
 
 // handleKeybindings returns the curated keybindings for the active tmux server.

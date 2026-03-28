@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Dialog } from "@/components/dialog";
-import { getKeybindings } from "@/api/client";
 
 type TmuxCommandsDialogProps = {
   server: string;
@@ -13,11 +12,6 @@ type CommandRow = {
   label: string;
   command: string;
 };
-
-/** Format tmux key notation to human-readable (e.g. "C-s" → "Ctrl+s") */
-function formatTmuxKey(key: string): string {
-  return key.replace(/^C-/, "Ctrl+").replace(/^M-/, "Alt+");
-}
 
 function buildCommands(server: string, session: string, window: string): CommandRow[] {
   const prefix = server === "default" ? "tmux" : `tmux -L ${server}`;
@@ -47,16 +41,9 @@ function CheckIcon() {
 export function TmuxCommandsDialog({ server, session, window, onClose }: TmuxCommandsDialogProps) {
   const commands = buildCommands(server, session, window);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  const [prefixKey, setPrefixKey] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    getKeybindings()
-      .then((bindings) => {
-        const entry = bindings.find((b) => b.command === "send-prefix" && b.table === "root");
-        if (entry) setPrefixKey(formatTmuxKey(entry.key));
-      })
-      .catch(() => {});
     return () => {
       if (timerRef.current !== null) {
         clearTimeout(timerRef.current);
@@ -107,7 +94,7 @@ export function TmuxCommandsDialog({ server, session, window, onClose }: TmuxCom
         <div>
           <div className="text-text-secondary text-[11px] mb-1">Detach (while attached)</div>
           <code className="block bg-bg-inset border border-border rounded px-2 py-1.5 font-mono text-[11px]">
-            {prefixKey ? `${prefixKey}, d` : "prefix + d"}
+            prefix, d (Ctrl+S, d)
           </code>
         </div>
       </div>

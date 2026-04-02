@@ -95,7 +95,7 @@ jobs:
 
       - name: Update Homebrew tap
         env:
-          TAP_TOKEN: ${{ secrets.BUILD_TOKEN }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           version="${{ steps.version.outputs.version }}"
 

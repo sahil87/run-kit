@@ -1,31 +1,20 @@
-project:
-  name: "run-kit"
-  description: "Web based agent orchestration framework"
-  # linear_workspace: "your-workspace"  # optional — enables Linear issue links in PRs
-
-# Directories containing implementation code (relative to repo root).
-source_paths:
-  - app/backend/
-  - app/frontend/src/
-
-# Project-specific categories appended to default checklist categories.
-# Defaults: functional_completeness, behavioral_correctness, scenario_coverage, edge_cases, security
-checklist:
-  extra_categories: []
-
-# Per-stage directives for artifact generation.
-# Each stage key accepts a list of instructions the agent follows during generation.
-stage_directives:
-  intake: []
-  spec:
-    - Use GIVEN/WHEN/THEN for scenarios
-    - "Mark ambiguities with [NEEDS CLARIFICATION]"
-  tasks: []
-  apply: []
-  review: []
-  hydrate: []
-
 agent:
-  # Base command for spawning agent sessions in scripts and operators.
-  # Shell expansions (e.g., $(basename "$(pwd)")) expand at invocation time.
-  spawn_command: 'claude --dangerously-skip-permissions --effort max -n "$(basename "$(pwd)")"'
+    spawn_command: claude --dangerously-skip-permissions --effort max -n "$(basename "$(pwd)")"
+checklist:
+    extra_categories: []
+fab_version: 1.0.0
+project:
+    description: Web based agent orchestration framework
+    name: run-kit
+source_paths:
+    - app/backend/
+    - app/frontend/src/
+stage_directives:
+    apply: []
+    hydrate: []
+    intake: []
+    review: []
+    spec:
+        - Use GIVEN/WHEN/THEN for scenarios
+        - Mark ambiguities with [NEEDS CLARIFICATION]
+    tasks: []

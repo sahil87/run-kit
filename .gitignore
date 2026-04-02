@@ -139,8 +139,6 @@ vite.config.ts.timestamp-*
 
 keys/
 
-fab/.kit-sync-version
-fab/.kit/bin/fab-*
 fab/changes/**/.pr-done
 
 /.agents
@@ -157,11 +155,6 @@ fab/changes/**/.pr-done
 bin/
 dist/
 
-fab/.kit/bin/*
-
-!fab/.kit/bin/fab
-
-!fab/.kit/bin/.gitkeep
 
 .fab-*
 

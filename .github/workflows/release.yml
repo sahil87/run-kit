@@ -104,7 +104,7 @@ jobs:
           sha_linux_arm64=$(sha256sum dist/rk-linux-arm64.tar.gz | cut -d' ' -f1)
           sha_linux_amd64=$(sha256sum dist/rk-linux-amd64.tar.gz | cut -d' ' -f1)
 
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/wvrdz/homebrew-tap.git" /tmp/homebrew-tap
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/sahil87/homebrew-tap.git" /tmp/homebrew-tap
 
           sed \
             -e "s/VERSION_PLACEHOLDER/${version}/" \

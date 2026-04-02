@@ -68,7 +68,7 @@ Returns all tmux sessions with their windows, enriched with fab-kit state where 
       {
         "index": 0,
         "name": "main",
-        "worktreePath": "/Users/sahil/code/wvrdz/run-kit",
+        "worktreePath": "/Users/sahil/code/sahil87/run-kit",
         "activity": "active",
         "isActiveWindow": true,
         "fabChange": "260312-jz77-scaffold-app-structure",
@@ -245,7 +245,7 @@ Server-side directory autocomplete for the session creation dialog.
 **Response** `200`:
 ```json
 {
-  "directories": ["~/code/wvrdz/", "~/code/sahil-weaver/"]
+  "directories": ["~/code/sahil87/"]
 }
 ```
 
@@ -277,7 +277,7 @@ Upload files to a project's `.uploads/` directory.
 ```json
 {
   "ok": true,
-  "path": "/Users/sahil/code/wvrdz/run-kit/.uploads/260312-143022-screenshot.png"
+  "path": "/Users/sahil/code/sahil87/run-kit/.uploads/260312-143022-screenshot.png"
 }
 ```
 

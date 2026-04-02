@@ -16,7 +16,7 @@
 | Spec | Location |
 |------|----------|
 | Agent Orchestrator | [`docs/ao/`](../ao/) |
-| fab-kit | `~/code/sahil-weaver/fab-kit/docs/` (source: `~/code/sahil-weaver/fab-kit/fab/.kit/`) |
+| fab-kit | `~/code/sahil87/fab-kit/docs/` (source: `~/code/sahil87/fab-kit/fab/.kit/`) |
 
 ## Project Specs
 

@@ -56,6 +56,30 @@ describe("API client", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("createWindow sends cwd when provided", async () => {
+    let capturedBody: Record<string, string> = {};
+    server.use(
+      http.post("/api/sessions/:session/windows", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ ok: true }, { status: 201 });
+      }),
+    );
+    await createWindow("run-kit", "new-win", "/home/user/project");
+    expect(capturedBody.cwd).toBe("/home/user/project");
+  });
+
+  it("createWindow omits cwd when undefined", async () => {
+    let capturedBody: Record<string, string> = {};
+    server.use(
+      http.post("/api/sessions/:session/windows", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ ok: true }, { status: 201 });
+      }),
+    );
+    await createWindow("run-kit", "new-win");
+    expect(capturedBody.cwd).toBeUndefined();
+  });
+
   it("killWindow sends POST /api/sessions/:session/windows/:index/kill", async () => {
     const result = await killWindow("run-kit", 0);
     expect(result.ok).toBe(true);

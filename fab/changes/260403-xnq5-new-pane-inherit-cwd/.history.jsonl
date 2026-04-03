@@ -9,3 +9,7 @@
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-03T13:24:30Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-03T13:24:30Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-03T13:25:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-03T13:27:13Z"}
+{"event":"review","result":"passed","ts":"2026-04-03T13:27:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-03T13:27:34Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-03T13:28:03Z"}

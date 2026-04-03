@@ -275,12 +275,12 @@ function AppShell() {
   const handleCreateWindow = useCallback(
     async (session: string) => {
       try {
-        await createWindow(session, "zsh");
+        await createWindow(session, "zsh", currentWindow?.worktreePath);
       } catch {
         // SSE will reflect
       }
     },
-    [],
+    [currentWindow],
   );
 
   // Theme

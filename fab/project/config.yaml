@@ -2,7 +2,7 @@ agent:
     spawn_command: claude --dangerously-skip-permissions --effort max -n "$(basename "$(pwd)")"
 checklist:
     extra_categories: []
-fab_version: 1.0.0
+fab_version: 1.2.4
 project:
     description: Web based agent orchestration framework
     name: run-kit
@@ -18,3 +18,7 @@ stage_directives:
         - Use GIVEN/WHEN/THEN for scenarios
         - Mark ambiguities with [NEEDS CLARIFICATION]
     tasks: []
+review_tools:
+    copilot: true
+    codex: true
+    claude: true

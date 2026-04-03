@@ -139,14 +139,11 @@ vite.config.ts.timestamp-*
 
 keys/
 
-fab/changes/**/.pr-done
-
 /.agents
 /.claude
 /.cursor
 /.opencode
 /.codex
-/.ralph
 /.gemini
 
 .fab-status.yaml

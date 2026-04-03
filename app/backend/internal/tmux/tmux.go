@@ -389,7 +389,7 @@ func CreateWindow(session, name, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "new-window", "-t", session, "-n", name, "-c", cwd)
+	_, err := tmuxExecServer(ctx, server, "new-window", "-a", "-t", session, "-n", name, "-c", cwd)
 	return err
 }
 
@@ -453,7 +453,8 @@ func SelectWindow(session string, index int, server string) error {
 
 // SplitWindow splits a window to create an independent pane on the specified server. Returns the new pane ID.
 // If horizontal is true, the pane is split left/right (-h flag); otherwise top/bottom.
-func SplitWindow(session string, window int, horizontal bool, server string) (string, error) {
+// If cwd is non-empty, the new pane starts in that directory (-c flag).
+func SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
@@ -461,6 +462,9 @@ func SplitWindow(session string, window int, horizontal bool, server string) (st
 	args := []string{"split-window"}
 	if horizontal {
 		args = append(args, "-h")
+	}
+	if cwd != "" {
+		args = append(args, "-c", cwd)
 	}
 	args = append(args, "-t", target, "-d", "-P", "-F", "#{pane_id}")
 	lines, err := tmuxExecServer(ctx, server, args...)

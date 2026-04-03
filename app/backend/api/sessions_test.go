@@ -115,7 +115,7 @@ func (m *mockTmuxOps) SendKeys(session string, window int, keys, server string) 
 func (m *mockTmuxOps) ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error) {
 	return m.listWindowsResult, m.listWindowsErr
 }
-func (m *mockTmuxOps) SplitWindow(session string, window int, horizontal bool, server string) (string, error) {
+func (m *mockTmuxOps) SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error) {
 	m.splitWindowCalled = true
 	m.splitWindowSession = session
 	m.splitWindowIndex = window

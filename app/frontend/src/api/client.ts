@@ -159,13 +159,16 @@ export async function splitWindow(
   session: string,
   index: number,
   horizontal: boolean,
+  cwd?: string,
 ): Promise<{ ok: boolean; pane_id: string }> {
+  const body: Record<string, unknown> = { horizontal };
+  if (cwd) body.cwd = cwd;
   const res = await fetch(
     withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/split`),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ horizontal }),
+      body: JSON.stringify(body),
     },
   );
   if (!res.ok) await throwOnError(res);

@@ -33,7 +33,7 @@ type TmuxOps interface {
 	SendKeys(session string, window int, keys, server string) error
 	SelectWindow(session string, index int, server string) error
 	ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error)
-	SplitWindow(session string, window int, horizontal bool, server string) (string, error)
+	SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error)
 	KillPane(paneID, server string) error
 	KillActivePane(session string, window int, server string) error
 	ListServers(ctx context.Context) ([]string, error)
@@ -108,8 +108,8 @@ func (p *prodTmuxOps) SelectWindow(session string, index int, server string) err
 func (p *prodTmuxOps) ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error) {
 	return tmux.ListWindows(ctx, session, server)
 }
-func (p *prodTmuxOps) SplitWindow(session string, window int, horizontal bool, server string) (string, error) {
-	return tmux.SplitWindow(session, window, horizontal, server)
+func (p *prodTmuxOps) SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error) {
+	return tmux.SplitWindow(session, window, horizontal, cwd, server)
 }
 func (p *prodTmuxOps) KillPane(paneID, server string) error {
 	return tmux.KillPane(paneID, server)

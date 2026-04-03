@@ -193,6 +193,7 @@ export function TopBar({
                 <SplitButton
                   session={sessionName}
                   windowIndex={currentWindow.index}
+                  cwd={currentWindow.worktreePath}
                 />
               </span>
               <span className="hidden sm:flex">
@@ -200,6 +201,7 @@ export function TopBar({
                   horizontal
                   session={sessionName}
                   windowIndex={currentWindow.index}
+                  cwd={currentWindow.worktreePath}
                 />
               </span>
               <span className="hidden sm:flex">
@@ -315,15 +317,17 @@ function SplitButton({
   horizontal,
   session,
   windowIndex,
+  cwd,
 }: {
   horizontal?: boolean;
   session: string;
   windowIndex: number;
+  cwd?: string;
 }) {
   const label = horizontal ? "Split horizontally" : "Split vertically";
 
   const handleClick = () => {
-    splitWindow(session, windowIndex, !!horizontal).catch(() => {
+    splitWindow(session, windowIndex, !!horizontal, cwd).catch(() => {
       // best-effort — tmux may reject if pane is too small
     });
   };

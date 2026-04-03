@@ -274,13 +274,15 @@ function AppShell() {
   // Create a new window in a session (from sidebar "+" button)
   const handleCreateWindow = useCallback(
     async (session: string) => {
+      const targetSession = sessions.find((s) => s.name === session);
+      const activeWindow = targetSession?.windows.find((w) => w.isActiveWindow);
       try {
-        await createWindow(session, "zsh");
+        await createWindow(session, "zsh", activeWindow?.worktreePath);
       } catch {
         // SSE will reflect
       }
     },
-    [],
+    [sessions],
   );
 
   // Theme
@@ -407,14 +409,14 @@ function AppShell() {
               id: "split-vertical",
               label: "Window: Split Vertical",
               onSelect: () => {
-                if (sessionName) splitWindow(sessionName, currentWindow.index, true).catch(() => {});
+                if (sessionName) splitWindow(sessionName, currentWindow.index, true, currentWindow.worktreePath).catch(() => {});
               },
             },
             {
               id: "split-horizontal",
               label: "Window: Split Horizontal",
               onSelect: () => {
-                if (sessionName) splitWindow(sessionName, currentWindow.index, false).catch(() => {});
+                if (sessionName) splitWindow(sessionName, currentWindow.index, false, currentWindow.worktreePath).catch(() => {});
               },
             },
             {

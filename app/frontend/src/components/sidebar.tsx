@@ -175,13 +175,17 @@ export function Sidebar({
                       +
                     </button>
                     <button
-                      onClick={() =>
+                      onClick={(e) => {
+                        if (e.ctrlKey || e.metaKey) {
+                          killSessionApi(session.name).catch(() => {});
+                          return;
+                        }
                         setKillTarget({
                           type: "session",
                           session: session.name,
                           windowCount: session.windows.length,
-                        })
-                      }
+                        });
+                      }}
                       aria-label={`Kill session ${session.name}`}
                       className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
                     >
@@ -262,6 +266,10 @@ export function Sidebar({
                             aria-label={`Kill window ${win.name}`}
                             onClick={(e) => {
                               e.stopPropagation();
+                              if (e.ctrlKey || e.metaKey) {
+                                killWindowApi(session.name, win.index).catch(() => {});
+                                return;
+                              }
                               setKillTarget({
                                 type: "window",
                                 session: session.name,

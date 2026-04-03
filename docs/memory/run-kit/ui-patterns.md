@@ -113,7 +113,10 @@ Connection indicator: green/gray dot only (no text label), driven by `isConnecte
 
 ### Sidebar Kill Controls
 
-- **Session row ✕**: Always-visible ✕ button on session rows with red hover. Click opens confirmation dialog: "Kill session **{name}** and all {N} windows?"
+- **Session row ✕**: Always-visible ✕ button on session rows with red hover. Normal click opens confirmation dialog: "Kill session **{name}** and all {N} windows?" **Ctrl+Click / Cmd+Click** bypasses the confirmation dialog and kills immediately (best-effort `.catch(() => {})`).
+- **Window row ✕**: Hover-reveal ✕ button on window rows (always visible on touch devices via `coarse:opacity-100`). Normal click opens confirmation dialog: "Kill window in **{session}**?" **Ctrl+Click / Cmd+Click** bypasses the confirmation dialog and kills immediately (best-effort `.catch(() => {})`).
+
+The Ctrl+Click force-kill pattern matches the established "modifier = power action" convention: ThemeToggle uses Ctrl+Click to open the theme selector instead of cycling. Modifier detection uses `e.ctrlKey || e.metaKey` (Ctrl on Linux/Windows, Cmd on macOS).
 
 ## Sidebar
 

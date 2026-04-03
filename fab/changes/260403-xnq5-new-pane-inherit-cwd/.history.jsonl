@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-03T13:19:52Z"}
+{"args":"New pane should start in current working directory of previously active pane, not project root","cmd":"fab-new","event":"command","ts":"2026-04-03T13:19:52Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-03T13:20:27Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-03T13:20:36Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-04-03T13:21:38Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-03T13:23:23Z"}
+{"delta":"+0.3","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-03T13:24:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-03T13:24:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-03T13:24:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-03T13:24:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-03T13:25:34Z"}

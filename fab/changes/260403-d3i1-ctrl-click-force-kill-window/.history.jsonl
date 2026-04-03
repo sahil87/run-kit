@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-03T13:20:24Z"}
+{"args":"Right now when you close a window by clicking on the x mark next to it, there is a pop-up which says Are you sure you want to close or Are you sure you want to kill this window Kill/Cancel. Now if the user is pressing control while clicking on the x mark, we should not have a pop-up like this. We should force kill the window or the session.","cmd":"fab-new","event":"command","ts":"2026-04-03T13:20:24Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-03T13:21:05Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-03T13:21:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-03T13:22:43Z"}
+{"delta":"-1.3","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-04-03T13:23:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-03T13:23:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-03T13:24:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-03T13:24:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-03T13:25:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-03T13:26:00Z"}
+{"event":"review","result":"passed","ts":"2026-04-03T13:26:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-03T13:26:31Z"}

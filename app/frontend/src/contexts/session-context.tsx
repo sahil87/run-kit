@@ -63,8 +63,11 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
   const prevSseDataRef = useRef("");
 
   useEffect(() => {
-    // Reset diff cache so the first event from a new server always applies
+    // Reset state so stale data from the previous server never leaks through
     prevSseDataRef.current = "";
+    setSessions([]);
+    setIsConnected(false);
+    setChromeConnected(false);
 
     const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
 

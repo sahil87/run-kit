@@ -274,13 +274,15 @@ function AppShell() {
   // Create a new window in a session (from sidebar "+" button)
   const handleCreateWindow = useCallback(
     async (session: string) => {
+      const targetSession = sessions.find((s) => s.name === session);
+      const activeWindow = targetSession?.windows.find((w) => w.isActiveWindow);
       try {
-        await createWindow(session, "zsh", currentWindow?.worktreePath);
+        await createWindow(session, "zsh", activeWindow?.worktreePath);
       } catch {
         // SSE will reflect
       }
     },
-    [currentWindow],
+    [sessions],
   );
 
   // Theme

@@ -288,4 +288,73 @@ describe("Sidebar", () => {
     renderSidebar();
     expect(screen.queryByLabelText("external session")).not.toBeInTheDocument();
   });
+
+  describe("ghost entries", () => {
+    it("renders ghost session with opacity-50 and animate-pulse", () => {
+      const ghostSessions = [
+        ...sessions,
+        {
+          name: "ghost-session",
+          windows: [],
+          optimistic: true,
+          optimisticId: "ghost-1",
+        },
+      ];
+      renderSidebar({ sessions: ghostSessions });
+      const ghostName = screen.getByText("ghost-session");
+      // Find the session container (the outer div wrapping the session header)
+      const sessionContainer = ghostName.closest("[class*='opacity-50']");
+      expect(sessionContainer).toBeTruthy();
+      expect(sessionContainer?.className).toContain("animate-pulse");
+    });
+
+    it("renders ghost window with opacity-50 and animate-pulse", () => {
+      const sessionsWithGhostWindow = [
+        {
+          ...sessions[0],
+          windows: [
+            ...sessions[0].windows,
+            {
+              index: 99,
+              name: "ghost-win",
+              worktreePath: "",
+              activity: "idle" as const,
+              isActiveWindow: false,
+              optimistic: true,
+              optimisticId: "ghost-w-1",
+            },
+          ],
+        },
+        sessions[1],
+      ];
+      renderSidebar({ sessions: sessionsWithGhostWindow });
+      const ghostWin = screen.getByText("ghost-win");
+      const windowRow = ghostWin.closest("[class*='opacity-50']");
+      expect(windowRow).toBeTruthy();
+      expect(windowRow?.className).toContain("animate-pulse");
+    });
+
+    it("ghost window uses optimisticId as key (not index)", () => {
+      const sessionsWithGhostWindow = [
+        {
+          ...sessions[0],
+          windows: [
+            ...sessions[0].windows,
+            {
+              index: 0, // same index as real window — key collision without optimisticId
+              name: "new-window",
+              worktreePath: "",
+              activity: "idle" as const,
+              isActiveWindow: false,
+              optimistic: true,
+              optimisticId: "ghost-w-2",
+            },
+          ],
+        },
+      ];
+      // Should not throw from duplicate React keys
+      renderSidebar({ sessions: sessionsWithGhostWindow });
+      expect(screen.getByText("new-window")).toBeInTheDocument();
+    });
+  });
 });

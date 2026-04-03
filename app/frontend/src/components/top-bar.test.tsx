@@ -237,4 +237,63 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByLabelText("Close pane"));
     expect(closePane).toHaveBeenCalledWith("run-kit", 0);
   });
+
+  it("renders SplitButton (vertical and horizontal) when window is selected", () => {
+    renderTopBar();
+    expect(screen.getByLabelText("Split vertically")).toBeInTheDocument();
+    expect(screen.getByLabelText("Split horizontally")).toBeInTheDocument();
+  });
+
+  it("does not render SplitButtons on dashboard (no window)", () => {
+    renderTopBar({ currentWindow: null, windowName: "" });
+    expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
+  });
+
+  it("calls splitWindow API when SplitButton is clicked", async () => {
+    const { splitWindow } = await import("@/api/client");
+    renderTopBar();
+    fireEvent.click(screen.getByLabelText("Split vertically"));
+    expect(splitWindow).toHaveBeenCalledWith("run-kit", 0, false, "~/code/run-kit");
+  });
+
+  it("shows spinner and disables SplitButton while pending", async () => {
+    const { splitWindow } = await import("@/api/client");
+    let resolveAction!: () => void;
+    vi.mocked(splitWindow).mockImplementation(() => new Promise((r) => { resolveAction = () => r({ ok: true, pane_id: "%1" }); }));
+
+    renderTopBar();
+    const btn = screen.getByLabelText("Split vertically");
+    fireEvent.click(btn);
+
+    // Button should be disabled and show spinner
+    expect(btn).toBeDisabled();
+    expect(btn.querySelector(".animate-spin")).toBeTruthy();
+
+    // Resolve the action
+    resolveAction();
+    await vi.waitFor(() => {
+      expect(btn).not.toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).toBeFalsy();
+    });
+  });
+
+  it("shows spinner and disables ClosePaneButton while pending", async () => {
+    const { closePane } = await import("@/api/client");
+    let resolveAction!: () => void;
+    vi.mocked(closePane).mockImplementation(() => new Promise((r) => { resolveAction = () => r({ ok: true }); }));
+
+    renderTopBar();
+    const btn = screen.getByLabelText("Close pane");
+    fireEvent.click(btn);
+
+    expect(btn).toBeDisabled();
+    expect(btn.querySelector(".animate-spin")).toBeTruthy();
+
+    resolveAction();
+    await vi.waitFor(() => {
+      expect(btn).not.toBeDisabled();
+      expect(btn.querySelector(".animate-spin")).toBeFalsy();
+    });
+  });
 });

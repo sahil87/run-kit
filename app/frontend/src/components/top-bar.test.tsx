@@ -3,6 +3,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { TopBar } from "./top-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
+import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
 
 vi.mock("@/api/client", async () => {
@@ -52,28 +53,30 @@ const sessions: ProjectSession[] = [
 
 function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
   return render(
-    <ThemeProvider>
-      <ChromeProvider>
-        <TopBar
-          sessions={sessions}
-          currentSession={sessions[0]}
-          currentWindow={fabWindow}
-          sessionName="run-kit"
-          windowName="main"
-          isConnected={true}
-          sidebarOpen={false}
-          drawerOpen={false}
-          server="runkit"
-          onNavigate={vi.fn()}
-          onToggleSidebar={vi.fn()}
-          onToggleDrawer={vi.fn()}
-          onCreateSession={vi.fn()}
-          onCreateWindow={vi.fn()}
-          onOpenCompose={vi.fn()}
-          {...overrides}
-        />
-      </ChromeProvider>
-    </ThemeProvider>,
+    <ToastProvider>
+      <ThemeProvider>
+        <ChromeProvider>
+          <TopBar
+            sessions={sessions}
+            currentSession={sessions[0]}
+            currentWindow={fabWindow}
+            sessionName="run-kit"
+            windowName="main"
+            isConnected={true}
+            sidebarOpen={false}
+            drawerOpen={false}
+            server="runkit"
+            onNavigate={vi.fn()}
+            onToggleSidebar={vi.fn()}
+            onToggleDrawer={vi.fn()}
+            onCreateSession={vi.fn()}
+            onCreateWindow={vi.fn()}
+            onOpenCompose={vi.fn()}
+            {...overrides}
+          />
+        </ChromeProvider>
+      </ThemeProvider>
+    </ToastProvider>,
   );
 }
 

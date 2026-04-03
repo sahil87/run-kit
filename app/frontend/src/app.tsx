@@ -3,6 +3,8 @@ import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
 import { ChromeProvider, useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
 import { SessionProvider } from "@/contexts/session-context";
+import { ToastProvider } from "@/components/toast";
+import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { useDialogState } from "@/hooks/use-dialog-state";
 import { TopBar } from "@/components/top-bar";
@@ -17,6 +19,9 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
 import { selectWindow, createWindow, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
+import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useToast } from "@/components/toast";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
@@ -49,9 +54,11 @@ function readSidebarWidth(): number {
 export function RootWrapper() {
   return (
     <ThemeProvider>
-      <ChromeProvider>
-        <Outlet />
-      </ChromeProvider>
+      <ToastProvider>
+        <ChromeProvider>
+          <Outlet />
+        </ChromeProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }
@@ -65,7 +72,9 @@ export function ServerShell() {
 
   return (
     <SessionProvider server={server}>
-      <AppShell />
+      <OptimisticProvider>
+        <AppShell />
+      </OptimisticProvider>
     </SessionProvider>
   );
 }
@@ -91,7 +100,8 @@ function ServerNotFound({ serverName }: { serverName: string }) {
 function AppShell() {
   useVisualViewport();
 
-  const { sessions, isConnected, server, servers, refreshServers } = useSessionContext();
+  const { sessions: rawSessions, isConnected, server, servers, refreshServers } = useSessionContext();
+  const sessions = useMergedSessions(rawSessions);
   const { sidebarOpen, drawerOpen, fixedWidth } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen, toggleFixedWidth } = useChromeDispatch();
   const navigate = useNavigate();
@@ -113,6 +123,21 @@ function AppShell() {
   const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
+
+  const { addGhostWindow, removeGhost, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
+  const { addToast } = useToast();
+  const ghostWindowIdRef = useRef<string | null>(null);
+  const ghostServerIdRef = useRef<string | null>(null);
+
+  // Palette split/close actions (button loading not visible since palette closes, but we need error toasts)
+  const { execute: executeSplit } = useOptimisticAction<[string, number, boolean, string | undefined]>({
+    action: (session, index, horizontal, cwd) => splitWindow(session, index, horizontal, cwd),
+    onError: (err) => addToast(err.message || "Failed to split pane"),
+  });
+  const { execute: executeClosePane } = useOptimisticAction<[string, number]>({
+    action: (session, index) => closePane(session, index),
+    onError: (err) => addToast(err.message || "Failed to close pane"),
+  });
 
   // Fetch hostname once on mount (guarded for StrictMode double-invoke)
   const didFetchHostnameRef = useRef(false);
@@ -272,17 +297,34 @@ function AppShell() {
   }, [sessions]);
 
   // Create a new window in a session (from sidebar "+" button)
-  const handleCreateWindow = useCallback(
-    async (session: string) => {
+  const { execute: executeCreateWindow } = useOptimisticAction<[string]>({
+    action: (session) => {
       const targetSession = sessions.find((s) => s.name === session);
-      const activeWindow = targetSession?.windows.find((w) => w.isActiveWindow);
-      try {
-        await createWindow(session, "zsh", activeWindow?.worktreePath);
-      } catch {
-        // SSE will reflect
+      const activeWin = targetSession?.windows.find((w) => w.isActiveWindow);
+      return createWindow(session, "zsh", activeWin?.worktreePath);
+    },
+    onOptimistic: (session) => {
+      ghostWindowIdRef.current = addGhostWindow(session, "zsh");
+    },
+    onRollback: () => {
+      if (ghostWindowIdRef.current) {
+        removeGhost(ghostWindowIdRef.current);
+        ghostWindowIdRef.current = null;
       }
     },
-    [sessions],
+    onError: (err) => {
+      addToast(err.message || "Failed to create window");
+    },
+    onSettled: () => {
+      ghostWindowIdRef.current = null;
+    },
+  });
+
+  const handleCreateWindow = useCallback(
+    (session: string) => {
+      executeCreateWindow(session);
+    },
+    [executeCreateWindow],
   );
 
   // Theme
@@ -321,28 +363,52 @@ function AppShell() {
     [server, navigate],
   );
 
-  const handleCreateServer = useCallback(async () => {
+  const { execute: executeCreateServer } = useOptimisticAction<[string]>({
+    action: (name) => createServer(name),
+    onOptimistic: (name) => {
+      ghostServerIdRef.current = addGhostServer(name);
+    },
+    onRollback: () => {
+      if (ghostServerIdRef.current) {
+        removeGhost(ghostServerIdRef.current);
+        ghostServerIdRef.current = null;
+      }
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to create server");
+    },
+    onSettled: () => {
+      ghostServerIdRef.current = null;
+    },
+  });
+
+  const handleCreateServer = useCallback(() => {
     const trimmed = createServerName.trim();
     if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
-    try {
-      await createServer(trimmed);
-      navigate({ to: "/$server", params: { server: trimmed } });
-    } catch {
-      // error
-    }
+    executeCreateServer(trimmed);
+    navigate({ to: "/$server", params: { server: trimmed } });
     setShowCreateServerDialog(false);
     setCreateServerName("");
-  }, [createServerName, navigate]);
+  }, [createServerName, navigate, executeCreateServer]);
 
-  const handleKillServer = useCallback(async () => {
-    try {
-      await killServerApi(server);
-      navigate({ to: "/" });
-    } catch {
-      // error
-    }
+  const { execute: executeKillServer } = useOptimisticAction<[string]>({
+    action: (name) => killServerApi(name),
+    onOptimistic: (name) => {
+      markKilled("server", name);
+    },
+    onRollback: () => {
+      unmarkKilled(server);
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to kill server");
+    },
+  });
+
+  const handleKillServer = useCallback(() => {
+    executeKillServer(server);
+    navigate({ to: "/" });
     setShowKillServerConfirm(false);
-  }, [server, navigate]);
+  }, [server, navigate, executeKillServer]);
 
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -409,21 +475,21 @@ function AppShell() {
               id: "split-vertical",
               label: "Window: Split Vertical",
               onSelect: () => {
-                if (sessionName) splitWindow(sessionName, currentWindow.index, true, currentWindow.worktreePath).catch(() => {});
+                if (sessionName) executeSplit(sessionName, currentWindow.index, true, currentWindow.worktreePath);
               },
             },
             {
               id: "split-horizontal",
               label: "Window: Split Horizontal",
               onSelect: () => {
-                if (sessionName) splitWindow(sessionName, currentWindow.index, false, currentWindow.worktreePath).catch(() => {});
+                if (sessionName) executeSplit(sessionName, currentWindow.index, false, currentWindow.worktreePath);
               },
             },
             {
               id: "close-pane",
               label: "Pane: Close",
               onSelect: () => {
-                if (sessionName) closePane(sessionName, currentWindow.index).catch(() => {});
+                if (sessionName) executeClosePane(sessionName, currentWindow.index);
               },
             },
             {
@@ -434,7 +500,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, handleCreateWindow, dialogs],
+    [sessionName, currentWindow, handleCreateWindow, dialogs, executeSplit, executeClosePane],
   );
 
   const viewActions: PaletteAction[] = useMemo(
@@ -457,17 +523,29 @@ function AppShell() {
     [sessionName, fixedWidth, toggleFixedWidth],
   );
 
+  const { execute: executeReloadConfig } = useOptimisticAction({
+    action: () => reloadTmuxConfig(),
+    onSettled: () => addToast("Tmux config reloaded", "info"),
+    onError: () => addToast("Failed to reload tmux config", "error"),
+  });
+
+  const { execute: executeResetConfig } = useOptimisticAction({
+    action: () => initTmuxConf().then(() => reloadTmuxConfig()),
+    onSettled: () => addToast("Tmux config reset to default", "info"),
+    onError: () => addToast("Failed to reset tmux config", "error"),
+  });
+
   const configActions: PaletteAction[] = useMemo(
     () => [
       {
         id: "reload-tmux-config",
         label: "Config: Reload tmux",
-        onSelect: () => { reloadTmuxConfig().catch(() => {}); },
+        onSelect: () => executeReloadConfig(),
       },
       {
         id: "init-tmux-conf",
         label: "Config: Reset tmux to default",
-        onSelect: () => { initTmuxConf().then(() => reloadTmuxConfig()).catch(() => {}); },
+        onSelect: () => executeResetConfig(),
       },
       {
         id: "keyboard-shortcuts",
@@ -475,7 +553,7 @@ function AppShell() {
         onSelect: () => setShowKeyboardShortcuts(true),
       },
     ],
-    [],
+    [executeReloadConfig, executeResetConfig],
   );
 
   const serverActions: PaletteAction[] = useMemo(

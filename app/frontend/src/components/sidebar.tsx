@@ -1,11 +1,16 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, createWindow } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { getWindowDuration } from "@/lib/format";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useOptimisticContext } from "@/contexts/optimistic-context";
+import { useToast } from "@/components/toast";
 import type { ProjectSession } from "@/types";
+import { isGhostWindow } from "@/contexts/optimistic-context";
+import type { MergedSession, MergedWindow } from "@/contexts/optimistic-context";
 
 type SidebarProps = {
-  sessions: ProjectSession[];
+  sessions: (ProjectSession | MergedSession)[];
   currentSession: string | null;
   currentWindowIndex: string | null;
   onSelectWindow: (session: string, windowIndex: number) => void;
@@ -46,7 +51,93 @@ export function Sidebar({
   const originalNameRef = useRef("");
 
   const [serverDropdownOpen, setServerDropdownOpen] = useState(false);
+  const [refreshingServers, setRefreshingServers] = useState(false);
   const serverDropdownRef = useRef<HTMLDivElement>(null);
+
+  const { markKilled, unmarkKilled, markRenamed, unmarkRenamed, addGhostWindow, removeGhost } = useOptimisticContext();
+  const { addToast } = useToast();
+
+  // Ctrl+click kill session (optimistic)
+  const lastKillSessionRef = useRef<string | null>(null);
+  const { execute: executeKillSession } = useOptimisticAction<[string]>({
+    action: (name) => killSessionApi(name),
+    onOptimistic: (name) => {
+      lastKillSessionRef.current = name;
+      markKilled("session", name);
+    },
+    onRollback: () => {
+      if (lastKillSessionRef.current) unmarkKilled(lastKillSessionRef.current);
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to kill session");
+    },
+  });
+
+  // Ctrl+click kill window (optimistic)
+  const lastKillWindowRef = useRef<string | null>(null);
+  const { execute: executeKillWindow } = useOptimisticAction<[string, number]>({
+    action: (session, index) => killWindowApi(session, index),
+    onOptimistic: (session, index) => {
+      const id = `${session}:${index}`;
+      lastKillWindowRef.current = id;
+      markKilled("window", id);
+    },
+    onRollback: () => {
+      if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to kill window");
+    },
+  });
+
+  // Kill from confirmation dialog (optimistic)
+  const killTargetRef = useRef(killTarget);
+  killTargetRef.current = killTarget;
+
+  const { execute: executeKillFromDialog } = useOptimisticAction<[{ type: "session" | "window"; session: string; windowIndex?: number }]>({
+    action: (target) => {
+      if (target.type === "window" && target.windowIndex != null) {
+        return killWindowApi(target.session, target.windowIndex);
+      }
+      return killSessionApi(target.session);
+    },
+    onOptimistic: (target) => {
+      if (target.type === "window" && target.windowIndex != null) {
+        markKilled("window", `${target.session}:${target.windowIndex}`);
+      } else {
+        markKilled("session", target.session);
+      }
+    },
+    onRollback: () => {
+      const target = killTargetRef.current;
+      if (!target) return;
+      if (target.type === "window" && target.windowIndex != null) {
+        unmarkKilled(`${target.session}:${target.windowIndex}`);
+      } else {
+        unmarkKilled(target.session);
+      }
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to kill");
+    },
+  });
+
+  // Inline rename window (optimistic)
+  const lastRenameRef = useRef<string | null>(null);
+  const { execute: executeRenameWindow } = useOptimisticAction<[string, number, string]>({
+    action: (session, index, newName) => renameWindow(session, index, newName),
+    onOptimistic: (session, index) => {
+      const id = `${session}:${index}`;
+      lastRenameRef.current = id;
+      markRenamed("window", id, editingName.trim());
+    },
+    onRollback: () => {
+      if (lastRenameRef.current) unmarkRenamed(lastRenameRef.current);
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to rename window");
+    },
+  });
 
   // Close server dropdown on outside click
   useEffect(() => {
@@ -75,17 +166,14 @@ export function Sidebar({
     cancelledRef.current = false;
   }
 
-  async function handleRenameCommit() {
+  function handleRenameCommit() {
     if (!editingWindow) return;
     const trimmed = editingName.trim();
     const originalName = originalNameRef.current;
+    const { session, index } = editingWindow;
     setEditingWindow(null);
     if (trimmed && trimmed !== originalName) {
-      try {
-        await renameWindow(editingWindow.session, editingWindow.index, trimmed);
-      } catch {
-        // SSE will reflect actual state
-      }
+      executeRenameWindow(session, index, trimmed);
     }
   }
 
@@ -113,17 +201,9 @@ export function Sidebar({
     setCollapsed((prev) => ({ ...prev, [name]: !prev[name] }));
   }, []);
 
-  async function handleKill() {
+  function handleKill() {
     if (!killTarget) return;
-    try {
-      if (killTarget.type === "window" && killTarget.windowIndex != null) {
-        await killWindowApi(killTarget.session, killTarget.windowIndex);
-      } else {
-        await killSessionApi(killTarget.session);
-      }
-    } catch {
-      // SSE will reflect
-    }
+    executeKillFromDialog(killTarget);
     setKillTarget(null);
   }
 
@@ -145,8 +225,9 @@ export function Sidebar({
         ) : (
           sessions.map((session) => {
             const isCollapsed = collapsed[session.name] ?? false;
+            const isGhostSession = "optimistic" in session && session.optimistic;
             return (
-              <div key={session.name} className="mb-2">
+              <div key={session.name} className={`mb-2${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
                 {/* Session row */}
                 <div className="flex items-center justify-between group">
                   <div className="flex items-center gap-0.5 min-w-0">
@@ -177,7 +258,7 @@ export function Sidebar({
                     <button
                       onClick={(e) => {
                         if (e.ctrlKey || e.metaKey) {
-                          killSessionApi(session.name).catch(() => {});
+                          executeKillSession(session.name);
                           return;
                         }
                         setKillTarget({
@@ -202,10 +283,10 @@ export function Sidebar({
                         currentSession === session.name &&
                         currentWindowIndex === String(win.index);
                       const duration = getWindowDuration(win, nowSeconds);
-
+                      const ghost = isGhostWindow(win);
 
                       return (
-                        <div key={win.index} className="relative group">
+                        <div key={ghost ? `ghost-${win.optimisticId}` : win.index} className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}`}>
                           <button
                             onClick={() => onSelectWindow(session.name, win.index)}
                             className={`w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-6 text-sm transition-colors min-h-[36px] border-l-2 ${
@@ -267,7 +348,7 @@ export function Sidebar({
                             onClick={(e) => {
                               e.stopPropagation();
                               if (e.ctrlKey || e.metaKey) {
-                                killWindowApi(session.name, win.index).catch(() => {});
+                                executeKillWindow(session.name, win.index);
                                 return;
                               }
                               setKillTarget({
@@ -297,13 +378,33 @@ export function Sidebar({
         <div className="flex items-center gap-1.5 relative">
           <span className="text-xs text-text-secondary">tmux server:</span>
           <button
-            onClick={() => setServerDropdownOpen((v) => { if (!v) onRefreshServers(); return !v; })}
-            className="text-xs text-text-primary font-medium hover:text-accent transition-colors min-h-[36px] flex items-center"
+            onClick={() => setServerDropdownOpen((v) => {
+              if (!v) {
+                setRefreshingServers(true);
+                Promise.resolve(onRefreshServers()).finally(() => setRefreshingServers(false));
+              }
+              return !v;
+            })}
+            className="text-xs text-text-primary font-medium hover:text-accent transition-colors min-h-[36px] flex items-center gap-1"
             aria-haspopup="listbox"
             aria-expanded={serverDropdownOpen}
           >
             {server}
-            <span className="ml-0.5 text-text-secondary text-[10px]">{serverDropdownOpen ? "\u25B4" : "\u25BE"}</span>
+            {refreshingServers ? (
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 14 14"
+                fill="none"
+                className="animate-spin text-text-secondary"
+                aria-hidden="true"
+              >
+                <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" opacity="0.25" />
+                <path d="M12.5 7a5.5 5.5 0 0 0-5.5-5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <span className="text-text-secondary text-[10px]">{serverDropdownOpen ? "\u25B4" : "\u25BE"}</span>
+            )}
           </button>
           {serverDropdownOpen && (
             <div role="menu" className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">

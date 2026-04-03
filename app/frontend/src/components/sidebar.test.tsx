@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { Sidebar } from "./sidebar";
+import { OptimisticProvider } from "@/contexts/optimistic-context";
+import { ToastProvider } from "@/components/toast";
 import type { ProjectSession } from "@/types";
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -60,20 +62,24 @@ const sessions: ProjectSession[] = [
 
 function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
   return render(
-    <Sidebar
-      sessions={sessions}
-      currentSession="run-kit"
-      currentWindowIndex="0"
-      onSelectWindow={vi.fn()}
-      onCreateWindow={vi.fn()}
-      onCreateSession={vi.fn()}
-      server="runkit"
-      servers={["runkit"]}
-      onSwitchServer={vi.fn()}
-      onCreateServer={vi.fn()}
-      onRefreshServers={vi.fn()}
-      {...overrides}
-    />,
+    <ToastProvider>
+      <OptimisticProvider>
+        <Sidebar
+          sessions={sessions}
+          currentSession="run-kit"
+          currentWindowIndex="0"
+          onSelectWindow={vi.fn()}
+          onCreateWindow={vi.fn()}
+          onCreateSession={vi.fn()}
+          server="runkit"
+          servers={["runkit"]}
+          onSwitchServer={vi.fn()}
+          onCreateServer={vi.fn()}
+          onRefreshServers={vi.fn()}
+          {...overrides}
+        />
+      </OptimisticProvider>
+    </ToastProvider>,
   );
 }
 

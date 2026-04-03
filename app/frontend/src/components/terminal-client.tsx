@@ -79,7 +79,7 @@ export function TerminalClient({
   const [dragOver, setDragOver] = useState(false);
   const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
   const [composeFiles, setComposeFiles] = useState<UploadedFile[]>([]);
-  const { uploadFiles } = useFileUpload(sessionName, windowIndex);
+  const { uploadFiles, uploading } = useFileUpload(sessionName, windowIndex);
   const { theme: activeTheme } = useTheme();
 
   const openComposeWithUploads = useCallback(
@@ -473,6 +473,11 @@ export function TerminalClient({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       />
+      {uploading && (
+        <div className="absolute bottom-1 left-2 text-xs text-text-secondary bg-bg-card/80 px-2 py-0.5 rounded z-10">
+          Uploading...
+        </div>
+      )}
       {composeOpen && (
         <ComposeBuffer
           wsRef={wsRef}

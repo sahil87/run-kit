@@ -1,9 +1,11 @@
 import { useState, useCallback, useMemo } from "react";
 import { getWindowDuration, parseFabChange } from "@/lib/format";
 import type { ProjectSession } from "@/types";
+import { isGhostWindow } from "@/contexts/optimistic-context";
+import type { MergedSession, MergedWindow } from "@/contexts/optimistic-context";
 
 type DashboardProps = {
-  sessions: ProjectSession[];
+  sessions: (ProjectSession | MergedSession)[];
   onNavigate: (session: string, windowIndex: number) => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
@@ -47,11 +49,12 @@ export function Dashboard({
             (w) => w.activity === "active",
           ).length;
           const idleCount = session.windows.length - activeCount;
+          const isGhostSession = "optimistic" in session && session.optimistic;
 
           return (
             <div
               key={session.name}
-              className="bg-bg-card border border-border rounded"
+              className={`bg-bg-card border border-border rounded${isGhostSession ? " opacity-50 animate-pulse" : ""}`}
             >
               {/* Session card header */}
               <button
@@ -88,12 +91,13 @@ export function Dashboard({
                   {session.windows.map((win) => {
                     const duration = getWindowDuration(win, nowSeconds);
                     const fabInfo = parseFabChange(win.fabChange ?? "");
+                    const ghost = isGhostWindow(win);
 
                     return (
                       <button
-                        key={win.index}
+                        key={ghost ? `ghost-${win.optimisticId}` : win.index}
                         onClick={() => onNavigate(session.name, win.index)}
-                        className="w-full text-left p-2 rounded bg-bg-primary border border-border hover:border-text-secondary transition-colors min-h-[36px]"
+                        className={`w-full text-left p-2 rounded bg-bg-primary border border-border hover:border-text-secondary transition-colors min-h-[36px]${ghost ? " opacity-50 animate-pulse" : ""}`}
                         data-testid={`window-card-${session.name}-${win.index}`}
                       >
                         <div className="flex items-center justify-between gap-2">

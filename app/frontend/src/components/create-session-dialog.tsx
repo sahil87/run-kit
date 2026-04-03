@@ -1,6 +1,8 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createSession, getDirectories } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useOptimisticContext } from "@/contexts/optimistic-context";
 import type { ProjectSession } from "@/types";
 
 type CreateSessionDialogProps = {
@@ -33,9 +35,12 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [error, setError] = useState("");
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { addGhostSession, removeGhost } = useOptimisticContext();
+  const ghostIdRef = useRef<string | null>(null);
 
   const existingNames = useMemo(
     () => new Set(sessions.map((s) => s.name)),
@@ -77,8 +82,10 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (!value) {
         setSuggestions([]);
+        setIsLoadingSuggestions(false);
         return;
       }
+      setIsLoadingSuggestions(true);
       debounceRef.current = setTimeout(async () => {
         try {
           const dirs = await getDirectories(value);
@@ -86,6 +93,8 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
           setHighlightIndex(-1);
         } catch {
           // Ignore
+        } finally {
+          setIsLoadingSuggestions(false);
         }
       }, 300);
     },
@@ -152,7 +161,26 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
     };
   }, []);
 
-  async function handleCreate() {
+  const { execute: executeCreate } = useOptimisticAction<[string, string | undefined]>({
+    action: (sessionName, cwd) => createSession(sessionName, cwd),
+    onOptimistic: (sessionName) => {
+      ghostIdRef.current = addGhostSession(sessionName);
+    },
+    onRollback: () => {
+      if (ghostIdRef.current) {
+        removeGhost(ghostIdRef.current);
+        ghostIdRef.current = null;
+      }
+    },
+    onError: (err) => {
+      setError(err.message || "Failed to create session");
+    },
+    onSettled: () => {
+      ghostIdRef.current = null;
+    },
+  });
+
+  function handleCreate() {
     let trimmedName = name.trim();
     if (!trimmedName && path.trim()) {
       trimmedName = deriveNameFromPath(path.trim());
@@ -163,12 +191,8 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
       return;
     }
     setError("");
-    try {
-      await createSession(trimmedName, path.trim() || undefined);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create session");
-    }
+    executeCreate(trimmedName, path.trim() || undefined);
+    onClose();
   }
 
   return (
@@ -176,28 +200,43 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
       {/* Path input with combobox dropdown */}
       <div className="relative mb-3">
         <p className="text-xs text-text-secondary mb-1.5">Path:</p>
-        <input
-          ref={inputRef}
-          autoFocus
-          type="text"
-          value={path}
-          onChange={(e) => handlePathChange(e.target.value)}
-          onFocus={() => setShowDropdown(true)}
-          onBlur={() => {
-            // Delay to allow click on dropdown item
-            setTimeout(() => setShowDropdown(false), 150);
-          }}
-          onKeyDown={handlePathKeyDown}
-          role="combobox"
-          aria-expanded={showDropdown && dropdownItems.length > 0}
-          aria-controls="path-suggestions"
-          aria-activedescendant={
-            highlightIndex >= 0 ? `path-option-${highlightIndex}` : undefined
-          }
-          aria-label="Project path"
-          placeholder="~/code/..."
-          className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
-        />
+        <div className="relative">
+          <input
+            ref={inputRef}
+            autoFocus
+            type="text"
+            value={path}
+            onChange={(e) => handlePathChange(e.target.value)}
+            onFocus={() => setShowDropdown(true)}
+            onBlur={() => {
+              // Delay to allow click on dropdown item
+              setTimeout(() => setShowDropdown(false), 150);
+            }}
+            onKeyDown={handlePathKeyDown}
+            role="combobox"
+            aria-expanded={showDropdown && dropdownItems.length > 0}
+            aria-controls="path-suggestions"
+            aria-activedescendant={
+              highlightIndex >= 0 ? `path-option-${highlightIndex}` : undefined
+            }
+            aria-label="Project path"
+            placeholder="~/code/..."
+            className="w-full bg-transparent text-text-primary p-2 pr-7 border border-border rounded outline-none placeholder:text-text-secondary"
+          />
+          {isLoadingSuggestions && (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              className="animate-spin absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary"
+              aria-hidden="true"
+            >
+              <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" opacity="0.25" />
+              <path d="M12.5 7a5.5 5.5 0 0 0-5.5-5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          )}
+        </div>
         {showDropdown && dropdownItems.length > 0 && (
           <div
             ref={dropdownRef}

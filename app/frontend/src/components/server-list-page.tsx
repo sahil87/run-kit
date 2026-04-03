@@ -1,19 +1,26 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { listServers, createServer } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useToast } from "@/components/toast";
 
 export function ServerListPage() {
   const [servers, setServers] = useState<string[]>([]);
+  const [ghostServers, setGhostServers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createName, setCreateName] = useState("");
   const navigate = useNavigate();
+  const { addToast } = useToast();
+  const ghostNameRef = useRef<string | null>(null);
 
   const fetchServers = useCallback(async () => {
     try {
       const data = await listServers();
       setServers(data);
+      // Reconcile: remove ghost servers that now exist in real data
+      setGhostServers((prev) => prev.filter((g) => !data.includes(g)));
     } catch {
       setServers([]);
     } finally {
@@ -25,21 +32,38 @@ export function ServerListPage() {
     fetchServers();
   }, [fetchServers]);
 
-  const handleCreate = useCallback(async () => {
+  const { execute: executeCreateServer } = useOptimisticAction<[string]>({
+    action: (name) => createServer(name),
+    onOptimistic: (name) => {
+      ghostNameRef.current = name;
+      setGhostServers((prev) => [...prev, name]);
+    },
+    onRollback: () => {
+      if (ghostNameRef.current) {
+        const ghostName = ghostNameRef.current;
+        setGhostServers((prev) => prev.filter((g) => g !== ghostName));
+        ghostNameRef.current = null;
+      }
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to create server");
+    },
+    onSettled: () => {
+      ghostNameRef.current = null;
+    },
+  });
+
+  const handleCreate = useCallback(() => {
     const trimmed = createName.trim();
     if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
-    try {
-      await createServer(trimmed);
-      navigate({
-        to: "/$server",
-        params: { server: trimmed },
-      });
-    } catch {
-      // error
-    }
+    executeCreateServer(trimmed);
+    navigate({
+      to: "/$server",
+      params: { server: trimmed },
+    });
     setShowCreateDialog(false);
     setCreateName("");
-  }, [createName, navigate]);
+  }, [createName, navigate, executeCreateServer]);
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary">
@@ -70,6 +94,18 @@ export function ServerListPage() {
                 {name}
               </div>
             </button>
+          ))}
+
+          {/* Ghost server cards */}
+          {ghostServers.map((name) => (
+            <div
+              key={`ghost-${name}`}
+              className="bg-bg-card border border-border rounded p-4 text-left min-h-[60px] opacity-50 animate-pulse"
+            >
+              <div className="text-text-primary font-medium text-sm">
+                {name}
+              </div>
+            </div>
           ))}
 
           {/* New Server button */}

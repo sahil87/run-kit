@@ -389,7 +389,7 @@ func CreateWindow(session, name, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "new-window", "-t", session, "-n", name, "-c", cwd)
+	_, err := tmuxExecServer(ctx, server, "new-window", "-a", "-t", session, "-n", name, "-c", cwd)
 	return err
 }
 

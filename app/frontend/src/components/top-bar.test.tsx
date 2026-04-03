@@ -169,18 +169,6 @@ describe("TopBar", () => {
     expect(lines[2].style.transform).toContain("rotate(40deg)");
   });
 
-  it("renders compose button in top bar", () => {
-    renderTopBar();
-    expect(screen.getByLabelText("Compose text")).toBeInTheDocument();
-  });
-
-  it("calls onOpenCompose when compose button is clicked", () => {
-    const onOpenCompose = vi.fn();
-    renderTopBar({ onOpenCompose });
-    fireEvent.click(screen.getByLabelText("Compose text"));
-    expect(onOpenCompose).toHaveBeenCalledTimes(1);
-  });
-
   it("renders 'Run Kit' branding text", () => {
     renderTopBar();
     expect(screen.getByText("Run Kit")).toBeInTheDocument();

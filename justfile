@@ -12,8 +12,12 @@ doctor:
 
 # ─── Setup & Development ──────────────────────────────────────────────
 
+# Ensure tmux.conf exists for Go embed (canonical source: configs/tmux/default.conf)
+_ensure-tmux-conf:
+    cp configs/tmux/default.conf app/backend/build/tmux.conf
+
 # Copy default config files for local development
-setup:
+setup: _ensure-tmux-conf
     cd app/frontend && pnpm install
     [ -f .env.local ] || cp .env .env.local
     cd app/frontend && pnpm exec playwright install --with-deps chromium
@@ -70,7 +74,7 @@ restart:
 test: test-backend test-frontend test-e2e
 
 # Run Go tests
-test-backend:
+test-backend: _ensure-tmux-conf
     cd app/backend && go test ./...
 
 # Run Vitest unit tests

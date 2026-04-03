@@ -5,7 +5,7 @@ import { TmuxCommandsDialog } from "./tmux-commands-dialog";
 afterEach(cleanup);
 
 describe("TmuxCommandsDialog", () => {
-  it("renders three command rows with correct labels", () => {
+  it("renders two command rows plus static detach hint", () => {
     render(
       <TmuxCommandsDialog
         server="runkit"
@@ -16,8 +16,8 @@ describe("TmuxCommandsDialog", () => {
     );
 
     expect(screen.getByText("Attach")).toBeInTheDocument();
-    expect(screen.getByText("New window")).toBeInTheDocument();
-    expect(screen.getByText("Detach")).toBeInTheDocument();
+    expect(screen.getByText("Send keys")).toBeInTheDocument();
+    expect(screen.getByText(/Detach/)).toBeInTheDocument();
   });
 
   it("includes -L flag for named servers", () => {
@@ -31,8 +31,7 @@ describe("TmuxCommandsDialog", () => {
     );
 
     expect(screen.getByText("tmux -L runkit attach-session -t devshell:editor")).toBeInTheDocument();
-    expect(screen.getByText("tmux -L runkit new-window -t devshell")).toBeInTheDocument();
-    expect(screen.getByText("tmux -L runkit detach-client -t devshell")).toBeInTheDocument();
+    expect(screen.getByText(/tmux -L runkit send-keys -t devshell:editor/)).toBeInTheDocument();
   });
 
   it("omits -L flag for default server", () => {
@@ -46,8 +45,7 @@ describe("TmuxCommandsDialog", () => {
     );
 
     expect(screen.getByText("tmux attach-session -t devshell:editor")).toBeInTheDocument();
-    expect(screen.getByText("tmux new-window -t devshell")).toBeInTheDocument();
-    expect(screen.getByText("tmux detach-client -t devshell")).toBeInTheDocument();
+    expect(screen.getByText(/tmux send-keys -t devshell:editor/)).toBeInTheDocument();
   });
 
   it("copy button calls navigator.clipboard.writeText with correct command", () => {
@@ -73,7 +71,7 @@ describe("TmuxCommandsDialog", () => {
     expect(writeText).toHaveBeenCalledWith("tmux -L runkit attach-session -t devshell:editor");
   });
 
-  it("each row has a copy button", () => {
+  it("each command row has a copy button", () => {
     render(
       <TmuxCommandsDialog
         server="default"
@@ -84,6 +82,6 @@ describe("TmuxCommandsDialog", () => {
     );
 
     const copyButtons = screen.getAllByRole("button", { name: /copy .+ command/i });
-    expect(copyButtons).toHaveLength(3);
+    expect(copyButtons).toHaveLength(2);
   });
 });

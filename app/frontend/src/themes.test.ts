@@ -13,15 +13,15 @@ import type { Theme, ThemePalette, UIColors } from "./themes";
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 describe("themes", () => {
-  it("exports exactly 20 themes", () => {
-    expect(THEMES).toHaveLength(20);
+  it("exports exactly 70 themes", () => {
+    expect(THEMES).toHaveLength(70);
   });
 
-  it("has 14 dark themes and 6 light themes", () => {
+  it("has 56 dark themes and 14 light themes", () => {
     const dark = THEMES.filter((t) => t.category === "dark");
     const light = THEMES.filter((t) => t.category === "light");
-    expect(dark).toHaveLength(14);
-    expect(light).toHaveLength(6);
+    expect(dark).toHaveLength(56);
+    expect(light).toHaveLength(14);
   });
 
   it("every theme has unique id", () => {

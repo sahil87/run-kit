@@ -92,10 +92,12 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
         }
         prevSseDataRef.current = e.data;
         const data = JSON.parse(e.data) as ProjectSession[];
+        // Batch sessions + connected in the same transition so consumers
+        // never see isConnected=true with stale/empty sessions.
         startTransition(() => {
           setSessions(data);
+          markConnected();
         });
-        markConnected();
       } catch {
         // Malformed event — skip
       }
@@ -108,7 +110,9 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
     };
 
     es.onopen = () => {
-      markConnected();
+      // Don't markConnected() here — wait for the first "sessions" event
+      // so consumers see isConnected=true only when session data is available.
+      // This prevents redirect races in AppShell.
     };
 
     return () => {

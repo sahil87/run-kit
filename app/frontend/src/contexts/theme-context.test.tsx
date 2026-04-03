@@ -157,7 +157,7 @@ describe("ThemeProvider", () => {
     expect(screen.getByTestId("preference").textContent).toBe("system");
   });
 
-  it("setTheme persists per-mode pref and stays in system mode", () => {
+  it("setTheme persists theme ID as preference", () => {
     render(
       <ThemeProvider>
         <TestConsumer />
@@ -166,10 +166,10 @@ describe("ThemeProvider", () => {
     act(() => {
       screen.getByText("Set Light").click();
     });
-    // Preference stays system, themeLight is updated
-    expect(localStorage.getItem("runkit-theme")).toBe("system");
+    // Preference is the theme ID, per-mode slot is also updated
+    expect(localStorage.getItem("runkit-theme")).toBe("default-light");
     expect(localStorage.getItem("runkit-theme-light")).toBe("default-light");
-    expect(screen.getByTestId("preference").textContent).toBe("system");
+    expect(screen.getByTestId("preference").textContent).toBe("default-light");
     expect(screen.getByTestId("theme-light").textContent).toBe("default-light");
     expect(screen.getByTestId("resolved").textContent).toBe("light");
     expect(screen.getByTestId("theme-id").textContent).toBe("default-light");
@@ -338,8 +338,8 @@ describe("ThemeProvider", () => {
       });
 
       expect(screen.getByTestId("theme-id").textContent).toBe("dracula");
-      // Preference stays system, per-mode dark is updated
-      expect(localStorage.getItem("runkit-theme")).toBe("system");
+      // Preference is the theme ID, per-mode dark is also updated
+      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
       expect(localStorage.getItem("runkit-theme-dark")).toBe("dracula");
     });
   });
@@ -437,7 +437,7 @@ describe("ThemeProvider", () => {
   });
 
   describe("API persistence", () => {
-    it("setTheme calls setThemePreference fire-and-forget with per-mode pref", async () => {
+    it("setTheme calls setThemePreference fire-and-forget with theme ID", async () => {
       const { setThemePreference } = await import("@/api/client");
       vi.mocked(setThemePreference).mockClear();
 
@@ -452,7 +452,7 @@ describe("ThemeProvider", () => {
       });
 
       expect(setThemePreference).toHaveBeenCalledWith({
-        theme: "system",
+        theme: "dracula",
         themeDark: "dracula",
       });
     });

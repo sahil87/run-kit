@@ -63,8 +63,11 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
   const prevSseDataRef = useRef("");
 
   useEffect(() => {
-    // Reset diff cache so the first event from a new server always applies
+    // Reset state so stale data from the previous server never leaks through
     prevSseDataRef.current = "";
+    setSessions([]);
+    setIsConnected(false);
+    setChromeConnected(false);
 
     const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
 
@@ -92,10 +95,12 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
         }
         prevSseDataRef.current = e.data;
         const data = JSON.parse(e.data) as ProjectSession[];
+        // Batch sessions + connected in the same transition so consumers
+        // never see isConnected=true with stale/empty sessions.
         startTransition(() => {
           setSessions(data);
+          markConnected();
         });
-        markConnected();
       } catch {
         // Malformed event — skip
       }
@@ -108,7 +113,9 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
     };
 
     es.onopen = () => {
-      markConnected();
+      // Don't markConnected() here — wait for the first "sessions" event
+      // so consumers see isConnected=true only when session data is available.
+      // This prevents redirect races in AppShell.
     };
 
     return () => {

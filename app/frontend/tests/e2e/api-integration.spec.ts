@@ -38,7 +38,7 @@ test.describe("API Integration", () => {
   test("create session via sidebar, verify it appears, then kill it", async ({
     page,
   }) => {
-    await page.goto(`/?server=${TMUX_SERVER}`);
+    await page.goto(`/${TMUX_SERVER}`);
 
     // Wait for SSE to connect and dashboard to populate
     await expect(

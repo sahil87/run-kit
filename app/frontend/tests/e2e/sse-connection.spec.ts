@@ -29,7 +29,7 @@ test.describe("SSE Connection", () => {
   test("SSE delivers session data and connection status shows connected", async ({
     page,
   }) => {
-    await page.goto(`/?server=${TMUX_SERVER}`);
+    await page.goto(`/${TMUX_SERVER}`);
 
     // Wait for the connection status dot to show "Connected"
     const status = page.locator("[aria-label='Connected']");

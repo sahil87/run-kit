@@ -169,14 +169,29 @@ func (s *Server) handleWindowSplit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Horizontal bool `json:"horizontal"`
+		Horizontal bool   `json:"horizontal"`
+		CWD        string `json:"cwd"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
-	paneID, err := s.tmux.SplitWindow(session, index, body.Horizontal, serverFromRequest(r))
+	var resolvedCwd string
+	if body.CWD != "" {
+		if errMsg := validate.ValidatePath(body.CWD, "Working directory"); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
+		expanded, expandErr := validate.ExpandTilde(body.CWD)
+		if expandErr != "" {
+			writeError(w, http.StatusBadRequest, expandErr)
+			return
+		}
+		resolvedCwd = expanded
+	}
+
+	paneID, err := s.tmux.SplitWindow(session, index, body.Horizontal, resolvedCwd, serverFromRequest(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

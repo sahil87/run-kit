@@ -409,14 +409,14 @@ function AppShell() {
               id: "split-vertical",
               label: "Window: Split Vertical",
               onSelect: () => {
-                if (sessionName) splitWindow(sessionName, currentWindow.index, true).catch(() => {});
+                if (sessionName) splitWindow(sessionName, currentWindow.index, true, currentWindow.worktreePath).catch(() => {});
               },
             },
             {
               id: "split-horizontal",
               label: "Window: Split Horizontal",
               onSelect: () => {
-                if (sessionName) splitWindow(sessionName, currentWindow.index, false).catch(() => {});
+                if (sessionName) splitWindow(sessionName, currentWindow.index, false, currentWindow.worktreePath).catch(() => {});
               },
             },
             {

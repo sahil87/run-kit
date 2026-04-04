@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
 import { ChromeProvider, useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
+import { computeKillRedirect } from "@/lib/navigation";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
@@ -226,8 +227,21 @@ function AppShell() {
 
   // Redirect when the current session/window no longer exists (e.g. window/session killed)
   useEffect(() => {
-    if (!sessionName || !isConnected) return;
-    if (!currentSession || (currentSession && windowIndex && !currentWindow)) {
+    const target = computeKillRedirect({
+      sessionName,
+      windowIndex,
+      currentSessionWindows: currentSession?.windows ?? null,
+      currentWindowExists: !!currentWindow,
+      isConnected,
+    });
+    if (!target) return;
+    if (target.to === "window") {
+      navigate({
+        to: "/$server/$session/$window",
+        params: { server, session: target.session, window: String(target.windowIndex) },
+        replace: true,
+      });
+    } else {
       navigate({ to: "/$server", params: { server }, replace: true });
     }
   }, [sessionName, windowIndex, sessions, currentSession, currentWindow, isConnected, navigate, server]);

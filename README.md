@@ -1,4 +1,4 @@
-# run-kit
+# <img src="assets/logo.svg" alt="run-kit logo" width="32" height="32"> run-kit
 
 Web-based agent orchestration dashboard. Monitor and interact with tmux sessions from the browser — session overview, live terminal windows, and fab-kit integration for change tracking.
 

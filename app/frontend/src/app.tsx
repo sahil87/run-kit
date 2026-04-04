@@ -17,7 +17,7 @@ import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
-import { selectWindow, createWindow, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createWindow, splitWindow, closePane, moveWindow, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -451,6 +451,15 @@ function AppShell() {
     [sessionName, dialogs],
   );
 
+  // Compute min/max window indices for current session (for move boundary checks)
+  const { minWindowIndex, maxWindowIndex } = useMemo(() => {
+    if (!currentSession || currentSession.windows.length === 0) {
+      return { minWindowIndex: 0, maxWindowIndex: 0 };
+    }
+    const indices = currentSession.windows.map((w) => w.index);
+    return { minWindowIndex: Math.min(...indices), maxWindowIndex: Math.max(...indices) };
+  }, [currentSession]);
+
   const windowActions: PaletteAction[] = useMemo(
     () => [
       ...(sessionName
@@ -466,6 +475,48 @@ function AppShell() {
         : []),
       ...(currentWindow
         ? [
+            ...(currentWindow.index > minWindowIndex
+              ? [
+                  {
+                    id: "move-window-left",
+                    label: "Window: Move Left",
+                    onSelect: () => {
+                      if (sessionName) {
+                        const targetIndex = currentWindow.index - 1;
+                        moveWindow(sessionName, currentWindow.index, targetIndex)
+                          .then(() => {
+                            navigate({
+                              to: "/$server/$session/$window",
+                              params: { server, session: sessionName, window: String(targetIndex) },
+                            });
+                          })
+                          .catch(() => {});
+                      }
+                    },
+                  },
+                ]
+              : []),
+            ...(currentWindow.index < maxWindowIndex
+              ? [
+                  {
+                    id: "move-window-right",
+                    label: "Window: Move Right",
+                    onSelect: () => {
+                      if (sessionName) {
+                        const targetIndex = currentWindow.index + 1;
+                        moveWindow(sessionName, currentWindow.index, targetIndex)
+                          .then(() => {
+                            navigate({
+                              to: "/$server/$session/$window",
+                              params: { server, session: sessionName, window: String(targetIndex) },
+                            });
+                          })
+                          .catch(() => {});
+                      }
+                    },
+                  },
+                ]
+              : []),
             {
               id: "rename-window",
               label: "Window: Rename",
@@ -509,7 +560,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, handleCreateWindow, dialogs, executeSplit, executeClosePane],
+    [sessionName, currentWindow, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server],
   );
 
   const viewActions: PaletteAction[] = useMemo(

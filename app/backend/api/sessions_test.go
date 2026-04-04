@@ -42,6 +42,11 @@ type mockTmuxOps struct {
 	killWindowCalled    bool
 	killWindowSession   string
 	killWindowIndex     int
+	swapWindowCalled    bool
+	swapWindowSession   string
+	swapWindowSrcIndex  int
+	swapWindowDstIndex  int
+	swapWindowErr       error
 	renameWindowCalled  bool
 	renameWindowSession string
 	renameWindowIndex   int
@@ -96,6 +101,16 @@ func (m *mockTmuxOps) KillWindow(session string, index int, server string) error
 	m.killWindowCalled = true
 	m.killWindowSession = session
 	m.killWindowIndex = index
+	return m.err
+}
+func (m *mockTmuxOps) SwapWindow(session string, srcIndex int, dstIndex int, server string) error {
+	m.swapWindowCalled = true
+	m.swapWindowSession = session
+	m.swapWindowSrcIndex = srcIndex
+	m.swapWindowDstIndex = dstIndex
+	if m.swapWindowErr != nil {
+		return m.swapWindowErr
+	}
 	return m.err
 }
 func (m *mockTmuxOps) RenameWindow(session string, index int, name, server string) error {

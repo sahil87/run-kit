@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -274,6 +275,150 @@ func TestWindowSplitInvalidSession(t *testing.T) {
 
 	body := `{"horizontal":false}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;name/windows/0/split", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWindowMoveSuccess(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"targetIndex":2}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !ops.swapWindowCalled {
+		t.Error("SwapWindow was not called")
+	}
+	if ops.swapWindowSession != "run-kit" {
+		t.Errorf("session = %q, want %q", ops.swapWindowSession, "run-kit")
+	}
+	if ops.swapWindowSrcIndex != 0 {
+		t.Errorf("srcIndex = %d, want %d", ops.swapWindowSrcIndex, 0)
+	}
+	if ops.swapWindowDstIndex != 2 {
+		t.Errorf("dstIndex = %d, want %d", ops.swapWindowDstIndex, 2)
+	}
+
+	var result map[string]bool
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !result["ok"] {
+		t.Error("expected ok: true")
+	}
+}
+
+func TestWindowMoveInvalidBody(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["error"] != "Invalid JSON body" {
+		t.Errorf("error = %q, want %q", result["error"], "Invalid JSON body")
+	}
+}
+
+func TestWindowMoveNegativeTargetIndex(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"targetIndex":-1}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["error"] != "targetIndex must be a non-negative integer" {
+		t.Errorf("error = %q, want %q", result["error"], "targetIndex must be a non-negative integer")
+	}
+}
+
+func TestWindowMoveInvalidIndex(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"targetIndex":2}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/abc/move", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["error"] != "Invalid window index" {
+		t.Errorf("error = %q, want %q", result["error"], "Invalid window index")
+	}
+}
+
+func TestWindowMoveInvalidSession(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"targetIndex":2}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;session/windows/0/move", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWindowMoveTmuxError(t *testing.T) {
+	ops := &mockTmuxOps{swapWindowErr: fmt.Errorf("can't find window 5")}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"targetIndex":5}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestWindowMoveMissingTargetIndex(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

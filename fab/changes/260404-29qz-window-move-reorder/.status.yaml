@@ -1,0 +1,44 @@
+id: 29qz
+name: 260404-29qz-window-move-reorder
+created: 2026-04-04T04:26:39Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 30
+confidence:
+    certain: 11
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 93.2
+        reversibility: 82.3
+        competence: 84.1
+        disambiguation: 78.2
+stage_metrics:
+    intake: {started_at: "2026-04-04T04:26:39Z", driver: fab-new, iterations: 1, completed_at: "2026-04-04T04:34:02Z"}
+    spec: {started_at: "2026-04-04T04:34:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T04:42:45Z"}
+    tasks: {started_at: "2026-04-04T04:42:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T04:43:57Z"}
+    apply: {started_at: "2026-04-04T04:43:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T04:53:01Z"}
+    review: {started_at: "2026-04-04T04:53:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T04:56:02Z"}
+    hydrate: {started_at: "2026-04-04T04:56:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T04:59:25Z"}
+    ship: {started_at: "2026-04-04T04:59:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T05:01:04Z"}
+    review-pr: {started_at: "2026-04-04T05:01:04Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/114
+last_updated: 2026-04-04T05:01:04Z

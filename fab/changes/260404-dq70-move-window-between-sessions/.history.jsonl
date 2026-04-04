@@ -1,0 +1,22 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-04T05:05:16Z"}
+{"args":"Add CmdK options to move a window to another session. Also allow this by dragging the window out of the current session into another session","cmd":"fab-new","event":"command","ts":"2026-04-04T05:05:16Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-04T05:06:34Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-04T05:06:48Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-04-04T05:09:40Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-04T05:10:52Z"}
+{"delta":"+0.3","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-04T05:12:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-04T05:12:42Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-04T05:14:40Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-04T05:14:57Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-04T05:15:05Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-04T05:15:09Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-04T05:15:14Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-04T05:15:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-04T05:16:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-04T05:16:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-04T05:27:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-04T05:30:04Z"}
+{"event":"review","result":"passed","ts":"2026-04-04T05:30:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-04T05:32:26Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-04-04T05:34:11Z"}
+{"event":"review","result":"passed","ts":"2026-04-04T05:35:05Z"}

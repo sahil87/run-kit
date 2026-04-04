@@ -18,7 +18,7 @@ import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
-import { selectWindow, createWindow, splitWindow, closePane, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -343,6 +343,19 @@ function AppShell() {
     [executeCreateWindow],
   );
 
+  const handleMoveWindowToSession = useCallback(
+    (srcSession: string, srcIndex: number, dstSession: string) => {
+      moveWindowToSession(srcSession, srcIndex, dstSession)
+        .then(() => {
+          navigate({ to: "/$server", params: { server } });
+        })
+        .catch((err) => {
+          addToast(err.message || "Failed to move window to session");
+        });
+    },
+    [addToast, navigate, server],
+  );
+
   // Theme
   const { preference: themePreference, resolved: themeResolved, themeDark, themeLight } = useTheme();
   const { setTheme } = useThemeActions();
@@ -465,6 +478,15 @@ function AppShell() {
     [sessionName, dialogs],
   );
 
+  // Compute min/max window indices for current session (for move boundary checks)
+  const { minWindowIndex, maxWindowIndex } = useMemo(() => {
+    if (!currentSession || currentSession.windows.length === 0) {
+      return { minWindowIndex: 0, maxWindowIndex: 0 };
+    }
+    const indices = currentSession.windows.map((w) => w.index);
+    return { minWindowIndex: Math.min(...indices), maxWindowIndex: Math.max(...indices) };
+  }, [currentSession]);
+
   const windowActions: PaletteAction[] = useMemo(
     () => [
       ...(sessionName
@@ -480,6 +502,71 @@ function AppShell() {
         : []),
       ...(currentWindow
         ? [
+            ...(currentWindow.index > minWindowIndex
+              ? [
+                  {
+                    id: "move-window-left",
+                    label: "Window: Move Left",
+                    onSelect: () => {
+                      if (sessionName) {
+                        const targetIndex = currentWindow.index - 1;
+                        moveWindow(sessionName, currentWindow.index, targetIndex)
+                          .then(() => {
+                            navigate({
+                              to: "/$server/$session/$window",
+                              params: { server, session: sessionName, window: String(targetIndex) },
+                            });
+                          })
+                          .catch((err) => {
+                            addToast(err.message || "Failed to move window");
+                          });
+                      }
+                    },
+                  },
+                ]
+              : []),
+            ...(currentWindow.index < maxWindowIndex
+              ? [
+                  {
+                    id: "move-window-right",
+                    label: "Window: Move Right",
+                    onSelect: () => {
+                      if (sessionName) {
+                        const targetIndex = currentWindow.index + 1;
+                        moveWindow(sessionName, currentWindow.index, targetIndex)
+                          .then(() => {
+                            navigate({
+                              to: "/$server/$session/$window",
+                              params: { server, session: sessionName, window: String(targetIndex) },
+                            });
+                          })
+                          .catch((err) => {
+                            addToast(err.message || "Failed to move window");
+                          });
+                      }
+                    },
+                  },
+                ]
+              : []),
+            ...(sessions.length >= 2
+              ? sessions
+                  .filter((s) => s.name !== sessionName)
+                  .map((s) => ({
+                    id: `move-window-to-session-${s.name}`,
+                    label: `Window: Move to ${s.name}`,
+                    onSelect: () => {
+                      if (sessionName) {
+                        moveWindowToSession(sessionName, currentWindow.index, s.name)
+                          .then(() => {
+                            navigate({ to: "/$server", params: { server } });
+                          })
+                          .catch((err) => {
+                            addToast(err.message || "Failed to move window to session");
+                          });
+                      }
+                    },
+                  }))
+              : []),
             {
               id: "rename-window",
               label: "Window: Rename",
@@ -523,7 +610,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, handleCreateWindow, dialogs, executeSplit, executeClosePane],
+    [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server],
   );
 
   const viewActions: PaletteAction[] = useMemo(
@@ -666,6 +753,7 @@ function AppShell() {
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onRefreshServers={refreshServers}
+                onMoveWindowToSession={handleMoveWindowToSession}
               />
             </div>
             {/* Drag handle */}
@@ -742,6 +830,7 @@ function AppShell() {
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onRefreshServers={refreshServers}
+                onMoveWindowToSession={handleMoveWindowToSession}
               />
             </div>
           </div>

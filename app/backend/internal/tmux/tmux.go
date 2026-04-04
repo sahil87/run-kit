@@ -402,6 +402,28 @@ func KillSession(session string, server string) error {
 	return err
 }
 
+// SwapWindow swaps two windows within the same session on the specified server.
+func SwapWindow(session string, srcIndex int, dstIndex int, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	src := fmt.Sprintf("%s:%d", session, srcIndex)
+	dst := fmt.Sprintf("%s:%d", session, dstIndex)
+	_, err := tmuxExecServer(ctx, server, "swap-window", "-s", src, "-t", dst)
+	return err
+}
+
+// MoveWindowToSession moves a window from one session to another on the specified server.
+func MoveWindowToSession(srcSession string, srcIndex int, dstSession string, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	src := fmt.Sprintf("%s:%d", srcSession, srcIndex)
+	dst := fmt.Sprintf("%s:", dstSession)
+	_, err := tmuxExecServer(ctx, server, "move-window", "-s", src, "-t", dst)
+	return err
+}
+
 // KillWindow kills a window by session and index on the specified server.
 func KillWindow(session string, index int, server string) error {
 	ctx, cancel := withTimeout()

@@ -29,6 +29,8 @@ type TmuxOps interface {
 	RenameSession(session, name, server string) error
 	CreateWindow(session, name, cwd, server string) error
 	KillWindow(session string, index int, server string) error
+	SwapWindow(session string, srcIndex int, dstIndex int, server string) error
+	MoveWindowToSession(srcSession string, srcIndex int, dstSession string, server string) error
 	RenameWindow(session string, index int, name, server string) error
 	SendKeys(session string, window int, keys, server string) error
 	SelectWindow(session string, index int, server string) error
@@ -95,6 +97,12 @@ func (p *prodTmuxOps) CreateWindow(session, name, cwd, server string) error {
 }
 func (p *prodTmuxOps) KillWindow(session string, index int, server string) error {
 	return tmux.KillWindow(session, index, server)
+}
+func (p *prodTmuxOps) SwapWindow(session string, srcIndex int, dstIndex int, server string) error {
+	return tmux.SwapWindow(session, srcIndex, dstIndex, server)
+}
+func (p *prodTmuxOps) MoveWindowToSession(srcSession string, srcIndex int, dstSession string, server string) error {
+	return tmux.MoveWindowToSession(srcSession, srcIndex, dstSession, server)
 }
 func (p *prodTmuxOps) RenameWindow(session string, index int, name, server string) error {
 	return tmux.RenameWindow(session, index, name, server)
@@ -173,6 +181,8 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/rename", s.handleSessionRename)
 	r.Post("/api/sessions/{session}/windows", s.handleWindowCreate)
 	r.Post("/api/sessions/{session}/windows/{index}/kill", s.handleWindowKill)
+	r.Post("/api/sessions/{session}/windows/{index}/move", s.handleWindowMove)
+	r.Post("/api/sessions/{session}/windows/{index}/move-to-session", s.handleWindowMoveToSession)
 	r.Post("/api/sessions/{session}/windows/{index}/rename", s.handleWindowRename)
 	r.Post("/api/sessions/{session}/windows/{index}/keys", s.handleWindowKeys)
 	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)

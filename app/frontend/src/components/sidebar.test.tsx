@@ -10,6 +10,8 @@ vi.mock("@/api/client", async (importOriginal) => {
   return {
     ...actual,
     renameWindow: vi.fn().mockResolvedValue({ ok: true }),
+    moveWindow: vi.fn().mockResolvedValue({ ok: true }),
+    moveWindowToSession: vi.fn().mockResolvedValue({ ok: true }),
   };
 });
 
@@ -76,6 +78,7 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
           onSwitchServer={vi.fn()}
           onCreateServer={vi.fn()}
           onRefreshServers={vi.fn()}
+          onMoveWindowToSession={vi.fn()}
           {...overrides}
         />
       </OptimisticProvider>
@@ -291,6 +294,244 @@ describe("Sidebar", () => {
   it("does not show external marker (removed in single-server model)", () => {
     renderSidebar();
     expect(screen.queryByLabelText("external session")).not.toBeInTheDocument();
+  });
+
+  describe("drag-and-drop window reorder", () => {
+    it("window items have draggable attribute", () => {
+      renderSidebar();
+      // The "main" window button's parent div should be draggable
+      const mainBtn = screen.getByText("main").closest("button");
+      const draggableDiv = mainBtn?.closest("[draggable]");
+      expect(draggableDiv).toBeTruthy();
+      expect(draggableDiv?.getAttribute("draggable")).toBe("true");
+    });
+
+    it("onDragStart sets JSON data with session and index", () => {
+      renderSidebar();
+      const mainBtn = screen.getByText("main").closest("button");
+      const draggableDiv = mainBtn?.closest("[draggable]") as HTMLElement;
+
+      let transferredData = "";
+      const dataTransfer = {
+        setData: vi.fn((type: string, data: string) => {
+          transferredData = data;
+        }),
+        effectAllowed: "",
+      };
+
+      fireEvent.dragStart(draggableDiv, { dataTransfer });
+
+      expect(dataTransfer.setData).toHaveBeenCalledWith(
+        "application/json",
+        JSON.stringify({ session: "run-kit", index: 0 }),
+      );
+      const parsed = JSON.parse(transferredData);
+      expect(parsed.session).toBe("run-kit");
+      expect(parsed.index).toBe(0);
+    });
+
+    it("drop on same position does not call moveWindow", async () => {
+      const { moveWindow: moveWindowMock } = await import("@/api/client");
+      vi.mocked(moveWindowMock).mockClear();
+
+      renderSidebar();
+      const mainBtn = screen.getByText("main").closest("button");
+      const draggableDiv = mainBtn?.closest("[draggable]") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      // Drag and drop on same element (index 0 -> index 0)
+      fireEvent.dragStart(draggableDiv, { dataTransfer });
+      fireEvent.dragOver(draggableDiv, { dataTransfer });
+      fireEvent.drop(draggableDiv, { dataTransfer });
+
+      expect(moveWindowMock).not.toHaveBeenCalled();
+    });
+
+    it("drop on different window in same session calls moveWindow", async () => {
+      const { moveWindow: moveWindowMock } = await import("@/api/client");
+      vi.mocked(moveWindowMock).mockClear();
+
+      const onSelectWindow = vi.fn();
+      renderSidebar({ onSelectWindow });
+
+      const mainBtn = screen.getByText("main").closest("button");
+      const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
+      const scratchBtn = screen.getByText("scratch").closest("button");
+      const scratchDraggable = scratchBtn?.closest("[draggable]") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      // Drag from main (index 0) to scratch (index 1)
+      fireEvent.dragStart(mainDraggable, { dataTransfer });
+      fireEvent.dragOver(scratchDraggable, { dataTransfer });
+      await act(async () => {
+        fireEvent.drop(scratchDraggable, { dataTransfer });
+      });
+
+      expect(moveWindowMock).toHaveBeenCalledWith("run-kit", 0, 1);
+    });
+
+    it("drop on window in different session does not call moveWindow", async () => {
+      const { moveWindow: moveWindowMock } = await import("@/api/client");
+      vi.mocked(moveWindowMock).mockClear();
+
+      renderSidebar();
+
+      const mainBtn = screen.getByText("main").closest("button");
+      const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
+      const devBtn = screen.getByText("dev").closest("button");
+      const devDraggable = devBtn?.closest("[draggable]") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      // Drag from run-kit (main) to ao-server (dev) — cross-session
+      fireEvent.dragStart(mainDraggable, { dataTransfer });
+      // dragOver on dev should not be allowed (different session)
+      fireEvent.dragOver(devDraggable, { dataTransfer });
+      fireEvent.drop(devDraggable, { dataTransfer });
+
+      expect(moveWindowMock).not.toHaveBeenCalled();
+    });
+
+    it("dragEnd clears drag state", () => {
+      renderSidebar();
+      const mainBtn = screen.getByText("main").closest("button");
+      const draggableDiv = mainBtn?.closest("[draggable]") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        effectAllowed: "",
+      };
+
+      fireEvent.dragStart(draggableDiv, { dataTransfer });
+      fireEvent.dragEnd(draggableDiv);
+
+      // After dragEnd, no drop indicators should be visible
+      // Check that no elements have the accent border style
+      const allDraggables = document.querySelectorAll("[draggable]");
+      allDraggables.forEach((el) => {
+        expect((el as HTMLElement).style.borderTop).not.toContain("2px solid");
+      });
+    });
+  });
+
+  describe("cross-session drag-and-drop", () => {
+    it("drop on different session header calls onMoveWindowToSession", () => {
+      const onMoveWindowToSession = vi.fn();
+      renderSidebar({ onMoveWindowToSession });
+
+      // Find session headers
+      const bravoHeader = screen.getByLabelText("Navigate to ao-server").closest(".flex.items-center.justify-between.group") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      // Start dragging from run-kit window
+      const mainBtn = screen.getByText("main").closest("button");
+      const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
+      fireEvent.dragStart(mainDraggable, { dataTransfer });
+
+      // Drop on ao-server session header
+      fireEvent.dragOver(bravoHeader, { dataTransfer });
+      fireEvent.drop(bravoHeader, { dataTransfer });
+
+      expect(onMoveWindowToSession).toHaveBeenCalledWith("run-kit", 0, "ao-server");
+    });
+
+    it("drop on same session header does not call onMoveWindowToSession", () => {
+      const onMoveWindowToSession = vi.fn();
+      renderSidebar({ onMoveWindowToSession });
+
+      const alphaHeader = screen.getByLabelText("Navigate to run-kit").closest(".flex.items-center.justify-between.group") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      const mainBtn = screen.getByText("main").closest("button");
+      const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
+      fireEvent.dragStart(mainDraggable, { dataTransfer });
+
+      fireEvent.dragOver(alphaHeader, { dataTransfer });
+      fireEvent.drop(alphaHeader, { dataTransfer });
+
+      expect(onMoveWindowToSession).not.toHaveBeenCalled();
+    });
+
+    it("visual feedback shows accent border on valid cross-session hover", () => {
+      renderSidebar();
+
+      const bravoHeader = screen.getByLabelText("Navigate to ao-server").closest(".flex.items-center.justify-between.group") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      // Start dragging from run-kit window
+      const mainBtn = screen.getByText("main").closest("button");
+      const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
+      fireEvent.dragStart(mainDraggable, { dataTransfer });
+
+      // Hover over ao-server session header
+      fireEvent.dragOver(bravoHeader, { dataTransfer });
+
+      // Check for accent border style
+      expect(bravoHeader.style.border).toContain("2px solid");
+    });
+
+    it("within-session window drag still works after cross-session support", async () => {
+      const { moveWindow: moveWindowMock } = await import("@/api/client");
+      vi.mocked(moveWindowMock).mockClear();
+
+      const onSelectWindow = vi.fn();
+      renderSidebar({ onSelectWindow });
+
+      const mainBtn = screen.getByText("main").closest("button");
+      const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
+      const scratchBtn = screen.getByText("scratch").closest("button");
+      const scratchDraggable = scratchBtn?.closest("[draggable]") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      fireEvent.dragStart(mainDraggable, { dataTransfer });
+      fireEvent.dragOver(scratchDraggable, { dataTransfer });
+      await act(async () => {
+        fireEvent.drop(scratchDraggable, { dataTransfer });
+      });
+
+      expect(moveWindowMock).toHaveBeenCalledWith("run-kit", 0, 1);
+    });
   });
 
   describe("ghost entries", () => {

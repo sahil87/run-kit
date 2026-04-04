@@ -221,6 +221,88 @@ func (s *Server) handleClosePaneKill(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) handleWindowMove(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	index, ok := parseWindowIndex(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid window index")
+		return
+	}
+
+	var body struct {
+		TargetIndex *int `json:"targetIndex"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if body.TargetIndex == nil {
+		writeError(w, http.StatusBadRequest, "targetIndex is required")
+		return
+	}
+	if *body.TargetIndex < 0 {
+		writeError(w, http.StatusBadRequest, "targetIndex must be a non-negative integer")
+		return
+	}
+
+	if err := s.tmux.SwapWindow(session, index, *body.TargetIndex, serverFromRequest(r)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleWindowMoveToSession(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	index, ok := parseWindowIndex(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid window index")
+		return
+	}
+
+	var body struct {
+		TargetSession string `json:"targetSession"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if body.TargetSession == "" {
+		writeError(w, http.StatusBadRequest, "targetSession is required")
+		return
+	}
+
+	if errMsg := validate.ValidateName(body.TargetSession, "Target session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	if body.TargetSession == session {
+		writeError(w, http.StatusBadRequest, "targetSession must differ from source session")
+		return
+	}
+
+	if err := s.tmux.MoveWindowToSession(session, index, body.TargetSession, serverFromRequest(r)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {

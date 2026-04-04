@@ -130,6 +130,14 @@ describe("BreadcrumbDropdown", () => {
     expect(button).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("menu container className includes overflow-y-auto and max-h-60", () => {
+    render(<BreadcrumbDropdown items={items} icon={"\u276F"} />);
+    clickChevron();
+    const menu = screen.getByRole("menu");
+    expect(menu.className).toContain("overflow-y-auto");
+    expect(menu.className).toContain("max-h-60");
+  });
+
   it("closes dropdown when item is clicked", () => {
     render(<BreadcrumbDropdown items={items} icon={"\u276F"} />);
     clickChevron();

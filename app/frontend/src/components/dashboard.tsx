@@ -31,7 +31,7 @@ export function Dashboard({
   const nowSeconds = Math.floor(Date.now() / 1000);
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 min-h-0 flex flex-col">
       {/* Stats line — pinned at top */}
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-6">
         <div className="text-sm text-text-secondary mb-4">

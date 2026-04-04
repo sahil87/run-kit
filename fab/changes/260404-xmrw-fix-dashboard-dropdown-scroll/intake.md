@@ -59,7 +59,9 @@ This completes the flex overflow chain:
 - `app/frontend/src/components/dashboard.tsx` — one-character addition (`min-h-0`) to root div
 - `app/frontend/src/components/breadcrumb-dropdown.tsx` — two Tailwind classes added to menu container
 
-No API, backend, or test changes needed. Changes are purely additive CSS class tweaks.
+Frontend tests were added/updated to cover the dashboard and dropdown scrollability fixes.
+
+No API or backend changes needed. Implementation changes are purely additive CSS class tweaks.
 
 ## Open Questions
 

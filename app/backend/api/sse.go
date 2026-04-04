@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	ssePollInterval = 2500 * time.Millisecond
-	sseCacheTTL     = 500 * time.Millisecond
-	maxLifetime     = 30 * time.Minute
+	ssePollInterval    = 2500 * time.Millisecond
+	sseCacheTTL        = 500 * time.Millisecond
+	sseHeartbeatTicks  = 6 // send heartbeat every 6 ticks (~15s)
+	maxLifetime        = 30 * time.Minute
 )
 
 // cachedResult holds a cached FetchSessions result with a timestamp.
@@ -89,6 +90,8 @@ func (h *sseHub) removeClient(c *sseClient) {
 }
 
 func (h *sseHub) poll() {
+	ticksSinceHeartbeat := 0
+
 	for {
 		// Read-only check: count clients and collect server keys
 		h.mu.RLock()
@@ -120,6 +123,7 @@ func (h *sseHub) poll() {
 		h.mu.RUnlock()
 
 		// Poll each server and broadcast to its clients
+		dataChanged := false
 		for _, server := range servers {
 			// Check session fetch cache (500ms TTL)
 			var result []sessions.ProjectSession
@@ -157,8 +161,29 @@ func (h *sseHub) poll() {
 						}
 					}
 				}
+				dataChanged = true
 			}
 			h.mu.Unlock()
+		}
+
+		// Send heartbeat to all clients periodically to keep connections
+		// alive through proxies and detect dead connections early.
+		ticksSinceHeartbeat++
+		if dataChanged {
+			ticksSinceHeartbeat = 0
+		} else if ticksSinceHeartbeat >= sseHeartbeatTicks {
+			ticksSinceHeartbeat = 0
+			heartbeat := []byte(": heartbeat\n\n")
+			h.mu.RLock()
+			for _, cs := range h.clients {
+				for _, c := range cs {
+					select {
+					case c.ch <- heartbeat:
+					default:
+					}
+				}
+			}
+			h.mu.RUnlock()
 		}
 
 		time.Sleep(ssePollInterval)

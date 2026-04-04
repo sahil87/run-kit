@@ -227,8 +227,25 @@ function AppShell() {
   // Redirect when the current session/window no longer exists (e.g. window/session killed)
   useEffect(() => {
     if (!sessionName || !isConnected) return;
-    if (!currentSession || (currentSession && windowIndex && !currentWindow)) {
+    if (!currentSession) {
       navigate({ to: "/$server", params: { server }, replace: true });
+    } else if (windowIndex && !currentWindow) {
+      // Window killed — navigate to nearest sibling in the same session
+      const siblings = currentSession.windows;
+      if (siblings.length > 0) {
+        const killedIdx = Number(windowIndex);
+        // Prefer the previous window, fall back to the next
+        const target = siblings.reduce((best, w) =>
+          Math.abs(w.index - killedIdx) < Math.abs(best.index - killedIdx) ? w : best,
+        );
+        navigate({
+          to: "/$server/$session/$window",
+          params: { server, session: sessionName, window: String(target.index) },
+          replace: true,
+        });
+      } else {
+        navigate({ to: "/$server", params: { server }, replace: true });
+      }
     }
   }, [sessionName, windowIndex, sessions, currentSession, currentWindow, isConnected, navigate, server]);
 

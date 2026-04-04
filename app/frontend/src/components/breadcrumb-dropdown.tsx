@@ -101,7 +101,7 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, tri
         <div
           role="menu"
           aria-label={label ? `Switch ${label}` : "Switch"}
-          className="absolute top-full left-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] max-w-[240px] z-50"
+          className="absolute top-full left-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] max-w-[240px] z-50 max-h-60 overflow-y-auto"
         >
           {action && (
             <>

@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-04T08:21:12Z"}
+{"args":"The dashboard page(s) and the session and window dropdowns from the top bar aren't scrollable - fix this","cmd":"fab-new","event":"command","ts":"2026-04-04T08:21:12Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-04T08:21:49Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-04T08:21:52Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-04-04T08:24:34Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-04T08:25:30Z"}
+{"delta":"-0.3","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-04T08:26:25Z"}
+{"delta":"+0.9","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-04T08:27:08Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-04T08:27:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-04T08:28:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-04T08:28:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-04T08:28:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-04T08:30:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-04T08:31:53Z"}
+{"event":"review","result":"passed","ts":"2026-04-04T08:31:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-04T08:32:26Z"}

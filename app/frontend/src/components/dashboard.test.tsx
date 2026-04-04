@@ -158,6 +158,12 @@ describe("Dashboard", () => {
     expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
   });
 
+  it("root element className contains min-h-0", () => {
+    const { container } = renderDashboard();
+    const root = container.firstChild as HTMLElement;
+    expect(root.className).toContain("min-h-0");
+  });
+
   it("renders empty state with New Session button when no sessions", () => {
     const onCreateSession = vi.fn();
     renderDashboard({ sessions: [], onCreateSession });

@@ -2,6 +2,8 @@
 
 Web-based agent orchestration dashboard. Monitor and interact with tmux sessions from the browser — session overview, live terminal windows, and fab-kit integration for change tracking.
 
+<img width="1093" height="643" alt="image" src="https://github.com/user-attachments/assets/37c80d61-4819-4c3a-b27a-246791f284a3" />
+
 ## Installation
 
 ```sh

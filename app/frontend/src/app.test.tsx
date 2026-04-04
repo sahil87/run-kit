@@ -151,3 +151,108 @@ describe("CmdK Move Window Actions", () => {
     expect(onMoveRight).toHaveBeenCalledOnce();
   });
 });
+
+/** Build move-to-session actions matching the pattern in app.tsx. */
+function buildMoveToSessionActions(opts: {
+  sessions: { name: string }[];
+  currentSession: string | null;
+  hasCurrentWindow: boolean;
+  onMove: (targetSession: string) => void;
+}): PaletteAction[] {
+  if (!opts.hasCurrentWindow || !opts.currentSession || opts.sessions.length < 2) {
+    return [];
+  }
+  return opts.sessions
+    .filter((s) => s.name !== opts.currentSession)
+    .map((s) => ({
+      id: `move-window-to-session-${s.name}`,
+      label: `Window: Move to ${s.name}`,
+      onSelect: () => opts.onMove(s.name),
+    }));
+}
+
+describe("CmdK Move Window to Session Actions", () => {
+  afterEach(cleanup);
+
+  it("shows one Move to action when two sessions exist", () => {
+    const onMove = vi.fn();
+    const actions = buildMoveToSessionActions({
+      sessions: [{ name: "alpha" }, { name: "bravo" }],
+      currentSession: "alpha",
+      hasCurrentWindow: true,
+      onMove,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText("Window: Move to bravo")).toBeInTheDocument();
+    expect(screen.queryByText("Window: Move to alpha")).not.toBeInTheDocument();
+  });
+
+  it("shows two Move to actions when three sessions exist", () => {
+    const onMove = vi.fn();
+    const actions = buildMoveToSessionActions({
+      sessions: [{ name: "alpha" }, { name: "bravo" }, { name: "charlie" }],
+      currentSession: "alpha",
+      hasCurrentWindow: true,
+      onMove,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText("Window: Move to bravo")).toBeInTheDocument();
+    expect(screen.getByText("Window: Move to charlie")).toBeInTheDocument();
+    expect(screen.queryByText("Window: Move to alpha")).not.toBeInTheDocument();
+  });
+
+  it("shows no Move to actions when only one session exists", () => {
+    const onMove = vi.fn();
+    const actions = buildMoveToSessionActions({
+      sessions: [{ name: "alpha" }],
+      currentSession: "alpha",
+      hasCurrentWindow: true,
+      onMove,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText(/Window: Move to/)).not.toBeInTheDocument();
+  });
+
+  it("shows no Move to actions when no window is selected", () => {
+    const onMove = vi.fn();
+    const actions = buildMoveToSessionActions({
+      sessions: [{ name: "alpha" }, { name: "bravo" }],
+      currentSession: "alpha",
+      hasCurrentWindow: false,
+      onMove,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText(/Window: Move to/)).not.toBeInTheDocument();
+  });
+
+  it("onSelect fires with correct target session", () => {
+    const onMove = vi.fn();
+    const actions = buildMoveToSessionActions({
+      sessions: [{ name: "alpha" }, { name: "bravo" }],
+      currentSession: "alpha",
+      hasCurrentWindow: true,
+      onMove,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Move to bravo" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onMove).toHaveBeenCalledWith("bravo");
+  });
+});

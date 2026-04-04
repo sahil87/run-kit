@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, moveWindow } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, moveWindow, moveWindowToSession } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { getWindowDuration } from "@/lib/format";
@@ -22,6 +22,7 @@ type SidebarProps = {
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
   onRefreshServers: () => void;
+  onMoveWindowToSession?: (srcSession: string, srcIndex: number, dstSession: string) => void;
 };
 
 export function Sidebar({
@@ -36,6 +37,7 @@ export function Sidebar({
   onSwitchServer,
   onCreateServer,
   onRefreshServers,
+  onMoveWindowToSession,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
@@ -54,6 +56,7 @@ export function Sidebar({
   // Drag-and-drop state for window reordering
   const [dragSource, setDragSource] = useState<{ session: string; index: number } | null>(null);
   const [dropTarget, setDropTarget] = useState<{ session: string; index: number } | null>(null);
+  const [sessionDropTarget, setSessionDropTarget] = useState<string | null>(null);
 
   const [serverDropdownOpen, setServerDropdownOpen] = useState(false);
   const [refreshingServers, setRefreshingServers] = useState(false);
@@ -239,6 +242,42 @@ export function Sidebar({
   function handleDragEnd() {
     setDragSource(null);
     setDropTarget(null);
+    setSessionDropTarget(null);
+  }
+
+  function handleSessionDragOver(e: React.DragEvent, sessionName: string) {
+    if (!dragSource || dragSource.session === sessionName) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setSessionDropTarget(sessionName);
+  }
+
+  function handleSessionDragLeave(e: React.DragEvent, sessionName: string) {
+    if (sessionDropTarget === sessionName) {
+      setSessionDropTarget(null);
+    }
+  }
+
+  function handleSessionDrop(e: React.DragEvent, sessionName: string) {
+    e.preventDefault();
+    setSessionDropTarget(null);
+    setDropTarget(null);
+    setDragSource(null);
+
+    let data: { session: string; index: number };
+    try {
+      data = JSON.parse(e.dataTransfer.getData("application/json"));
+    } catch {
+      return;
+    }
+
+    if (data.session === sessionName) return;
+
+    if (onMoveWindowToSession) {
+      onMoveWindowToSession(data.session, data.index, sessionName);
+    } else {
+      moveWindowToSession(data.session, data.index, sessionName).catch(() => {});
+    }
   }
 
   const toggleSession = useCallback((name: string) => {
@@ -273,7 +312,13 @@ export function Sidebar({
             return (
               <div key={session.name} className={`mb-2${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
                 {/* Session row */}
-                <div className="flex items-center justify-between group">
+                <div
+                  className="flex items-center justify-between group"
+                  onDragOver={(e) => handleSessionDragOver(e, session.name)}
+                  onDragLeave={(e) => handleSessionDragLeave(e, session.name)}
+                  onDrop={(e) => handleSessionDrop(e, session.name)}
+                  style={sessionDropTarget === session.name ? { border: "2px solid var(--color-accent)", borderRadius: "4px" } : undefined}
+                >
                   <div className="flex items-center gap-0.5 min-w-0">
                     <button
                       onClick={() => toggleSession(session.name)}

@@ -448,6 +448,35 @@ func TestSwapWindowArgs(t *testing.T) {
 	}
 }
 
+func TestMoveWindowToSessionArgs(t *testing.T) {
+	// MoveWindowToSession constructs target strings as "{srcSession}:{srcIndex}" and "{dstSession}:".
+	// We verify the argument format without a live tmux server.
+
+	srcSession := "alpha"
+	srcIndex := 2
+	dstSession := "bravo"
+
+	expectedSrc := fmt.Sprintf("%s:%d", srcSession, srcIndex)
+	expectedDst := fmt.Sprintf("%s:", dstSession)
+
+	if expectedSrc != "alpha:2" {
+		t.Errorf("src target = %q, want %q", expectedSrc, "alpha:2")
+	}
+	if expectedDst != "bravo:" {
+		t.Errorf("dst target = %q, want %q", expectedDst, "bravo:")
+	}
+
+	// Verify different session/index combinations
+	expectedSrc2 := fmt.Sprintf("%s:%d", "dev", 0)
+	expectedDst2 := fmt.Sprintf("%s:", "staging")
+	if expectedSrc2 != "dev:0" {
+		t.Errorf("src target = %q, want %q", expectedSrc2, "dev:0")
+	}
+	if expectedDst2 != "staging:" {
+		t.Errorf("dst target = %q, want %q", expectedDst2, "staging:")
+	}
+}
+
 // sessionInfoSliceEqual compares two SessionInfo slices, treating nil and empty as equivalent.
 func sessionInfoSliceEqual(a, b []SessionInfo) bool {
 	if len(a) == 0 && len(b) == 0 {

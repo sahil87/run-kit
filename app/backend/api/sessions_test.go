@@ -47,6 +47,11 @@ type mockTmuxOps struct {
 	swapWindowSrcIndex  int
 	swapWindowDstIndex  int
 	swapWindowErr       error
+	moveWindowToSessionCalled     bool
+	moveWindowToSessionSrcSession string
+	moveWindowToSessionSrcIndex   int
+	moveWindowToSessionDstSession string
+	moveWindowToSessionErr        error
 	renameWindowCalled  bool
 	renameWindowSession string
 	renameWindowIndex   int
@@ -110,6 +115,16 @@ func (m *mockTmuxOps) SwapWindow(session string, srcIndex int, dstIndex int, ser
 	m.swapWindowDstIndex = dstIndex
 	if m.swapWindowErr != nil {
 		return m.swapWindowErr
+	}
+	return m.err
+}
+func (m *mockTmuxOps) MoveWindowToSession(srcSession string, srcIndex int, dstSession string, server string) error {
+	m.moveWindowToSessionCalled = true
+	m.moveWindowToSessionSrcSession = srcSession
+	m.moveWindowToSessionSrcIndex = srcIndex
+	m.moveWindowToSessionDstSession = dstSession
+	if m.moveWindowToSessionErr != nil {
+		return m.moveWindowToSessionErr
 	}
 	return m.err
 }

@@ -138,6 +138,23 @@ export async function moveWindow(
   return res.json();
 }
 
+export async function moveWindowToSession(
+  session: string,
+  index: number,
+  targetSession: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/move-to-session`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetSession }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function renameWindow(
   session: string,
   index: number,

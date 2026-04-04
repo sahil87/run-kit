@@ -18,7 +18,7 @@ import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
-import { selectWindow, createWindow, splitWindow, closePane, moveWindow, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -343,6 +343,17 @@ function AppShell() {
     [executeCreateWindow],
   );
 
+  const handleMoveWindowToSession = useCallback(
+    (srcSession: string, srcIndex: number, dstSession: string) => {
+      moveWindowToSession(srcSession, srcIndex, dstSession)
+        .then(() => {
+          navigate({ to: "/$server", params: { server } });
+        })
+        .catch(() => {});
+    },
+    [navigate, server],
+  );
+
   // Theme
   const { preference: themePreference, resolved: themeResolved, themeDark, themeLight } = useTheme();
   const { setTheme } = useThemeActions();
@@ -531,6 +542,23 @@ function AppShell() {
                   },
                 ]
               : []),
+            ...(sessions.length >= 2
+              ? sessions
+                  .filter((s) => s.name !== sessionName)
+                  .map((s) => ({
+                    id: `move-window-to-session-${s.name}`,
+                    label: `Window: Move to ${s.name}`,
+                    onSelect: () => {
+                      if (sessionName) {
+                        moveWindowToSession(sessionName, currentWindow.index, s.name)
+                          .then(() => {
+                            navigate({ to: "/$server", params: { server } });
+                          })
+                          .catch(() => {});
+                      }
+                    },
+                  }))
+              : []),
             {
               id: "rename-window",
               label: "Window: Rename",
@@ -574,7 +602,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server],
+    [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server],
   );
 
   const viewActions: PaletteAction[] = useMemo(
@@ -717,6 +745,7 @@ function AppShell() {
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onRefreshServers={refreshServers}
+                onMoveWindowToSession={handleMoveWindowToSession}
               />
             </div>
             {/* Drag handle */}
@@ -793,6 +822,7 @@ function AppShell() {
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onRefreshServers={refreshServers}
+                onMoveWindowToSession={handleMoveWindowToSession}
               />
             </div>
           </div>

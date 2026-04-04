@@ -440,3 +440,157 @@ func TestWindowSplitInvalidJSON(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 }
+
+// --- MoveWindowToSession handler tests ---
+
+func TestWindowMoveToSessionSuccess(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"targetSession":"bravo"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/1/move-to-session", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !ops.moveWindowToSessionCalled {
+		t.Error("MoveWindowToSession was not called")
+	}
+	if ops.moveWindowToSessionSrcSession != "alpha" {
+		t.Errorf("srcSession = %q, want %q", ops.moveWindowToSessionSrcSession, "alpha")
+	}
+	if ops.moveWindowToSessionSrcIndex != 1 {
+		t.Errorf("srcIndex = %d, want %d", ops.moveWindowToSessionSrcIndex, 1)
+	}
+	if ops.moveWindowToSessionDstSession != "bravo" {
+		t.Errorf("dstSession = %q, want %q", ops.moveWindowToSessionDstSession, "bravo")
+	}
+
+	var result map[string]bool
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !result["ok"] {
+		t.Error("expected ok: true")
+	}
+}
+
+func TestWindowMoveToSessionSameSession(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"targetSession":"alpha"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/0/move-to-session", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["error"] != "targetSession must differ from source session" {
+		t.Errorf("error = %q, want %q", result["error"], "targetSession must differ from source session")
+	}
+}
+
+func TestWindowMoveToSessionMissingTarget(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/0/move-to-session", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["error"] != "targetSession is required" {
+		t.Errorf("error = %q, want %q", result["error"], "targetSession is required")
+	}
+}
+
+func TestWindowMoveToSessionInvalidTargetName(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"targetSession":"bad;name"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/0/move-to-session", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !strings.Contains(result["error"], "forbidden characters") {
+		t.Errorf("error = %q, want containing %q", result["error"], "forbidden characters")
+	}
+}
+
+func TestWindowMoveToSessionInvalidSession(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"targetSession":"bravo"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;session/windows/0/move-to-session", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWindowMoveToSessionInvalidJSON(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/0/move-to-session", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["error"] != "Invalid JSON body" {
+		t.Errorf("error = %q, want %q", result["error"], "Invalid JSON body")
+	}
+}
+
+func TestWindowMoveToSessionTmuxError(t *testing.T) {
+	ops := &mockTmuxOps{moveWindowToSessionErr: fmt.Errorf("can't find window 99")}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"targetSession":"bravo"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/99/move-to-session", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}

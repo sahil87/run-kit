@@ -117,6 +117,7 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `/api/sessions/:session/windows` | POST | Create window — JSON body `{"name":"...","cwd":"..."}`. Returns `201 {"ok":true}` |
 | `/api/sessions/:session/windows/:index/kill` | POST | Kill window — `:index` must be non-negative integer. Returns `200 {"ok":true}` |
 | `/api/sessions/:session/windows/:index/move` | POST | Move (swap) window — JSON body `{"targetIndex": N}` where N is a non-negative integer. Calls `tmux swap-window` to exchange source and target window positions. Returns `200 {"ok":true}` |
+| `/api/sessions/:session/windows/:index/move-to-session` | POST | Move window to another session — JSON body `{"targetSession":"..."}`. Calls `tmux move-window` to move the source window into the target session (tmux auto-assigns index). Returns `200 {"ok":true}` |
 | `/api/sessions/:session/windows/:index/rename` | POST | Rename window — JSON body `{"name":"..."}`. Returns `200 {"ok":true}` |
 | `/api/sessions/:session/windows/:index/keys` | POST | Send keys — JSON body `{"keys":"..."}` (non-empty after trim). Returns `200 {"ok":true}` |
 | `/api/directories` | GET | Server-side directory listing for autocomplete — `?prefix=~/code/wvr` returns matching dirs under `$HOME` |
@@ -143,6 +144,7 @@ All endpoints served by the single Go binary on one port. POST-only mutations wi
 | `createWindow(session, name, cwd?)` | POST | `/api/sessions/:session/windows` |
 | `killWindow(session, index)` | POST | `/api/sessions/:session/windows/:index/kill` |
 | `moveWindow(session, index, targetIndex)` | POST | `/api/sessions/:session/windows/:index/move` |
+| `moveWindowToSession(session, index, targetSession)` | POST | `/api/sessions/:session/windows/:index/move-to-session` |
 | `renameWindow(session, index, name)` | POST | `/api/sessions/:session/windows/:index/rename` |
 | `sendKeys(session, index, keys)` | POST | `/api/sessions/:session/windows/:index/keys` |
 | `getDirectories(prefix)` | GET | `/api/directories?prefix=...` |

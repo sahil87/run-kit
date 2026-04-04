@@ -22,7 +22,7 @@ type SidebarProps = {
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
   onRefreshServers: () => void;
-  onMoveWindowToSession?: (srcSession: string, srcIndex: number, dstSession: string) => void;
+  onMoveWindowToSession: (srcSession: string, srcIndex: number, dstSession: string) => void;
 };
 
 export function Sidebar({
@@ -215,7 +215,10 @@ export function Sidebar({
     if (!dragSource || dragSource.session !== sessionName) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    setDropTarget({ session: sessionName, index: windowIndex });
+    setDropTarget((prev) => {
+      if (prev?.session === sessionName && prev?.index === windowIndex) return prev;
+      return { session: sessionName, index: windowIndex };
+    });
   }
 
   function handleDrop(e: React.DragEvent, sessionName: string, windowIndex: number) {
@@ -236,7 +239,9 @@ export function Sidebar({
       .then(() => {
         onSelectWindow(sessionName, windowIndex);
       })
-      .catch(() => {});
+      .catch((err) => {
+        addToast(err.message || "Failed to move window");
+      });
   }
 
   function handleDragEnd() {
@@ -273,11 +278,7 @@ export function Sidebar({
 
     if (data.session === sessionName) return;
 
-    if (onMoveWindowToSession) {
-      onMoveWindowToSession(data.session, data.index, sessionName);
-    } else {
-      moveWindowToSession(data.session, data.index, sessionName).catch(() => {});
-    }
+    onMoveWindowToSession(data.session, data.index, sessionName);
   }
 
   const toggleSession = useCallback((name: string) => {

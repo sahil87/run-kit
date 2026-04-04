@@ -78,6 +78,7 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
           onSwitchServer={vi.fn()}
           onCreateServer={vi.fn()}
           onRefreshServers={vi.fn()}
+          onMoveWindowToSession={vi.fn()}
           {...overrides}
         />
       </OptimisticProvider>

@@ -349,9 +349,11 @@ function AppShell() {
         .then(() => {
           navigate({ to: "/$server", params: { server } });
         })
-        .catch(() => {});
+        .catch((err) => {
+          addToast(err.message || "Failed to move window to session");
+        });
     },
-    [navigate, server],
+    [addToast, navigate, server],
   );
 
   // Theme
@@ -515,7 +517,9 @@ function AppShell() {
                               params: { server, session: sessionName, window: String(targetIndex) },
                             });
                           })
-                          .catch(() => {});
+                          .catch((err) => {
+                            addToast(err.message || "Failed to move window");
+                          });
                       }
                     },
                   },
@@ -536,7 +540,9 @@ function AppShell() {
                               params: { server, session: sessionName, window: String(targetIndex) },
                             });
                           })
-                          .catch(() => {});
+                          .catch((err) => {
+                            addToast(err.message || "Failed to move window");
+                          });
                       }
                     },
                   },
@@ -554,7 +560,9 @@ function AppShell() {
                           .then(() => {
                             navigate({ to: "/$server", params: { server } });
                           })
-                          .catch(() => {});
+                          .catch((err) => {
+                            addToast(err.message || "Failed to move window to session");
+                          });
                       }
                     },
                   }))

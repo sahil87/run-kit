@@ -242,7 +242,11 @@ func (s *Server) handleWindowMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.TargetIndex == nil || *body.TargetIndex < 0 {
+	if body.TargetIndex == nil {
+		writeError(w, http.StatusBadRequest, "targetIndex is required")
+		return
+	}
+	if *body.TargetIndex < 0 {
 		writeError(w, http.StatusBadRequest, "targetIndex must be a non-negative integer")
 		return
 	}

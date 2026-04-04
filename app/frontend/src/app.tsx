@@ -304,7 +304,8 @@ function AppShell() {
       return createWindow(session, "zsh", activeWin?.worktreePath);
     },
     onOptimistic: (session) => {
-      ghostWindowIdRef.current = addGhostWindow(session, "zsh");
+      const currentCount = rawSessions.find((s) => s.name === session)?.windows.length ?? 0;
+      ghostWindowIdRef.current = addGhostWindow(session, "zsh", currentCount);
     },
     onRollback: () => {
       if (ghostWindowIdRef.current) {

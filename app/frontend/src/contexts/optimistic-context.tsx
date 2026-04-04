@@ -9,6 +9,8 @@ type GhostEntry = {
   name: string;
   /** For window ghosts, the session they belong to. */
   parentSession?: string;
+  /** For window ghosts, number of windows in the parent session at creation time. */
+  previousWindowCount?: number;
 };
 
 type KilledEntry = {
@@ -24,7 +26,7 @@ type RenamedEntry = {
 
 type OptimisticContextType = {
   addGhostSession: (name: string) => string;
-  addGhostWindow: (session: string, name: string) => string;
+  addGhostWindow: (session: string, name: string, previousWindowCount?: number) => string;
   addGhostServer: (name: string) => string;
   removeGhost: (id: string) => void;
   markKilled: (type: "session" | "window" | "server", identifier: string) => void;
@@ -51,9 +53,9 @@ export function OptimisticProvider({ children }: { children: React.ReactNode }) 
     return optimisticId;
   }, []);
 
-  const addGhostWindow = useCallback((session: string, name: string) => {
+  const addGhostWindow = useCallback((session: string, name: string, previousWindowCount?: number) => {
     const optimisticId = `ghost-${++ghostIdCounter}`;
-    setGhosts((prev) => [...prev, { optimisticId, type: "window", name, parentSession: session }]);
+    setGhosts((prev) => [...prev, { optimisticId, type: "window", name, parentSession: session, previousWindowCount }]);
     return optimisticId;
   }, []);
 
@@ -161,8 +163,20 @@ export function useMergedSessions(realSessions: ProjectSession[]): MergedSession
     for (const ghost of ghosts) {
       if (ghost.type !== "window") continue;
       const parentReal = realSessions.find((s) => s.name === ghost.parentSession);
-      if (parentReal && parentReal.windows.some((w) => w.name === ghost.name)) {
-        queueMicrotask(() => removeGhost(ghost.optimisticId));
+      if (parentReal) {
+        // When previousWindowCount is set, reconcile by checking if the real session
+        // gained a window since the ghost was created. This avoids false positives when
+        // the ghost name matches an existing window (e.g. adding "zsh" to a session
+        // that already has a "zsh" window).
+        const shouldReconcile =
+          ghost.previousWindowCount != null
+            ? parentReal.windows.length > ghost.previousWindowCount
+            : parentReal.windows.some((w) => w.name === ghost.name);
+        if (shouldReconcile) {
+          queueMicrotask(() => removeGhost(ghost.optimisticId));
+        } else {
+          reconciledWindowGhosts.push(ghost);
+        }
       } else {
         reconciledWindowGhosts.push(ghost);
       }

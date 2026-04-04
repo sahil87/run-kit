@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
+import { LogoSpinner } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -315,21 +316,6 @@ function ThemeToggle() {
   );
 }
 
-function Spinner() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
-      fill="none"
-      className="animate-spin"
-      aria-hidden="true"
-    >
-      <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" opacity="0.25" />
-      <path d="M12.5 7a5.5 5.5 0 0 0-5.5-5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 function SplitButton({
   horizontal,
@@ -362,7 +348,7 @@ function SplitButton({
       title={label}
     >
       {isPending ? (
-        <Spinner />
+        <LogoSpinner size={14} />
       ) : (
         <svg
           width="14"
@@ -422,7 +408,7 @@ function ClosePaneButton({
       title="Close pane"
     >
       {isPending ? (
-        <Spinner />
+        <LogoSpinner size={14} />
       ) : (
         <svg
           width="14"

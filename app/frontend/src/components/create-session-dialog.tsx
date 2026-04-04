@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createSession, getDirectories } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { LogoSpinner } from "@/components/logo-spinner";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import type { ProjectSession } from "@/types";
@@ -224,17 +225,9 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
             className="w-full bg-transparent text-text-primary p-2 pr-7 border border-border rounded outline-none placeholder:text-text-secondary"
           />
           {isLoadingSuggestions && (
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              className="animate-spin absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary"
-              aria-hidden="true"
-            >
-              <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" opacity="0.25" />
-              <path d="M12.5 7a5.5 5.5 0 0 0-5.5-5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary">
+              <LogoSpinner size={14} />
+            </span>
           )}
         </div>
         {showDropdown && dropdownItems.length > 0 && (

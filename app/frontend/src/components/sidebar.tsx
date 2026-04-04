@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, createWindow } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { LogoSpinner } from "@/components/logo-spinner";
 import { getWindowDuration } from "@/lib/format";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
@@ -391,17 +392,7 @@ export function Sidebar({
           >
             {server}
             {refreshingServers ? (
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 14 14"
-                fill="none"
-                className="animate-spin text-text-secondary"
-                aria-hidden="true"
-              >
-                <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" opacity="0.25" />
-                <path d="M12.5 7a5.5 5.5 0 0 0-5.5-5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
+              <LogoSpinner size={10} />
             ) : (
               <span className="text-text-secondary text-[10px]">{serverDropdownOpen ? "\u25B4" : "\u25BE"}</span>
             )}

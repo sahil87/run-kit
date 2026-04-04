@@ -77,6 +77,11 @@ summary {
   border-radius: 3px;
 }
 
+@keyframes logo-chase {
+  0%, 100% { opacity: 0.2; }
+  16.6%, 33.3% { opacity: 1; }
+}
+
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */
 html.fullbleed,
 html.fullbleed body {

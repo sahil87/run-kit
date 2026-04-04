@@ -268,13 +268,13 @@ describe("TopBar", () => {
 
     // Button should be disabled and show spinner
     expect(btn).toBeDisabled();
-    expect(btn.querySelector(".animate-spin")).toBeTruthy();
+    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeTruthy();
 
     // Resolve the action
     resolveAction();
     await vi.waitFor(() => {
       expect(btn).not.toBeDisabled();
-      expect(btn.querySelector(".animate-spin")).toBeFalsy();
+      expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
     });
   });
 
@@ -288,12 +288,12 @@ describe("TopBar", () => {
     fireEvent.click(btn);
 
     expect(btn).toBeDisabled();
-    expect(btn.querySelector(".animate-spin")).toBeTruthy();
+    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeTruthy();
 
     resolveAction();
     await vi.waitFor(() => {
       expect(btn).not.toBeDisabled();
-      expect(btn.querySelector(".animate-spin")).toBeFalsy();
+      expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
     });
   });
 });

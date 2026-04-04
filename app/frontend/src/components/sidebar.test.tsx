@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { Sidebar } from "./sidebar";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { ToastProvider } from "@/components/toast";
@@ -194,7 +194,9 @@ describe("Sidebar", () => {
       fireEvent.doubleClick(screen.getByText("scratch"));
       const input = screen.getByLabelText("Rename window");
       fireEvent.change(input, { target: { value: "new-name" } });
-      fireEvent.keyDown(input, { key: "Enter" });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
 
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
       expect(renameWindowMock).toHaveBeenCalledWith("run-kit", 1, "new-name");
@@ -222,7 +224,9 @@ describe("Sidebar", () => {
       fireEvent.doubleClick(screen.getByText("scratch"));
       const input = screen.getByLabelText("Rename window");
       fireEvent.change(input, { target: { value: "blur-name" } });
-      fireEvent.blur(input);
+      await act(async () => {
+        fireEvent.blur(input);
+      });
 
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
       expect(renameWindowMock).toHaveBeenCalledWith("run-kit", 1, "blur-name");

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { TopBar } from "./top-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -234,7 +234,9 @@ describe("TopBar", () => {
   it("calls closePane API when ClosePaneButton is clicked", async () => {
     const { closePane } = await import("@/api/client");
     renderTopBar();
-    fireEvent.click(screen.getByLabelText("Close pane"));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Close pane"));
+    });
     expect(closePane).toHaveBeenCalledWith("run-kit", 0);
   });
 
@@ -253,7 +255,9 @@ describe("TopBar", () => {
   it("calls splitWindow API when SplitButton is clicked", async () => {
     const { splitWindow } = await import("@/api/client");
     renderTopBar();
-    fireEvent.click(screen.getByLabelText("Split vertically"));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Split vertically"));
+    });
     expect(splitWindow).toHaveBeenCalledWith("run-kit", 0, false, "~/code/run-kit");
   });
 
@@ -264,18 +268,21 @@ describe("TopBar", () => {
 
     renderTopBar();
     const btn = screen.getByLabelText("Split vertically");
-    fireEvent.click(btn);
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
 
     // Button should be disabled and show spinner
     expect(btn).toBeDisabled();
     expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeTruthy();
 
     // Resolve the action
-    resolveAction();
-    await vi.waitFor(() => {
-      expect(btn).not.toBeDisabled();
-      expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
+    await act(async () => {
+      resolveAction();
     });
+    expect(btn).not.toBeDisabled();
+    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
   });
 
   it("shows spinner and disables ClosePaneButton while pending", async () => {
@@ -285,15 +292,18 @@ describe("TopBar", () => {
 
     renderTopBar();
     const btn = screen.getByLabelText("Close pane");
-    fireEvent.click(btn);
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
 
     expect(btn).toBeDisabled();
     expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeTruthy();
 
-    resolveAction();
-    await vi.waitFor(() => {
-      expect(btn).not.toBeDisabled();
-      expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
+    await act(async () => {
+      resolveAction();
     });
+    expect(btn).not.toBeDisabled();
+    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
   });
 });

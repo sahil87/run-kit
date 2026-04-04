@@ -34,20 +34,22 @@ export function useOptimisticAction<TArgs extends unknown[] = []>(
     onOptimistic?.(...args);
     setIsPending(true);
 
-    action(...args).then(
-      () => {
-        if (!mountedRef.current) return;
-        onSettled?.();
-        setIsPending(false);
-      },
-      (err: unknown) => {
-        if (!mountedRef.current) return;
-        onRollback?.();
-        const error = err instanceof Error ? err : new Error(String(err));
-        onError?.(error);
-        setIsPending(false);
-      },
-    );
+    Promise.resolve()
+      .then(() => action(...args))
+      .then(
+        () => {
+          if (!mountedRef.current) return;
+          onSettled?.();
+          setIsPending(false);
+        },
+        (err: unknown) => {
+          if (!mountedRef.current) return;
+          onRollback?.();
+          const error = err instanceof Error ? err : new Error(String(err));
+          onError?.(error);
+          setIsPending(false);
+        },
+      );
   }, []);
 
   return { execute, isPending };

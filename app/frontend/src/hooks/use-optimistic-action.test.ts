@@ -14,7 +14,7 @@ describe("useOptimisticAction", () => {
     expect(result.current.isPending).toBe(false);
   });
 
-  it("calls onOptimistic synchronously before the API call", () => {
+  it("calls onOptimistic synchronously before the API call", async () => {
     const order: string[] = [];
     const action = vi.fn(() => {
       order.push("action");
@@ -26,7 +26,7 @@ describe("useOptimisticAction", () => {
       useOptimisticAction({ action, onOptimistic }),
     );
 
-    act(() => {
+    await act(async () => {
       result.current.execute();
     });
 
@@ -43,8 +43,10 @@ describe("useOptimisticAction", () => {
       useOptimisticAction({ action }),
     );
 
-    act(() => {
+    await act(async () => {
       result.current.execute();
+      // Flush microtask so action() is invoked via Promise.resolve().then()
+      await Promise.resolve();
     });
 
     expect(result.current.isPending).toBe(true);
@@ -179,8 +181,9 @@ describe("useOptimisticAction", () => {
       useOptimisticAction({ action, onSettled }),
     );
 
-    act(() => {
+    await act(async () => {
       result.current.execute();
+      await Promise.resolve();
     });
 
     expect(result.current.isPending).toBe(true);
@@ -205,8 +208,9 @@ describe("useOptimisticAction", () => {
       useOptimisticAction({ action, onRollback, onError }),
     );
 
-    act(() => {
+    await act(async () => {
       result.current.execute();
+      await Promise.resolve();
     });
 
     unmount();
@@ -234,8 +238,9 @@ describe("useOptimisticAction", () => {
       }),
     );
 
-    act(() => {
+    await act(async () => {
       result.current.execute();
+      await Promise.resolve();
     });
 
     expect(lifecycle).toEqual(["optimistic"]);
@@ -264,8 +269,9 @@ describe("useOptimisticAction", () => {
       }),
     );
 
-    act(() => {
+    await act(async () => {
       result.current.execute();
+      await Promise.resolve();
     });
 
     expect(lifecycle).toEqual(["optimistic"]);

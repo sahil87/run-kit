@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from "react";
 import { getWindowDuration, parseFabChange } from "@/lib/format";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
-import type { MergedSession, MergedWindow } from "@/contexts/optimistic-context";
+import type { MergedSession } from "@/contexts/optimistic-context";
 
 type DashboardProps = {
   sessions: (ProjectSession | MergedSession)[];

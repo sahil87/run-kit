@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, createWindow } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { getWindowDuration } from "@/lib/format";
@@ -8,7 +8,7 @@ import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
-import type { MergedSession, MergedWindow } from "@/contexts/optimistic-context";
+import type { MergedSession } from "@/contexts/optimistic-context";
 
 type SidebarProps = {
   sessions: (ProjectSession | MergedSession)[];
@@ -55,7 +55,7 @@ export function Sidebar({
   const [refreshingServers, setRefreshingServers] = useState(false);
   const serverDropdownRef = useRef<HTMLDivElement>(null);
 
-  const { markKilled, unmarkKilled, markRenamed, unmarkRenamed, addGhostWindow, removeGhost } = useOptimisticContext();
+  const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
   const { addToast } = useToast();
 
   // Ctrl+click kill session (optimistic)
@@ -127,10 +127,10 @@ export function Sidebar({
   const lastRenameRef = useRef<string | null>(null);
   const { execute: executeRenameWindow } = useOptimisticAction<[string, number, string]>({
     action: (session, index, newName) => renameWindow(session, index, newName),
-    onOptimistic: (session, index) => {
+    onOptimistic: (session, index, newName) => {
       const id = `${session}:${index}`;
       lastRenameRef.current = id;
-      markRenamed("window", id, editingName.trim());
+      markRenamed("window", id, newName);
     },
     onRollback: () => {
       if (lastRenameRef.current) unmarkRenamed(lastRenameRef.current);

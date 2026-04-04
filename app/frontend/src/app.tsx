@@ -128,6 +128,7 @@ function AppShell() {
   const { addToast } = useToast();
   const ghostWindowIdRef = useRef<string | null>(null);
   const ghostServerIdRef = useRef<string | null>(null);
+  const killedServerNameRef = useRef<string | null>(null);
 
   // Palette split/close actions (button loading not visible since palette closes, but we need error toasts)
   const { execute: executeSplit } = useOptimisticAction<[string, number, boolean, string | undefined]>({
@@ -395,13 +396,20 @@ function AppShell() {
   const { execute: executeKillServer } = useOptimisticAction<[string]>({
     action: (name) => killServerApi(name),
     onOptimistic: (name) => {
+      killedServerNameRef.current = name;
       markKilled("server", name);
     },
     onRollback: () => {
-      unmarkKilled(server);
+      if (killedServerNameRef.current) {
+        unmarkKilled(killedServerNameRef.current);
+        killedServerNameRef.current = null;
+      }
     },
     onError: (err) => {
       addToast(err.message || "Failed to kill server");
+    },
+    onSettled: () => {
+      killedServerNameRef.current = null;
     },
   });
 

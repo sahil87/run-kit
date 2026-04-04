@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {
+    margin: 0;
+    padding: 40px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+    background: #0f1117;
+    font-family: system-ui, sans-serif;
+    color: #ccc;
+  }
+  .section { text-align: center; }
+  .row {
+    display: flex;
+    gap: 56px;
+    align-items: flex-start;
+    justify-content: center;
+  }
+  .label {
+    text-align: center;
+    font-size: 13px;
+    margin-top: 8px;
+    opacity: 0.7;
+    font-weight: 600;
+  }
+  .sublabel {
+    text-align: center;
+    font-size: 11px;
+    opacity: 0.4;
+    max-width: 130px;
+    margin: 4px auto 0;
+    line-height: 1.4;
+  }
+  .demo { text-align: center; }
+  button {
+    background: #5b8af0;
+    color: white;
+    border: none;
+    padding: 6px 20px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: system-ui, sans-serif;
+    margin-top: 10px;
+  }
+  button:hover { background: #4a79df; }
+  h2 { margin: 0; }
+  h3 { margin: 0 0 16px; opacity: 0.6; font-size: 16px; }
+  hr { border: none; border-top: 1px solid #333; width: 80%; margin: 8px 0; }
+
+  /* ====== A: Chase — border segments only ====== */
+
+  /* Abrupt */
+  .a-abrupt-seg.on { animation: a-chase 1.2s ease-in-out infinite; }
+  .a-abrupt-seg.on:nth-child(1) { animation-delay: 0s; }
+  .a-abrupt-seg.on:nth-child(2) { animation-delay: 0.2s; }
+  .a-abrupt-seg.on:nth-child(3) { animation-delay: 0.4s; }
+  .a-abrupt-seg.on:nth-child(4) { animation-delay: 0.6s; }
+  .a-abrupt-seg.on:nth-child(5) { animation-delay: 0.8s; }
+  .a-abrupt-seg.on:nth-child(6) { animation-delay: 1.0s; }
+
+  /* Smooth */
+  .a-smooth-seg { transition: opacity 0.4s ease-out; opacity: 1; }
+  .a-smooth-seg.on { animation: a-chase 1.2s ease-in-out infinite; transition: none; }
+  .a-smooth-seg.on:nth-child(1) { animation-delay: 0s; }
+  .a-smooth-seg.on:nth-child(2) { animation-delay: 0.2s; }
+  .a-smooth-seg.on:nth-child(3) { animation-delay: 0.4s; }
+  .a-smooth-seg.on:nth-child(4) { animation-delay: 0.6s; }
+  .a-smooth-seg.on:nth-child(5) { animation-delay: 0.8s; }
+  .a-smooth-seg.on:nth-child(6) { animation-delay: 1.0s; }
+
+  /* Two-tone restore */
+  .a-twotone-seg { transition: opacity 0.5s ease-out, fill 0.5s ease-out; opacity: 1; }
+  .a-twotone-seg.on { animation: a-chase 1.2s ease-in-out infinite; transition: none; }
+  .a-twotone-seg.on:nth-child(1) { animation-delay: 0s; }
+  .a-twotone-seg.on:nth-child(2) { animation-delay: 0.2s; }
+  .a-twotone-seg.on:nth-child(3) { animation-delay: 0.4s; }
+  .a-twotone-seg.on:nth-child(4) { animation-delay: 0.6s; }
+  .a-twotone-seg.on:nth-child(5) { animation-delay: 0.8s; }
+  .a-twotone-seg.on:nth-child(6) { animation-delay: 1.0s; }
+
+  @keyframes a-chase {
+    0%, 100% { opacity: 0.2; }
+    16.6%, 33.3% { opacity: 1; }
+  }
+
+  /* ====== D: Chase + Face Pulse ====== */
+
+  /* Abrupt */
+  .d-abrupt-seg.on { animation: d-chase 1.2s ease-in-out infinite; }
+  .d-abrupt-seg.on:nth-child(1) { animation-delay: 0s; }
+  .d-abrupt-seg.on:nth-child(2) { animation-delay: 0.2s; }
+  .d-abrupt-seg.on:nth-child(3) { animation-delay: 0.4s; }
+  .d-abrupt-seg.on:nth-child(4) { animation-delay: 0.6s; }
+  .d-abrupt-seg.on:nth-child(5) { animation-delay: 0.8s; }
+  .d-abrupt-seg.on:nth-child(6) { animation-delay: 1.0s; }
+  .d-abrupt-face.on { animation: d-pulse 2.4s ease-in-out infinite; }
+  .d-abrupt-face.on:nth-child(7) { animation-delay: 0s; }
+  .d-abrupt-face.on:nth-child(8) { animation-delay: 0.8s; }
+  .d-abrupt-face.on:nth-child(9) { animation-delay: 1.6s; }
+
+  /* Smooth */
+  .d-smooth-seg { transition: opacity 0.4s ease-out; opacity: 1; }
+  .d-smooth-seg.on { animation: d-chase 1.2s ease-in-out infinite; transition: none; }
+  .d-smooth-seg.on:nth-child(1) { animation-delay: 0s; }
+  .d-smooth-seg.on:nth-child(2) { animation-delay: 0.2s; }
+  .d-smooth-seg.on:nth-child(3) { animation-delay: 0.4s; }
+  .d-smooth-seg.on:nth-child(4) { animation-delay: 0.6s; }
+  .d-smooth-seg.on:nth-child(5) { animation-delay: 0.8s; }
+  .d-smooth-seg.on:nth-child(6) { animation-delay: 1.0s; }
+  .d-smooth-face { transition: opacity 0.4s ease-out; opacity: 1; }
+  .d-smooth-face.on { animation: d-pulse 2.4s ease-in-out infinite; transition: none; }
+  .d-smooth-face.on:nth-child(7) { animation-delay: 0s; }
+  .d-smooth-face.on:nth-child(8) { animation-delay: 0.8s; }
+  .d-smooth-face.on:nth-child(9) { animation-delay: 1.6s; }
+
+  /* Two-tone restore */
+  .d-twotone-seg { transition: opacity 0.5s ease-out, fill 0.5s ease-out; opacity: 1; }
+  .d-twotone-seg.on { animation: d-chase 1.2s ease-in-out infinite; transition: none; }
+  .d-twotone-seg.on:nth-child(1) { animation-delay: 0s; }
+  .d-twotone-seg.on:nth-child(2) { animation-delay: 0.2s; }
+  .d-twotone-seg.on:nth-child(3) { animation-delay: 0.4s; }
+  .d-twotone-seg.on:nth-child(4) { animation-delay: 0.6s; }
+  .d-twotone-seg.on:nth-child(5) { animation-delay: 0.8s; }
+  .d-twotone-seg.on:nth-child(6) { animation-delay: 1.0s; }
+  .d-twotone-face { transition: opacity 0.5s ease-out; opacity: 1; }
+  .d-twotone-face.on { animation: d-pulse 2.4s ease-in-out infinite; transition: none; }
+  .d-twotone-face.on:nth-child(7) { animation-delay: 0s; }
+  .d-twotone-face.on:nth-child(8) { animation-delay: 0.8s; }
+  .d-twotone-face.on:nth-child(9) { animation-delay: 1.6s; }
+
+  @keyframes d-chase {
+    0%, 100% { opacity: 0.2; }
+    16.6%, 33.3% { opacity: 1; }
+  }
+  @keyframes d-pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<h2>Stop Transition Strategies</h2>
+<p style="opacity: 0.5; margin-top: 4px; margin-bottom: 0;">Click each button to toggle loading on/off</p>
+
+<!-- ========== A: Chase ========== -->
+<div class="section">
+  <h3>A: Chase</h3>
+  <div class="row">
+
+    <!-- A - Abrupt -->
+    <div class="demo">
+      <svg id="a-abrupt" xmlns="http://www.w3.org/2000/svg" viewBox="7 10 50 44" width="96" height="96">
+        <polygon class="a-abrupt-seg on" points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#b4b4b4"/>
+        <polygon class="a-abrupt-seg on" points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#b4b4b4"/>
+        <polygon class="a-abrupt-seg on" points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#b4b4b4"/>
+        <polygon class="a-abrupt-seg on" points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#b4b4b4"/>
+        <polygon class="a-abrupt-seg on" points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#b4b4b4"/>
+        <polygon class="a-abrupt-seg on" points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#b4b4b4"/>
+        <polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#888888"/>
+        <polygon points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#737373"/>
+        <polygon points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#545454"/>
+      </svg>
+      <div class="label">1: Abrupt</div>
+      <div class="sublabel">Freezes mid-frame — jittery</div>
+      <button onclick="toggle('a-abrupt', 'a-abrupt-seg', 'abrupt')">Toggle</button>
+    </div>
+
+    <!-- A - Smooth -->
+    <div class="demo">
+      <svg id="a-smooth" xmlns="http://www.w3.org/2000/svg" viewBox="7 10 50 44" width="96" height="96">
+        <polygon class="a-smooth-seg on" points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#b4b4b4"/>
+        <polygon class="a-smooth-seg on" points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#b4b4b4"/>
+        <polygon class="a-smooth-seg on" points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#b4b4b4"/>
+        <polygon class="a-smooth-seg on" points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#b4b4b4"/>
+        <polygon class="a-smooth-seg on" points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#b4b4b4"/>
+        <polygon class="a-smooth-seg on" points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#b4b4b4"/>
+        <polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#888888"/>
+        <polygon points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#737373"/>
+        <polygon points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#545454"/>
+      </svg>
+      <div class="label">2: Smooth fade</div>
+      <div class="sublabel">All segments ease to full opacity (400ms)</div>
+      <button onclick="toggle('a-smooth', 'a-smooth-seg', 'smooth')">Toggle</button>
+    </div>
+
+    <!-- A - Two-tone restore -->
+    <div class="demo">
+      <svg id="a-twotone" xmlns="http://www.w3.org/2000/svg" viewBox="7 10 50 44" width="96" height="96">
+        <polygon class="a-twotone-seg on" data-static="#b4b4b4" points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#b4b4b4"/>
+        <polygon class="a-twotone-seg on" data-static="#b4b4b4" points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#b4b4b4"/>
+        <polygon class="a-twotone-seg on" data-static="#2a2a2a" points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#b4b4b4"/>
+        <polygon class="a-twotone-seg on" data-static="#2a2a2a" points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#b4b4b4"/>
+        <polygon class="a-twotone-seg on" data-static="#2a2a2a" points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#b4b4b4"/>
+        <polygon class="a-twotone-seg on" data-static="#b4b4b4" points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#b4b4b4"/>
+        <polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#888888"/>
+        <polygon points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#737373"/>
+        <polygon points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#545454"/>
+      </svg>
+      <div class="label">3: Fade to original</div>
+      <div class="sublabel">Restores two-tone colors + opacity (500ms)</div>
+      <button onclick="toggle('a-twotone', 'a-twotone-seg', 'twotone')">Toggle</button>
+    </div>
+
+  </div>
+</div>
+
+<hr>
+
+<!-- ========== D: Chase + Face Pulse ========== -->
+<div class="section">
+  <h3>D: Chase + Face Pulse</h3>
+  <div class="row">
+
+    <!-- D - Abrupt -->
+    <div class="demo">
+      <svg id="d-abrupt" xmlns="http://www.w3.org/2000/svg" viewBox="7 10 50 44" width="96" height="96">
+        <polygon class="d-abrupt-seg on" points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#b4b4b4"/>
+        <polygon class="d-abrupt-seg on" points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#b4b4b4"/>
+        <polygon class="d-abrupt-seg on" points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#b4b4b4"/>
+        <polygon class="d-abrupt-seg on" points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#b4b4b4"/>
+        <polygon class="d-abrupt-seg on" points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#b4b4b4"/>
+        <polygon class="d-abrupt-seg on" points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#b4b4b4"/>
+        <polygon class="d-abrupt-face on" points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#888888"/>
+        <polygon class="d-abrupt-face on" points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#737373"/>
+        <polygon class="d-abrupt-face on" points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#545454"/>
+      </svg>
+      <div class="label">1: Abrupt</div>
+      <div class="sublabel">Freezes mid-frame — jittery</div>
+      <button onclick="toggle('d-abrupt', 'd-abrupt-seg', 'abrupt', 'd-abrupt-face')">Toggle</button>
+    </div>
+
+    <!-- D - Smooth -->
+    <div class="demo">
+      <svg id="d-smooth" xmlns="http://www.w3.org/2000/svg" viewBox="7 10 50 44" width="96" height="96">
+        <polygon class="d-smooth-seg on" points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#b4b4b4"/>
+        <polygon class="d-smooth-seg on" points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#b4b4b4"/>
+        <polygon class="d-smooth-seg on" points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#b4b4b4"/>
+        <polygon class="d-smooth-seg on" points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#b4b4b4"/>
+        <polygon class="d-smooth-seg on" points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#b4b4b4"/>
+        <polygon class="d-smooth-seg on" points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#b4b4b4"/>
+        <polygon class="d-smooth-face on" points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#888888"/>
+        <polygon class="d-smooth-face on" points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#737373"/>
+        <polygon class="d-smooth-face on" points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#545454"/>
+      </svg>
+      <div class="label">2: Smooth fade</div>
+      <div class="sublabel">All segments + faces ease to full opacity (400ms)</div>
+      <button onclick="toggle('d-smooth', 'd-smooth-seg', 'smooth', 'd-smooth-face')">Toggle</button>
+    </div>
+
+    <!-- D - Two-tone restore -->
+    <div class="demo">
+      <svg id="d-twotone" xmlns="http://www.w3.org/2000/svg" viewBox="7 10 50 44" width="96" height="96">
+        <polygon class="d-twotone-seg on" data-static="#b4b4b4" points="44,11.2 56,32 47.5,32 39.5,17.2" fill="#b4b4b4"/>
+        <polygon class="d-twotone-seg on" data-static="#b4b4b4" points="56,32 44,52.8 39.5,46.8 47.5,32" fill="#b4b4b4"/>
+        <polygon class="d-twotone-seg on" data-static="#2a2a2a" points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#b4b4b4"/>
+        <polygon class="d-twotone-seg on" data-static="#2a2a2a" points="20,52.8 8,32 16.5,32 24.5,46.8" fill="#b4b4b4"/>
+        <polygon class="d-twotone-seg on" data-static="#2a2a2a" points="8,32 20,11.2 24.5,17.2 16.5,32" fill="#b4b4b4"/>
+        <polygon class="d-twotone-seg on" data-static="#b4b4b4" points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill="#b4b4b4"/>
+        <polygon class="d-twotone-face on" points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill="#888888"/>
+        <polygon class="d-twotone-face on" points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill="#737373"/>
+        <polygon class="d-twotone-face on" points="24.5,46.8 16.5,32 24.5,17.2 32,32" fill="#545454"/>
+      </svg>
+      <div class="label">3: Fade to original</div>
+      <div class="sublabel">Restores two-tone colors + faces settle (500ms)</div>
+      <button onclick="toggle('d-twotone', 'd-twotone-seg', 'twotone', 'd-twotone-face')">Toggle</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const states = {};
+
+  function toggle(svgId, segClass, strategy, faceClass) {
+    const isOn = states[svgId] !== false;
+    states[svgId] = !isOn;
+    const nowOn = !isOn;
+
+    // Toggle segments
+    document.querySelectorAll(`#${svgId} .${segClass}`).forEach(el => {
+      el.classList.toggle('on', nowOn);
+      if (strategy === 'twotone' && !nowOn) {
+        el.setAttribute('fill', el.dataset.static);
+      } else if (strategy === 'twotone' && nowOn) {
+        el.setAttribute('fill', '#b4b4b4');
+      }
+    });
+
+    // Toggle faces (for D variant)
+    if (faceClass) {
+      document.querySelectorAll(`#${svgId} .${faceClass}`).forEach(el => {
+        el.classList.toggle('on', nowOn);
+      });
+    }
+  }
+</script>
+
+</body>
+</html>

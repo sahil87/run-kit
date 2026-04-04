@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { Sidebar } from "./sidebar";
+import { OptimisticProvider } from "@/contexts/optimistic-context";
+import { ToastProvider } from "@/components/toast";
 import type { ProjectSession } from "@/types";
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -60,20 +62,24 @@ const sessions: ProjectSession[] = [
 
 function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
   return render(
-    <Sidebar
-      sessions={sessions}
-      currentSession="run-kit"
-      currentWindowIndex="0"
-      onSelectWindow={vi.fn()}
-      onCreateWindow={vi.fn()}
-      onCreateSession={vi.fn()}
-      server="runkit"
-      servers={["runkit"]}
-      onSwitchServer={vi.fn()}
-      onCreateServer={vi.fn()}
-      onRefreshServers={vi.fn()}
-      {...overrides}
-    />,
+    <ToastProvider>
+      <OptimisticProvider>
+        <Sidebar
+          sessions={sessions}
+          currentSession="run-kit"
+          currentWindowIndex="0"
+          onSelectWindow={vi.fn()}
+          onCreateWindow={vi.fn()}
+          onCreateSession={vi.fn()}
+          server="runkit"
+          servers={["runkit"]}
+          onSwitchServer={vi.fn()}
+          onCreateServer={vi.fn()}
+          onRefreshServers={vi.fn()}
+          {...overrides}
+        />
+      </OptimisticProvider>
+    </ToastProvider>,
   );
 }
 
@@ -188,7 +194,9 @@ describe("Sidebar", () => {
       fireEvent.doubleClick(screen.getByText("scratch"));
       const input = screen.getByLabelText("Rename window");
       fireEvent.change(input, { target: { value: "new-name" } });
-      fireEvent.keyDown(input, { key: "Enter" });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
 
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
       expect(renameWindowMock).toHaveBeenCalledWith("run-kit", 1, "new-name");
@@ -216,7 +224,9 @@ describe("Sidebar", () => {
       fireEvent.doubleClick(screen.getByText("scratch"));
       const input = screen.getByLabelText("Rename window");
       fireEvent.change(input, { target: { value: "blur-name" } });
-      fireEvent.blur(input);
+      await act(async () => {
+        fireEvent.blur(input);
+      });
 
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
       expect(renameWindowMock).toHaveBeenCalledWith("run-kit", 1, "blur-name");
@@ -281,5 +291,76 @@ describe("Sidebar", () => {
   it("does not show external marker (removed in single-server model)", () => {
     renderSidebar();
     expect(screen.queryByLabelText("external session")).not.toBeInTheDocument();
+  });
+
+  describe("ghost entries", () => {
+    it("renders ghost session with opacity-50 and animate-pulse", () => {
+      const ghostSessions = [
+        ...sessions,
+        {
+          name: "ghost-session",
+          windows: [],
+          optimistic: true,
+          optimisticId: "ghost-1",
+        },
+      ];
+      renderSidebar({ sessions: ghostSessions });
+      const ghostName = screen.getByText("ghost-session");
+      // Find the session container (the outer div wrapping the session header)
+      const sessionContainer = ghostName.closest("[class*='opacity-50']");
+      expect(sessionContainer).toBeTruthy();
+      expect(sessionContainer?.className).toContain("animate-pulse");
+    });
+
+    it("renders ghost window with opacity-50 and animate-pulse", () => {
+      const sessionsWithGhostWindow = [
+        {
+          ...sessions[0],
+          windows: [
+            ...sessions[0].windows,
+            {
+              index: 99,
+              name: "ghost-win",
+              worktreePath: "",
+              activity: "idle" as const,
+              isActiveWindow: false,
+              activityTimestamp: 0,
+              optimistic: true,
+              optimisticId: "ghost-w-1",
+            },
+          ],
+        },
+        sessions[1],
+      ];
+      renderSidebar({ sessions: sessionsWithGhostWindow });
+      const ghostWin = screen.getByText("ghost-win");
+      const windowRow = ghostWin.closest("[class*='opacity-50']");
+      expect(windowRow).toBeTruthy();
+      expect(windowRow?.className).toContain("animate-pulse");
+    });
+
+    it("ghost window uses optimisticId as key (not index)", () => {
+      const sessionsWithGhostWindow = [
+        {
+          ...sessions[0],
+          windows: [
+            ...sessions[0].windows,
+            {
+              index: 0, // same index as real window — key collision without optimisticId
+              name: "new-window",
+              worktreePath: "",
+              activity: "idle" as const,
+              isActiveWindow: false,
+              activityTimestamp: 0,
+              optimistic: true,
+              optimisticId: "ghost-w-2",
+            },
+          ],
+        },
+      ];
+      // Should not throw from duplicate React keys
+      renderSidebar({ sessions: sessionsWithGhostWindow });
+      expect(screen.getByText("new-window")).toBeInTheDocument();
+    });
   });
 });

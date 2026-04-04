@@ -1,5 +1,8 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { renameSession, renameWindow, killSession, killWindow } from "@/api/client";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useOptimisticContext } from "@/contexts/optimistic-context";
+import { useToast } from "@/components/toast";
 
 type UseDialogStateOptions = {
   sessionName: string | undefined;
@@ -16,6 +19,15 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
   const [showKillSessionConfirm, setShowKillSessionConfirm] = useState(false);
   const [renameName, setRenameName] = useState("");
   const [renameSessionName, setRenameSessionName] = useState("");
+
+  const { markRenamed, unmarkRenamed, markKilled, unmarkKilled } = useOptimisticContext();
+  const { addToast } = useToast();
+
+  // Refs to capture identifiers at execute time, avoiding stale closures on rollback
+  const lastRenameSessionRef = useRef<string | null>(null);
+  const lastRenameWindowRef = useRef<string | null>(null);
+  const lastKillSessionRef = useRef<string | null>(null);
+  const lastKillWindowRef = useRef<string | null>(null);
 
   const openCreateDialog = useCallback(() => setShowCreateDialog(true), []);
   const closeCreateDialog = useCallback(() => setShowCreateDialog(false), []);
@@ -44,51 +56,103 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
   const openKillSessionConfirm = useCallback(() => setShowKillSessionConfirm(true), []);
   const closeKillSessionConfirm = useCallback(() => setShowKillSessionConfirm(false), []);
 
-  const handleRenameSession = useCallback(async () => {
+  const { execute: executeRenameSession } = useOptimisticAction<[string, string]>({
+    action: (oldName, newName) => renameSession(oldName, newName),
+    onOptimistic: (oldName, newName) => {
+      lastRenameSessionRef.current = oldName;
+      markRenamed("session", oldName, newName);
+    },
+    onRollback: () => {
+      if (lastRenameSessionRef.current) unmarkRenamed(lastRenameSessionRef.current);
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to rename session");
+    },
+    onSettled: () => {
+      lastRenameSessionRef.current = null;
+    },
+  });
+
+  const handleRenameSession = useCallback(() => {
     if (!renameSessionName.trim() || !sessionName) return;
     const newName = renameSessionName.trim();
-    try {
-      await renameSession(sessionName, newName);
-      onSessionRenamed?.(newName);
-    } catch {
-      // SSE will reflect
-    }
+    executeRenameSession(sessionName, newName);
+    onSessionRenamed?.(newName);
     setShowRenameSessionDialog(false);
-  }, [renameSessionName, sessionName, onSessionRenamed]);
+  }, [renameSessionName, sessionName, onSessionRenamed, executeRenameSession]);
 
-  const handleRename = useCallback(async () => {
+  const { execute: executeRenameWindow } = useOptimisticAction<[string, number, string]>({
+    action: (session, index, newName) => renameWindow(session, index, newName),
+    onOptimistic: (session, index, newName) => {
+      const id = `${session}:${index}`;
+      lastRenameWindowRef.current = id;
+      markRenamed("window", id, newName);
+    },
+    onRollback: () => {
+      if (lastRenameWindowRef.current) unmarkRenamed(lastRenameWindowRef.current);
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to rename window");
+    },
+    onSettled: () => {
+      lastRenameWindowRef.current = null;
+    },
+  });
+
+  const handleRename = useCallback(() => {
     if (!renameName.trim() || !sessionName || windowIndex == null) return;
-    try {
-      await renameWindow(sessionName, windowIndex, renameName.trim());
-    } catch {
-      // SSE will reflect
-    }
+    executeRenameWindow(sessionName, windowIndex, renameName.trim());
     setShowRenameDialog(false);
-  }, [renameName, sessionName, windowIndex]);
+  }, [renameName, sessionName, windowIndex, executeRenameWindow]);
 
-  const handleKillSession = useCallback(async () => {
+  const { execute: executeKillSession } = useOptimisticAction<[string]>({
+    action: (name) => killSession(name),
+    onOptimistic: (name) => {
+      lastKillSessionRef.current = name;
+      markKilled("session", name);
+    },
+    onRollback: () => {
+      if (lastKillSessionRef.current) unmarkKilled(lastKillSessionRef.current);
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to kill session");
+    },
+    onSettled: () => {
+      lastKillSessionRef.current = null;
+    },
+  });
+
+  const handleKillSession = useCallback(() => {
     if (!sessionName) return;
-    try {
-      await killSession(sessionName);
-      onKillComplete?.();
-    } catch {
-      // SSE will reflect
-    } finally {
-      setShowKillSessionConfirm(false);
-    }
-  }, [sessionName, onKillComplete]);
+    executeKillSession(sessionName);
+    onKillComplete?.();
+    setShowKillSessionConfirm(false);
+  }, [sessionName, onKillComplete, executeKillSession]);
 
-  const handleKillWindow = useCallback(async () => {
+  const { execute: executeKillWindow } = useOptimisticAction<[string, number]>({
+    action: (session, index) => killWindow(session, index),
+    onOptimistic: (session, index) => {
+      const id = `${session}:${index}`;
+      lastKillWindowRef.current = id;
+      markKilled("window", id);
+    },
+    onRollback: () => {
+      if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to kill window");
+    },
+    onSettled: () => {
+      lastKillWindowRef.current = null;
+    },
+  });
+
+  const handleKillWindow = useCallback(() => {
     if (!sessionName || windowIndex == null) return;
-    try {
-      await killWindow(sessionName, windowIndex);
-      onKillComplete?.();
-    } catch {
-      // SSE will reflect
-    } finally {
-      setShowKillConfirm(false);
-    }
-  }, [sessionName, windowIndex, onKillComplete]);
+    executeKillWindow(sessionName, windowIndex);
+    onKillComplete?.();
+    setShowKillConfirm(false);
+  }, [sessionName, windowIndex, onKillComplete, executeKillWindow]);
 
   return useMemo(() => ({
     showCreateDialog,

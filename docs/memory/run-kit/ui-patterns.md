@@ -390,6 +390,22 @@ Every tmux session is a project — derived from tmux, no config file needed. Pr
 
 Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "exited" state.
 
+## Optimistic UI & Mutation Feedback
+
+All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hooks/use-optimistic-action.ts`) which provides `{ execute, isPending }`. The hook calls `onOptimistic` synchronously before the async API call, tracks `isPending`, and calls `onRollback` + `onError` on failure. An unmount guard prevents state-after-unmount warnings.
+
+**Three feedback patterns:**
+
+1. **Ghost entries** (CRUD operations): Creating a session/window/server immediately inserts a ghost entry with `opacity-50 animate-pulse` styling. SSE reconciliation auto-clears ghosts when real data arrives. Failure removes the ghost and shows an error toast. Kill operations immediately hide the entry; failure restores it. Rename operations immediately update the displayed name; failure reverts. Ghost state managed by `OptimisticProvider` context (`app/frontend/src/contexts/optimistic-context.tsx`), exposed via `useMergedSessions(realSessions)` which merges ghosts with SSE data.
+
+2. **Button loading states** (fire-and-forget): Split pane and close pane top-bar buttons show a spinner SVG (`animate-spin`) and `disabled` attribute during `isPending`. Command palette equivalents use the same hook for error toast feedback (palette closes, so spinner not visible).
+
+3. **Inline progress** (async data): File upload shows an "Uploading..." badge in the terminal area. Directory autocomplete shows a spinner in the path input trailing slot. Server list refresh shows a spinner on the dropdown trigger.
+
+**Error toast system**: `ToastProvider` + `Toast` component (`app/frontend/src/components/toast.tsx`). Fixed bottom-right, auto-dismiss after 4 seconds, stacked vertically. Error variant has `var(--color-ansi-1)` (red) left accent border; info variant uses `var(--color-ansi-4)` (blue). Theme-aware via CSS custom properties.
+
+**Type guard**: `isGhostWindow(win)` exported from `optimistic-context.tsx` — narrows `WindowInfo | MergedWindow` to `MergedWindow & { optimistic: true }`. Used in sidebar and dashboard instead of `as` casts.
+
 ## Changelog
 
 | Date | Change | Reference |
@@ -434,3 +450,4 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 | 2026-03-27 | Mobile keyboard scroll-lock — long-press on keyboard toggle (>= 500ms) activates scroll-lock mode preventing soft keyboard from appearing on terminal tap. Focus prevention via capture-phase `focusin` listener. Tap-in-locked-mode unlocks + summons keyboard in one action. Visual indicator uses modifier armed-state pattern (`bg-accent/20 border-accent text-accent`, lock icon). Session-scoped state, optional haptic feedback | `260327-4azv-mobile-keyboard-scroll-lock` |
 | 2026-03-28 | Tmux commands dialog — replaced direct clipboard copy with a dialog showing three tmux commands (attach, new-window, detach) with per-row copy buttons and checkmark feedback. Server-aware command generation includes `-L {server}` flag for named servers, omits it for `"default"` | `260328-6xey-tmux-commands-dialog` |
 | 2026-04-03 | New pane inherits active pane CWD — `handleCreateWindow` passes `currentWindow?.worktreePath` to `createWindow()` so new windows start in the active pane's current directory (live via tmux `#{pane_current_path}`) instead of defaulting to `windows[0].WorktreePath`. No backend/API changes needed — `cwd` param already supported end-to-end. All three entry points (sidebar "+", top bar, Cmd+K) covered by single handler | `260403-xnq5-new-pane-inherit-cwd` |
+| 2026-04-03 | Optimistic UI feedback — `useOptimisticAction` hook replacing all `.catch(() => {})` mutation patterns, `OptimisticProvider` context for ghost entries (create) and optimistic removal (kill) with SSE reconciliation, `ToastProvider` + `Toast` for error/info notifications (auto-dismiss 4s), button loading states (split/close pane spinners), inline progress (upload badge, directory autocomplete spinner, server refresh spinner), `isGhostWindow` type guard | `260403-32la-optimistic-ui-feedback` |

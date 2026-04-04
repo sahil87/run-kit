@@ -1,7 +1,10 @@
 import { useCallback } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
+import { LogoSpinner } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useToast } from "@/components/toast";
 import { splitWindow, closePane } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
@@ -313,6 +316,7 @@ function ThemeToggle() {
   );
 }
 
+
 function SplitButton({
   horizontal,
   session,
@@ -325,48 +329,55 @@ function SplitButton({
   cwd?: string;
 }) {
   const label = horizontal ? "Split horizontally" : "Split vertically";
+  const { addToast } = useToast();
 
-  const handleClick = () => {
-    splitWindow(session, windowIndex, !!horizontal, cwd).catch(() => {
-      // best-effort — tmux may reject if pane is too small
-    });
-  };
+  const { execute, isPending } = useOptimisticAction<[]>({
+    action: () => splitWindow(session, windowIndex, !!horizontal, cwd),
+    onError: (err) => {
+      addToast(err.message || "Failed to split pane");
+    },
+  });
 
   return (
     <button
       type="button"
-      onClick={handleClick}
+      onClick={() => execute()}
+      disabled={isPending}
       aria-label={label}
-      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
       title={label}
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        {horizontal ? (
-          <>
-            {/* square-split-horizontal: vertical divider */}
-            <path d="M8 19H5c-1 0-2-1-2-2V7c0-1 1-2 2-2h3" />
-            <path d="M16 5h3c1 0 2 1 2 2v10c0 1-1 2-2 2h-3" />
-            <line x1="12" x2="12" y1="4" y2="20" />
-          </>
-        ) : (
-          <>
-            {/* square-split-vertical: horizontal divider */}
-            <path d="M5 8V5c0-1 1-2 2-2h10c1 0 2 1 2 2v3" />
-            <path d="M19 16v3c0 1-1 2-2 2H7c-1 0-2-1-2-2v-3" />
-            <line x1="4" x2="20" y1="12" y2="12" />
-          </>
-        )}
-      </svg>
+      {isPending ? (
+        <LogoSpinner size={14} />
+      ) : (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          {horizontal ? (
+            <>
+              {/* square-split-horizontal: vertical divider */}
+              <path d="M8 19H5c-1 0-2-1-2-2V7c0-1 1-2 2-2h3" />
+              <path d="M16 5h3c1 0 2 1 2 2v10c0 1-1 2-2 2h-3" />
+              <line x1="12" x2="12" y1="4" y2="20" />
+            </>
+          ) : (
+            <>
+              {/* square-split-vertical: horizontal divider */}
+              <path d="M5 8V5c0-1 1-2 2-2h10c1 0 2 1 2 2v3" />
+              <path d="M19 16v3c0 1-1 2-2 2H7c-1 0-2-1-2-2v-3" />
+              <line x1="4" x2="20" y1="12" y2="12" />
+            </>
+          )}
+        </svg>
+      )}
     </button>
   );
 }
@@ -378,34 +389,42 @@ function ClosePaneButton({
   session: string;
   windowIndex: number;
 }) {
-  const handleClick = () => {
-    closePane(session, windowIndex).catch(() => {
-      // best-effort — pane may already be dead
-    });
-  };
+  const { addToast } = useToast();
+
+  const { execute, isPending } = useOptimisticAction<[]>({
+    action: () => closePane(session, windowIndex),
+    onError: (err) => {
+      addToast(err.message || "Failed to close pane");
+    },
+  });
 
   return (
     <button
       type="button"
-      onClick={handleClick}
+      onClick={() => execute()}
+      disabled={isPending}
       aria-label="Close pane"
-      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
       title="Close pane"
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <line x1="18" y1="6" x2="6" y2="18" />
-        <line x1="6" y1="6" x2="18" y2="18" />
-      </svg>
+      {isPending ? (
+        <LogoSpinner size={14} />
+      ) : (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      )}
     </button>
   );
 }

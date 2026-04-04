@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { TopBar } from "./top-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
+import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
 
 vi.mock("@/api/client", async () => {
@@ -52,28 +53,30 @@ const sessions: ProjectSession[] = [
 
 function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
   return render(
-    <ThemeProvider>
-      <ChromeProvider>
-        <TopBar
-          sessions={sessions}
-          currentSession={sessions[0]}
-          currentWindow={fabWindow}
-          sessionName="run-kit"
-          windowName="main"
-          isConnected={true}
-          sidebarOpen={false}
-          drawerOpen={false}
-          server="runkit"
-          onNavigate={vi.fn()}
-          onToggleSidebar={vi.fn()}
-          onToggleDrawer={vi.fn()}
-          onCreateSession={vi.fn()}
-          onCreateWindow={vi.fn()}
-          onOpenCompose={vi.fn()}
-          {...overrides}
-        />
-      </ChromeProvider>
-    </ThemeProvider>,
+    <ToastProvider>
+      <ThemeProvider>
+        <ChromeProvider>
+          <TopBar
+            sessions={sessions}
+            currentSession={sessions[0]}
+            currentWindow={fabWindow}
+            sessionName="run-kit"
+            windowName="main"
+            isConnected={true}
+            sidebarOpen={false}
+            drawerOpen={false}
+            server="runkit"
+            onNavigate={vi.fn()}
+            onToggleSidebar={vi.fn()}
+            onToggleDrawer={vi.fn()}
+            onCreateSession={vi.fn()}
+            onCreateWindow={vi.fn()}
+            onOpenCompose={vi.fn()}
+            {...overrides}
+          />
+        </ChromeProvider>
+      </ThemeProvider>
+    </ToastProvider>,
   );
 }
 
@@ -231,7 +234,76 @@ describe("TopBar", () => {
   it("calls closePane API when ClosePaneButton is clicked", async () => {
     const { closePane } = await import("@/api/client");
     renderTopBar();
-    fireEvent.click(screen.getByLabelText("Close pane"));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Close pane"));
+    });
     expect(closePane).toHaveBeenCalledWith("run-kit", 0);
+  });
+
+  it("renders SplitButton (vertical and horizontal) when window is selected", () => {
+    renderTopBar();
+    expect(screen.getByLabelText("Split vertically")).toBeInTheDocument();
+    expect(screen.getByLabelText("Split horizontally")).toBeInTheDocument();
+  });
+
+  it("does not render SplitButtons on dashboard (no window)", () => {
+    renderTopBar({ currentWindow: null, windowName: "" });
+    expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
+  });
+
+  it("calls splitWindow API when SplitButton is clicked", async () => {
+    const { splitWindow } = await import("@/api/client");
+    renderTopBar();
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Split vertically"));
+    });
+    expect(splitWindow).toHaveBeenCalledWith("run-kit", 0, false, "~/code/run-kit");
+  });
+
+  it("shows spinner and disables SplitButton while pending", async () => {
+    const { splitWindow } = await import("@/api/client");
+    let resolveAction!: () => void;
+    vi.mocked(splitWindow).mockImplementation(() => new Promise((r) => { resolveAction = () => r({ ok: true, pane_id: "%1" }); }));
+
+    renderTopBar();
+    const btn = screen.getByLabelText("Split vertically");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+
+    // Button should be disabled and show spinner
+    expect(btn).toBeDisabled();
+    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeTruthy();
+
+    // Resolve the action
+    await act(async () => {
+      resolveAction();
+    });
+    expect(btn).not.toBeDisabled();
+    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
+  });
+
+  it("shows spinner and disables ClosePaneButton while pending", async () => {
+    const { closePane } = await import("@/api/client");
+    let resolveAction!: () => void;
+    vi.mocked(closePane).mockImplementation(() => new Promise((r) => { resolveAction = () => r({ ok: true }); }));
+
+    renderTopBar();
+    const btn = screen.getByLabelText("Close pane");
+    await act(async () => {
+      fireEvent.click(btn);
+      await Promise.resolve();
+    });
+
+    expect(btn).toBeDisabled();
+    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeTruthy();
+
+    await act(async () => {
+      resolveAction();
+    });
+    expect(btn).not.toBeDisabled();
+    expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
   });
 });

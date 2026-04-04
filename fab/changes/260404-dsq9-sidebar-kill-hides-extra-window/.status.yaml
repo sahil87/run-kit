@@ -1,0 +1,42 @@
+id: dsq9
+name: 260404-dsq9-sidebar-kill-hides-extra-window
+created: 2026-04-04T13:53:19Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 4
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 87.9
+        reversibility: 88.6
+        competence: 89.3
+        disambiguation: 85.0
+stage_metrics:
+    intake: {started_at: "2026-04-04T13:53:19Z", driver: fab-new, iterations: 1, completed_at: "2026-04-04T13:58:05Z"}
+    spec: {started_at: "2026-04-04T13:58:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T14:00:57Z"}
+    tasks: {started_at: "2026-04-04T14:00:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T14:01:02Z"}
+    apply: {started_at: "2026-04-04T14:01:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T14:04:13Z"}
+    review: {started_at: "2026-04-04T14:04:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T14:05:41Z"}
+    hydrate: {started_at: "2026-04-04T14:05:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-04T14:06:54Z"}
+    ship: {started_at: "2026-04-04T14:06:54Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-04-04T14:06:54Z

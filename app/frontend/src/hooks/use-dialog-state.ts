@@ -143,6 +143,7 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
       addToast(err.message || "Failed to kill window");
     },
     onSettled: () => {
+      if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
       lastKillWindowRef.current = null;
     },
   });

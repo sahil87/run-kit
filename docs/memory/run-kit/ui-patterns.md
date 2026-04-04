@@ -414,6 +414,26 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 
 **Type guard**: `isGhostWindow(win)` exported from `optimistic-context.tsx` — narrows `WindowInfo | MergedWindow` to `MergedWindow & { optimistic: true }`. Used in sidebar and dashboard instead of `as` casts.
 
+### Window Kill: `onSettled` Cleanup Requirement
+
+After a window kill API call **succeeds**, `unmarkKilled` MUST be called to remove the stale optimistic killed entry. Without this, tmux's automatic window renumbering causes an index collision: when window N is killed, tmux renumbers window N+1 → N. The next SSE update delivers a real window at index N, but the stale `killed["session:N"]` entry in `OptimisticProvider` filters it out, making it appear as though two windows were removed.
+
+The `onRollback` path already calls `unmarkKilled` on API failure. The `onSettled` callback (which fires on success only — see `use-optimistic-action.ts` line ~42) handles the success case. These two hooks together cover all terminal states without double-invoking.
+
+**Three `useOptimisticAction` instances** must implement this pattern:
+
+| Instance | File | Kill path |
+|----------|------|-----------|
+| `executeKillWindow` | `app/frontend/src/components/sidebar.tsx` | Ctrl+Click direct kill |
+| `executeKillFromDialog` | `app/frontend/src/components/sidebar.tsx` | Confirmation dialog kill |
+| `executeKillWindow` | `app/frontend/src/hooks/use-dialog-state.ts` | Command palette kill |
+
+**Null guard**: `executeKillFromDialog`'s `onSettled` must check `killTargetRef.current` before calling `unmarkKilled` — the ref may be null if the component unmounts before the API call settles.
+
+**Session kills are exempt**: Session names are stable across kills (tmux never renumbers sessions). The index-collision mechanism is window-specific only.
+
+**Micro-flash trade-off**: If the HTTP response arrives before SSE, `unmarkKilled` fires first and the old window slot may briefly reappear (~sub-100ms) before SSE confirms the kill. This is accepted — permanently hiding a window is far worse than a sub-perceptible flash.
+
 ## Changelog
 
 | Date | Change | Reference |
@@ -461,3 +481,4 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 | 2026-04-03 | Optimistic UI feedback — `useOptimisticAction` hook replacing all `.catch(() => {})` mutation patterns, `OptimisticProvider` context for ghost entries (create) and optimistic removal (kill) with SSE reconciliation, `ToastProvider` + `Toast` for error/info notifications (auto-dismiss 4s), button loading states (split/close pane spinners), inline progress (upload badge, directory autocomplete spinner, server refresh spinner), `isGhostWindow` type guard | `260403-32la-optimistic-ui-feedback` |
 | 2026-04-04 | Window move & reorder — CmdK "Window: Move Left/Right" actions (boundary-excluded, navigate after swap), sidebar drag-and-drop window reordering via native HTML5 DnD (same-session only, accent drop indicator, no external library) | `260404-29qz-window-move-reorder` |
 | 2026-04-04 | Cross-session window move — CmdK "Window: Move to {name}" actions (one per other session, flat list), cross-session drag-and-drop to session headers (accent border feedback), `moveWindowToSession` API client function, post-move navigation to `/$server` (server dashboard) | `260404-dq70-move-window-between-sessions` |
+| 2026-04-04 | Fix sidebar kill hides extra window — `onSettled` callbacks added to all three `useOptimisticAction` kill instances (`executeKillWindow` in sidebar, `executeKillFromDialog` in sidebar, `executeKillWindow` in use-dialog-state) to call `unmarkKilled` after success, preventing tmux index-renumbering from causing index collision on next SSE update | `260404-dsq9-sidebar-kill-hides-extra-window` |

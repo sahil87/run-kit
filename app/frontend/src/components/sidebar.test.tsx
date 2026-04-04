@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { Sidebar } from "./sidebar";
-import { OptimisticProvider } from "@/contexts/optimistic-context";
+import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-context";
 import { ToastProvider } from "@/components/toast";
 import type { ProjectSession } from "@/types";
 
@@ -9,6 +9,8 @@ vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return {
     ...actual,
+    killWindow: vi.fn().mockResolvedValue({ ok: true }),
+    killSession: vi.fn().mockResolvedValue({ ok: true }),
     renameWindow: vi.fn().mockResolvedValue({ ok: true }),
     moveWindow: vi.fn().mockResolvedValue({ ok: true }),
     moveWindowToSession: vi.fn().mockResolvedValue({ ok: true }),
@@ -531,6 +533,53 @@ describe("Sidebar", () => {
       });
 
       expect(moveWindowMock).toHaveBeenCalledWith("run-kit", 0, 1);
+    });
+  });
+
+  describe("window kill clears optimistic state on success", () => {
+    it("Ctrl+click kill: killed entry is removed after API call resolves", async () => {
+      const { killWindow: killWindowMock } = await import("@/api/client");
+      vi.mocked(killWindowMock).mockResolvedValue({ ok: true });
+
+      let killedCount = -1;
+
+      function KilledCountDisplay() {
+        const ctx = useOptimisticContext();
+        killedCount = ctx.killed.length;
+        return <span data-testid="killed-count">{ctx.killed.length}</span>;
+      }
+
+      render(
+        <ToastProvider>
+          <OptimisticProvider>
+            <KilledCountDisplay />
+            <Sidebar
+              sessions={sessions}
+              currentSession="run-kit"
+              currentWindowIndex="0"
+              onSelectWindow={vi.fn()}
+              onCreateWindow={vi.fn()}
+              onCreateSession={vi.fn()}
+              server="runkit"
+              servers={["runkit"]}
+              onSwitchServer={vi.fn()}
+              onCreateServer={vi.fn()}
+              onRefreshServers={vi.fn()}
+              onMoveWindowToSession={vi.fn()}
+            />
+          </OptimisticProvider>
+        </ToastProvider>,
+      );
+
+      // Ctrl+click the X button for "scratch" window (index 1)
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText("Kill window scratch"), { ctrlKey: true });
+      });
+
+      // API was called
+      expect(killWindowMock).toHaveBeenCalledWith("run-kit", 1);
+      // After the API call resolves, the killed entry must be removed (unmarkKilled called)
+      expect(killedCount).toBe(0);
     });
   });
 

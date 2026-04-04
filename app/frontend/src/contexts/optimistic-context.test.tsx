@@ -378,6 +378,89 @@ describe("OptimisticProvider", () => {
     expect(() => render(<Orphan />)).toThrow("useOptimisticContext must be used within OptimisticProvider");
   });
 
+  it("renumbered window appears in merged output once killed entry is cleared", () => {
+    // Scenario: dev session has windows [0, 1, 2]. Window 1 is killed.
+    // After tmux renumbers, index 2 becomes index 1.
+    // Once unmarkKilled("dev:1") fires, the new window at index 1 should be visible.
+
+    // TestConsumer already exposes a kill-window button for "dev:0".
+    // We need a custom consumer that targets "dev:1" specifically.
+    function KillWindowConsumer({ realSessions }: { realSessions: ProjectSession[] }) {
+      const ctx = useOptimisticContext();
+      const merged = useMergedSessions(realSessions);
+      return (
+        <div>
+          <span data-testid="kw-windows">
+            {merged.flatMap((s) => s.windows.map((w) => `${s.name}:${w.index}:${w.name}`)).join(",")}
+          </span>
+          <span data-testid="kw-killed-count">{ctx.killed.length}</span>
+          <button data-testid="kw-mark-killed" onClick={() => ctx.markKilled("window", "dev:1")}>
+            Mark Killed
+          </button>
+          <button data-testid="kw-unmark-killed" onClick={() => ctx.unmarkKilled("dev:1")}>
+            Unmark Killed
+          </button>
+        </div>
+      );
+    }
+
+    const threeWindowSessions: ProjectSession[] = [
+      {
+        name: "dev",
+        windows: [
+          { index: 0, name: "zsh", worktreePath: "/tmp", activity: "active", isActiveWindow: true, activityTimestamp: 0 },
+          { index: 1, name: "build", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+          { index: 2, name: "logs", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+        ],
+      },
+    ];
+
+    const renumberedSessions: ProjectSession[] = [
+      {
+        name: "dev",
+        windows: [
+          { index: 0, name: "zsh", worktreePath: "/tmp", activity: "active", isActiveWindow: true, activityTimestamp: 0 },
+          // After killing index 1 ("build"), tmux renumbers "logs" from index 2 to index 1
+          { index: 1, name: "logs", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+        ],
+      },
+    ];
+
+    const { rerender } = render(
+      <OptimisticProvider>
+        <KillWindowConsumer realSessions={threeWindowSessions} />
+      </OptimisticProvider>,
+    );
+
+    // Step 1: mark window 1 as killed (optimistic hide)
+    act(() => {
+      screen.getByTestId("kw-mark-killed").click();
+    });
+
+    // Window 1 ("build") is hidden; windows 0 and 2 still visible
+    expect(screen.getByTestId("kw-windows").textContent).toBe("dev:0:zsh,dev:2:logs");
+    expect(screen.getByTestId("kw-killed-count").textContent).toBe("1");
+
+    // Step 2: SSE delivers renumbered session (window 2 "logs" is now at index 1)
+    rerender(
+      <OptimisticProvider>
+        <KillWindowConsumer realSessions={renumberedSessions} />
+      </OptimisticProvider>,
+    );
+
+    // Killed entry for "dev:1" still hides the renumbered window
+    expect(screen.getByTestId("kw-windows").textContent).toBe("dev:0:zsh");
+
+    // Step 3: onSettled fires — unmarkKilled clears the killed entry
+    act(() => {
+      screen.getByTestId("kw-unmark-killed").click();
+    });
+
+    // Renumbered window (index 1 "logs") is now visible
+    expect(screen.getByTestId("kw-windows").textContent).toBe("dev:0:zsh,dev:1:logs");
+    expect(screen.getByTestId("kw-killed-count").textContent).toBe("0");
+  });
+
   it("ghost entry lifecycle: add ghost → SSE update matching ghost → ghost cleared", async () => {
     const { rerender } = render(
       <OptimisticProvider>

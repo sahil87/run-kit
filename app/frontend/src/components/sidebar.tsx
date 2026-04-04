@@ -93,6 +93,10 @@ export function Sidebar({
     onRollback: () => {
       if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
     },
+    onSettled: () => {
+      if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
+      lastKillWindowRef.current = null;
+    },
     onError: (err) => {
       addToast(err.message || "Failed to kill window");
     },
@@ -117,6 +121,15 @@ export function Sidebar({
       }
     },
     onRollback: () => {
+      const target = killTargetRef.current;
+      if (!target) return;
+      if (target.type === "window" && target.windowIndex != null) {
+        unmarkKilled(`${target.session}:${target.windowIndex}`);
+      } else {
+        unmarkKilled(target.session);
+      }
+    },
+    onSettled: () => {
       const target = killTargetRef.current;
       if (!target) return;
       if (target.type === "window" && target.windowIndex != null) {

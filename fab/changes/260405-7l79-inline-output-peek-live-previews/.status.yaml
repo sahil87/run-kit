@@ -1,0 +1,37 @@
+id: 7l79
+name: 260405-7l79-inline-output-peek-live-previews
+created: 2026-04-05T18:41:30Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 3
+    confident: 4
+    tentative: 3
+    unresolved: 0
+    score: 0.8
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 69.5
+        reversibility: 82.5
+        competence: 75.0
+        disambiguation: 68.5
+stage_metrics:
+    intake: {started_at: "2026-04-05T18:41:30Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-04-05T18:43:04Z

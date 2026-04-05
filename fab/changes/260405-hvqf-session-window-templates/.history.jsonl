@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-05T18:41:12Z"}
+{"args":"Session and window templates / quick-launch","cmd":"fab-new","event":"command","ts":"2026-04-05T18:41:12Z"}
+{"delta":"+1.8","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-04-05T18:42:38Z"}
+{"delta":"+0.0","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-04-05T18:42:48Z"}

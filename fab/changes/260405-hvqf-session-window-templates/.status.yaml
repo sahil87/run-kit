@@ -1,0 +1,37 @@
+id: hvqf
+name: 260405-hvqf-session-window-templates
+created: 2026-04-05T18:41:12Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 3
+    confident: 4
+    tentative: 2
+    unresolved: 0
+    score: 1.8
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 72.2
+        reversibility: 82.2
+        competence: 78.9
+        disambiguation: 73.9
+stage_metrics:
+    intake: {started_at: "2026-04-05T18:41:12Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-04-05T18:42:50Z

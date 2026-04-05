@@ -111,13 +111,13 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
       lastKillSessionRef.current = name;
       markKilled("session", name);
     },
-    onRollback: () => {
+    onAlwaysRollback: () => {
       if (lastKillSessionRef.current) unmarkKilled(lastKillSessionRef.current);
     },
     onError: (err) => {
       addToast(err.message || "Failed to kill session");
     },
-    onSettled: () => {
+    onAlwaysSettled: () => {
       lastKillSessionRef.current = null;
     },
   });
@@ -136,13 +136,13 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
       lastKillWindowRef.current = id;
       markKilled("window", id);
     },
-    onRollback: () => {
+    onAlwaysRollback: () => {
       if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
     },
     onError: (err) => {
       addToast(err.message || "Failed to kill window");
     },
-    onSettled: () => {
+    onAlwaysSettled: () => {
       if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
       lastKillWindowRef.current = null;
     },

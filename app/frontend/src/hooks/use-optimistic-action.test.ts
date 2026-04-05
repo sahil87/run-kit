@@ -172,13 +172,13 @@ describe("useOptimisticAction", () => {
     expect(result.current.isPending).toBe(false);
   });
 
-  it("skips state updates after unmount", async () => {
+  it("calls onAlwaysSettled after unmount but skips setIsPending", async () => {
     let resolve: () => void;
     const action = () => new Promise<void>((r) => { resolve = r; });
-    const onSettled = vi.fn();
+    const onAlwaysSettled = vi.fn();
 
     const { result, unmount } = renderHook(() =>
-      useOptimisticAction({ action, onSettled }),
+      useOptimisticAction({ action, onAlwaysSettled }),
     );
 
     await act(async () => {
@@ -190,22 +190,22 @@ describe("useOptimisticAction", () => {
 
     unmount();
 
-    // Resolve after unmount — should not throw or update state
+    // Resolve after unmount — onAlwaysSettled fires but setIsPending does not
     await act(async () => {
       resolve!();
     });
 
-    expect(onSettled).not.toHaveBeenCalled();
+    expect(onAlwaysSettled).toHaveBeenCalledTimes(1);
   });
 
-  it("skips rollback/error callbacks after unmount", async () => {
+  it("calls onAlwaysRollback after unmount but skips onError and setIsPending", async () => {
     let reject: (err: Error) => void;
     const action = () => new Promise<void>((_, r) => { reject = r; });
-    const onRollback = vi.fn();
+    const onAlwaysRollback = vi.fn();
     const onError = vi.fn();
 
     const { result, unmount } = renderHook(() =>
-      useOptimisticAction({ action, onRollback, onError }),
+      useOptimisticAction({ action, onAlwaysRollback, onError }),
     );
 
     await act(async () => {
@@ -213,13 +213,16 @@ describe("useOptimisticAction", () => {
       await Promise.resolve();
     });
 
+    expect(result.current.isPending).toBe(true);
+
     unmount();
 
+    // Reject after unmount — onAlwaysRollback fires, but onError and setIsPending do not
     await act(async () => {
       reject!(new Error("fail"));
     });
 
-    expect(onRollback).not.toHaveBeenCalled();
+    expect(onAlwaysRollback).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
   });
 

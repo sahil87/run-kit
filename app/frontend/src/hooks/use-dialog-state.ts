@@ -24,7 +24,11 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
 
   const { markRenamed, unmarkRenamed, markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
-  const { killWindow: killWindowStore, restoreWindow, clearSession, renameWindow: renameWindowStore, clearRename } = useWindowStore();
+  const killWindowStore = useWindowStore((state) => state.killWindow);
+  const restoreWindow = useWindowStore((state) => state.restoreWindow);
+  const clearSession = useWindowStore((state) => state.clearSession);
+  const renameWindowStore = useWindowStore((state) => state.renameWindow);
+  const clearRename = useWindowStore((state) => state.clearRename);
 
   // Refs to capture identifiers at execute time, avoiding stale closures on rollback
   const lastRenameSessionRef = useRef<string | null>(null);

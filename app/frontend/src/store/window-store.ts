@@ -29,8 +29,8 @@ type GhostWindow = {
 };
 
 type WindowStoreState = {
-  /** Map of windowId -> WindowEntry for all known windows. */
-  entries: Map<string, WindowEntry>;
+  /** Read-only view of windowId -> WindowEntry for all known windows. */
+  entries: ReadonlyMap<string, WindowEntry>;
   /** List of ghost (optimistic) windows. */
   ghosts: GhostWindow[];
 };
@@ -45,10 +45,11 @@ type WindowStoreActions = {
 
   /**
    * Add a ghost (optimistic) window for a session.
-   * Captures current windowIds for this session as the snapshot.
+   * If currentWindowIds is provided, uses that as the snapshot (authoritative, from caller).
+   * Otherwise captures current windowIds from the store (fallback).
    * Returns the optimisticId.
    */
-  addGhostWindow: (session: string, name: string) => string;
+  addGhostWindow: (session: string, name: string, currentWindowIds?: Iterable<string>) => string;
 
   /**
    * Optimistically mark a window as killed by windowId.
@@ -164,18 +165,25 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
     });
   },
 
-  addGhostWindow: (session, name) => {
+  addGhostWindow: (session, name, currentWindowIds?) => {
     const optimisticId = `ghost-win-${++ghostIdCounter}`;
     const now = Date.now();
 
     set((state) => {
-      // Snapshot current windowIds for this session
-      const snapshotWindowIds = new Set<string>();
-      for (const [id, entry] of state.entries) {
-        if (entry.session === session) {
-          snapshotWindowIds.add(id);
-        }
-      }
+      // Prefer the authoritative current windowIds passed by the caller.
+      // Fall back to the store snapshot for backward compatibility.
+      const snapshotWindowIds =
+        currentWindowIds != null
+          ? new Set<string>(currentWindowIds)
+          : (() => {
+              const ids = new Set<string>();
+              for (const [id, entry] of state.entries) {
+                if (entry.session === session) {
+                  ids.add(id);
+                }
+              }
+              return ids;
+            })();
 
       const ghost: GhostWindow = {
         optimisticId,

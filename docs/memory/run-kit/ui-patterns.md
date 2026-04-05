@@ -418,27 +418,31 @@ Window optimistic state is managed by a Zustand store at `app/frontend/src/store
 **Store shape:**
 
 ```ts
-type WindowEntry = WindowInfo & {
+// Flat entry type (not WindowInfo & {...} — stores only the fields needed for display)
+type WindowEntry = {
   session: string;
-  killed: boolean;        // true = optimistically hidden, pending SSE confirmation
-  pendingName: string | null; // non-null = optimistic rename, pending SSE confirmation
+  windowId: string;
+  index: number;
+  name: string;
+  pendingName?: string;    // non-undefined = optimistic rename, pending SSE confirmation
+  killed: boolean;         // true = optimistically hidden, pending SSE confirmation
 };
 
 type GhostWindow = {
-  ghostId: string;               // client-generated unique key for React rendering
+  optimisticId: string;    // client-generated unique key for React rendering / rollback
   session: string;
   name: string;
   createdAt: number;
-  snapshotWindowIds: ReadonlySet<string>; // windowIds present in session at creation time
+  snapshotWindowIds: Set<string>; // windowIds present in session at creation time
 };
 
 type WindowStore = {
-  windows: Record<string, WindowEntry>;  // keyed by windowId (@N)
+  entries: ReadonlyMap<string, WindowEntry>;  // keyed by windowId (@N)
   ghosts: GhostWindow[];
   // actions (the only ways to mutate window state):
   setWindowsForSession(session, incoming): void;
-  addGhostWindow(session, name, currentWindowIds): string;  // returns ghostId
-  removeGhost(ghostId): void;
+  addGhostWindow(session, name, currentWindowIds?: Iterable<string>): string;  // returns optimisticId
+  removeGhost(optimisticId): void;
   killWindow(session, windowId): void;
   restoreWindow(session, windowId): void;
   renameWindow(session, windowId, newName): void;
@@ -447,7 +451,7 @@ type WindowStore = {
 };
 ```
 
-**Key identifer**: `windowId` is the tmux `@N` value (e.g., `"@3"`). It is globally unique per tmux server, assigned at window creation, and never renumbered. It is used as the store key — not the mutable numeric index.
+**Key identifier**: `windowId` is the tmux `@N` value (e.g., `"@3"`). It is globally unique per tmux server, assigned at window creation, and never renumbered. It is used as the store key — not the mutable numeric index.
 
 **`MergedWindow` type**: defined in and exported from `app/frontend/src/store/window-store.ts`. Includes `windowId: string` as a required non-optional field.
 
@@ -456,8 +460,8 @@ type WindowStore = {
 | Action | Effect |
 |--------|--------|
 | `setWindowsForSession(session, incoming)` | SSE reconciliation — merges by `windowId`, preserves `killed`/`pendingName`, removes absent windows, reconciles ghosts |
-| `addGhostWindow(session, name, currentWindowIds)` | Creates a ghost entry; returns `ghostId` for rollback |
-| `removeGhost(ghostId)` | Removes a ghost by ID (API failure rollback) |
+| `addGhostWindow(session, name, currentWindowIds?)` | Creates a ghost entry; returns `optimisticId` for rollback |
+| `removeGhost(optimisticId)` | Removes a ghost by ID (API failure rollback) |
 | `killWindow(session, windowId)` | Sets `killed: true` |
 | `restoreWindow(session, windowId)` | Sets `killed: false` (API failure rollback or always-settled cleanup) |
 | `renameWindow(session, windowId, newName)` | Sets `pendingName` |

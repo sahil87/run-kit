@@ -72,7 +72,9 @@ export function Sidebar({
 
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
   const { addToast } = useToast();
-  const { killWindow: killWindowStore, restoreWindow, clearSession } = useWindowStore();
+  const killWindowStore = useWindowStore((state) => state.killWindow);
+  const restoreWindow = useWindowStore((state) => state.restoreWindow);
+  const clearSession = useWindowStore((state) => state.clearSession);
 
   // Ctrl+click kill session (optimistic)
   const lastKillSessionRef = useRef<string | null>(null);
@@ -181,7 +183,8 @@ export function Sidebar({
 
   // Inline rename window (optimistic) — finds windowId via editingWindow state
   const lastRenameWindowRef = useRef<{ session: string; windowId: string } | null>(null);
-  const { renameWindow: renameWindowStore, clearRename } = useWindowStore();
+  const renameWindowStore = useWindowStore((state) => state.renameWindow);
+  const clearRename = useWindowStore((state) => state.clearRename);
   const { execute: executeRenameWindow } = useOptimisticAction<[string, number, string, string]>({
     action: (session, index, newName, _windowId) => renameWindow(session, index, newName),
     onOptimistic: (session, _index, newName, windowId) => {

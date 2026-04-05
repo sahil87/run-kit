@@ -128,7 +128,10 @@ function AppShell() {
 
   const { removeGhost, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
-  const { addGhostWindow: addGhostWindowStore, removeGhost: removeWindowGhost, setWindowsForSession, clearSession } = useWindowStore();
+  const addGhostWindowStore = useWindowStore((s) => s.addGhostWindow);
+  const removeWindowGhost = useWindowStore((s) => s.removeGhost);
+  const setWindowsForSession = useWindowStore((s) => s.setWindowsForSession);
+  const clearSession = useWindowStore((s) => s.clearSession);
   const ghostWindowIdRef = useRef<string | null>(null);
   const ghostServerIdRef = useRef<string | null>(null);
   const killedServerNameRef = useRef<string | null>(null);

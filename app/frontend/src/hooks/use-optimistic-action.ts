@@ -3,8 +3,14 @@ import { useState, useRef, useCallback, useEffect } from "react";
 type UseOptimisticActionOptions<TArgs extends unknown[] = []> = {
   action: (...args: TArgs) => Promise<unknown>;
   onOptimistic?: (...args: TArgs) => void;
-  onRollback?: () => void;
+  /** Called on success regardless of mount state. Must be safe to call after unmount (e.g., only interacts with root-level context). */
+  onAlwaysSettled?: () => void;
+  /** Called on failure regardless of mount state. Must be safe to call after unmount (e.g., only interacts with root-level context). */
+  onAlwaysRollback?: () => void;
+  /** Called on success only if still mounted. Safe to use with local component state. */
   onSettled?: () => void;
+  /** Called on failure only if still mounted. Safe to use with local component state. */
+  onRollback?: () => void;
   onError?: (error: Error) => void;
 };
 
@@ -29,7 +35,7 @@ export function useOptimisticAction<TArgs extends unknown[] = []>(
   }, []);
 
   const execute = useCallback((...args: TArgs) => {
-    const { action, onOptimistic, onRollback, onSettled, onError } = optionsRef.current;
+    const { action, onOptimistic, onAlwaysSettled, onAlwaysRollback, onRollback, onSettled, onError } = optionsRef.current;
 
     onOptimistic?.(...args);
     setIsPending(true);
@@ -38,13 +44,15 @@ export function useOptimisticAction<TArgs extends unknown[] = []>(
       .then(() => action(...args))
       .then(
         () => {
-          onSettled?.();                    // always runs — cleans up OptimisticContext
+          onAlwaysSettled?.();              // always runs (for global context cleanup)
           if (!mountedRef.current) return;
+          onSettled?.();                    // guarded (may update local component state)
           setIsPending(false);
         },
         (err: unknown) => {
-          onRollback?.();                   // always runs — cleans up OptimisticContext
+          onAlwaysRollback?.();             // always runs (for global context cleanup)
           if (!mountedRef.current) return;
+          onRollback?.();                   // guarded (may update local component state)
           const error = err instanceof Error ? err : new Error(String(err));
           onError?.(error);
           setIsPending(false);

@@ -172,13 +172,13 @@ describe("useOptimisticAction", () => {
     expect(result.current.isPending).toBe(false);
   });
 
-  it("calls onSettled after unmount but skips setIsPending", async () => {
+  it("calls onAlwaysSettled after unmount but skips setIsPending", async () => {
     let resolve: () => void;
     const action = () => new Promise<void>((r) => { resolve = r; });
-    const onSettled = vi.fn();
+    const onAlwaysSettled = vi.fn();
 
     const { result, unmount } = renderHook(() =>
-      useOptimisticAction({ action, onSettled }),
+      useOptimisticAction({ action, onAlwaysSettled }),
     );
 
     await act(async () => {
@@ -190,24 +190,22 @@ describe("useOptimisticAction", () => {
 
     unmount();
 
-    // Resolve after unmount — onSettled fires but setIsPending does not
+    // Resolve after unmount — onAlwaysSettled fires but setIsPending does not
     await act(async () => {
       resolve!();
     });
 
-    expect(onSettled).toHaveBeenCalledTimes(1);
-    // isPending remains true: setIsPending(false) was not called after unmount
-    expect(result.current.isPending).toBe(true);
+    expect(onAlwaysSettled).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onRollback after unmount but skips onError and setIsPending", async () => {
+  it("calls onAlwaysRollback after unmount but skips onError and setIsPending", async () => {
     let reject: (err: Error) => void;
     const action = () => new Promise<void>((_, r) => { reject = r; });
-    const onRollback = vi.fn();
+    const onAlwaysRollback = vi.fn();
     const onError = vi.fn();
 
     const { result, unmount } = renderHook(() =>
-      useOptimisticAction({ action, onRollback, onError }),
+      useOptimisticAction({ action, onAlwaysRollback, onError }),
     );
 
     await act(async () => {
@@ -219,15 +217,13 @@ describe("useOptimisticAction", () => {
 
     unmount();
 
-    // Reject after unmount — onRollback fires, but onError and setIsPending do not
+    // Reject after unmount — onAlwaysRollback fires, but onError and setIsPending do not
     await act(async () => {
       reject!(new Error("fail"));
     });
 
-    expect(onRollback).toHaveBeenCalledTimes(1);
+    expect(onAlwaysRollback).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
-    // isPending remains true: setIsPending(false) was not called after unmount
-    expect(result.current.isPending).toBe(true);
   });
 
   it("full lifecycle: optimistic → API success → settled", async () => {

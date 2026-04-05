@@ -73,7 +73,7 @@ export function Sidebar({
       lastKillSessionRef.current = name;
       markKilled("session", name);
     },
-    onRollback: () => {
+    onAlwaysRollback: () => {
       if (lastKillSessionRef.current) unmarkKilled(lastKillSessionRef.current);
     },
     onError: (err) => {
@@ -90,10 +90,10 @@ export function Sidebar({
       lastKillWindowRef.current = id;
       markKilled("window", id);
     },
-    onRollback: () => {
+    onAlwaysRollback: () => {
       if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
     },
-    onSettled: () => {
+    onAlwaysSettled: () => {
       if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
       lastKillWindowRef.current = null;
     },
@@ -120,7 +120,7 @@ export function Sidebar({
         markKilled("session", target.session);
       }
     },
-    onRollback: () => {
+    onAlwaysRollback: () => {
       const target = killTargetRef.current;
       if (!target) return;
       if (target.type === "window" && target.windowIndex != null) {
@@ -129,7 +129,7 @@ export function Sidebar({
         unmarkKilled(target.session);
       }
     },
-    onSettled: () => {
+    onAlwaysSettled: () => {
       const target = killTargetRef.current;
       if (!target) return;
       if (target.type === "window" && target.windowIndex != null) {

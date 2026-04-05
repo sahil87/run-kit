@@ -400,7 +400,20 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 
 ## Optimistic UI & Mutation Feedback
 
-All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hooks/use-optimistic-action.ts`) which provides `{ execute, isPending }`. The hook calls `onOptimistic` synchronously before the async API call, tracks `isPending`, and calls `onRollback` + `onError` on failure. An unmount guard (`mountedRef`) prevents state-after-unmount warnings for `setIsPending` and `onError` — but `onSettled` and `onRollback` are called **before** the guard and always run regardless of mount state, since they interact only with root-level context setters (`OptimisticContext`) that are always mounted.
+All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hooks/use-optimistic-action.ts`) which provides `{ execute, isPending }`. The hook calls `onOptimistic` synchronously before the async API call, tracks `isPending`, and calls `onRollback`/`onError` on failure and `onSettled` on success. An unmount guard (`mountedRef`) prevents state-after-unmount warnings.
+
+**Callback contract** — four optional result callbacks with distinct mount-safety guarantees:
+
+| Callback | Called on | Mount guard | Use for |
+|----------|-----------|-------------|---------|
+| `onAlwaysSettled` | success | none — always fires | Root-level context cleanup (e.g., `unmarkKilled`) |
+| `onAlwaysRollback` | failure | none — always fires | Root-level context cleanup (e.g., `unmarkKilled`) |
+| `onSettled` | success | behind `mountedRef` | Local component state updates |
+| `onRollback` | failure | behind `mountedRef` | Local component state updates |
+
+`onAlwaysSettled`/`onAlwaysRollback` MUST be safe to call after the initiating component unmounts — i.e., they may only interact with root-level contexts like `OptimisticContext` (always mounted for the lifetime of the app). Using local component state or `setState` in these callbacks will cause state-after-unmount warnings. Use `onSettled`/`onRollback` for anything that touches local component state.
+
+`onError` is also behind the `mountedRef` guard (safe to call `addToast` — `ToastProvider` is root-level, but error display is only meaningful when the user can see it).
 
 **Three feedback patterns:**
 
@@ -414,11 +427,11 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 
 **Type guard**: `isGhostWindow(win)` exported from `optimistic-context.tsx` — narrows `WindowInfo | MergedWindow` to `MergedWindow & { optimistic: true }`. Used in sidebar and dashboard instead of `as` casts.
 
-### Window Kill: `onSettled` Cleanup Requirement
+### Window Kill: `onAlwaysSettled`/`onAlwaysRollback` Cleanup Requirement
 
 After a window kill API call **succeeds**, `unmarkKilled` MUST be called to remove the stale optimistic killed entry. Without this, tmux's automatic window renumbering causes an index collision: when window N is killed, tmux renumbers window N+1 → N. The next SSE update delivers a real window at index N, but the stale `killed["session:N"]` entry in `OptimisticProvider` filters it out, making it appear as though two windows were removed.
 
-The `onRollback` path already calls `unmarkKilled` on API failure. The `onSettled` callback (success only) handles the success case. Critically, both callbacks run **outside** the `mountedRef` guard — they fire even if the initiating component unmounts before the API call resolves (e.g., when the sidebar kill button triggers a navigation away before the HTTP response arrives). These two hooks together cover all terminal states without double-invoking.
+The `onAlwaysRollback` callback calls `unmarkKilled` on API failure. The `onAlwaysSettled` callback (success only) handles the success case. Both use the `onAlways*` variants so they fire even if the initiating component unmounts before the API call resolves (e.g., when the sidebar kill button triggers a navigation away before the HTTP response arrives). These two callbacks together cover all terminal states without double-invoking.
 
 **Three `useOptimisticAction` instances** must implement this pattern:
 
@@ -428,7 +441,7 @@ The `onRollback` path already calls `unmarkKilled` on API failure. The `onSettle
 | `executeKillFromDialog` | `app/frontend/src/components/sidebar.tsx` | Confirmation dialog kill |
 | `executeKillWindow` | `app/frontend/src/hooks/use-dialog-state.ts` | Command palette kill |
 
-**Null guard**: `executeKillFromDialog`'s `onSettled` must check `killTargetRef.current` before calling `unmarkKilled` — the ref may be null if the component unmounts before the API call settles.
+**Null guard**: `executeKillFromDialog`'s `onAlwaysSettled`/`onAlwaysRollback` must check `killTargetRef.current` before calling `unmarkKilled` — the ref may be null if the component unmounts before the API call settles.
 
 **Session kills are exempt**: Session names are stable across kills (tmux never renumbers sessions). The index-collision mechanism is window-specific only.
 
@@ -482,4 +495,4 @@ The `onRollback` path already calls `unmarkKilled` on API failure. The `onSettle
 | 2026-04-04 | Window move & reorder — CmdK "Window: Move Left/Right" actions (boundary-excluded, navigate after swap), sidebar drag-and-drop window reordering via native HTML5 DnD (same-session only, accent drop indicator, no external library) | `260404-29qz-window-move-reorder` |
 | 2026-04-04 | Cross-session window move — CmdK "Window: Move to {name}" actions (one per other session, flat list), cross-session drag-and-drop to session headers (accent border feedback), `moveWindowToSession` API client function, post-move navigation to `/$server` (server dashboard) | `260404-dq70-move-window-between-sessions` |
 | 2026-04-04 | Fix sidebar kill hides extra window — `onSettled` callbacks added to all three `useOptimisticAction` kill instances (`executeKillWindow` in sidebar, `executeKillFromDialog` in sidebar, `executeKillWindow` in use-dialog-state) to call `unmarkKilled` after success, preventing tmux index-renumbering from causing index collision on next SSE update | `260404-dsq9-sidebar-kill-hides-extra-window` |
-| 2026-04-05 | Fix left panel window sync — `onSettled`/`onRollback` moved before `mountedRef` guard in `use-optimistic-action.ts` so they always fire even when the initiating component unmounts before API resolution. Previously a kill-then-navigate scenario left a stale `killed` entry in `OptimisticContext`, suppressing any real window that arrived at the same index in the next SSE poll. New E2E test `sidebar-window-sync.spec.ts` covers: external window creation, window rename, and kill-then-create at same index. | `260405-2a2k-left-panel-window-sync` |
+| 2026-04-05 | Fix left panel window sync — introduced `onAlwaysSettled`/`onAlwaysRollback` callbacks to `useOptimisticAction` that fire regardless of mount state (for root-level context cleanup like `unmarkKilled`), while `onSettled`/`onRollback` remain behind `mountedRef` guard (safe for local component state). Kill handlers in `sidebar.tsx` and `use-dialog-state.ts` migrated to `onAlways*`. E2E test `sidebar-window-sync.spec.ts` rewritten to be self-contained per test with unique window names and Scenario 3 using `page.route()` to intercept the kill API and exercise the unmount-before-response path. | `260405-2a2k-left-panel-window-sync` |

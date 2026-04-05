@@ -1,5 +1,14 @@
 # Archived Changes
 
+- **260405-x3yt-sidebar-window-state-zustand** — Rewrite sidebar window state management with Zustand using immutable identifiers instead of mutable indexes to fix deletion/rename bugs.
+- **260405-3mt2-session-inline-rename** — Add double-click inline rename for session names in sidebar, matching the existing window name rename pattern.
+- **260405-2a2k-left-panel-window-sync** — Fix left panel window sync so externally created windows (e.g., via wt create) appear in sidebar without page refresh.
+- **260404-xmrw-fix-dashboard-dropdown-scroll** — Fix dashboard and breadcrumb dropdown scrollability by adding min-h-0 to flexbox chain and max-h/overflow-y to dropdown menus.
+- **260404-dsq9-sidebar-kill-hides-extra-window** — Fix sidebar kill hiding two windows by clearing stale optimistic kill state after successful kill API response.
+- **260404-dq70-move-window-between-sessions** — Add cross-session window moves via CmdK palette and sidebar drag-and-drop between sessions.
+- **260404-29qz-window-move-reorder** — Add window move/reorder via CmdK command palette actions and sidebar drag-and-drop for organizing tmux windows.
+- **260403-xnq5-new-pane-inherit-cwd** — Make new panes inherit the current working directory of the active pane instead of defaulting to project root.
+- **260403-d3i1-ctrl-click-force-kill-window** — Add Ctrl+Click on sidebar kill buttons to force-kill windows/sessions without confirmation dialog.
 - **260403-32la-optimistic-ui-feedback** — Add optimistic UI feedback for all mutating actions with SSE reconciliation, eliminating 100-500ms dead zones after user interactions.
 - **260328-wxrh-source-rk-tmux-configs** — Add multi-file tmux config sourcing from ~/.rk/tmux.d/ directory so users can extend base config without modification.
 - **260328-d7s5-change-tmux-prefix** — Change tmux prefix key configuration for run-kit's dedicated tmux server.

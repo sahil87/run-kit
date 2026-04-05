@@ -18,7 +18,8 @@ import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
-import { selectWindow, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { deriveNameFromPath } from "@/components/create-session-dialog";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -50,6 +51,22 @@ function readSidebarWidth(): number {
     // localStorage unavailable
   }
   return SIDEBAR_DEFAULT_WIDTH;
+}
+
+/**
+ * Derive a session name from an optional working directory path, falling back
+ * to "session", and deduplicate against existing session names by appending
+ * -2 through -10; beyond that appends -11 (best-effort).
+ */
+function deriveInstantSessionName(cwd: string | undefined, existingNames: string[]): string {
+  const base = (cwd ? deriveNameFromPath(cwd) : "") || "session";
+  const nameSet = new Set(existingNames);
+  if (!nameSet.has(base)) return base;
+  for (let i = 2; i <= 10; i++) {
+    const candidate = `${base}-${i}`;
+    if (!nameSet.has(candidate)) return candidate;
+  }
+  return `${base}-11`;
 }
 
 /** Root wrapper — provides theme and chrome contexts, renders matched route via Outlet. */
@@ -125,14 +142,17 @@ function AppShell() {
   const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
+  const [showCreateSessionAtFolderDialog, setShowCreateSessionAtFolderDialog] = useState(false);
+  const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
 
-  const { removeGhost, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
+  const { removeGhost, addGhostSession, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
   const addGhostWindowStore = useWindowStore((s) => s.addGhostWindow);
   const removeWindowGhost = useWindowStore((s) => s.removeGhost);
   const setWindowsForSession = useWindowStore((s) => s.setWindowsForSession);
   const clearSession = useWindowStore((s) => s.clearSession);
   const ghostWindowIdRef = useRef<string | null>(null);
+  const ghostSessionIdRef = useRef<string | null>(null);
   const ghostServerIdRef = useRef<string | null>(null);
   const killedServerNameRef = useRef<string | null>(null);
 
@@ -315,7 +335,7 @@ function AppShell() {
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
   dialogOpenRef.current =
-    dialogs.showCreateDialog || dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || showKillServerConfirm || showTmuxCommands;
+    dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || showKillServerConfirm || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -347,6 +367,33 @@ function AppShell() {
       ghostWindowIdRef.current = null;
     },
   });
+
+  // Instant session creation — derives name from active window's CWD, deduplicates, no dialog
+  const { execute: executeCreateSessionInstant } = useOptimisticAction<[string, string | undefined]>({
+    action: (name, cwd) => createSession(name, cwd),
+    onOptimistic: (name) => {
+      ghostSessionIdRef.current = addGhostSession(name);
+    },
+    onRollback: () => {
+      if (ghostSessionIdRef.current) {
+        removeGhost(ghostSessionIdRef.current);
+        ghostSessionIdRef.current = null;
+      }
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to create session");
+    },
+    onSettled: () => {
+      ghostSessionIdRef.current = null;
+    },
+  });
+
+  const handleCreateSessionInstant = useCallback(() => {
+    const cwd = currentWindow?.worktreePath;
+    const existingNames = sessions.map((s) => s.name);
+    const name = deriveInstantSessionName(cwd, existingNames);
+    executeCreateSessionInstant(name, cwd || undefined);
+  }, [currentWindow, sessions, executeCreateSessionInstant]);
 
   const handleCreateWindow = useCallback(
     (session: string) => {
@@ -466,7 +513,12 @@ function AppShell() {
       {
         id: "create-session",
         label: "Session: Create",
-        onSelect: dialogs.openCreateDialog,
+        onSelect: handleCreateSessionInstant,
+      },
+      {
+        id: "create-session-at-folder",
+        label: "Session: Create at Folder",
+        onSelect: () => setShowCreateSessionAtFolderDialog(true),
       },
       ...(sessionName
         ? [
@@ -487,7 +539,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, dialogs],
+    [sessionName, dialogs, handleCreateSessionInstant, setShowCreateSessionAtFolderDialog],
   );
 
   // Compute min/max window indices for current session (for move boundary checks)
@@ -509,6 +561,11 @@ function AppShell() {
               onSelect: () => {
                 if (sessionName) handleCreateWindow(sessionName);
               },
+            },
+            {
+              id: "create-window-at-folder",
+              label: "Window: Create at Folder",
+              onSelect: () => setShowCreateWindowAtFolderDialog(true),
             },
           ]
         : []),
@@ -622,7 +679,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server],
+    [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, setShowCreateWindowAtFolderDialog],
   );
 
   const viewActions: PaletteAction[] = useMemo(
@@ -738,7 +795,7 @@ function AppShell() {
           onNavigate={navigateToWindow}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
-          onCreateSession={dialogs.openCreateDialog}
+          onCreateSession={handleCreateSessionInstant}
           onCreateWindow={handleCreateWindow}
           onOpenCompose={() => setComposeOpen((v) => !v)}
         />
@@ -759,7 +816,7 @@ function AppShell() {
                 currentWindowIndex={windowIndex ?? null}
                 onSelectWindow={navigateToWindow}
                 onCreateWindow={handleCreateWindow}
-                onCreateSession={dialogs.openCreateDialog}
+                onCreateSession={handleCreateSessionInstant}
                 server={server}
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
@@ -813,7 +870,7 @@ function AppShell() {
               <Dashboard
                 sessions={sessions}
                 onNavigate={navigateToWindow}
-                onCreateSession={dialogs.openCreateDialog}
+                onCreateSession={handleCreateSessionInstant}
                 onCreateWindow={handleCreateWindow}
               />
             )}
@@ -836,7 +893,7 @@ function AppShell() {
                   navigateToWindow(s, w);
                 }}
                 onCreateWindow={handleCreateWindow}
-                onCreateSession={dialogs.openCreateDialog}
+                onCreateSession={handleCreateSessionInstant}
                 server={server}
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
@@ -850,11 +907,24 @@ function AppShell() {
       </div>
 
       {/* Dialogs */}
-      {dialogs.showCreateDialog && (
+      {showCreateSessionAtFolderDialog && (
         <Suspense fallback={null}>
           <CreateSessionDialog
             sessions={sessions}
-            onClose={dialogs.closeCreateDialog}
+            defaultPath={currentWindow?.worktreePath}
+            onClose={() => setShowCreateSessionAtFolderDialog(false)}
+          />
+        </Suspense>
+      )}
+
+      {showCreateWindowAtFolderDialog && sessionName && (
+        <Suspense fallback={null}>
+          <CreateSessionDialog
+            sessions={sessions}
+            mode="window"
+            session={sessionName}
+            defaultPath={currentWindow?.worktreePath}
+            onClose={() => setShowCreateWindowAtFolderDialog(false)}
           />
         </Suspense>
       )}

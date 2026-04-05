@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { createSession, getDirectories } from "@/api/client";
+import { createSession, createWindow, getDirectories } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -9,12 +9,18 @@ import type { ProjectSession } from "@/types";
 type CreateSessionDialogProps = {
   sessions: ProjectSession[];
   onClose: () => void;
+  /** Pre-fill the path input on mount. */
+  defaultPath?: string;
+  /** When "window": creates a window in the given session instead of a new session. */
+  mode?: "session" | "window";
+  /** Required when mode === "window": the session to create the window in. */
+  session?: string;
 };
 
 /** Convert a directory name into a tmux-safe session name.
  *  Strip colons and periods (tmux forbids them), replace hyphens with
  *  underscores to avoid collisions with session-group naming. */
-function toTmuxSafeName(dirName: string): string {
+export function toTmuxSafeName(dirName: string): string {
   return dirName
     .replace(/[-]/g, "_")
     .replace(/[:.]/g, "_")
@@ -22,16 +28,16 @@ function toTmuxSafeName(dirName: string): string {
     .replace(/^_|_$/g, "");
 }
 
-function deriveNameFromPath(p: string): string {
+export function deriveNameFromPath(p: string): string {
   const trimmed = p.replace(/\/+$/, "");
   if (trimmed === "~" || trimmed === "") return "";
   const segment = trimmed.split("/").pop() ?? "";
   return toTmuxSafeName(segment);
 }
 
-export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogProps) {
+export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "session", session }: CreateSessionDialogProps) {
   const [name, setName] = useState("");
-  const [path, setPath] = useState("");
+  const [path, setPath] = useState(defaultPath ?? "");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
@@ -181,7 +187,21 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
     },
   });
 
+  const { execute: executeCreateWindowAction } = useOptimisticAction<[string, string | undefined]>({
+    action: (targetSession, cwd) => createWindow(targetSession, "zsh", cwd),
+    onError: (err) => {
+      setError(err.message || "Failed to create window");
+    },
+  });
+
   function handleCreate() {
+    if (mode === "window") {
+      if (!session) return;
+      executeCreateWindowAction(session, path.trim() || undefined);
+      onClose();
+      return;
+    }
+
     let trimmedName = name.trim();
     if (!trimmedName && path.trim()) {
       trimmedName = deriveNameFromPath(path.trim());
@@ -196,8 +216,13 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
     onClose();
   }
 
+  const dialogTitle = mode === "window" ? "Create window at folder" : "Create session";
+  const isCreateDisabled = mode === "window"
+    ? false
+    : (!name.trim() && !path.trim()) || nameCollision;
+
   return (
-    <Dialog title="Create session" onClose={onClose}>
+    <Dialog title={dialogTitle} onClose={onClose}>
       {/* Path input with combobox dropdown */}
       <div className="relative mb-3">
         <p className="text-xs text-text-secondary mb-1.5">Path:</p>
@@ -262,30 +287,32 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
         )}
       </div>
 
-      {/* Session name input */}
-      <div className="mb-3">
-        <p className="text-xs text-text-secondary mb-1.5">Session name:</p>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            setError("");
-          }}
-          onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-          aria-label="Session name"
-          aria-invalid={nameCollision}
-          placeholder="Session name..."
-          className={`w-full bg-transparent text-text-primary p-2 border rounded outline-none placeholder:text-text-secondary ${
-            nameCollision ? "border-red-500" : "border-border"
-          }`}
-        />
-        {nameCollision && (
-          <p className="text-xs text-red-400 mt-1">
-            Session "{name.trim()}" already exists
-          </p>
-        )}
-      </div>
+      {/* Session name input — hidden in window mode */}
+      {mode !== "window" && (
+        <div className="mb-3">
+          <p className="text-xs text-text-secondary mb-1.5">Session name:</p>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setError("");
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+            aria-label="Session name"
+            aria-invalid={nameCollision}
+            placeholder="Session name..."
+            className={`w-full bg-transparent text-text-primary p-2 border rounded outline-none placeholder:text-text-secondary ${
+              nameCollision ? "border-red-500" : "border-border"
+            }`}
+          />
+          {nameCollision && (
+            <p className="text-xs text-red-400 mt-1">
+              Session "{name.trim()}" already exists
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Error message */}
       {error && (
@@ -294,7 +321,7 @@ export function CreateSessionDialog({ sessions, onClose }: CreateSessionDialogPr
 
       <button
         onClick={handleCreate}
-        disabled={(!name.trim() && !path.trim()) || nameCollision}
+        disabled={isCreateDisabled}
         className="w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Create

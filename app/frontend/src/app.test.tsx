@@ -256,3 +256,148 @@ describe("CmdK Move Window to Session Actions", () => {
     expect(onMove).toHaveBeenCalledWith("bravo");
   });
 });
+
+/**
+ * Tests for quick session/window launch actions (260405-gle4-quick-session-launch).
+ *
+ * These test the session/window creation action generation logic as it would
+ * appear in the palette — mirrors the pattern used by the move-window tests above.
+ */
+
+/** Build sessionActions matching the pattern in app.tsx. */
+function buildSessionActions(opts: {
+  sessionName: string | undefined;
+  onCreateInstant: () => void;
+  onCreateAtFolder: () => void;
+  onRenameSession?: () => void;
+  onKillSession?: () => void;
+}): PaletteAction[] {
+  const actions: PaletteAction[] = [
+    { id: "create-session", label: "Session: Create", onSelect: opts.onCreateInstant },
+    { id: "create-session-at-folder", label: "Session: Create at Folder", onSelect: opts.onCreateAtFolder },
+  ];
+  if (opts.sessionName) {
+    actions.push(
+      { id: "rename-session", label: "Session: Rename", onSelect: opts.onRenameSession ?? vi.fn() },
+      { id: "kill-session", label: "Session: Kill", onSelect: opts.onKillSession ?? vi.fn() },
+    );
+  }
+  return actions;
+}
+
+/** Build window creation actions matching the pattern in app.tsx. */
+function buildWindowCreationActions(opts: {
+  sessionName: string | undefined;
+  onCreateWindow: () => void;
+  onCreateWindowAtFolder: () => void;
+}): PaletteAction[] {
+  if (!opts.sessionName) return [];
+  return [
+    { id: "create-window", label: "Window: Create", onSelect: opts.onCreateWindow },
+    { id: "create-window-at-folder", label: "Window: Create at Folder", onSelect: opts.onCreateWindowAtFolder },
+  ];
+}
+
+describe("CmdK Session Creation Actions", () => {
+  afterEach(cleanup);
+
+  it("Session: Create triggers instant creation (calls onCreateInstant, not a dialog)", () => {
+    const onCreateInstant = vi.fn();
+    const onCreateAtFolder = vi.fn();
+    const actions = buildSessionActions({ sessionName: undefined, onCreateInstant, onCreateAtFolder });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Session: Create" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onCreateInstant).toHaveBeenCalledOnce();
+    expect(onCreateAtFolder).not.toHaveBeenCalled();
+  });
+
+  it("Session: Create at Folder appears in palette and calls onCreateAtFolder", () => {
+    const onCreateInstant = vi.fn();
+    const onCreateAtFolder = vi.fn();
+    const actions = buildSessionActions({ sessionName: "my-session", onCreateInstant, onCreateAtFolder });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Create at Folder" } });
+
+    expect(screen.getByText("Session: Create at Folder")).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onCreateAtFolder).toHaveBeenCalledOnce();
+    expect(onCreateInstant).not.toHaveBeenCalled();
+  });
+
+  it("both Session: Create and Session: Create at Folder appear when searching 'create'", () => {
+    const actions = buildSessionActions({
+      sessionName: "my-session",
+      onCreateInstant: vi.fn(),
+      onCreateAtFolder: vi.fn(),
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "create" } });
+
+    expect(screen.getByText("Session: Create")).toBeInTheDocument();
+    expect(screen.getByText("Session: Create at Folder")).toBeInTheDocument();
+  });
+});
+
+describe("CmdK Window At-Folder Action", () => {
+  afterEach(cleanup);
+
+  it("Window: Create at Folder appears when session is active", () => {
+    const onCreateWindowAtFolder = vi.fn();
+    const actions = buildWindowCreationActions({
+      sessionName: "my-session",
+      onCreateWindow: vi.fn(),
+      onCreateWindowAtFolder,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText("Window: Create at Folder")).toBeInTheDocument();
+  });
+
+  it("Window: Create at Folder is absent when no session is active", () => {
+    const actions = buildWindowCreationActions({
+      sessionName: undefined,
+      onCreateWindow: vi.fn(),
+      onCreateWindowAtFolder: vi.fn(),
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Window: Create at Folder")).not.toBeInTheDocument();
+  });
+
+  it("Window: Create at Folder onSelect fires correctly", () => {
+    const onCreateWindowAtFolder = vi.fn();
+    const actions = buildWindowCreationActions({
+      sessionName: "my-session",
+      onCreateWindow: vi.fn(),
+      onCreateWindowAtFolder,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Window: Create at Folder" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onCreateWindowAtFolder).toHaveBeenCalledOnce();
+  });
+});

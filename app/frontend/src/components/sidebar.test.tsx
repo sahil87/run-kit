@@ -185,6 +185,16 @@ describe("Sidebar", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  it("empty state + New Session button calls onCreateSession directly (no dialog)", () => {
+    const onCreateSession = vi.fn();
+    renderSidebar({ sessions: [], onCreateSession });
+    const btn = screen.getByText("+ New Session");
+    fireEvent.click(btn);
+    // onCreateSession is called directly — no CreateSessionDialog should appear
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   // Inline rename tests (dcl9)
   describe("inline rename", () => {
     it("double-click on window name activates inline input", () => {

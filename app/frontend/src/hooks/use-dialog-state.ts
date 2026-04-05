@@ -14,7 +14,6 @@ type UseDialogStateOptions = {
 };
 
 export function useDialogState({ sessionName, windowIndex, windowId, onKillComplete, onSessionRenamed }: UseDialogStateOptions) {
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [showRenameSessionDialog, setShowRenameSessionDialog] = useState(false);
   const [showKillConfirm, setShowKillConfirm] = useState(false);
@@ -35,9 +34,6 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
   const lastRenameWindowRef = useRef<string | null>(null);
   const lastKillSessionRef = useRef<string | null>(null);
   const lastKillWindowRef = useRef<string | null>(null);
-
-  const openCreateDialog = useCallback(() => setShowCreateDialog(true), []);
-  const closeCreateDialog = useCallback(() => setShowCreateDialog(false), []);
 
   const openRenameDialog = useCallback(
     (currentName: string) => {
@@ -167,7 +163,6 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
   }, [sessionName, windowIndex, windowId, onKillComplete, executeKillWindow]);
 
   return useMemo(() => ({
-    showCreateDialog,
     showRenameDialog,
     showRenameSessionDialog,
     showKillConfirm,
@@ -176,8 +171,6 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
     setRenameName,
     renameSessionName,
     setRenameSessionName,
-    openCreateDialog,
-    closeCreateDialog,
     openRenameDialog,
     closeRenameDialog,
     openRenameSessionDialog,
@@ -191,15 +184,12 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
     handleKillSession,
     handleKillWindow,
   }), [
-    showCreateDialog,
     showRenameDialog,
     showRenameSessionDialog,
     showKillConfirm,
     showKillSessionConfirm,
     renameName,
     renameSessionName,
-    openCreateDialog,
-    closeCreateDialog,
     openRenameDialog,
     closeRenameDialog,
     openRenameSessionDialog,

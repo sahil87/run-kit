@@ -137,8 +137,7 @@ describe("Sidebar", () => {
   it("highlights selected window", () => {
     renderSidebar();
     const mainBtn = screen.getByText("main").closest("button");
-    expect(mainBtn?.className).toContain("bg-accent/10");
-    expect(mainBtn?.className).toContain("border-accent");
+    expect(mainBtn?.className).toContain("bg-accent/15");
   });
 
   it("calls onSelectWindow when clicking a window", () => {

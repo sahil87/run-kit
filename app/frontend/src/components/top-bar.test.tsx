@@ -19,6 +19,7 @@ const nowSeconds = Math.floor(Date.now() / 1000);
 
 const fabWindow: WindowInfo = {
   index: 0,
+  windowId: "@0",
   name: "main",
   worktreePath: "~/code/run-kit",
   activity: "active",
@@ -32,6 +33,7 @@ const fabWindow: WindowInfo = {
 
 const nonFabIdleWindow: WindowInfo = {
   index: 0,
+  windowId: "@1",
   name: "dev",
   worktreePath: "~/code/ao-server",
   activity: "idle",

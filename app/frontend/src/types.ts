@@ -6,6 +6,7 @@ export type ProjectSession = {
 
 /** A single tmux window within a session. */
 export type WindowInfo = {
+  windowId: string;
   index: number;
   name: string;
   worktreePath: string;

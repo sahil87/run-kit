@@ -24,6 +24,7 @@ const sessions: ProjectSession[] = [
     windows: [
       {
         index: 0,
+        windowId: "@0",
         name: "main",
         worktreePath: "~/code/run-kit",
         activity: "active",
@@ -36,6 +37,7 @@ const sessions: ProjectSession[] = [
       },
       {
         index: 1,
+        windowId: "@1",
         name: "scratch",
         worktreePath: "~/code/run-kit",
         activity: "idle",
@@ -54,6 +56,7 @@ const sessions: ProjectSession[] = [
     windows: [
       {
         index: 0,
+        windowId: "@2",
         name: "dev",
         worktreePath: "~/code/ao-server",
         activity: "idle",
@@ -759,6 +762,7 @@ describe("Sidebar", () => {
             ...sessions[0].windows,
             {
               index: 99,
+              windowId: "",
               name: "ghost-win",
               worktreePath: "",
               activity: "idle" as const,
@@ -786,6 +790,7 @@ describe("Sidebar", () => {
             ...sessions[0].windows,
             {
               index: 0, // same index as real window — key collision without optimisticId
+              windowId: "",
               name: "new-window",
               worktreePath: "",
               activity: "idle" as const,

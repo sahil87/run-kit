@@ -144,7 +144,7 @@ The Ctrl+Click force-kill pattern matches the established "modifier = power acti
    - **Path**: `worktreePath` — always shown
    - **State**: `activity` + agent state + duration (e.g., `idle · idle · 2m`) — always shown
 
-Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:windowIndex`. Visually distinct from action menus (read-only info card, not clickable items).
+Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:windowId`. Visually distinct from action menus (read-only info card, not clickable items).
 
 **Empty state**: When no sessions exist (`sessions.length === 0`), the sidebar displays "No sessions" text with a centered `+ New Session` button. The button triggers the same session creation flow as the breadcrumb dropdown's `+ New Session` action.
 
@@ -155,7 +155,7 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 - Escape cancels editing. A `cancelledRef` / `sessionCancelledRef` prevents blur from committing after an Escape (or cross-cancel).
 - Single-click behavior is preserved (navigate to window / navigate to session's first window) — only `onDoubleClick` triggers editing.
 
-**Window rename**: calls `renameWindow(session, index, newName)` via `useOptimisticAction`. The UI updates immediately via `markRenamed("window", ...)`; on API failure it rolls back the optimistic rename and shows a toast error. SSE still reconciles the canonical updated name once the server event arrives.
+**Window rename**: calls `renameWindow(session, index, newName)` via `useOptimisticAction`. The UI updates immediately via `windowStore.renameWindow(session, windowId, newName)`; on API failure it rolls back via `windowStore.clearRename(session, windowId)` and shows a toast error. SSE still reconciles the canonical updated name once the server event arrives.
 
 **Session rename**: calls `renameSession(oldName, newName)` via `useOptimisticAction`. The UI updates immediately via `markRenamed("session", oldName, newName)`; on API failure it rolls back via `unmarkRenamed(oldName)` and shows a toast error. The dialog-based session rename in `app.tsx` remains unchanged — inline editing is an additional path.
 
@@ -409,6 +409,78 @@ Every tmux session is a project — derived from tmux, no config file needed. Pr
 
 Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "exited" state.
 
+## Zustand Window Store
+
+Window optimistic state is managed by a Zustand store at `app/frontend/src/store/window-store.ts`. This is the single source of truth for what windows are visible and what their display names are during the period between a user action and its SSE confirmation.
+
+**Store location**: `app/frontend/src/store/window-store.ts`
+
+**Store shape:**
+
+```ts
+// Flat entry type (not WindowInfo & {...} — stores only the fields needed for display)
+type WindowEntry = {
+  session: string;
+  windowId: string;
+  index: number;
+  name: string;
+  pendingName?: string;    // non-undefined = optimistic rename, pending SSE confirmation
+  killed: boolean;         // true = optimistically hidden, pending SSE confirmation
+};
+
+type GhostWindow = {
+  optimisticId: string;    // client-generated unique key for React rendering / rollback
+  session: string;
+  name: string;
+  createdAt: number;
+  snapshotWindowIds: Set<string>; // windowIds present in session at creation time
+};
+
+type WindowStore = {
+  entries: ReadonlyMap<string, WindowEntry>;  // keyed by windowId (@N)
+  ghosts: GhostWindow[];
+  // actions (the only ways to mutate window state):
+  setWindowsForSession(session, incoming): void;
+  addGhostWindow(session, name, currentWindowIds?: Iterable<string>): string;  // returns optimisticId
+  removeGhost(optimisticId): void;
+  killWindow(session, windowId): void;
+  restoreWindow(session, windowId): void;
+  renameWindow(session, windowId, newName): void;
+  clearRename(session, windowId): void;
+  clearSession(session): void;
+};
+```
+
+**Key identifier**: `windowId` is the tmux `@N` value (e.g., `"@3"`). It is globally unique per tmux server, assigned at window creation, and never renumbered. It is used as the store key — not the mutable numeric index.
+
+**`MergedWindow` type**: defined in and exported from `app/frontend/src/store/window-store.ts`. Includes `windowId: string` as a required non-optional field.
+
+**Action surface (minimal by design)**:
+
+| Action | Effect |
+|--------|--------|
+| `setWindowsForSession(session, incoming)` | SSE reconciliation — merges by `windowId`, preserves `killed`/`pendingName`, removes absent windows, reconciles ghosts |
+| `addGhostWindow(session, name, currentWindowIds?)` | Creates a ghost entry; returns `optimisticId` for rollback |
+| `removeGhost(optimisticId)` | Removes a ghost by ID (API failure rollback) |
+| `killWindow(session, windowId)` | Sets `killed: true` |
+| `restoreWindow(session, windowId)` | Sets `killed: false` (API failure rollback or always-settled cleanup) |
+| `renameWindow(session, windowId, newName)` | Sets `pendingName` |
+| `clearRename(session, windowId)` | Clears `pendingName` (settled or rollback) |
+| `clearSession(session)` | Removes all windows and ghosts for the session |
+
+**SSE sync**: `AppShell` (in `app.tsx`) calls `setWindowsForSession(s.name, s.windows)` for each session in a `useEffect` on `rawSessions`. This keeps the store in sync with the SSE ground truth.
+
+**Ghost reconciliation**: When `setWindowsForSession` is called, it computes `newIds = incomingIds − priorKnownIds`. For each ghost (oldest first) whose `snapshotWindowIds` does not contain any element of `newIds`, the ghost is removed. This set-difference approach is more reliable than count-based reconciliation — it handles concurrent creates/deletes without false positives.
+
+**useMergedSessions**: `useMergedSessions` in `optimistic-context.tsx` derives window data from the Zustand store rather than from raw `session.windows`. For each session: filters `killed: true` entries, applies `pendingName ?? name` for display, sorts by `index`, then appends ghosts.
+
+**Consumers use the store via `useWindowStore()` hook**:
+```ts
+const { killWindow, restoreWindow, renameWindow, clearRename } = useWindowStore();
+```
+
+**Session/server state** (ghost sessions, ghost servers, session kill/rename) remains in `OptimisticContext` — these use name-based keys and are not subject to index-collision bugs.
+
 ## Optimistic UI & Mutation Feedback
 
 All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hooks/use-optimistic-action.ts`) which provides `{ execute, isPending }`. The hook calls `onOptimistic` synchronously before the async API call, tracks `isPending`, and calls `onRollback`/`onError` on failure and `onSettled` on success. An unmount guard (`mountedRef`) prevents state-after-unmount warnings.
@@ -422,13 +494,13 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 | `onSettled` | success | behind `mountedRef` | Local component state updates |
 | `onRollback` | failure | behind `mountedRef` | Local component state updates |
 
-`onAlwaysSettled`/`onAlwaysRollback` MUST be safe to call after the initiating component unmounts — i.e., they may only interact with root-level contexts like `OptimisticContext` (always mounted for the lifetime of the app). Using local component state or `setState` in these callbacks will cause state-after-unmount warnings. Use `onSettled`/`onRollback` for anything that touches local component state.
+`onAlwaysSettled`/`onAlwaysRollback` MUST be safe to call after the initiating component unmounts — i.e., they may only interact with root-level stores/contexts like `OptimisticContext` or the Zustand window store (both always available for the lifetime of the app). Using local component state or `setState` in these callbacks will cause state-after-unmount warnings. Use `onSettled`/`onRollback` for anything that touches local component state.
 
 `onError` is also behind the `mountedRef` guard (safe to call `addToast` — `ToastProvider` is root-level, but error display is only meaningful when the user can see it).
 
 **Three feedback patterns:**
 
-1. **Ghost entries** (CRUD operations): Creating a session/window/server immediately inserts a ghost entry with `opacity-50 animate-pulse` styling. SSE reconciliation auto-clears ghosts when real data arrives. Failure removes the ghost and shows an error toast. Kill operations immediately hide the entry; failure restores it. Rename operations immediately update the displayed name; failure reverts. Ghost state managed by `OptimisticProvider` context (`app/frontend/src/contexts/optimistic-context.tsx`), exposed via `useMergedSessions(realSessions)` which merges ghosts with SSE data.
+1. **Ghost entries** (CRUD operations): Creating a session/window/server immediately inserts a ghost entry with `opacity-50 animate-pulse` styling. SSE reconciliation auto-clears ghosts when real data arrives. Failure removes the ghost and shows an error toast. Kill operations immediately hide the entry; failure restores it. Rename operations immediately update the displayed name; failure reverts. **Window** ghost/kill/rename state is managed by the Zustand window store (`app/frontend/src/store/window-store.ts`); **session and server** ghost/kill/rename state remains in `OptimisticProvider` context (`app/frontend/src/contexts/optimistic-context.tsx`). Both feed into `useMergedSessions(realSessions)` which merges all optimistic state with SSE data.
 
 2. **Button loading states** (fire-and-forget): Split pane and close pane top-bar buttons show a spinner SVG (`animate-spin`) and `disabled` attribute during `isPending`. Command palette equivalents use the same hook for error toast feedback (palette closes, so spinner not visible).
 
@@ -436,15 +508,20 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 
 **Error toast system**: `ToastProvider` + `Toast` component (`app/frontend/src/components/toast.tsx`). Fixed bottom-right, auto-dismiss after 4 seconds, stacked vertically. Error variant has `var(--color-ansi-1)` (red) left accent border; info variant uses `var(--color-ansi-4)` (blue). Theme-aware via CSS custom properties.
 
-**Type guard**: `isGhostWindow(win)` exported from `optimistic-context.tsx` — narrows `WindowInfo | MergedWindow` to `MergedWindow & { optimistic: true }`. Used in sidebar and dashboard instead of `as` casts.
+**Type guard**: `isGhostWindow(win)` exported from `optimistic-context.tsx` — narrows `WindowInfo | MergedWindow` to `MergedWindow & { optimistic: true }`. Used in sidebar and dashboard instead of `as` casts. `MergedWindow` type is defined in and exported from `app/frontend/src/store/window-store.ts`; it includes `windowId: string` as a required non-optional field.
 
-### Window Kill: `onAlwaysSettled`/`onAlwaysRollback` Cleanup Requirement
+### Window Kill: Zustand Store Handles Kill Cleanup
 
-After a window kill API call **succeeds**, `unmarkKilled` MUST be called to remove the stale optimistic killed entry. Without this, tmux's automatic window renumbering causes an index collision: when window N is killed, tmux renumbers window N+1 → N. The next SSE update delivers a real window at index N, but the stale `killed["session:N"]` entry in `OptimisticProvider` filters it out, making it appear as though two windows were removed.
+Window kill state is tracked in the Zustand window store by `windowId` (the immutable tmux `@N` identifier), not by mutable index. This eliminates the index-collision bug where killing window N would cause tmux's renumbering to suppress the next window at that index.
 
-The `onAlwaysRollback` callback calls `unmarkKilled` on API failure. The `onAlwaysSettled` callback (success only) handles the success case. Both use the `onAlways*` variants so they fire even if the initiating component unmounts before the API call resolves (e.g., when the sidebar kill button triggers a navigation away before the HTTP response arrives). These two callbacks together cover all terminal states without double-invoking.
+**Kill flow** (`useOptimisticAction` pattern):
+- `onOptimistic`: calls `windowStore.killWindow(session, windowId)` — sets `killed: true` in the store
+- `onAlwaysRollback` (API failure): calls `windowStore.restoreWindow(session, windowId)` — clears `killed`
+- `onAlwaysSettled` (API success): calls `windowStore.restoreWindow(session, windowId)` — clears `killed` (SSE absence will remove the entry once tmux confirms)
 
-**Three `useOptimisticAction` instances** must implement this pattern:
+When the next SSE update arrives without the `windowId`, `setWindowsForSession` removes the entry from the store entirely — regardless of whether `killed` is set. No explicit `confirmKill` action is needed.
+
+**Three `useOptimisticAction` instances** use this pattern:
 
 | Instance | File | Kill path |
 |----------|------|-----------|
@@ -452,11 +529,7 @@ The `onAlwaysRollback` callback calls `unmarkKilled` on API failure. The `onAlwa
 | `executeKillFromDialog` | `app/frontend/src/components/sidebar.tsx` | Confirmation dialog kill |
 | `executeKillWindow` | `app/frontend/src/hooks/use-dialog-state.ts` | Command palette kill |
 
-**Null guard**: `executeKillFromDialog`'s `onAlwaysSettled`/`onAlwaysRollback` must check `killTargetRef.current` before calling `unmarkKilled` — the ref may be null if the component unmounts before the API call settles.
-
-**Session kills are exempt**: Session names are stable across kills (tmux never renumbers sessions). The index-collision mechanism is window-specific only.
-
-**Micro-flash trade-off**: If the HTTP response arrives before SSE, `unmarkKilled` fires first and the old window slot may briefly reappear (~sub-100ms) before SSE confirms the kill. This is accepted — permanently hiding a window is far worse than a sub-perceptible flash.
+**Session kills are unaffected**: Session names are stable across kills (tmux never renumbers sessions). Session kill/restore remain in `OptimisticContext`.
 
 ## Changelog
 
@@ -508,3 +581,4 @@ The `onAlwaysRollback` callback calls `unmarkKilled` on API failure. The `onAlwa
 | 2026-04-04 | Fix sidebar kill hides extra window — `onSettled` callbacks added to all three `useOptimisticAction` kill instances (`executeKillWindow` in sidebar, `executeKillFromDialog` in sidebar, `executeKillWindow` in use-dialog-state) to call `unmarkKilled` after success, preventing tmux index-renumbering from causing index collision on next SSE update | `260404-dsq9-sidebar-kill-hides-extra-window` |
 | 2026-04-05 | Fix left panel window sync — introduced `onAlwaysSettled`/`onAlwaysRollback` callbacks to `useOptimisticAction` that fire regardless of mount state (for root-level context cleanup like `unmarkKilled`), while `onSettled`/`onRollback` remain behind `mountedRef` guard (safe for local component state). Kill handlers in `sidebar.tsx` and `use-dialog-state.ts` migrated to `onAlways*`. E2E test `sidebar-window-sync.spec.ts` rewritten to be self-contained per test with unique window names and Scenario 3 using `page.route()` to intercept the kill API and exercise the unmount-before-response path. | `260405-2a2k-left-panel-window-sync` |
 | 2026-04-05 | Session inline rename — double-click session name in sidebar to edit inline (mirrors window rename pattern). Enter/blur commits (non-empty, changed only), Escape cancels. Optimistic update via `markRenamed("session", ...)` with toast on error. Cross-cancel: starting a session edit cancels any active window edit and vice versa — only one inline edit active at a time. Dialog-based session rename in `app.tsx` unchanged | `260405-3mt2-session-inline-rename` |
+| 2026-04-05 | Sidebar window state Zustand — window optimistic state migrated from index-based `OptimisticContext` to a Zustand store (`app/frontend/src/store/window-store.ts`) keyed by immutable `windowId` (`@N`). Eliminates index-collision bugs from tmux window renumbering. `WindowInfo` gains `windowId: string`. Backend adds `#{window_id}` to tmux format string. `OptimisticContext` slimmed to session/server scope only. `MergedWindow` moved to `window-store.ts`. `sidebar.tsx`, `app.tsx`, `use-dialog-state.ts` updated to use Zustand store actions. Ghost reconciliation uses snapshot `windowId` set-difference instead of count-based heuristics. | `260405-x3yt-sidebar-window-state-zustand` |

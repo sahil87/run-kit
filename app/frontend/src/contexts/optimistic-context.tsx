@@ -1,37 +1,34 @@
 import { createContext, useContext, useState, useCallback, useMemo } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
+import { useWindowStore } from "@/store/window-store";
+import type { MergedWindow } from "@/store/window-store";
 
-type GhostType = "session" | "window" | "server";
+type GhostType = "session" | "server";
 
 type GhostEntry = {
   optimisticId: string;
   type: GhostType;
   name: string;
-  /** For window ghosts, the session they belong to. */
-  parentSession?: string;
-  /** For window ghosts, number of windows in the parent session at creation time. */
-  previousWindowCount?: number;
 };
 
 type KilledEntry = {
-  type: "session" | "window" | "server";
+  type: "session" | "server";
   identifier: string;
 };
 
 type RenamedEntry = {
-  type: "session" | "window";
+  type: "session";
   identifier: string;
   newName: string;
 };
 
 type OptimisticContextType = {
   addGhostSession: (name: string) => string;
-  addGhostWindow: (session: string, name: string, previousWindowCount?: number) => string;
   addGhostServer: (name: string) => string;
   removeGhost: (id: string) => void;
-  markKilled: (type: "session" | "window" | "server", identifier: string) => void;
+  markKilled: (type: "session" | "server", identifier: string) => void;
   unmarkKilled: (identifier: string) => void;
-  markRenamed: (type: "session" | "window", identifier: string, newName: string) => void;
+  markRenamed: (type: "session", identifier: string, newName: string) => void;
   unmarkRenamed: (identifier: string) => void;
   ghosts: GhostEntry[];
   killed: KilledEntry[];
@@ -53,12 +50,6 @@ export function OptimisticProvider({ children }: { children: React.ReactNode }) 
     return optimisticId;
   }, []);
 
-  const addGhostWindow = useCallback((session: string, name: string, previousWindowCount?: number) => {
-    const optimisticId = `ghost-${++ghostIdCounter}`;
-    setGhosts((prev) => [...prev, { optimisticId, type: "window", name, parentSession: session, previousWindowCount }]);
-    return optimisticId;
-  }, []);
-
   const addGhostServer = useCallback((name: string) => {
     const optimisticId = `ghost-${++ghostIdCounter}`;
     setGhosts((prev) => [...prev, { optimisticId, type: "server", name }]);
@@ -69,7 +60,7 @@ export function OptimisticProvider({ children }: { children: React.ReactNode }) 
     setGhosts((prev) => prev.filter((g) => g.optimisticId !== id));
   }, []);
 
-  const markKilled = useCallback((type: "session" | "window" | "server", identifier: string) => {
+  const markKilled = useCallback((type: "session" | "server", identifier: string) => {
     setKilled((prev) => [...prev, { type, identifier }]);
   }, []);
 
@@ -77,7 +68,7 @@ export function OptimisticProvider({ children }: { children: React.ReactNode }) 
     setKilled((prev) => prev.filter((k) => k.identifier !== identifier));
   }, []);
 
-  const markRenamed = useCallback((type: "session" | "window", identifier: string, newName: string) => {
+  const markRenamed = useCallback((type: "session", identifier: string, newName: string) => {
     setRenamed((prev) => [...prev, { type, identifier, newName }]);
   }, []);
 
@@ -88,7 +79,6 @@ export function OptimisticProvider({ children }: { children: React.ReactNode }) 
   const value = useMemo(
     () => ({
       addGhostSession,
-      addGhostWindow,
       addGhostServer,
       removeGhost,
       markKilled,
@@ -99,7 +89,7 @@ export function OptimisticProvider({ children }: { children: React.ReactNode }) 
       killed,
       renamed,
     }),
-    [addGhostSession, addGhostWindow, addGhostServer, removeGhost, markKilled, unmarkKilled, markRenamed, unmarkRenamed, ghosts, killed, renamed],
+    [addGhostSession, addGhostServer, removeGhost, markKilled, unmarkKilled, markRenamed, unmarkRenamed, ghosts, killed, renamed],
   );
 
   return (
@@ -121,11 +111,7 @@ export type MergedSession = ProjectSession & {
   optimisticId?: string;
 };
 
-/** Merged window type that includes optimistic flag. */
-export type MergedWindow = WindowInfo & {
-  optimistic?: boolean;
-  optimisticId?: string;
-};
+export type { MergedWindow } from "@/store/window-store";
 
 /** Type guard for ghost windows. */
 export function isGhostWindow(win: WindowInfo | MergedWindow): win is MergedWindow & { optimistic: true } {
@@ -135,10 +121,14 @@ export function isGhostWindow(win: WindowInfo | MergedWindow): win is MergedWind
 /**
  * Merge real SSE sessions with ghost entries and apply killed/renamed overlays.
  * Ghost sessions matching a real session by name are auto-cleared (SSE reconciliation).
+ * Window state (kill, rename, ghosts) is managed by the Zustand window store.
  * Returns merged sessions with ghost entries appended and killed entries filtered out.
  */
 export function useMergedSessions(realSessions: ProjectSession[]): MergedSession[] {
   const ctx = useContext(OptimisticContext);
+  const windowEntries = useWindowStore((s) => s.entries);
+  const windowGhosts = useWindowStore((s) => s.ghosts);
+
   if (!ctx) return realSessions;
 
   const { ghosts, killed, renamed, removeGhost } = ctx;
@@ -158,60 +148,41 @@ export function useMergedSessions(realSessions: ProjectSession[]): MergedSession
       }
     }
 
-    // SSE reconciliation for window ghosts
-    const reconciledWindowGhosts: GhostEntry[] = [];
-    for (const ghost of ghosts) {
-      if (ghost.type !== "window") continue;
-      const parentReal = realSessions.find((s) => s.name === ghost.parentSession);
-      if (parentReal) {
-        // When previousWindowCount is set, reconcile by checking if the real session
-        // gained a window since the ghost was created. This avoids false positives when
-        // the ghost name matches an existing window (e.g. adding "zsh" to a session
-        // that already has a "zsh" window).
-        const shouldReconcile =
-          ghost.previousWindowCount != null
-            ? parentReal.windows.length > ghost.previousWindowCount
-            : parentReal.windows.some((w) => w.name === ghost.name);
-        if (shouldReconcile) {
-          queueMicrotask(() => removeGhost(ghost.optimisticId));
-        } else {
-          reconciledWindowGhosts.push(ghost);
-        }
-      } else {
-        reconciledWindowGhosts.push(ghost);
-      }
-    }
-
-    // Build killed set for fast lookup
+    // Build killed set for fast lookup (sessions only)
     const killedSessions = new Set(killed.filter((k) => k.type === "session").map((k) => k.identifier));
-    const killedWindows = new Set(killed.filter((k) => k.type === "window").map((k) => k.identifier));
 
-    // Build rename map
+    // Build rename map (sessions only)
     const renamedSessions = new Map(renamed.filter((r) => r.type === "session").map((r) => [r.identifier, r.newName]));
-    const renamedWindows = new Map(renamed.filter((r) => r.type === "window").map((r) => [r.identifier, r.newName]));
 
-    // Process real sessions: filter killed, apply renames, merge window ghosts
+    // Process real sessions: filter killed, apply renames, merge window state from store
     const mergedSessions: MergedSession[] = realSessions
       .filter((s) => !killedSessions.has(s.name))
       .map((s) => {
         const sessionNewName = renamedSessions.get(s.name);
         const displayName = sessionNewName ?? s.name;
 
-        // Filter killed windows and apply window renames
-        const mergedWindows: MergedWindow[] = s.windows
-          .filter((w) => !killedWindows.has(`${s.name}:${w.index}`))
-          .map((w) => {
-            const windowNewName = renamedWindows.get(`${s.name}:${w.index}`);
-            return windowNewName ? { ...w, name: windowNewName } : w;
-          });
+        // Build merged windows from window store entries for this session
+        const sessionEntries: MergedWindow[] = [];
+        for (const [, entry] of windowEntries) {
+          if (entry.session !== s.name || entry.killed) continue;
+          // Find the matching real window to get full WindowInfo fields
+          const realWin = s.windows.find((w) => w.windowId === entry.windowId);
+          if (!realWin) continue;
+          const name = entry.pendingName ?? entry.name;
+          sessionEntries.push({ ...realWin, name });
+        }
+        // Sort by index ascending
+        sessionEntries.sort((a, b) => a.index - b.index);
 
-        // Add ghost windows for this session
-        const sessionWindowGhosts = reconciledWindowGhosts.filter(
-          (g) => g.parentSession === s.name,
-        );
+        // Append ghost windows for this session
+        const sessionWindowGhosts = windowGhosts
+          .filter((g) => g.session === s.name)
+          .sort((a, b) => a.createdAt - b.createdAt);
+
         for (const ghost of sessionWindowGhosts) {
           const ghostWindow: MergedWindow = {
             index: -1,
+            windowId: "",
             name: ghost.name,
             worktreePath: "",
             activity: "idle",
@@ -220,13 +191,13 @@ export function useMergedSessions(realSessions: ProjectSession[]): MergedSession
             optimistic: true,
             optimisticId: ghost.optimisticId,
           };
-          mergedWindows.push(ghostWindow);
+          sessionEntries.push(ghostWindow);
         }
 
         return {
           ...s,
           name: displayName,
-          windows: mergedWindows,
+          windows: sessionEntries,
         };
       });
 
@@ -242,5 +213,5 @@ export function useMergedSessions(realSessions: ProjectSession[]): MergedSession
     }
 
     return mergedSessions;
-  }, [realSessions, ghosts, killed, renamed, removeGhost]);
+  }, [realSessions, ghosts, killed, renamed, removeGhost, windowEntries, windowGhosts]);
 }

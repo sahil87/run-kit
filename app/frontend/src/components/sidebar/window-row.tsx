@@ -123,6 +123,30 @@ export function WindowRow({
       >
         {"\u2715"}
       </button>
+      {/* Pane info tooltip: hover-reveal, positioned below the row within sidebar bounds */}
+      {!ghost && (
+        <div
+          aria-hidden="true"
+          className="absolute top-full left-0 mt-0.5 w-full z-30 opacity-0 group-hover:opacity-100 pointer-events-none bg-bg-card border border-border rounded px-2 py-1 text-xs text-text-secondary whitespace-nowrap"
+        >
+          <div>
+            <span className="font-medium text-text-primary">cwd:</span>{" "}
+            {win.panes?.find((p) => p.isActive)?.cwd ?? win.worktreePath}
+          </div>
+          <div>
+            <span className="font-medium text-text-primary">win:</span>{" "}
+            {win.index} ({win.windowId})
+          </div>
+          <div>
+            <span className="font-medium text-text-primary">panes:</span>{" "}
+            {win.panes && win.panes.length > 0
+              ? win.panes
+                  .map((p) => `${p.paneId} (${p.paneIndex})${p.isActive ? "*" : ""}`)
+                  .join(", ")
+              : "\u2014"}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

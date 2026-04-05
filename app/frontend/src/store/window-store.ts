@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { WindowInfo } from "@/types";
+import type { PaneInfo, WindowInfo } from "@/types";
 
 /** A single window entry in the store. */
 export type WindowEntry = {
@@ -10,6 +10,7 @@ export type WindowEntry = {
   pendingName?: string;
   killed: boolean;
   createdAt: number;
+  panes: PaneInfo[];
 };
 
 /** Merged window type that includes optimistic flag. */
@@ -127,6 +128,7 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
           pendingName: existing?.pendingName,
           killed: existing?.killed ?? false,
           createdAt: existing?.createdAt ?? Date.now(),
+          panes: w.panes ?? [],
         });
       }
 

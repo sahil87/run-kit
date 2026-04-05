@@ -293,6 +293,64 @@ describe("window-store", () => {
     });
   });
 
+  describe("pane sync", () => {
+    it("syncs panes from incoming WindowInfo", () => {
+      const { setWindowsForSession } = getStore();
+      const pane = { paneId: "%5", paneIndex: 0, cwd: "/home/user", command: "zsh", isActive: true };
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, panes: [pane] }),
+      ]);
+
+      const entry = useWindowStore.getState().entries.get("@0");
+      expect(entry?.panes).toHaveLength(1);
+      expect(entry?.panes[0].paneId).toBe("%5");
+      expect(entry?.panes[0].cwd).toBe("/home/user");
+      expect(entry?.panes[0].isActive).toBe(true);
+    });
+
+    it("defaults panes to [] when WindowInfo.panes is absent", () => {
+      const { setWindowsForSession } = getStore();
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0 }), // no panes field
+      ]);
+
+      const entry = useWindowStore.getState().entries.get("@0");
+      expect(entry?.panes).toEqual([]);
+    });
+
+    it("replaces panes on re-sync (no stale data)", () => {
+      const { setWindowsForSession } = getStore();
+      const pane1 = { paneId: "%5", paneIndex: 0, cwd: "/home/user", command: "zsh", isActive: true };
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, panes: [pane1] }),
+      ]);
+
+      // Second SSE tick with updated CWD
+      const pane2 = { paneId: "%5", paneIndex: 0, cwd: "/home/user/code", command: "zsh", isActive: true };
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, panes: [pane2] }),
+      ]);
+
+      const entry = useWindowStore.getState().entries.get("@0");
+      expect(entry?.panes[0].cwd).toBe("/home/user/code");
+    });
+
+    it("stores multiple panes", () => {
+      const { setWindowsForSession } = getStore();
+      const panes = [
+        { paneId: "%5", paneIndex: 0, cwd: "/home/user", command: "zsh", isActive: true },
+        { paneId: "%6", paneIndex: 1, cwd: "/home/user/code", command: "vim", isActive: false },
+      ];
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, panes }),
+      ]);
+
+      const entry = useWindowStore.getState().entries.get("@0");
+      expect(entry?.panes).toHaveLength(2);
+      expect(entry?.panes[1].paneId).toBe("%6");
+    });
+  });
+
   describe("core regression: index renumbering after window deletion", () => {
     it("killing @2 does not suppress renumbered @3 that moves to index 1", () => {
       // Regression: the old index-based key `session:1` would suppress the renumbered window

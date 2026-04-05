@@ -154,6 +154,11 @@ Consumers import `@/components/sidebar` as before — Vite resolves directory im
 
 Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:windowId`. Visually distinct from action menus (read-only info card, not clickable items).
 
+5. **Pane CWD hover tooltip** — absolutely-positioned `div` inside the `relative group` window row wrapper in `window-row.tsx`. Revealed via `opacity-0 group-hover:opacity-100` (same `group-hover` reveal pattern as the kill button). Positioning: `top-full left-0 mt-0.5 w-full z-30` — appears below the row, full-width, non-clipping. Ghost windows are excluded (no tooltip rendered). Tooltip content (key-value rows):
+   - `cwd` — active pane's CWD: `panes?.find(p => p.isActive)?.cwd ?? worktreePath`
+   - `win` — window index and window ID (e.g., `3 (@5)`)
+   - `panes` — comma-separated list `%id (index)` with `*` marking the active pane (e.g., `%8 (0)*, %9 (1)`); shows `—` when panes absent or empty
+
 **Empty state**: When no sessions exist (`sessions.length === 0`), the sidebar displays "No sessions" text with a centered `+ New Session` button. The button triggers the same session creation flow as the breadcrumb dropdown's `+ New Session` action.
 
 **Inline rename** (double-click — windows and sessions): Both window names and session names in the sidebar support double-click inline rename. The pattern is identical for both:

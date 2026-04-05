@@ -163,6 +163,9 @@ export function Sidebar({
     onError: (err) => {
       addToast(err.message || "Failed to rename session");
     },
+    onSettled: () => {
+      lastRenameSessionRef.current = null;
+    },
   });
 
   // Inline rename window (optimistic)

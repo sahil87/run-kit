@@ -155,7 +155,7 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 - Escape cancels editing. A `cancelledRef` / `sessionCancelledRef` prevents blur from committing after an Escape (or cross-cancel).
 - Single-click behavior is preserved (navigate to window / navigate to session's first window) — only `onDoubleClick` triggers editing.
 
-**Window rename**: calls `renameWindow(session, index, newName)`. No optimistic update — SSE pushes the updated name.
+**Window rename**: calls `renameWindow(session, index, newName)` via `useOptimisticAction`. The UI updates immediately via `markRenamed("window", ...)`; on API failure it rolls back the optimistic rename and shows a toast error. SSE still reconciles the canonical updated name once the server event arrives.
 
 **Session rename**: calls `renameSession(oldName, newName)` via `useOptimisticAction`. The UI updates immediately via `markRenamed("session", oldName, newName)`; on API failure it rolls back via `unmarkRenamed(oldName)` and shows a toast error. The dialog-based session rename in `app.tsx` remains unchanged — inline editing is an additional path.
 

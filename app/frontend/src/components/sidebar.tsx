@@ -533,8 +533,8 @@ export function Sidebar({
                             }}
                             className={`w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-8 text-sm transition-colors min-h-[36px] ${
                               isSelected
-                                ? "bg-accent/15 text-text-primary font-medium rounded"
-                                : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 rounded"
+                                ? "bg-accent/15 text-text-primary font-medium rounded-l-lg rounded-r-none"
+                                : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 rounded-l-lg rounded-r-none"
                             }`}
                             aria-current={isSelected ? "page" : undefined}
                           >

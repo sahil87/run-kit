@@ -1,5 +1,50 @@
 # Archived Changes
 
+- **260403-32la-optimistic-ui-feedback** — Add optimistic UI feedback for all mutating actions with SSE reconciliation, eliminating 100-500ms dead zones after user interactions.
+- **260328-wxrh-source-rk-tmux-configs** — Add multi-file tmux config sourcing from ~/.rk/tmux.d/ directory so users can extend base config without modification.
+- **260328-d7s5-change-tmux-prefix** — Change tmux prefix key configuration for run-kit's dedicated tmux server.
+- **260328-6xey-tmux-commands-dialog** — Replace single copy-attach action with a tmux commands dialog showing multiple command variants (attach, spawn, detach) with -L server flag.
+- **260327-uyj5-perf-bundle-loading** — Bundle performance: lazy-load conditional components, add Vite manual chunks for vendor splitting, and deduplicate concurrent API requests.
+- **260327-k4l2-copy-tmux-attach-command** — Add 'Copy: tmux Attach Command' to command palette, copying tmux attach-session -t session:window to clipboard from current route.
+- **260327-cnav-perf-frontend-rendering** — Frontend performance: diff SSE state before update, split chrome context hooks, memoize palette actions, and batch xterm.js writes with rAF.
+- **260327-c1qx-perf-backend-hot-paths** — Backend performance: parallelize ListServers, cache SSE session fetches and pane-map with TTL, and propagate HTTP request context to tmux calls.
+- **260327-bkm8-mobile-bar-keyboard-toggle** — Move Escape to Fn menu, convert mobile keyboard-dismiss button to a bidirectional toggle with keyboard icon.
+- **260327-8f9k-fix-update-restart** — Fix rk update daemon restart failure by resolving the new binary path after brew upgrade completes instead of using stale os.Executable() path.
+- **260327-5mlg-sse-infrastructure-perf** — SSE performance: upgrade hub mutex to RWMutex, increase client buffer to 32 with drop logging, and fix relay goroutine race on close.
+- **260327-4azv-mobile-keyboard-scroll-lock** — Add scroll-lock mode via long-press on mobile keyboard button to prevent soft keyboard from appearing during scroll/read workflows.
+- **260327-0bzg-version-flag-replace-subcommand** — Replace rk version subcommand with idiomatic --version/-v global flag on root command.
+- **260326-tbmj-close-pane-button** — Add close pane button to top bar alongside split pane buttons for symmetric pane management from the UI.
+- **260325-zbqf-shareable-urls** — Make URLs fully encode server, session, and window context so they are copy-pasteable and self-contained across browsers.
+- **260325-vxj6-per-mode-theme-preferences** — Add per-mode theme preferences so system mode remembers separate dark and light theme choices when OS toggles between modes.
+- **260325-8kuf-tmux-mobile-scroll** — Fix tmux scrollback on mobile by replacing touch-none with gesture detection that allows vertical swipe scrolling without breaking xterm.js input.
+- **260324-yxjs-command-palette-arrow-scroll** — Fix command palette arrow key navigation to auto-scroll when selection moves beyond the visible area.
+- **260324-v9i1-icon-generation-pipeline** — Replace naive PNG resize with a proper icon generation pipeline that produces padded dark-background PWA icons from SVG source, fixing macOS dock fringe.
+- **260323-z46s-disable-mobile-zoom** — Disable iOS auto-zoom on input focus by adding maximum-scale=1 to viewport meta tag.
+- **260323-ycod-rename-cli-to-rk** — Rename CLI binary from run-kit to rk for ergonomics, Homebrew conflict resolution, and consistency with internal rk- prefix conventions.
+- **260323-bd6n-bottom-bar-focus-steal** — Fix bottom bar buttons stealing focus from xterm.js on iOS, preventing keyboard dismissal when tapping modifier keys.
+- **260323-7wys-ansi-palette-theme-rework** — Rework theme system to use full 22-color ANSI palettes from canonical sources, theming web UI, xterm.js canvas, and tmux chrome from a single palette definition.
+- **260323-3tfo-theme-selector-preview** — Add VSCode-style theme selector with 15-20 terminal themes, live preview on selection, Ctrl+Click shortcut, and command palette entry.
+- **260322-uac4-back-chevron-menu-toggle** — Replace hamburger-to-X animation with a back chevron icon for clearer sidebar/drawer close affordance.
+- **260321-zbdq-fix-osc52-clipboard-provider** — Fix OSC 52 clipboard copy by providing a custom ClipboardProvider that treats empty selection parameter same as 'c' for tmux compatibility.
+- **260321-ye3t-fix-compose-buffer-dialog** — Fix compose buffer dialog: add image preview with blob URLs, fix path duplication bug, and align with project Dialog component pattern.
+- **260321-y11t-normalize-toolbar-icon-colors** — Normalize toolbar icon colors, add split pane controls, fix connection status indicator, and fill command palette gaps.
+- **260321-s5pw-split-pane-buttons** — Add horizontal and vertical split pane buttons to the top bar with backend API support for tmux pane splitting from the web UI.
+- **260321-73w3-supply-chain-sha-pin** — SHA-pin all external GitHub Actions in release.yml to commit SHAs for supply chain hardening against tag poisoning attacks.
+- **260320-uq0k-hostname-browser-title** — Show server hostname in browser tab title to distinguish multiple run-kit instances across different machines.
+- **260320-j9a2-pwa-compliance** — Make run-kit PWA compliant with vite-plugin-pwa, service worker caching, manifest generation, iOS meta tags, and standalone display mode.
+- **260320-hkm8-daemon-lifecycle-serve** — Replace supervisor.sh polling with direct tmux-based daemon lifecycle for run-kit serve, supporting --restart and --stop flags.
+- **260320-9ldy-ui-polish-tmux-config-embed** — Bundle of UI polish fixes: breadcrumb alignment, fresh worktree build fix, embed package restructure, tmux config auto-create, and bottom bar hostname.
+- **260320-1335-tmux-server-switcher** — Add tmux server switcher UI with single-active-server model, server dropdown in sidebar, and command palette actions for create/kill/switch server.
+- **260318-eseg-add-light-theme-support** — Add light theme support with system/light/dark modes, localStorage persistence, and no-flicker initialization via blocking head script.
+- **260318-dcl9-inline-tab-rename-double-click** — Add double-click inline rename for sidebar window tabs, bypassing the command palette dialog flow.
+- **260318-0gjh-dedicated-tmux-server** — Replace byobu dependency with a dedicated tmux server (-L runkit) with custom tmux.conf, supporting both run-kit and external default-server sessions.
+- **260317-ukyz-homebrew-deployment** — Add Homebrew deployment system with embedded frontend assets, Cobra CLI, cross-compiled prebuilt binaries via GitHub Releases, and version injection via ldflags.
+- **260317-rpqx-xterm-copy-clipboard** — Fix xterm copy-to-clipboard by adding a fallback for non-secure contexts where navigator.clipboard API silently fails.
+- **260317-qiza-default-session-name-from-folder** — Auto-derive session name from folder path when user leaves the name field empty in the Create Session dialog.
+- **260315-lnrb-dashboard-scroll-behavior** — Fix scroll containment: activate fullbleed class for terminal view to prevent browser scrollbar, and add scoped scroll container for dashboard session cards.
+- **260314-9raw-top-bar-bottom-bar-refresh** — Refresh top bar and bottom bar UI: move compose button to top bar, add hamburger menu toggle, increase bottom bar touch targets, add product branding, and simplify connection status indicator.
+- **260313-ll1j-dashboard-project-page-views** — Add a Dashboard view at / route that fills the terminal area when no window is selected, with expandable session cards showing window counts and activity summaries.
+- **260313-3vlx-pane-map-enrichment** — Replace direct file reading with fab pane-map --json for per-window fab state enrichment, decoupling from internal file formats and simplifying the sidebar poller.
 - **260313-zvgc-remove-top-bar-line-2** — Remove top bar line 2
 - **260313-dr60-xterm-clipboard-addons** — Enabled xterm.js clipboard copy (Cmd+C with selection check), activated web-links and WebGL addons, and added clipboard addon for OSC 52 support.
 - **260313-3brm-remove-single-key-shortcuts** — Removed single-key keyboard shortcuts (j/k/c/r) and Esc Esc drawer toggle that conflicted with xterm.js terminal input, along with the sidebar focus ring that only existed for j/k navigation.

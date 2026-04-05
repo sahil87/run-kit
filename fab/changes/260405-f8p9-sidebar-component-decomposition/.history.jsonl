@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-05T18:41:18Z"}
+{"args":"Sidebar component decomposition — Extract the ~700-line sidebar into sub-components: SessionRow, WindowRow, ServerSelector, KillDialog, and any other logical pieces.","cmd":"fab-new","event":"command","ts":"2026-04-05T18:41:18Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-05T18:42:19Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-05T18:42:30Z"}

@@ -1,5 +1,0 @@
-{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-03-23T09:15:38Z"}
-{"args":"Consolidate responsive icon sizing to two flat tiers (compact 24px, standard 36px), remove all coarse: pointer-type variants, move compose button from top bar to bottom bar, remove bottom bar separators, and reverse the order of top-right toolbar icons so logo is rightmost.","cmd":"fab-new","event":"command","ts":"2026-03-23T09:15:38Z"}
-{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-23T09:16:30Z"}
-{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-03-23T09:16:44Z"}
-{"cmd":"fab-new","event":"command","ts":"2026-03-23T09:16:53Z"}

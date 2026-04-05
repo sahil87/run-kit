@@ -38,13 +38,13 @@ export function useOptimisticAction<TArgs extends unknown[] = []>(
       .then(() => action(...args))
       .then(
         () => {
+          onSettled?.();                    // always runs — cleans up OptimisticContext
           if (!mountedRef.current) return;
-          onSettled?.();
           setIsPending(false);
         },
         (err: unknown) => {
+          onRollback?.();                   // always runs — cleans up OptimisticContext
           if (!mountedRef.current) return;
-          onRollback?.();
           const error = err instanceof Error ? err : new Error(String(err));
           onError?.(error);
           setIsPending(false);

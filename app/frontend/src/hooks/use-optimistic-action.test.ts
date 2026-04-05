@@ -172,7 +172,7 @@ describe("useOptimisticAction", () => {
     expect(result.current.isPending).toBe(false);
   });
 
-  it("skips state updates after unmount", async () => {
+  it("calls onSettled after unmount but skips setIsPending", async () => {
     let resolve: () => void;
     const action = () => new Promise<void>((r) => { resolve = r; });
     const onSettled = vi.fn();
@@ -190,15 +190,17 @@ describe("useOptimisticAction", () => {
 
     unmount();
 
-    // Resolve after unmount — should not throw or update state
+    // Resolve after unmount — onSettled fires but setIsPending does not
     await act(async () => {
       resolve!();
     });
 
-    expect(onSettled).not.toHaveBeenCalled();
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    // isPending remains true: setIsPending(false) was not called after unmount
+    expect(result.current.isPending).toBe(true);
   });
 
-  it("skips rollback/error callbacks after unmount", async () => {
+  it("calls onRollback after unmount but skips onError and setIsPending", async () => {
     let reject: (err: Error) => void;
     const action = () => new Promise<void>((_, r) => { reject = r; });
     const onRollback = vi.fn();
@@ -213,14 +215,19 @@ describe("useOptimisticAction", () => {
       await Promise.resolve();
     });
 
+    expect(result.current.isPending).toBe(true);
+
     unmount();
 
+    // Reject after unmount — onRollback fires, but onError and setIsPending do not
     await act(async () => {
       reject!(new Error("fail"));
     });
 
-    expect(onRollback).not.toHaveBeenCalled();
+    expect(onRollback).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
+    // isPending remains true: setIsPending(false) was not called after unmount
+    expect(result.current.isPending).toBe(true);
   });
 
   it("full lifecycle: optimistic → API success → settled", async () => {

@@ -400,7 +400,7 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 
 ## Optimistic UI & Mutation Feedback
 
-All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hooks/use-optimistic-action.ts`) which provides `{ execute, isPending }`. The hook calls `onOptimistic` synchronously before the async API call, tracks `isPending`, and calls `onRollback` + `onError` on failure. An unmount guard prevents state-after-unmount warnings.
+All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hooks/use-optimistic-action.ts`) which provides `{ execute, isPending }`. The hook calls `onOptimistic` synchronously before the async API call, tracks `isPending`, and calls `onRollback` + `onError` on failure. An unmount guard (`mountedRef`) prevents state-after-unmount warnings for `setIsPending` and `onError` — but `onSettled` and `onRollback` are called **before** the guard and always run regardless of mount state, since they interact only with root-level context setters (`OptimisticContext`) that are always mounted.
 
 **Three feedback patterns:**
 
@@ -418,7 +418,7 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 
 After a window kill API call **succeeds**, `unmarkKilled` MUST be called to remove the stale optimistic killed entry. Without this, tmux's automatic window renumbering causes an index collision: when window N is killed, tmux renumbers window N+1 → N. The next SSE update delivers a real window at index N, but the stale `killed["session:N"]` entry in `OptimisticProvider` filters it out, making it appear as though two windows were removed.
 
-The `onRollback` path already calls `unmarkKilled` on API failure. The `onSettled` callback (which fires on success only — see `use-optimistic-action.ts` line ~42) handles the success case. These two hooks together cover all terminal states without double-invoking.
+The `onRollback` path already calls `unmarkKilled` on API failure. The `onSettled` callback (success only) handles the success case. Critically, both callbacks run **outside** the `mountedRef` guard — they fire even if the initiating component unmounts before the API call resolves (e.g., when the sidebar kill button triggers a navigation away before the HTTP response arrives). These two hooks together cover all terminal states without double-invoking.
 
 **Three `useOptimisticAction` instances** must implement this pattern:
 
@@ -482,3 +482,4 @@ The `onRollback` path already calls `unmarkKilled` on API failure. The `onSettle
 | 2026-04-04 | Window move & reorder — CmdK "Window: Move Left/Right" actions (boundary-excluded, navigate after swap), sidebar drag-and-drop window reordering via native HTML5 DnD (same-session only, accent drop indicator, no external library) | `260404-29qz-window-move-reorder` |
 | 2026-04-04 | Cross-session window move — CmdK "Window: Move to {name}" actions (one per other session, flat list), cross-session drag-and-drop to session headers (accent border feedback), `moveWindowToSession` API client function, post-move navigation to `/$server` (server dashboard) | `260404-dq70-move-window-between-sessions` |
 | 2026-04-04 | Fix sidebar kill hides extra window — `onSettled` callbacks added to all three `useOptimisticAction` kill instances (`executeKillWindow` in sidebar, `executeKillFromDialog` in sidebar, `executeKillWindow` in use-dialog-state) to call `unmarkKilled` after success, preventing tmux index-renumbering from causing index collision on next SSE update | `260404-dsq9-sidebar-kill-hides-extra-window` |
+| 2026-04-05 | Fix left panel window sync — `onSettled`/`onRollback` moved before `mountedRef` guard in `use-optimistic-action.ts` so they always fire even when the initiating component unmounts before API resolution. Previously a kill-then-navigate scenario left a stale `killed` entry in `OptimisticContext`, suppressing any real window that arrived at the same index in the next SSE poll. New E2E test `sidebar-window-sync.spec.ts` covers: external window creation, window rename, and kill-then-create at same index. | `260405-2a2k-left-panel-window-sync` |

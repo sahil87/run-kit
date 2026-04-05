@@ -371,7 +371,7 @@ Test coverage includes: sidebar (expand/collapse, window selection, kill session
 
 Thin suite (3-5 tests) for API round-trip validation. Config at `app/frontend/playwright.config.ts`. Self-managed tmux sessions in `beforeAll`/`afterAll` hooks.
 
-E2E test coverage: create/kill session via UI, SSE stream delivers real data, sidebar navigation.
+E2E test coverage: create/kill session via UI, SSE stream delivers real data, sidebar navigation, sidebar window sync (external window creation/rename reflected within 5000ms, kill-then-create at same index does not suppress new window via stale optimistic context).
 
 ## Security
 
@@ -433,3 +433,4 @@ E2E test coverage: create/kill session via UI, SSE stream delivers real data, si
 | 2026-03-28 | **tmux prefix key change** — Changed tmux prefix from `C-b` to `C-s` in `configs/tmux/default.conf` and `configs/tmux/simple.conf` to avoid conflict with Claude Code's `Ctrl+B` shortcuts. Added `unbind C-b` and `bind-key C-s send-prefix`. Frontend keyboard shortcuts label updated from `Ctrl+B, ` to `Ctrl+S, `. `byobu.conf` (`C-a`) and `poweruser.conf` (`C-s`) unchanged. | `260328-d7s5-change-tmux-prefix` |
 | 2026-03-28 | **Multi-file tmux config sourcing** — `~/.rk/tmux.d/` drop-in directory for user extensions. `configs/tmux/default.conf` appends `source-file -q ~/.rk/tmux.d/*.conf` (lexicographic order, `-q` silences empty/missing dir). `EnsureConfig()`, `ForceWriteConfig()`, and `rk init-conf` all create the directory idempotently. `EnsureConfig()` creates `tmux.d/` even when config already exists. `ReloadConfig()` unchanged — transitive sourcing picks up new drop-ins. | `260328-wxrh-source-rk-tmux-configs` |
 | 2026-04-04 | **Window move & reorder** — New `SwapWindow(session, srcIndex, dstIndex, server)` in `internal/tmux` wrapping `tmux swap-window`. New `POST /api/sessions/:session/windows/:index/move` endpoint (`handleWindowMove` in `windows.go`) with `{"targetIndex": N}` body. `TmuxOps` interface extended with `SwapWindow`. New `moveWindow(session, index, targetIndex)` client function. CmdK "Window: Move Left/Right" actions (excluded at boundary). Sidebar drag-and-drop window reordering via native HTML5 DnD (same-session only). | `260404-29qz-window-move-reorder` |
+| 2026-04-05 | **Left panel window sync fix + E2E** — `use-optimistic-action.ts` fix: `onSettled`/`onRollback` moved before `mountedRef` guard so they always fire, preventing stale `killed` entries when the sidebar component unmounts before the kill API resolves. New E2E test `sidebar-window-sync.spec.ts` (3 scenarios: external window creation, rename, kill-then-create at same index). | `260405-2a2k-left-panel-window-sync` |

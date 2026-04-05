@@ -1,0 +1,22 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-05T05:33:01Z"}
+{"args":"The left panel window names are no longer in sync with tmux. Lets say you use 'wt create' to create a new worktree and open it in the current tmux session, unless I refresh the page I don't see it on the left panel","cmd":"fab-new","event":"command","ts":"2026-04-05T05:33:01Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-05T05:35:07Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-05T05:35:09Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-04-05T06:25:04Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-05T06:27:43Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-05T06:27:54Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-05T06:27:59Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-05T06:28:08Z"}
+{"delta":"+3.4","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-04-05T06:28:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-05T06:28:36Z"}
+{"delta":"+0.3","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-04-05T06:33:11Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-04-05T06:34:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-05T06:36:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-05T06:36:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-05T06:38:45Z"}
+{"event":"review","result":"failed","ts":"2026-04-05T06:40:33Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-05T06:40:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-05T06:41:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-05T06:43:27Z"}
+{"event":"review","result":"passed","ts":"2026-04-05T06:43:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-05T06:45:27Z"}

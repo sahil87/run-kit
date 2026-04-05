@@ -11,6 +11,7 @@ const sessions: ProjectSession[] = [
     windows: [
       {
         index: 0,
+        windowId: "@0",
         name: "main",
         worktreePath: "~/code/run-kit",
         activity: "active",
@@ -23,6 +24,7 @@ const sessions: ProjectSession[] = [
       },
       {
         index: 1,
+        windowId: "@1",
         name: "scratch",
         worktreePath: "~/code/run-kit",
         activity: "idle",
@@ -37,6 +39,7 @@ const sessions: ProjectSession[] = [
     windows: [
       {
         index: 0,
+        windowId: "@2",
         name: "dev",
         worktreePath: "~/code/ao-server",
         activity: "idle",

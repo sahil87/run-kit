@@ -8,6 +8,7 @@ export const mockSessions: ProjectSession[] = [
     windows: [
       {
         index: 0,
+        windowId: "@0",
         name: "main",
         worktreePath: "~/code/run-kit",
         activity: "active",
@@ -18,6 +19,7 @@ export const mockSessions: ProjectSession[] = [
       },
       {
         index: 1,
+        windowId: "@1",
         name: "scratch",
         worktreePath: "~/code/run-kit",
         activity: "idle",
@@ -31,6 +33,7 @@ export const mockSessions: ProjectSession[] = [
     windows: [
       {
         index: 0,
+        windowId: "@2",
         name: "dev",
         worktreePath: "~/code/ao-server",
         activity: "idle",
@@ -66,6 +69,7 @@ export const handlers = [
       windows: [
         {
           index: 0,
+          windowId: `@${Date.now()}`,
           name: "main",
           worktreePath: body.cwd ?? "~",
           activity: "idle",
@@ -94,6 +98,7 @@ export const handlers = [
     const maxIndex = session.windows.reduce((m, w) => Math.max(m, w.index), -1);
     session.windows.push({
       index: maxIndex + 1,
+      windowId: `@${Date.now()}`,
       name: body.name,
       worktreePath: body.cwd ?? session.windows[0]?.worktreePath ?? "~",
       activity: "idle",

@@ -1,0 +1,44 @@
+id: x3yt
+name: 260405-x3yt-sidebar-window-state-zustand
+created: 2026-04-05T12:27:51Z
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    spec: active
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 39
+confidence:
+    certain: 11
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 90.7
+        reversibility: 85.0
+        competence: 89.3
+        disambiguation: 90.0
+stage_metrics:
+    intake: {started_at: "2026-04-05T12:27:51Z", driver: fab-new, iterations: 1, completed_at: "2026-04-05T12:59:42Z"}
+    spec: {started_at: "2026-04-05T12:59:42Z", driver: fab-fff, iterations: 1}
+    tasks: {started_at: "2026-04-05T13:03:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-05T13:03:17Z"}
+    apply: {started_at: "2026-04-05T13:27:56Z", driver: fab-fff, iterations: 3, completed_at: "2026-04-05T13:27:56Z"}
+    review: {started_at: "2026-04-05T13:27:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-05T13:33:44Z"}
+    hydrate: {started_at: "2026-04-05T13:33:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-05T13:37:15Z"}
+    ship: {started_at: "2026-04-05T13:37:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-05T13:39:10Z"}
+    review-pr: {started_at: "2026-04-05T13:39:10Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/123
+last_updated: 2026-04-05T13:39:10Z

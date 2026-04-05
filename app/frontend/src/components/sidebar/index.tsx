@@ -1,8 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession } from "@/api/client";
-import { Dialog } from "@/components/dialog";
-import { LogoSpinner } from "@/components/logo-spinner";
-import { getWindowDuration } from "@/lib/format";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow } from "@/api/client";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
@@ -10,8 +7,12 @@ import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
+import { KillDialog } from "./kill-dialog";
+import { ServerSelector } from "./server-selector";
+import { SessionRow } from "./session-row";
+import { WindowRow } from "./window-row";
 
-type SidebarProps = {
+export type SidebarProps = {
   sessions: (ProjectSession | MergedSession)[];
   currentSession: string | null;
   currentWindowIndex: string | null;
@@ -65,10 +66,6 @@ export function Sidebar({
   const [dragSource, setDragSource] = useState<{ session: string; index: number } | null>(null);
   const [dropTarget, setDropTarget] = useState<{ session: string; index: number } | null>(null);
   const [sessionDropTarget, setSessionDropTarget] = useState<string | null>(null);
-
-  const [serverDropdownOpen, setServerDropdownOpen] = useState(false);
-  const [refreshingServers, setRefreshingServers] = useState(false);
-  const serverDropdownRef = useRef<HTMLDivElement>(null);
 
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
   const { addToast } = useToast();
@@ -206,18 +203,6 @@ export function Sidebar({
       lastRenameWindowRef.current = null;
     },
   });
-
-  // Close server dropdown on outside click
-  useEffect(() => {
-    if (!serverDropdownOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (serverDropdownRef.current && !serverDropdownRef.current.contains(e.target as Node)) {
-        setServerDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [serverDropdownOpen]);
 
   useEffect(() => {
     if (editingWindow && inputRef.current) {
@@ -429,78 +414,35 @@ export function Sidebar({
             return (
               <div key={session.name} className={`mb-2${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
                 {/* Session row */}
-                <div
-                  className="flex items-center justify-between group"
+                <SessionRow
+                  session={session}
+                  isCollapsed={isCollapsed}
+                  isSessionDropTarget={sessionDropTarget === session.name}
+                  editingSession={editingSession}
+                  editingSessionName={editingSessionName}
+                  sessionInputRef={sessionInputRef}
+                  onToggleCollapse={() => toggleSession(session.name)}
+                  onSelectFirstWindow={() => onSelectWindow(session.name, session.windows[0]?.index ?? 0)}
+                  onCreateWindow={() => onCreateWindow(session.name)}
+                  onKillClick={(e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                      executeKillSession(session.name);
+                      return;
+                    }
+                    setKillTarget({
+                      type: "session",
+                      session: session.name,
+                      windowCount: session.windows.length,
+                    });
+                  }}
+                  onDoubleClickName={() => handleStartSessionEditing(session.name)}
+                  onSessionNameChange={setEditingSessionName}
+                  onSessionRenameKeyDown={handleSessionRenameKeyDown}
+                  onSessionRenameBlur={handleSessionRenameBlur}
                   onDragOver={(e) => handleSessionDragOver(e, session.name)}
                   onDragLeave={(e) => handleSessionDragLeave(e, session.name)}
                   onDrop={(e) => handleSessionDrop(e, session.name)}
-                  style={sessionDropTarget === session.name ? { border: "2px solid var(--color-accent)", borderRadius: "4px" } : undefined}
-                >
-                  <div className="flex items-center gap-0.5 min-w-0 flex-1">
-                    <button
-                      onClick={() => toggleSession(session.name)}
-                      className="text-xs text-text-secondary hover:text-text-primary transition-colors w-5 shrink-0 min-h-[36px] flex items-center justify-center"
-                      aria-expanded={!isCollapsed}
-                      aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${session.name}`}
-                    >
-                      {isCollapsed ? "\u25B6" : "\u25BC"}
-                    </button>
-                    <button
-                      onClick={() => onSelectWindow(session.name, session.windows[0]?.index ?? 0)}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        if (editingSession !== session.name) handleStartSessionEditing(session.name);
-                      }}
-                      className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[36px] min-w-0 flex-1"
-                      aria-label={`Navigate to ${session.name}`}
-                    >
-                      {editingSession === session.name ? (
-                        <input
-                          ref={sessionInputRef}
-                          type="text"
-                          value={editingSessionName}
-                          onChange={(e) => setEditingSessionName(e.target.value)}
-                          onKeyDown={handleSessionRenameKeyDown}
-                          onBlur={handleSessionRenameBlur}
-                          onClick={(e) => e.stopPropagation()}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          className="text-sm font-medium bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
-                          aria-label="Rename session"
-                        />
-                      ) : (
-                        <span className="font-medium truncate">
-                          {session.name}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                  <div className="flex items-center pr-2">
-                    <button
-                      onClick={() => onCreateWindow(session.name)}
-                      aria-label={`New window in ${session.name}`}
-                      className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
-                    >
-                      +
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        if (e.ctrlKey || e.metaKey) {
-                          executeKillSession(session.name);
-                          return;
-                        }
-                        setKillTarget({
-                          type: "session",
-                          session: session.name,
-                          windowCount: session.windows.length,
-                        });
-                      }}
-                      aria-label={`Kill session ${session.name}`}
-                      className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
-                    >
-                      {"\u2715"}
-                    </button>
-                  </div>
-                </div>
+                />
 
                 {/* Window rows */}
                 {!isCollapsed && (
@@ -509,99 +451,46 @@ export function Sidebar({
                       const isSelected =
                         currentSession === session.name &&
                         currentWindowIndex === String(win.index);
-                      const duration = getWindowDuration(win, nowSeconds);
                       const ghost = isGhostWindow(win);
-
                       const isDragOver = dropTarget?.session === session.name && dropTarget?.index === win.index && dragSource?.index !== win.index;
 
                       return (
-                        <div
+                        <WindowRow
                           key={ghost ? `ghost-${win.optimisticId}` : win.windowId}
-                          className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}`}
-                          draggable={!ghost}
+                          win={win}
+                          session={session.name}
+                          isSelected={isSelected}
+                          isDragOver={isDragOver}
+                          nowSeconds={nowSeconds}
+                          editingWindow={editingWindow}
+                          editingName={editingName}
+                          inputRef={inputRef}
+                          onSelectWindow={() => onSelectWindow(session.name, win.index)}
+                          onDoubleClickName={() => handleStartEditing(session.name, win.windowId, win.name)}
+                          onWindowNameChange={setEditingName}
+                          onRenameKeyDown={handleRenameKeyDown}
+                          onRenameBlur={handleRenameBlur}
+                          onKillClick={(e) => {
+                            e.stopPropagation();
+                            if (e.ctrlKey || e.metaKey) {
+                              if (!ghost) executeKillWindow(session.name, win.windowId, win.index);
+                              return;
+                            }
+                            if (!ghost) {
+                              setKillTarget({
+                                type: "window",
+                                session: session.name,
+                                windowId: win.windowId,
+                                windowIndex: win.index,
+                                windowCount: 1,
+                              });
+                            }
+                          }}
                           onDragStart={(e) => handleDragStart(e, session.name, win.index)}
                           onDragOver={(e) => handleDragOver(e, session.name, win.index)}
                           onDrop={(e) => handleDrop(e, session.name, win.index)}
                           onDragEnd={handleDragEnd}
-                          style={isDragOver ? { borderTop: "2px solid var(--color-accent)" } : undefined}
-                        >
-                          <button
-                            onClick={() => onSelectWindow(session.name, win.index)}
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              if (!ghost) handleStartEditing(session.name, win.windowId, win.name);
-                            }}
-                            className={`w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-8 text-sm transition-colors min-h-[36px] ${
-                              isSelected
-                                ? "bg-accent/15 text-text-primary font-medium rounded-l-lg rounded-r-none"
-                                : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 rounded-l-lg rounded-r-none"
-                            }`}
-                            aria-current={isSelected ? "page" : undefined}
-                          >
-                            <span className="flex items-center gap-1.5 truncate min-w-0">
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                  win.activity === "active"
-                                    ? "bg-accent-green"
-                                    : "bg-text-secondary/40"
-                                }`}
-                                aria-label={win.activity}
-                              />
-                              {editingWindow?.session === session.name && editingWindow.windowId === win.windowId ? (
-                                <input
-                                  ref={inputRef}
-                                  type="text"
-                                  value={editingName}
-                                  onChange={(e) => setEditingName(e.target.value)}
-                                  onKeyDown={handleRenameKeyDown}
-                                  onBlur={handleRenameBlur}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  className="text-sm bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
-                                  aria-label="Rename window"
-                                />
-                              ) : (
-                                <span className="truncate">{win.name}</span>
-                              )}
-                            </span>
-                            <span className="flex items-center gap-1.5 shrink-0">
-                              {win.fabStage && (
-                                <span className="text-xs text-text-secondary">
-                                  {win.fabStage}
-                                </span>
-                              )}
-                              {duration && (
-                                <span className="text-xs text-text-secondary">
-                                  {duration}
-                                </span>
-                              )}
-                            </span>
-                          </button>
-                          {/* Kill window button: hover-reveal on desktop, always visible on mobile */}
-                          <button
-                            type="button"
-                            aria-label={`Kill window ${win.name}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (e.ctrlKey || e.metaKey) {
-                                if (!ghost) executeKillWindow(session.name, win.windowId, win.index);
-                                return;
-                              }
-                              if (!ghost) {
-                                setKillTarget({
-                                  type: "window",
-                                  session: session.name,
-                                  windowId: win.windowId,
-                                  windowIndex: win.index,
-                                  windowCount: 1,
-                                });
-                              }
-                            }}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-1 min-h-[36px] flex items-center justify-center z-10"
-                          >
-                            {"\u2715"}
-                          </button>
-                        </div>
+                        />
                       );
                     })}
                   </div>
@@ -613,96 +502,21 @@ export function Sidebar({
       </div>
 
       {/* Server selector — pinned at bottom */}
-      <div className="shrink-0 border-t border-border px-3 sm:px-4 flex items-center h-[48px]" ref={serverDropdownRef}>
-        <div className="flex items-center gap-1.5 relative">
-          <span className="text-xs text-text-secondary">tmux server:</span>
-          <button
-            onClick={() => setServerDropdownOpen((v) => {
-              if (!v) {
-                setRefreshingServers(true);
-                Promise.resolve(onRefreshServers()).finally(() => setRefreshingServers(false));
-              }
-              return !v;
-            })}
-            className="text-xs text-text-primary font-medium hover:text-accent transition-colors min-h-[36px] flex items-center gap-1"
-            aria-haspopup="listbox"
-            aria-expanded={serverDropdownOpen}
-          >
-            {server}
-            {refreshingServers ? (
-              <LogoSpinner size={10} />
-            ) : (
-              <span className="text-text-secondary text-[10px]">{serverDropdownOpen ? "\u25B4" : "\u25BE"}</span>
-            )}
-          </button>
-          {serverDropdownOpen && (
-            <div role="menu" className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">
-              <button
-                role="menuitem"
-                onClick={() => {
-                  setServerDropdownOpen(false);
-                  onCreateServer();
-                }}
-                className="w-full text-left text-sm px-3 py-2 text-text-primary hover:bg-bg-card transition-colors"
-              >
-                + tmux server
-              </button>
-              <div className="border-t border-border" />
-              {servers.length === 0 ? (
-                <div className="text-sm text-text-secondary px-3 py-2">No servers</div>
-              ) : (
-                servers.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => {
-                      onSwitchServer(s);
-                      setServerDropdownOpen(false);
-                    }}
-                    className={`w-full text-left text-sm px-3 py-2 hover:bg-bg-card transition-colors ${
-                      s === server ? "text-accent font-medium" : "text-text-primary"
-                    }`}
-                    role="menuitem"
-                    aria-current={s === server ? "true" : undefined}
-                  >
-                    {s}
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+      <ServerSelector
+        server={server}
+        servers={servers}
+        onSwitchServer={onSwitchServer}
+        onCreateServer={onCreateServer}
+        onRefreshServers={onRefreshServers}
+      />
 
       {/* Kill confirmation */}
       {killTarget && (
-        <Dialog
-          title={killTarget.type === "window" ? "Kill window?" : "Kill session?"}
-          onClose={() => setKillTarget(null)}
-        >
-          <p className="text-sm text-text-secondary mb-3">
-            {killTarget.type === "window" ? (
-              <>Kill this window in <strong>{killTarget.session}</strong>?</>
-            ) : (
-              <>Kill session <strong>{killTarget.session}</strong> and all{" "}
-              {killTarget.windowCount} window
-              {killTarget.windowCount !== 1 ? "s" : ""}?</>
-            )}
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setKillTarget(null)}
-              className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleKill}
-              className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
-            >
-              Kill
-            </button>
-          </div>
-        </Dialog>
+        <KillDialog
+          killTarget={killTarget}
+          onConfirm={handleKill}
+          onCancel={() => setKillTarget(null)}
+        />
       )}
     </nav>
   );

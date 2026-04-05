@@ -120,7 +120,15 @@ The Ctrl+Click force-kill pattern matches the established "modifier = power acti
 
 ## Sidebar
 
-`app/frontend/src/components/sidebar.tsx` — session/window tree navigation.
+`app/frontend/src/components/sidebar/` — session/window tree navigation. The sidebar is decomposed into an orchestrator and four sub-components:
+
+- `index.tsx` — `Sidebar` orchestrator; owns all state (`collapsed`, `killTarget`, `editingWindow`, `editingSession`, `dragSource`, `dropTarget`, `sessionDropTarget`) and all `useOptimisticAction` hooks; public `SidebarProps` API unchanged
+- `session-row.tsx` — `SessionRow`; pure presentational; renders the session header row (chevron, name, + button, ✕ button); handles cross-session drag-over styling; all event handlers passed as props
+- `window-row.tsx` — `WindowRow`; pure presentational; renders a single window row (activity dot, name, fab stage, duration, kill button); handles drag-and-drop and inline rename display; all event handlers passed as props
+- `server-selector.tsx` — `ServerSelector`; owns its own dropdown state (`serverDropdownOpen`, `refreshingServers`, `serverDropdownRef`); pinned-bottom server dropdown with outside-click dismiss
+- `kill-dialog.tsx` — `KillDialog`; stateless; renders the kill confirmation dialog for sessions and windows using `<Dialog>`
+
+Consumers import `@/components/sidebar` as before — Vite resolves directory imports to `sidebar/index.tsx` automatically.
 
 **Desktop** (>= 768px): Drag-resizable panel, default 220px width. Width persisted to `localStorage` key `runkit-sidebar-width`. Constraints: min 160px, max 400px. Drag handle (4-6px) on right edge with `col-resize` cursor, supports mouse and touch events. Collapsible via logo button in top bar.
 

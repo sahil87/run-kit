@@ -1,0 +1,37 @@
+id: rx38
+name: 260405-rx38-pane-cwd-tracking
+created: 2026-04-05T21:51:38Z
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: active
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 5
+    confident: 1
+    tentative: 1
+    unresolved: 0
+    score: 3.7
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 85.0
+        reversibility: 89.3
+        competence: 85.7
+        disambiguation: 84.3
+stage_metrics:
+    intake: {started_at: "2026-04-05T21:51:38Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-04-05T21:52:57Z

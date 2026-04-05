@@ -1,0 +1,42 @@
+id: 3mt2
+name: 260405-3mt2-session-inline-rename
+created: 2026-04-05T05:28:26Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 20
+confidence:
+    certain: 3
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 81.7
+        reversibility: 84.2
+        competence: 90.8
+        disambiguation: 91.7
+stage_metrics:
+    intake: {started_at: "2026-04-05T05:28:26Z", driver: fab-new, iterations: 1, completed_at: "2026-04-05T06:26:54Z"}
+    spec: {started_at: "2026-04-05T06:26:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-05T06:28:51Z"}
+    tasks: {started_at: "2026-04-05T06:28:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-05T06:28:54Z"}
+    apply: {started_at: "2026-04-05T06:28:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-05T06:31:17Z"}
+    review: {started_at: "2026-04-05T06:31:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-05T06:34:31Z"}
+    hydrate: {started_at: "2026-04-05T06:34:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-05T06:35:36Z"}
+    ship: {started_at: "2026-04-05T06:35:36Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-04-05T06:35:36Z

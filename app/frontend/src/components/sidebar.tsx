@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, moveWindow, moveWindowToSession } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { getWindowDuration } from "@/lib/format";
@@ -52,6 +52,12 @@ export function Sidebar({
   const inputRef = useRef<HTMLInputElement>(null);
   const cancelledRef = useRef(false);
   const originalNameRef = useRef("");
+
+  const [editingSession, setEditingSession] = useState<string | null>(null);
+  const [editingSessionName, setEditingSessionName] = useState("");
+  const sessionInputRef = useRef<HTMLInputElement>(null);
+  const sessionCancelledRef = useRef(false);
+  const sessionOriginalNameRef = useRef("");
 
   // Drag-and-drop state for window reordering
   const [dragSource, setDragSource] = useState<{ session: string; index: number } | null>(null);
@@ -143,6 +149,22 @@ export function Sidebar({
     },
   });
 
+  // Inline rename session (optimistic)
+  const lastRenameSessionRef = useRef<string | null>(null);
+  const { execute: executeRenameSession } = useOptimisticAction<[string, string]>({
+    action: (oldName, newName) => renameSession(oldName, newName),
+    onOptimistic: (oldName, newName) => {
+      lastRenameSessionRef.current = oldName;
+      markRenamed("session", oldName, newName);
+    },
+    onRollback: () => {
+      if (lastRenameSessionRef.current) unmarkRenamed(lastRenameSessionRef.current);
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to rename session");
+    },
+  });
+
   // Inline rename window (optimistic)
   const lastRenameRef = useRef<string | null>(null);
   const { execute: executeRenameWindow } = useOptimisticAction<[string, number, string]>({
@@ -179,8 +201,58 @@ export function Sidebar({
     }
   }, [editingWindow]);
 
+  useEffect(() => {
+    if (editingSession && sessionInputRef.current) {
+      sessionInputRef.current.focus();
+      sessionInputRef.current.select();
+    }
+  }, [editingSession]);
+
+  function handleStartSessionEditing(sessionName: string) {
+    cancelledRef.current = true;    // cancel any in-progress window edit
+    setEditingWindow(null);
+    sessionCancelledRef.current = true;
+    setEditingSession(sessionName);
+    setEditingSessionName(sessionName);
+    sessionOriginalNameRef.current = sessionName;
+    sessionCancelledRef.current = false;
+  }
+
+  function handleSessionRenameCommit() {
+    if (!editingSession) return;
+    const trimmed = editingSessionName.trim();
+    const originalName = sessionOriginalNameRef.current;
+    const sessionName = editingSession;
+    setEditingSession(null);
+    if (trimmed && trimmed !== originalName) {
+      executeRenameSession(sessionName, trimmed);
+    }
+  }
+
+  function handleSessionRenameCancel() {
+    sessionCancelledRef.current = true;
+    setEditingSession(null);
+  }
+
+  function handleSessionRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSessionRenameCommit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleSessionRenameCancel();
+    }
+  }
+
+  function handleSessionRenameBlur() {
+    if (sessionCancelledRef.current) return;
+    handleSessionRenameCommit();
+  }
+
   function handleStartEditing(session: string, index: number, currentName: string) {
-    cancelledRef.current = true; // cancel any in-progress edit before switching
+    sessionCancelledRef.current = true;  // cancel any in-progress session edit
+    setEditingSession(null);
+    cancelledRef.current = true;          // cancel any in-progress window edit before switching
     setEditingWindow({ session, index });
     setEditingName(currentName);
     originalNameRef.current = currentName;
@@ -347,7 +419,30 @@ export function Sidebar({
                       className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[36px] min-w-0"
                       aria-label={`Navigate to ${session.name}`}
                     >
-                      <span className="font-medium truncate">{session.name}</span>
+                      {editingSession === session.name ? (
+                        <input
+                          ref={sessionInputRef}
+                          type="text"
+                          value={editingSessionName}
+                          onChange={(e) => setEditingSessionName(e.target.value)}
+                          onKeyDown={handleSessionRenameKeyDown}
+                          onBlur={handleSessionRenameBlur}
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          className="text-sm font-medium bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
+                          aria-label="Rename session"
+                        />
+                      ) : (
+                        <span
+                          className="font-medium truncate"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            handleStartSessionEditing(session.name);
+                          }}
+                        >
+                          {session.name}
+                        </span>
+                      )}
                     </button>
                   </div>
                   <div className="flex items-center">

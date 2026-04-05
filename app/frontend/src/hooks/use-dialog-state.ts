@@ -3,15 +3,17 @@ import { renameSession, renameWindow, killSession, killWindow } from "@/api/clie
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
+import { useWindowStore } from "@/store/window-store";
 
 type UseDialogStateOptions = {
   sessionName: string | undefined;
   windowIndex: number | undefined;
+  windowId: string | undefined;
   onKillComplete?: () => void;
   onSessionRenamed?: (newName: string) => void;
 };
 
-export function useDialogState({ sessionName, windowIndex, onKillComplete, onSessionRenamed }: UseDialogStateOptions) {
+export function useDialogState({ sessionName, windowIndex, windowId, onKillComplete, onSessionRenamed }: UseDialogStateOptions) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [showRenameSessionDialog, setShowRenameSessionDialog] = useState(false);
@@ -22,6 +24,7 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
 
   const { markRenamed, unmarkRenamed, markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
+  const { killWindow: killWindowStore, restoreWindow, clearSession, renameWindow: renameWindowStore, clearRename } = useWindowStore();
 
   // Refs to capture identifiers at execute time, avoiding stale closures on rollback
   const lastRenameSessionRef = useRef<string | null>(null);
@@ -81,29 +84,33 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
     setShowRenameSessionDialog(false);
   }, [renameSessionName, sessionName, onSessionRenamed, executeRenameSession]);
 
-  const { execute: executeRenameWindow } = useOptimisticAction<[string, number, string]>({
-    action: (session, index, newName) => renameWindow(session, index, newName),
-    onOptimistic: (session, index, newName) => {
-      const id = `${session}:${index}`;
-      lastRenameWindowRef.current = id;
-      markRenamed("window", id, newName);
+  const { execute: executeRenameWindow } = useOptimisticAction<[string, string, number, string]>({
+    action: (session, _wid, index, newName) => renameWindow(session, index, newName),
+    onOptimistic: (session, wid, _index, newName) => {
+      lastRenameWindowRef.current = wid;
+      renameWindowStore(session, wid, newName);
     },
     onRollback: () => {
-      if (lastRenameWindowRef.current) unmarkRenamed(lastRenameWindowRef.current);
+      if (lastRenameWindowRef.current && sessionName) {
+        clearRename(sessionName, lastRenameWindowRef.current);
+      }
     },
     onError: (err) => {
       addToast(err.message || "Failed to rename window");
     },
     onSettled: () => {
+      if (lastRenameWindowRef.current && sessionName) {
+        clearRename(sessionName, lastRenameWindowRef.current);
+      }
       lastRenameWindowRef.current = null;
     },
   });
 
   const handleRename = useCallback(() => {
-    if (!renameName.trim() || !sessionName || windowIndex == null) return;
-    executeRenameWindow(sessionName, windowIndex, renameName.trim());
+    if (!renameName.trim() || !sessionName || windowIndex == null || !windowId) return;
+    executeRenameWindow(sessionName, windowId, windowIndex, renameName.trim());
     setShowRenameDialog(false);
-  }, [renameName, sessionName, windowIndex, executeRenameWindow]);
+  }, [renameName, sessionName, windowIndex, windowId, executeRenameWindow]);
 
   const { execute: executeKillSession } = useOptimisticAction<[string]>({
     action: (name) => killSession(name),
@@ -118,6 +125,7 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
       addToast(err.message || "Failed to kill session");
     },
     onAlwaysSettled: () => {
+      if (lastKillSessionRef.current) clearSession(lastKillSessionRef.current);
       lastKillSessionRef.current = null;
     },
   });
@@ -129,31 +137,30 @@ export function useDialogState({ sessionName, windowIndex, onKillComplete, onSes
     setShowKillSessionConfirm(false);
   }, [sessionName, onKillComplete, executeKillSession]);
 
-  const { execute: executeKillWindow } = useOptimisticAction<[string, number]>({
-    action: (session, index) => killWindow(session, index),
-    onOptimistic: (session, index) => {
-      const id = `${session}:${index}`;
-      lastKillWindowRef.current = id;
-      markKilled("window", id);
+  const { execute: executeKillWindow } = useOptimisticAction<[string, string, number]>({
+    action: (session, _wid, index) => killWindow(session, index),
+    onOptimistic: (session, wid) => {
+      lastKillWindowRef.current = wid;
+      killWindowStore(session, wid);
     },
     onAlwaysRollback: () => {
-      if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
+      if (lastKillWindowRef.current && sessionName) restoreWindow(sessionName, lastKillWindowRef.current);
     },
     onError: (err) => {
       addToast(err.message || "Failed to kill window");
     },
     onAlwaysSettled: () => {
-      if (lastKillWindowRef.current) unmarkKilled(lastKillWindowRef.current);
+      if (lastKillWindowRef.current && sessionName) restoreWindow(sessionName, lastKillWindowRef.current);
       lastKillWindowRef.current = null;
     },
   });
 
   const handleKillWindow = useCallback(() => {
-    if (!sessionName || windowIndex == null) return;
-    executeKillWindow(sessionName, windowIndex);
+    if (!sessionName || windowIndex == null || !windowId) return;
+    executeKillWindow(sessionName, windowId, windowIndex);
     onKillComplete?.();
     setShowKillConfirm(false);
-  }, [sessionName, windowIndex, onKillComplete, executeKillWindow]);
+  }, [sessionName, windowIndex, windowId, onKillComplete, executeKillWindow]);
 
   return useMemo(() => ({
     showCreateDialog,

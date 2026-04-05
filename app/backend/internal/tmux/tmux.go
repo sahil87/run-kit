@@ -145,6 +145,7 @@ const (
 // WindowInfo describes a single tmux window within a session.
 type WindowInfo struct {
 	Index             int    `json:"index"`
+	WindowID          string `json:"windowId"`
 	Name              string `json:"name"`
 	WorktreePath      string `json:"worktreePath"`
 	Activity          string `json:"activity"` // "active" or "idle"
@@ -258,28 +259,30 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
-		if len(parts) < 6 {
+		if len(parts) < 7 {
 			continue
 		}
 
-		index, _ := strconv.Atoi(parts[0])
-		activityTs, _ := strconv.ParseInt(parts[3], 10, 64)
+		windowID := strings.TrimSpace(parts[0])
+		index, _ := strconv.Atoi(parts[1])
+		activityTs, _ := strconv.ParseInt(parts[4], 10, 64)
 
 		activity := "idle"
 		if nowUnix-activityTs <= ActivityThresholdSeconds {
 			activity = "active"
 		}
-		isActive := strings.TrimSpace(parts[4]) == "1"
-		paneCmd := strings.TrimSpace(parts[5])
+		isActive := strings.TrimSpace(parts[5]) == "1"
+		paneCmd := strings.TrimSpace(parts[6])
 
 		windows = append(windows, WindowInfo{
 			Index:             index,
-			Name:              parts[1],
-			WorktreePath:      parts[2],
+			WindowID:          windowID,
+			Name:              parts[2],
+			WorktreePath:      parts[3],
 			Activity:          activity,
 			IsActiveWindow:    isActive,
 			PaneCommand:       paneCmd,
-			ActivityTimestamp:  activityTs,
+			ActivityTimestamp: activityTs,
 		})
 	}
 	return windows
@@ -292,6 +295,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 	defer cancel()
 
 	format := strings.Join([]string{
+		"#{window_id}",
 		"#{window_index}",
 		"#{window_name}",
 		"#{pane_current_path}",

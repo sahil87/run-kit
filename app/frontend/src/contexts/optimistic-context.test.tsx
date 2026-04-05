@@ -32,9 +32,6 @@ function TestConsumer({ realSessions }: { realSessions: ProjectSession[] }) {
       <button data-testid="add-ghost-session" onClick={() => ctx.addGhostSession("ghost-sess")}>
         Add Ghost Session
       </button>
-      <button data-testid="add-ghost-window" onClick={() => ctx.addGhostWindow("dev", "ghost-win")}>
-        Add Ghost Window
-      </button>
       <button data-testid="add-ghost-server" onClick={() => ctx.addGhostServer("ghost-srv")}>
         Add Ghost Server
       </button>
@@ -50,12 +47,6 @@ function TestConsumer({ realSessions }: { realSessions: ProjectSession[] }) {
       <button data-testid="unrename-session" onClick={() => ctx.unmarkRenamed("dev")}>
         Unrename Session
       </button>
-      <button data-testid="kill-window" onClick={() => ctx.markKilled("window", "dev:0")}>
-        Kill Window
-      </button>
-      <button data-testid="rename-window" onClick={() => ctx.markRenamed("window", "dev:0", "editor")}>
-        Rename Window
-      </button>
     </div>
   );
 }
@@ -64,14 +55,14 @@ const baseSessions: ProjectSession[] = [
   {
     name: "dev",
     windows: [
-      { index: 0, name: "zsh", worktreePath: "/tmp", activity: "active", isActiveWindow: true, activityTimestamp: 0 },
-      { index: 1, name: "build", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      { index: 0, windowId: "@0", name: "zsh", worktreePath: "/tmp", activity: "active", isActiveWindow: true, activityTimestamp: 0 },
+      { index: 1, windowId: "@1", name: "build", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
     ],
   },
   {
     name: "prod",
     windows: [
-      { index: 0, name: "deploy", worktreePath: "/app", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+      { index: 0, windowId: "@2", name: "deploy", worktreePath: "/app", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
     ],
   },
 ];
@@ -118,20 +109,6 @@ describe("OptimisticProvider", () => {
     expect(screen.getByTestId("merged-count").textContent).toBe("3");
     expect(screen.getByTestId("merged-names").textContent).toBe("dev,prod,ghost-sess");
     expect(screen.getByTestId("merged-optimistic").textContent).toBe("ghost-sess");
-  });
-
-  it("adds a ghost window under a session", () => {
-    render(
-      <OptimisticProvider>
-        <TestConsumer realSessions={baseSessions} />
-      </OptimisticProvider>,
-    );
-
-    act(() => {
-      screen.getByTestId("add-ghost-window").click();
-    });
-
-    expect(screen.getByTestId("merged-optimistic-windows").textContent).toBe("dev:ghost-win");
   });
 
   it("marks a session as killed (filters it from merged)", () => {
@@ -204,35 +181,6 @@ describe("OptimisticProvider", () => {
     expect(screen.getByTestId("merged-names").textContent).toBe("dev,prod");
   });
 
-  it("kills a window within a session", () => {
-    render(
-      <OptimisticProvider>
-        <TestConsumer realSessions={baseSessions} />
-      </OptimisticProvider>,
-    );
-
-    act(() => {
-      screen.getByTestId("kill-window").click();
-    });
-
-    // dev should only have the "build" window
-    expect(screen.getByTestId("merged-windows").textContent).toBe("dev:build,prod:deploy");
-  });
-
-  it("renames a window within a session", () => {
-    render(
-      <OptimisticProvider>
-        <TestConsumer realSessions={baseSessions} />
-      </OptimisticProvider>,
-    );
-
-    act(() => {
-      screen.getByTestId("rename-window").click();
-    });
-
-    expect(screen.getByTestId("merged-windows").textContent).toBe("dev:editor,dev:build,prod:deploy");
-  });
-
   it("SSE reconciliation: ghost session removed when real data arrives", async () => {
     const { rerender } = render(
       <OptimisticProvider>
@@ -249,7 +197,7 @@ describe("OptimisticProvider", () => {
     // Simulate SSE delivering the new session
     const updatedSessions: ProjectSession[] = [
       ...baseSessions,
-      { name: "ghost-sess", windows: [{ index: 0, name: "zsh", worktreePath: "/tmp", activity: "idle", isActiveWindow: true, activityTimestamp: 0 }] },
+      { name: "ghost-sess", windows: [{ index: 0, windowId: "@99", name: "zsh", worktreePath: "/tmp", activity: "idle", isActiveWindow: true, activityTimestamp: 0 }] },
     ];
 
     rerender(
@@ -267,45 +215,6 @@ describe("OptimisticProvider", () => {
     expect(screen.getByTestId("ghost-count").textContent).toBe("0");
     expect(screen.getByTestId("merged-count").textContent).toBe("3");
     expect(screen.getByTestId("merged-optimistic").textContent).toBe("");
-  });
-
-  it("SSE reconciliation: ghost window removed when real window arrives", async () => {
-    const { rerender } = render(
-      <OptimisticProvider>
-        <TestConsumer realSessions={baseSessions} />
-      </OptimisticProvider>,
-    );
-
-    act(() => {
-      screen.getByTestId("add-ghost-window").click();
-    });
-
-    expect(screen.getByTestId("merged-optimistic-windows").textContent).toBe("dev:ghost-win");
-
-    // SSE delivers dev session with the new window
-    const updatedSessions: ProjectSession[] = [
-      {
-        name: "dev",
-        windows: [
-          ...baseSessions[0].windows,
-          { index: 2, name: "ghost-win", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
-        ],
-      },
-      baseSessions[1],
-    ];
-
-    rerender(
-      <OptimisticProvider>
-        <TestConsumer realSessions={updatedSessions} />
-      </OptimisticProvider>,
-    );
-
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
-    });
-
-    expect(screen.getByTestId("ghost-count").textContent).toBe("0");
-    expect(screen.getByTestId("merged-optimistic-windows").textContent).toBe("");
   });
 
   it("addGhostServer returns an optimisticId", () => {
@@ -378,89 +287,6 @@ describe("OptimisticProvider", () => {
     expect(() => render(<Orphan />)).toThrow("useOptimisticContext must be used within OptimisticProvider");
   });
 
-  it("renumbered window appears in merged output once killed entry is cleared", () => {
-    // Scenario: dev session has windows [0, 1, 2]. Window 1 is killed.
-    // After tmux renumbers, index 2 becomes index 1.
-    // Once unmarkKilled("dev:1") fires, the new window at index 1 should be visible.
-
-    // TestConsumer already exposes a kill-window button for "dev:0".
-    // We need a custom consumer that targets "dev:1" specifically.
-    function KillWindowConsumer({ realSessions }: { realSessions: ProjectSession[] }) {
-      const ctx = useOptimisticContext();
-      const merged = useMergedSessions(realSessions);
-      return (
-        <div>
-          <span data-testid="kw-windows">
-            {merged.flatMap((s) => s.windows.map((w) => `${s.name}:${w.index}:${w.name}`)).join(",")}
-          </span>
-          <span data-testid="kw-killed-count">{ctx.killed.length}</span>
-          <button data-testid="kw-mark-killed" onClick={() => ctx.markKilled("window", "dev:1")}>
-            Mark Killed
-          </button>
-          <button data-testid="kw-unmark-killed" onClick={() => ctx.unmarkKilled("dev:1")}>
-            Unmark Killed
-          </button>
-        </div>
-      );
-    }
-
-    const threeWindowSessions: ProjectSession[] = [
-      {
-        name: "dev",
-        windows: [
-          { index: 0, name: "zsh", worktreePath: "/tmp", activity: "active", isActiveWindow: true, activityTimestamp: 0 },
-          { index: 1, name: "build", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
-          { index: 2, name: "logs", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
-        ],
-      },
-    ];
-
-    const renumberedSessions: ProjectSession[] = [
-      {
-        name: "dev",
-        windows: [
-          { index: 0, name: "zsh", worktreePath: "/tmp", activity: "active", isActiveWindow: true, activityTimestamp: 0 },
-          // After killing index 1 ("build"), tmux renumbers "logs" from index 2 to index 1
-          { index: 1, name: "logs", worktreePath: "/tmp", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
-        ],
-      },
-    ];
-
-    const { rerender } = render(
-      <OptimisticProvider>
-        <KillWindowConsumer realSessions={threeWindowSessions} />
-      </OptimisticProvider>,
-    );
-
-    // Step 1: mark window 1 as killed (optimistic hide)
-    act(() => {
-      screen.getByTestId("kw-mark-killed").click();
-    });
-
-    // Window 1 ("build") is hidden; windows 0 and 2 still visible
-    expect(screen.getByTestId("kw-windows").textContent).toBe("dev:0:zsh,dev:2:logs");
-    expect(screen.getByTestId("kw-killed-count").textContent).toBe("1");
-
-    // Step 2: SSE delivers renumbered session (window 2 "logs" is now at index 1)
-    rerender(
-      <OptimisticProvider>
-        <KillWindowConsumer realSessions={renumberedSessions} />
-      </OptimisticProvider>,
-    );
-
-    // Killed entry for "dev:1" still hides the renumbered window
-    expect(screen.getByTestId("kw-windows").textContent).toBe("dev:0:zsh");
-
-    // Step 3: onSettled fires — unmarkKilled clears the killed entry
-    act(() => {
-      screen.getByTestId("kw-unmark-killed").click();
-    });
-
-    // Renumbered window (index 1 "logs") is now visible
-    expect(screen.getByTestId("kw-windows").textContent).toBe("dev:0:zsh,dev:1:logs");
-    expect(screen.getByTestId("kw-killed-count").textContent).toBe("0");
-  });
-
   it("ghost entry lifecycle: add ghost → SSE update matching ghost → ghost cleared", async () => {
     const { rerender } = render(
       <OptimisticProvider>
@@ -482,7 +308,7 @@ describe("OptimisticProvider", () => {
       ...baseSessions,
       {
         name: "ghost-sess",
-        windows: [{ index: 0, name: "zsh", worktreePath: "/tmp", activity: "idle", isActiveWindow: true, activityTimestamp: 0 }],
+        windows: [{ index: 0, windowId: "@99", name: "zsh", worktreePath: "/tmp", activity: "idle", isActiveWindow: true, activityTimestamp: 0 }],
       },
     ];
 

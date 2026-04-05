@@ -24,6 +24,7 @@ import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-c
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
+import { useWindowStore } from "@/store/window-store";
 
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
@@ -125,11 +126,19 @@ function AppShell() {
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
 
-  const { addGhostWindow, removeGhost, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
+  const { removeGhost, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
+  const { addGhostWindow: addGhostWindowStore, removeGhost: removeWindowGhost, setWindowsForSession, clearSession } = useWindowStore();
   const ghostWindowIdRef = useRef<string | null>(null);
   const ghostServerIdRef = useRef<string | null>(null);
   const killedServerNameRef = useRef<string | null>(null);
+
+  // SSE sync: keep window store in sync with real session data
+  useEffect(() => {
+    for (const s of rawSessions) {
+      setWindowsForSession(s.name, s.windows);
+    }
+  }, [rawSessions, setWindowsForSession]);
 
   // Palette split/close actions (button loading not visible since palette closes, but we need error toasts)
   const { execute: executeSplit } = useOptimisticAction<[string, number, boolean, string | undefined]>({
@@ -286,6 +295,7 @@ function AppShell() {
   const dialogs = useDialogState({
     sessionName,
     windowIndex: currentWindow?.index,
+    windowId: currentWindow?.windowId,
     onKillComplete: () => navigate({ to: "/$server", params: { server }, replace: true }),
     onSessionRenamed: (newName) => {
       if (windowIndex) {
@@ -319,12 +329,11 @@ function AppShell() {
       return createWindow(session, "zsh", activeWin?.worktreePath);
     },
     onOptimistic: (session) => {
-      const currentCount = rawSessions.find((s) => s.name === session)?.windows.length ?? 0;
-      ghostWindowIdRef.current = addGhostWindow(session, "zsh", currentCount);
+      ghostWindowIdRef.current = addGhostWindowStore(session, "zsh");
     },
     onRollback: () => {
       if (ghostWindowIdRef.current) {
-        removeGhost(ghostWindowIdRef.current);
+        removeWindowGhost(ghostWindowIdRef.current);
         ghostWindowIdRef.current = null;
       }
     },

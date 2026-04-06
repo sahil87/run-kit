@@ -6,6 +6,8 @@ type ServerSelectorProps = {
   servers: string[];
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
+  onCreateSession: () => void;
+  onKillServer: () => void;
   onRefreshServers: () => void;
 };
 
@@ -14,6 +16,8 @@ export function ServerSelector({
   servers,
   onSwitchServer,
   onCreateServer,
+  onCreateSession,
+  onKillServer,
   onRefreshServers,
 }: ServerSelectorProps) {
   const [serverDropdownOpen, setServerDropdownOpen] = useState(false);
@@ -32,7 +36,7 @@ export function ServerSelector({
   }, [serverDropdownOpen]);
 
   return (
-    <div className="shrink-0 border-b border-border px-3 sm:px-4 flex items-center h-[48px]" ref={serverDropdownRef}>
+    <div className="shrink-0 border-b border-border px-3 sm:px-4 flex items-center justify-between h-[48px]" ref={serverDropdownRef}>
       <div className="flex items-center gap-1.5 relative">
         <span className="text-xs text-text-secondary">tmux server:</span>
         <button
@@ -89,6 +93,22 @@ export function ServerSelector({
             )}
           </div>
         )}
+      </div>
+      <div className="flex items-center">
+        <button
+          onClick={onCreateSession}
+          aria-label="New session"
+          className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
+        >
+          +
+        </button>
+        <button
+          onClick={onKillServer}
+          aria-label={`Kill server ${server}`}
+          className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
+        >
+          {"\u2715"}
+        </button>
       </div>
     </div>
   );

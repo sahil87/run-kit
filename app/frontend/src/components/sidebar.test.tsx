@@ -83,6 +83,7 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
           servers={["runkit"]}
           onSwitchServer={vi.fn()}
           onCreateServer={vi.fn()}
+          onKillServer={vi.fn()}
           onRefreshServers={vi.fn()}
           onMoveWindowToSession={vi.fn()}
           {...overrides}
@@ -727,6 +728,7 @@ describe("Sidebar", () => {
               servers={["runkit"]}
               onSwitchServer={vi.fn()}
               onCreateServer={vi.fn()}
+              onKillServer={vi.fn()}
               onRefreshServers={vi.fn()}
               onMoveWindowToSession={vi.fn()}
             />

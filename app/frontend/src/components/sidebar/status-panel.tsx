@@ -7,16 +7,31 @@ type StatusPanelProps = {
   nowSeconds: number;
 };
 
-/** Shorten an absolute path by replacing $HOME with ~ */
+/** Shorten an absolute path by replacing $HOME with ~ and truncating deep paths */
 function shortenPath(cwd: string): string {
-  const home = "/Users/";
-  if (cwd.startsWith(home)) {
-    const rest = cwd.slice(home.length);
-    const slash = rest.indexOf("/");
-    if (slash >= 0) return "~" + rest.slice(slash);
-    return "~";
+  // Step 1: Home substitution
+  let path = cwd;
+  const homePatterns = [/^\/home\/[^/]+/, /^\/Users\/[^/]+/, /^\/root(?=\/|$)/];
+  for (const pattern of homePatterns) {
+    const match = path.match(pattern);
+    if (match) {
+      const rest = path.slice(match[0].length);
+      path = rest.startsWith("/") ? "~" + rest : "~";
+      break;
+    }
   }
-  return cwd;
+
+  // Step 2: Truncation — keep last 2 segments if more than 2
+  let segments: string[];
+  if (path.startsWith("~/")) {
+    segments = path.slice(2).split("/").filter(Boolean);
+  } else {
+    segments = path.split("/").filter(Boolean);
+  }
+  if (segments.length > 2) {
+    return "\u2026/" + segments.slice(-2).join("/");
+  }
+  return path;
 }
 
 /** Build the process/activity string for line 3 fallback */

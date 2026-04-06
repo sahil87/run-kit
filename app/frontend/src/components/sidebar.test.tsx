@@ -103,23 +103,24 @@ describe("Sidebar", () => {
 
   it("renders windows for expanded sessions", () => {
     renderSidebar();
-    expect(screen.getByText("main")).toBeInTheDocument();
+    // "main" appears in both tree and status panel (selected window)
+    expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("scratch")).toBeInTheDocument();
     expect(screen.getByText("dev")).toBeInTheDocument();
   });
 
   it("collapse/expand sessions via chevron click", () => {
     renderSidebar();
-    // Windows are visible by default
-    expect(screen.getByText("main")).toBeInTheDocument();
+    // "main" appears in tree + status panel
+    expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(2);
 
-    // Click chevron to collapse
+    // Click chevron to collapse — tree row gone, status panel still shows it
     fireEvent.click(screen.getByLabelText(/Collapse run-kit/));
-    expect(screen.queryByText("main")).not.toBeInTheDocument();
+    expect(screen.getAllByText("main")).toHaveLength(1); // only status panel
 
     // Click chevron again to expand
     fireEvent.click(screen.getByLabelText(/Expand run-kit/));
-    expect(screen.getByText("main")).toBeInTheDocument();
+    expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(2);
   });
 
   it("session name click navigates to first window (not toggles)", () => {
@@ -131,12 +132,13 @@ describe("Sidebar", () => {
     expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 0);
 
     // Windows should still be visible (not collapsed)
-    expect(screen.getByText("main")).toBeInTheDocument();
+    expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(1);
   });
 
   it("highlights selected window", () => {
     renderSidebar();
-    const mainBtn = screen.getByText("main").closest("button");
+    // First "main" is in the tree row
+    const mainBtn = screen.getAllByText("main")[0].closest("button");
     expect(mainBtn?.className).toContain("bg-accent/15");
   });
 
@@ -187,7 +189,7 @@ describe("Sidebar", () => {
   describe("inline rename", () => {
     it("double-click on window name activates inline input", () => {
       renderSidebar();
-      const nameSpan = screen.getByText("main");
+      const nameSpan = screen.getAllByText("main")[0];
       fireEvent.doubleClick(nameSpan);
       const input = screen.getByLabelText("Rename window");
       expect(input).toBeInTheDocument();
@@ -272,8 +274,8 @@ describe("Sidebar", () => {
       vi.mocked(renameWindowMock).mockClear();
 
       renderSidebar();
-      // Start editing "main"
-      fireEvent.doubleClick(screen.getByText("main"));
+      // Start editing "main" (first occurrence is in tree)
+      fireEvent.doubleClick(screen.getAllByText("main")[0]);
       const inputA = screen.getByLabelText("Rename window");
       fireEvent.change(inputA, { target: { value: "renamed-main" } });
 
@@ -453,7 +455,7 @@ describe("Sidebar", () => {
     it("window items have draggable attribute", () => {
       renderSidebar();
       // The "main" window button's parent div should be draggable
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const draggableDiv = mainBtn?.closest("[draggable]");
       expect(draggableDiv).toBeTruthy();
       expect(draggableDiv?.getAttribute("draggable")).toBe("true");
@@ -461,7 +463,7 @@ describe("Sidebar", () => {
 
     it("onDragStart sets JSON data with session and index", () => {
       renderSidebar();
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const draggableDiv = mainBtn?.closest("[draggable]") as HTMLElement;
 
       let transferredData = "";
@@ -488,7 +490,7 @@ describe("Sidebar", () => {
       vi.mocked(moveWindowMock).mockClear();
 
       renderSidebar();
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const draggableDiv = mainBtn?.closest("[draggable]") as HTMLElement;
 
       const dataTransfer = {
@@ -513,7 +515,7 @@ describe("Sidebar", () => {
       const onSelectWindow = vi.fn();
       renderSidebar({ onSelectWindow });
 
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
       const scratchBtn = screen.getByText("scratch").closest("button");
       const scratchDraggable = scratchBtn?.closest("[draggable]") as HTMLElement;
@@ -541,7 +543,7 @@ describe("Sidebar", () => {
 
       renderSidebar();
 
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
       const devBtn = screen.getByText("dev").closest("button");
       const devDraggable = devBtn?.closest("[draggable]") as HTMLElement;
@@ -564,7 +566,7 @@ describe("Sidebar", () => {
 
     it("dragEnd clears drag state", () => {
       renderSidebar();
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const draggableDiv = mainBtn?.closest("[draggable]") as HTMLElement;
 
       const dataTransfer = {
@@ -600,7 +602,7 @@ describe("Sidebar", () => {
       };
 
       // Start dragging from run-kit window
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
       fireEvent.dragStart(mainDraggable, { dataTransfer });
 
@@ -624,7 +626,7 @@ describe("Sidebar", () => {
         dropEffect: "",
       };
 
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
       fireEvent.dragStart(mainDraggable, { dataTransfer });
 
@@ -647,7 +649,7 @@ describe("Sidebar", () => {
       };
 
       // Start dragging from run-kit window
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
       fireEvent.dragStart(mainDraggable, { dataTransfer });
 
@@ -665,7 +667,7 @@ describe("Sidebar", () => {
       const onSelectWindow = vi.fn();
       renderSidebar({ onSelectWindow });
 
-      const mainBtn = screen.getByText("main").closest("button");
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
       const scratchBtn = screen.getByText("scratch").closest("button");
       const scratchDraggable = scratchBtn?.closest("[draggable]") as HTMLElement;

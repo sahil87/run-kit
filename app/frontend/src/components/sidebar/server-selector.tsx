@@ -32,7 +32,7 @@ export function ServerSelector({
   }, [serverDropdownOpen]);
 
   return (
-    <div className="shrink-0 border-t border-border px-3 sm:px-4 flex items-center h-[48px]" ref={serverDropdownRef}>
+    <div className="shrink-0 border-b border-border px-3 sm:px-4 flex items-center h-[48px]" ref={serverDropdownRef}>
       <div className="flex items-center gap-1.5 relative">
         <span className="text-xs text-text-secondary">tmux server:</span>
         <button
@@ -55,7 +55,7 @@ export function ServerSelector({
           )}
         </button>
         {serverDropdownOpen && (
-          <div role="menu" className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">
+          <div role="menu" className="absolute top-full left-0 mt-1 bg-bg-primary border border-border rounded shadow-2xl z-50 min-w-[140px] py-1">
             <button
               role="menuitem"
               onClick={() => {

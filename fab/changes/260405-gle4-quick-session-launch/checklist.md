@@ -42,8 +42,7 @@
 ## Removal Verification
 <!-- Every deprecated requirement is actually gone -->
 - [x] CHK-017 `dialogs.openCreateDialog` is no longer called from sidebar `+`, dashboard "New Session", breadcrumb dropdown `+ New Session`, or Cmd+K "Session: Create" — search confirms no remaining call sites for these entry points
-- [ ] CHK-018 No dead code left behind — any now-unused `openCreateDialog` wiring in `app.tsx` is removed or reassigned to the at-folder secondary action only
-  <!-- FAIL: `dialogs.showCreateDialog` block at app.tsx lines 910-917 is dead code — `dialogs.openCreateDialog` is never called; the block can never render. The `showCreateDialog` state, `openCreateDialog`, and `closeCreateDialog` in use-dialog-state.ts are now unused from app.tsx's perspective. -->
+- [x] CHK-018 No dead code left behind — previously flagged `showCreateDialog`/`openCreateDialog`/`closeCreateDialog` dead code in `app.tsx` and `use-dialog-state.ts` has been removed; all remaining create-dialog wiring is only in active use (at-folder secondary flows)
 
 ## Scenario Coverage
 <!-- Key scenarios from spec.md have been exercised -->

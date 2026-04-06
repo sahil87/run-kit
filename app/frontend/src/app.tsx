@@ -369,7 +369,7 @@ function AppShell() {
   });
 
   // Instant session creation — derives name from active window's CWD, deduplicates, no dialog
-  const { execute: executeCreateSessionInstant } = useOptimisticAction<[string, string | undefined]>({
+  const { execute: executeCreateSessionInstant, isPending: isSessionCreatePending } = useOptimisticAction<[string, string | undefined]>({
     action: (name, cwd) => createSession(name, cwd),
     onOptimistic: (name) => {
       ghostSessionIdRef.current = addGhostSession(name);
@@ -389,11 +389,14 @@ function AppShell() {
   });
 
   const handleCreateSessionInstant = useCallback(() => {
+    // Guard against concurrent creates: a second click before the first request
+    // settles would overwrite ghostSessionIdRef, causing ghost tracking to break.
+    if (isSessionCreatePending) return;
     const cwd = currentWindow?.worktreePath;
     const existingNames = sessions.map((s) => s.name);
     const name = deriveInstantSessionName(cwd, existingNames);
     executeCreateSessionInstant(name, cwd || undefined);
-  }, [currentWindow, sessions, executeCreateSessionInstant]);
+  }, [isSessionCreatePending, currentWindow, sessions, executeCreateSessionInstant]);
 
   const handleCreateWindow = useCallback(
     (session: string) => {

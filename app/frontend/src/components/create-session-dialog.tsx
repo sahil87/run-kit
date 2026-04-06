@@ -196,7 +196,11 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
 
   function handleCreate() {
     if (mode === "window") {
-      if (!session) return;
+      if (!session) {
+        setError("A target session is required to create a window");
+        return;
+      }
+      setError("");
       executeCreateWindowAction(session, path.trim() || undefined);
       onClose();
       return;
@@ -218,7 +222,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
 
   const dialogTitle = mode === "window" ? "Create window at folder" : "Create session";
   const isCreateDisabled = mode === "window"
-    ? false
+    ? !session
     : (!name.trim() && !path.trim()) || nameCollision;
 
   return (

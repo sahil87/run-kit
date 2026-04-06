@@ -277,8 +277,15 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 		if len(parts) < 6 {
 			continue
 		}
-		windowIndex, _ := strconv.Atoi(parts[0])
-		paneIndex, _ := strconv.Atoi(parts[2])
+		windowIndex, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			continue
+		}
+
+		paneIndex, err := strconv.Atoi(strings.TrimSpace(parts[2]))
+		if err != nil {
+			continue
+		}
 		isActive := strings.TrimSpace(parts[5]) == "1"
 		p := PaneInfo{
 			PaneID:    strings.TrimSpace(parts[1]),

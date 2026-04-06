@@ -191,8 +191,8 @@ The tooltip SHALL display the following key-value rows:
 - **THEN** `cwd:` falls back to `worktreePath`, `panes:` shows `—`
 
 ### Requirement: Tooltip does not clip sidebar edge
-The tooltip SHALL be positioned so it does not clip against the left or right edge of the sidebar. Preferred positioning is to the right of the window row (outside the sidebar boundary) or above the row. The tooltip MUST NOT overlap or obscure the window name text.
-<!-- clarified: tooltip positioned to the right using `left-full top-1/2 -translate-y-1/2 ml-1` absolute positioning; floats outside sidebar, consistent with window-row requirement above -->
+The tooltip SHALL be positioned so it does not clip against the left or right edge of the sidebar. The tooltip is positioned below the window row, within sidebar bounds, and MUST NOT overlap or obscure the window name text.
+<!-- clarified: tooltip positioned below the row using `top-full left-0 mt-0.5 w-full` absolute positioning; stays within sidebar width, using whitespace-normal break-words to handle long paths -->
 
 #### Scenario: Tooltip positioning
 - **GIVEN** a window row near the bottom of the sidebar

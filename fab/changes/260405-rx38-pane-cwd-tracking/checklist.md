@@ -8,7 +8,7 @@
 
 - [x] CHK-001 PaneInfo struct: `tmux.go` defines `PaneInfo` with fields `PaneID`, `PaneIndex`, `Cwd`, `Command`, `IsActive` and correct JSON tags (`paneId`, `paneIndex`, `cwd`, `command`, `isActive`)
 - [x] CHK-002 WindowInfo.Panes field: `WindowInfo` in `tmux.go` has `Panes []PaneInfo` with `json:"panes,omitempty"`
-- [x] CHK-003 parsePanes function: exported `parsePanes` exists, parses 6-field tab-delimited lines, returns `nil` for empty input, skips malformed (<6 fields) lines silently
+- [x] CHK-003 parsePanes function: unexported `parsePanes` helper exists, parses 6-field tab-delimited lines, returns `nil` for empty input, skips malformed (<6 fields) lines silently
 - [x] CHK-004 ListWindows pane population: `ListWindows` calls `list-panes -s -t <session>` with the 6-field format string and populates `Panes` on each `WindowInfo` grouped by window index
 - [x] CHK-005 WorktreePath unchanged: `WorktreePath` still populated from `list-windows #{pane_current_path}` — not derived from `list-panes`
 - [x] CHK-006 Frontend PaneInfo type: `types.ts` exports `PaneInfo` type with `paneId`, `paneIndex`, `cwd`, `command`, `isActive` fields

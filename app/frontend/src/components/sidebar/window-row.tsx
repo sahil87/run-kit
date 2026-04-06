@@ -127,7 +127,7 @@ export function WindowRow({
       {!ghost && (
         <div
           aria-hidden="true"
-          className="absolute top-full left-0 mt-0.5 w-full z-30 opacity-0 group-hover:opacity-100 pointer-events-none bg-bg-card border border-border rounded px-2 py-1 text-xs text-text-secondary whitespace-nowrap"
+          className="absolute top-full left-0 mt-0.5 w-full z-30 opacity-0 group-hover:opacity-100 pointer-events-none bg-bg-card border border-border rounded px-2 py-1 text-xs text-text-secondary whitespace-normal break-words"
         >
           <div>
             <span className="font-medium text-text-primary">cwd:</span>{" "}

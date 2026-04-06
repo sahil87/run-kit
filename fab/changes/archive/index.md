@@ -1,5 +1,7 @@
 # Archived Changes
 
+- **260405-gle4-quick-session-launch** — Splits session/window creation into an instant default path (no folder prompt, uses active pane's CWD) and a secondary 'New Session at Folder' Cmd+K action, reducing friction for the most common quick-launch case.
+- **260405-f8p9-sidebar-component-decomposition** — Decomposes the 713-line monolithic sidebar.tsx into five sub-components (SessionRow, WindowRow, ServerSelector, KillDialog, and index orchestrator) to improve iterability, testability, and reviewability with zero behavioral changes.
 - **260405-x3yt-sidebar-window-state-zustand** — Rewrite sidebar window state management with Zustand using immutable identifiers instead of mutable indexes to fix deletion/rename bugs.
 - **260405-3mt2-session-inline-rename** — Add double-click inline rename for session names in sidebar, matching the existing window name rename pattern.
 - **260405-2a2k-left-panel-window-sync** — Fix left panel window sync so externally created windows (e.g., via wt create) appear in sidebar without page refresh.

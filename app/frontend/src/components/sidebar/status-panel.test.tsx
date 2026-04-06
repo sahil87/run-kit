@@ -97,8 +97,6 @@ describe("StatusPanel", () => {
   });
 
   describe("shortenPath", () => {
-    afterEach(() => cleanup());
-
     it("Linux home substitution: /home/sahil/code/run-kit → ~/code/run-kit", () => {
       renderCwd("/home/sahil/code/run-kit");
       expect(screen.getByText("~/code/run-kit")).toBeInTheDocument();
@@ -152,6 +150,23 @@ describe("StatusPanel", () => {
     it("path starting with /rootdir is not home-substituted: /rootdir/foo → /rootdir/foo", () => {
       renderCwd("/rootdir/foo");
       expect(screen.getByText("/rootdir/foo")).toBeInTheDocument();
+    });
+
+    it("exact macOS home match: /Users/john → ~", () => {
+      renderCwd("/Users/john");
+      expect(screen.getByText("~")).toBeInTheDocument();
+    });
+
+    it("exact root home match: /root → ~", () => {
+      renderCwd("/root");
+      expect(screen.getByText("~")).toBeInTheDocument();
+    });
+
+    it("title attribute preserves full unmodified path", () => {
+      renderCwd("/home/sahil/code/org/repo/src");
+      const cwdDiv = document.querySelector("[title='/home/sahil/code/org/repo/src']");
+      expect(cwdDiv).not.toBeNull();
+      expect(cwdDiv?.querySelector(".text-text-primary")?.textContent).toBe("\u2026/repo/src");
     });
   });
 });

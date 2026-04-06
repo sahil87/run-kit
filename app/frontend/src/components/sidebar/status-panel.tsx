@@ -7,12 +7,13 @@ type StatusPanelProps = {
   nowSeconds: number;
 };
 
+const HOME_PATTERNS = [/^\/home\/[^/]+/, /^\/Users\/[^/]+/, /^\/root(?=\/|$)/];
+
 /** Shorten an absolute path by replacing $HOME with ~ and truncating deep paths */
 function shortenPath(cwd: string): string {
   // Step 1: Home substitution
   let path = cwd;
-  const homePatterns = [/^\/home\/[^/]+/, /^\/Users\/[^/]+/, /^\/root(?=\/|$)/];
-  for (const pattern of homePatterns) {
+  for (const pattern of HOME_PATTERNS) {
     const match = path.match(pattern);
     if (match) {
       const rest = path.slice(match[0].length);

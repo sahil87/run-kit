@@ -270,6 +270,135 @@ func TestParseWindows(t *testing.T) {
 	}
 }
 
+// paneLine builds a 6-field tab-delimited list-panes line.
+func paneLine(windowIndex int, paneID string, paneIndex int, cwd, command string, active int) string {
+	return fmt.Sprintf("%d%s%s%s%d%s%s%s%s%s%d",
+		windowIndex, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active)
+}
+
+// totalPanes sums the number of panes across all windows in the map.
+func totalPanes(byWindow map[int][]PaneInfo) int {
+	n := 0
+	for _, panes := range byWindow {
+		n += len(panes)
+	}
+	return n
+}
+
+func TestParsePanes(t *testing.T) {
+	t.Run("empty input returns nil", func(t *testing.T) {
+		byWindow := parsePanes(nil)
+		if byWindow != nil {
+			t.Errorf("parsePanes(nil) byWindow = %v, want nil", byWindow)
+		}
+	})
+
+	t.Run("empty slice returns nil", func(t *testing.T) {
+		byWindow := parsePanes([]string{})
+		if byWindow != nil {
+			t.Errorf("parsePanes([]) byWindow = %v, want nil", byWindow)
+		}
+	})
+
+	t.Run("standard parse: single pane", func(t *testing.T) {
+		lines := []string{
+			paneLine(0, "%8", 1, "/home/user/code", "zsh", 0),
+		}
+		byWindow := parsePanes(lines)
+		if totalPanes(byWindow) != 1 {
+			t.Fatalf("parsePanes() returned %d total panes, want 1", totalPanes(byWindow))
+		}
+		if byWindow[0] == nil || len(byWindow[0]) != 1 {
+			t.Errorf("byWindow[0] = %v, want 1 pane", byWindow[0])
+		}
+		p := byWindow[0][0]
+		if p.PaneID != "%8" {
+			t.Errorf("PaneID = %q, want %%8", p.PaneID)
+		}
+		if p.PaneIndex != 1 {
+			t.Errorf("PaneIndex = %d, want 1", p.PaneIndex)
+		}
+		if p.Cwd != "/home/user/code" {
+			t.Errorf("Cwd = %q, want /home/user/code", p.Cwd)
+		}
+		if p.Command != "zsh" {
+			t.Errorf("Command = %q, want zsh", p.Command)
+		}
+		if p.IsActive {
+			t.Errorf("IsActive = true, want false")
+		}
+	})
+
+	t.Run("active pane flag parsed correctly", func(t *testing.T) {
+		lines := []string{
+			paneLine(0, "%5", 0, "/tmp", "bash", 1),
+		}
+		byWindow := parsePanes(lines)
+		if totalPanes(byWindow) != 1 {
+			t.Fatalf("expected 1 total pane, got %d", totalPanes(byWindow))
+		}
+		if !byWindow[0][0].IsActive {
+			t.Error("IsActive = false, want true")
+		}
+	})
+
+	t.Run("malformed line with fewer than 6 fields is skipped", func(t *testing.T) {
+		lines := []string{
+			"0\t%1\t0\t/tmp",                              // only 4 fields
+			paneLine(1, "%2", 0, "/home/user", "zsh", 0), // valid
+		}
+		byWindow := parsePanes(lines)
+		if totalPanes(byWindow) != 1 {
+			t.Fatalf("parsePanes() returned %d total panes, want 1", totalPanes(byWindow))
+		}
+		if byWindow[0] != nil {
+			t.Errorf("byWindow[0] should be nil (malformed line for window 0), got %v", byWindow[0])
+		}
+		if len(byWindow[1]) != 1 {
+			t.Errorf("byWindow[1] = %v, want 1 pane", byWindow[1])
+		}
+		if byWindow[1][0].PaneID != "%2" {
+			t.Errorf("PaneID = %q, want %%2", byWindow[1][0].PaneID)
+		}
+	})
+
+	t.Run("panes grouped by window index", func(t *testing.T) {
+		// Window 0: panes %0, %1; Window 1: pane %2
+		lines := []string{
+			paneLine(0, "%0", 0, "/tmp/a", "zsh", 1),
+			paneLine(0, "%1", 1, "/tmp/b", "vim", 0),
+			paneLine(1, "%2", 0, "/tmp/c", "bash", 0),
+		}
+		byWindow := parsePanes(lines)
+		if totalPanes(byWindow) != 3 {
+			t.Fatalf("parsePanes() returned %d total panes, want 3", totalPanes(byWindow))
+		}
+		if len(byWindow[0]) != 2 {
+			t.Errorf("byWindow[0] = %d panes, want 2", len(byWindow[0]))
+		}
+		if len(byWindow[1]) != 1 {
+			t.Errorf("byWindow[1] = %d panes, want 1", len(byWindow[1]))
+		}
+		if byWindow[0][0].PaneID != "%0" {
+			t.Errorf("byWindow[0][0].PaneID = %q, want %%0", byWindow[0][0].PaneID)
+		}
+		if byWindow[0][1].PaneID != "%1" {
+			t.Errorf("byWindow[0][1].PaneID = %q, want %%1", byWindow[0][1].PaneID)
+		}
+		if byWindow[1][0].PaneID != "%2" {
+			t.Errorf("byWindow[1][0].PaneID = %q, want %%2", byWindow[1][0].PaneID)
+		}
+	})
+
+	t.Run("all malformed lines returns nil", func(t *testing.T) {
+		lines := []string{"bad", "also\tbad\tonly\tthree"}
+		byWindow := parsePanes(lines)
+		if byWindow != nil {
+			t.Errorf("parsePanes() byWindow = %v, want nil", byWindow)
+		}
+	})
+}
+
 func TestSanitizeEnv(t *testing.T) {
 	tests := []struct {
 		name    string

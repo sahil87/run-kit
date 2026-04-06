@@ -10,6 +10,7 @@ import { useWindowStore } from "@/store/window-store";
 import { KillDialog } from "./kill-dialog";
 import { ServerSelector } from "./server-selector";
 import { SessionRow } from "./session-row";
+import { StatusPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
 
 export type SidebarProps = {
@@ -394,9 +395,24 @@ export function Sidebar({
 
   const nowSeconds = Math.floor(Date.now() / 1000);
 
+  // Resolve selected window for status panel
+  const selectedWindow = currentSession && currentWindowIndex != null
+    ? sessions.find((s) => s.name === currentSession)
+        ?.windows.find((w) => String(w.index) === currentWindowIndex) ?? null
+    : null;
+
   return (
-    <nav aria-label="Sessions" className="flex flex-col h-full pt-2">
-      <div className="flex-1 min-h-0 overflow-y-auto pl-1 pr-0">
+    <nav aria-label="Sessions" className="flex flex-col h-full">
+      {/* Server selector — pinned at top */}
+      <ServerSelector
+        server={server}
+        servers={servers}
+        onSwitchServer={onSwitchServer}
+        onCreateServer={onCreateServer}
+        onRefreshServers={onRefreshServers}
+      />
+
+      <div className="flex-1 min-h-0 overflow-y-auto pl-1 pr-0 pt-1">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
             <span>No sessions</span>
@@ -501,14 +517,8 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Server selector — pinned at bottom */}
-      <ServerSelector
-        server={server}
-        servers={servers}
-        onSwitchServer={onSwitchServer}
-        onCreateServer={onCreateServer}
-        onRefreshServers={onRefreshServers}
-      />
+      {/* Status panel — pinned at bottom */}
+      <StatusPanel window={selectedWindow} nowSeconds={nowSeconds} />
 
       {/* Kill confirmation */}
       {killTarget && (

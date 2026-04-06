@@ -1,3 +1,12 @@
+/** A single tmux pane within a window. */
+export type PaneInfo = {
+  paneId: string;
+  paneIndex: number;
+  cwd: string;
+  command: string;
+  isActive: boolean;
+};
+
 /** A tmux session with its windows and optional fab enrichment. */
 export type ProjectSession = {
   name: string;
@@ -18,4 +27,5 @@ export type WindowInfo = {
   agentIdleDuration?: string;
   fabChange?: string;
   fabStage?: string;
+  panes?: PaneInfo[];
 };

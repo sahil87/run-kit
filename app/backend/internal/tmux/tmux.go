@@ -142,20 +142,30 @@ const (
 	listDelim = "\t"
 )
 
+// PaneInfo describes a single tmux pane within a window.
+type PaneInfo struct {
+	PaneID    string `json:"paneId"`
+	PaneIndex int    `json:"paneIndex"`
+	Cwd       string `json:"cwd"`
+	Command   string `json:"command"`
+	IsActive  bool   `json:"isActive"`
+}
+
 // WindowInfo describes a single tmux window within a session.
 type WindowInfo struct {
-	Index             int    `json:"index"`
-	WindowID          string `json:"windowId"`
-	Name              string `json:"name"`
-	WorktreePath      string `json:"worktreePath"`
-	Activity          string `json:"activity"` // "active" or "idle"
-	IsActiveWindow    bool   `json:"isActiveWindow"`
-	PaneCommand       string `json:"paneCommand,omitempty"`
-	ActivityTimestamp int64  `json:"activityTimestamp"`
-	AgentState        string `json:"agentState,omitempty"`
-	AgentIdleDuration string `json:"agentIdleDuration,omitempty"`
-	FabChange         string `json:"fabChange,omitempty"`
-	FabStage          string `json:"fabStage,omitempty"`
+	Index             int        `json:"index"`
+	WindowID          string     `json:"windowId"`
+	Name              string     `json:"name"`
+	WorktreePath      string     `json:"worktreePath"`
+	Activity          string     `json:"activity"` // "active" or "idle"
+	IsActiveWindow    bool       `json:"isActiveWindow"`
+	PaneCommand       string     `json:"paneCommand,omitempty"`
+	ActivityTimestamp int64      `json:"activityTimestamp"`
+	AgentState        string     `json:"agentState,omitempty"`
+	AgentIdleDuration string     `json:"agentIdleDuration,omitempty"`
+	FabChange         string     `json:"fabChange,omitempty"`
+	FabStage          string     `json:"fabStage,omitempty"`
+	Panes             []PaneInfo `json:"panes,omitempty"`
 }
 
 // tmuxExecServer runs a tmux command targeting the specified server and returns stdout lines (empty lines filtered).
@@ -252,6 +262,46 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	return sessions, nil
 }
 
+// parsePanes parses tmux list-panes output lines into a window-index→[]PaneInfo map.
+// Lines are 6-field tab-delimited: window_index, pane_id, pane_index, cwd, command, is_active.
+// Field 0 (window_index) is consumed for grouping and not stored in PaneInfo.
+// Lines with fewer than 6 fields are silently skipped. Empty input returns nil.
+// Accessible to same-package tests.
+func parsePanes(lines []string) map[int][]PaneInfo {
+	if len(lines) == 0 {
+		return nil
+	}
+	byWindow := make(map[int][]PaneInfo)
+	for _, line := range lines {
+		parts := strings.Split(line, listDelim)
+		if len(parts) < 6 {
+			continue
+		}
+		windowIndex, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			continue
+		}
+
+		paneIndex, err := strconv.Atoi(strings.TrimSpace(parts[2]))
+		if err != nil {
+			continue
+		}
+		isActive := strings.TrimSpace(parts[5]) == "1"
+		p := PaneInfo{
+			PaneID:    strings.TrimSpace(parts[1]),
+			PaneIndex: paneIndex,
+			Cwd:       parts[3],
+			Command:   strings.TrimSpace(parts[4]),
+			IsActive:  isActive,
+		}
+		byWindow[windowIndex] = append(byWindow[windowIndex], p)
+	}
+	if len(byWindow) == 0 {
+		return nil
+	}
+	return byWindow
+}
+
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
 // Exported for testing.
@@ -288,8 +338,21 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	return windows
 }
 
+// paneFormat is the list-panes format string: window_index, pane_id, pane_index,
+// pane_current_path, pane_current_command, pane_active (6 fields).
+var paneFormat = strings.Join([]string{
+	"#{window_index}",
+	"#{pane_id}",
+	"#{pane_index}",
+	"#{pane_current_path}",
+	"#{pane_current_command}",
+	"#{pane_active}",
+}, listDelim)
+
 // ListWindows returns windows for a given session on the specified server.
 // Returns nil if session does not exist.
+// Pane data is populated from a separate list-panes call; failure of that call
+// is non-fatal — windows are returned with empty Panes fields.
 func ListWindows(ctx context.Context, session string, server string) ([]WindowInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -309,7 +372,20 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		return nil, nil
 	}
 
-	return parseWindows(lines, time.Now().Unix()), nil
+	windows := parseWindows(lines, time.Now().Unix())
+
+	// Fetch pane data — non-fatal if list-panes fails (e.g., session disappears mid-tick).
+	paneLines, paneErr := tmuxExecServer(ctx, server, "list-panes", "-s", "-t", session, "-F", paneFormat)
+	if paneErr == nil {
+		byWindow := parsePanes(paneLines)
+		if byWindow != nil {
+			for i := range windows {
+				windows[i].Panes = byWindow[windows[i].Index]
+			}
+		}
+	}
+
+	return windows, nil
 }
 
 // CreateSession creates a new detached tmux session on the specified server,

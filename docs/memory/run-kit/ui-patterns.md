@@ -33,7 +33,7 @@ Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server li
 
 **New Window button**: Inside each expanded session card, dashed border button calling `createWindow` API.
 
-**New Session button**: Always-visible dashed border card in the grid, opens the existing create session dialog.
+**New Session button**: Always-visible dashed border card in the grid. Triggers instant session creation (calls `onCreateSession` → `executeCreateSessionInstant` in `app.tsx`) — no dialog opened. Session name derived from active window's `worktreePath`; no active window → name is `session`, no `cwd` passed.
 
 **Touch targets**: Session card headers and window cards use `coarse:min-h-[44px]`.
 
@@ -99,7 +99,7 @@ Palette-based theme model: each theme defines a `ThemePalette` with 22 canonical
 
 Session and window name text are the dropdown triggers. Clicking/tapping the name opens the respective dropdown. No split click-target pattern — the name itself is the trigger.
 
-**Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{server}/{session}/0`. First item: `+ New Session` action (opens session creation dialog).
+**Session dropdown**: Lists all tmux sessions. Current session highlighted with `text-accent`. Selecting navigates to `/{server}/{session}/0`. First item: `+ New Session` action — triggers instant session creation (no dialog).
 
 **Window dropdown**: Lists all windows in the current session. Current window highlighted. Selecting navigates to `/{server}/{session}/{index}`. First item: `+ New Window` action (creates new window in current session).
 
@@ -136,7 +136,7 @@ Consumers import `@/components/sidebar` as before — Vite resolves directory im
 
 **Padding**: `px-3 sm:px-6` (matches top bar and bottom bar chrome padding).
 
-**Session rows**: Chevron toggle (left, expands/collapses window list), session name (navigates to first window in session via `onSelectWindow(session, 0)`), + new window button (right), ✕ kill button (right, always visible). Click session name navigates to `/:session/0`; click chevron toggles expand/collapse. No server marker — all sessions belong to the active server.
+**Session rows**: Chevron toggle (left, expands/collapses window list), session name (navigates to first window in session via `onSelectWindow(session, 0)`), + new window button (right), ✕ kill button (right, always visible). Click session name navigates to `/:session/0`; click chevron toggles expand/collapse. No server marker — all sessions belong to the active server. The session-level `+` button triggers instant session creation (calls `onCreateSession` → `executeCreateSessionInstant`), not a dialog. The window-level `+` button triggers instant window creation (existing `executeCreateWindow` behavior, passes `activeWin?.worktreePath` as CWD).
 
 **Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
 
@@ -159,7 +159,7 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
    - `win` — window index and window ID (e.g., `3 (@5)`)
    - `panes` — comma-separated list `%id (index)` with `*` marking the active pane (e.g., `%8 (0)*, %9 (1)`); shows `—` when panes absent or empty
 
-**Empty state**: When no sessions exist (`sessions.length === 0`), the sidebar displays "No sessions" text with a centered `+ New Session` button. The button triggers the same session creation flow as the breadcrumb dropdown's `+ New Session` action.
+**Empty state**: When no sessions exist (`sessions.length === 0`), the sidebar displays "No sessions" text with a centered `+ New Session` button. The button triggers instant session creation (same as the sidebar `+` button and breadcrumb dropdown `+ New Session` action). With no active window, `cwd` is omitted and the name falls back to `session`.
 
 **Inline rename** (double-click — windows and sessions): Both window names and session names in the sidebar support double-click inline rename. The pattern is identical for both:
 
@@ -179,6 +179,43 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 **Cross-session drag-and-drop**: Dropping a window onto a different session's header moves it to that session. `handleDragOver` accepts drag events on session headers when the dragged window is from a different session. Visual feedback: the session header shows an accent border (`border-accent`) when a valid cross-session drop is hovering. On drop, calls `moveWindowToSession(sourceSession, sourceIndex, targetSession)`, then navigates to `/$server` (server dashboard) — tmux auto-assigns the index in the destination session and no `/$server/$session` route exists. Same-session header drops are ignored (not a valid cross-session target). Within-session window-to-window drag-and-drop is unchanged.
 
 **Server selector footer** — pinned at the bottom of the sidebar below the scrollable session tree, separated by `border-t border-border`. Displays `Server: {name}` with a dropdown trigger. Clicking opens a dropdown listing all available tmux servers (from `GET /api/servers`); the current server is highlighted with `text-accent`. Selecting a different server calls `setServer(name)`, which updates localStorage (`runkit-server`), reconnects SSE, and navigates to `/`. The session tree area is `flex-1 min-h-0 overflow-y-auto` above the pinned footer.
+
+## Session Creation Pattern
+
+### Instant Creation (Primary)
+
+All primary session creation entry points create a session immediately without a dialog. Implemented by `executeCreateSessionInstant` in `app.tsx`.
+
+**Algorithm**:
+1. Derive a name from the active window's `worktreePath` using `deriveNameFromPath(worktreePath)` (exported from `create-session-dialog.tsx`). If the result is empty (CWD is `/`, `~`, or `worktreePath` is undefined), the name is `session`.
+2. Deduplicate against `sessions`: if the name is taken, try `{name}-2`, `{name}-3`, … up to `{name}-10`. If all are taken, use `{name}-11` (best-effort).
+3. Call `createSession(derivedName, worktreePath)`. If no active window exists, call `createSession("session")` (no `cwd` — tmux defaults to server CWD).
+4. The session appears in the sidebar via the existing optimistic/ghost mechanism.
+
+**Entry points** (all call `onCreateSession` → `executeCreateSessionInstant`):
+- Sidebar `+` button (session level)
+- Sidebar empty-state `+ New Session` button
+- Dashboard "New Session" dashed-border card
+- Top-bar breadcrumb session dropdown `+ New Session` item
+- Cmd+K "Session: Create" action
+
+**Name derivation utilities**: `deriveNameFromPath` and `toTmuxSafeName` are exported from `app/frontend/src/components/create-session-dialog.tsx` so `app.tsx` can import them without duplicating logic.
+
+### Folder-Prompted Creation (Secondary, via Cmd+K)
+
+Two secondary entry points open `CreateSessionDialog` for users who want to specify a starting directory:
+
+- **"Session: Create at Folder"** — opens `CreateSessionDialog` (mode `"session"`, default). The dialog's path input is pre-filled with `currentWindow.worktreePath` via the `defaultPath?: string` prop added to `CreateSessionDialogProps`. If no active window, the field starts empty.
+- **"Window: Create at Folder"** — opens `CreateSessionDialog` with `mode="window"` and `session={currentSession}`. In window mode: title changes to "Create window at folder", session name input hidden, confirming calls `createWindow(session, "zsh", cwd)`.
+
+`CreateSessionDialog` gains three optional backward-compatible props:
+- `defaultPath?: string` — pre-fills the path input
+- `mode?: "session" | "window"` — controls dialog behavior (default `"session"`)
+- `session?: string` — required in window mode to pass to `createWindow`
+
+### Deprecated: Dialog-First Flow
+
+The `showCreateDialog` / `openCreateDialog` / `closeCreateDialog` API in `use-dialog-state.ts` has been removed. `CreateSessionDialog` is no longer opened by the sidebar `+` button or the primary "Session: Create" palette action. Use "Session: Create at Folder" in Cmd+K for folder-prompted session creation.
 
 ## Bottom Bar (Terminal Pages Only, Inside Terminal Column)
 
@@ -293,6 +330,14 @@ Both `CommandPalette` and `ThemeSelector` use the same scroll-into-view pattern 
 No single-key shortcuts (`j`/`k`/`c`/`r`) or `Esc Esc` — these conflicted with xterm.js terminal input. All actions are accessible via `Cmd+K` command palette or top bar buttons.
 
 Command palette actions include: create/rename/kill session, create/rename/kill window, move window left/right, theme switching, "Reload tmux config" (targets the active server via `?server=` param), "Create tmux server" (opens name dialog, creates session "0" in $HOME), "Kill tmux server" (confirmation dialog, kills active server, switches to next available), "Switch tmux server: {name}" (one entry per available server, current marked), "Keyboard Shortcuts" (opens modal showing curated tmux keybindings from `GET /api/keybindings` + hardcoded `Cmd+K`), "Copy: tmux Commands" (opens tmux commands dialog — only visible on terminal route when `currentWindow` is available), and terminal navigation (jump to any session/window).
+
+**Session/window creation actions in the palette**:
+| Action ID | Label | Behavior |
+|-----------|-------|----------|
+| `create-session` | "Session: Create" | Instant creation — no dialog (see Instant Session Creation) |
+| `create-session-at-folder` | "Session: Create at Folder" | Opens `CreateSessionDialog` pre-filled with `currentWindow.worktreePath`; empty if no active window |
+| `create-window` | "Window: Create" | Instant window creation (existing behavior, unchanged) |
+| `create-window-at-folder` | "Window: Create at Folder" | Opens `CreateSessionDialog` in `mode="window"` (dialog title changes, session name input hidden, confirms via `createWindow(session, "zsh", cwd)`); only shown when a session is active |
 
 **Window move actions**: "Window: Move Left" (id `move-window-left`) and "Window: Move Right" (id `move-window-right`) in the `windowActions` group. Only shown when `currentWindow` exists. "Move Left" excluded when the current window is at the minimum index in the session; "Move Right" excluded when at the maximum index (boundary exclusion, not disabled state). On select, calls `moveWindow(session, currentIndex, targetIndex)` then navigates to `/$server/$session/$targetIndex` so the user follows their window to its new position after the swap.
 

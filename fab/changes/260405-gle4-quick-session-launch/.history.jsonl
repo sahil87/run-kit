@@ -2,3 +2,21 @@
 {"args":"Quick session/window launch without folder selection","cmd":"fab-new","event":"command","ts":"2026-04-05T18:41:47Z"}
 {"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-05T18:42:50Z"}
 {"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-05T18:43:03Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-04-05T19:02:05Z"}
+{"delta":"+3.7","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-04-05T21:52:20Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-05T21:55:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-05T21:55:25Z"}
+{"delta":"-0.6","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-04-05T21:57:43Z"}
+{"delta":"+0.0","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-04-05T21:58:51Z"}
+{"delta":"+0.0","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-04-05T21:59:00Z"}
+{"delta":"+1.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-05T21:59:15Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-05T21:59:21Z"}
+{"delta":"-0.2","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-05T21:59:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-05T22:04:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-05T22:04:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-05T22:22:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-05T22:27:56Z"}
+{"event":"review","result":"passed","ts":"2026-04-05T22:27:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-05T22:29:32Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-04-05T22:30:43Z"}
+{"event":"review","result":"passed","ts":"2026-04-05T22:34:02Z"}

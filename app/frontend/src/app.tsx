@@ -824,6 +824,7 @@ function AppShell() {
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
+                onKillServer={() => setShowKillServerConfirm(true)}
                 onRefreshServers={refreshServers}
                 onMoveWindowToSession={handleMoveWindowToSession}
               />
@@ -901,6 +902,7 @@ function AppShell() {
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
+                onKillServer={() => setShowKillServerConfirm(true)}
                 onRefreshServers={refreshServers}
                 onMoveWindowToSession={handleMoveWindowToSession}
               />

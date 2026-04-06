@@ -24,6 +24,7 @@ export type SidebarProps = {
   servers: string[];
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
+  onKillServer: () => void;
   onRefreshServers: () => void;
   onMoveWindowToSession: (srcSession: string, srcIndex: number, dstSession: string) => void;
 };
@@ -39,6 +40,7 @@ export function Sidebar({
   servers,
   onSwitchServer,
   onCreateServer,
+  onKillServer,
   onRefreshServers,
   onMoveWindowToSession,
 }: SidebarProps) {
@@ -409,6 +411,8 @@ export function Sidebar({
         servers={servers}
         onSwitchServer={onSwitchServer}
         onCreateServer={onCreateServer}
+        onCreateSession={onCreateSession}
+        onKillServer={onKillServer}
         onRefreshServers={onRefreshServers}
       />
 

@@ -10,7 +10,7 @@ import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
 import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
-import { ServerSelector } from "./server-selector";
+import { ServerPanel } from "./server-panel";
 import { SessionRow } from "./session-row";
 import { WindowPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
@@ -470,18 +470,31 @@ export function Sidebar({
 
   return (
     <nav aria-label="Sessions" className="flex flex-col h-full">
-      {/* Server selector — pinned at top */}
-      <ServerSelector
+      {/* Server panel — collapsible */}
+      <ServerPanel
         server={server}
         servers={servers}
         onSwitchServer={onSwitchServer}
         onCreateServer={onCreateServer}
-        onCreateSession={onCreateSession}
         onKillServer={onKillServer}
         onRefreshServers={onRefreshServers}
       />
 
-      <div className="flex-1 min-h-0 overflow-y-auto pt-1">
+      {/* Sessions — always open, flex-grow to fill space */}
+      <div className="border-t border-border flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center gap-1.5 w-full pl-5 pr-1.5 sm:pr-2 py-1 text-xs text-text-primary shrink-0 border-b border-border">
+          <span className="font-medium">Sessions</span>
+          <span className="ml-auto">
+            <button
+              onClick={onCreateSession}
+              aria-label="New session"
+              className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+            >
+              +
+            </button>
+          </span>
+        </div>
+        <div className="pt-1 flex-1 min-h-0 overflow-y-auto">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
             <span>No sessions</span>
@@ -571,10 +584,10 @@ export function Sidebar({
                               });
                             }
                           }}
-                          onDragStart={(e) => handleDragStart(e, session.name, win.index, win.windowId, win.name)}
-                          onDragOver={(e) => handleDragOver(e, session.name, win.index)}
-                          onDrop={(e) => handleDrop(e, session.name, win.index)}
-                          onDragEnd={handleDragEnd}
+                          onDragStart={ghost ? undefined : (e) => handleDragStart(e, session.name, win.index, win.windowId, win.name)}
+                          onDragOver={ghost ? undefined : (e) => handleDragOver(e, session.name, win.index)}
+                          onDrop={ghost ? undefined : (e) => handleDrop(e, session.name, win.index)}
+                          onDragEnd={ghost ? undefined : handleDragEnd}
                         />
                       );
                     })}
@@ -591,8 +604,11 @@ export function Sidebar({
                           }
                           onDragOver={(e) => handleDragOver(e, session.name, -1)}
                           onDrop={(e) => {
-                            const lastWin = session.windows[session.windows.length - 1];
-                            if (lastWin) handleDrop(e, session.name, lastWin.index + 1);
+                            let lastReal: (typeof session.windows)[number] | undefined;
+                            for (let i = session.windows.length - 1; i >= 0; i--) {
+                              if (!isGhostWindow(session.windows[i])) { lastReal = session.windows[i]; break; }
+                            }
+                            if (lastReal) handleDrop(e, session.name, lastReal.index + 1);
                           }}
                         />
                       </div>
@@ -603,6 +619,7 @@ export function Sidebar({
             );
           })
         )}
+        </div>
       </div>
 
       {/* Collapsible panels — pinned at bottom */}

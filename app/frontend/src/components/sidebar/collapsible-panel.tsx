@@ -5,6 +5,12 @@ type CollapsiblePanelProps = {
   storageKey: string;
   defaultOpen?: boolean;
   headerRight?: React.ReactNode;
+  /** Action element rendered at the right side of the header (e.g. "+" button). Click events are stopped from toggling the panel. */
+  headerAction?: React.ReactNode;
+  /** Override the default content padding classes. */
+  contentClassName?: string;
+  /** Called after the panel is toggled. */
+  onToggle?: (isOpen: boolean) => void;
   children: React.ReactNode;
 };
 
@@ -24,6 +30,9 @@ export function CollapsiblePanel({
   storageKey,
   defaultOpen = true,
   headerRight,
+  headerAction,
+  contentClassName,
+  onToggle,
   children,
 }: CollapsiblePanelProps) {
   const [isOpen, setIsOpen] = useState(() => readPersistedState(storageKey, defaultOpen));
@@ -37,9 +46,10 @@ export function CollapsiblePanel({
       } catch {
         // localStorage unavailable
       }
+      onToggle?.(next);
       return next;
     });
-  }, [storageKey]);
+  }, [storageKey, onToggle]);
 
   // During transition, keep overflow hidden for smooth animation.
   // Only set transitioning=true on actual user toggles (not initial mount),
@@ -64,27 +74,30 @@ export function CollapsiblePanel({
   return (
     <div className="border-t border-border">
       {/* Header — always visible */}
-      <button
-        type="button"
-        className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
-        onClick={toggle}
-        aria-expanded={isOpen}
-      >
-        {/* Chevron */}
-        <span
-          className="inline-block transition-transform duration-150"
-          style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
-          aria-hidden="true"
+      <div className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0">
+        <button
+          type="button"
+          className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-text-primary transition-colors"
+          onClick={toggle}
+          aria-expanded={isOpen}
         >
-          &#x25BC;
-        </span>
-        <span className="font-medium">{title}</span>
-        {headerRight && (
-          <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
-            {headerRight}
+          {/* Chevron */}
+          <span
+            className="inline-block transition-transform duration-150"
+            style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
+            aria-hidden="true"
+          >
+            &#x25BC;
           </span>
-        )}
-      </button>
+          <span className="font-medium">{title}</span>
+          {headerRight && (
+            <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
+              {headerRight}
+            </span>
+          )}
+        </button>
+        {headerAction}
+      </div>
 
       {/* Content area with max-height transition */}
       <div
@@ -95,7 +108,7 @@ export function CollapsiblePanel({
           overflow: transitioning || !isOpen ? "hidden" : "visible",
         }}
       >
-        <div className="pl-5 pr-1.5 sm:pr-2 pb-1.5">
+        <div className={contentClassName ?? "pl-5 pr-1.5 sm:pr-2 pb-1.5"}>
           {children}
         </div>
       </div>

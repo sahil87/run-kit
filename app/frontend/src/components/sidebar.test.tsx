@@ -55,6 +55,16 @@ const sessions: ProjectSession[] = [
         paneCommand: "zsh",
         activityTimestamp: Math.floor(Date.now() / 1000) - 180,
       },
+      {
+        index: 2,
+        windowId: "@2",
+        name: "logs",
+        worktreePath: "~/code/run-kit",
+        activity: "idle",
+        isActiveWindow: false,
+        paneCommand: "tail",
+        activityTimestamp: Math.floor(Date.now() / 1000) - 300,
+      },
     ],
   },
   {
@@ -62,7 +72,7 @@ const sessions: ProjectSession[] = [
     windows: [
       {
         index: 0,
-        windowId: "@2",
+        windowId: "@3",
         name: "dev",
         worktreePath: "~/code/ao-server",
         activity: "idle",
@@ -178,7 +188,7 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByLabelText("Kill session run-kit"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Kill session?")).toBeInTheDocument();
-    expect(screen.getByText(/2 window/)).toBeInTheDocument();
+    expect(screen.getByText(/3 window/)).toBeInTheDocument();
   });
 
   it("shows empty state with + New Session button when no sessions", () => {
@@ -810,15 +820,17 @@ describe("Sidebar", () => {
 
   describe("optimistic drag-drop reorder", () => {
     beforeEach(() => {
-      // Seed the window store so swapWindowOrder has entries to operate on
+      // Seed the window store so moveWindowOrder has entries to operate on.
+      // Need 3+ windows to test insert-before semantics (2-item forward move is a no-op).
       useWindowStore.setState({ entries: new Map(), ghosts: [] });
       useWindowStore.getState().setWindowsForSession("run-kit", [
         { windowId: "@0", index: 0, name: "main", worktreePath: "~/code/run-kit", activity: "active", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 5 },
         { windowId: "@1", index: 1, name: "scratch", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 180 },
+        { windowId: "@2", index: 2, name: "logs", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 300 },
       ]);
     });
 
-    it("optimistic swap updates window store indices synchronously on drop", async () => {
+    it("optimistic move updates window store indices synchronously on drop", async () => {
       const { moveWindow: moveWindowMock } = await import("@/api/client");
       // Use a deferred promise so API stays pending during assertion
       let resolveApi!: () => void;
@@ -827,29 +839,32 @@ describe("Sidebar", () => {
       const onSelectWindow = vi.fn();
       renderSidebar({ onSelectWindow });
 
+      // Drag main(@0, index 0) onto logs(@2, index 2)
+      // Insert-before: [main scratch logs] → [scratch main logs]
       const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
-      const scratchBtn = screen.getByText("scratch").closest("button");
-      const scratchDraggable = scratchBtn?.closest("[draggable]") as HTMLElement;
+      const logsBtn = screen.getByText("logs").closest("button");
+      const logsDraggable = logsBtn?.closest("[draggable]") as HTMLElement;
 
       const dataTransfer = {
         setData: vi.fn(),
-        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" })),
         effectAllowed: "",
         dropEffect: "",
       };
 
       fireEvent.dragStart(mainDraggable, { dataTransfer });
-      fireEvent.dragOver(scratchDraggable, { dataTransfer });
-      fireEvent.drop(scratchDraggable, { dataTransfer });
+      fireEvent.dragOver(logsDraggable, { dataTransfer });
+      fireEvent.drop(logsDraggable, { dataTransfer });
 
-      // Synchronous: store indices should already be swapped (before API resolves)
+      // Synchronous: store indices should reflect insert-before (before API resolves)
       const entries = useWindowStore.getState().entries;
-      expect(entries.get("@0")?.index).toBe(1);
-      expect(entries.get("@1")?.index).toBe(0);
+      expect(entries.get("@1")?.index).toBe(0); // scratch shifted left
+      expect(entries.get("@0")?.index).toBe(1); // main inserted before logs
+      expect(entries.get("@2")?.index).toBe(2); // logs unchanged
 
-      // onSelectWindow called immediately
-      expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 1);
+      // Reorder should not change selection
+      expect(onSelectWindow).not.toHaveBeenCalled();
 
       // Clean up: flush microtask to let action() run (assigns resolveApi), then resolve
       await act(async () => { await Promise.resolve(); });
@@ -862,30 +877,32 @@ describe("Sidebar", () => {
 
       renderSidebar();
 
+      // Drag main(@0, index 0) onto logs(@2, index 2)
       const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
-      const scratchBtn = screen.getByText("scratch").closest("button");
-      const scratchDraggable = scratchBtn?.closest("[draggable]") as HTMLElement;
+      const logsBtn = screen.getByText("logs").closest("button");
+      const logsDraggable = logsBtn?.closest("[draggable]") as HTMLElement;
 
       const dataTransfer = {
         setData: vi.fn(),
-        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" })),
         effectAllowed: "",
         dropEffect: "",
       };
 
       fireEvent.dragStart(mainDraggable, { dataTransfer });
-      fireEvent.dragOver(scratchDraggable, { dataTransfer });
+      fireEvent.dragOver(logsDraggable, { dataTransfer });
 
-      // Drop triggers optimistic swap + API call
+      // Drop triggers optimistic move + API call
       await act(async () => {
-        fireEvent.drop(scratchDraggable, { dataTransfer });
+        fireEvent.drop(logsDraggable, { dataTransfer });
       });
 
       // After API rejection settles, indices should be restored
       const entries = useWindowStore.getState().entries;
       expect(entries.get("@0")?.index).toBe(0);
       expect(entries.get("@1")?.index).toBe(1);
+      expect(entries.get("@2")?.index).toBe(2);
     });
   });
 

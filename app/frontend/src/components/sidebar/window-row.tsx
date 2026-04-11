@@ -60,7 +60,7 @@ export function WindowRow({
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
-      style={isDragOver ? { borderTop: "2px solid var(--color-accent)" } : undefined}
+      style={isDragOver ? { boxShadow: "0 -2px 0 0 var(--color-accent)" } : undefined}
     >
       <button
         onClick={onSelectWindow}

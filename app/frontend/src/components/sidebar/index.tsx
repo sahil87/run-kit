@@ -80,7 +80,7 @@ export function Sidebar({
   const killWindowStore = useWindowStore((state) => state.killWindow);
   const restoreWindow = useWindowStore((state) => state.restoreWindow);
   const clearSession = useWindowStore((state) => state.clearSession);
-  const swapWindowOrder = useWindowStore((state) => state.swapWindowOrder);
+  const moveWindowOrder = useWindowStore((state) => state.moveWindowOrder);
   const addGhostWindow = useWindowStore((state) => state.addGhostWindow);
   const removeGhost = useWindowStore((state) => state.removeGhost);
 
@@ -215,23 +215,36 @@ export function Sidebar({
     },
   });
 
-  // Optimistic swap for drag-drop window reorder
-  const lastSwapRef = useRef<{ session: string; srcIndex: number; dstIndex: number } | null>(null);
-  const { execute: executeSwapWindow, isPending: isSwapPending } = useOptimisticAction<[string, number, number]>({
+  // Optimistic move for drag-drop window reorder (insert-before semantics)
+  const preMoveEntriesRef = useRef<Map<string, { session: string; index: number }> | null>(null);
+  const { execute: executeMoveWindow, isPending: isMovePending } = useOptimisticAction<[string, number, number]>({
     action: (session, srcIndex, dstIndex) => moveWindow(session, srcIndex, dstIndex),
     onOptimistic: (session, srcIndex, dstIndex) => {
-      lastSwapRef.current = { session, srcIndex, dstIndex };
-      swapWindowOrder(session, srcIndex, dstIndex);
+      // Snapshot entries for rollback (move isn't self-inverse like swap)
+      const entries = useWindowStore.getState().entries;
+      const snapshot = new Map<string, { session: string; index: number }>();
+      for (const [id, e] of entries) {
+        if (e.session === session) snapshot.set(id, { session: e.session, index: e.index });
+      }
+      preMoveEntriesRef.current = snapshot;
+      moveWindowOrder(session, srcIndex, dstIndex);
     },
     onAlwaysRollback: () => {
-      if (lastSwapRef.current) {
-        const { session, srcIndex, dstIndex } = lastSwapRef.current;
-        swapWindowOrder(session, dstIndex, srcIndex);
-        lastSwapRef.current = null;
+      if (preMoveEntriesRef.current) {
+        const snapshot = preMoveEntriesRef.current;
+        useWindowStore.setState((state) => {
+          const newEntries = new Map(state.entries);
+          for (const [id, saved] of snapshot) {
+            const existing = newEntries.get(id);
+            if (existing) newEntries.set(id, { ...existing, index: saved.index });
+          }
+          return { entries: newEntries };
+        });
+        preMoveEntriesRef.current = null;
       }
     },
     onAlwaysSettled: () => {
-      lastSwapRef.current = null;
+      preMoveEntriesRef.current = null;
     },
     onError: (err) => {
       addToast(err.message || "Failed to move window");
@@ -240,7 +253,7 @@ export function Sidebar({
 
   // Optimistic cross-session window move
   const lastMoveToSessionRef = useRef<{ srcSession: string; windowId: string; optimisticId: string } | null>(null);
-  const { execute: executeMoveToSession, isPending: isMovePending } = useOptimisticAction<[string, number, string, string, string]>({
+  const { execute: executeMoveToSession, isPending: isCrossMovePending } = useOptimisticAction<[string, number, string, string, string]>({
     action: (srcSession, srcIndex, _windowId, _windowName, dstSession) =>
       moveWindowToSession(srcSession, srcIndex, dstSession),
     onOptimistic: (srcSession, _srcIndex, windowId, windowName, dstSession) => {
@@ -394,10 +407,9 @@ export function Sidebar({
     }
 
     if (data.session !== sessionName || data.index === windowIndex) return;
-    if (isSwapPending) return;
+    if (isMovePending) return;
 
-    executeSwapWindow(data.session, data.index, windowIndex);
-    onSelectWindow(sessionName, windowIndex);
+    executeMoveWindow(data.session, data.index, windowIndex);
   }
 
   function handleDragEnd() {
@@ -433,7 +445,7 @@ export function Sidebar({
     }
 
     if (data.session === sessionName) return;
-    if (isMovePending) return;
+    if (isCrossMovePending) return;
 
     executeMoveToSession(data.session, data.index, data.windowId, data.name, sessionName);
   }
@@ -566,6 +578,25 @@ export function Sidebar({
                         />
                       );
                     })}
+                    {/* Drop zone after last window — enables moving items to the end.
+                        Relative wrapper keeps the absolute zone in flow position without adding height. */}
+                    {dragSource?.session === session.name && (
+                      <div className="relative">
+                        <div
+                          className="absolute inset-x-0 top-0 h-4 -mt-1"
+                          style={
+                            dropTarget?.session === session.name && dropTarget?.index === -1
+                              ? { boxShadow: "0 -2px 0 0 var(--color-accent)" }
+                              : undefined
+                          }
+                          onDragOver={(e) => handleDragOver(e, session.name, -1)}
+                          onDrop={(e) => {
+                            const lastWin = session.windows[session.windows.length - 1];
+                            if (lastWin) handleDrop(e, session.name, lastWin.index + 1);
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -351,68 +351,69 @@ describe("window-store", () => {
     });
   });
 
-  describe("swapWindowOrder", () => {
-    it("swaps index values of two windows in the same session", () => {
-      const { setWindowsForSession, swapWindowOrder } = getStore();
+  describe("moveWindowOrder", () => {
+    it("moves window forward (insert before): [a b c d] move 0→2 gives [b a c d]", () => {
+      const { setWindowsForSession, moveWindowOrder } = getStore();
       setWindowsForSession("alpha", [
-        makeWindow({ windowId: "@0", index: 0, name: "main" }),
-        makeWindow({ windowId: "@1", index: 1, name: "dev" }),
-        makeWindow({ windowId: "@2", index: 2, name: "logs" }),
+        makeWindow({ windowId: "@0", index: 0, name: "a" }),
+        makeWindow({ windowId: "@1", index: 1, name: "b" }),
+        makeWindow({ windowId: "@2", index: 2, name: "c" }),
+        makeWindow({ windowId: "@3", index: 3, name: "d" }),
       ]);
 
-      swapWindowOrder("alpha", 0, 2);
+      moveWindowOrder("alpha", 0, 2);
 
       const entries = useWindowStore.getState().entries;
-      expect(entries.get("@0")?.index).toBe(2);
-      expect(entries.get("@2")?.index).toBe(0);
-      // Middle window untouched
-      expect(entries.get("@1")?.index).toBe(1);
+      expect(entries.get("@1")?.index).toBe(0); // b shifted left
+      expect(entries.get("@0")?.index).toBe(1); // a inserted before c
+      expect(entries.get("@2")?.index).toBe(2); // c unchanged
+      expect(entries.get("@3")?.index).toBe(3); // d unchanged
+    });
+
+    it("moves window backward: [a b c d] move 3→1 gives [a d b c]", () => {
+      const { setWindowsForSession, moveWindowOrder } = getStore();
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, name: "a" }),
+        makeWindow({ windowId: "@1", index: 1, name: "b" }),
+        makeWindow({ windowId: "@2", index: 2, name: "c" }),
+        makeWindow({ windowId: "@3", index: 3, name: "d" }),
+      ]);
+
+      moveWindowOrder("alpha", 3, 1);
+
+      const entries = useWindowStore.getState().entries;
+      expect(entries.get("@0")?.index).toBe(0); // a unchanged
+      expect(entries.get("@3")?.index).toBe(1); // d took b's slot
+      expect(entries.get("@1")?.index).toBe(2); // b shifted right
+      expect(entries.get("@2")?.index).toBe(3); // c shifted right
     });
 
     it("no-op when source entry is missing", () => {
-      const { setWindowsForSession, swapWindowOrder } = getStore();
+      const { setWindowsForSession, moveWindowOrder } = getStore();
       setWindowsForSession("alpha", [
         makeWindow({ windowId: "@0", index: 0, name: "main" }),
       ]);
 
-      swapWindowOrder("alpha", 5, 0);
+      moveWindowOrder("alpha", 5, 0);
 
       const entries = useWindowStore.getState().entries;
       expect(entries.get("@0")?.index).toBe(0);
     });
 
     it("no-op when destination entry is missing", () => {
-      const { setWindowsForSession, swapWindowOrder } = getStore();
+      const { setWindowsForSession, moveWindowOrder } = getStore();
       setWindowsForSession("alpha", [
         makeWindow({ windowId: "@0", index: 0, name: "main" }),
       ]);
 
-      swapWindowOrder("alpha", 0, 5);
+      moveWindowOrder("alpha", 0, 5);
 
       const entries = useWindowStore.getState().entries;
       expect(entries.get("@0")?.index).toBe(0);
     });
 
-    it("re-swap (rollback) restores original indices", () => {
-      const { setWindowsForSession, swapWindowOrder } = getStore();
-      setWindowsForSession("alpha", [
-        makeWindow({ windowId: "@0", index: 0, name: "main" }),
-        makeWindow({ windowId: "@1", index: 1, name: "dev" }),
-      ]);
-
-      // Forward swap
-      swapWindowOrder("alpha", 0, 1);
-      expect(useWindowStore.getState().entries.get("@0")?.index).toBe(1);
-      expect(useWindowStore.getState().entries.get("@1")?.index).toBe(0);
-
-      // Reverse swap (rollback)
-      swapWindowOrder("alpha", 1, 0);
-      expect(useWindowStore.getState().entries.get("@0")?.index).toBe(0);
-      expect(useWindowStore.getState().entries.get("@1")?.index).toBe(1);
-    });
-
     it("does not affect windows from other sessions", () => {
-      const { setWindowsForSession, swapWindowOrder } = getStore();
+      const { setWindowsForSession, moveWindowOrder } = getStore();
       setWindowsForSession("alpha", [
         makeWindow({ windowId: "@0", index: 0, name: "main" }),
         makeWindow({ windowId: "@1", index: 1, name: "dev" }),
@@ -421,7 +422,7 @@ describe("window-store", () => {
         makeWindow({ windowId: "@2", index: 0, name: "other" }),
       ]);
 
-      swapWindowOrder("alpha", 0, 1);
+      moveWindowOrder("alpha", 0, 1);
 
       expect(useWindowStore.getState().entries.get("@2")?.index).toBe(0);
     });

@@ -483,15 +483,75 @@ func KillSession(session string, server string) error {
 	return err
 }
 
-// SwapWindow swaps two windows within the same session on the specified server.
-func SwapWindow(session string, srcIndex int, dstIndex int, server string) error {
+// MoveWindow moves a window from srcIndex to before dstIndex within the same session,
+// shifting intermediate windows via adjacent swaps. This gives "insert before" semantics
+// (e.g., moving index 0 to index 2 in [a b c d] produces [b a c d]).
+func MoveWindow(session string, srcIndex int, dstIndex int, server string) error {
+	if srcIndex == dstIndex {
+		return nil
+	}
+
+	// Get sorted window indices so we can bubble via adjacent swaps
 	ctx, cancel := withTimeout()
 	defer cancel()
+	out, err := tmuxExecServer(ctx, server, "list-windows", "-t", session, "-F", "#{window_index}")
+	if err != nil {
+		return fmt.Errorf("list windows: %w", err)
+	}
 
-	src := fmt.Sprintf("%s:%d", session, srcIndex)
-	dst := fmt.Sprintf("%s:%d", session, dstIndex)
-	_, err := tmuxExecServer(ctx, server, "swap-window", "-s", src, "-t", dst)
-	return err
+	var indices []int
+	for _, line := range out {
+		if idx, err := strconv.Atoi(strings.TrimSpace(line)); err == nil {
+			indices = append(indices, idx)
+		}
+	}
+	sort.Ints(indices)
+
+	srcPos, dstPos := -1, -1
+	for i, idx := range indices {
+		if idx == srcIndex {
+			srcPos = i
+		}
+		if idx == dstIndex {
+			dstPos = i
+		}
+	}
+	if srcPos < 0 {
+		return fmt.Errorf("source window index %d not found", srcIndex)
+	}
+	// Sentinel index (past the last window) → move source to end.
+	// In this case, use "move to position" (full swaps), not "insert before."
+	sentinel := dstPos < 0
+	if sentinel {
+		dstPos = len(indices) - 1
+	}
+
+	// "Insert before" semantics: source lands just before the target item.
+	// When moving forward, stop one short (source ends up before dst).
+	// When moving backward, go all the way (source takes dst's slot, dst shifts right).
+	// Sentinel overrides: full swaps so source lands AT the end, not before it.
+	endPos := dstPos
+	if srcPos < dstPos && !sentinel {
+		endPos = dstPos - 1
+	}
+	if srcPos == endPos {
+		return nil
+	}
+	step := 1
+	if srcPos > endPos {
+		step = -1
+	}
+	for pos := srcPos; pos != endPos; pos += step {
+		src := fmt.Sprintf("%s:%d", session, indices[pos])
+		dst := fmt.Sprintf("%s:%d", session, indices[pos+step])
+		ctx2, cancel2 := withTimeout()
+		_, err := tmuxExecServer(ctx2, server, "swap-window", "-s", src, "-t", dst)
+		cancel2()
+		if err != nil {
+			return fmt.Errorf("swap %d↔%d: %w", indices[pos], indices[pos+step], err)
+		}
+	}
+	return nil
 }
 
 // MoveWindowToSession moves a window from one session to another on the specified server.

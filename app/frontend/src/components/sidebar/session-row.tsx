@@ -46,7 +46,7 @@ export function SessionRow({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      style={isSessionDropTarget ? { border: "2px solid var(--color-accent)", borderRadius: "4px" } : undefined}
+      style={isSessionDropTarget ? { boxShadow: "inset 0 0 0 2px var(--color-accent)", borderRadius: "4px" } : undefined}
     >
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <button

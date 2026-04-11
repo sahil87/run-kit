@@ -108,7 +108,7 @@ func (m *mockTmuxOps) KillWindow(session string, index int, server string) error
 	m.killWindowIndex = index
 	return m.err
 }
-func (m *mockTmuxOps) SwapWindow(session string, srcIndex int, dstIndex int, server string) error {
+func (m *mockTmuxOps) MoveWindow(session string, srcIndex int, dstIndex int, server string) error {
 	m.swapWindowCalled = true
 	m.swapWindowSession = session
 	m.swapWindowSrcIndex = srcIndex

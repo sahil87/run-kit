@@ -707,6 +707,8 @@ describe("Sidebar", () => {
       expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(false);
       // Ghost should be removed
       expect(useWindowStore.getState().ghosts.some((g) => g.session === "ao-server" && g.name === "main")).toBe(false);
+      // Error toast should be shown
+      expect(screen.getByText("server error")).toBeInTheDocument();
     });
 
     it("visual feedback shows accent border on valid cross-session hover", () => {

@@ -235,7 +235,7 @@ export function Sidebar({
 
   // Optimistic cross-session window move
   const lastMoveToSessionRef = useRef<{ srcSession: string; windowId: string; optimisticId: string } | null>(null);
-  const { execute: executeMoveToSession } = useOptimisticAction<[string, number, string, string, string]>({
+  const { execute: executeMoveToSession, isPending: isMovePending } = useOptimisticAction<[string, number, string, string, string]>({
     action: (srcSession, srcIndex, _windowId, _windowName, dstSession) =>
       moveWindowToSession(srcSession, srcIndex, dstSession),
     onOptimistic: (srcSession, _srcIndex, windowId, windowName, dstSession) => {
@@ -428,6 +428,7 @@ export function Sidebar({
     }
 
     if (data.session === sessionName) return;
+    if (isMovePending) return;
 
     executeMoveToSession(data.session, data.index, data.windowId, data.name, sessionName);
   }

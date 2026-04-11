@@ -81,7 +81,7 @@ type WindowStoreActions = {
    * Swap the index values of two windows within the same session.
    * No-op if either entry is missing.
    */
-  swapWindowOrder: (session: string, srcIndex: number, dstIndex: number) => void;
+  moveWindowOrder: (session: string, srcIndex: number, dstIndex: number) => void;
 
   /**
    * Clear all window entries and ghosts for a session (called after session kill).
@@ -253,22 +253,36 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
     }));
   },
 
-  swapWindowOrder: (session, srcIndex, dstIndex) => {
+  moveWindowOrder: (session, srcIndex, dstIndex) => {
     set((state) => {
-      let srcId: string | undefined;
-      let dstId: string | undefined;
+      // Collect session windows sorted by index
+      const sorted: Array<[string, WindowEntry]> = [];
       for (const [id, entry] of state.entries) {
-        if (entry.session !== session) continue;
-        if (entry.index === srcIndex) srcId = id;
-        if (entry.index === dstIndex) dstId = id;
-        if (srcId && dstId) break;
+        if (entry.session === session) sorted.push([id, entry]);
       }
-      if (!srcId || !dstId) return state;
-      const srcEntry = state.entries.get(srcId)!;
-      const dstEntry = state.entries.get(dstId)!;
+      sorted.sort((a, b) => a[1].index - b[1].index);
+
+      const srcPos = sorted.findIndex(([, e]) => e.index === srcIndex);
+      const dstPos = sorted.findIndex(([, e]) => e.index === dstIndex);
+      if (srcPos < 0 || dstPos < 0) return state;
+
+      // Preserve the original sorted indices for reassignment
+      const indices = sorted.map(([, e]) => e.index);
+
+      // "Insert before": source lands just before the target item.
+      // When moving forward, removing src shifts dst left by 1 in the
+      // reduced array; inserting at (dstPos - 1) puts src right before
+      // dst's new position. When moving backward, no shift — dstPos is
+      // correct as-is.
+      const [removed] = sorted.splice(srcPos, 1);
+      sorted.splice(srcPos < dstPos ? dstPos - 1 : dstPos, 0, removed);
+
+      // Reassign the original indices to the new ordering
       const newEntries = new Map(state.entries);
-      newEntries.set(srcId, { ...srcEntry, index: dstIndex });
-      newEntries.set(dstId, { ...dstEntry, index: srcIndex });
+      for (let i = 0; i < sorted.length; i++) {
+        const [id] = sorted[i];
+        newEntries.set(id, { ...newEntries.get(id)!, index: indices[i] });
+      }
       return { entries: newEntries };
     });
   },

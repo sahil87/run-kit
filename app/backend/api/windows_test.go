@@ -299,7 +299,7 @@ func TestWindowMoveSuccess(t *testing.T) {
 	}
 
 	if !ops.swapWindowCalled {
-		t.Error("SwapWindow was not called")
+		t.Error("MoveWindow was not called")
 	}
 	if ops.swapWindowSession != "run-kit" {
 		t.Errorf("session = %q, want %q", ops.swapWindowSession, "run-kit")

@@ -251,7 +251,7 @@ func (s *Server) handleWindowMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.SwapWindow(session, index, *body.TargetIndex, serverFromRequest(r)); err != nil {
+	if err := s.tmux.MoveWindow(session, index, *body.TargetIndex, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

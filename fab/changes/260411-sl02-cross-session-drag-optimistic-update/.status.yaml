@@ -1,0 +1,44 @@
+id: sl02
+name: 260411-sl02-cross-session-drag-optimistic-update
+created: 2026-04-11T06:44:35Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 19
+    total: 19
+confidence:
+    certain: 10
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 88.5
+        reversibility: 90.0
+        competence: 90.5
+        disambiguation: 89.0
+stage_metrics:
+    intake: {started_at: "2026-04-11T06:44:35Z", driver: fab-new, iterations: 1, completed_at: "2026-04-11T06:50:00Z"}
+    spec: {started_at: "2026-04-11T06:50:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:50:52Z"}
+    tasks: {started_at: "2026-04-11T06:50:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:51:01Z"}
+    apply: {started_at: "2026-04-11T06:51:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:56:48Z"}
+    review: {started_at: "2026-04-11T06:56:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:59:57Z"}
+    hydrate: {started_at: "2026-04-11T06:59:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T07:02:01Z"}
+    ship: {started_at: "2026-04-11T07:02:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T07:03:16Z"}
+    review-pr: {started_at: "2026-04-11T07:03:16Z", driver: git-pr, iterations: 1, completed_at: "2026-04-11T07:04:20Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/134
+last_updated: 2026-04-11T19:16:37Z

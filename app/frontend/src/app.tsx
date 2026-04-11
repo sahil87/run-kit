@@ -405,18 +405,6 @@ function AppShell() {
     [executeCreateWindow],
   );
 
-  const handleMoveWindowToSession = useCallback(
-    (srcSession: string, srcIndex: number, dstSession: string) => {
-      moveWindowToSession(srcSession, srcIndex, dstSession)
-        .then(() => {
-          navigate({ to: "/$server", params: { server } });
-        })
-        .catch((err) => {
-          addToast(err.message || "Failed to move window to session");
-        });
-    },
-    [addToast, navigate, server],
-  );
 
   // Theme
   const { preference: themePreference, resolved: themeResolved, themeDark, themeLight } = useTheme();
@@ -826,7 +814,6 @@ function AppShell() {
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onKillServer={() => setShowKillServerConfirm(true)}
                 onRefreshServers={refreshServers}
-                onMoveWindowToSession={handleMoveWindowToSession}
               />
             </div>
             {/* Drag handle */}
@@ -904,7 +891,6 @@ function AppShell() {
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onKillServer={() => setShowKillServerConfirm(true)}
                 onRefreshServers={refreshServers}
-                onMoveWindowToSession={handleMoveWindowToSession}
               />
             </div>
           </div>

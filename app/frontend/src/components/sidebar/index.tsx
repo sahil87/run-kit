@@ -579,6 +579,22 @@ export function Sidebar({
                         />
                       );
                     })}
+                    {/* Drop zone after last window — enables moving items to the end */}
+                    {dragSource?.session === session.name && (
+                      <div
+                        className="h-2"
+                        style={
+                          dropTarget?.session === session.name && dropTarget?.index === -1
+                            ? { borderTop: "2px solid var(--color-accent)" }
+                            : undefined
+                        }
+                        onDragOver={(e) => handleDragOver(e, session.name, -1)}
+                        onDrop={(e) => {
+                          const lastWin = session.windows[session.windows.length - 1];
+                          if (lastWin) handleDrop(e, session.name, lastWin.index + 1);
+                        }}
+                      />
+                    )}
                   </div>
                 )}
               </div>

@@ -516,15 +516,22 @@ func MoveWindow(session string, srcIndex int, dstIndex int, server string) error
 			dstPos = i
 		}
 	}
-	if srcPos < 0 || dstPos < 0 {
-		return fmt.Errorf("window index not found (src=%d dst=%d)", srcIndex, dstIndex)
+	if srcPos < 0 {
+		return fmt.Errorf("source window index %d not found", srcIndex)
+	}
+	// Sentinel index (past the last window) → move source to end.
+	// In this case, use "move to position" (full swaps), not "insert before."
+	sentinel := dstPos < 0
+	if sentinel {
+		dstPos = len(indices) - 1
 	}
 
 	// "Insert before" semantics: source lands just before the target item.
 	// When moving forward, stop one short (source ends up before dst).
 	// When moving backward, go all the way (source takes dst's slot, dst shifts right).
+	// Sentinel overrides: full swaps so source lands AT the end, not before it.
 	endPos := dstPos
-	if srcPos < dstPos {
+	if srcPos < dstPos && !sentinel {
 		endPos = dstPos - 1
 	}
 	if srcPos == endPos {

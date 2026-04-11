@@ -263,19 +263,20 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
       sorted.sort((a, b) => a[1].index - b[1].index);
 
       const srcPos = sorted.findIndex(([, e]) => e.index === srcIndex);
-      const dstPos = sorted.findIndex(([, e]) => e.index === dstIndex);
-      if (srcPos < 0 || dstPos < 0) return state;
+      if (srcPos < 0) return state;
+      // Sentinel index (past last window) → move to end (full swap, not insert-before)
+      let dstPos = sorted.findIndex(([, e]) => e.index === dstIndex);
+      const sentinel = dstPos < 0;
+      if (sentinel) dstPos = sorted.length - 1;
 
       // Preserve the original sorted indices for reassignment
       const indices = sorted.map(([, e]) => e.index);
 
       // "Insert before": source lands just before the target item.
-      // When moving forward, removing src shifts dst left by 1 in the
-      // reduced array; inserting at (dstPos - 1) puts src right before
-      // dst's new position. When moving backward, no shift — dstPos is
-      // correct as-is.
+      // Sentinel override: source lands AT the end (full move, no -1 adjustment).
       const [removed] = sorted.splice(srcPos, 1);
-      sorted.splice(srcPos < dstPos ? dstPos - 1 : dstPos, 0, removed);
+      const insertPos = srcPos < dstPos && !sentinel ? dstPos - 1 : dstPos;
+      sorted.splice(insertPos, 0, removed);
 
       // Reassign the original indices to the new ordering
       const newEntries = new Map(state.entries);

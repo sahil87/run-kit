@@ -6,6 +6,11 @@ import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
 import type { ProjectSession } from "@/types";
 
+const mockNavigate = vi.fn();
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mockNavigate,
+}));
+
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return {
@@ -86,7 +91,6 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
           onCreateServer={vi.fn()}
           onKillServer={vi.fn()}
           onRefreshServers={vi.fn()}
-          onMoveWindowToSession={vi.fn()}
           {...overrides}
         />
       </OptimisticProvider>
@@ -473,14 +477,14 @@ describe("Sidebar", () => {
       expect(draggableDiv?.getAttribute("draggable")).toBe("true");
     });
 
-    it("onDragStart sets JSON data with session and index", () => {
+    it("onDragStart sets JSON data with session, index, windowId, and name", () => {
       renderSidebar();
       const mainBtn = screen.getAllByText("main")[0].closest("button");
       const draggableDiv = mainBtn?.closest("[draggable]") as HTMLElement;
 
       let transferredData = "";
       const dataTransfer = {
-        setData: vi.fn((type: string, data: string) => {
+        setData: vi.fn((_type: string, data: string) => {
           transferredData = data;
         }),
         effectAllowed: "",
@@ -490,11 +494,13 @@ describe("Sidebar", () => {
 
       expect(dataTransfer.setData).toHaveBeenCalledWith(
         "application/json",
-        JSON.stringify({ session: "run-kit", index: 0 }),
+        JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" }),
       );
       const parsed = JSON.parse(transferredData);
       expect(parsed.session).toBe("run-kit");
       expect(parsed.index).toBe(0);
+      expect(parsed.windowId).toBe("@0");
+      expect(parsed.name).toBe("main");
     });
 
     it("drop on same position does not call moveWindow", async () => {
@@ -599,41 +605,64 @@ describe("Sidebar", () => {
   });
 
   describe("cross-session drag-and-drop", () => {
-    it("drop on different session header calls onMoveWindowToSession", () => {
-      const onMoveWindowToSession = vi.fn();
-      renderSidebar({ onMoveWindowToSession });
+    beforeEach(() => {
+      mockNavigate.mockClear();
+      // Seed the window store so killWindow/restoreWindow/addGhostWindow have entries
+      useWindowStore.setState({ entries: new Map(), ghosts: [] });
+      useWindowStore.getState().setWindowsForSession("run-kit", [
+        { windowId: "@0", index: 0, name: "main", worktreePath: "~/code/run-kit", activity: "active", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 5 },
+        { windowId: "@1", index: 1, name: "scratch", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 180 },
+      ]);
+      useWindowStore.getState().setWindowsForSession("ao-server", [
+        { windowId: "@2", index: 0, name: "dev", worktreePath: "~/code/ao-server", activity: "idle", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 3600 },
+      ]);
+    });
 
-      // Find session headers
+    it("drop on different session header calls moveWindowToSession and triggers optimistic update", async () => {
+      const { moveWindowToSession: moveWindowToSessionMock } = await import("@/api/client");
+      vi.mocked(moveWindowToSessionMock).mockResolvedValue({ ok: true });
+
+      renderSidebar();
+
       const bravoHeader = screen.getByLabelText("Navigate to ao-server").closest(".flex.items-center.justify-between.group") as HTMLElement;
 
       const dataTransfer = {
         setData: vi.fn(),
-        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" })),
         effectAllowed: "",
         dropEffect: "",
       };
 
-      // Start dragging from run-kit window
       const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
       fireEvent.dragStart(mainDraggable, { dataTransfer });
 
-      // Drop on ao-server session header
       fireEvent.dragOver(bravoHeader, { dataTransfer });
-      fireEvent.drop(bravoHeader, { dataTransfer });
+      await act(async () => {
+        fireEvent.drop(bravoHeader, { dataTransfer });
+      });
 
-      expect(onMoveWindowToSession).toHaveBeenCalledWith("run-kit", 0, "ao-server");
+      // Source window should be killed optimistically
+      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(true);
+      // Ghost window should be added to target session
+      expect(useWindowStore.getState().ghosts.some((g) => g.session === "ao-server" && g.name === "main")).toBe(true);
+      // Navigate to server dashboard
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "runkit" } });
+      // API was called
+      expect(moveWindowToSessionMock).toHaveBeenCalledWith("run-kit", 0, "ao-server");
     });
 
-    it("drop on same session header does not call onMoveWindowToSession", () => {
-      const onMoveWindowToSession = vi.fn();
-      renderSidebar({ onMoveWindowToSession });
+    it("drop on same session header is no-op", async () => {
+      const { moveWindowToSession: moveWindowToSessionMock } = await import("@/api/client");
+      vi.mocked(moveWindowToSessionMock).mockClear();
+
+      renderSidebar();
 
       const alphaHeader = screen.getByLabelText("Navigate to run-kit").closest(".flex.items-center.justify-between.group") as HTMLElement;
 
       const dataTransfer = {
         setData: vi.fn(),
-        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" })),
         effectAllowed: "",
         dropEffect: "",
       };
@@ -645,7 +674,39 @@ describe("Sidebar", () => {
       fireEvent.dragOver(alphaHeader, { dataTransfer });
       fireEvent.drop(alphaHeader, { dataTransfer });
 
-      expect(onMoveWindowToSession).not.toHaveBeenCalled();
+      expect(moveWindowToSessionMock).not.toHaveBeenCalled();
+    });
+
+    it("API failure rolls back: restoreWindow + removeGhost + toast", async () => {
+      const { moveWindowToSession: moveWindowToSessionMock } = await import("@/api/client");
+      vi.mocked(moveWindowToSessionMock).mockRejectedValue(new Error("server error"));
+
+      renderSidebar();
+
+      const bravoHeader = screen.getByLabelText("Navigate to ao-server").closest(".flex.items-center.justify-between.group") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
+      const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
+      fireEvent.dragStart(mainDraggable, { dataTransfer });
+
+      // Before drop — source window is not killed
+      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(false);
+
+      await act(async () => {
+        fireEvent.drop(bravoHeader, { dataTransfer });
+      });
+
+      // After API rejection settles, window should be restored (not killed)
+      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(false);
+      // Ghost should be removed
+      expect(useWindowStore.getState().ghosts.some((g) => g.session === "ao-server" && g.name === "main")).toBe(false);
     });
 
     it("visual feedback shows accent border on valid cross-session hover", () => {
@@ -655,20 +716,17 @@ describe("Sidebar", () => {
 
       const dataTransfer = {
         setData: vi.fn(),
-        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" })),
         effectAllowed: "",
         dropEffect: "",
       };
 
-      // Start dragging from run-kit window
       const mainBtn = screen.getAllByText("main")[0].closest("button");
       const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
       fireEvent.dragStart(mainDraggable, { dataTransfer });
 
-      // Hover over ao-server session header
       fireEvent.dragOver(bravoHeader, { dataTransfer });
 
-      // Check for accent border style
       expect(bravoHeader.style.border).toContain("2px solid");
     });
 
@@ -686,7 +744,7 @@ describe("Sidebar", () => {
 
       const dataTransfer = {
         setData: vi.fn(),
-        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" })),
         effectAllowed: "",
         dropEffect: "",
       };
@@ -731,7 +789,6 @@ describe("Sidebar", () => {
               onCreateServer={vi.fn()}
               onKillServer={vi.fn()}
               onRefreshServers={vi.fn()}
-              onMoveWindowToSession={vi.fn()}
             />
           </OptimisticProvider>
         </ToastProvider>,

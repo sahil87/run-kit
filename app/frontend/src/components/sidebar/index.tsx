@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow } from "@/api/client";
+import { useNavigate } from "@tanstack/react-router";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession } from "@/api/client";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
@@ -26,7 +27,6 @@ export type SidebarProps = {
   onCreateServer: () => void;
   onKillServer: () => void;
   onRefreshServers: () => void;
-  onMoveWindowToSession: (srcSession: string, srcIndex: number, dstSession: string) => void;
 };
 
 export function Sidebar({
@@ -42,7 +42,6 @@ export function Sidebar({
   onCreateServer,
   onKillServer,
   onRefreshServers,
-  onMoveWindowToSession,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
@@ -72,10 +71,13 @@ export function Sidebar({
 
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
   const { addToast } = useToast();
+  const navigate = useNavigate();
   const killWindowStore = useWindowStore((state) => state.killWindow);
   const restoreWindow = useWindowStore((state) => state.restoreWindow);
   const clearSession = useWindowStore((state) => state.clearSession);
   const swapWindowOrder = useWindowStore((state) => state.swapWindowOrder);
+  const addGhostWindow = useWindowStore((state) => state.addGhostWindow);
+  const removeGhost = useWindowStore((state) => state.removeGhost);
 
   // Ctrl+click kill session (optimistic)
   const lastKillSessionRef = useRef<string | null>(null);
@@ -231,6 +233,31 @@ export function Sidebar({
     },
   });
 
+  // Optimistic cross-session window move
+  const lastMoveToSessionRef = useRef<{ srcSession: string; windowId: string; optimisticId: string } | null>(null);
+  const { execute: executeMoveToSession } = useOptimisticAction<[string, number, string, string, string]>({
+    action: (srcSession, srcIndex, _windowId, _windowName, dstSession) =>
+      moveWindowToSession(srcSession, srcIndex, dstSession),
+    onOptimistic: (srcSession, _srcIndex, windowId, windowName, dstSession) => {
+      killWindowStore(srcSession, windowId);
+      const optimisticId = addGhostWindow(dstSession, windowName);
+      lastMoveToSessionRef.current = { srcSession, windowId, optimisticId };
+      navigate({ to: "/$server", params: { server } });
+    },
+    onAlwaysRollback: () => {
+      if (lastMoveToSessionRef.current) {
+        restoreWindow(lastMoveToSessionRef.current.srcSession, lastMoveToSessionRef.current.windowId);
+        removeGhost(lastMoveToSessionRef.current.optimisticId);
+      }
+    },
+    onAlwaysSettled: () => {
+      lastMoveToSessionRef.current = null;
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to move window to session");
+    },
+  });
+
   useEffect(() => {
     if (editingWindow && inputRef.current) {
       inputRef.current.focus();
@@ -333,9 +360,9 @@ export function Sidebar({
     handleRenameCommit();
   }
 
-  function handleDragStart(e: React.DragEvent, sessionName: string, windowIndex: number) {
+  function handleDragStart(e: React.DragEvent, sessionName: string, windowIndex: number, windowId: string, windowName: string) {
     setDragSource({ session: sessionName, index: windowIndex });
-    e.dataTransfer.setData("application/json", JSON.stringify({ session: sessionName, index: windowIndex }));
+    e.dataTransfer.setData("application/json", JSON.stringify({ session: sessionName, index: windowIndex, windowId, name: windowName }));
     e.dataTransfer.effectAllowed = "move";
   }
 
@@ -354,7 +381,7 @@ export function Sidebar({
     setDropTarget(null);
     setDragSource(null);
 
-    let data: { session: string; index: number };
+    let data: { session: string; index: number; windowId: string; name: string };
     try {
       data = JSON.parse(e.dataTransfer.getData("application/json"));
     } catch {
@@ -393,7 +420,7 @@ export function Sidebar({
     setDropTarget(null);
     setDragSource(null);
 
-    let data: { session: string; index: number };
+    let data: { session: string; index: number; windowId: string; name: string };
     try {
       data = JSON.parse(e.dataTransfer.getData("application/json"));
     } catch {
@@ -402,7 +429,7 @@ export function Sidebar({
 
     if (data.session === sessionName) return;
 
-    onMoveWindowToSession(data.session, data.index, sessionName);
+    executeMoveToSession(data.session, data.index, data.windowId, data.name, sessionName);
   }
 
   const toggleSession = useCallback((name: string) => {
@@ -526,7 +553,7 @@ export function Sidebar({
                               });
                             }
                           }}
-                          onDragStart={(e) => handleDragStart(e, session.name, win.index)}
+                          onDragStart={(e) => handleDragStart(e, session.name, win.index, win.windowId, win.name)}
                           onDragOver={(e) => handleDragOver(e, session.name, win.index)}
                           onDrop={(e) => handleDrop(e, session.name, win.index)}
                           onDragEnd={handleDragEnd}

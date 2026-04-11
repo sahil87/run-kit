@@ -132,6 +132,57 @@ func findRepoRoot(dir string) string {
 	}
 }
 
+// Git branch cache: keyed by cwd, with TTL.
+var (
+	gitBranchCache     map[string]string
+	gitBranchCacheTime time.Time
+	gitBranchCacheMu   sync.RWMutex
+	gitBranchCacheTTL  = 5 * time.Second
+)
+
+// resolveGitBranches resolves git branches for a set of cwds, using a TTL cache.
+// Returns a map from cwd to branch name. Cwds not in a git repo are omitted.
+func resolveGitBranches(ctx context.Context, cwds []string) map[string]string {
+	gitBranchCacheMu.RLock()
+	if gitBranchCache != nil && time.Since(gitBranchCacheTime) < gitBranchCacheTTL {
+		cached := gitBranchCache
+		gitBranchCacheMu.RUnlock()
+		return cached
+	}
+	gitBranchCacheMu.RUnlock()
+
+	gitBranchCacheMu.Lock()
+	defer gitBranchCacheMu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if gitBranchCache != nil && time.Since(gitBranchCacheTime) < gitBranchCacheTTL {
+		return gitBranchCache
+	}
+
+	result := make(map[string]string)
+	seen := make(map[string]bool)
+	for _, cwd := range cwds {
+		if cwd == "" || seen[cwd] {
+			continue
+		}
+		seen[cwd] = true
+		gitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		cmd := exec.CommandContext(gitCtx, "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
+		out, err := cmd.Output()
+		cancel()
+		if err == nil {
+			branch := string(bytes.TrimSpace(out))
+			if branch != "" {
+				result[cwd] = branch
+			}
+		}
+	}
+
+	gitBranchCache = result
+	gitBranchCacheTime = time.Now()
+	return result
+}
+
 // derefStr dereferences a *string, returning empty string for nil.
 func derefStr(s *string) string {
 	if s == nil {
@@ -198,7 +249,18 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 		paneMap, _ = fetchPaneMapCached(repoRoot)
 	}
 
-	// Build result with per-window fab enrichment from pane-map.
+	// Collect all pane cwds for git branch resolution.
+	var allCwds []string
+	for _, sd := range data {
+		for _, w := range sd.windows {
+			for _, p := range w.Panes {
+				allCwds = append(allCwds, p.Cwd)
+			}
+		}
+	}
+	gitBranches := resolveGitBranches(ctx, allCwds)
+
+	// Build result with per-window fab enrichment from pane-map and git branches.
 	result := make([]ProjectSession, len(data))
 	for i, sd := range data {
 		for j := range sd.windows {
@@ -208,6 +270,11 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 				sd.windows[j].FabStage = derefStr(entry.Stage)
 				sd.windows[j].AgentState = derefStr(entry.AgentState)
 				sd.windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
+			}
+			for k := range sd.windows[j].Panes {
+				if branch, ok := gitBranches[sd.windows[j].Panes[k].Cwd]; ok {
+					sd.windows[j].Panes[k].GitBranch = branch
+				}
 			}
 		}
 		result[i] = ProjectSession{Name: sd.info.Name, Windows: sd.windows}

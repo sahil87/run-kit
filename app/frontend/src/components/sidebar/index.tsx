@@ -469,7 +469,7 @@ export function Sidebar({
         onRefreshServers={onRefreshServers}
       />
 
-      <div className="flex-1 min-h-0 overflow-y-auto pl-1 pr-0 pt-1">
+      <div className="flex-1 min-h-0 overflow-y-auto pt-1">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
             <span>No sessions</span>
@@ -519,7 +519,7 @@ export function Sidebar({
 
                 {/* Window rows */}
                 {!isCollapsed && (
-                  <div className="ml-1">
+                  <div className="ml-3">
                     {session.windows.map((win) => {
                       const isSelected =
                         currentSession === session.name &&

@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from "react";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { sparkline } from "@/lib/sparkline";
 import { gaugeBar, gaugeColor, formatMemory } from "@/lib/gauge";
@@ -28,34 +29,37 @@ type HostPanelProps = {
 };
 
 export function HostPanel({ metrics, isConnected }: HostPanelProps) {
+  const hostnameHeader = metrics ? (
+    <>
+      <span className="truncate text-text-primary font-mono">{metrics.hostname}</span>
+      <span
+        className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
+          isConnected ? "bg-accent-green" : "bg-text-secondary"
+        }`}
+        title={isConnected ? "SSE connected" : "SSE disconnected"}
+      />
+    </>
+  ) : null;
+
   return (
-    <CollapsiblePanel title="Host" storageKey="runkit-panel-host" defaultOpen={true}>
+    <CollapsiblePanel title="Host" storageKey="runkit-panel-host" defaultOpen={true} headerRight={hostnameHeader}>
       {!metrics ? (
         <div className="text-xs text-text-secondary">No metrics</div>
       ) : (
         <div className="flex flex-col gap-0 text-xs font-mono">
-          {/* Line 1: Hostname + SSE indicator */}
-          <div className="flex items-center justify-between truncate">
-            <span className="text-text-primary truncate">{metrics.hostname}</span>
-            <span
-              className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ml-1 ${
-                isConnected ? "bg-accent-green" : "bg-text-secondary"
-              }`}
-              title={isConnected ? "SSE connected" : "SSE disconnected"}
-            />
+          {/* CPU sparkline — label+pct fixed, sparkline clips oldest (left) data on narrow panels */}
+          <div className="flex items-baseline gap-[1ch]">
+            <span className="text-text-secondary shrink-0">cpu</span>
+            <div className="text-accent flex-1 min-w-0 overflow-hidden" dir="rtl">
+              <span className="whitespace-nowrap" dir="ltr">{sparkline(metrics.cpu.samples)}</span>
+            </div>
+            <span className="text-text-primary shrink-0">{Math.round(metrics.cpu.current)}%</span>
           </div>
 
-          {/* Line 2: CPU sparkline */}
-          <div className="truncate">
-            <span className="text-text-secondary">cpu </span>
-            <span className="text-accent">{sparkline(metrics.cpu.samples)}</span>
-            <span className="text-text-primary"> {Math.round(metrics.cpu.current)}%</span>
-          </div>
-
-          {/* Line 3: Memory gauge */}
+          {/* Memory gauge */}
           <MemoryLine used={metrics.memory.used} total={metrics.memory.total} />
 
-          {/* Line 4: Load averages */}
+          {/* Load averages */}
           <LoadLine
             avg1={metrics.load.avg1}
             avg5={metrics.load.avg5}
@@ -63,7 +67,7 @@ export function HostPanel({ metrics, isConnected }: HostPanelProps) {
             cpus={metrics.load.cpus}
           />
 
-          {/* Line 5: Disk + Uptime */}
+          {/* Disk + Uptime */}
           <div className="text-text-secondary truncate">
             <span>dsk </span>
             <span>{formatDisk(metrics.disk.used, metrics.disk.total)}</span>
@@ -80,12 +84,30 @@ function MemoryLine({ used, total }: { used: number; total: number }) {
   const percent = total > 0 ? (used / total) * 100 : 0;
   const ratio = total > 0 ? used / total : 0;
   const color = gaugeColor(percent);
+  const gaugeRef = useRef<HTMLDivElement>(null);
+  const [charCount, setCharCount] = useState(10);
+
+  useEffect(() => {
+    const el = gaugeRef.current;
+    if (!el) return;
+    const measure = () => {
+      // Measure how many monospace characters fit in the container
+      const fontSize = parseFloat(getComputedStyle(el).fontSize);
+      const chWidth = fontSize * 0.6; // standard monospace char-width ratio
+      if (chWidth > 0) setCharCount(Math.max(4, Math.floor(el.clientWidth / chWidth)));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   return (
-    <div className="truncate">
-      <span className="text-text-secondary">mem </span>
-      <span className={color}>{gaugeBar(ratio)}</span>
-      <span className="text-text-primary"> {formatMemory(used, total)}</span>
+    <div className="flex items-baseline gap-[1ch]">
+      <span className="text-text-secondary shrink-0">mem</span>
+      <div ref={gaugeRef} className="flex-1 min-w-0 overflow-hidden whitespace-nowrap">
+        <span className={color}>{gaugeBar(ratio, charCount)}</span>
+      </div>
+      <span className="text-text-primary shrink-0">{formatMemory(used, total)}</span>
     </div>
   );
 }
@@ -109,7 +131,7 @@ function LoadLine({
 
   return (
     <div className="truncate">
-      <span className="text-text-secondary">load </span>
+      <span className="text-text-secondary">ld&nbsp; </span>
       <span className={p1 > 90 ? redClass : "text-text-primary"}>{p1}%</span>
       <span className="text-text-secondary"> </span>
       <span className={p5 > 90 ? redClass : "text-text-primary"}>{p5}%</span>

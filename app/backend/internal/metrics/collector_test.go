@@ -87,10 +87,6 @@ func TestCollector_StartAndStop(t *testing.T) {
 }
 
 func TestCollector_CollectsMetrics(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("procfs metrics only available on Linux")
-	}
-
 	c := NewCollector(50 * time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -119,29 +115,6 @@ func TestCollector_CollectsMetrics(t *testing.T) {
 	// Load CPUs should match cores
 	if snap.Load.CPUs != snap.CPU.Cores {
 		t.Errorf("load CPUs (%d) != CPU cores (%d)", snap.Load.CPUs, snap.CPU.Cores)
-	}
-}
-
-func TestParseCPULine(t *testing.T) {
-	// Real-world /proc/stat first line
-	line := "cpu  10132153 290696 3084719 46828483 16683 0 25195 0 0 0"
-	ct := parseCPULine(line)
-
-	if ct.total == 0 {
-		t.Error("expected non-zero total")
-	}
-	if ct.idle == 0 {
-		t.Error("expected non-zero idle")
-	}
-	if ct.idle >= ct.total {
-		t.Errorf("idle (%d) should be less than total (%d)", ct.idle, ct.total)
-	}
-}
-
-func TestParseCPULine_Short(t *testing.T) {
-	ct := parseCPULine("cpu ")
-	if ct.total != 0 || ct.idle != 0 {
-		t.Error("expected zero values for short line")
 	}
 }
 

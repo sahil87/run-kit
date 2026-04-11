@@ -4,6 +4,7 @@ type CollapsiblePanelProps = {
   title: string;
   storageKey: string;
   defaultOpen?: boolean;
+  headerRight?: React.ReactNode;
   children: React.ReactNode;
 };
 
@@ -22,6 +23,7 @@ export function CollapsiblePanel({
   title,
   storageKey,
   defaultOpen = true,
+  headerRight,
   children,
 }: CollapsiblePanelProps) {
   const [isOpen, setIsOpen] = useState(() => readPersistedState(storageKey, defaultOpen));
@@ -57,19 +59,24 @@ export function CollapsiblePanel({
       {/* Header — always visible */}
       <button
         type="button"
-        className="flex items-center gap-1 w-full px-3 sm:px-4 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
+        className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors"
         onClick={toggle}
         aria-expanded={isOpen}
       >
         {/* Chevron */}
         <span
           className="inline-block transition-transform duration-150"
-          style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}
+          style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
           aria-hidden="true"
         >
-          &#x25B8;
+          &#x25BC;
         </span>
         <span className="font-medium">{title}</span>
+        {headerRight && (
+          <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
+            {headerRight}
+          </span>
+        )}
       </button>
 
       {/* Content area with max-height transition */}
@@ -81,7 +88,7 @@ export function CollapsiblePanel({
           overflow: transitioning || !isOpen ? "hidden" : "visible",
         }}
       >
-        <div className="px-3 sm:px-4 pb-1.5">
+        <div className="pl-5 pr-1.5 sm:pr-2 pb-1.5">
           {children}
         </div>
       </div>

@@ -36,15 +36,16 @@ function shortenPath(cwd: string): string {
   return path;
 }
 
-/** Build the process/activity string for line 3 fallback */
+/** Build the process/activity string for the run line */
 function getProcessLine(win: WindowInfo, nowSeconds: number): string {
   const command = win.panes?.find((p) => p.isActive)?.command ?? win.paneCommand ?? "";
   if (win.activity === "active") return command || "active";
 
+  // When agent state is present, idle info goes in the dedicated agent row
+  if (win.agentState) return command || "";
+
   let idle = "";
-  if (win.agentState === "idle" && win.agentIdleDuration) {
-    idle = win.agentIdleDuration;
-  } else if (win.activityTimestamp) {
+  if (win.activityTimestamp) {
     const elapsed = nowSeconds - win.activityTimestamp;
     if (elapsed > 0) idle = formatDuration(elapsed);
   }
@@ -54,9 +55,22 @@ function getProcessLine(win: WindowInfo, nowSeconds: number): string {
   return command || "";
 }
 
+/** Build the agent state string when an agent is present */
+function getAgentLine(win: WindowInfo): string | null {
+  if (!win.agentState) return null;
+  if (win.agentIdleDuration) return `${win.agentState} ${win.agentIdleDuration}`;
+  return win.agentState;
+}
+
 export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {
+  const headerRight = win ? (
+    <span className="truncate text-text-secondary font-mono">
+      {win.name}
+    </span>
+  ) : null;
+
   return (
-    <CollapsiblePanel title="Window" storageKey="runkit-panel-window" defaultOpen={true}>
+    <CollapsiblePanel title="Pane" storageKey="runkit-panel-window" defaultOpen={true} headerRight={headerRight}>
       {!win ? (
         <span className="text-xs text-text-secondary">No window selected</span>
       ) : (
@@ -67,43 +81,62 @@ export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {
 }
 
 function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: number }) {
-  const activePaneCwd = win.panes?.find((p) => p.isActive)?.cwd ?? win.worktreePath;
+  const activePane = win.panes?.find((p) => p.isActive);
+  const activePaneCwd = activePane?.cwd ?? win.worktreePath;
   const cwd = shortenPath(activePaneCwd);
   const paneCount = win.panes?.length ?? 0;
-  const activePaneIndex = win.panes?.findIndex((p) => p.isActive) ?? 0;
+  const activePaneIndex = activePane?.paneIndex ?? 0;
+  const paneId = activePane?.paneId ?? "";
 
-  // Line 2: window name + pane info
-  const windowLine = paneCount > 1
-    ? `${win.name} \u00b7 pane ${activePaneIndex + 1} of ${paneCount}`
-    : win.name;
+  // Git branch from active pane
+  const gitBranch = activePane?.gitBranch ?? "";
 
-  // Line 3: fab state (preferred) or process info (fallback)
+  // Fab state (preferred) or process info (fallback)
   const fabChange = parseFabChange(win.fabChange ?? "");
   const fabLine = fabChange && win.fabStage
     ? `${fabChange.id} ${fabChange.slug} \u00b7 ${win.fabStage}`
     : null;
   const processLine = getProcessLine(win, nowSeconds);
-  const line3 = fabLine ?? processLine;
+  const runLine = fabLine ?? processLine;
   const isActive = win.activity === "active";
+
+  // Agent state (dedicated row)
+  const agentLine = getAgentLine(win);
 
   return (
     <div className="flex flex-col gap-0 text-xs">
-      {/* Line 1: CWD */}
+      {/* Tmux pane info */}
+      <div className="truncate">
+        <span className="text-text-secondary">tmx </span>
+        <span className="text-text-secondary">
+          pane {activePaneIndex + 1}/{paneCount}{paneId && ` ${paneId}`}
+        </span>
+      </div>
+      {/* CWD */}
       <div className="truncate" title={activePaneCwd}>
         <span className="text-text-secondary">cwd </span>
         <span className="text-text-primary">{cwd}</span>
       </div>
-      {/* Line 2: window + pane info */}
-      <div className="truncate">
-        <span className="text-text-secondary">win </span>
-        <span className="text-text-secondary">{windowLine}</span>
-      </div>
-      {/* Line 3: fab state or process */}
-      {line3 && (
+      {/* Git branch */}
+      {gitBranch && (
+        <div className="truncate">
+          <span className="text-text-secondary">git </span>
+          <span className="text-accent">{gitBranch}</span>
+        </div>
+      )}
+      {/* Fab state or process */}
+      {runLine && (
         <div className="truncate">
           <span className="text-text-secondary">{fabLine ? "fab " : "run "}</span>
           {isActive && <BrailleSpinner className={fabLine ? "text-accent" : "text-accent-green"} />}{isActive && " "}
-          <span className={fabLine ? "text-accent" : "text-text-secondary"}>{line3}</span>
+          <span className={fabLine ? "text-accent" : "text-text-secondary"}>{runLine}</span>
+        </div>
+      )}
+      {/* Agent state */}
+      {agentLine && (
+        <div className="truncate">
+          <span className="text-text-secondary">agt </span>
+          <span className="text-text-primary">{agentLine}</span>
         </div>
       )}
     </div>

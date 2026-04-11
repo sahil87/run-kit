@@ -30,6 +30,7 @@ export type PaneInfo = {
   cwd: string;
   command: string;
   isActive: boolean;
+  gitBranch?: string;
 };
 
 /** A tmux session with its windows and optional fab enrichment. */

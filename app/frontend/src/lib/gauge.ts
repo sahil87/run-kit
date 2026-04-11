@@ -5,11 +5,13 @@ const GAUGE_WIDTH = 10; // total character width of the gauge bar
 
 /**
  * Build a filled/empty block gauge string from a ratio (0-1).
+ * @param width — number of characters (defaults to GAUGE_WIDTH)
  */
-export function gaugeBar(ratio: number): string {
+export function gaugeBar(ratio: number, width: number = GAUGE_WIDTH): string {
+  const w = Math.max(1, Math.round(width));
   const clamped = Math.max(0, Math.min(1, ratio));
-  const filled = Math.round(clamped * GAUGE_WIDTH);
-  return FILLED.repeat(filled) + EMPTY.repeat(GAUGE_WIDTH - filled);
+  const filled = Math.round(clamped * w);
+  return FILLED.repeat(filled) + EMPTY.repeat(w - filled);
 }
 
 /**

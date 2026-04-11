@@ -132,7 +132,7 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
           index: w.index,
           name: w.name,
           pendingName: existing?.pendingName,
-          killed: existing?.killed ?? false,
+          killed: existing?.session === session ? (existing.killed ?? false) : false,
           createdAt: existing?.createdAt ?? Date.now(),
           panes: w.panes ?? [],
         });

@@ -20,13 +20,9 @@ The project already ships optimistic patterns for session/window create, kill, a
 
 ### Add optimistic reorder to `window-store.ts`
 
-Introduce a `reorderWindow(session, srcIndex, dstIndex)` action in the window store that:
+Introduce a `swapWindowOrder(session, srcIndex, dstIndex)` action in the window store that swaps the `index` values of two `WindowEntry` objects within the same session. No-op if either entry is missing. Rollback is achieved by calling the swap again with reversed arguments.
 
-1. Snapshots the current window list for the session (for rollback)
-2. Performs an in-place swap of the two windows in the store's merged window list
-3. Returns a rollback function that restores the snapshot
-
-This follows the existing ghost-window pattern in `window-store.ts` but operates on ordering rather than adding/removing entries.
+This follows the existing action pattern in `window-store.ts` (kill/restore/rename) but operates on ordering rather than adding/removing entries.
 
 ### Wire optimistic reorder into `sidebar/index.tsx` `handleDrop`
 

@@ -210,7 +210,7 @@ export function Sidebar({
 
   // Optimistic swap for drag-drop window reorder
   const lastSwapRef = useRef<{ session: string; srcIndex: number; dstIndex: number } | null>(null);
-  const { execute: executeSwapWindow } = useOptimisticAction<[string, number, number]>({
+  const { execute: executeSwapWindow, isPending: isSwapPending } = useOptimisticAction<[string, number, number]>({
     action: (session, srcIndex, dstIndex) => moveWindow(session, srcIndex, dstIndex),
     onOptimistic: (session, srcIndex, dstIndex) => {
       lastSwapRef.current = { session, srcIndex, dstIndex };
@@ -220,6 +220,7 @@ export function Sidebar({
       if (lastSwapRef.current) {
         const { session, srcIndex, dstIndex } = lastSwapRef.current;
         swapWindowOrder(session, dstIndex, srcIndex);
+        lastSwapRef.current = null;
       }
     },
     onAlwaysSettled: () => {
@@ -361,6 +362,7 @@ export function Sidebar({
     }
 
     if (data.session !== sessionName || data.index === windowIndex) return;
+    if (isSwapPending) return;
 
     executeSwapWindow(data.session, data.index, windowIndex);
     onSelectWindow(sessionName, windowIndex);

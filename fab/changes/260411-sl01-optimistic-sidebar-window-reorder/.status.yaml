@@ -2,7 +2,7 @@ id: sl01
 name: 260411-sl01-optimistic-sidebar-window-reorder
 created: 2026-04-11T06:25:03Z
 created_by: sahil-weaver
-change_type: fix
+change_type: refactor
 issues: []
 progress:
     intake: done
@@ -12,24 +12,25 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 checklist:
     generated: true
     path: checklist.md
     completed: 0
     total: 14
 confidence:
-    certain: 6
+    certain: 4
     confident: 1
     tentative: 0
     unresolved: 0
     score: 4.7
+    indicative: true
     fuzzy: true
     dimensions:
-        signal: 88.6
-        reversibility: 92.1
-        competence: 91.4
-        disambiguation: 90.0
+        signal: 87.0
+        reversibility: 91.0
+        competence: 89.0
+        disambiguation: 89.0
 stage_metrics:
     intake: {started_at: "2026-04-11T06:25:03Z", driver: fab-new, iterations: 1, completed_at: "2026-04-11T06:29:27Z"}
     spec: {started_at: "2026-04-11T06:29:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:30:32Z"}
@@ -38,7 +39,7 @@ stage_metrics:
     review: {started_at: "2026-04-11T06:34:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:37:19Z"}
     hydrate: {started_at: "2026-04-11T06:37:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:38:09Z"}
     ship: {started_at: "2026-04-11T06:38:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:39:40Z"}
-    review-pr: {started_at: "2026-04-11T06:39:40Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-04-11T06:39:40Z", driver: git-pr, iterations: 1, completed_at: "2026-04-11T06:40:53Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/133
-last_updated: 2026-04-11T06:39:40Z
+last_updated: 2026-04-11T19:16:05Z

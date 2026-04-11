@@ -4,7 +4,6 @@ import { ArrowPad } from "@/components/arrow-pad";
 
 type BottomBarProps = {
   wsRef: React.RefObject<WebSocket | null>;
-  hostname?: string;
   onOpenCompose?: () => void;
   onFocusTerminal?: () => void;
   onScrollLockChange?: (locked: boolean) => void;
@@ -63,7 +62,7 @@ const MODIFIER_LABELS: Record<string, string> = {
 /** Prevent mousedown from stealing focus away from the terminal. */
 const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
-export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal, onScrollLockChange }: BottomBarProps) {
+export function BottomBar({ wsRef, onOpenCompose, onFocusTerminal, onScrollLockChange }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
   const [scrollLocked, setScrollLocked] = useState(false);
@@ -360,10 +359,6 @@ export function BottomBar({ wsRef, hostname, onOpenCompose, onFocusTerminal, onS
       </button>
 
       <div className="ml-auto flex items-center gap-1">
-        {hostname && (
-          <span className="hidden sm:inline min-w-0 text-xs text-text-secondary truncate">{hostname}</span>
-        )}
-
         {/* Keyboard toggle — visible only on touch devices; long-press for scroll-lock */}
         <button
           type="button"

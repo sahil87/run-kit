@@ -101,7 +101,7 @@ func TestSSEHubDeduplication(t *testing.T) {
 		},
 	}
 
-	hub := newSSEHub(sf)
+	hub := newSSEHub(sf, nil)
 	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
 
 	hub.addClient(client)
@@ -142,7 +142,7 @@ func TestSSEHubStopsPollingWhenNoClients(t *testing.T) {
 		result: []sessions.ProjectSession{},
 	}
 
-	hub := newSSEHub(sf)
+	hub := newSSEHub(sf, nil)
 	client := &sseClient{ch: make(chan []byte, 8), server: "default"}
 
 	hub.addClient(client)
@@ -187,7 +187,7 @@ func (f *countingSessionFetcher) FetchSessions(ctx context.Context, server strin
 
 func TestSSEHubDropLogging(t *testing.T) {
 	sf := &countingSessionFetcher{}
-	hub := newSSEHub(sf)
+	hub := newSSEHub(sf, nil)
 
 	// Use a buffer of 1 so it fills immediately
 	client := &sseClient{ch: make(chan []byte, 1), server: "default"}
@@ -242,7 +242,7 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 		},
 	}
 
-	hub := newSSEHub(sf)
+	hub := newSSEHub(sf, nil)
 	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
 	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
 
@@ -291,7 +291,7 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 
 func TestSSEHubRemoveClientSwapDelete(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
-	hub := newSSEHub(sf)
+	hub := newSSEHub(sf, nil)
 
 	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
 	c2 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
@@ -338,7 +338,7 @@ func TestSSEHubRemoveClientSwapDelete(t *testing.T) {
 
 func TestSSEHubRemoveLastClientDeletesKey(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
-	hub := newSSEHub(sf)
+	hub := newSSEHub(sf, nil)
 
 	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
 	c2 := &sseClient{ch: make(chan []byte, 8), server: "default"}
@@ -375,7 +375,7 @@ func TestSSEHubConcurrentAddRemove(t *testing.T) {
 		},
 	}
 
-	hub := newSSEHub(sf)
+	hub := newSSEHub(sf, nil)
 
 	// Seed one client to start polling
 	seed := &sseClient{ch: make(chan []byte, 32), server: "default"}

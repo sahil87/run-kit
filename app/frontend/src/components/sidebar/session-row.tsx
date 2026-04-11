@@ -42,20 +42,26 @@ export function SessionRow({
 }: SessionRowProps) {
   return (
     <div
-      className="flex items-center justify-between group"
+      className="flex items-center justify-between group pl-1.5 sm:pl-2"
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       style={isSessionDropTarget ? { border: "2px solid var(--color-accent)", borderRadius: "4px" } : undefined}
     >
-      <div className="flex items-center gap-0.5 min-w-0 flex-1">
+      <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <button
           onClick={onToggleCollapse}
-          className="text-xs text-text-secondary hover:text-text-primary transition-colors w-5 shrink-0 min-h-[36px] flex items-center justify-center"
+          className="text-xs text-text-secondary hover:text-text-primary transition-colors shrink-0 min-h-[36px] flex items-center justify-center"
           aria-expanded={!isCollapsed}
           aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${session.name}`}
         >
-          {isCollapsed ? "\u25B6" : "\u25BC"}
+          <span
+            className="inline-block transition-transform duration-150"
+            style={{ transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}
+            aria-hidden="true"
+          >
+            &#x25BC;
+          </span>
         </button>
         <button
           onClick={onSelectFirstWindow}
@@ -63,7 +69,7 @@ export function SessionRow({
             e.stopPropagation();
             if (editingSession !== session.name) onDoubleClickName();
           }}
-          className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[36px] min-w-0 flex-1"
+          className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[36px] min-w-0 flex-1"
           aria-label={`Navigate to ${session.name}`}
         >
           {editingSession === session.name ? (
@@ -76,7 +82,7 @@ export function SessionRow({
               onBlur={onSessionRenameBlur}
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
-              className="text-sm font-medium bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
+              className="text-xs font-medium bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
               aria-label="Rename session"
             />
           ) : (

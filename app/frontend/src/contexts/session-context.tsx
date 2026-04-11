@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef, startTransition } from "react";
 import { useChromeDispatch } from "./chrome-context";
 import { setServerGetter } from "@/api/client";
-import type { ProjectSession } from "@/types";
+import type { MetricsSnapshot, ProjectSession } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
 
@@ -11,6 +11,7 @@ type SessionContextType = {
   server: string;
   servers: string[];
   refreshServers: () => void;
+  metrics: MetricsSnapshot | null;
 };
 
 const SessionContext = createContext<SessionContextType | null>(null);
@@ -24,6 +25,7 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
   const [sessions, setSessions] = useState<ProjectSession[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [servers, setServers] = useState<string[]>([]);
+  const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
 
   // Keep API client in sync with current server
@@ -68,6 +70,7 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
     setSessions([]);
     setIsConnected(false);
     setChromeConnected(false);
+    setMetrics(null);
 
     const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
 
@@ -106,6 +109,15 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
       }
     });
 
+    es.addEventListener("metrics", (e) => {
+      try {
+        const data = JSON.parse(e.data) as MetricsSnapshot;
+        setMetrics(data);
+      } catch {
+        // Malformed metrics event — skip
+      }
+    });
+
     es.onerror = () => {
       if (!disconnectTimer) {
         disconnectTimer = setTimeout(markDisconnected, 3000);
@@ -125,8 +137,8 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
   }, [setChromeConnected, server]);
 
   const value = useMemo(
-    () => ({ sessions, isConnected, server, servers, refreshServers: fetchServers }),
-    [sessions, isConnected, server, servers, fetchServers],
+    () => ({ sessions, isConnected, server, servers, refreshServers: fetchServers, metrics }),
+    [sessions, isConnected, server, servers, fetchServers, metrics],
   );
 
   return (

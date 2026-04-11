@@ -149,6 +149,7 @@ type PaneInfo struct {
 	Cwd       string `json:"cwd"`
 	Command   string `json:"command"`
 	IsActive  bool   `json:"isActive"`
+	GitBranch string `json:"gitBranch,omitempty"`
 }
 
 // WindowInfo describes a single tmux window within a session.

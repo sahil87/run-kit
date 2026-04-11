@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"rk/internal/metrics"
 	"rk/internal/sessions"
 )
 
@@ -38,14 +39,17 @@ type sseHub struct {
 	cache        map[string]*cachedResult // per-server session fetch cache (500ms TTL)
 	polling      bool
 	fetcher      SessionFetcher
+	metrics      *metrics.Collector
+	cachedMetricsJSON string // latest metrics JSON for new clients
 }
 
-func newSSEHub(fetcher SessionFetcher) *sseHub {
+func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector) *sseHub {
 	return &sseHub{
 		clients:      make(map[string][]*sseClient),
 		previousJSON: make(map[string]string),
 		cache:        make(map[string]*cachedResult),
 		fetcher:      fetcher,
+		metrics:      mc,
 	}
 }
 
@@ -55,10 +59,18 @@ func (h *sseHub) addClient(c *sseClient) {
 
 	h.clients[c.server] = append(h.clients[c.server], c)
 
-	// Send cached snapshot immediately
+	// Send cached session snapshot immediately
 	if prev, ok := h.previousJSON[c.server]; ok && prev != "" {
 		select {
 		case c.ch <- []byte(fmt.Sprintf("event: sessions\ndata: %s\n\n", prev)):
+		default:
+		}
+	}
+
+	// Send cached metrics snapshot immediately (server-independent)
+	if h.cachedMetricsJSON != "" {
+		select {
+		case c.ch <- []byte(fmt.Sprintf("event: metrics\ndata: %s\n\n", h.cachedMetricsJSON)):
 		default:
 		}
 	}
@@ -164,6 +176,29 @@ func (h *sseHub) poll() {
 				dataChanged = true
 			}
 			h.mu.Unlock()
+		}
+
+		// Broadcast metrics to all clients (server-independent, every tick)
+		if h.metrics != nil {
+			snap := h.metrics.Snapshot()
+			metricsJSON, err := json.Marshal(snap)
+			if err == nil {
+				metricsStr := string(metricsJSON)
+				metricsEvent := []byte(fmt.Sprintf("event: metrics\ndata: %s\n\n", metricsStr))
+
+				h.mu.Lock()
+				h.cachedMetricsJSON = metricsStr
+				for _, cs := range h.clients {
+					for _, c := range cs {
+						select {
+						case c.ch <- metricsEvent:
+						default:
+						}
+					}
+				}
+				h.mu.Unlock()
+				dataChanged = true
+			}
 		}
 
 		// Send heartbeat to all clients periodically to keep connections

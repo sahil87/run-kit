@@ -120,11 +120,14 @@ The Ctrl+Click force-kill pattern matches the established "modifier = power acti
 
 ## Sidebar
 
-`app/frontend/src/components/sidebar/` — session/window tree navigation. The sidebar is decomposed into an orchestrator and four sub-components:
+`app/frontend/src/components/sidebar/` — session/window tree navigation. The sidebar is decomposed into an orchestrator and seven sub-components:
 
-- `index.tsx` — `Sidebar` orchestrator; owns all state (`collapsed`, `killTarget`, `editingWindow`, `editingSession`, `dragSource`, `dropTarget`, `sessionDropTarget`) and all `useOptimisticAction` hooks
+- `index.tsx` — `Sidebar` orchestrator; owns all state (`collapsed`, `killTarget`, `editingWindow`, `editingSession`, `dragSource`, `dropTarget`, `sessionDropTarget`) and all `useOptimisticAction` hooks. Accepts `metrics` and `isConnected` props for HostPanel
 - `session-row.tsx` — `SessionRow`; pure presentational; renders the session header row (chevron, name, + button, ✕ button); handles cross-session drag-over styling; all event handlers passed as props
 - `window-row.tsx` — `WindowRow`; pure presentational; renders a single window row (activity dot, name, fab stage, duration, kill button); handles drag-and-drop and inline rename display; all event handlers passed as props
+- `collapsible-panel.tsx` — `CollapsiblePanel`; reusable collapsible container with header (title + chevron), `max-height` CSS transition, localStorage state persistence via `storageKey` prop
+- `status-panel.tsx` — `WindowPanel` (exported as both `WindowPanel` and deprecated `StatusPanel`); wraps existing 3-line window info (cwd, win, fab/run) in a `CollapsiblePanel`
+- `host-panel.tsx` — `HostPanel`; 5-line server metrics display (hostname, CPU sparkline, memory gauge, load averages, disk+uptime) inside a `CollapsiblePanel`
 - `server-selector.tsx` — `ServerSelector`; owns its own dropdown state (`serverDropdownOpen`, `refreshingServers`, `serverDropdownRef`); pinned-bottom server dropdown with outside-click dismiss
 - `kill-dialog.tsx` — `KillDialog`; stateless; renders the kill confirmation dialog for sessions and windows using `<Dialog>`
 
@@ -187,7 +190,33 @@ Same-session header drops are ignored (not a valid cross-session target). Within
 
 **Server selector footer** — pinned at the bottom of the sidebar below the scrollable session tree, separated by `border-t border-border`. Displays `Server: {name}` with a dropdown trigger. Clicking opens a dropdown listing all available tmux servers (from `GET /api/servers`); the current server is highlighted with `text-accent`. Selecting a different server calls `setServer(name)`, which updates localStorage (`runkit-server`), reconnects SSE, and navigates to `/`. The session tree area is `flex-1 min-h-0 overflow-y-auto` above the pinned footer.
 
-**StatusPanel** (`app/frontend/src/components/sidebar/status-panel.tsx`) — pinned below the scrollable session tree, above the server selector footer. Fixed height (`min-h-[52px]`), `border-t border-border`. Shows three lines for the active window: (1) CWD, (2) window name + pane info, (3) fab state (`fab <id> <slug> · <stage>`) or process/idle info. No window selected → "No window selected" placeholder.
+### Collapsible Panels (Bottom-Aligned)
+
+Two collapsible panels are pinned at the bottom of the sidebar below the scrollable session tree, above the server selector. Layout order top-to-bottom: server selector -> session list (`flex-1 overflow-y-auto`) -> Window panel -> Host panel. Combined height target ~140px when both open.
+
+**CollapsiblePanel** (`app/frontend/src/components/sidebar/collapsible-panel.tsx`) — reusable wrapper used by both Window and Host panels. Props: `title` (string), `storageKey` (string for localStorage persistence), `defaultOpen` (boolean, default `true`), `children` (ReactNode). Header is always visible: title text + chevron (`&#x25B8;` U+25B8) that rotates 90 degrees on toggle via CSS `transform: rotate()` with `transition-transform duration-150`. Content area uses `max-height` transition (`duration-150 ease-in-out`) for smooth expand/collapse. `overflow: hidden` during transition, `visible` when fully expanded (accessibility). Collapse state persisted to `localStorage[storageKey]` on every toggle. Each panel has `border-t border-border`.
+
+**WindowPanel** (`app/frontend/src/components/sidebar/status-panel.tsx`) — refactored from the former `StatusPanel` into a collapsible panel with `title="Window"`, `storageKey="runkit-panel-window"`, `defaultOpen={true}`. The inner content (3 lines: cwd, win, fab/run) is unchanged. No window selected -> "No window selected" in secondary text. `StatusPanel` is exported as a deprecated alias for backward compatibility.
+
+**HostPanel** (`app/frontend/src/components/sidebar/host-panel.tsx`) — 5-line server metrics display inside a `CollapsiblePanel` with `title="Host"`, `storageKey="runkit-panel-host"`, `defaultOpen={true}`. Accepts `metrics: MetricsSnapshot | null` and `isConnected: boolean` props. When `metrics` is null, shows "No metrics". Lines:
+
+1. **Hostname + SSE indicator** — hostname on the left (truncated), green dot (`bg-accent-green`) or gray dot (`bg-text-secondary`) on the right indicating SSE connection health
+2. **CPU sparkline** — `cpu` label + braille sparkline (`text-accent`) + current percentage (`text-text-primary`). Sparkline rendered by `sparkline()` from `@/lib/sparkline.ts`
+3. **Memory gauge** — `mem` label + filled/empty block gauge + `used/totalG` text. Gauge color: green < 70%, yellow 70-90%, red > 90%. Uses `gaugeBar()`, `gaugeColor()`, `formatMemory()` from `@/lib/gauge.ts`
+4. **Load averages** — `load` label + three percentages (1/5/15 min) normalized as `(load / cpuCount) * 100`. Any percentage > 90% renders in `text-red-500`
+5. **Disk + uptime** — `dsk` label + `used/totalG` + ` · up ` + formatted uptime (`Nd Nh` or `Nh Nm` if < 1 day). All `text-text-secondary`
+
+### Braille Sparkline Renderer
+
+`app/frontend/src/lib/sparkline.ts` — converts an array of float values (0-100 range) into a Unicode braille sparkline string. Uses 8 vertical levels from the U+2800-U+28FF braille range filling bottom-to-top: `⣀⣄⣤⣦⣶⣷⣾⣿` (level 0 = `⣀`, level 7 = `⣿`). Values linearly interpolated across 8 levels. Zero-filled buffer renders as repeated `⣀`. Exported as `sparkline(samples: number[]): string`.
+
+### Memory Gauge Renderer
+
+`app/frontend/src/lib/gauge.ts` — utilities for the memory gauge visualization:
+- `gaugeBar(ratio: number): string` — builds a filled/empty block string (`█` filled, `░` empty) from a 0-1 ratio. Fixed width of 10 characters
+- `gaugeColor(percent: number): string` — returns a Tailwind color class: `text-green-500` (< 70%), `text-yellow-500` (70-90%), `text-red-500` (> 90%)
+- `formatBytes(bytes: number): string` — compact human-readable size (`3.1G`, `512M`, `128K`)
+- `formatMemory(used: number, total: number): string` — compact `used/total` string (e.g., `3.1G/8G`)
 
 CWD display (line 1) uses `shortenPath()` to shorten the active pane's `cwd` (falls back to `worktreePath`):
 - Home substitution: `/home/<user>/…` → `~/…`, `/Users/<user>/…` → `~/…`, `/root/…` → `~/…` (exact home dir → `~`). Handles Linux and macOS conventions.
@@ -234,7 +263,7 @@ The `showCreateDialog` / `openCreateDialog` / `closeCreateDialog` API in `use-di
 
 ## Bottom Bar (Terminal Pages Only, Inside Terminal Column)
 
-Single row of `<kbd>` styled buttons, rendered only on terminal pages (`/:session/:window`). Hidden on the Dashboard route (`/`) — there is no terminal to send keys to. Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Tab Ctrl Alt Fn▴ ArrowPad | >_ ⌘K [hostname] ⌨`. Escape moved to the Function key dropdown's extended-keys section. Compose button (`>_`) conditionally rendered when `onOpenCompose` is provided.
+Single row of `<kbd>` styled buttons, rendered only on terminal pages (`/:session/:window`). Hidden on the Dashboard route (`/`) — there is no terminal to send keys to. Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Tab Ctrl Alt Fn▴ ArrowPad | >_ ⌘K ⌨`. Hostname removed from bottom bar — now shown exclusively in the sidebar Host panel. Escape moved to the Function key dropdown's extended-keys section. Compose button (`>_`) conditionally rendered when `onOpenCompose` is provided.
 
 **Modifier toggles** (Ctrl, Alt): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously. Cmd (`⌘`) removed — on desktop users hold the real Cmd key; on mobile Cmd combos aren't used in terminal workflows.
 
@@ -663,3 +692,4 @@ The `executeMoveToSession` hook in `sidebar/index.tsx` combines two store action
 | 2026-04-06 | Shorten CWD in StatusPanel — `shortenPath()` in `status-panel.tsx` rewritten to substitute Linux `/home/<user>/` and macOS `/Users/<user>/` (and `/root`) with `~`, then truncate paths with >2 segments to `…/<last-two-segments>`. `title` attribute retains full unmodified path for hover tooltip. Unit tests updated/added in `status-panel.test.tsx`. | `260406-65f1-shorten-cwd-status-panel` |
 | 2026-04-11 | Optimistic sidebar window reorder — drag-drop window reorder in sidebar now uses `useOptimisticAction` with `swapWindowOrder` store action to swap window index values immediately on drop. API call fires in background; rollback reverses the swap on failure. Eliminates ~2.5s SSE poll wait. `swapWindowOrder(session, srcIndex, dstIndex)` added to Zustand window store. Unit tests for store swap + rollback, sidebar tests for optimistic drop + API failure rollback. | `260411-sl01-optimistic-sidebar-window-reorder` |
 | 2026-04-11 | Optimistic cross-session drag — `executeMoveToSession` `useOptimisticAction` instance in sidebar wires compound optimistic update: `killWindow` (hide in source) + `addGhostWindow` (show in target with source window's display name) + immediate navigation to `/$server`. Rollback: `restoreWindow` + `removeGhost`. Removed `onMoveWindowToSession` prop from `SidebarProps` — sidebar imports `moveWindowToSession` API directly. Drag data payload extended with `windowId` and `name`. Unit tests for optimistic lifecycle and rollback. | `260411-sl02-cross-session-drag-optimistic-update` |
+| 2026-04-11 | Sidebar collapsible panels — `CollapsiblePanel` reusable component (header + chevron + `max-height` transition + localStorage persistence). `StatusPanel` refactored into `WindowPanel` wrapping content in CollapsiblePanel (`storageKey="runkit-panel-window"`). New `HostPanel` (5 lines: hostname+SSE dot, CPU braille sparkline, memory gauge bar, load percentages, disk+uptime) wrapping in CollapsiblePanel (`storageKey="runkit-panel-host"`). Both panels bottom-aligned in sidebar. Hostname removed from bottom bar. New `lib/sparkline.ts` (8-level braille mapping U+2800-U+28FF) and `lib/gauge.ts` (block gauge with green/yellow/red thresholds, byte formatting). `SessionProvider` extended with `metrics: MetricsSnapshot | null` from SSE `event: metrics`. | `260411-z63r-sidebar-host-window-panels` |

@@ -61,6 +61,7 @@ export function ServerPanel({
             >
               <button
                 onClick={() => onSwitchServer(s)}
+                aria-current={s === server ? "true" : undefined}
                 className={`flex-1 text-left py-0.5 truncate transition-colors ${
                   s === server
                     ? "text-accent font-medium"

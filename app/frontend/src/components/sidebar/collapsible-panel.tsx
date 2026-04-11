@@ -74,34 +74,30 @@ export function CollapsiblePanel({
   return (
     <div className="border-t border-border">
       {/* Header — always visible */}
-      <button
-        type="button"
-        className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors shrink-0"
-        onClick={toggle}
-        aria-expanded={isOpen}
-      >
-        {/* Chevron */}
-        <span
-          className="inline-block transition-transform duration-150"
-          style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
-          aria-hidden="true"
+      <div className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0">
+        <button
+          type="button"
+          className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-text-primary transition-colors"
+          onClick={toggle}
+          aria-expanded={isOpen}
         >
-          &#x25BC;
-        </span>
-        <span className="font-medium">{title}</span>
-        {(headerAction || headerRight) && (
-          <span className="ml-auto flex items-center gap-1 min-w-0">
-            {headerAction && (
-              <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                {headerAction}
-              </span>
-            )}
-            {headerRight && (
-              <span className="truncate">{headerRight}</span>
-            )}
+          {/* Chevron */}
+          <span
+            className="inline-block transition-transform duration-150"
+            style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
+            aria-hidden="true"
+          >
+            &#x25BC;
           </span>
-        )}
-      </button>
+          <span className="font-medium">{title}</span>
+          {headerRight && (
+            <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
+              {headerRight}
+            </span>
+          )}
+        </button>
+        {headerAction}
+      </div>
 
       {/* Content area with max-height transition */}
       <div

@@ -1,0 +1,42 @@
+id: z63r
+name: 260411-z63r-sidebar-host-window-panels
+created: 2026-04-11T06:35:59Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 11
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    fuzzy: true
+    dimensions:
+        signal: 82.0
+        reversibility: 86.0
+        competence: 83.0
+        disambiguation: 85.3
+stage_metrics:
+    intake: {started_at: "2026-04-11T06:35:59Z", driver: fab-new, iterations: 1, completed_at: "2026-04-11T06:40:56Z"}
+    spec: {started_at: "2026-04-11T06:40:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:48:28Z"}
+    tasks: {started_at: "2026-04-11T06:48:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T06:48:28Z"}
+    apply: {started_at: "2026-04-11T06:48:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T07:00:37Z"}
+    review: {started_at: "2026-04-11T07:00:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T07:06:18Z"}
+    hydrate: {started_at: "2026-04-11T07:06:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-11T07:11:25Z"}
+    ship: {started_at: "2026-04-11T07:11:25Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-04-11T07:11:25Z

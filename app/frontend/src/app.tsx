@@ -119,7 +119,7 @@ function ServerNotFound({ serverName }: { serverName: string }) {
 function AppShell() {
   useVisualViewport();
 
-  const { sessions: rawSessions, isConnected, server, servers, refreshServers } = useSessionContext();
+  const { sessions: rawSessions, isConnected, server, servers, refreshServers, metrics } = useSessionContext();
   const sessions = useMergedSessions(rawSessions);
   const { sidebarOpen, drawerOpen, fixedWidth } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen, toggleFixedWidth } = useChromeDispatch();
@@ -814,6 +814,8 @@ function AppShell() {
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onKillServer={() => setShowKillServerConfirm(true)}
                 onRefreshServers={refreshServers}
+                metrics={metrics}
+                isConnected={isConnected}
               />
             </div>
             {/* Drag handle */}
@@ -854,7 +856,7 @@ function AppShell() {
                 </div>
                 {/* Bottom Bar — only on terminal pages */}
                 <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
-                  <BottomBar wsRef={wsRef} hostname={hostname} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
+                  <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
                 </div>
               </>
             ) : (
@@ -891,6 +893,8 @@ function AppShell() {
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onKillServer={() => setShowKillServerConfirm(true)}
                 onRefreshServers={refreshServers}
+                metrics={metrics}
+                isConnected={isConnected}
               />
             </div>
           </div>

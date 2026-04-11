@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"rk/internal/metrics"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 	"rk/internal/validate"
@@ -49,6 +50,7 @@ type Server struct {
 	sessions SessionFetcher
 	tmux     TmuxOps
 	hostname string
+	metrics  *metrics.Collector
 	sseHub   *sseHub
 	sseOnce  sync.Once
 }
@@ -56,7 +58,7 @@ type Server struct {
 // initSSEHub lazily creates the SSE hub on first use.
 func (s *Server) initSSEHub() {
 	s.sseOnce.Do(func() {
-		s.sseHub = newSSEHub(s.sessions)
+		s.sseHub = newSSEHub(s.sessions, s.metrics)
 	})
 }
 
@@ -137,13 +139,19 @@ func (p *prodTmuxOps) ListKeys(server string) ([]string, error) {
 
 // NewRouter creates the chi router with all middleware and routes.
 // Uses production dependencies (live tmux, real session fetcher).
-func NewRouter(logger *slog.Logger) chi.Router {
+// The ctx controls the lifecycle of background goroutines (e.g., metrics collector).
+func NewRouter(ctx context.Context, logger *slog.Logger) chi.Router {
 	hostname, _ := os.Hostname()
+
+	mc := metrics.NewCollector(ssePollInterval)
+	mc.Start(ctx)
+
 	s := &Server{
 		logger:   logger,
 		sessions: &prodSessionFetcher{},
 		tmux:     &prodTmuxOps{},
 		hostname: hostname,
+		metrics:  mc,
 	}
 	return s.buildRouter()
 }

@@ -1,8 +1,9 @@
 import { BrailleSpinner } from "@/components/braille-spinner";
+import { CollapsiblePanel } from "./collapsible-panel";
 import { formatDuration, parseFabChange } from "@/lib/format";
 import type { WindowInfo } from "@/types";
 
-type StatusPanelProps = {
+type WindowPanelProps = {
   window: WindowInfo | null;
   nowSeconds: number;
 };
@@ -53,15 +54,19 @@ function getProcessLine(win: WindowInfo, nowSeconds: number): string {
   return command || "";
 }
 
-export function StatusPanel({ window: win, nowSeconds }: StatusPanelProps) {
-  if (!win) {
-    return (
-      <div className="shrink-0 border-t border-border px-3 sm:px-4 py-2 h-[68px] flex items-center">
+export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {
+  return (
+    <CollapsiblePanel title="Window" storageKey="runkit-panel-window" defaultOpen={true}>
+      {!win ? (
         <span className="text-xs text-text-secondary">No window selected</span>
-      </div>
-    );
-  }
+      ) : (
+        <WindowContent win={win} nowSeconds={nowSeconds} />
+      )}
+    </CollapsiblePanel>
+  );
+}
 
+function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: number }) {
   const activePaneCwd = win.panes?.find((p) => p.isActive)?.cwd ?? win.worktreePath;
   const cwd = shortenPath(activePaneCwd);
   const paneCount = win.panes?.length ?? 0;
@@ -82,20 +87,20 @@ export function StatusPanel({ window: win, nowSeconds }: StatusPanelProps) {
   const isActive = win.activity === "active";
 
   return (
-    <div className="shrink-0 border-t border-border px-3 sm:px-4 py-1.5 min-h-[52px] flex flex-col justify-center gap-0">
+    <div className="flex flex-col gap-0 text-xs">
       {/* Line 1: CWD */}
-      <div className="text-xs truncate" title={activePaneCwd}>
+      <div className="truncate" title={activePaneCwd}>
         <span className="text-text-secondary">cwd </span>
         <span className="text-text-primary">{cwd}</span>
       </div>
       {/* Line 2: window + pane info */}
-      <div className="text-xs truncate">
+      <div className="truncate">
         <span className="text-text-secondary">win </span>
         <span className="text-text-secondary">{windowLine}</span>
       </div>
       {/* Line 3: fab state or process */}
       {line3 && (
-        <div className="text-xs truncate">
+        <div className="truncate">
           <span className="text-text-secondary">{fabLine ? "fab " : "run "}</span>
           {isActive && <BrailleSpinner className={fabLine ? "text-accent" : "text-accent-green"} />}{isActive && " "}
           <span className={fabLine ? "text-accent" : "text-text-secondary"}>{line3}</span>
@@ -104,3 +109,6 @@ export function StatusPanel({ window: win, nowSeconds }: StatusPanelProps) {
     </div>
   );
 }
+
+/** @deprecated Use WindowPanel instead */
+export const StatusPanel = WindowPanel;

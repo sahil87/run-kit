@@ -1,0 +1,22 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-11T06:35:59Z"}
+{"args":"Add two collapsible bottom-aligned panels to the sidebar: Window (refactored StatusPanel) and Host (system metrics with sparklines, gauges, load averages)","cmd":"fab-new","event":"command","ts":"2026-04-11T06:35:59Z"}
+{"delta":"+3.2","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-04-11T06:37:22Z"}
+{"delta":"+0.0","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-04-11T06:37:31Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-04-11T06:37:51Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-11T06:38:34Z"}
+{"delta":"-0.6","event":"confidence","score":2.6,"trigger":"calc-score","ts":"2026-04-11T06:40:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-11T06:40:56Z"}
+{"delta":"+1.2","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-04-11T06:41:46Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-04-11T06:42:34Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-04-11T06:44:03Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-04-11T06:44:09Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-04-11T06:44:14Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-04-11T06:44:22Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-04-11T06:44:35Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-04-11T06:45:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-11T06:48:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-11T06:48:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-11T07:00:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-11T07:06:18Z"}
+{"event":"review","result":"passed","ts":"2026-04-11T07:06:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-11T07:11:25Z"}

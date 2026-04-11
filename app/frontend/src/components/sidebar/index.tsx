@@ -4,14 +4,15 @@ import { killSession as killSessionApi, killWindow as killWindowApi, renameWindo
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
-import type { ProjectSession } from "@/types";
+import type { MetricsSnapshot, ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
+import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerSelector } from "./server-selector";
 import { SessionRow } from "./session-row";
-import { StatusPanel } from "./status-panel";
+import { WindowPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
 
 export type SidebarProps = {
@@ -27,6 +28,8 @@ export type SidebarProps = {
   onCreateServer: () => void;
   onKillServer: () => void;
   onRefreshServers: () => void;
+  metrics?: MetricsSnapshot | null;
+  isConnected?: boolean;
 };
 
 export function Sidebar({
@@ -42,6 +45,8 @@ export function Sidebar({
   onCreateServer,
   onKillServer,
   onRefreshServers,
+  metrics = null,
+  isConnected = false,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
@@ -569,8 +574,9 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Status panel — pinned at bottom */}
-      <StatusPanel window={selectedWindow} nowSeconds={nowSeconds} />
+      {/* Collapsible panels — pinned at bottom */}
+      <WindowPanel window={selectedWindow} nowSeconds={nowSeconds} />
+      <HostPanel metrics={metrics} isConnected={isConnected} />
 
       {/* Kill confirmation */}
       {killTarget && (

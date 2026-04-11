@@ -93,17 +93,17 @@ var serveCmd = &cobra.Command{
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
 		slog.SetDefault(logger)
 
-		router := api.NewRouter(logger)
+		// Graceful shutdown via SIGINT/SIGTERM
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+
+		router := api.NewRouter(ctx, logger)
 
 		addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 		server := &http.Server{
 			Addr:    addr,
 			Handler: router,
 		}
-
-		// Graceful shutdown via SIGINT/SIGTERM
-		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
 
 		go func() {
 			slog.Info("server starting", "addr", addr)

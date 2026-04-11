@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { Sidebar } from "./sidebar";
 import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-context";
 import { ToastProvider } from "@/components/toast";
+import { useWindowStore } from "@/store/window-store";
 import type { ProjectSession } from "@/types";
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -745,6 +746,87 @@ describe("Sidebar", () => {
       expect(killWindowMock).toHaveBeenCalledWith("run-kit", 1);
       // After the API call resolves, the killed entry must be removed (unmarkKilled called)
       expect(killedCount).toBe(0);
+    });
+  });
+
+  describe("optimistic drag-drop reorder", () => {
+    beforeEach(() => {
+      // Seed the window store so swapWindowOrder has entries to operate on
+      useWindowStore.setState({ entries: new Map(), ghosts: [] });
+      useWindowStore.getState().setWindowsForSession("run-kit", [
+        { windowId: "@0", index: 0, name: "main", worktreePath: "~/code/run-kit", activity: "active", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 5 },
+        { windowId: "@1", index: 1, name: "scratch", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 180 },
+      ]);
+    });
+
+    it("optimistic swap updates window store indices synchronously on drop", async () => {
+      const { moveWindow: moveWindowMock } = await import("@/api/client");
+      // Use a deferred promise so API stays pending during assertion
+      let resolveApi!: () => void;
+      vi.mocked(moveWindowMock).mockImplementation(() => new Promise<{ ok: boolean }>((r) => { resolveApi = () => r({ ok: true }); }));
+
+      const onSelectWindow = vi.fn();
+      renderSidebar({ onSelectWindow });
+
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
+      const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
+      const scratchBtn = screen.getByText("scratch").closest("button");
+      const scratchDraggable = scratchBtn?.closest("[draggable]") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      fireEvent.dragStart(mainDraggable, { dataTransfer });
+      fireEvent.dragOver(scratchDraggable, { dataTransfer });
+      fireEvent.drop(scratchDraggable, { dataTransfer });
+
+      // Synchronous: store indices should already be swapped (before API resolves)
+      const entries = useWindowStore.getState().entries;
+      expect(entries.get("@0")?.index).toBe(1);
+      expect(entries.get("@1")?.index).toBe(0);
+
+      // onSelectWindow called immediately
+      expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 1);
+
+      // Clean up: flush microtask to let action() run (assigns resolveApi), then resolve
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { resolveApi(); });
+    });
+
+    it("rollback on API failure restores original window order", async () => {
+      const { moveWindow: moveWindowMock } = await import("@/api/client");
+      vi.mocked(moveWindowMock).mockRejectedValue(new Error("server error"));
+
+      renderSidebar();
+
+      const mainBtn = screen.getAllByText("main")[0].closest("button");
+      const mainDraggable = mainBtn?.closest("[draggable]") as HTMLElement;
+      const scratchBtn = screen.getByText("scratch").closest("button");
+      const scratchDraggable = scratchBtn?.closest("[draggable]") as HTMLElement;
+
+      const dataTransfer = {
+        setData: vi.fn(),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        effectAllowed: "",
+        dropEffect: "",
+      };
+
+      fireEvent.dragStart(mainDraggable, { dataTransfer });
+      fireEvent.dragOver(scratchDraggable, { dataTransfer });
+
+      // Drop triggers optimistic swap + API call
+      await act(async () => {
+        fireEvent.drop(scratchDraggable, { dataTransfer });
+      });
+
+      // After API rejection settles, indices should be restored
+      const entries = useWindowStore.getState().entries;
+      expect(entries.get("@0")?.index).toBe(0);
+      expect(entries.get("@1")?.index).toBe(1);
     });
   });
 

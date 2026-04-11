@@ -78,6 +78,12 @@ type WindowStoreActions = {
   removeGhost: (optimisticId: string) => void;
 
   /**
+   * Swap the index values of two windows within the same session.
+   * No-op if either entry is missing.
+   */
+  swapWindowOrder: (session: string, srcIndex: number, dstIndex: number) => void;
+
+  /**
    * Clear all window entries and ghosts for a session (called after session kill).
    */
   clearSession: (session: string) => void;
@@ -245,6 +251,26 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
     set((state) => ({
       ghosts: state.ghosts.filter((g) => g.optimisticId !== optimisticId),
     }));
+  },
+
+  swapWindowOrder: (session, srcIndex, dstIndex) => {
+    set((state) => {
+      let srcId: string | undefined;
+      let dstId: string | undefined;
+      for (const [id, entry] of state.entries) {
+        if (entry.session !== session) continue;
+        if (entry.index === srcIndex) srcId = id;
+        if (entry.index === dstIndex) dstId = id;
+        if (srcId && dstId) break;
+      }
+      if (!srcId || !dstId) return state;
+      const srcEntry = state.entries.get(srcId)!;
+      const dstEntry = state.entries.get(dstId)!;
+      const newEntries = new Map(state.entries);
+      newEntries.set(srcId, { ...srcEntry, index: dstIndex });
+      newEntries.set(dstId, { ...dstEntry, index: srcIndex });
+      return { entries: newEntries };
+    });
   },
 
   clearSession: (session) => {

@@ -351,6 +351,82 @@ describe("window-store", () => {
     });
   });
 
+  describe("swapWindowOrder", () => {
+    it("swaps index values of two windows in the same session", () => {
+      const { setWindowsForSession, swapWindowOrder } = getStore();
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, name: "main" }),
+        makeWindow({ windowId: "@1", index: 1, name: "dev" }),
+        makeWindow({ windowId: "@2", index: 2, name: "logs" }),
+      ]);
+
+      swapWindowOrder("alpha", 0, 2);
+
+      const entries = useWindowStore.getState().entries;
+      expect(entries.get("@0")?.index).toBe(2);
+      expect(entries.get("@2")?.index).toBe(0);
+      // Middle window untouched
+      expect(entries.get("@1")?.index).toBe(1);
+    });
+
+    it("no-op when source entry is missing", () => {
+      const { setWindowsForSession, swapWindowOrder } = getStore();
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, name: "main" }),
+      ]);
+
+      swapWindowOrder("alpha", 5, 0);
+
+      const entries = useWindowStore.getState().entries;
+      expect(entries.get("@0")?.index).toBe(0);
+    });
+
+    it("no-op when destination entry is missing", () => {
+      const { setWindowsForSession, swapWindowOrder } = getStore();
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, name: "main" }),
+      ]);
+
+      swapWindowOrder("alpha", 0, 5);
+
+      const entries = useWindowStore.getState().entries;
+      expect(entries.get("@0")?.index).toBe(0);
+    });
+
+    it("re-swap (rollback) restores original indices", () => {
+      const { setWindowsForSession, swapWindowOrder } = getStore();
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, name: "main" }),
+        makeWindow({ windowId: "@1", index: 1, name: "dev" }),
+      ]);
+
+      // Forward swap
+      swapWindowOrder("alpha", 0, 1);
+      expect(useWindowStore.getState().entries.get("@0")?.index).toBe(1);
+      expect(useWindowStore.getState().entries.get("@1")?.index).toBe(0);
+
+      // Reverse swap (rollback)
+      swapWindowOrder("alpha", 1, 0);
+      expect(useWindowStore.getState().entries.get("@0")?.index).toBe(0);
+      expect(useWindowStore.getState().entries.get("@1")?.index).toBe(1);
+    });
+
+    it("does not affect windows from other sessions", () => {
+      const { setWindowsForSession, swapWindowOrder } = getStore();
+      setWindowsForSession("alpha", [
+        makeWindow({ windowId: "@0", index: 0, name: "main" }),
+        makeWindow({ windowId: "@1", index: 1, name: "dev" }),
+      ]);
+      setWindowsForSession("beta", [
+        makeWindow({ windowId: "@2", index: 0, name: "other" }),
+      ]);
+
+      swapWindowOrder("alpha", 0, 1);
+
+      expect(useWindowStore.getState().entries.get("@2")?.index).toBe(0);
+    });
+  });
+
   describe("core regression: index renumbering after window deletion", () => {
     it("killing @2 does not suppress renumbered @3 that moves to index 1", () => {
       // Regression: the old index-based key `session:1` would suppress the renumbered window

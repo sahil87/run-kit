@@ -169,7 +169,7 @@ export function useMergedSessions(realSessions: ProjectSession[]): MergedSession
           const realWin = s.windows.find((w) => w.windowId === entry.windowId);
           if (!realWin) continue;
           const name = entry.pendingName ?? entry.name;
-          sessionEntries.push({ ...realWin, name });
+          sessionEntries.push({ ...realWin, name, index: entry.index });
         }
         // Sort by index ascending
         sessionEntries.sort((a, b) => a.index - b.index);

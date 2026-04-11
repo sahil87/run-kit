@@ -579,21 +579,24 @@ export function Sidebar({
                         />
                       );
                     })}
-                    {/* Drop zone after last window — enables moving items to the end */}
+                    {/* Drop zone after last window — enables moving items to the end.
+                        Relative wrapper keeps the absolute zone in flow position without adding height. */}
                     {dragSource?.session === session.name && (
-                      <div
-                        className="h-2"
-                        style={
-                          dropTarget?.session === session.name && dropTarget?.index === -1
-                            ? { borderTop: "2px solid var(--color-accent)" }
-                            : undefined
-                        }
-                        onDragOver={(e) => handleDragOver(e, session.name, -1)}
-                        onDrop={(e) => {
-                          const lastWin = session.windows[session.windows.length - 1];
-                          if (lastWin) handleDrop(e, session.name, lastWin.index + 1);
-                        }}
-                      />
+                      <div className="relative">
+                        <div
+                          className="absolute inset-x-0 top-0 h-4 -mt-1"
+                          style={
+                            dropTarget?.session === session.name && dropTarget?.index === -1
+                              ? { boxShadow: "0 -2px 0 0 var(--color-accent)" }
+                              : undefined
+                          }
+                          onDragOver={(e) => handleDragOver(e, session.name, -1)}
+                          onDrop={(e) => {
+                            const lastWin = session.windows[session.windows.length - 1];
+                            if (lastWin) handleDrop(e, session.name, lastWin.index + 1);
+                          }}
+                        />
+                      </div>
                     )}
                   </div>
                 )}

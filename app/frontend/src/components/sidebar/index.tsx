@@ -75,6 +75,7 @@ export function Sidebar({
   const killWindowStore = useWindowStore((state) => state.killWindow);
   const restoreWindow = useWindowStore((state) => state.restoreWindow);
   const clearSession = useWindowStore((state) => state.clearSession);
+  const swapWindowOrder = useWindowStore((state) => state.swapWindowOrder);
 
   // Ctrl+click kill session (optimistic)
   const lastKillSessionRef = useRef<string | null>(null);
@@ -204,6 +205,28 @@ export function Sidebar({
         clearRename(lastRenameWindowRef.current.session, lastRenameWindowRef.current.windowId);
       }
       lastRenameWindowRef.current = null;
+    },
+  });
+
+  // Optimistic swap for drag-drop window reorder
+  const lastSwapRef = useRef<{ session: string; srcIndex: number; dstIndex: number } | null>(null);
+  const { execute: executeSwapWindow } = useOptimisticAction<[string, number, number]>({
+    action: (session, srcIndex, dstIndex) => moveWindow(session, srcIndex, dstIndex),
+    onOptimistic: (session, srcIndex, dstIndex) => {
+      lastSwapRef.current = { session, srcIndex, dstIndex };
+      swapWindowOrder(session, srcIndex, dstIndex);
+    },
+    onAlwaysRollback: () => {
+      if (lastSwapRef.current) {
+        const { session, srcIndex, dstIndex } = lastSwapRef.current;
+        swapWindowOrder(session, dstIndex, srcIndex);
+      }
+    },
+    onAlwaysSettled: () => {
+      lastSwapRef.current = null;
+    },
+    onError: (err) => {
+      addToast(err.message || "Failed to move window");
     },
   });
 
@@ -339,13 +362,8 @@ export function Sidebar({
 
     if (data.session !== sessionName || data.index === windowIndex) return;
 
-    moveWindow(data.session, data.index, windowIndex)
-      .then(() => {
-        onSelectWindow(sessionName, windowIndex);
-      })
-      .catch((err) => {
-        addToast(err.message || "Failed to move window");
-      });
+    executeSwapWindow(data.session, data.index, windowIndex);
+    onSelectWindow(sessionName, windowIndex);
   }
 
   function handleDragEnd() {

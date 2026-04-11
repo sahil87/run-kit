@@ -863,8 +863,8 @@ describe("Sidebar", () => {
       expect(entries.get("@0")?.index).toBe(1); // main inserted before logs
       expect(entries.get("@2")?.index).toBe(2); // logs unchanged
 
-      // onSelectWindow called with the drop target index
-      expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 2);
+      // Reorder should not change selection
+      expect(onSelectWindow).not.toHaveBeenCalled();
 
       // Clean up: flush microtask to let action() run (assigns resolveApi), then resolve
       await act(async () => { await Promise.resolve(); });

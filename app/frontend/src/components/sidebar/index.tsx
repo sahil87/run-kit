@@ -410,7 +410,6 @@ export function Sidebar({
     if (isMovePending) return;
 
     executeMoveWindow(data.session, data.index, windowIndex);
-    onSelectWindow(sessionName, windowIndex);
   }
 
   function handleDragEnd() {

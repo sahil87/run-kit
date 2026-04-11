@@ -584,10 +584,10 @@ export function Sidebar({
                               });
                             }
                           }}
-                          onDragStart={(e) => handleDragStart(e, session.name, win.index, win.windowId, win.name)}
-                          onDragOver={(e) => handleDragOver(e, session.name, win.index)}
-                          onDrop={(e) => handleDrop(e, session.name, win.index)}
-                          onDragEnd={handleDragEnd}
+                          onDragStart={ghost ? undefined : (e) => handleDragStart(e, session.name, win.index, win.windowId, win.name)}
+                          onDragOver={ghost ? undefined : (e) => handleDragOver(e, session.name, win.index)}
+                          onDrop={ghost ? undefined : (e) => handleDrop(e, session.name, win.index)}
+                          onDragEnd={ghost ? undefined : handleDragEnd}
                         />
                       );
                     })}
@@ -604,8 +604,11 @@ export function Sidebar({
                           }
                           onDragOver={(e) => handleDragOver(e, session.name, -1)}
                           onDrop={(e) => {
-                            const lastWin = session.windows[session.windows.length - 1];
-                            if (lastWin) handleDrop(e, session.name, lastWin.index + 1);
+                            let lastReal: (typeof session.windows)[number] | undefined;
+                            for (let i = session.windows.length - 1; i >= 0; i--) {
+                              if (!isGhostWindow(session.windows[i])) { lastReal = session.windows[i]; break; }
+                            }
+                            if (lastReal) handleDrop(e, session.name, lastReal.index + 1);
                           }}
                         />
                       </div>

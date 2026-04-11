@@ -21,10 +21,10 @@ type WindowRowProps = {
   onRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onRenameBlur: () => void;
   onKillClick: (e: React.MouseEvent) => void;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent) => void;
-  onDragEnd: () => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
 };
 
 export function WindowRow({

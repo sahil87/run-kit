@@ -78,8 +78,9 @@ type WindowStoreActions = {
   removeGhost: (optimisticId: string) => void;
 
   /**
-   * Swap the index values of two windows within the same session.
-   * No-op if either entry is missing.
+   * Move a window within the same session by taking the window at srcIndex
+   * and inserting it before dstIndex. If dstIndex is past the last window,
+   * the window is moved to the end. No-op if the source entry is missing.
    */
   moveWindowOrder: (session: string, srcIndex: number, dstIndex: number) => void;
 

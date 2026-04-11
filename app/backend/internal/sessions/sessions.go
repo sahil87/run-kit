@@ -132,54 +132,141 @@ func findRepoRoot(dir string) string {
 	}
 }
 
-// Git branch cache: keyed by cwd, with TTL.
-var (
-	gitBranchCache     map[string]string
-	gitBranchCacheTime time.Time
-	gitBranchCacheMu   sync.RWMutex
-	gitBranchCacheTTL  = 5 * time.Second
+// Per-entry git branch cache with separate positive/negative TTLs.
+type gitBranchCacheEntry struct {
+	branch    string
+	expiresAt time.Time
+}
+
+const (
+	gitBranchPositiveTTL  = 30 * time.Second
+	gitBranchNegativeTTL  = 15 * time.Second
+	gitBranchResolveLimit = 16
+	gitBranchCmdTimeout   = 250 * time.Millisecond
 )
 
-// resolveGitBranches resolves git branches for a set of cwds, using a TTL cache.
-// Returns a map from cwd to branch name. Cwds not in a git repo are omitted.
+var (
+	gitBranchCacheMu sync.RWMutex
+	gitBranchCache   = make(map[string]gitBranchCacheEntry)
+)
+
+// resolveGitBranchFromHead reads .git/HEAD directly (no subprocess).
+// Handles both normal repos and worktrees (where .git is a file pointing to the real gitdir).
+func resolveGitBranchFromHead(cwd string) (string, bool) {
+	gitPath := filepath.Join(cwd, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return "", false
+	}
+
+	headPath := ""
+	if info.IsDir() {
+		headPath = filepath.Join(gitPath, "HEAD")
+	} else {
+		// Worktree: .git is a file containing "gitdir: <path>"
+		data, err := os.ReadFile(gitPath)
+		if err != nil {
+			return "", false
+		}
+		data = bytes.TrimSpace(data)
+		if !bytes.HasPrefix(data, []byte("gitdir:")) {
+			return "", false
+		}
+		gitDir := string(bytes.TrimSpace(data[7:]))
+		if !filepath.IsAbs(gitDir) {
+			gitDir = filepath.Join(cwd, gitDir)
+		}
+		headPath = filepath.Join(gitDir, "HEAD")
+	}
+
+	head, err := os.ReadFile(headPath)
+	if err != nil {
+		return "", false
+	}
+	head = bytes.TrimSpace(head)
+	if !bytes.HasPrefix(head, []byte("ref:")) {
+		return "", false // detached HEAD
+	}
+	ref := string(bytes.TrimSpace(head[4:]))
+	// "refs/heads/main" → "main"
+	if i := len("refs/heads/"); len(ref) > i {
+		return ref[i:], true
+	}
+	return "", false
+}
+
+// resolveGitBranchWithGit falls back to git rev-parse (for edge cases).
+func resolveGitBranchWithGit(ctx context.Context, cwd string) string {
+	gitCtx, cancel := context.WithTimeout(ctx, gitBranchCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(gitCtx, "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	branch := string(bytes.TrimSpace(out))
+	if branch == "HEAD" {
+		return "" // detached
+	}
+	return branch
+}
+
+// resolveGitBranches resolves git branches for a set of cwds using a per-entry TTL cache.
+// Prefers reading .git/HEAD directly; falls back to git subprocess.
 func resolveGitBranches(ctx context.Context, cwds []string) map[string]string {
-	gitBranchCacheMu.RLock()
-	if gitBranchCache != nil && time.Since(gitBranchCacheTime) < gitBranchCacheTTL {
-		cached := gitBranchCache
-		gitBranchCacheMu.RUnlock()
-		return cached
-	}
-	gitBranchCacheMu.RUnlock()
-
-	gitBranchCacheMu.Lock()
-	defer gitBranchCacheMu.Unlock()
-
-	// Double-check after acquiring write lock.
-	if gitBranchCache != nil && time.Since(gitBranchCacheTime) < gitBranchCacheTTL {
-		return gitBranchCache
-	}
-
+	now := time.Now()
 	result := make(map[string]string)
 	seen := make(map[string]bool)
+	var misses []string
+
+	// Check cache for each cwd
+	gitBranchCacheMu.RLock()
 	for _, cwd := range cwds {
 		if cwd == "" || seen[cwd] {
 			continue
 		}
 		seen[cwd] = true
-		gitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		cmd := exec.CommandContext(gitCtx, "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
-		out, err := cmd.Output()
-		cancel()
-		if err == nil {
-			branch := string(bytes.TrimSpace(out))
-			if branch != "" {
-				result[cwd] = branch
+		if entry, ok := gitBranchCache[cwd]; ok && now.Before(entry.expiresAt) {
+			if entry.branch != "" {
+				result[cwd] = entry.branch
 			}
+			continue
 		}
+		misses = append(misses, cwd)
+	}
+	gitBranchCacheMu.RUnlock()
+
+	if len(misses) == 0 {
+		return result
+	}
+	if len(misses) > gitBranchResolveLimit {
+		misses = misses[:gitBranchResolveLimit]
 	}
 
-	gitBranchCache = result
-	gitBranchCacheTime = time.Now()
+	// Resolve misses
+	updates := make(map[string]gitBranchCacheEntry, len(misses))
+	for _, cwd := range misses {
+		if ctx.Err() != nil {
+			break
+		}
+		branch, ok := resolveGitBranchFromHead(cwd)
+		if !ok {
+			branch = resolveGitBranchWithGit(ctx, cwd)
+		}
+		ttl := gitBranchNegativeTTL
+		if branch != "" {
+			ttl = gitBranchPositiveTTL
+			result[cwd] = branch
+		}
+		updates[cwd] = gitBranchCacheEntry{branch: branch, expiresAt: now.Add(ttl)}
+	}
+
+	gitBranchCacheMu.Lock()
+	for cwd, entry := range updates {
+		gitBranchCache[cwd] = entry
+	}
+	gitBranchCacheMu.Unlock()
+
 	return result
 }
 

@@ -51,7 +51,7 @@ test.describe("Sidebar Host & Window Panels", () => {
     await expect(hostPanel.locator("text=mem")).toBeVisible();
 
     // Load line with label
-    await expect(hostPanel.locator("text=load")).toBeVisible();
+    await expect(hostPanel.locator("text=/^ld/")).toBeVisible();
 
     // Disk + uptime line
     await expect(hostPanel.locator("text=dsk")).toBeVisible();
@@ -71,16 +71,16 @@ test.describe("Sidebar Host & Window Panels", () => {
       page.locator("[aria-label='Connected']"),
     ).toBeVisible({ timeout: 10_000 });
 
-    // Window panel header (exact match to avoid "Kill window ..." buttons)
-    const windowButton = page.getByRole("button", { name: "Window", exact: true });
-    await expect(windowButton).toBeVisible();
-    await expect(windowButton).toHaveAttribute("aria-expanded", "true");
+    // Pane panel header (exact match to avoid other buttons containing "Pane")
+    const paneButton = page.getByRole("button", { name: /^Pane/ });
+    await expect(paneButton).toBeVisible();
+    await expect(paneButton).toHaveAttribute("aria-expanded", "true");
 
-    const windowPanel = windowButton.locator("..");
+    const panePanel = paneButton.locator("..");
 
     // Before selecting a window — shows fallback text
     await expect(
-      windowPanel.locator("text=No window selected"),
+      panePanel.locator("text=No window selected"),
     ).toBeVisible();
 
     // Click the session's "Navigate to" button — selects the first window
@@ -91,10 +91,9 @@ test.describe("Sidebar Host & Window Panels", () => {
     await expect(navButton).toBeVisible({ timeout: 5_000 });
     await navButton.click();
 
-    // After selecting — should show cwd and win lines
-    // Use regex to avoid matching "Window" button text (case-insensitive text= would match)
-    await expect(windowPanel.locator("text=/^cwd /")).toBeVisible({ timeout: 3_000 });
-    await expect(windowPanel.locator("text=/^win /")).toBeVisible();
+    // After selecting — should show tmx and cwd lines
+    await expect(panePanel.locator("text=/^tmx /")).toBeVisible({ timeout: 3_000 });
+    await expect(panePanel.locator("text=/^cwd /")).toBeVisible();
   });
 
   test("Collapsible panel toggle and persistence", async ({ page }) => {
@@ -162,7 +161,7 @@ test.describe("Sidebar Host & Window Panels", () => {
     // Panel still shows metrics (not stale or disconnected)
     await expect(hostPanel.locator("text=cpu")).toBeVisible();
     await expect(hostPanel.locator("text=mem")).toBeVisible();
-    await expect(hostPanel.locator("text=load")).toBeVisible();
+    await expect(hostPanel.locator("text=/^ld/")).toBeVisible();
     await expect(hostPanel.locator("text=dsk")).toBeVisible();
   });
 });

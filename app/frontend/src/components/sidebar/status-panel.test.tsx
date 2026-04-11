@@ -71,7 +71,7 @@ describe("StatusPanel", () => {
       ],
     });
     render(<StatusPanel window={win} nowSeconds={0} />);
-    expect(screen.getByText(/pane 1 of 2/)).toBeInTheDocument();
+    expect(screen.getByText(/pane 1\/2/)).toBeInTheDocument();
   });
 
   it("shows fab state when available", () => {

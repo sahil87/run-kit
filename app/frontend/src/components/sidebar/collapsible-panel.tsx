@@ -41,12 +41,19 @@ export function CollapsiblePanel({
     });
   }, [storageKey]);
 
-  // After transition ends, let content be visible (for accessibility)
-  // During transition, keep overflow hidden for smooth animation
+  // During transition, keep overflow hidden for smooth animation.
+  // Only set transitioning=true on actual user toggles (not initial mount),
+  // otherwise transitionend never fires and overflow stays hidden permanently.
   const [transitioning, setTransitioning] = useState(false);
+  const hasMounted = useRef(false);
 
   useEffect(() => {
     if (!contentRef.current) return;
+    // Skip initial mount — no transition occurs, so transitionend would never fire
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
     setTransitioning(true);
     const el = contentRef.current;
     const handler = () => setTransitioning(false);

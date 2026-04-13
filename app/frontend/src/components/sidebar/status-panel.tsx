@@ -1,7 +1,13 @@
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { CollapsiblePanel } from "./collapsible-panel";
+import { copyToClipboard } from "@/lib/clipboard";
 import { formatDuration, parseFabChange } from "@/lib/format";
 import type { WindowInfo } from "@/types";
+
+type CopyableRowKey = "tmx" | "cwd" | "git" | "fab";
+
+const COPY_FEEDBACK_MS = 1000;
 
 type WindowPanelProps = {
   window: WindowInfo | null;
@@ -80,7 +86,52 @@ export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {
   );
 }
 
+/** Reusable interactive row that copies a value on click and shows inline "copied" feedback. */
+function CopyableRow({ prefix, copied, onCopy, children, className, title }: {
+  prefix: string;
+  copied: boolean;
+  onCopy: () => void;
+  children: ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      className={`truncate text-left w-full cursor-pointer hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent bg-transparent border-0 p-0 m-0 font-inherit text-inherit ${className ?? ""}`}
+      title={title}
+    >
+      <span className="text-text-secondary">{copied ? "copied \u2713 " : `${prefix} `}</span>
+      {children}
+    </button>
+  );
+}
+
 function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: number }) {
+  const [copiedRow, setCopiedRow] = useState<CopyableRowKey | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  function handleCopy(key: CopyableRowKey, value: string) {
+    if (window.getSelection()?.toString()) return;
+    void copyToClipboard(value);
+    setCopiedRow(key);
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      setCopiedRow(null);
+      timerRef.current = null;
+    }, COPY_FEEDBACK_MS);
+  }
+
   const activePane = win.panes?.find((p) => p.isActive);
   const activePaneCwd = activePane?.cwd ?? win.worktreePath;
   const cwd = shortenPath(activePaneCwd);
@@ -106,32 +157,43 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
   return (
     <div className="flex flex-col gap-0 text-xs">
       {/* Tmux pane info */}
-      <div className="truncate">
-        <span className="text-text-secondary">tmx </span>
-        <span className="text-text-secondary">
-          pane {activePaneIndex + 1}/{paneCount}{paneId && ` ${paneId}`}
-        </span>
-      </div>
+      {paneId ? (
+        <CopyableRow prefix="tmx" copied={copiedRow === "tmx"} onCopy={() => handleCopy("tmx", paneId)}>
+          <span className="text-text-secondary">
+            pane {activePaneIndex + 1}/{paneCount}{paneId && ` ${paneId}`}
+          </span>
+        </CopyableRow>
+      ) : (
+        <div className="truncate">
+          <span className="text-text-secondary">tmx </span>
+          <span className="text-text-secondary">
+            pane {activePaneIndex + 1}/{paneCount}
+          </span>
+        </div>
+      )}
       {/* CWD */}
-      <div className="truncate" title={activePaneCwd}>
-        <span className="text-text-secondary">cwd </span>
+      <CopyableRow prefix="cwd" copied={copiedRow === "cwd"} onCopy={() => handleCopy("cwd", activePaneCwd)} title={activePaneCwd}>
         <span className="text-text-primary">{cwd}</span>
-      </div>
+      </CopyableRow>
       {/* Git branch */}
       {gitBranch && (
-        <div className="truncate">
-          <span className="text-text-secondary">git </span>
+        <CopyableRow prefix="git" copied={copiedRow === "git"} onCopy={() => handleCopy("git", gitBranch)}>
           <span className="text-accent">{gitBranch}</span>
-        </div>
+        </CopyableRow>
       )}
       {/* Fab state or process */}
-      {runLine && (
+      {fabLine && runLine ? (
+        <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
+          {isActive && <BrailleSpinner className="text-accent" />}{isActive && " "}
+          <span className="text-accent">{runLine}</span>
+        </CopyableRow>
+      ) : runLine ? (
         <div className="truncate">
-          <span className="text-text-secondary">{fabLine ? "fab " : "run "}</span>
-          {isActive && <BrailleSpinner className={fabLine ? "text-accent" : "text-accent-green"} />}{isActive && " "}
-          <span className={fabLine ? "text-accent" : "text-text-secondary"}>{runLine}</span>
+          <span className="text-text-secondary">run </span>
+          {isActive && <BrailleSpinner className="text-accent-green" />}{isActive && " "}
+          <span className="text-text-secondary">{runLine}</span>
         </div>
-      )}
+      ) : null}
       {/* Agent state */}
       {agentLine && (
         <div className="truncate">

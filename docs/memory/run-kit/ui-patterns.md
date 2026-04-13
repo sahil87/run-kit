@@ -126,7 +126,7 @@ The Ctrl+Click force-kill pattern matches the established "modifier = power acti
 - `session-row.tsx` — `SessionRow`; pure presentational; renders the session header row (chevron, name, + button, ✕ button); handles cross-session drag-over styling; all event handlers passed as props
 - `window-row.tsx` — `WindowRow`; pure presentational; renders a single window row (activity dot, name, fab stage, duration, kill button); handles drag-and-drop and inline rename display; all event handlers passed as props
 - `collapsible-panel.tsx` — `CollapsiblePanel`; reusable collapsible container with header (title + chevron), `max-height` CSS transition, localStorage state persistence via `storageKey` prop
-- `status-panel.tsx` — `WindowPanel` (exported as both `WindowPanel` and deprecated `StatusPanel`); wraps existing 3-line window info (cwd, win, fab/run) in a `CollapsiblePanel`
+- `status-panel.tsx` — `WindowPanel` (exported as both `WindowPanel` and deprecated `StatusPanel`); wraps pane metadata rows (tmx, cwd, git, fab/run, agt) in a `CollapsiblePanel` with copyable row interactions
 - `host-panel.tsx` — `HostPanel`; 5-line server metrics display (hostname, CPU sparkline, memory gauge, load averages, disk+uptime) inside a `CollapsiblePanel`
 - `server-selector.tsx` — `ServerSelector`; owns its own dropdown state (`serverDropdownOpen`, `refreshingServers`, `serverDropdownRef`); pinned-bottom server dropdown with outside-click dismiss
 - `kill-dialog.tsx` — `KillDialog`; stateless; renders the kill confirmation dialog for sessions and windows using `<Dialog>`
@@ -196,7 +196,28 @@ Two collapsible panels are pinned at the bottom of the sidebar below the scrolla
 
 **CollapsiblePanel** (`app/frontend/src/components/sidebar/collapsible-panel.tsx`) — reusable wrapper used by both Window and Host panels. Props: `title` (string), `storageKey` (string for localStorage persistence), `defaultOpen` (boolean, default `true`), `children` (ReactNode). Header is always visible: title text + chevron (`&#x25B8;` U+25B8) that rotates 90 degrees on toggle via CSS `transform: rotate()` with `transition-transform duration-150`. Content area uses `max-height` transition (`duration-150 ease-in-out`) for smooth expand/collapse. `overflow: hidden` during transition, `visible` when fully expanded (accessibility). Collapse state persisted to `localStorage[storageKey]` on every toggle. Each panel has `border-t border-border`.
 
-**WindowPanel** (`app/frontend/src/components/sidebar/status-panel.tsx`) — refactored from the former `StatusPanel` into a collapsible panel with `title="Window"`, `storageKey="runkit-panel-window"`, `defaultOpen={true}`. The inner content (3 lines: cwd, win, fab/run) is unchanged. No window selected -> "No window selected" in secondary text. `StatusPanel` is exported as a deprecated alias for backward compatibility.
+**WindowPanel** (`app/frontend/src/components/sidebar/status-panel.tsx`) — collapsible panel with `title="Pane"`, `storageKey="runkit-panel-window"`, `defaultOpen={true}`. Displays per-pane metadata rows: `tmx` (pane index + ID), `cwd` (shortened path), `git` (branch), `fab` (change ID + slug + stage) or `run` (process name), and `agt` (agent state). No window selected -> "No window selected" in secondary text. `StatusPanel` is exported as a deprecated alias for backward compatibility.
+
+**Copyable rows**: The `tmx`, `cwd`, `git`, and `fab` rows are interactive `<button type="button">` elements that copy their underlying value to the clipboard on click or keyboard activation (Enter/Space). Copy values per row:
+
+| Row | Copy value | Source |
+|-----|------------|--------|
+| `tmx` | Pane ID (e.g., `%5`) | `activePane.paneId` |
+| `cwd` | Full unshortened path (e.g., `/home/sahil/code/run-kit`) | `activePane.cwd ?? win.worktreePath` |
+| `git` | Branch name | `activePane.gitBranch` |
+| `fab` | Change ID (e.g., `lc2q`) | `fabChange.id` (parsed from `win.fabChange`) |
+
+Non-interactive rows: `run` (process-only, when no fab state) and `agt` remain plain text — no hover affordance, no focus ring, no copy behavior. Rows with empty values (`tmx` with empty pane ID, `git` when no branch) are also non-interactive.
+
+**Inline feedback**: After a successful copy, the row's prefix label swaps to `copied ✓` for 1000ms, then reverts. A single `copiedRow` state variable tracks which row was last copied — only one row shows feedback at a time. Clicking a different row immediately moves the indicator.
+
+**Hover affordance**: Interactive rows render `cursor: pointer` and a subtle background tint (`bg-bg-inset` or equivalent) on hover.
+
+**Keyboard accessibility**: Button elements have visible focus state (outline/ring) and are keyboard-activatable (Enter/Space). Styling is reset to preserve the panel's compact plain-text aesthetic — no default button chrome (padding, border, background removed in rest state).
+
+**Text-selection guard**: The click handler checks `window.getSelection()?.toString()` — if the user has an active text selection (e.g., from drag-selecting text), the copy action is suppressed, preserving native text-selection UX.
+
+**Clipboard utility**: Copy operations use `copyToClipboard()` from `app/frontend/src/lib/clipboard.ts` — see [Clipboard Utility](#clipboard-utility).
 
 **HostPanel** (`app/frontend/src/components/sidebar/host-panel.tsx`) — 5-line server metrics display inside a `CollapsiblePanel` with `title="Host"`, `storageKey="runkit-panel-host"`, `defaultOpen={true}`. Accepts `metrics: MetricsSnapshot | null` and `isConnected: boolean` props. When `metrics` is null, shows "No metrics". Lines:
 
@@ -217,6 +238,10 @@ Two collapsible panels are pinned at the bottom of the sidebar below the scrolla
 - `gaugeColor(percent: number): string` — returns a Tailwind color class: `text-green-500` (< 70%), `text-yellow-500` (70-90%), `text-red-500` (> 90%)
 - `formatBytes(bytes: number): string` — compact human-readable size (`3.1G`, `512M`, `128K`)
 - `formatMemory(used: number, total: number): string` — compact `used/total` string (e.g., `3.1G/8G`)
+
+### Clipboard Utility
+
+`app/frontend/src/lib/clipboard.ts` — shared `copyToClipboard(text: string): Promise<void>` function extracted from `terminal-client.tsx`. Primary path uses `navigator.clipboard.writeText()`; fallback uses `document.execCommand('copy')` for non-secure contexts (HTTP). Signature and behavior preserved from the original. All callers (terminal copy, Pane panel row copy) import from this module. Introduced to decouple sidebar copy operations from the terminal-client module.
 
 CWD display (line 1) uses `shortenPath()` to shorten the active pane's `cwd` (falls back to `worktreePath`):
 - Home substitution: `/home/<user>/…` → `~/…`, `/Users/<user>/…` → `~/…`, `/root/…` → `~/…` (exact home dir → `~`). Handles Linux and macOS conventions.
@@ -693,3 +718,4 @@ The `executeMoveToSession` hook in `sidebar/index.tsx` combines two store action
 | 2026-04-11 | Optimistic sidebar window reorder — drag-drop window reorder in sidebar now uses `useOptimisticAction` with `swapWindowOrder` store action to swap window index values immediately on drop. API call fires in background; rollback reverses the swap on failure. Eliminates ~2.5s SSE poll wait. `swapWindowOrder(session, srcIndex, dstIndex)` added to Zustand window store. Unit tests for store swap + rollback, sidebar tests for optimistic drop + API failure rollback. | `260411-sl01-optimistic-sidebar-window-reorder` |
 | 2026-04-11 | Optimistic cross-session drag — `executeMoveToSession` `useOptimisticAction` instance in sidebar wires compound optimistic update: `killWindow` (hide in source) + `addGhostWindow` (show in target with source window's display name) + immediate navigation to `/$server`. Rollback: `restoreWindow` + `removeGhost`. Removed `onMoveWindowToSession` prop from `SidebarProps` — sidebar imports `moveWindowToSession` API directly. Drag data payload extended with `windowId` and `name`. Unit tests for optimistic lifecycle and rollback. | `260411-sl02-cross-session-drag-optimistic-update` |
 | 2026-04-11 | Sidebar collapsible panels — `CollapsiblePanel` reusable component (header + chevron + `max-height` transition + localStorage persistence). `StatusPanel` refactored into `WindowPanel` wrapping content in CollapsiblePanel (`storageKey="runkit-panel-window"`). New `HostPanel` (5 lines: hostname+SSE dot, CPU braille sparkline, memory gauge bar, load percentages, disk+uptime) wrapping in CollapsiblePanel (`storageKey="runkit-panel-host"`). Both panels bottom-aligned in sidebar. Hostname removed from bottom bar. New `lib/sparkline.ts` (8-level braille mapping U+2800-U+28FF) and `lib/gauge.ts` (block gauge with green/yellow/red thresholds, byte formatting). `SessionProvider` extended with `metrics: MetricsSnapshot | null` from SSE `event: metrics`. | `260411-z63r-sidebar-host-window-panels` |
+| 2026-04-12 | Pane panel copy interactions — `tmx`, `cwd`, `git`, `fab` rows in WindowPanel (`status-panel.tsx`) rendered as `<button>` elements with click-to-copy (pane ID, full path, branch, change ID). Inline "copied ✓" label feedback (1000ms, single `copiedRow` state). Hover affordance (`cursor: pointer` + `bg-bg-inset` tint). Keyboard accessible (Enter/Space). Text-selection guard (`window.getSelection()`). `copyToClipboard` extracted from `terminal-client.tsx` to `lib/clipboard.ts` shared utility module | `260412-lc2q-pane-panel-copy-cwd-branch` |

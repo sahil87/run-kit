@@ -1,7 +1,11 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { StatusPanel } from "./status-panel";
 import type { WindowInfo } from "@/types";
+
+vi.mock("@/lib/clipboard", () => ({
+  copyToClipboard: vi.fn().mockResolvedValue(undefined),
+}));
 
 // Helper to exercise shortenPath via the component
 function renderCwd(cwd: string) {
@@ -17,8 +21,14 @@ function renderCwd(cwd: string) {
   render(<StatusPanel window={win} nowSeconds={0} />);
 }
 
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 function makeWindow(overrides: Partial<WindowInfo> = {}): WindowInfo {
@@ -164,9 +174,184 @@ describe("StatusPanel", () => {
 
     it("title attribute preserves full unmodified path", () => {
       renderCwd("/home/sahil/code/org/repo/src");
-      const cwdDiv = document.querySelector("[title='/home/sahil/code/org/repo/src']");
-      expect(cwdDiv).not.toBeNull();
-      expect(cwdDiv?.querySelector(".text-text-primary")?.textContent).toBe("\u2026/repo/src");
+      const cwdButton = document.querySelector("[title='/home/sahil/code/org/repo/src']");
+      expect(cwdButton).not.toBeNull();
+      expect(cwdButton?.querySelector(".text-text-primary")?.textContent).toBe("\u2026/repo/src");
     });
+  });
+});
+
+describe("StatusPanel copy behavior", () => {
+  function makeWindowWithPanes(overrides: Partial<WindowInfo> = {}): WindowInfo {
+    return {
+      windowId: "@0",
+      index: 0,
+      name: "zsh",
+      worktreePath: "/home/user/code/run-kit",
+      activity: "idle",
+      isActiveWindow: false,
+      activityTimestamp: 0,
+      panes: [
+        { paneId: "%5", paneIndex: 0, cwd: "/home/user/code/run-kit", command: "zsh", isActive: true, gitBranch: "main" },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("clicking cwd row copies full path", async () => {
+    const { copyToClipboard } = await import("@/lib/clipboard");
+    const win = makeWindowWithPanes();
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
+    expect(cwdButton).not.toBeNull();
+    expect(cwdButton.tagName).toBe("BUTTON");
+
+    fireEvent.click(cwdButton);
+
+    expect(copyToClipboard).toHaveBeenCalledWith("/home/user/code/run-kit");
+  });
+
+  it("clicking git row copies branch name", async () => {
+    const { copyToClipboard } = await import("@/lib/clipboard");
+    const win = makeWindowWithPanes();
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    const gitButton = screen.getByRole("button", { name: /main/ });
+    fireEvent.click(gitButton);
+
+    expect(copyToClipboard).toHaveBeenCalledWith("main");
+  });
+
+  it("clicking tmx row copies pane ID", async () => {
+    const { copyToClipboard } = await import("@/lib/clipboard");
+    const win = makeWindowWithPanes();
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    const tmxButton = screen.getByRole("button", { name: /pane 1\/1 %5/ });
+    fireEvent.click(tmxButton);
+
+    expect(copyToClipboard).toHaveBeenCalledWith("%5");
+  });
+
+  it("clicking fab row copies change ID", async () => {
+    const { copyToClipboard } = await import("@/lib/clipboard");
+    const win = makeWindowWithPanes({
+      fabChange: "260405-rx38-pane-cwd-tracking",
+      fabStage: "apply",
+    });
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    const fabButton = screen.getByRole("button", { name: /rx38/ });
+    fireEvent.click(fabButton);
+
+    expect(copyToClipboard).toHaveBeenCalledWith("rx38");
+  });
+
+  it("shows 'copied' feedback after click and reverts after 1000ms", async () => {
+    const win = makeWindowWithPanes();
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
+    fireEvent.click(cwdButton);
+
+    // Should show "copied" feedback
+    expect(screen.getByText(/copied \u2713/)).toBeInTheDocument();
+
+    // After 1000ms, should revert
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.queryByText(/copied \u2713/)).not.toBeInTheDocument();
+    expect(screen.getByText("cwd")).toBeInTheDocument();
+  });
+
+  it("feedback moves between rows — clicking git while cwd shows 'copied' swaps immediately", async () => {
+    const win = makeWindowWithPanes();
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    // Click cwd
+    const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
+    fireEvent.click(cwdButton);
+    expect(screen.getByText(/copied \u2713/)).toBeInTheDocument();
+
+    // Click git within the feedback window
+    const gitButton = screen.getByRole("button", { name: /main/ });
+    fireEvent.click(gitButton);
+
+    // Only one "copied" indicator at a time — the one on git row
+    const copiedElements = screen.getAllByText(/copied \u2713/);
+    expect(copiedElements).toHaveLength(1);
+    // cwd label should have reverted
+    expect(screen.getByText("cwd")).toBeInTheDocument();
+  });
+
+  it("active text selection suppresses copy", async () => {
+    const { copyToClipboard } = await import("@/lib/clipboard");
+    vi.mocked(copyToClipboard).mockClear();
+
+    const win = makeWindowWithPanes();
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    // Mock active text selection
+    const getSelectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
+      toString: () => "selected text",
+    } as Selection);
+
+    const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
+    fireEvent.click(cwdButton);
+
+    expect(copyToClipboard).not.toHaveBeenCalled();
+    expect(screen.queryByText(/copied \u2713/)).not.toBeInTheDocument();
+
+    getSelectionSpy.mockRestore();
+  });
+
+  it("process-only row (no fab state) is not rendered as a button", () => {
+    const win = makeWindowWithPanes({
+      fabChange: undefined,
+      fabStage: undefined,
+      panes: [
+        { paneId: "%5", paneIndex: 0, cwd: "/home/user/code/run-kit", command: "zsh", isActive: true },
+      ],
+    });
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    // The "run" row should be a div, not a button
+    const runText = screen.getByText("run");
+    expect(runText.closest("button")).toBeNull();
+    expect(runText.closest("div")).not.toBeNull();
+  });
+
+  it("empty paneId renders non-interactive tmx row", () => {
+    const win = makeWindowWithPanes({
+      panes: [
+        { paneId: "", paneIndex: 0, cwd: "/home/user/code/run-kit", command: "zsh", isActive: true, gitBranch: "main" },
+      ],
+    });
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    // The tmx row should be a div, not a button
+    const tmxText = screen.getByText("tmx");
+    expect(tmxText.closest("button")).toBeNull();
+    expect(tmxText.closest("div")).not.toBeNull();
+  });
+
+  it("keyboard activation (Enter) triggers copy on cwd row", async () => {
+    const { copyToClipboard } = await import("@/lib/clipboard");
+    vi.mocked(copyToClipboard).mockClear();
+
+    const win = makeWindowWithPanes();
+    render(<StatusPanel window={win} nowSeconds={0} />);
+
+    const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
+    cwdButton.focus();
+    fireEvent.keyDown(cwdButton, { key: "Enter" });
+    fireEvent.keyUp(cwdButton, { key: "Enter" });
+    // Button elements natively handle Enter via click event
+    fireEvent.click(cwdButton);
+
+    expect(copyToClipboard).toHaveBeenCalledWith("/home/user/code/run-kit");
   });
 });

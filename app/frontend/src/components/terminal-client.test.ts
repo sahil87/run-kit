@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { copyToClipboard, clipboardProvider } from "./terminal-client";
+import { copyToClipboard } from "@/lib/clipboard";
+import { clipboardProvider } from "./terminal-client";
 import { deriveXtermTheme, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "@/themes";
 
 describe("copyToClipboard", () => {

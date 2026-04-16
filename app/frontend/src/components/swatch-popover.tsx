@@ -86,10 +86,9 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
       aria-label="Color picker"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="bg-bg-primary border border-border rounded-lg shadow-lg p-2 z-50"
-      style={{ minWidth: 180 }}
+      className="bg-bg-primary border border-border rounded-md shadow-lg p-1.5 z-50 w-max"
     >
-      <div className="grid grid-cols-7 gap-1.5">
+      <div className="grid grid-cols-7 gap-1">
         {PICKER_ANSI_INDICES.map((idx, i) => {
           const tint = rowTints.get(idx);
           const baseColor = tint?.base ?? theme.palette.ansi[idx];
@@ -102,14 +101,14 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
               aria-selected={isSelected}
               aria-label={`Color ${idx}`}
               onClick={() => onSelect(idx)}
-              className={`w-7 h-7 rounded overflow-hidden border transition-all flex flex-col ${
-                focusIndex === i ? "ring-2 ring-text-primary" : ""
-              } ${isSelected ? "border-text-secondary" : "border-transparent hover:border-text-secondary/50"}`}
+              className={`w-5 h-5 rounded-sm overflow-hidden transition-all flex flex-col ${
+                focusIndex === i ? "ring-1 ring-text-secondary" : ""
+              } ${isSelected ? "ring-1 ring-text-secondary" : ""}`}
             >
               <span className="flex-1 w-full" style={{ backgroundColor: baseColor }} />
               <span className="flex-1 w-full flex items-center justify-center" style={{ backgroundColor: selectedColor_ }}>
                 {isSelected && (
-                  <span style={{ color: theme.palette.foreground, fontWeight: 700, fontSize: 9, lineHeight: 1 }}>
+                  <span style={{ color: theme.palette.foreground, fontWeight: 700, fontSize: 7, lineHeight: 1 }}>
                     &#x2713;
                   </span>
                 )}
@@ -122,8 +121,8 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
         role="option"
         aria-selected={selectedColor == null}
         onClick={() => onSelect(null)}
-        className={`mt-1.5 w-full text-xs text-text-secondary hover:text-text-primary py-1 rounded transition-colors ${
-          focusIndex === PICKER_ANSI_INDICES.length ? "ring-2 ring-text-primary" : ""
+        className={`mt-1 w-full text-[10px] text-text-secondary hover:text-text-primary py-0.5 rounded-sm transition-colors ${
+          focusIndex === PICKER_ANSI_INDICES.length ? "ring-1 ring-text-secondary" : ""
         }`}
       >
         Clear

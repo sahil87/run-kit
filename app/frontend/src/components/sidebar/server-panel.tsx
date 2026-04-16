@@ -73,7 +73,7 @@ export function ServerPanel({
             return (
               <div
                 key={s}
-                className="relative flex items-center justify-between group transition-colors rounded"
+                className="relative flex items-center justify-between group transition-colors rounded px-1.5 py-0.5"
                 style={tint ? { backgroundColor: tint.base } : undefined}
                 onMouseEnter={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
                 onMouseLeave={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}

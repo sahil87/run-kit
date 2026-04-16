@@ -79,10 +79,10 @@ export function WindowRow({
     if (tint) {
       style.backgroundColor = isSelected ? tint.selected : tint.base;
     }
-    // Selected: left accent border (colored = ANSI hue, uncolored = accent via CSS var)
-    if (isSelected) {
-      style.borderLeft = `3px solid ${borderColor ?? "var(--color-accent)"}`;
-    }
+    // Always reserve left border space to prevent text shift between states
+    style.borderLeft = isSelected
+      ? `3px solid ${borderColor ?? "var(--color-accent)"}`
+      : "3px solid transparent";
     return Object.keys(style).length > 0 ? style : undefined;
   }, [tint, isSelected, borderColor]);
 

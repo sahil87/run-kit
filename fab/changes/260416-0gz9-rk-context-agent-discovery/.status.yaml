@@ -1,0 +1,42 @@
+id: 0gz9
+name: 260416-0gz9-rk-context-agent-discovery
+created: 2026-04-16T07:50:52Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 22
+confidence:
+    certain: 12
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 89.2
+        reversibility: 87.5
+        competence: 81.7
+        disambiguation: 79.2
+stage_metrics:
+    intake: {started_at: "2026-04-16T07:50:52Z", driver: fab-new, iterations: 1, completed_at: "2026-04-16T11:23:30Z"}
+    spec: {started_at: "2026-04-16T11:23:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T11:28:44Z"}
+    tasks: {started_at: "2026-04-16T11:28:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T11:28:44Z"}
+    apply: {started_at: "2026-04-16T11:41:44Z", driver: fab-fff, iterations: 3, completed_at: "2026-04-16T11:42:59Z"}
+    review: {started_at: "2026-04-16T11:42:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T11:45:30Z"}
+    hydrate: {started_at: "2026-04-16T11:45:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T11:46:36Z"}
+    ship: {started_at: "2026-04-16T11:46:36Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-04-16T11:46:36Z

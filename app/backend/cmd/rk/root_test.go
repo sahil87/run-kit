@@ -15,10 +15,12 @@ func TestRootCmdDefaultsToServe(t *testing.T) {
 
 func TestRootCmdHasSubcommands(t *testing.T) {
 	expected := map[string]bool{
-		"serve":  false,
-		"update": false,
-		"doctor": false,
-		"status": false,
+		"serve":    false,
+		"update":   false,
+		"doctor":   false,
+		"status":   false,
+		"context":  false,
+		"init-conf": false,
 	}
 
 	for _, cmd := range rootCmd.Commands() {

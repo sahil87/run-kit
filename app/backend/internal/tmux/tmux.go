@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+// OriginalTMUX captures the TMUX env var before init() strips it.
+// Package-level var init runs before init(), so this sees the original value.
+// Used by cmd/rk/context.go to restore TMUX in child process environments
+// when querying the pane's own tmux server.
+var OriginalTMUX = os.Getenv("TMUX")
+
 // DefaultConfigPath is the default location for the tmux config file.
 var DefaultConfigPath string
 

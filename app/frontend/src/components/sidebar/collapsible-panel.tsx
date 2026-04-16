@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import type { RowTint } from "@/themes";
 
 type CollapsiblePanelProps = {
   title: string;
@@ -11,6 +12,8 @@ type CollapsiblePanelProps = {
   contentClassName?: string;
   /** Called after the panel is toggled. */
   onToggle?: (isOpen: boolean) => void;
+  /** Optional row tint for background color. */
+  tint?: RowTint | null;
   children: React.ReactNode;
 };
 
@@ -33,6 +36,7 @@ export function CollapsiblePanel({
   headerAction,
   contentClassName,
   onToggle,
+  tint,
   children,
 }: CollapsiblePanelProps) {
   const [isOpen, setIsOpen] = useState(() => readPersistedState(storageKey, defaultOpen));
@@ -74,7 +78,12 @@ export function CollapsiblePanel({
   return (
     <div className="border-t border-border">
       {/* Header — always visible */}
-      <div className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0">
+      <div
+        className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0 transition-colors"
+        style={tint ? { backgroundColor: tint.base } : undefined}
+        onMouseEnter={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
+        onMouseLeave={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
+      >
         <button
           type="button"
           className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-text-primary transition-colors"

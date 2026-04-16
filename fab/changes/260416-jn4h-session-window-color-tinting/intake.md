@@ -32,23 +32,26 @@ Colors come from the active theme's ANSI palette (indices 0-15), not fixed RGB v
 - No new color data needs to be stored in `configs/themes.json`
 - The existing `Theme.palette.ansi` array (16 entries) is the color source
 
-The picker should expose 12-14 ANSI indices, excluding black (0) and white (7) which would clash with backgrounds in dark and light themes respectively. Bright black (8) and bright white (15) should also likely be excluded. The exact exclusion set needs validation against several themes to ensure all offered colors are visually distinguishable at 10% opacity.
+The picker exposes 7 ANSI indices: the 6 standard hues (1-6: red, green, yellow, blue, magenta, cyan) plus bright black/gray (8). Excluded: 0 (black), 7 (white), 15 (bright white), and all bright variants (9-14) which are near-identical to normal variants at low blend ratios.
 
-### 2. Session Color Storage — `run-kit.yaml`
+### 2. Session Color Storage — tmux `@session_color` User Option
 
-Session colors are persistent across tmux restarts. They are stored in a new `run-kit.yaml` config file at the project root of each tmux session's working directory.
+Session colors are ephemeral, tied to the tmux server lifetime (same as window colors). They are stored as tmux user options on each session via `@session_color`.
 
-```yaml
-# run-kit.yaml (in project root, e.g., ~/code/myproject/run-kit.yaml)
-session_color: 4  # ANSI palette index (0-15), absent means no color
+```bash
+# Set a session color
+tmux set-option -t "{session}" @session_color 4
+
+# Clear a session color
+tmux set-option -u -t "{session}" @session_color
 ```
 
-**Important context**: A previous `run-kit.yaml` config file was removed early in run-kit's history (see architecture changelog 2026-03-13). That file stored port/host configuration, which was replaced by env vars. This new `run-kit.yaml` serves a different purpose: per-project run-kit preferences. The constitution says "Configuration lives in environment variables" for server config, but session color is a per-project user preference, not server configuration. The file should be gitignored by convention.
+**Why not `run-kit.yaml`**: The original design stored session colors in `run-kit.yaml` at the project root. This was changed because multiple sessions sharing the same project directory (common in agent orchestration) would all read/write the same file, linking their colors. Using a distinct tmux option name (`@session_color` vs window `@color`) avoids tmux's option inheritance chain where `#{@color}` in `list-sessions` would resolve the active window's value.
 
 **Backend changes**:
-- `internal/config/` or new package reads `run-kit.yaml` from the project root (derived from window 0's `pane_current_path`, same as existing project root detection)
+- `internal/tmux/tmux.go`: `ListSessions` format string includes `#{@session_color}`, parsed into `SessionInfo.Color *int`
+- `SetSessionColor`/`UnsetSessionColor` functions use `set-option -t` / `set-option -u -t`
 - The session color value is included in the `ProjectSession` struct and sent via SSE
-- Reading `run-kit.yaml` is best-effort — missing file means no color
 
 **Frontend changes**:
 - `ProjectSession` type gains `sessionColor?: number` field
@@ -81,27 +84,23 @@ tmux set-option -wu -t "{session}:{window}" @color
 
 ### 4. Visual Treatment — Full Row Background Tint
 
-The color is applied as a full-width background tint on the sidebar row at ~10-15% opacity:
+The color is applied as a full-width background tint on the sidebar row using a single-axis blend ratio ladder:
 
-Colors are **pre-blended** using the existing `blendHex()` utility (already used for `--color-border` derivation in `theme-context.tsx`), not rgba opacity. This avoids alpha compositing surprises when states layer, and produces deterministic hex values that can be validated for contrast at test time.
+Colors are **pre-blended** using the existing `blendHex()` utility, not rgba opacity. This avoids alpha compositing surprises when states layer, and produces deterministic hex values.
 
 ```tsx
-// Computed once at theme load per ANSI color
-const tint = blendHex(ansiColor, background, ratio); // ratio varies by state
-
-// State ladder (blend ratios):
-//   Base:     12%  ANSI color, 88% background
-//   Hover:    18%  ANSI color, 82% background
-//   Selected: 22%  ANSI color, 78% background
+// Single axis — blend ratio increases with interaction depth:
+//   Base:     7%  ANSI color, 93% background
+//   Hover:    11% ANSI color, 89% background
+//   Selected: 16% ANSI color, 84% background
 ```
 
-Each state gets its own pre-blended hex — no stacking. The `blendHex` call produces a concrete color for each (ansiIndex, state) pair.
+Each state gets its own pre-blended hex — same mechanism at every step, just more color mixed in.
 
 **Interaction with existing states**:
-- **Selected window**: Currently uses `bg-accent/15`. A colored selected row uses the 22% blend instead — one concrete background, not two layered alphas.
-- **Activity dot**: Window rows have green/gray activity dots. When a window has a color set, the color replaces the activity dot color. Activity state would need an alternative indicator (e.g., pulsing animation, brightness difference, or a separate shape indicator).
-- **Hover state**: Uses the 18% blend, replacing the current `hover:bg-bg-card/50`.
-- **Contrast safety**: Since all tints are concrete hex values, a test can assert WCAG contrast ratios between each tint and `text-primary`/`text-secondary` across all 70 themes.
+- **Selected window**: Colored rows use 16% blend + left accent border (ANSI color at full saturation). Uncolored rows use `bg-accent/15` + left accent border (`var(--color-accent)`). The left border is the universal selection indicator.
+- **Activity dot**: Filled circle = active, hollow ring = idle, always `text-secondary` color — decoupled from row tint.
+- **Hover state**: Colored rows use 11% blend. Uncolored rows use `hover:bg-bg-card/50`.
 
 ### 5. Color Picker UX — Command Palette + Hover Indicator
 
@@ -121,29 +120,49 @@ Two access paths, both keyboard-first:
 - Touch devices: the swatch could appear on the row's context area or be omitted (command palette is always available)
 
 **Swatch Popover**:
-- 12-14 color swatches in a 2-row grid (or similar compact layout)
-- Swatches show colors from `theme.palette.ansi[N]` at full saturation
-- A "Clear" button/icon to remove the color
-- Current selection indicated with a checkmark or ring
-- Popover dismisses on selection or Escape
+- 7 color swatches in a single-row grid (7 columns)
+- Each swatch is split vertically: top half shows base tint (7% blend), bottom half shows selected tint (16% blend) — previews the actual row appearance
+- A "Clear" button below the swatches to remove the color
+- Current selection indicated with a checkmark in the bottom half
+- Focus ring initializes on the currently selected swatch
+- Popover dismisses on selection, Escape, or outside click
 - Swatches are rendered dynamically from the active theme — they update live during theme preview
 
-### 6. API Changes for Setting Window Color
+### 6. Server Color Storage — `~/.rk/settings.yaml`
 
-Setting a window color requires a tmux command execution. Two approaches:
+Server colors are persistent (survive tmux restarts). They are stored in the user's settings file under a `server_colors` section:
 
-**Option A**: New dedicated endpoint `POST /api/sessions/:session/windows/:index/color` with body `{"color": 4}` (or `{"color": null}` to clear).
+```yaml
+# ~/.rk/settings.yaml
+theme: system
+theme_dark: default-dark
+theme_light: default-light
+server_colors:
+  default: 4
+  dev: 10
+```
 
-**Option B**: Reuse the existing `sendKeys` mechanism or add a generic tmux option setter.
+**Backend changes**:
+- `internal/settings/settings.go`: `Settings` struct gains `ServerColors map[string]int`, parsed from `server_colors:` nested YAML section
+- `GET/PUT /api/settings/server-color` endpoints for reading/writing server colors
+- `GET` without `server` param returns all server colors as a map
 
-Option A is cleaner and follows the existing pattern of one-endpoint-per-mutation. The handler calls `tmux set-option -w @color <value>` on the target window.
+**Frontend changes**:
+- `ServerPanel` shows per-server color tinting on each server row
+- Color picker on each server row (hover-reveal swatch icon)
+- Server colors fetched once on mount via `getAllServerColors()`
 
-For session colors, the backend needs a new endpoint to write `run-kit.yaml`. Something like `POST /api/sessions/:session/color` with body `{"color": 4}` (or `null`).
+### 7. API Changes for Setting Colors
+
+Dedicated endpoints for each color scope:
+- **Window**: `POST /api/sessions/{session}/windows/{index}/color` — sets tmux `@color` window option
+- **Session**: `POST /api/sessions/{session}/color` — sets tmux `@session_color` session option
+- **Server**: `PUT /api/settings/server-color` — writes to `~/.rk/settings.yaml`
 
 ## Affected Memory
 
 - `run-kit/ui-patterns`: (modify) Document color tinting visual treatment, picker UX, state interactions
-- `run-kit/architecture`: (modify) Document `run-kit.yaml` config file, new API endpoints, `@color` tmux user option, `WindowInfo.Color` field
+- `run-kit/architecture`: (modify) Document `@session_color` and `@color` tmux user options, server color in settings.yaml, new API endpoints
 
 ## Impact
 
@@ -157,34 +176,29 @@ For session colors, the backend needs a new endpoint to write `run-kit.yaml`. So
 - `app/frontend/src/themes.ts` — possibly expose ANSI palette for direct consumption
 
 **Backend**:
-- `app/backend/internal/tmux/tmux.go` — `ListWindows` format string addition, `set-option`/`set-option -wu` calls
-- `app/backend/internal/config/` or new package — `run-kit.yaml` reading
-- `app/backend/api/windows.go` — new color endpoint
-- `app/backend/api/sessions.go` — new session color endpoint
-- `app/backend/api/router.go` — route registration
-- `app/backend/internal/sessions/` — pass through session color from config
-
-**Config**:
-- New `run-kit.yaml` file convention (per-project, gitignored)
+- `app/backend/internal/tmux/tmux.go` — `ListSessions`/`ListWindows` format strings, `SetSessionColor`/`SetWindowColor` functions
+- `app/backend/internal/settings/settings.go` — `ServerColors` in settings struct, `GetServerColor`/`SetServerColor`
+- `app/backend/api/windows.go` — window color endpoint
+- `app/backend/api/sessions.go` — session color endpoint
+- `app/backend/api/settings.go` — server color endpoints
+- `app/backend/api/router.go` — route registration, `TmuxOps` interface
 
 ## Open Questions
 
-- Should `run-kit.yaml` support any other per-project preferences beyond `session_color`, or is it strictly single-purpose for now?
+(none remaining)
 
 ## Assumptions
 
 | # | Grade | Decision | Rationale | Scores |
 |---|-------|----------|-----------|--------|
-| 1 | Certain | ANSI palette indices as color source, not fixed RGB | Discussed — user explicitly chose ANSI palette for theme adaptation | S:95 R:80 A:90 D:95 |
-| 2 | Certain | Session colors in `run-kit.yaml`, window colors in tmux `@color` | Discussed — user chose this dual storage approach for persistence semantics | S:95 R:70 A:85 D:90 |
-| 3 | Certain | Full row background tint at ~10-15% opacity | Discussed — user explicitly chose this over color dot or pseudo-element | S:90 R:85 A:80 D:90 |
-| 4 | Certain | Command palette as primary picker, hover indicator as shortcut | Discussed — user chose this UX over right-click context menu | S:90 R:85 A:85 D:90 |
-| 5 | Certain | Swatch popover with 12-14 ANSI colors plus Clear | Discussed — user specified excluding black/white which clash with backgrounds | S:85 R:85 A:80 D:85 |
-| 6 | Confident | Dedicated API endpoints for setting colors (not reusing sendKeys) | Follows existing POST-per-mutation pattern; one endpoint per resource action | S:75 R:80 A:85 D:80 |
-| 7 | Confident | `run-kit.yaml` at project root, gitignored by convention | Constitution says "no database" — file-based is allowed. Previous `run-kit.yaml` was removed for config, but this is per-project preferences | S:70 R:65 A:70 D:70 |
-| 8 | Certain | Include bright black (8) in picker; exclude only 0 (black), 7 (white), 15 (bright white) — 13 colors total | Discussed — user chose to include bright black; it renders as a usable gray in most themes | S:85 R:85 A:80 D:85 |
-| 9 | Certain | Activity dot decoupled from color: filled circle = active, hollow ring = idle, always text-secondary color | Discussed — user chose option B; dot indicates activity independently of row tint | S:85 R:80 A:85 D:85 |
-| 10 | Certain | Pre-blended colors via `blendHex()` at 12% base / 18% hover / 22% selected | Discussed post-draft — user chose Option 3 (pre-blended) over rgba opacity for deterministic contrast and testability | S:90 R:85 A:85 D:90 |
-| 11 | Confident | `run-kit.yaml` reading is best-effort — missing file means no color | Consistent with constitution's "derive state" principle; no error on missing config | S:75 R:90 A:85 D:85 |
+| 1 | Certain | ANSI palette indices as color source, not fixed RGB | User explicitly chose ANSI palette for theme adaptation | S:95 R:80 A:90 D:95 |
+| 2 | Certain | Session colors in tmux `@session_color`, window colors in tmux `@color` | Changed from `run-kit.yaml` — multiple sessions sharing same project root linked colors. Distinct option name avoids tmux inheritance | S:95 R:80 A:90 D:90 |
+| 3 | Certain | Server colors in `~/.rk/settings.yaml` under `server_colors:` | User requested persistent server-level colors; settings.yaml is the existing user prefs store | S:90 R:85 A:85 D:90 |
+| 4 | Certain | Full row background tint via single-axis blend ratio ladder (7/11/16%) | User chose pre-blended over rgba; ratios tuned iteratively for subtlety and consistency | S:90 R:85 A:85 D:90 |
+| 5 | Certain | 7 colors in picker (indices 1-6 + 8), single row | Bright variants (9-14) dropped — near-identical to normal at low blend ratios | S:90 R:85 A:85 D:90 |
+| 6 | Certain | Selected state = higher blend (16%) + left accent border | User chose brightness increase over accent-color blending; left border is universal selection indicator | S:90 R:85 A:85 D:90 |
+| 7 | Certain | Swatch preview shows actual tint (split: base top, selected bottom) | User requested swatches show real row appearance, not full-saturation ANSI | S:90 R:85 A:85 D:90 |
+| 8 | Certain | Activity dot decoupled from color: filled circle = active, hollow ring = idle | User chose shape-based indicator independent of row tint | S:85 R:80 A:85 D:85 |
+| 9 | Certain | Hover indicator as primary color picker access (hover-reveal swatch icon on rows) | Consistent across session, window, and server rows | S:85 R:85 A:85 D:85 |
 
-11 assumptions (8 certain, 3 confident, 0 tentative, 0 unresolved)
+9 assumptions (9 certain, 0 confident, 0 tentative, 0 unresolved)

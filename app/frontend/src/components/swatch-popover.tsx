@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTheme } from "@/contexts/theme-context";
-import { PICKER_ANSI_INDICES } from "@/themes";
+import { PICKER_ANSI_INDICES, computeRowTints } from "@/themes";
 
 type SwatchPopoverProps = {
   selectedColor?: number;
@@ -10,7 +10,12 @@ type SwatchPopoverProps = {
 
 export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopoverProps) {
   const { theme } = useTheme();
-  const [focusIndex, setFocusIndex] = useState(0);
+  const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
+  const [focusIndex, setFocusIndex] = useState(() => {
+    if (selectedColor == null) return 0;
+    const idx = PICKER_ANSI_INDICES.indexOf(selectedColor as typeof PICKER_ANSI_INDICES[number]);
+    return idx >= 0 ? idx : 0;
+  });
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Total items = 13 swatches + 1 clear button
@@ -56,11 +61,12 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
         setFocusIndex((i) => Math.max(i - 1, 0));
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        // Move down one row (7 columns)
-        setFocusIndex((i) => Math.min(i + 7, totalItems - 1));
+        // Jump to Clear button (past the swatch row)
+        setFocusIndex(PICKER_ANSI_INDICES.length);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setFocusIndex((i) => Math.max(i - 7, 0));
+        // Jump back into the swatch row
+        setFocusIndex((i) => i >= PICKER_ANSI_INDICES.length ? Math.min(focusIndex, PICKER_ANSI_INDICES.length - 1) : 0);
       } else if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         if (focusIndex < PICKER_ANSI_INDICES.length) {
@@ -85,7 +91,9 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
     >
       <div className="grid grid-cols-7 gap-1.5">
         {PICKER_ANSI_INDICES.map((idx, i) => {
-          const color = theme.palette.ansi[idx];
+          const tint = rowTints.get(idx);
+          const baseColor = tint?.base ?? theme.palette.ansi[idx];
+          const selectedColor_ = tint?.selected ?? theme.palette.ansi[idx];
           const isSelected = selectedColor === idx;
           return (
             <button
@@ -94,16 +102,18 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
               aria-selected={isSelected}
               aria-label={`Color ${idx}`}
               onClick={() => onSelect(idx)}
-              className={`w-6 h-6 rounded border transition-all flex items-center justify-center text-[10px] ${
+              className={`w-7 h-7 rounded overflow-hidden border transition-all flex flex-col ${
                 focusIndex === i ? "ring-2 ring-text-primary" : ""
-              } ${isSelected ? "border-text-primary" : "border-transparent hover:border-text-secondary"}`}
-              style={{ backgroundColor: color }}
+              } ${isSelected ? "border-text-secondary" : "border-transparent hover:border-text-secondary/50"}`}
             >
-              {isSelected && (
-                <span style={{ color: theme.palette.background, fontWeight: 700 }}>
-                  &#x2713;
-                </span>
-              )}
+              <span className="flex-1 w-full" style={{ backgroundColor: baseColor }} />
+              <span className="flex-1 w-full flex items-center justify-center" style={{ backgroundColor: selectedColor_ }}>
+                {isSelected && (
+                  <span style={{ color: theme.palette.foreground, fontWeight: 700, fontSize: 9, lineHeight: 1 }}>
+                    &#x2713;
+                  </span>
+                )}
+              </span>
             </button>
           );
         })}

@@ -150,19 +150,22 @@ export function deriveXtermTheme(palette: ThemePalette) {
 
 // ── Row tint computation ────────────────────────────────────────────────────
 
-/** ANSI palette indices available in the color picker (excludes 0, 7, 15). */
-export const PICKER_ANSI_INDICES = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14] as const;
+/** ANSI palette indices available in the color picker.
+ *  7 colors: the 6 standard hues (red, green, yellow, blue, magenta, cyan) + gray.
+ *  Excludes 0 (black), 7 (white), 15 (bright white), and all bright variants
+ *  (9-14) which are near-identical to normal at low blend ratios. */
+export const PICKER_ANSI_INDICES = [1, 2, 3, 4, 5, 6, 8] as const;
 
 /** Pre-blended row tint colors for a single ANSI index at three states. */
 export type RowTint = {
-  base: string;    // 12% ANSI, 88% background
-  hover: string;   // 18% ANSI, 82% background
-  selected: string; // 22% ANSI, 78% background
+  base: string;     // 7% ANSI into background
+  hover: string;    // 11% ANSI into background
+  selected: string; // 16% ANSI into background
 };
 
 /**
- * Pre-compute blended hex values for all 13 picker ANSI indices
- * at base (12%), hover (18%), and selected (22%) ratios against the palette background.
+ * Pre-compute blended hex values for all picker ANSI indices.
+ * Single axis: blend ratio increases with interaction depth (7% → 11% → 16%).
  */
 export function computeRowTints(palette: ThemePalette): Map<number, RowTint> {
   const bg = palette.background;
@@ -171,9 +174,9 @@ export function computeRowTints(palette: ThemePalette): Map<number, RowTint> {
   for (const idx of PICKER_ANSI_INDICES) {
     const fg = palette.ansi[idx];
     tints.set(idx, {
-      base: blendHex(fg, bg, 0.12),
-      hover: blendHex(fg, bg, 0.18),
-      selected: blendHex(fg, bg, 0.22),
+      base: blendHex(fg, bg, 0.07),
+      hover: blendHex(fg, bg, 0.11),
+      selected: blendHex(fg, bg, 0.16),
     });
   }
 

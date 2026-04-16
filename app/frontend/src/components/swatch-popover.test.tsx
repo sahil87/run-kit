@@ -33,14 +33,14 @@ describe("SwatchPopover", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders 13 color swatches", () => {
+  it("renders 7 color swatches", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
     const options = screen.getAllByRole("option");
-    // 13 color swatches + 1 Clear button
-    expect(options).toHaveLength(14);
+    // 7 color swatches + 1 Clear button
+    expect(options).toHaveLength(8);
   });
 
   it("shows checkmark on selected color", () => {
@@ -90,11 +90,13 @@ describe("SwatchPopover", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("excludes ANSI indices 0, 7, 15", () => {
+  it("excludes ANSI indices 0, 7, 9-15 (except 8)", () => {
     expect(PICKER_ANSI_INDICES).not.toContain(0);
     expect(PICKER_ANSI_INDICES).not.toContain(7);
-    expect(PICKER_ANSI_INDICES).not.toContain(15);
-    expect(PICKER_ANSI_INDICES).toHaveLength(13);
+    for (let i = 9; i <= 15; i++) {
+      expect(PICKER_ANSI_INDICES).not.toContain(i);
+    }
+    expect(PICKER_ANSI_INDICES).toHaveLength(7);
   });
 
   it("includes ANSI index 8 (bright black)", () => {

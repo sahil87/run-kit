@@ -3,11 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,6 +75,14 @@ type mockTmuxOps struct {
 	killActivePaneCalled  bool
 	killActivePaneSession string
 	killActivePaneIndex   int
+
+	setSessionColorCalled  bool
+	setSessionColorSession string
+	setSessionColorColor   int
+	setSessionColorErr     error
+	unsetSessionColorCalled  bool
+	unsetSessionColorSession string
+	unsetSessionColorErr     error
 
 	setWindowColorCalled   bool
 	setWindowColorSession  string
@@ -173,6 +181,23 @@ func (m *mockTmuxOps) KillActivePane(session string, window int, server string) 
 	m.killActivePaneCalled = true
 	m.killActivePaneSession = session
 	m.killActivePaneIndex = window
+	return m.err
+}
+func (m *mockTmuxOps) SetSessionColor(session string, color int, server string) error {
+	m.setSessionColorCalled = true
+	m.setSessionColorSession = session
+	m.setSessionColorColor = color
+	if m.setSessionColorErr != nil {
+		return m.setSessionColorErr
+	}
+	return m.err
+}
+func (m *mockTmuxOps) UnsetSessionColor(session string, server string) error {
+	m.unsetSessionColorCalled = true
+	m.unsetSessionColorSession = session
+	if m.unsetSessionColorErr != nil {
+		return m.unsetSessionColorErr
+	}
 	return m.err
 }
 func (m *mockTmuxOps) SetWindowColor(session string, index int, color int, server string) error {
@@ -439,13 +464,7 @@ func TestClosePaneInvalidIndex(t *testing.T) {
 // --- Session Color endpoint tests ---
 
 func TestSessionColorSet(t *testing.T) {
-	dir := t.TempDir()
-	os.Mkdir(filepath.Join(dir, ".git"), 0o755)
-	ops := &mockTmuxOps{
-		listWindowsResult: []tmux.WindowInfo{
-			{Index: 0, Name: "main", WorktreePath: dir},
-		},
-	}
+	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"color":6}`
@@ -457,16 +476,19 @@ func TestSessionColorSet(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
+	if !ops.setSessionColorCalled {
+		t.Error("SetSessionColor was not called")
+	}
+	if ops.setSessionColorSession != "myproject" {
+		t.Errorf("session = %q, want %q", ops.setSessionColorSession, "myproject")
+	}
+	if ops.setSessionColorColor != 6 {
+		t.Errorf("color = %d, want %d", ops.setSessionColorColor, 6)
+	}
 }
 
 func TestSessionColorClear(t *testing.T) {
-	dir := t.TempDir()
-	os.Mkdir(filepath.Join(dir, ".git"), 0o755)
-	ops := &mockTmuxOps{
-		listWindowsResult: []tmux.WindowInfo{
-			{Index: 0, Name: "main", WorktreePath: dir},
-		},
-	}
+	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"color":null}`
@@ -477,6 +499,12 @@ func TestSessionColorClear(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.unsetSessionColorCalled {
+		t.Error("UnsetSessionColor was not called")
+	}
+	if ops.unsetSessionColorSession != "myproject" {
+		t.Errorf("session = %q, want %q", ops.unsetSessionColorSession, "myproject")
 	}
 }
 
@@ -508,8 +536,8 @@ func TestSessionColorInvalidSession(t *testing.T) {
 	}
 }
 
-func TestSessionColorNoWindows(t *testing.T) {
-	ops := &mockTmuxOps{listWindowsResult: nil}
+func TestSessionColorTmuxError(t *testing.T) {
+	ops := &mockTmuxOps{setSessionColorErr: fmt.Errorf("tmux error")}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"color":4}`
@@ -518,8 +546,8 @@ func TestSessionColorNoWindows(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }
 

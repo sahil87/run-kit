@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi } from "@/api/client";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
@@ -54,6 +54,12 @@ export function Sidebar({
   const { theme } = useTheme();
   const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
   const ansiPalette = theme.palette.ansi;
+
+  // Server colors from settings.yaml (all servers)
+  const [serverColors, setServerColors] = useState<Record<string, number>>({});
+  useEffect(() => {
+    getAllServerColors().then(setServerColors).catch(() => {});
+  }, []);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
@@ -481,10 +487,22 @@ export function Sidebar({
       <ServerPanel
         server={server}
         servers={servers}
+        serverColors={serverColors}
+        rowTints={rowTints}
         onSwitchServer={onSwitchServer}
         onCreateServer={onCreateServer}
         onKillServer={onKillServer}
         onRefreshServers={onRefreshServers}
+        onServerColorChange={(targetServer, c) => {
+          setServerColors((prev) => {
+            const next = { ...prev };
+            if (c == null) { delete next[targetServer]; } else { next[targetServer] = c; }
+            return next;
+          });
+          setServerColorApi(targetServer, c).catch((err) =>
+            addToast(err.message || "Failed to set server color"),
+          );
+        }}
       />
 
       {/* Sessions — always open, flex-grow to fill space */}

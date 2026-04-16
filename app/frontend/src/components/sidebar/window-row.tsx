@@ -69,32 +69,36 @@ export function WindowRow({
     return rowTints.get(color) ?? null;
   }, [color, rowTints]);
 
-  // Full-saturation ANSI color for the left border on selected colored rows.
-  const fullAnsiColor = color != null && ansiPalette ? ansiPalette[color] : undefined;
+  // Full-saturation ANSI color for the left border on selected rows.
+  // Colored rows use their ANSI color; uncolored rows use the theme accent.
+  const borderColor = color != null && ansiPalette ? ansiPalette[color] : undefined;
 
-  // Compute inline style for the button (background + border)
+  // Compute inline style for the button (background + left accent border)
   const buttonStyle = useMemo(() => {
-    if (!tint) return undefined;
-    const bg = isSelected ? tint.selected : tint.base;
-    const style: React.CSSProperties = { backgroundColor: bg };
-    if (isSelected && fullAnsiColor) {
-      style.borderLeft = `3px solid ${fullAnsiColor}`;
+    const style: React.CSSProperties = {};
+    if (tint) {
+      style.backgroundColor = isSelected ? tint.selected : tint.base;
     }
-    return style;
-  }, [tint, isSelected, fullAnsiColor]);
+    // Selected: left accent border (colored = ANSI hue, uncolored = accent via CSS var)
+    if (isSelected) {
+      style.borderLeft = `3px solid ${borderColor ?? "var(--color-accent)"}`;
+    }
+    return Object.keys(style).length > 0 ? style : undefined;
+  }, [tint, isSelected, borderColor]);
 
   // Build className for the button
   const buttonClass = useMemo(() => {
-    const base = "w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-8 text-sm transition-colors min-h-[36px]";
-    if (tint) {
-      // Colored row: use inline style for bg, keep text classes
-      return `${base} ${isSelected ? "text-text-primary font-medium" : "text-text-secondary hover:text-text-primary"} rounded-l-lg rounded-r-none`;
-    }
-    // Uncolored row: use existing Tailwind classes
+    const base = "w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-8 text-sm transition-colors min-h-[36px] rounded-l-lg rounded-r-none";
     if (isSelected) {
-      return `${base} bg-accent/15 text-text-primary font-medium rounded-l-lg rounded-r-none`;
+      // Colored selected: inline bg via buttonStyle. Uncolored selected: bg-accent/15.
+      return `${base} ${tint ? "" : "bg-accent/15 "}text-text-primary font-medium`;
     }
-    return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50 rounded-l-lg rounded-r-none`;
+    if (tint) {
+      // Colored non-selected: inline bg via buttonStyle, hover via JS
+      return `${base} text-text-secondary hover:text-text-primary`;
+    }
+    // Uncolored non-selected
+    return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50`;
   }, [tint, isSelected]);
 
   return (

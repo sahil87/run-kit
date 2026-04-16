@@ -387,3 +387,28 @@ export async function setThemePreference(prefs: {
   });
   if (!res.ok) await throwOnError(res);
 }
+
+// --- Server color settings (global, not per-server) ---
+
+export async function getServerColor(server: string): Promise<number | null> {
+  const res = await deduplicatedFetch(`/api/settings/server-color?server=${encodeURIComponent(server)}`);
+  if (!res.ok) await throwOnError(res);
+  const data: { color: number | null } = await res.json();
+  return data.color;
+}
+
+export async function getAllServerColors(): Promise<Record<string, number>> {
+  const res = await deduplicatedFetch("/api/settings/server-color");
+  if (!res.ok) await throwOnError(res);
+  const data: { colors: Record<string, number> } = await res.json();
+  return data.colors;
+}
+
+export async function setServerColor(server: string, color: number | null): Promise<void> {
+  const res = await fetch("/api/settings/server-color", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ server, color }),
+  });
+  if (!res.ok) await throwOnError(res);
+}

@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"rk/internal/config"
 	"rk/internal/tmux"
 )
 
@@ -368,17 +367,7 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 			}
 		}
 
-		// Read session color from run-kit.yaml at the project root.
-		// Use git root (not raw WorktreePath) so the file is found even
-		// when the pane cwd is a subdirectory.
-		var sessionColor *int
-		if len(sd.windows) > 0 && sd.windows[0].WorktreePath != "" {
-			if root := config.FindGitRoot(sd.windows[0].WorktreePath); root != "" {
-				sessionColor = config.ReadSessionColor(root)
-			}
-		}
-
-		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sessionColor, Windows: sd.windows}
+		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, Windows: sd.windows}
 	}
 
 	return result, nil

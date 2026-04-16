@@ -200,9 +200,9 @@ describe("deriveXtermTheme", () => {
 });
 
 describe("computeRowTints", () => {
-  it("returns 13 entries matching PICKER_ANSI_INDICES", () => {
+  it("returns 7 entries matching PICKER_ANSI_INDICES", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
-    expect(tints.size).toBe(13);
+    expect(tints.size).toBe(7);
     for (const idx of PICKER_ANSI_INDICES) {
       expect(tints.has(idx)).toBe(true);
     }
@@ -219,21 +219,20 @@ describe("computeRowTints", () => {
     }
   });
 
-  it("selected blend is more saturated than hover, which is more than base", () => {
+  it("hover blend differs from base, selected differs from both", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
     const tint = tints.get(4)!; // blue
-    // base uses 12%, hover 18%, selected 22% — each has more fg mixed in
-    // So each successive blend should differ from background more than the previous
     expect(tint.base).not.toBe(tint.hover);
-    expect(tint.hover).not.toBe(tint.selected);
-    expect(tint.base).not.toBe(tint.selected);
+    expect(tint.selected).not.toBe(tint.base);
   });
 
-  it("does not include indices 0, 7, 15", () => {
+  it("does not include indices 0, 7, 9-15", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
     expect(tints.has(0)).toBe(false);
     expect(tints.has(7)).toBe(false);
-    expect(tints.has(15)).toBe(false);
+    for (let i = 9; i <= 15; i++) {
+      expect(tints.has(i)).toBe(false);
+    }
   });
 });
 

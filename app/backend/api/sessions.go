@@ -1,14 +1,11 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	"rk/internal/config"
 	"rk/internal/validate"
 )
 
@@ -108,21 +105,13 @@ func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 
 	server := serverFromRequest(r)
 
-	// Derive project root from first window's path.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	windows, err := s.tmux.ListWindows(ctx, session, server)
-	if err != nil || len(windows) == 0 {
-		writeError(w, http.StatusBadRequest, "Could not determine project root for session")
-		return
+	var err error
+	if body.Color != nil {
+		err = s.tmux.SetSessionColor(session, *body.Color, server)
+	} else {
+		err = s.tmux.UnsetSessionColor(session, server)
 	}
-	projectRoot := config.FindGitRoot(windows[0].WorktreePath)
-	if projectRoot == "" {
-		writeError(w, http.StatusBadRequest, "Could not determine project root for session")
-		return
-	}
-
-	if err := config.WriteSessionColor(projectRoot, body.Color); err != nil {
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -69,7 +69,7 @@ export function SessionRow({
 
   return (
     <div
-      className="flex items-center justify-between group pl-1.5 sm:pl-2 relative"
+      className={`flex items-center justify-between group pl-1.5 sm:pl-2 relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors`}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}

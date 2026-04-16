@@ -39,6 +39,8 @@ type TmuxOps interface {
 	SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error)
 	KillPane(paneID, server string) error
 	KillActivePane(session string, window int, server string) error
+	SetSessionColor(session string, color int, server string) error
+	UnsetSessionColor(session string, server string) error
 	SetWindowColor(session string, index int, color int, server string) error
 	UnsetWindowColor(session string, index int, server string) error
 	ListServers(ctx context.Context) ([]string, error)
@@ -128,6 +130,12 @@ func (p *prodTmuxOps) KillPane(paneID, server string) error {
 }
 func (p *prodTmuxOps) KillActivePane(session string, window int, server string) error {
 	return tmux.KillActivePane(session, window, server)
+}
+func (p *prodTmuxOps) SetSessionColor(session string, color int, server string) error {
+	return tmux.SetSessionColor(session, color, server)
+}
+func (p *prodTmuxOps) UnsetSessionColor(session string, server string) error {
+	return tmux.UnsetSessionColor(session, server)
 }
 func (p *prodTmuxOps) SetWindowColor(session string, index int, color int, server string) error {
 	return tmux.SetWindowColor(session, index, color, server)
@@ -223,6 +231,8 @@ func (s *Server) buildRouter() chi.Router {
 	// Settings (global, not per-server)
 	r.Get("/api/settings/theme", s.handleGetTheme)
 	r.Put("/api/settings/theme", s.handlePutTheme)
+	r.Get("/api/settings/server-color", s.handleGetServerColor)
+	r.Put("/api/settings/server-color", s.handlePutServerColor)
 
 	// WebSocket relay
 	r.Get("/relay/{session}/{window}", s.handleRelay)

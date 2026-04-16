@@ -212,11 +212,13 @@ func withTimeout() (context.Context, context.CancelFunc) {
 
 // SessionInfo describes a tmux session.
 type SessionInfo struct {
-	Name string `json:"name"`
+	Name  string `json:"name"`
+	Color *int   `json:"color,omitempty"`
 }
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
+// Format: name, grouped, group, @color (4 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
 	var sessions []SessionInfo
@@ -232,9 +234,13 @@ func parseSessions(lines []string) []SessionInfo {
 		}
 		// Filter out session-group copies: keep if ungrouped or if name matches group
 		if grouped == "0" || name == group {
-			sessions = append(sessions, SessionInfo{
-				Name: name,
-			})
+			si := SessionInfo{Name: name}
+			if len(parts) >= 4 && parts[3] != "" {
+				if n, err := strconv.Atoi(parts[3]); err == nil {
+					si.Color = &n
+				}
+			}
+			sessions = append(sessions, si)
 		}
 	}
 	return sessions
@@ -246,7 +252,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}", listDelim, listDelim)
+	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{@session_color}", listDelim, listDelim, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {
@@ -611,6 +617,25 @@ func SendKeys(session string, window int, keys string, server string) error {
 
 	target := fmt.Sprintf("%s:%d", session, window)
 	_, err := tmuxExecServer(ctx, server, "send-keys", "-t", target, keys, "Enter")
+	return err
+}
+
+// SetSessionColor sets the @session_color user option on a session.
+// Uses a distinct name from window @color to avoid tmux option inheritance.
+func SetSessionColor(session string, color int, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "set-option", "-t", session, "@session_color", strconv.Itoa(color))
+	return err
+}
+
+// UnsetSessionColor removes the @session_color user option from a session.
+func UnsetSessionColor(session string, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", session, "@session_color")
 	return err
 }
 

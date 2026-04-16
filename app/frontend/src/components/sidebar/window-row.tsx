@@ -88,7 +88,7 @@ export function WindowRow({
 
   // Build className for the button
   const buttonClass = useMemo(() => {
-    const base = "w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-8 text-sm transition-colors min-h-[36px] rounded-l-lg rounded-r-none";
+    const base = "w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-11 text-sm transition-colors min-h-[36px] rounded-l-lg rounded-r-none";
     if (isSelected) {
       // Colored selected: inline bg via buttonStyle. Uncolored selected: bg-accent/15.
       return `${base} ${tint ? "" : "bg-accent/15 "}text-text-primary font-medium`;
@@ -164,7 +164,7 @@ export function WindowRow({
         </span>
       </button>
       {/* Hover-reveal buttons: color swatch + kill */}
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0 z-10">
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
         {onColorChange && (
           <button
             ref={colorBtnRef}

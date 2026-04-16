@@ -1,0 +1,27 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-16T07:32:09Z"}
+{"args":"Session and window color tinting — ANSI-palette row backgrounds in the sidebar, stored in run-kit.yaml (sessions) and tmux @color user options (windows), with command palette and hover-indicator picker UX","cmd":"fab-new","event":"command","ts":"2026-04-16T07:32:09Z"}
+{"delta":"+1.1","event":"confidence","score":1.1,"trigger":"calc-score","ts":"2026-04-16T07:33:42Z"}
+{"delta":"+0.0","event":"confidence","score":1.1,"trigger":"calc-score","ts":"2026-04-16T07:33:54Z"}
+{"delta":"+0.0","event":"confidence","score":1.1,"trigger":"calc-score","ts":"2026-04-16T07:43:36Z"}
+{"delta":"+1.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-04-16T07:43:43Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-04-16T07:43:46Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-04-16T07:43:52Z"}
+{"delta":"+2.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-16T07:46:13Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-16T07:46:17Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-16T07:46:23Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-16T07:59:31Z"}
+{"delta":"-0.6","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-04-16T08:02:27Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-04-16T08:02:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-16T08:02:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-16T08:06:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-16T08:06:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-16T08:23:01Z"}
+{"event":"review","result":"failed","ts":"2026-04-16T08:27:15Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-16T08:27:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-16T08:31:18Z"}
+{"event":"review","result":"failed","ts":"2026-04-16T08:35:23Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-16T08:35:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-16T08:36:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-16T08:36:44Z"}
+{"event":"review","result":"passed","ts":"2026-04-16T08:36:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-16T08:41:27Z"}

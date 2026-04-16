@@ -1,7 +1,10 @@
+import { useState, useRef, useMemo } from "react";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import { getWindowDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
+import type { RowTint } from "@/themes";
+import { SwatchPopover } from "@/components/swatch-popover";
 
 type ProjectWindow = ProjectSession["windows"][number];
 type GhostWindow = MergedSession["windows"][number];
@@ -12,6 +15,9 @@ type WindowRowProps = {
   isSelected: boolean;
   isDragOver: boolean;
   nowSeconds: number;
+  color?: number;
+  rowTints?: Map<number, RowTint>;
+  ansiPalette?: readonly string[];
   editingWindow: { session: string; windowId: string } | null;
   editingName: string;
   inputRef: React.RefObject<HTMLInputElement | null>;
@@ -25,6 +31,7 @@ type WindowRowProps = {
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   onDragEnd?: () => void;
+  onColorChange?: (color: number | null) => void;
 };
 
 export function WindowRow({
@@ -33,6 +40,9 @@ export function WindowRow({
   isSelected,
   isDragOver,
   nowSeconds,
+  color,
+  rowTints,
+  ansiPalette,
   editingWindow,
   editingName,
   inputRef,
@@ -46,10 +56,46 @@ export function WindowRow({
   onDragOver,
   onDrop,
   onDragEnd,
+  onColorChange,
 }: WindowRowProps) {
   const ghost = isGhostWindow(win);
   const duration = getWindowDuration(win, nowSeconds);
   const isEditing = editingWindow?.session === session && editingWindow.windowId === win.windowId;
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const colorBtnRef = useRef<HTMLButtonElement>(null);
+
+  const tint = useMemo(() => {
+    if (color == null || !rowTints) return null;
+    return rowTints.get(color) ?? null;
+  }, [color, rowTints]);
+
+  // Full-saturation ANSI color for the left border on selected colored rows.
+  const fullAnsiColor = color != null && ansiPalette ? ansiPalette[color] : undefined;
+
+  // Compute inline style for the button (background + border)
+  const buttonStyle = useMemo(() => {
+    if (!tint) return undefined;
+    const bg = isSelected ? tint.selected : tint.base;
+    const style: React.CSSProperties = { backgroundColor: bg };
+    if (isSelected && fullAnsiColor) {
+      style.borderLeft = `3px solid ${fullAnsiColor}`;
+    }
+    return style;
+  }, [tint, isSelected, fullAnsiColor]);
+
+  // Build className for the button
+  const buttonClass = useMemo(() => {
+    const base = "w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-8 text-sm transition-colors min-h-[36px]";
+    if (tint) {
+      // Colored row: use inline style for bg, keep text classes
+      return `${base} ${isSelected ? "text-text-primary font-medium" : "text-text-secondary hover:text-text-primary"} rounded-l-lg rounded-r-none`;
+    }
+    // Uncolored row: use existing Tailwind classes
+    if (isSelected) {
+      return `${base} bg-accent/15 text-text-primary font-medium rounded-l-lg rounded-r-none`;
+    }
+    return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50 rounded-l-lg rounded-r-none`;
+  }, [tint, isSelected]);
 
   return (
     <div
@@ -68,21 +114,20 @@ export function WindowRow({
           e.stopPropagation();
           if (!ghost) onDoubleClickName();
         }}
-        className={`w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-8 text-sm transition-colors min-h-[36px] ${
-          isSelected
-            ? "bg-accent/15 text-text-primary font-medium rounded-l-lg rounded-r-none"
-            : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50 rounded-l-lg rounded-r-none"
-        }`}
+        className={buttonClass}
+        style={buttonStyle}
         aria-current={isSelected ? "page" : undefined}
+        onMouseEnter={tint && !isSelected ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
+        onMouseLeave={tint && !isSelected ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
       >
         <span className="flex items-center gap-1.5 truncate min-w-0">
           <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-              win.activity === "active"
-                ? "bg-accent-green"
-                : "bg-text-secondary/40"
-            }`}
+            className="w-1.5 h-1.5 rounded-full shrink-0 text-text-secondary"
             aria-label={win.activity}
+            style={{
+              border: win.activity === "active" ? "none" : "1.5px solid currentColor",
+              backgroundColor: win.activity === "active" ? "currentColor" : "transparent",
+            }}
           />
           {isEditing ? (
             <input
@@ -114,15 +159,43 @@ export function WindowRow({
           )}
         </span>
       </button>
-      {/* Kill window button: hover-reveal on desktop, always visible on mobile */}
-      <button
-        type="button"
-        aria-label={`Kill window ${win.name}`}
-        onClick={onKillClick}
-        className="absolute right-2 top-1/2 -translate-y-1/2 text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-1 min-h-[36px] flex items-center justify-center z-10"
-      >
-        {"\u2715"}
-      </button>
+      {/* Hover-reveal buttons: color swatch + kill */}
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0 z-10">
+        {onColorChange && (
+          <button
+            ref={colorBtnRef}
+            type="button"
+            aria-label={`Set color for ${win.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowColorPicker((v) => !v);
+            }}
+            className="text-[12px] text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[36px] flex items-center justify-center"
+          >
+            &#x25A0;
+          </button>
+        )}
+        <button
+          type="button"
+          aria-label={`Kill window ${win.name}`}
+          onClick={onKillClick}
+          className="text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-1 min-h-[36px] flex items-center justify-center"
+        >
+          {"\u2715"}
+        </button>
+      </div>
+      {showColorPicker && onColorChange && (
+        <div className="absolute right-0 top-full z-50">
+          <SwatchPopover
+            selectedColor={color}
+            onSelect={(c) => {
+              onColorChange(c);
+              setShowColorPicker(false);
+            }}
+            onClose={() => setShowColorPicker(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

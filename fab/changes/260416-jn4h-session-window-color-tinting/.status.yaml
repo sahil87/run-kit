@@ -1,0 +1,42 @@
+id: jn4h
+name: 260416-jn4h-session-window-color-tinting
+created: 2026-04-16T07:32:09Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 8
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 83.1
+        reversibility: 81.5
+        competence: 83.1
+        disambiguation: 85.0
+stage_metrics:
+    intake: {started_at: "2026-04-16T07:32:09Z", driver: fab-new, iterations: 1, completed_at: "2026-04-16T08:02:32Z"}
+    spec: {started_at: "2026-04-16T08:02:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:06:02Z"}
+    tasks: {started_at: "2026-04-16T08:06:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:06:07Z"}
+    apply: {started_at: "2026-04-16T08:35:23Z", driver: fab-fff, iterations: 3, completed_at: "2026-04-16T08:36:44Z"}
+    review: {started_at: "2026-04-16T08:36:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:36:44Z"}
+    hydrate: {started_at: "2026-04-16T08:36:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:41:27Z"}
+    ship: {started_at: "2026-04-16T08:41:27Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-04-16T08:41:27Z

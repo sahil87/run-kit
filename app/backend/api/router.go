@@ -39,6 +39,8 @@ type TmuxOps interface {
 	SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error)
 	KillPane(paneID, server string) error
 	KillActivePane(session string, window int, server string) error
+	SetWindowColor(session string, index int, color int, server string) error
+	UnsetWindowColor(session string, index int, server string) error
 	ListServers(ctx context.Context) ([]string, error)
 	KillServer(server string) error
 	ListKeys(server string) ([]string, error)
@@ -127,6 +129,12 @@ func (p *prodTmuxOps) KillPane(paneID, server string) error {
 func (p *prodTmuxOps) KillActivePane(session string, window int, server string) error {
 	return tmux.KillActivePane(session, window, server)
 }
+func (p *prodTmuxOps) SetWindowColor(session string, index int, color int, server string) error {
+	return tmux.SetWindowColor(session, index, color, server)
+}
+func (p *prodTmuxOps) UnsetWindowColor(session string, index int, server string) error {
+	return tmux.UnsetWindowColor(session, index, server)
+}
 func (p *prodTmuxOps) ListServers(ctx context.Context) ([]string, error) {
 	return tmux.ListServers(ctx)
 }
@@ -185,6 +193,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/health", s.handleHealth)
 	r.Get("/api/sessions", s.handleSessionsList)
 	r.Post("/api/sessions", s.handleSessionCreate)
+	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)
 	r.Post("/api/sessions/{session}/rename", s.handleSessionRename)
 	r.Post("/api/sessions/{session}/windows", s.handleWindowCreate)
@@ -192,6 +201,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/windows/{index}/move", s.handleWindowMove)
 	r.Post("/api/sessions/{session}/windows/{index}/move-to-session", s.handleWindowMoveToSession)
 	r.Post("/api/sessions/{session}/windows/{index}/rename", s.handleWindowRename)
+	r.Post("/api/sessions/{session}/windows/{index}/color", s.handleWindowColor)
 	r.Post("/api/sessions/{session}/windows/{index}/keys", s.handleWindowKeys)
 	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)
 	r.Post("/api/sessions/{session}/windows/{index}/split", s.handleWindowSplit)

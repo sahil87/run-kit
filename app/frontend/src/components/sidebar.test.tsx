@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { Sidebar } from "./sidebar";
 import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-context";
+import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
 import type { ProjectSession } from "@/types";
@@ -21,8 +22,22 @@ vi.mock("@/api/client", async (importOriginal) => {
     renameSession: vi.fn().mockResolvedValue({ ok: true }),
     moveWindow: vi.fn().mockResolvedValue({ ok: true }),
     moveWindowToSession: vi.fn().mockResolvedValue({ ok: true }),
+    setSessionColor: vi.fn().mockResolvedValue({ ok: true }),
+    setWindowColor: vi.fn().mockResolvedValue({ ok: true }),
   };
 });
+
+// Mock matchMedia for ThemeProvider
+vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+  matches: true,
+  media: "(prefers-color-scheme: dark)",
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  onchange: null,
+}));
 
 const sessions: ProjectSession[] = [
   {
@@ -86,6 +101,7 @@ const sessions: ProjectSession[] = [
 
 function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
   return render(
+    <ThemeProvider>
     <ToastProvider>
       <OptimisticProvider>
         <Sidebar
@@ -104,7 +120,8 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
           {...overrides}
         />
       </OptimisticProvider>
-    </ToastProvider>,
+    </ToastProvider>
+    </ThemeProvider>,
   );
 }
 
@@ -739,7 +756,7 @@ describe("Sidebar", () => {
 
       fireEvent.dragOver(bravoHeader, { dataTransfer });
 
-      expect(bravoHeader.style.border).toContain("2px solid");
+      expect(bravoHeader.style.boxShadow).toContain("2px");
     });
 
     it("within-session window drag still works after cross-session support", async () => {
@@ -785,6 +802,7 @@ describe("Sidebar", () => {
       }
 
       render(
+        <ThemeProvider>
         <ToastProvider>
           <OptimisticProvider>
             <KilledCountDisplay />
@@ -803,7 +821,8 @@ describe("Sidebar", () => {
               onRefreshServers={vi.fn()}
             />
           </OptimisticProvider>
-        </ToastProvider>,
+        </ToastProvider>
+        </ThemeProvider>,
       );
 
       // Ctrl+click the X button for "scratch" window (index 1)

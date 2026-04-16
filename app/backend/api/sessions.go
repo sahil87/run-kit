@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"rk/internal/config"
 	"rk/internal/validate"
 )
 
@@ -76,6 +79,50 @@ func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.tmux.RenameSession(session, body.Name, serverFromRequest(r)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	var body struct {
+		Color *int `json:"color"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if body.Color != nil && (*body.Color < 0 || *body.Color > 15) {
+		writeError(w, http.StatusBadRequest, "Color must be between 0 and 15")
+		return
+	}
+
+	server := serverFromRequest(r)
+
+	// Derive project root from first window's path.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	windows, err := s.tmux.ListWindows(ctx, session, server)
+	if err != nil || len(windows) == 0 {
+		writeError(w, http.StatusBadRequest, "Could not determine project root for session")
+		return
+	}
+	projectRoot := config.FindGitRoot(windows[0].WorktreePath)
+	if projectRoot == "" {
+		writeError(w, http.StatusBadRequest, "Could not determine project root for session")
+		return
+	}
+
+	if err := config.WriteSessionColor(projectRoot, body.Color); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

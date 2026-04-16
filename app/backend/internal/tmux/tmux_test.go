@@ -14,8 +14,13 @@ func sessionLine(name, grouped, group string) string {
 }
 
 func windowLine(windowID string, index int, name, path string, activityTs int64, active int, paneCmd string) string {
-	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd)
+	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s",
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim)
+}
+
+func windowLineColor(windowID string, index int, name, path string, activityTs int64, active int, paneCmd string, color string) string {
+	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s",
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, color)
 }
 
 func TestParseSessions(t *testing.T) {
@@ -176,9 +181,9 @@ func TestParseWindows(t *testing.T) {
 			want:  nil,
 		},
 		{
-			name: "malformed line with fewer than 7 fields is skipped",
+			name: "malformed line with fewer than 8 fields is skipped",
 			lines: []string{
-				"@0\t0\tdev\t/path\t1700000000\t1",
+				"@0\t0\tdev\t/path\t1700000000\t1\tzsh",
 				windowLine("@1", 1, "good", "/home/user", fakeNow, 1, "zsh"),
 			},
 			now: fakeNow,

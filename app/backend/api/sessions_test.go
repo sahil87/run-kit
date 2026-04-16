@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,6 +75,16 @@ type mockTmuxOps struct {
 	killActivePaneCalled  bool
 	killActivePaneSession string
 	killActivePaneIndex   int
+
+	setWindowColorCalled   bool
+	setWindowColorSession  string
+	setWindowColorIndex    int
+	setWindowColorColor    int
+	setWindowColorErr      error
+	unsetWindowColorCalled  bool
+	unsetWindowColorSession string
+	unsetWindowColorIndex   int
+	unsetWindowColorErr     error
 
 	err error
 }
@@ -162,6 +173,25 @@ func (m *mockTmuxOps) KillActivePane(session string, window int, server string) 
 	m.killActivePaneCalled = true
 	m.killActivePaneSession = session
 	m.killActivePaneIndex = window
+	return m.err
+}
+func (m *mockTmuxOps) SetWindowColor(session string, index int, color int, server string) error {
+	m.setWindowColorCalled = true
+	m.setWindowColorSession = session
+	m.setWindowColorIndex = index
+	m.setWindowColorColor = color
+	if m.setWindowColorErr != nil {
+		return m.setWindowColorErr
+	}
+	return m.err
+}
+func (m *mockTmuxOps) UnsetWindowColor(session string, index int, server string) error {
+	m.unsetWindowColorCalled = true
+	m.unsetWindowColorSession = session
+	m.unsetWindowColorIndex = index
+	if m.unsetWindowColorErr != nil {
+		return m.unsetWindowColorErr
+	}
 	return m.err
 }
 func (m *mockTmuxOps) ListServers(ctx context.Context) ([]string, error) {
@@ -403,6 +433,93 @@ func TestClosePaneInvalidIndex(t *testing.T) {
 	}
 	if !strings.Contains(result["error"], "Invalid window index") {
 		t.Errorf("error = %q, want containing %q", result["error"], "Invalid window index")
+	}
+}
+
+// --- Session Color endpoint tests ---
+
+func TestSessionColorSet(t *testing.T) {
+	dir := t.TempDir()
+	os.Mkdir(filepath.Join(dir, ".git"), 0o755)
+	ops := &mockTmuxOps{
+		listWindowsResult: []tmux.WindowInfo{
+			{Index: 0, Name: "main", WorktreePath: dir},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"color":6}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestSessionColorClear(t *testing.T) {
+	dir := t.TempDir()
+	os.Mkdir(filepath.Join(dir, ".git"), 0o755)
+	ops := &mockTmuxOps{
+		listWindowsResult: []tmux.WindowInfo{
+			{Index: 0, Name: "main", WorktreePath: dir},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"color":null}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestSessionColorInvalidValue(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"color":20}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSessionColorInvalidSession(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"color":4}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;session/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSessionColorNoWindows(t *testing.T) {
+	ops := &mockTmuxOps{listWindowsResult: nil}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"color":4}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 }
 

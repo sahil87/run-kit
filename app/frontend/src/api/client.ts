@@ -277,6 +277,41 @@ export async function uploadFile(
   return res.json();
 }
 
+// --- Color management ---
+
+export async function setWindowColor(
+  session: string,
+  index: number,
+  color: number | null,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/color`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ color }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+export async function setSessionColor(
+  session: string,
+  color: number | null,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/color`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ color }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 // --- Server management ---
 
 export async function listServers(): Promise<string[]> {

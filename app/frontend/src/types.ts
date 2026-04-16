@@ -36,6 +36,7 @@ export type PaneInfo = {
 /** A tmux session with its windows and optional fab enrichment. */
 export type ProjectSession = {
   name: string;
+  sessionColor?: number;
   windows: WindowInfo[];
 };
 
@@ -49,6 +50,7 @@ export type WindowInfo = {
   isActiveWindow: boolean;
   paneCommand?: string;
   activityTimestamp: number;
+  color?: number;
   agentState?: string;
   agentIdleDuration?: string;
   fabChange?: string;

@@ -11,6 +11,101 @@ import (
 	"rk/internal/tmux"
 )
 
+// --- Window Color endpoint tests ---
+
+func TestWindowColorSet(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"color":4}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/2/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !ops.setWindowColorCalled {
+		t.Error("SetWindowColor was not called")
+	}
+	if ops.setWindowColorSession != "run-kit" {
+		t.Errorf("session = %q, want %q", ops.setWindowColorSession, "run-kit")
+	}
+	if ops.setWindowColorIndex != 2 {
+		t.Errorf("index = %d, want %d", ops.setWindowColorIndex, 2)
+	}
+	if ops.setWindowColorColor != 4 {
+		t.Errorf("color = %d, want %d", ops.setWindowColorColor, 4)
+	}
+}
+
+func TestWindowColorClear(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"color":null}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/2/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !ops.unsetWindowColorCalled {
+		t.Error("UnsetWindowColor was not called")
+	}
+	if ops.unsetWindowColorSession != "run-kit" {
+		t.Errorf("session = %q, want %q", ops.unsetWindowColorSession, "run-kit")
+	}
+	if ops.unsetWindowColorIndex != 2 {
+		t.Errorf("index = %d, want %d", ops.unsetWindowColorIndex, 2)
+	}
+}
+
+func TestWindowColorInvalidValue(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"color":20}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWindowColorInvalidSession(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"color":4}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;session/windows/0/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWindowColorInvalidIndex(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"color":4}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/abc/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
 func TestWindowCreate(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)

@@ -92,19 +92,20 @@ rk_type === "xvnc"     → future: noVNC client (out of scope for this change)
 A thin browser-like toolbar above the iframe:
 
 ```
-┌─────────────────────────────────────────────────┐
-│  ↻  │ http://localhost:8080/docs            │ ⏎ │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│                    iframe                       │
-│                                                 │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  ↻  │ http://localhost:8080/docs        │ ⏎ │ >_ │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│                    iframe                           │
+│                                                     │
+└─────────────────────────────────────────────────────┘
 ```
 
 Components:
 - **Refresh button** (↻) — re-sets iframe `src` to force reload
 - **URL input field** — shows current `@rk_url`, editable, submits on Enter
 - **Submit indicator** (⏎) — visual affordance for Enter-to-navigate
+- **Terminal toggle button** (>_) — switches the window to terminal mode
 
 Behavior:
 - User edits URL → `PUT /api/.../url` → tmux `@rk_url` updated → SSE confirms
@@ -122,6 +123,23 @@ Users create iframe windows via the command palette:
 
 The tmux pane for the iframe window can optionally run the backing server process. If the user creates an iframe window pointing at an already-running server, the pane sits idle (just a shell).
 
+### 8. Iframe/Terminal Toggle
+
+Each iframe window can be toggled between iframe and terminal mode. Toggling changes only `@rk_type` — `@rk_url` is preserved so the URL survives round-trips.
+
+```
+iframe mode:  @rk_type="iframe"  @rk_url="http://localhost:8080"
+                ↕ toggle
+terminal mode: @rk_type=""        @rk_url="http://localhost:8080"  (preserved)
+```
+
+Toggle triggers:
+1. **URL bar button** (`>_`) — visible in iframe mode, switches to terminal
+2. **URL banner** — in terminal mode, when `@rk_url` is set, a clickable banner shows the URL with a `</>` icon; clicking switches back to iframe
+3. **Command palette** — "Window: Switch to Terminal" / "Window: Switch to Iframe" (label adapts to current mode)
+
+Backend: `PUT /api/sessions/{session}/windows/{index}/type` with `{"rkType": "iframe"}` to set or `{"rkType": ""}` to unset. SSE propagates the change.
+
 ## Affected Memory
 
 - `run-kit/architecture`: (modify) Add proxy layer and iframe window type to architecture documentation
@@ -129,8 +147,8 @@ The tmux pane for the iframe window can optionally run the backing server proces
 
 ## Impact
 
-- **Backend**: New proxy handler in `api/`, new URL update endpoint, modified window list response to include `@rk_type` and `@rk_url`
-- **Frontend**: New iframe renderer component, URL bar component, rendering branch in window view, command palette action for creating iframe windows
+- **Backend**: New proxy handler in `api/`, new URL update endpoint, new type update endpoint, modified window list response to include `@rk_type` and `@rk_url`
+- **Frontend**: New iframe renderer component, URL bar component with terminal toggle, rendering branch in window view, iframe-available banner in terminal mode, command palette actions for creating and toggling iframe windows
 - **Internal/tmux**: Extended `list-windows` format string to include user-defined options
 - **Existing behavior**: Zero changes to terminal window rendering — `@rk_type` unset means terminal, fully backward compatible
 

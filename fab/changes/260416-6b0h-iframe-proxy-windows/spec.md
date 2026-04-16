@@ -141,6 +141,36 @@ The URL value MUST be non-empty after trimming. Empty URLs SHALL return `400 Bad
 - **WHEN** the body contains `{"url": ""}`
 - **THEN** `400 Bad Request` is returned
 
+### Requirement: Type Update Endpoint
+
+A new endpoint SHALL be added:
+
+```
+PUT /api/sessions/{session}/windows/{index}/type
+Body: { "rkType": "<type>" }
+```
+
+This endpoint SHALL:
+1. Validate the session name and window index
+2. When `rkType` is non-empty: run `tmux set-option -w -t {session}:{window} @rk_type "{rkType}"` on the target server
+3. When `rkType` is empty: run `tmux set-option -wu -t {session}:{window} @rk_type` to unset the option (revert to terminal)
+4. Return `200 {"ok": true}`
+
+The `@rk_url` value is NOT modified by this endpoint — it is preserved across toggles.
+
+The tmux layer SHALL expose `UnsetWindowOption` (using `set-option -wu`) alongside the existing `SetWindowOption`.
+
+#### Scenario: Toggle to Terminal
+- **GIVEN** an iframe window at session "dev", index 2
+- **WHEN** `PUT /api/sessions/dev/windows/2/type` with `{"rkType": ""}`
+- **THEN** tmux option `@rk_type` is unset and `@rk_url` is unchanged
+- **AND** the frontend renders the terminal for that window
+
+#### Scenario: Toggle to Iframe
+- **GIVEN** a terminal window at session "dev", index 2, with `@rk_url` still set
+- **WHEN** `PUT /api/sessions/dev/windows/2/type` with `{"rkType": "iframe"}`
+- **THEN** tmux option `@rk_type` is set to `"iframe"` and the frontend renders the iframe
+
 ### Requirement: Window Response Schema Extension
 
 The `GET /api/sessions` response SHALL include `rkType` and `rkUrl` fields on each window object. These are populated from the extended `ListWindows` format string. Empty values are omitted from JSON via `omitempty`.
@@ -212,6 +242,7 @@ The URL bar SHALL be a thin toolbar rendered above the iframe:
 - **Refresh button** (↻) — re-sets iframe `src` to force reload
 - **URL input field** — shows current `rkUrl`, editable, submits on Enter
 - **Submit indicator** (⏎) — visual affordance
+- **Terminal toggle button** (`>_`) — calls `PUT .../type` with `rkType: ""` to switch to terminal mode
 
 Styling SHALL follow existing chrome conventions: `border-b border-border`, `text-text-secondary` for controls, `bg-bg-primary` background.
 
@@ -230,6 +261,36 @@ Styling SHALL follow existing chrome conventions: `border-b border-border`, `tex
 - **GIVEN** the URL bar showing `http://localhost:8080/docs`
 - **WHEN** an external process changes `@rk_url` and SSE pushes the update
 - **THEN** the URL bar text updates to the new URL
+
+## Frontend: Iframe/Terminal Toggle
+
+### Requirement: Terminal-Mode Iframe Banner
+
+When a terminal window has `rkUrl` set (i.e., it was toggled from iframe mode), a clickable banner SHALL be rendered above the terminal showing the URL with a `</>` icon. Clicking the banner calls `PUT .../type` with `rkType: "iframe"` to switch back to iframe mode.
+
+The banner MUST NOT appear when `rkUrl` is unset (standard terminal windows).
+
+#### Scenario: Toggle Button in Iframe Mode
+- **GIVEN** an iframe window with URL bar visible
+- **WHEN** the user clicks the `>_` button in the URL bar
+- **THEN** `PUT .../type` is called with `{"rkType": ""}` and the window switches to terminal mode
+- **AND** the URL banner appears above the terminal
+
+#### Scenario: Banner Click in Terminal Mode
+- **GIVEN** a terminal window with `rkUrl` set, showing the iframe banner
+- **WHEN** the user clicks the banner
+- **THEN** `PUT .../type` is called with `{"rkType": "iframe"}` and the window switches to iframe mode
+
+### Requirement: Toggle Command Palette Action
+
+A command palette action SHALL be added: "Window: Switch to Terminal" (when in iframe mode) or "Window: Switch to Iframe" (when in terminal mode with `rkUrl` set). The action calls `PUT .../type` with the toggled value.
+
+The action SHALL only appear when the current window has `rkType === "iframe"` or `rkUrl` is set.
+
+#### Scenario: Toggle via Command Palette
+- **GIVEN** an iframe window is active
+- **WHEN** the user opens the command palette and selects "Window: Switch to Terminal"
+- **THEN** the window switches to terminal mode
 
 ## Frontend: Window Creation
 
@@ -280,7 +341,8 @@ The three tmux commands (new-window, set @rk_type, set @rk_url) MUST be executed
 The API client (`app/frontend/src/api/client.ts`) SHALL add:
 
 1. `updateWindowUrl(session, index, url)` → `PUT /api/sessions/{session}/windows/{index}/url`
-2. Extend `createWindow` signature to accept optional `rkType` and `rkUrl` parameters
+2. `updateWindowType(session, index, rkType)` → `PUT /api/sessions/{session}/windows/{index}/type`
+3. Extend `createWindow` signature to accept optional `rkType` and `rkUrl` parameters
 
 #### Scenario: Update URL Client Call
 - **GIVEN** an iframe window at session "dev", index 2

@@ -52,6 +52,7 @@ export function ServerPanel({
       defaultOpen={false}
       onToggle={handleToggle}
       headerRight={headerRight}
+      contentClassName="pl-1.5 sm:pl-2 pb-1.5"
       headerAction={
         <button
           onClick={onCreateServer}

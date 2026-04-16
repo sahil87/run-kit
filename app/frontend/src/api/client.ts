@@ -97,9 +97,13 @@ export async function createWindow(
   session: string,
   name: string,
   cwd?: string,
+  rkType?: string,
+  rkUrl?: string,
 ): Promise<{ ok: boolean }> {
   const body: Record<string, string> = { name };
   if (cwd) body.cwd = cwd;
+  if (rkType) body.rkType = rkType;
+  if (rkUrl) body.rkUrl = rkUrl;
   const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/windows`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -216,6 +220,40 @@ export async function closePane(
   const res = await fetch(
     withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/close-pane`),
     { method: "POST" },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+export async function updateWindowUrl(
+  session: string,
+  index: number,
+  url: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/url`),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+export async function updateWindowType(
+  session: string,
+  index: number,
+  rkType: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/type`),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rkType }),
+    },
   );
   if (!res.ok) await throwOnError(res);
   return res.json();

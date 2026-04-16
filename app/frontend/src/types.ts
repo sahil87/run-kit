@@ -55,5 +55,7 @@ export type WindowInfo = {
   agentIdleDuration?: string;
   fabChange?: string;
   fabStage?: string;
+  rkType?: string;
+  rkUrl?: string;
   panes?: PaneInfo[];
 };

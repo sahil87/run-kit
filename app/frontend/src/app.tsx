@@ -11,6 +11,7 @@ import { useDialogState } from "@/hooks/use-dialog-state";
 import { TopBar } from "@/components/top-bar";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
+import { IframeWindow } from "@/components/iframe-window";
 import { BottomBar } from "@/components/bottom-bar";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
@@ -18,7 +19,7 @@ import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType } from "@/api/client";
 import { deriveNameFromPath } from "@/components/create-session-dialog";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
@@ -146,6 +147,9 @@ function AppShell() {
   const [showCreateSessionAtFolderDialog, setShowCreateSessionAtFolderDialog] = useState(false);
   const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<"session" | "window" | null>(null);
+  const [showCreateIframeDialog, setShowCreateIframeDialog] = useState(false);
+  const [iframeWindowName, setIframeWindowName] = useState("");
+  const [iframeWindowUrl, setIframeWindowUrl] = useState("");
 
   const { removeGhost, addGhostSession, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
@@ -337,7 +341,7 @@ function AppShell() {
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
   dialogOpenRef.current =
-    dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || showKillServerConfirm || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog;
+    dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || showKillServerConfirm || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -407,6 +411,19 @@ function AppShell() {
     [executeCreateWindow],
   );
 
+
+  const handleCreateIframeWindow = useCallback(() => {
+    const name = iframeWindowName.trim();
+    const url = iframeWindowUrl.trim();
+    if (!name || !url || !sessionName) return;
+    createWindow(sessionName, name, undefined, "iframe", url)
+      .catch((err) => addToast(err.message || "Failed to create iframe window"))
+      .finally(() => {
+        setShowCreateIframeDialog(false);
+        setIframeWindowName("");
+        setIframeWindowUrl("");
+      });
+  }, [iframeWindowName, iframeWindowUrl, sessionName, addToast]);
 
   // Theme
   const { preference: themePreference, resolved: themeResolved, themeDark, themeLight } = useTheme();
@@ -565,6 +582,15 @@ function AppShell() {
               label: "Window: Create at Folder",
               onSelect: () => setShowCreateWindowAtFolderDialog(true),
             },
+            {
+              id: "create-iframe-window",
+              label: "Window: New Iframe Window",
+              onSelect: () => {
+                setIframeWindowName("");
+                setIframeWindowUrl("");
+                setShowCreateIframeDialog(true);
+              },
+            },
           ]
         : []),
       ...(currentWindow
@@ -574,6 +600,22 @@ function AppShell() {
               label: "Window: Set Color",
               onSelect: () => setShowColorPicker("window"),
             },
+            ...(currentWindow.rkType === "iframe" || currentWindow.rkUrl
+              ? [
+                  {
+                    id: "toggle-iframe-terminal",
+                    label: currentWindow.rkType === "iframe" ? "Window: Switch to Terminal" : "Window: Switch to Iframe",
+                    onSelect: () => {
+                      if (sessionName) {
+                        const newType = currentWindow.rkType === "iframe" ? "" : "iframe";
+                        updateWindowType(sessionName, currentWindow.index, newType).catch((err) =>
+                          addToast(err.message || "Failed to toggle window type"),
+                        );
+                      }
+                    },
+                  },
+                ]
+              : []),
             ...(currentWindow.index > minWindowIndex
               ? [
                   {
@@ -852,25 +894,47 @@ function AppShell() {
             style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
           >
             {sessionName && windowIndex ? (
-              <>
-                <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
-                  <TerminalClient
+              currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? (
+                <div className="flex-1 min-h-0 flex flex-col">
+                  <IframeWindow
                     sessionName={sessionName}
-                    windowIndex={windowIndex}
-                    server={server}
-                    wsRef={wsRef}
-                    composeOpen={composeOpen}
-                    setComposeOpen={setComposeOpen}
-                    onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
-                    focusRef={focusTerminalRef}
-                    scrollLocked={scrollLocked}
+                    windowIndex={currentWindow.index}
+                    rkUrl={currentWindow.rkUrl}
                   />
                 </div>
-                {/* Bottom Bar — only on terminal pages */}
-                <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
-                  <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
-                </div>
-              </>
+              ) : (
+                <>
+                  {currentWindow?.rkUrl && (
+                    <div className="shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-bg-primary">
+                      <button
+                        onClick={() => sessionName && currentWindow && updateWindowType(sessionName, currentWindow.index, "iframe")}
+                        className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
+                        title="Switch to iframe view"
+                      >
+                        <span className="font-mono">&lt;/&gt;</span>
+                        <span className="truncate max-w-[300px]">{currentWindow.rkUrl}</span>
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
+                    <TerminalClient
+                      sessionName={sessionName}
+                      windowIndex={windowIndex}
+                      server={server}
+                      wsRef={wsRef}
+                      composeOpen={composeOpen}
+                      setComposeOpen={setComposeOpen}
+                      onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+                      focusRef={focusTerminalRef}
+                      scrollLocked={scrollLocked}
+                    />
+                  </div>
+                  {/* Bottom Bar — only on terminal pages */}
+                  <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
+                    <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
+                  </div>
+                </>
+              )
             ) : (
               <Dashboard
                 sessions={sessions}
@@ -934,6 +998,44 @@ function AppShell() {
             onClose={() => setShowCreateWindowAtFolderDialog(false)}
           />
         </Suspense>
+      )}
+
+      {showCreateIframeDialog && sessionName && (
+        <Dialog title="New iframe window" onClose={() => { setShowCreateIframeDialog(false); setIframeWindowName(""); setIframeWindowUrl(""); }}>
+          <input
+            autoFocus
+            type="text"
+            value={iframeWindowName}
+            onChange={(e) => setIframeWindowName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                // Focus URL input on Enter from name
+                const next = (e.target as HTMLElement).parentElement?.querySelector<HTMLInputElement>('input[aria-label="URL"]');
+                next?.focus();
+              }
+            }}
+            aria-label="Window name"
+            placeholder="Window name..."
+            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+          />
+          <input
+            type="text"
+            value={iframeWindowUrl}
+            onChange={(e) => setIframeWindowUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateIframeWindow()}
+            aria-label="URL"
+            placeholder="http://localhost:8080"
+            className="w-full bg-transparent text-text-primary p-2 mt-2 border border-border rounded outline-none placeholder:text-text-secondary"
+          />
+          <button
+            onClick={handleCreateIframeWindow}
+            disabled={!iframeWindowName.trim() || !iframeWindowUrl.trim()}
+            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50"
+          >
+            Create
+          </button>
+        </Dialog>
       )}
 
       {dialogs.showRenameDialog && (

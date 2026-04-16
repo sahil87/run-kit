@@ -94,6 +94,23 @@ type mockTmuxOps struct {
 	unsetWindowColorIndex   int
 	unsetWindowColorErr     error
 
+	setWindowOptionCalled  bool
+	setWindowOptionSession string
+	setWindowOptionIndex   int
+	setWindowOptionOption  string
+	setWindowOptionValue   string
+
+	unsetWindowOptionCalled  bool
+	unsetWindowOptionSession string
+	unsetWindowOptionIndex   int
+	unsetWindowOptionOption  string
+
+	createWindowWithOptionsCalled  bool
+	createWindowWithOptionsSession string
+	createWindowWithOptionsName    string
+	createWindowWithOptionsCwd     string
+	createWindowWithOptionsOpts    map[string]string
+
 	err error
 }
 
@@ -227,6 +244,29 @@ func (m *mockTmuxOps) KillServer(server string) error {
 }
 func (m *mockTmuxOps) ListKeys(server string) ([]string, error) {
 	return nil, nil
+}
+func (m *mockTmuxOps) SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error {
+	m.setWindowOptionCalled = true
+	m.setWindowOptionSession = session
+	m.setWindowOptionIndex = index
+	m.setWindowOptionOption = option
+	m.setWindowOptionValue = value
+	return m.err
+}
+func (m *mockTmuxOps) UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error {
+	m.unsetWindowOptionCalled = true
+	m.unsetWindowOptionSession = session
+	m.unsetWindowOptionIndex = index
+	m.unsetWindowOptionOption = option
+	return m.err
+}
+func (m *mockTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
+	m.createWindowWithOptionsCalled = true
+	m.createWindowWithOptionsSession = session
+	m.createWindowWithOptionsName = name
+	m.createWindowWithOptionsCwd = cwd
+	m.createWindowWithOptionsOpts = options
+	return m.err
 }
 
 func newTestRouter(sf SessionFetcher, ops TmuxOps) http.Handler {

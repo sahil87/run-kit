@@ -689,3 +689,196 @@ func TestWindowMoveToSessionTmuxError(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }
+
+// --- URL Update endpoint tests ---
+
+func TestWindowUrlUpdateSuccess(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"url":"http://localhost:8080/new-path"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/2/url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !ops.setWindowOptionCalled {
+		t.Error("SetWindowOption was not called")
+	}
+	if ops.setWindowOptionSession != "dev" {
+		t.Errorf("session = %q, want %q", ops.setWindowOptionSession, "dev")
+	}
+	if ops.setWindowOptionIndex != 2 {
+		t.Errorf("index = %d, want %d", ops.setWindowOptionIndex, 2)
+	}
+	if ops.setWindowOptionOption != "@rk_url" {
+		t.Errorf("option = %q, want %q", ops.setWindowOptionOption, "@rk_url")
+	}
+	if ops.setWindowOptionValue != "http://localhost:8080/new-path" {
+		t.Errorf("value = %q, want %q", ops.setWindowOptionValue, "http://localhost:8080/new-path")
+	}
+}
+
+func TestWindowUrlUpdateEmptyUrl(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"url":""}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/0/url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["error"] != "URL cannot be empty" {
+		t.Errorf("error = %q, want %q", result["error"], "URL cannot be empty")
+	}
+}
+
+func TestWindowUrlUpdateInvalidIndex(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"url":"http://localhost:8080"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/abc/url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWindowUrlUpdateInvalidSession(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"url":"http://localhost:8080"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/bad;session/windows/0/url", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// --- Type Update endpoint tests ---
+
+func TestWindowTypeUpdateSetIframe(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"rkType":"iframe"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/2/type", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !ops.setWindowOptionCalled {
+		t.Error("SetWindowOption was not called")
+	}
+	if ops.setWindowOptionOption != "@rk_type" {
+		t.Errorf("option = %q, want %q", ops.setWindowOptionOption, "@rk_type")
+	}
+	if ops.setWindowOptionValue != "iframe" {
+		t.Errorf("value = %q, want %q", ops.setWindowOptionValue, "iframe")
+	}
+}
+
+func TestWindowTypeUpdateUnset(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"rkType":""}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/2/type", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !ops.unsetWindowOptionCalled {
+		t.Error("UnsetWindowOption was not called")
+	}
+	if ops.unsetWindowOptionOption != "@rk_type" {
+		t.Errorf("option = %q, want %q", ops.unsetWindowOptionOption, "@rk_type")
+	}
+	if ops.unsetWindowOptionSession != "dev" {
+		t.Errorf("session = %q, want %q", ops.unsetWindowOptionSession, "dev")
+	}
+	if ops.unsetWindowOptionIndex != 2 {
+		t.Errorf("index = %d, want %d", ops.unsetWindowOptionIndex, 2)
+	}
+}
+
+// --- Extended Window Creation tests ---
+
+func TestWindowCreateWithIframeType(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"docs","rkType":"iframe","rkUrl":"http://localhost:8080/docs"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/dev/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusCreated)
+	}
+
+	if !ops.createWindowWithOptionsCalled {
+		t.Error("CreateWindowWithOptions was not called")
+	}
+	if ops.createWindowWithOptionsSession != "dev" {
+		t.Errorf("session = %q, want %q", ops.createWindowWithOptionsSession, "dev")
+	}
+	if ops.createWindowWithOptionsName != "docs" {
+		t.Errorf("name = %q, want %q", ops.createWindowWithOptionsName, "docs")
+	}
+	if ops.createWindowWithOptionsOpts["@rk_type"] != "iframe" {
+		t.Errorf("@rk_type = %q, want %q", ops.createWindowWithOptionsOpts["@rk_type"], "iframe")
+	}
+	if ops.createWindowWithOptionsOpts["@rk_url"] != "http://localhost:8080/docs" {
+		t.Errorf("@rk_url = %q, want %q", ops.createWindowWithOptionsOpts["@rk_url"], "http://localhost:8080/docs")
+	}
+}
+
+func TestWindowCreateWithoutRkTypeUsesStandardCreate(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"terminal","cwd":"~/code"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/dev/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusCreated)
+	}
+
+	if ops.createWindowWithOptionsCalled {
+		t.Error("CreateWindowWithOptions should NOT be called for terminal windows")
+	}
+	if !ops.createWindowCalled {
+		t.Error("CreateWindow was not called")
+	}
+}

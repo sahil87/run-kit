@@ -167,6 +167,8 @@ type WindowInfo struct {
 	AgentIdleDuration string     `json:"agentIdleDuration,omitempty"`
 	FabChange         string     `json:"fabChange,omitempty"`
 	FabStage          string     `json:"fabStage,omitempty"`
+	RkType            string     `json:"rkType,omitempty"`
+	RkUrl             string     `json:"rkUrl,omitempty"`
 	Panes             []PaneInfo `json:"panes,omitempty"`
 }
 
@@ -312,6 +314,10 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
+// Lines have 10 tab-delimited fields: window_id, window_index, window_name,
+// pane_current_path, window_activity, window_active, pane_current_command,
+// @color, @rk_type, @rk_url. Lines with fewer than 8 fields are skipped;
+// fields 9-10 are optional (empty string if absent).
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -339,6 +345,14 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			}
 		}
 
+		var rkType, rkUrl string
+		if len(parts) >= 9 {
+			rkType = strings.TrimSpace(parts[8])
+		}
+		if len(parts) >= 10 {
+			rkUrl = strings.TrimSpace(parts[9])
+		}
+
 		windows = append(windows, WindowInfo{
 			Index:             index,
 			WindowID:          windowID,
@@ -349,6 +363,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			PaneCommand:       paneCmd,
 			ActivityTimestamp: activityTs,
 			Color:             color,
+			RkType:           rkType,
+			RkUrl:            rkUrl,
 		})
 	}
 	return windows
@@ -382,6 +398,8 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{window_active}",
 		"#{pane_current_command}",
 		"#{@color}",
+		"#{@rk_type}",
+		"#{@rk_url}",
 	}, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", session, "-F", format)
@@ -578,6 +596,38 @@ func MoveWindowToSession(srcSession string, srcIndex int, dstSession string, ser
 	src := fmt.Sprintf("%s:%d", srcSession, srcIndex)
 	dst := fmt.Sprintf("%s:", dstSession)
 	_, err := tmuxExecServer(ctx, server, "move-window", "-s", src, "-t", dst)
+	return err
+}
+
+// SetWindowOption sets a user-defined window option on the specified server.
+func SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error {
+	target := fmt.Sprintf("%s:%d", session, index)
+	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", target, option, value)
+	return err
+}
+
+// UnsetWindowOption removes a user-defined window option on the specified server.
+func UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error {
+	target := fmt.Sprintf("%s:%d", session, index)
+	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", target, option)
+	return err
+}
+
+// CreateWindowWithOptions creates a new window and atomically sets user-defined
+// options using a single \;-chained tmux command. This prevents SSE from seeing
+// the window before its metadata is set.
+func CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	args := []string{"new-window", "-a", "-t", session, "-n", name}
+	if cwd != "" {
+		args = append(args, "-c", cwd)
+	}
+	for opt, val := range options {
+		args = append(args, ";", "set-option", "-w", opt, val)
+	}
+	_, err := tmuxExecServer(ctx, server, args...)
 	return err
 }
 

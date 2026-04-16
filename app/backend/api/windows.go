@@ -21,8 +21,10 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name string `json:"name"`
-		CWD  string `json:"cwd"`
+		Name   string `json:"name"`
+		CWD    string `json:"cwd"`
+		RkType string `json:"rkType"`
+		RkUrl  string `json:"rkUrl"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -59,6 +61,24 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		if windows, err := s.tmux.ListWindows(cwdCtx, session, server); err == nil && len(windows) > 0 {
 			resolvedCwd = windows[0].WorktreePath
 		}
+	}
+
+	// When rkType is present, use a single chained tmux command to set window
+	// options atomically — prevents the SSE poll from seeing the window before
+	// its metadata is set.
+	if body.RkType != "" {
+		opts := map[string]string{
+			"@rk_type": body.RkType,
+		}
+		if body.RkUrl != "" {
+			opts["@rk_url"] = body.RkUrl
+		}
+		if err := s.tmux.CreateWindowWithOptions(session, body.Name, resolvedCwd, server, opts); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+		return
 	}
 
 	if err := s.tmux.CreateWindow(session, body.Name, resolvedCwd, server); err != nil {
@@ -339,6 +359,85 @@ func (s *Server) handleWindowColor(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.tmux.SetWindowColor(session, index, *body.Color, server); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleWindowUrlUpdate(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	index, ok := parseWindowIndex(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid window index")
+		return
+	}
+
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if strings.TrimSpace(body.URL) == "" {
+		writeError(w, http.StatusBadRequest, "URL cannot be empty")
+		return
+	}
+
+	server := serverFromRequest(r)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.tmux.SetWindowOption(ctx, session, index, server, "@rk_url", body.URL); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleWindowTypeUpdate(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	index, ok := parseWindowIndex(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid window index")
+		return
+	}
+
+	var body struct {
+		RkType string `json:"rkType"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	server := serverFromRequest(r)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if body.RkType == "" {
+		// Unset @rk_type to revert to terminal mode
+		if err := s.tmux.UnsetWindowOption(ctx, session, index, server, "@rk_type"); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else {
+		if err := s.tmux.SetWindowOption(ctx, session, index, server, "@rk_type", body.RkType); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

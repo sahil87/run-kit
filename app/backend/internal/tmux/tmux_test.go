@@ -29,6 +29,12 @@ func windowLineColor(windowID string, index int, name, path string, activityTs i
 		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, color)
 }
 
+// windowLine9 builds a 9-field tab-delimited tmux line including rkType and rkUrl.
+func windowLine9(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, rkType, rkUrl string) string {
+	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s",
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, rkType, listDelim, rkUrl)
+}
+
 func TestParseSessions(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -286,6 +292,84 @@ func TestParseWindows(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseWindowsWithRkFields(t *testing.T) {
+	const fakeNow int64 = 1700000000
+
+	tests := []struct {
+		name     string
+		lines    []string
+		wantType string
+		wantUrl  string
+	}{
+		{
+			name: "iframe window with rkType and rkUrl",
+			lines: []string{
+				windowLine9("@0", 0, "docs", "/home/user", fakeNow, 1, "zsh", "iframe", "http://localhost:8080/docs"),
+			},
+			wantType: "iframe",
+			wantUrl:  "http://localhost:8080/docs",
+		},
+		{
+			name: "terminal window with empty rk fields",
+			lines: []string{
+				windowLine9("@0", 0, "dev", "/home/user", fakeNow, 1, "zsh", "", ""),
+			},
+			wantType: "",
+			wantUrl:  "",
+		},
+		{
+			name: "7-field line (old format) has empty rk fields",
+			lines: []string{
+				windowLine("@0", 0, "dev", "/home/user", fakeNow, 1, "zsh"),
+			},
+			wantType: "",
+			wantUrl:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseWindows(tt.lines, fakeNow)
+			if len(got) != 1 {
+				t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+			}
+			if got[0].RkType != tt.wantType {
+				t.Errorf("RkType = %q, want %q", got[0].RkType, tt.wantType)
+			}
+			if got[0].RkUrl != tt.wantUrl {
+				t.Errorf("RkUrl = %q, want %q", got[0].RkUrl, tt.wantUrl)
+			}
+		})
+	}
+}
+
+func TestParseWindowsMixedTypes(t *testing.T) {
+	const fakeNow int64 = 1700000000
+
+	lines := []string{
+		windowLine9("@0", 0, "terminal", "/home/user", fakeNow, 1, "zsh", "", ""),
+		windowLine9("@1", 1, "docs", "/home/user", fakeNow, 0, "python", "iframe", "http://localhost:8080/docs"),
+		windowLine9("@2", 2, "shell", "/tmp", fakeNow, 0, "bash", "", ""),
+	}
+
+	got := parseWindows(lines, fakeNow)
+	if len(got) != 3 {
+		t.Fatalf("parseWindows() returned %d windows, want 3", len(got))
+	}
+	if got[0].RkType != "" {
+		t.Errorf("window 0 RkType = %q, want empty", got[0].RkType)
+	}
+	if got[1].RkType != "iframe" {
+		t.Errorf("window 1 RkType = %q, want %q", got[1].RkType, "iframe")
+	}
+	if got[1].RkUrl != "http://localhost:8080/docs" {
+		t.Errorf("window 1 RkUrl = %q, want %q", got[1].RkUrl, "http://localhost:8080/docs")
+	}
+	if got[2].RkType != "" {
+		t.Errorf("window 2 RkType = %q, want empty", got[2].RkType)
 	}
 }
 

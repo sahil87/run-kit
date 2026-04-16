@@ -46,6 +46,8 @@ type TmuxOps interface {
 	ListServers(ctx context.Context) ([]string, error)
 	KillServer(server string) error
 	ListKeys(server string) ([]string, error)
+	SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error
+	CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error
 }
 
 // Server holds handler dependencies.
@@ -152,6 +154,12 @@ func (p *prodTmuxOps) KillServer(server string) error {
 func (p *prodTmuxOps) ListKeys(server string) ([]string, error) {
 	return tmux.ListKeys(server)
 }
+func (p *prodTmuxOps) SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error {
+	return tmux.SetWindowOption(ctx, session, index, server, option, value)
+}
+func (p *prodTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
+	return tmux.CreateWindowWithOptions(session, name, cwd, server, options)
+}
 
 // NewRouter creates the chi router with all middleware and routes.
 // Uses production dependencies (live tmux, real session fetcher).
@@ -210,6 +218,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/windows/{index}/move-to-session", s.handleWindowMoveToSession)
 	r.Post("/api/sessions/{session}/windows/{index}/rename", s.handleWindowRename)
 	r.Post("/api/sessions/{session}/windows/{index}/color", s.handleWindowColor)
+	r.Put("/api/sessions/{session}/windows/{index}/url", s.handleWindowUrlUpdate)
 	r.Post("/api/sessions/{session}/windows/{index}/keys", s.handleWindowKeys)
 	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)
 	r.Post("/api/sessions/{session}/windows/{index}/split", s.handleWindowSplit)
@@ -233,6 +242,10 @@ func (s *Server) buildRouter() chi.Router {
 	r.Put("/api/settings/theme", s.handlePutTheme)
 	r.Get("/api/settings/server-color", s.handleGetServerColor)
 	r.Put("/api/settings/server-color", s.handlePutServerColor)
+
+	// Reverse proxy for iframe windows
+	r.HandleFunc("/proxy/{port}/*", s.handleProxy)
+	r.HandleFunc("/proxy/{port}", s.handleProxy)
 
 	// WebSocket relay
 	r.Get("/relay/{session}/{window}", s.handleRelay)

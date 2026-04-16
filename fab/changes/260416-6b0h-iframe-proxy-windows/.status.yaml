@@ -1,0 +1,42 @@
+id: 6b0h
+name: 260416-6b0h-iframe-proxy-windows
+created: 2026-04-16T07:45:37Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 31
+confidence:
+    certain: 16
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 91.8
+        reversibility: 85.3
+        competence: 85.0
+        disambiguation: 83.5
+stage_metrics:
+    intake: {started_at: "2026-04-16T07:45:37Z", driver: fab-new, iterations: 1, completed_at: "2026-04-16T08:15:15Z"}
+    spec: {started_at: "2026-04-16T08:15:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:16:27Z"}
+    tasks: {started_at: "2026-04-16T08:16:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:16:27Z"}
+    apply: {started_at: "2026-04-16T08:16:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:29:33Z"}
+    review: {started_at: "2026-04-16T08:29:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:34:36Z"}
+    hydrate: {started_at: "2026-04-16T08:34:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:39:07Z"}
+    ship: {started_at: "2026-04-16T08:39:07Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-04-16T08:40:37Z

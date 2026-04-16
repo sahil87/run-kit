@@ -1,0 +1,27 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-16T07:45:37Z"}
+{"args":"Iframe proxy windows — render proxied web pages in run-kit using tmux user-defined options for state","cmd":"fab-new","event":"command","ts":"2026-04-16T07:45:37Z"}
+{"delta":"+2.1","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-04-16T07:46:40Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-04-16T07:46:52Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-04-16T08:01:16Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-04-16T08:02:30Z"}
+{"delta":"+0.9","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-04-16T08:06:06Z"}
+{"delta":"+0.0","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-04-16T08:06:13Z"}
+{"delta":"+2.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-16T08:10:33Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-16T08:10:41Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-16T08:10:46Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-16T08:10:51Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-16T08:10:57Z"}
+{"delta":"-0.3","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-16T08:15:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-16T08:15:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-16T08:16:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-16T08:16:27Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-04-16T08:16:36Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-16T08:17:18Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-16T08:17:27Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-16T08:17:34Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-16T08:17:42Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-04-16T08:28:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-16T08:29:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-16T08:34:36Z"}
+{"event":"review","result":"passed","ts":"2026-04-16T08:34:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-16T08:39:07Z"}

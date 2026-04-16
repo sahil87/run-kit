@@ -6,7 +6,7 @@
 |-------|------|-------------------|
 | `/` | Server list | Standalone page (`ServerListPage`) — lists tmux servers with "+" creation button. No sidebar, no SSE. |
 | `/$server` | Session dashboard | `AppShell` layout with `Dashboard` content. SSE connected to the specified server. |
-| `/$server/$session/$window` | Terminal | `AppShell` layout with `TerminalClient` + `BottomBar`. SSE connected, WebSocket relay to tmux pane. |
+| `/$server/$session/$window` | Terminal or Iframe | `AppShell` layout. Rendering branch: `rkType === "iframe"` renders `IframeWindow` (URL bar + iframe), otherwise `TerminalClient` + `BottomBar`. SSE connected. |
 
 Three-tier URL model with server always in path. URLs are fully shareable — copying a URL and opening it elsewhere on the same host opens the same server, session, and window. TanStack Router uses nested routes: `/$server` is a layout route whose component (`ServerShell`) wraps `SessionProvider` + `AppShell`. Child routes (dashboard index and terminal) are matched by the router but rendered conditionally by `AppShell` based on whether session/window params exist.
 
@@ -36,6 +36,25 @@ Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server li
 **New Session button**: Always-visible dashed border card in the grid. Triggers instant session creation (calls `onCreateSession` → `executeCreateSessionInstant` in `app.tsx`) — no dialog opened. Session name derived from active window's `worktreePath`; no active window → name is `session`, no `cwd` passed.
 
 **Touch targets**: Session card headers and window cards use `coarse:min-h-[44px]`.
+
+## Iframe Window
+
+`app/frontend/src/components/iframe-window.tsx` — renders in the terminal area when the current window has `rkType === "iframe"` and a non-empty `rkUrl`. The rendering branch in `app.tsx` is: `currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? <IframeWindow> : <TerminalClient>`. Bottom bar is NOT rendered for iframe windows (no terminal to send keys to).
+
+**Layout**: Outer wrapper `flex flex-col flex-1 min-h-0` with two children: URL bar (`shrink-0`) and iframe (`flex-1`).
+
+**URL Bar**: Thin toolbar above the iframe (`border-b border-border bg-bg-primary`). Three elements:
+- **Refresh button** (↻ `&#x21bb;`) — forces iframe reload by clearing `src` to `"about:blank"` then re-setting it via `setTimeout(0)`. Styled: `w-7 h-7 rounded hover:bg-bg-card text-text-secondary`
+- **URL input field** — shows current `rkUrl`, editable. On Enter, calls `updateWindowUrl(session, index, url)` via PUT API. On API failure, reverts input to the SSE-confirmed `rkUrl`. Styled: `bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border`
+- **Submit indicator** (⏎ `&#x23ce;`) — decorative visual affordance (`text-text-secondary text-xs`)
+
+**SSE Sync**: A `useEffect` on `rkUrl` syncs both the URL bar text and iframe `src`. Uses a `currentSrcRef` to avoid re-setting iframe `src` when the URL hasn't actually changed (prevents unnecessary reloads on identical SSE ticks). When `rkUrl` changes externally (Claude or another process runs `tmux set-option`), the URL bar updates and iframe navigates automatically.
+
+**Proxy URL conversion**: `toProxySrc(url)` converts localhost URLs to proxy paths: `http://localhost:8080/docs` -> `/proxy/8080/docs`. Non-localhost URLs pass through unchanged. Pattern: `^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$`.
+
+**Iframe attributes**: `sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"`, `title="Proxied content"`, `border-0`.
+
+**Window creation**: "Window: New Iframe Window" command palette action (id `create-iframe-window`) opens a `Dialog` with two inputs: window name (autofocused, Enter focuses URL input) and URL (Enter creates window). Create button disabled until both fields non-empty. Calls `createWindow(session, name, undefined, "iframe", url)` — the extended API client function passes `rkType` and `rkUrl` in the POST body. Backend uses `CreateWindowWithOptions` for atomic `\;`-chained tmux command. Only shown when a session is active.
 
 ## Chrome (Top Bar)
 
@@ -431,6 +450,7 @@ Command palette actions include: create/rename/kill session, create/rename/kill 
 | `create-session-at-folder` | "Session: Create at Folder" | Opens `CreateSessionDialog` pre-filled with `currentWindow.worktreePath`; empty if no active window |
 | `create-window` | "Window: Create" | Instant window creation (existing behavior, unchanged) |
 | `create-window-at-folder` | "Window: Create at Folder" | Opens `CreateSessionDialog` in `mode="window"` (dialog title changes, session name input hidden, confirms via `createWindow(session, "zsh", cwd)`); only shown when a session is active |
+| `create-iframe-window` | "Window: New Iframe Window" | Opens dialog with name + URL inputs; creates iframe window via `createWindow(session, name, undefined, "iframe", url)`; only shown when a session is active |
 
 **Window move actions**: "Window: Move Left" (id `move-window-left`) and "Window: Move Right" (id `move-window-right`) in the `windowActions` group. Only shown when `currentWindow` exists. "Move Left" excluded when the current window is at the minimum index in the session; "Move Right" excluded when at the maximum index (boundary exclusion, not disabled state). On select, calls `moveWindow(session, currentIndex, targetIndex)` then navigates to `/$server/$session/$targetIndex` so the user follows their window to its new position after the swap.
 
@@ -744,3 +764,4 @@ The `executeMoveToSession` hook in `sidebar/index.tsx` combines two store action
 | 2026-04-11 | Sidebar collapsible panels — `CollapsiblePanel` reusable component (header + chevron + `max-height` transition + localStorage persistence). `StatusPanel` refactored into `WindowPanel` wrapping content in CollapsiblePanel (`storageKey="runkit-panel-window"`). New `HostPanel` (5 lines: hostname+SSE dot, CPU braille sparkline, memory gauge bar, load percentages, disk+uptime) wrapping in CollapsiblePanel (`storageKey="runkit-panel-host"`). Both panels bottom-aligned in sidebar. Hostname removed from bottom bar. New `lib/sparkline.ts` (8-level braille mapping U+2800-U+28FF) and `lib/gauge.ts` (block gauge with green/yellow/red thresholds, byte formatting). `SessionProvider` extended with `metrics: MetricsSnapshot | null` from SSE `event: metrics`. | `260411-z63r-sidebar-host-window-panels` |
 | 2026-04-12 | Pane panel copy interactions — `tmx`, `cwd`, `git`, `fab` rows in WindowPanel (`status-panel.tsx`) rendered as `<button>` elements with click-to-copy (pane ID, full path, branch, change ID). Inline "copied ✓" label feedback (1000ms, single `copiedRow` state). Hover affordance (`cursor: pointer` + `bg-bg-inset` tint). Keyboard accessible (Enter/Space). Text-selection guard (`window.getSelection()`). `copyToClipboard` extracted from `terminal-client.tsx` to `lib/clipboard.ts` shared utility module | `260412-lc2q-pane-panel-copy-cwd-branch` |
 | 2026-04-16 | Session and window color tinting — ANSI-palette color assignment for sidebar rows with pre-blended `blendHex()` background tints at 12%/18%/22%. `SwatchPopover` component (13 ANSI swatches + Clear). Command palette "Session/Window: Set Color" actions. Hover indicator on sidebar rows. Activity dot changed from green/gray color-based to filled circle/hollow ring shape-based (always `text-text-secondary`). `RowTint` type and `computeRowTints()` in `themes.ts`. `PICKER_ANSI_INDICES` constant | `260416-jn4h-session-window-color-tinting` |
+| 2026-04-16 | Iframe proxy windows — `IframeWindow` component (`iframe-window.tsx`) renders URL bar chrome + iframe for windows with `rkType === "iframe"`. Rendering branch in `app.tsx`: `currentWindow?.rkType === "iframe" && currentWindow?.rkUrl` renders `IframeWindow`, otherwise `TerminalClient`. URL bar: refresh button (↻), editable URL input (Enter submits via `updateWindowUrl` PUT API), submit indicator (⏎). SSE-driven URL sync via `useEffect` on `rkUrl` with `currentSrcRef` guard (no reload on identical data). `toProxySrc()` converts localhost URLs to `/proxy/{port}/...` paths. New "Window: New Iframe Window" command palette action (id `create-iframe-window`) opens dialog with name + URL inputs. Bottom bar hidden for iframe windows. | `260416-6b0h-iframe-proxy-windows` |

@@ -188,7 +188,7 @@ func tmuxExecServer(ctx context.Context, server string, args ...string) ([]strin
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	raw := strings.TrimSpace(string(out))
+	raw := strings.Trim(string(out), "\n\r ")
 	if raw == "" {
 		return nil, nil
 	}

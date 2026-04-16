@@ -29,10 +29,10 @@ func windowLineColor(windowID string, index int, name, path string, activityTs i
 		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, color)
 }
 
-// windowLine9 builds a 9-field tab-delimited tmux line including rkType and rkUrl.
+// windowLine9 builds a 10-field tab-delimited tmux line including color, rkType and rkUrl.
 func windowLine9(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, rkType, rkUrl string) string {
-	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, rkType, listDelim, rkUrl)
+	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s",
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@color*/, listDelim, rkType, listDelim, rkUrl)
 }
 
 func TestParseSessions(t *testing.T) {
@@ -293,6 +293,50 @@ func TestParseWindows(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseWindowsTrailingEmptyFields(t *testing.T) {
+	// Regression test: tmux format output ends with empty fields (e.g., @color, @rk_type,
+	// @rk_url unset). When the last line's trailing tabs are stripped (as strings.TrimSpace
+	// does), the field count drops below 8 and the window is silently lost.
+	const fakeNow int64 = 1700000000
+
+	// Simulate the real 10-field tmux format where @color, @rk_type, @rk_url are empty.
+	// Each field is tab-separated; empty trailing fields produce trailing tabs.
+	fullLine := func(windowID string, index int, name string) string {
+		return fmt.Sprintf("%s\t%d\t%s\t/path\t%d\t0\tzsh\t\t\t", windowID, index, name, fakeNow)
+	}
+	// Damaged line: trailing tabs stripped (simulates old TrimSpace bug on the last line).
+	damagedLine := func(windowID string, index int, name string) string {
+		return fmt.Sprintf("%s\t%d\t%s\t/path\t%d\t0\tzsh", windowID, index, name, fakeNow)
+	}
+
+	t.Run("full trailing tabs parsed correctly", func(t *testing.T) {
+		lines := []string{
+			fullLine("@0", 0, "first"),
+			fullLine("@1", 1, "last"),
+		}
+		got := parseWindows(lines, fakeNow)
+		if len(got) != 2 {
+			t.Fatalf("parseWindows() returned %d windows, want 2", len(got))
+		}
+		if got[1].Name != "last" {
+			t.Errorf("window[1].Name = %q, want %q", got[1].Name, "last")
+		}
+	})
+
+	t.Run("damaged last line drops window", func(t *testing.T) {
+		// This demonstrates the bug: the last line has only 7 fields after
+		// trailing tabs are stripped, so parseWindows skips it.
+		lines := []string{
+			fullLine("@0", 0, "first"),
+			damagedLine("@1", 1, "last"),
+		}
+		got := parseWindows(lines, fakeNow)
+		if len(got) != 1 {
+			t.Fatalf("parseWindows() returned %d windows, want 1 (damaged line dropped)", len(got))
+		}
+	})
 }
 
 func TestParseWindowsWithRkFields(t *testing.T) {

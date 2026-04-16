@@ -19,7 +19,7 @@ import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType } from "@/api/client";
 import { deriveNameFromPath } from "@/components/create-session-dialog";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
@@ -600,6 +600,22 @@ function AppShell() {
               label: "Window: Set Color",
               onSelect: () => setShowColorPicker("window"),
             },
+            ...(currentWindow.rkType === "iframe" || currentWindow.rkUrl
+              ? [
+                  {
+                    id: "toggle-iframe-terminal",
+                    label: currentWindow.rkType === "iframe" ? "Window: Switch to Terminal" : "Window: Switch to Iframe",
+                    onSelect: () => {
+                      if (sessionName) {
+                        const newType = currentWindow.rkType === "iframe" ? "" : "iframe";
+                        updateWindowType(sessionName, currentWindow.index, newType).catch((err) =>
+                          addToast(err.message || "Failed to toggle window type"),
+                        );
+                      }
+                    },
+                  },
+                ]
+              : []),
             ...(currentWindow.index > minWindowIndex
               ? [
                   {
@@ -888,6 +904,18 @@ function AppShell() {
                 </div>
               ) : (
                 <>
+                  {currentWindow?.rkUrl && (
+                    <div className="shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-bg-primary">
+                      <button
+                        onClick={() => sessionName && currentWindow && updateWindowType(sessionName, currentWindow.index, "iframe")}
+                        className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
+                        title="Switch to iframe view"
+                      >
+                        <span className="font-mono">&lt;/&gt;</span>
+                        <span className="truncate max-w-[300px]">{currentWindow.rkUrl}</span>
+                      </button>
+                    </div>
+                  )}
                   <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
                     <TerminalClient
                       sessionName={sessionName}

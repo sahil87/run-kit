@@ -100,6 +100,11 @@ type mockTmuxOps struct {
 	setWindowOptionOption  string
 	setWindowOptionValue   string
 
+	unsetWindowOptionCalled  bool
+	unsetWindowOptionSession string
+	unsetWindowOptionIndex   int
+	unsetWindowOptionOption  string
+
 	createWindowWithOptionsCalled  bool
 	createWindowWithOptionsSession string
 	createWindowWithOptionsName    string
@@ -246,6 +251,13 @@ func (m *mockTmuxOps) SetWindowOption(ctx context.Context, session string, index
 	m.setWindowOptionIndex = index
 	m.setWindowOptionOption = option
 	m.setWindowOptionValue = value
+	return m.err
+}
+func (m *mockTmuxOps) UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error {
+	m.unsetWindowOptionCalled = true
+	m.unsetWindowOptionSession = session
+	m.unsetWindowOptionIndex = index
+	m.unsetWindowOptionOption = option
 	return m.err
 }
 func (m *mockTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {

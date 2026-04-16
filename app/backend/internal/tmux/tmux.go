@@ -606,6 +606,13 @@ func SetWindowOption(ctx context.Context, session string, index int, server, opt
 	return err
 }
 
+// UnsetWindowOption removes a user-defined window option on the specified server.
+func UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error {
+	target := fmt.Sprintf("%s:%d", session, index)
+	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", target, option)
+	return err
+}
+
 // CreateWindowWithOptions creates a new window and atomically sets user-defined
 // options using a single \;-chained tmux command. This prevents SSE from seeing
 // the window before its metadata is set.

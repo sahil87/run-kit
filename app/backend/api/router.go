@@ -47,6 +47,7 @@ type TmuxOps interface {
 	KillServer(server string) error
 	ListKeys(server string) ([]string, error)
 	SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error
+	UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error
 	CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error
 }
 
@@ -157,6 +158,9 @@ func (p *prodTmuxOps) ListKeys(server string) ([]string, error) {
 func (p *prodTmuxOps) SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error {
 	return tmux.SetWindowOption(ctx, session, index, server, option, value)
 }
+func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error {
+	return tmux.UnsetWindowOption(ctx, session, index, server, option)
+}
 func (p *prodTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
 	return tmux.CreateWindowWithOptions(session, name, cwd, server, options)
 }
@@ -219,6 +223,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/windows/{index}/rename", s.handleWindowRename)
 	r.Post("/api/sessions/{session}/windows/{index}/color", s.handleWindowColor)
 	r.Put("/api/sessions/{session}/windows/{index}/url", s.handleWindowUrlUpdate)
+	r.Put("/api/sessions/{session}/windows/{index}/type", s.handleWindowTypeUpdate)
 	r.Post("/api/sessions/{session}/windows/{index}/keys", s.handleWindowKeys)
 	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)
 	r.Post("/api/sessions/{session}/windows/{index}/split", s.handleWindowSplit)

@@ -242,6 +242,23 @@ export async function updateWindowUrl(
   return res.json();
 }
 
+export async function updateWindowType(
+  session: string,
+  index: number,
+  rkType: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/type`),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rkType }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function selectWindow(
   session: string,
   index: number,

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { updateWindowUrl } from "@/api/client";
+import { updateWindowUrl, updateWindowType } from "@/api/client";
 
 interface IframeWindowProps {
   sessionName: string;
@@ -82,6 +82,14 @@ export function IframeWindow({ sessionName, windowIndex, rkUrl }: IframeWindowPr
         <span className="shrink-0 text-text-secondary text-xs select-none" aria-hidden="true">
           &#x23ce;
         </span>
+        <button
+          onClick={() => updateWindowType(sessionName, windowIndex, "")}
+          className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+          aria-label="Switch to terminal"
+          title="Switch to terminal"
+        >
+          <span className="text-xs font-mono">&gt;_</span>
+        </button>
       </div>
 
       {/* Iframe */}

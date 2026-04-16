@@ -228,6 +228,15 @@ Two collapsible panels are pinned at the bottom of the sidebar below the scrolla
 
 Non-interactive rows: `run` (process-only, when no fab state) and `agt` remain plain text — no hover affordance, no focus ring, no copy behavior. Rows with empty values (`tmx` with empty pane ID, `git` when no branch) are also non-interactive.
 
+**Activity spinners**: Two distinct inline spinner components indicate different activity types on the `run`/`fab` and `agt` rows:
+
+| Component | File | Frames | Interval | Usage | Color |
+|-----------|------|--------|----------|-------|-------|
+| `BlockPulse` | `block-pulse.tsx` | `░▒▓█▓▒` | 150ms | `run` line (when `activity === "active"`) and `fab` line (when active) | `text-accent-green` (run), `text-accent` (fab) |
+| `BrailleSnake` | `braille-snake.tsx` | `⣾⣽⣻⢿⡿⣟⣯⣷` | 80ms | `agt` line (whenever agent state is present) | `text-accent` |
+
+Both components follow the same pattern: `useState(0)` frame counter + `useEffect` with `setInterval` + cleanup on unmount. Rendered as `<span aria-hidden="true">`. BlockPulse conveys "process alive, calm heartbeat"; BrailleSnake conveys "agent actively working, denser activity."
+
 **Inline feedback**: After a successful copy, the row's prefix label swaps to `copied ✓` for 1000ms, then reverts. A single `copiedRow` state variable tracks which row was last copied — only one row shows feedback at a time. Clicking a different row immediately moves the indicator.
 
 **Hover affordance**: Interactive rows render `cursor: pointer` and a subtle background tint (`bg-bg-inset` or equivalent) on hover.

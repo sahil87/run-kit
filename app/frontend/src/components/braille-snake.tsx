@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 
-const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
 const INTERVAL_MS = 80;
 
-export function BrailleSpinner({ className }: { className?: string }) {
+export function BrailleSnake({ className }: { className?: string }) {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {

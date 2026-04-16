@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -74,6 +75,24 @@ type mockTmuxOps struct {
 	killActivePaneCalled  bool
 	killActivePaneSession string
 	killActivePaneIndex   int
+
+	setSessionColorCalled  bool
+	setSessionColorSession string
+	setSessionColorColor   int
+	setSessionColorErr     error
+	unsetSessionColorCalled  bool
+	unsetSessionColorSession string
+	unsetSessionColorErr     error
+
+	setWindowColorCalled   bool
+	setWindowColorSession  string
+	setWindowColorIndex    int
+	setWindowColorColor    int
+	setWindowColorErr      error
+	unsetWindowColorCalled  bool
+	unsetWindowColorSession string
+	unsetWindowColorIndex   int
+	unsetWindowColorErr     error
 
 	err error
 }
@@ -162,6 +181,42 @@ func (m *mockTmuxOps) KillActivePane(session string, window int, server string) 
 	m.killActivePaneCalled = true
 	m.killActivePaneSession = session
 	m.killActivePaneIndex = window
+	return m.err
+}
+func (m *mockTmuxOps) SetSessionColor(session string, color int, server string) error {
+	m.setSessionColorCalled = true
+	m.setSessionColorSession = session
+	m.setSessionColorColor = color
+	if m.setSessionColorErr != nil {
+		return m.setSessionColorErr
+	}
+	return m.err
+}
+func (m *mockTmuxOps) UnsetSessionColor(session string, server string) error {
+	m.unsetSessionColorCalled = true
+	m.unsetSessionColorSession = session
+	if m.unsetSessionColorErr != nil {
+		return m.unsetSessionColorErr
+	}
+	return m.err
+}
+func (m *mockTmuxOps) SetWindowColor(session string, index int, color int, server string) error {
+	m.setWindowColorCalled = true
+	m.setWindowColorSession = session
+	m.setWindowColorIndex = index
+	m.setWindowColorColor = color
+	if m.setWindowColorErr != nil {
+		return m.setWindowColorErr
+	}
+	return m.err
+}
+func (m *mockTmuxOps) UnsetWindowColor(session string, index int, server string) error {
+	m.unsetWindowColorCalled = true
+	m.unsetWindowColorSession = session
+	m.unsetWindowColorIndex = index
+	if m.unsetWindowColorErr != nil {
+		return m.unsetWindowColorErr
+	}
 	return m.err
 }
 func (m *mockTmuxOps) ListServers(ctx context.Context) ([]string, error) {
@@ -403,6 +458,96 @@ func TestClosePaneInvalidIndex(t *testing.T) {
 	}
 	if !strings.Contains(result["error"], "Invalid window index") {
 		t.Errorf("error = %q, want containing %q", result["error"], "Invalid window index")
+	}
+}
+
+// --- Session Color endpoint tests ---
+
+func TestSessionColorSet(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"color":6}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.setSessionColorCalled {
+		t.Error("SetSessionColor was not called")
+	}
+	if ops.setSessionColorSession != "myproject" {
+		t.Errorf("session = %q, want %q", ops.setSessionColorSession, "myproject")
+	}
+	if ops.setSessionColorColor != 6 {
+		t.Errorf("color = %d, want %d", ops.setSessionColorColor, 6)
+	}
+}
+
+func TestSessionColorClear(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"color":null}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.unsetSessionColorCalled {
+		t.Error("UnsetSessionColor was not called")
+	}
+	if ops.unsetSessionColorSession != "myproject" {
+		t.Errorf("session = %q, want %q", ops.unsetSessionColorSession, "myproject")
+	}
+}
+
+func TestSessionColorInvalidValue(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"color":20}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSessionColorInvalidSession(t *testing.T) {
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	body := `{"color":4}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;session/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSessionColorTmuxError(t *testing.T) {
+	ops := &mockTmuxOps{setSessionColorErr: fmt.Errorf("tmux error")}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"color":4}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }
 

@@ -143,7 +143,7 @@ Consumers import `@/components/sidebar` as before — Vite resolves directory im
 
 **Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
 
-1. **Activity dot with `isActiveWindow` ring** — green dot = active, dim dot = idle (unchanged). When `isActiveWindow` is true, adds a `ring-1` outline: `ring-accent-green` for active windows, `ring-text-secondary/40` for idle windows. Pure CSS, no animation.
+1. **Activity dot (shape-based)** — filled circle (`currentColor` background) = active, hollow ring (`1.5px solid currentColor` border, transparent background) = idle. Dot color is always `text-text-secondary` — decoupled from row tint color. When `isActiveWindow` is true, adds a `ring-1` outline: `ring-accent-green` for active windows, `ring-text-secondary/40` for idle windows. Pure CSS, no animation.
 
 2. **Duration display** (right-aligned, `text-xs text-text-secondary`, after fab stage): For fab windows with `agentState === "idle"`, shows `agentIdleDuration` (e.g., `2m`). For non-fab or unknown-state idle windows, computes elapsed time from `activityTimestamp` on the frontend. Omitted for active windows. Computed via `getWindowDuration()` from `lib/format.ts`.
 
@@ -226,6 +226,30 @@ Non-interactive rows: `run` (process-only, when no fab state) and `agt` remain p
 3. **Memory gauge** — `mem` label + filled/empty block gauge + `used/totalG` text. Gauge color: green < 70%, yellow 70-90%, red > 90%. Uses `gaugeBar()`, `gaugeColor()`, `formatMemory()` from `@/lib/gauge.ts`
 4. **Load averages** — `load` label + three percentages (1/5/15 min) normalized as `(load / cpuCount) * 100`. Any percentage > 90% renders in `text-red-500`
 5. **Disk + uptime** — `dsk` label + `used/totalG` + ` · up ` + formatted uptime (`Nd Nh` or `Nh Nm` if < 1 day). All `text-text-secondary`
+
+### Color Tinting
+
+Session and window rows in the sidebar support an optional ANSI-palette color assignment that applies a full-width background tint. Colors come from the active theme's ANSI palette (indices 0-15), so they adapt automatically when the user switches themes.
+
+**Pre-blended row tints**: Colors are pre-blended via `blendHex()` (in `themes.ts`) against the theme background — not rgba opacity. `computeRowTints(palette)` pre-computes a `Map<number, RowTint>` for all 13 picker indices at three blend ratios:
+
+| State | ANSI ratio | Background ratio |
+|-------|------------|------------------|
+| Base | 12% | 88% |
+| Hover | 18% | 82% |
+| Selected | 22% | 78% |
+
+Each state gets its own concrete hex value — no stacking of transparent layers. The `RowTint` type (`{ base, hover, selected }`) is exported from `themes.ts`. When a row has a color assigned, the tint backgrounds replace the existing state backgrounds (`bg-accent/10` for selected, `hover:bg-bg-card/50` for hover). The left border on selected colored windows uses the ANSI color at full saturation. Hover state is applied imperatively via `onMouseEnter`/`onMouseLeave` style mutations to avoid CSS specificity issues with dynamic backgrounds.
+
+**ANSI picker indices**: 13 colors offered — `PICKER_ANSI_INDICES = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14]` (exported from `themes.ts`). Excludes 0 (black), 7 (white), 15 (bright white) to avoid clash with dark/light theme backgrounds. Index 8 (bright black) included as a usable gray.
+
+**SwatchPopover** (`app/frontend/src/components/swatch-popover.tsx`): Shared component used by command palette color actions and hover indicator. Renders 13 color swatches in a compact grid plus a "Clear" action. Props: `selectedColor?: number`, `onSelect(color: number | null)`, `onClose()`. Each swatch displays the ANSI color from `theme.palette.ansi[N]` at full saturation. Currently selected color shown with a checkmark or ring. Swatches re-render live during theme preview. Lazy-loaded in `app.tsx` via `React.lazy()`. Dismisses on selection, Escape, or outside click.
+
+**Hover indicator**: On hover, a small palette icon appears at the row's trailing edge (right side, alongside existing hover-reveal controls). Clicking opens the SwatchPopover inline, anchored to the row. Visible only on hover (desktop) or always visible on touch (`coarse:opacity-100`).
+
+**Command palette actions**: "Session: Set Color" (id `session-set-color`, only when session selected) and "Window: Set Color" (id `window-set-color`, only when window selected) open the SwatchPopover. Selecting a color calls the respective API endpoint; selecting "Clear" sends `null`. Both session and window rows in the sidebar also support direct SwatchPopover via the hover indicator.
+
+**Storage**: Session colors persist in `run-kit.yaml` at the project's git root (survive tmux restarts). Window colors are ephemeral tmux `@color` user options (survive session lifetime, not server restarts). See architecture.md for backend details.
 
 ### Braille Sparkline Renderer
 
@@ -719,3 +743,4 @@ The `executeMoveToSession` hook in `sidebar/index.tsx` combines two store action
 | 2026-04-11 | Optimistic cross-session drag — `executeMoveToSession` `useOptimisticAction` instance in sidebar wires compound optimistic update: `killWindow` (hide in source) + `addGhostWindow` (show in target with source window's display name) + immediate navigation to `/$server`. Rollback: `restoreWindow` + `removeGhost`. Removed `onMoveWindowToSession` prop from `SidebarProps` — sidebar imports `moveWindowToSession` API directly. Drag data payload extended with `windowId` and `name`. Unit tests for optimistic lifecycle and rollback. | `260411-sl02-cross-session-drag-optimistic-update` |
 | 2026-04-11 | Sidebar collapsible panels — `CollapsiblePanel` reusable component (header + chevron + `max-height` transition + localStorage persistence). `StatusPanel` refactored into `WindowPanel` wrapping content in CollapsiblePanel (`storageKey="runkit-panel-window"`). New `HostPanel` (5 lines: hostname+SSE dot, CPU braille sparkline, memory gauge bar, load percentages, disk+uptime) wrapping in CollapsiblePanel (`storageKey="runkit-panel-host"`). Both panels bottom-aligned in sidebar. Hostname removed from bottom bar. New `lib/sparkline.ts` (8-level braille mapping U+2800-U+28FF) and `lib/gauge.ts` (block gauge with green/yellow/red thresholds, byte formatting). `SessionProvider` extended with `metrics: MetricsSnapshot | null` from SSE `event: metrics`. | `260411-z63r-sidebar-host-window-panels` |
 | 2026-04-12 | Pane panel copy interactions — `tmx`, `cwd`, `git`, `fab` rows in WindowPanel (`status-panel.tsx`) rendered as `<button>` elements with click-to-copy (pane ID, full path, branch, change ID). Inline "copied ✓" label feedback (1000ms, single `copiedRow` state). Hover affordance (`cursor: pointer` + `bg-bg-inset` tint). Keyboard accessible (Enter/Space). Text-selection guard (`window.getSelection()`). `copyToClipboard` extracted from `terminal-client.tsx` to `lib/clipboard.ts` shared utility module | `260412-lc2q-pane-panel-copy-cwd-branch` |
+| 2026-04-16 | Session and window color tinting — ANSI-palette color assignment for sidebar rows with pre-blended `blendHex()` background tints at 12%/18%/22%. `SwatchPopover` component (13 ANSI swatches + Clear). Command palette "Session/Window: Set Color" actions. Hover indicator on sidebar rows. Activity dot changed from green/gray color-based to filled circle/hollow ring shape-based (always `text-text-secondary`). `RowTint` type and `computeRowTints()` in `themes.ts`. `PICKER_ANSI_INDICES` constant | `260416-jn4h-session-window-color-tinting` |

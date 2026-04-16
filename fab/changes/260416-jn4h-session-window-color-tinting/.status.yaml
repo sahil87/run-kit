@@ -1,0 +1,44 @@
+id: jn4h
+name: 260416-jn4h-session-window-color-tinting
+created: 2026-04-16T07:32:09Z
+created_by: sahil-weaver
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 8
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 90.0
+        reversibility: 83.1
+        competence: 86.3
+        disambiguation: 89.4
+stage_metrics:
+    intake: {started_at: "2026-04-16T07:32:09Z", driver: fab-new, iterations: 1, completed_at: "2026-04-16T08:02:32Z"}
+    spec: {started_at: "2026-04-16T08:02:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:06:02Z"}
+    tasks: {started_at: "2026-04-16T08:06:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:06:07Z"}
+    apply: {started_at: "2026-04-16T08:35:23Z", driver: fab-fff, iterations: 3, completed_at: "2026-04-16T08:36:44Z"}
+    review: {started_at: "2026-04-16T08:36:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:36:44Z"}
+    hydrate: {started_at: "2026-04-16T08:36:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:41:27Z"}
+    ship: {started_at: "2026-04-16T08:41:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-16T08:43:17Z"}
+    review-pr: {started_at: "2026-04-16T08:43:17Z", driver: fab-fff, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/140
+last_updated: 2026-04-16T10:18:17Z

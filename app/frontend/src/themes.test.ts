@@ -7,6 +7,9 @@ import {
   COLOR_CSS_MAP,
   deriveUIColors,
   deriveXtermTheme,
+  computeRowTints,
+  PICKER_ANSI_INDICES,
+  blendHex,
 } from "./themes";
 import type { Theme, ThemePalette, UIColors } from "./themes";
 
@@ -193,5 +196,59 @@ describe("deriveXtermTheme", () => {
         expect(value).toMatch(HEX_RE);
       }
     }
+  });
+});
+
+describe("computeRowTints", () => {
+  it("returns 7 entries matching PICKER_ANSI_INDICES", () => {
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    expect(tints.size).toBe(7);
+    for (const idx of PICKER_ANSI_INDICES) {
+      expect(tints.has(idx)).toBe(true);
+    }
+  });
+
+  it("all values are valid hex strings", () => {
+    for (const theme of THEMES) {
+      const tints = computeRowTints(theme.palette);
+      for (const [, tint] of tints) {
+        expect(tint.base).toMatch(HEX_RE);
+        expect(tint.hover).toMatch(HEX_RE);
+        expect(tint.selected).toMatch(HEX_RE);
+      }
+    }
+  });
+
+  it("hover blend differs from base, selected differs from both", () => {
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    const tint = tints.get(4)!; // blue
+    expect(tint.base).not.toBe(tint.hover);
+    expect(tint.selected).not.toBe(tint.base);
+  });
+
+  it("does not include indices 0, 7, 9-15", () => {
+    const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
+    expect(tints.has(0)).toBe(false);
+    expect(tints.has(7)).toBe(false);
+    for (let i = 9; i <= 15; i++) {
+      expect(tints.has(i)).toBe(false);
+    }
+  });
+});
+
+describe("blendHex", () => {
+  it("blends fg and bg at given ratio", () => {
+    const result = blendHex("#ff0000", "#000000", 0.5);
+    expect(result).toMatch(HEX_RE);
+    // 50% red on black should be roughly #800000
+    expect(result).toBe("#800000");
+  });
+
+  it("ratio 0 returns bg", () => {
+    expect(blendHex("#ff0000", "#00ff00", 0)).toBe("#00ff00");
+  });
+
+  it("ratio 1 returns fg", () => {
+    expect(blendHex("#ff0000", "#00ff00", 1)).toBe("#ff0000");
   });
 });

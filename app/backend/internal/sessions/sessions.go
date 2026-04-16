@@ -16,8 +16,9 @@ import (
 
 // ProjectSession is a tmux session with its windows and optional fab enrichment.
 type ProjectSession struct {
-	Name    string            `json:"name"`
-	Windows []tmux.WindowInfo `json:"windows"`
+	Name         string            `json:"name"`
+	SessionColor *int              `json:"sessionColor,omitempty"`
+	Windows      []tmux.WindowInfo `json:"windows"`
 }
 
 // paneMapEntry matches the JSON output of `fab-go pane-map --json`.
@@ -131,6 +132,7 @@ func findRepoRoot(dir string) string {
 		dir = parent
 	}
 }
+
 
 // Per-entry git branch cache with separate positive/negative TTLs.
 type gitBranchCacheEntry struct {
@@ -364,7 +366,8 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 				}
 			}
 		}
-		result[i] = ProjectSession{Name: sd.info.Name, Windows: sd.windows}
+
+		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, Windows: sd.windows}
 	}
 
 	return result, nil

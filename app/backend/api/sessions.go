@@ -83,6 +83,42 @@ func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	var body struct {
+		Color *int `json:"color"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if body.Color != nil && (*body.Color < 0 || *body.Color > 15) {
+		writeError(w, http.StatusBadRequest, "Color must be between 0 and 15")
+		return
+	}
+
+	server := serverFromRequest(r)
+
+	var err error
+	if body.Color != nil {
+		err = s.tmux.SetSessionColor(session, *body.Color, server)
+	} else {
+		err = s.tmux.UnsetSessionColor(session, server)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (s *Server) handleSessionKill(w http.ResponseWriter, r *http.Request) {
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {

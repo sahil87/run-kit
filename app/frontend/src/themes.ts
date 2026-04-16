@@ -93,7 +93,7 @@ function darkenHex(hex: string, amount: number): string {
   });
 }
 
-function blendHex(fg: string, bg: string, ratio: number): string {
+export function blendHex(fg: string, bg: string, ratio: number): string {
   const fgRgb = hexToRgb(fg);
   const bgRgb = hexToRgb(bg);
   return rgbToHex({
@@ -146,6 +146,41 @@ export function deriveXtermTheme(palette: ThemePalette) {
     brightCyan: palette.ansi[14],
     brightWhite: palette.ansi[15],
   };
+}
+
+// ── Row tint computation ────────────────────────────────────────────────────
+
+/** ANSI palette indices available in the color picker.
+ *  7 colors: the 6 standard hues (red, green, yellow, blue, magenta, cyan) + gray.
+ *  Excludes 0 (black), 7 (white), 15 (bright white), and all bright variants
+ *  (9-14) which are near-identical to normal at low blend ratios. */
+export const PICKER_ANSI_INDICES = [1, 2, 3, 4, 5, 6, 8] as const;
+
+/** Pre-blended row tint colors for a single ANSI index at three states. */
+export type RowTint = {
+  base: string;     // 7% ANSI into background
+  hover: string;    // 11% ANSI into background
+  selected: string; // 16% ANSI into background
+};
+
+/**
+ * Pre-compute blended hex values for all picker ANSI indices.
+ * Single axis: blend ratio increases with interaction depth (7% → 11% → 16%).
+ */
+export function computeRowTints(palette: ThemePalette): Map<number, RowTint> {
+  const bg = palette.background;
+  const tints = new Map<number, RowTint>();
+
+  for (const idx of PICKER_ANSI_INDICES) {
+    const fg = palette.ansi[idx];
+    tints.set(idx, {
+      base: blendHex(fg, bg, 0.07),
+      hover: blendHex(fg, bg, 0.11),
+      selected: blendHex(fg, bg, 0.16),
+    });
+  }
+
+  return tints;
 }
 
 // ── Theme data (loaded from configs/themes.json) ─────────────────────────────

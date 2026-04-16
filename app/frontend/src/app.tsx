@@ -18,7 +18,7 @@ import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi } from "@/api/client";
 import { deriveNameFromPath } from "@/components/create-session-dialog";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
@@ -30,6 +30,7 @@ import { useWindowStore } from "@/store/window-store";
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
 const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
+const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 
 const SIDEBAR_STORAGE_KEY = "runkit-sidebar-width";
 const SIDEBAR_DEFAULT_WIDTH = 220;
@@ -144,6 +145,7 @@ function AppShell() {
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
   const [showCreateSessionAtFolderDialog, setShowCreateSessionAtFolderDialog] = useState(false);
   const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState<"session" | "window" | null>(null);
 
   const { removeGhost, addGhostSession, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
@@ -514,6 +516,11 @@ function AppShell() {
       ...(sessionName
         ? [
             {
+              id: "session-set-color",
+              label: "Session: Set Color",
+              onSelect: () => setShowColorPicker("session"),
+            },
+            {
               id: "rename-session",
               label: "Session: Rename",
               onSelect: () => {
@@ -562,6 +569,11 @@ function AppShell() {
         : []),
       ...(currentWindow
         ? [
+            {
+              id: "window-set-color",
+              label: "Window: Set Color",
+              onSelect: () => setShowColorPicker("window"),
+            },
             ...(currentWindow.index > minWindowIndex
               ? [
                   {
@@ -1067,6 +1079,39 @@ function AppShell() {
           window={String(currentWindow.index)}
           onClose={() => setShowTmuxCommands(false)}
         />
+      )}
+
+      {showColorPicker && (
+        <Suspense fallback={null}>
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
+            onClick={() => setShowColorPicker(null)}
+          >
+            <div className="fixed inset-0 bg-black/50" aria-hidden="true" />
+            <div onClick={(e) => e.stopPropagation()}>
+              <SwatchPopover
+                selectedColor={
+                  showColorPicker === "session"
+                    ? currentSession?.sessionColor
+                    : currentWindow?.color
+                }
+                onSelect={(c) => {
+                  if (showColorPicker === "session" && sessionName) {
+                    setSessionColorApi(sessionName, c).catch((err) =>
+                      addToast(err.message || "Failed to set session color"),
+                    );
+                  } else if (showColorPicker === "window" && sessionName && currentWindow) {
+                    setWindowColorApi(sessionName, currentWindow.index, c).catch((err) =>
+                      addToast(err.message || "Failed to set window color"),
+                    );
+                  }
+                  setShowColorPicker(null);
+                }}
+                onClose={() => setShowColorPicker(null)}
+              />
+            </div>
+          </div>
+        </Suspense>
       )}
 
       <input

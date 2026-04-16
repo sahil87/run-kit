@@ -13,9 +13,20 @@ func sessionLine(name, grouped, group string) string {
 	return strings.Join([]string{name, grouped, group}, listDelim)
 }
 
+func sessionLineColor(name, grouped, group, color string) string {
+	return strings.Join([]string{name, grouped, group, color}, listDelim)
+}
+
+func intPtr(n int) *int { return &n }
+
 func windowLine(windowID string, index int, name, path string, activityTs int64, active int, paneCmd string) string {
-	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd)
+	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s",
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim)
+}
+
+func windowLineColor(windowID string, index int, name, path string, activityTs int64, active int, paneCmd string, color string) string {
+	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s",
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, color)
 }
 
 func TestParseSessions(t *testing.T) {
@@ -90,6 +101,14 @@ func TestParseSessions(t *testing.T) {
 				sessionLine("gamma", "0", "gamma"),
 			},
 			want: []SessionInfo{{Name: "alpha"}, {Name: "beta"}, {Name: "gamma"}},
+		},
+		{
+			name: "session with @color set",
+			lines: []string{
+				sessionLineColor("alpha", "0", "alpha", "4"),
+				sessionLineColor("beta", "0", "beta", ""),
+			},
+			want: []SessionInfo{{Name: "alpha", Color: intPtr(4)}, {Name: "beta"}},
 		},
 	}
 
@@ -176,9 +195,9 @@ func TestParseWindows(t *testing.T) {
 			want:  nil,
 		},
 		{
-			name: "malformed line with fewer than 7 fields is skipped",
+			name: "malformed line with fewer than 8 fields is skipped",
 			lines: []string{
-				"@0\t0\tdev\t/path\t1700000000\t1",
+				"@0\t0\tdev\t/path\t1700000000\t1\tzsh",
 				windowLine("@1", 1, "good", "/home/user", fakeNow, 1, "zsh"),
 			},
 			now: fakeNow,
@@ -627,7 +646,13 @@ func sessionInfoSliceEqual(a, b []SessionInfo) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if a[i].Name != b[i].Name {
+			return false
+		}
+		if (a[i].Color == nil) != (b[i].Color == nil) {
+			return false
+		}
+		if a[i].Color != nil && *a[i].Color != *b[i].Color {
 			return false
 		}
 	}

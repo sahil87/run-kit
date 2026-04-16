@@ -1,9 +1,11 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi } from "@/api/client";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
+import { useTheme } from "@/contexts/theme-context";
+import { computeRowTints } from "@/themes";
 import type { MetricsSnapshot, ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
@@ -48,6 +50,17 @@ export function Sidebar({
   metrics = null,
   isConnected = false,
 }: SidebarProps) {
+  // Pre-compute row tints from the active theme palette.
+  const { theme } = useTheme();
+  const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
+  const ansiPalette = theme.palette.ansi;
+
+  // Server colors from settings.yaml (all servers)
+  const [serverColors, setServerColors] = useState<Record<string, number>>({});
+  useEffect(() => {
+    getAllServerColors().then(setServerColors).catch(() => {});
+  }, []);
+
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
     type: "session" | "window";
@@ -474,10 +487,22 @@ export function Sidebar({
       <ServerPanel
         server={server}
         servers={servers}
+        serverColors={serverColors}
+        rowTints={rowTints}
         onSwitchServer={onSwitchServer}
         onCreateServer={onCreateServer}
         onKillServer={onKillServer}
         onRefreshServers={onRefreshServers}
+        onServerColorChange={(targetServer, c) => {
+          setServerColors((prev) => {
+            const next = { ...prev };
+            if (c == null) { delete next[targetServer]; } else { next[targetServer] = c; }
+            return next;
+          });
+          setServerColorApi(targetServer, c).catch((err) =>
+            addToast(err.message || "Failed to set server color"),
+          );
+        }}
       />
 
       {/* Sessions — always open, flex-grow to fill space */}
@@ -514,6 +539,8 @@ export function Sidebar({
                 {/* Session row */}
                 <SessionRow
                   session={session}
+                  sessionColor={session.sessionColor}
+                  rowTints={rowTints}
                   isCollapsed={isCollapsed}
                   isSessionDropTarget={sessionDropTarget === session.name}
                   editingSession={editingSession}
@@ -540,6 +567,11 @@ export function Sidebar({
                   onDragOver={(e) => handleSessionDragOver(e, session.name)}
                   onDragLeave={(e) => handleSessionDragLeave(e, session.name)}
                   onDrop={(e) => handleSessionDrop(e, session.name)}
+                  onColorChange={(c) => {
+                    setSessionColorApi(session.name, c).catch((err) =>
+                      addToast(err.message || "Failed to set session color"),
+                    );
+                  }}
                 />
 
                 {/* Window rows */}
@@ -560,6 +592,9 @@ export function Sidebar({
                           isSelected={isSelected}
                           isDragOver={isDragOver}
                           nowSeconds={nowSeconds}
+                          color={win.color}
+                          rowTints={rowTints}
+                          ansiPalette={ansiPalette}
                           editingWindow={editingWindow}
                           editingName={editingName}
                           inputRef={inputRef}
@@ -588,6 +623,11 @@ export function Sidebar({
                           onDragOver={ghost ? undefined : (e) => handleDragOver(e, session.name, win.index)}
                           onDrop={ghost ? undefined : (e) => handleDrop(e, session.name, win.index)}
                           onDragEnd={ghost ? undefined : handleDragEnd}
+                          onColorChange={ghost ? undefined : (c) => {
+                            setWindowColorApi(session.name, win.index, c).catch((err) =>
+                              addToast(err.message || "Failed to set window color"),
+                            );
+                          }}
                         />
                       );
                     })}

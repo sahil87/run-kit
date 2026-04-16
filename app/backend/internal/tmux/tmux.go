@@ -162,6 +162,7 @@ type WindowInfo struct {
 	IsActiveWindow    bool       `json:"isActiveWindow"`
 	PaneCommand       string     `json:"paneCommand,omitempty"`
 	ActivityTimestamp int64      `json:"activityTimestamp"`
+	Color             *int       `json:"color,omitempty"`
 	AgentState        string     `json:"agentState,omitempty"`
 	AgentIdleDuration string     `json:"agentIdleDuration,omitempty"`
 	FabChange         string     `json:"fabChange,omitempty"`
@@ -211,11 +212,13 @@ func withTimeout() (context.Context, context.CancelFunc) {
 
 // SessionInfo describes a tmux session.
 type SessionInfo struct {
-	Name string `json:"name"`
+	Name  string `json:"name"`
+	Color *int   `json:"color,omitempty"`
 }
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
+// Format: name, grouped, group, @color (4 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
 	var sessions []SessionInfo
@@ -231,9 +234,13 @@ func parseSessions(lines []string) []SessionInfo {
 		}
 		// Filter out session-group copies: keep if ungrouped or if name matches group
 		if grouped == "0" || name == group {
-			sessions = append(sessions, SessionInfo{
-				Name: name,
-			})
+			si := SessionInfo{Name: name}
+			if len(parts) >= 4 && parts[3] != "" {
+				if n, err := strconv.Atoi(parts[3]); err == nil {
+					si.Color = &n
+				}
+			}
+			sessions = append(sessions, si)
 		}
 	}
 	return sessions
@@ -245,7 +252,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}", listDelim, listDelim)
+	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{@session_color}", listDelim, listDelim, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {
@@ -310,7 +317,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
-		if len(parts) < 7 {
+		if len(parts) < 8 {
 			continue
 		}
 
@@ -325,6 +332,13 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		isActive := strings.TrimSpace(parts[5]) == "1"
 		paneCmd := strings.TrimSpace(parts[6])
 
+		var color *int
+		if colorStr := strings.TrimSpace(parts[7]); colorStr != "" {
+			if c, err := strconv.Atoi(colorStr); err == nil {
+				color = &c
+			}
+		}
+
 		windows = append(windows, WindowInfo{
 			Index:             index,
 			WindowID:          windowID,
@@ -334,6 +348,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			IsActiveWindow:    isActive,
 			PaneCommand:       paneCmd,
 			ActivityTimestamp: activityTs,
+			Color:             color,
 		})
 	}
 	return windows
@@ -366,6 +381,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{window_activity}",
 		"#{window_active}",
 		"#{pane_current_command}",
+		"#{@color}",
 	}, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", session, "-F", format)
@@ -601,6 +617,45 @@ func SendKeys(session string, window int, keys string, server string) error {
 
 	target := fmt.Sprintf("%s:%d", session, window)
 	_, err := tmuxExecServer(ctx, server, "send-keys", "-t", target, keys, "Enter")
+	return err
+}
+
+// SetSessionColor sets the @session_color user option on a session.
+// Uses a distinct name from window @color to avoid tmux option inheritance.
+func SetSessionColor(session string, color int, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "set-option", "-t", session, "@session_color", strconv.Itoa(color))
+	return err
+}
+
+// UnsetSessionColor removes the @session_color user option from a session.
+func UnsetSessionColor(session string, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", session, "@session_color")
+	return err
+}
+
+// SetWindowColor sets the @color user option on a window.
+func SetWindowColor(session string, index int, color int, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	target := fmt.Sprintf("%s:%d", session, index)
+	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", target, "@color", strconv.Itoa(color))
+	return err
+}
+
+// UnsetWindowColor removes the @color user option from a window.
+func UnsetWindowColor(session string, index int, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	target := fmt.Sprintf("%s:%d", session, index)
+	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", target, "@color")
 	return err
 }
 

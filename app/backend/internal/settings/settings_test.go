@@ -177,3 +177,58 @@ func TestSerialize(t *testing.T) {
 		t.Errorf("serialize = %q, want %q", got, want)
 	}
 }
+
+func TestParseServerColors(t *testing.T) {
+	s := parse("theme: system\nserver_colors:\n  default: 4\n  dev: 10\n")
+	if len(s.ServerColors) != 2 {
+		t.Fatalf("expected 2 server colors, got %d", len(s.ServerColors))
+	}
+	if s.ServerColors["default"] != 4 {
+		t.Errorf("ServerColors[default] = %d, want 4", s.ServerColors["default"])
+	}
+	if s.ServerColors["dev"] != 10 {
+		t.Errorf("ServerColors[dev] = %d, want 10", s.ServerColors["dev"])
+	}
+}
+
+func TestSerializeServerColors(t *testing.T) {
+	s := Settings{
+		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
+		ServerColors: map[string]int{"default": 4, "dev": 10},
+	}
+	got := serialize(s)
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nserver_colors:\n  default: 4\n  dev: 10\n"
+	if got != want {
+		t.Errorf("serialize = %q, want %q", got, want)
+	}
+}
+
+func TestServerColorRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	color := 6
+	if err := SetServerColor("default", &color); err != nil {
+		t.Fatalf("SetServerColor: %v", err)
+	}
+
+	got := GetServerColor("default")
+	if got == nil || *got != 6 {
+		t.Errorf("GetServerColor(default) = %v, want 6", got)
+	}
+
+	// Unset server should return nil
+	got = GetServerColor("nonexistent")
+	if got != nil {
+		t.Errorf("GetServerColor(nonexistent) = %v, want nil", got)
+	}
+
+	// Clear
+	if err := SetServerColor("default", nil); err != nil {
+		t.Fatalf("SetServerColor nil: %v", err)
+	}
+	got = GetServerColor("default")
+	if got != nil {
+		t.Errorf("GetServerColor after clear = %v, want nil", got)
+	}
+}

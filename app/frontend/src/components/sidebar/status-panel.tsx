@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
-import { BrailleSpinner } from "@/components/braille-spinner";
+import { BlockPulse } from "@/components/block-pulse";
+import { BrailleSnake } from "@/components/braille-snake";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatDuration, parseFabChange } from "@/lib/format";
@@ -184,13 +185,13 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
       {/* Fab state or process */}
       {fabLine && runLine ? (
         <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
-          {isActive && <BrailleSpinner className="text-accent" />}{isActive && " "}
+          {isActive && <BlockPulse className="text-accent" />}{isActive && " "}
           <span className="text-accent">{runLine}</span>
         </CopyableRow>
       ) : runLine ? (
         <div className="truncate">
           <span className="text-text-secondary">run </span>
-          {isActive && <BrailleSpinner className="text-accent-green" />}{isActive && " "}
+          {isActive && <BlockPulse className="text-accent-green" />}{isActive && " "}
           <span className="text-text-secondary">{runLine}</span>
         </div>
       ) : null}
@@ -198,6 +199,7 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
       {agentLine && (
         <div className="truncate">
           <span className="text-text-secondary">agt </span>
+          <BrailleSnake className="text-accent" />{" "}
           <span className="text-text-primary">{agentLine}</span>
         </div>
       )}

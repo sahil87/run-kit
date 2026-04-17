@@ -88,7 +88,7 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
       onKeyDown={handleKeyDown}
       className="bg-bg-primary border border-border rounded-md shadow-lg p-1.5 z-50 w-max"
     >
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-3 gap-1">
         {PICKER_ANSI_INDICES.map((idx, i) => {
           const tint = rowTints.get(idx);
           const baseColor = tint?.base ?? theme.palette.ansi[idx];

@@ -7,7 +7,7 @@ the mobile single-row horizontal-swipe layout.
 
 ## Shared setup
 
-- `beforeAll` creates three temporary sessions on the e2e tmux server so
+- `beforeAll` creates two temporary sessions on the e2e tmux server so
   that the session count shown on the active server's tile is non-zero and
   there is enough content to exercise the grid. `afterAll` kills them.
 - The spec uses `E2E_TMUX_SERVER` (default `rk-e2e`) and verifies that

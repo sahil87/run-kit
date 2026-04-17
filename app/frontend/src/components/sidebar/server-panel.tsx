@@ -201,7 +201,7 @@ function ServerTile({
 
   return (
     <div
-      className="relative group"
+      className="relative group focus-within:z-10"
       style={{ scrollSnapAlign: isMobile ? "start" : undefined }}
     >
       <button
@@ -227,11 +227,12 @@ function ServerTile({
         </div>
       </button>
 
-      {/* Hover-revealed actions — rendered as a sibling to avoid button-in-button.
-          The outer `group` container makes `group-hover:flex` respond to hovering
-          anywhere on the tile, and `z-10` keeps the actions on top of the tile. */}
+      {/* Hover-revealed actions — sibling of the tile button to avoid nested buttons.
+          Opacity-based reveal (rather than `display: none`) keeps the buttons in the DOM
+          and in tab order so keyboard users can focus them. `group-focus-within:opacity-100`
+          also reveals on keyboard focus. `z-10` keeps actions on top of the tile. */}
       {showActions && (
-        <div className="absolute top-1 right-1 hidden group-hover:flex gap-0.5 z-10">
+        <div className="absolute top-1 right-1 flex gap-0.5 z-10 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           {onColorClick && (
             <button
               type="button"

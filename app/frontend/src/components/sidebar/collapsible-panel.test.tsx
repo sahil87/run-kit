@@ -171,6 +171,44 @@ describe("CollapsiblePanel", () => {
       expect(contentArea.style.height).toBe("140px");
     });
 
+    it("falls back to defaultHeight when persisted height is below minHeight", () => {
+      localStorage.setItem("test-below-height", "50");
+      const { container } = render(
+        <CollapsiblePanel
+          title="Test"
+          storageKey="test-below"
+          defaultOpen={true}
+          resizable
+          defaultHeight={140}
+          minHeight={80}
+          maxHeight={400}
+        >
+          <span>Content</span>
+        </CollapsiblePanel>,
+      );
+      const contentArea = container.querySelector("[class*='transition-[height]']") as HTMLElement;
+      expect(contentArea.style.height).toBe("140px");
+    });
+
+    it("falls back to defaultHeight when persisted height exceeds maxHeight", () => {
+      localStorage.setItem("test-above-height", "5000");
+      const { container } = render(
+        <CollapsiblePanel
+          title="Test"
+          storageKey="test-above"
+          defaultOpen={true}
+          resizable
+          defaultHeight={140}
+          minHeight={80}
+          maxHeight={400}
+        >
+          <span>Content</span>
+        </CollapsiblePanel>,
+      );
+      const contentArea = container.querySelector("[class*='transition-[height]']") as HTMLElement;
+      expect(contentArea.style.height).toBe("140px");
+    });
+
     it("writes the clamped height to localStorage on drag end", () => {
       // jsdom does not compute layout, so we exercise the clamp logic by simulating
       // a pointer drag and asserting the persisted value.

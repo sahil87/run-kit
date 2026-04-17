@@ -114,6 +114,10 @@ export function CollapsiblePanel({
     if (!resizable) return defaultHeight;
     const persisted = readPersistedHeight(heightStorageKey);
     if (persisted == null) return defaultHeight;
+    // Reject persisted values outside [minHeight, maxHeight] — fall back to defaultHeight.
+    // `resolveMaxHeight` reads `window.innerHeight` for `calc(100vh - Npx)` strings.
+    const ceiling = typeof window !== "undefined" ? resolveMaxHeight(maxHeight) : Number.MAX_SAFE_INTEGER;
+    if (persisted < minHeight || persisted > ceiling) return defaultHeight;
     return persisted;
   });
 
@@ -219,11 +223,14 @@ export function CollapsiblePanel({
   const contentStyle = legacyMode
     ? {
         maxHeight: isOpen ? `${defaultHeight}px` : "0px",
+        // Legacy mode keeps overflow visible so descendant popovers (e.g. SwatchPopover) can paint outside the panel.
         overflow: (transitioning || !isOpen ? "hidden" : "visible") as React.CSSProperties["overflow"],
       }
     : {
         height: isOpen ? `${effectiveResizableHeight}px` : "0px",
-        overflow: (transitioning || !isOpen ? "hidden" : "visible") as React.CSSProperties["overflow"],
+        // Resizable mode clips to `auto` so grid content scrolls within the user-set height
+        // instead of bleeding into the panels below.
+        overflow: (transitioning || !isOpen ? "hidden" : "auto") as React.CSSProperties["overflow"],
       };
 
   const transitionClass = legacyMode

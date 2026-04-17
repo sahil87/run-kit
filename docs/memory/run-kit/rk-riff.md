@@ -27,7 +27,7 @@ rk riff [--cmd <command>] [--split <setup-cmd>] [-- <wt-flags...>]
 | `--split` | string | `""` | When non-empty, splits the window horizontally and runs this setup command in the right pane |
 | `--` | separator | — | Everything after `--` forwards verbatim to `wt create` (e.g., `--worktree-name`, `--base`, `--reuse`) |
 
-Cobra's `SetInterspersed(false)` is called in `init()` so the `--` terminator routes passthrough args into `cmd.Args` unmolested. No other user-facing flags exist.
+Cobra's `SetInterspersed(false)` is called in `init()` so the `--` terminator routes passthrough args straight through to `RunE`'s `args []string` parameter unmolested (rather than being mis-parsed as flags for `rk riff`). No other user-facing flags exist.
 
 ## Precondition Checks
 

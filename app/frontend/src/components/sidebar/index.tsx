@@ -489,6 +489,7 @@ export function Sidebar({
         servers={servers}
         serverColors={serverColors}
         rowTints={rowTints}
+        ansiPalette={ansiPalette}
         onSwitchServer={onSwitchServer}
         onCreateServer={onCreateServer}
         onKillServer={onKillServer}

@@ -228,9 +228,10 @@ export function CollapsiblePanel({
       }
     : {
         height: isOpen ? `${effectiveResizableHeight}px` : "0px",
-        // Resizable mode clips to `auto` so grid content scrolls within the user-set height
-        // instead of bleeding into the panels below.
-        overflow: (transitioning || !isOpen ? "hidden" : "auto") as React.CSSProperties["overflow"],
+        // Resizable mode clips Y to `auto` (scrolls internally) and X to `hidden` so grid
+        // content doesn't bleed into the panels below or cause horizontal overflow.
+        overflowY: (transitioning || !isOpen ? "hidden" : "auto") as React.CSSProperties["overflowY"],
+        overflowX: "hidden" as React.CSSProperties["overflowX"],
       };
 
   const transitionClass = legacyMode
@@ -283,14 +284,14 @@ export function CollapsiblePanel({
         </div>
       </div>
 
-      {/* Drag handle — resizable desktop only */}
+      {/* Drag handle — resizable desktop only. 3px thick line, colored as the border. */}
       {showDragHandle && (
         <div
           role="separator"
           aria-orientation="horizontal"
           aria-label={`Resize ${title} panel`}
           onPointerDown={onHandlePointerDown}
-          className="h-1.5 border-t border-border hover:bg-bg-inset cursor-ns-resize select-none"
+          className="relative z-10 h-[3px] bg-border hover:bg-text-secondary transition-colors cursor-ns-resize select-none"
           style={{ touchAction: "none" }}
         />
       )}

@@ -1,8 +1,9 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { SwatchPopover } from "@/components/swatch-popover";
-import type { RowTint } from "@/themes";
+import { UNCOLORED_SELECTED_ANSI, type RowTint } from "@/themes";
 import type { ServerInfo } from "@/api/client";
 
 type ServerPanelProps = {
@@ -10,6 +11,7 @@ type ServerPanelProps = {
   servers: ServerInfo[];
   serverColors: Record<string, number>;
   rowTints?: Map<number, RowTint>;
+  ansiPalette?: readonly string[];
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
   onKillServer: () => void;
@@ -44,6 +46,7 @@ export function ServerPanel({
   servers,
   serverColors,
   rowTints,
+  ansiPalette,
   onSwitchServer,
   onCreateServer,
   onKillServer,
@@ -108,8 +111,8 @@ export function ServerPanel({
       }
       tint={activeTint}
       resizable
-      defaultHeight={140}
-      minHeight={80}
+      defaultHeight={60}
+      minHeight={60}
       mobileHeight={56}
     >
       {servers.length === 0 ? (
@@ -124,13 +127,25 @@ export function ServerPanel({
           {servers.map(({ name, sessionCount }) => {
             const color = serverColors[name];
             const tint = color != null && rowTints ? rowTints.get(color) ?? null : null;
+            const uncoloredSelectedTint = rowTints?.get(UNCOLORED_SELECTED_ANSI) ?? null;
             const isActive = name === server;
+            // Stripe mirrors window-row's left-border treatment: colored only when active;
+            // transparent otherwise (height reserved to avoid text shift between states).
+            const stripeBg = !isActive
+              ? "transparent"
+              : color != null && ansiPalette
+              ? ansiPalette[color]
+              : ansiPalette
+              ? ansiPalette[UNCOLORED_SELECTED_ANSI]
+              : "var(--color-border)";
             return (
               <ServerTile
                 key={name}
                 name={name}
                 sessionCount={sessionCount}
                 tint={tint}
+                uncoloredSelectedTint={uncoloredSelectedTint}
+                stripeBg={stripeBg}
                 isActive={isActive}
                 isMobile={isMobile}
                 tileRef={isActive ? activeTileRef : undefined}
@@ -167,6 +182,8 @@ type ServerTileProps = {
   name: string;
   sessionCount: number;
   tint: RowTint | null;
+  uncoloredSelectedTint: RowTint | null;
+  stripeBg: string;
   isActive: boolean;
   isMobile: boolean;
   tileRef?: React.Ref<HTMLButtonElement>;
@@ -181,6 +198,8 @@ function ServerTile({
   name,
   sessionCount,
   tint,
+  uncoloredSelectedTint,
+  stripeBg,
   isActive,
   isMobile,
   tileRef,
@@ -190,17 +209,40 @@ function ServerTile({
   colorPickerOpen,
   colorPickerNode,
 }: ServerTileProps) {
-  // Body background: active → selected tint (or accent-subtle fallback); otherwise → base tint or bg-card.
-  const activeFallbackBg = "color-mix(in srgb, var(--color-accent) 14%, transparent)";
+  // Body background follows the window-row convention:
+  //   - Colored: tint.selected (active) or tint.base (not active)
+  //   - Uncolored active: borrow the gray UNCOLORED_SELECTED_ANSI tint
+  //   - Uncolored non-active: no background, subtle hover via Tailwind class
   const bodyBg = isActive
-    ? tint?.selected ?? activeFallbackBg
-    : tint?.base ?? "var(--color-bg-card)";
-  const stripeBg = tint?.base ?? "var(--color-border)";
-  const activeClasses = isActive ? "ring-1 ring-accent ring-inset" : "";
+    ? tint?.selected ?? uncoloredSelectedTint?.selected
+    : tint?.base;
+  const uncoloredHoverClass = !tint && !isActive ? "hover:bg-bg-card/50" : "";
   const showActions = !isMobile && (onColorClick || (isActive && onKill));
+
+  const tileWrapperRef = useRef<HTMLDivElement>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
+
+  // Position the portalled color picker relative to the tile. Flip above when
+  // there isn't enough room below (e.g., tile near the bottom of the viewport).
+  useLayoutEffect(() => {
+    if (!colorPickerOpen || !tileWrapperRef.current) {
+      setPopoverPos(null);
+      return;
+    }
+    const rect = tileWrapperRef.current.getBoundingClientRect();
+    const approxPopoverHeight = 100; // rough; fine for flip heuristic
+    const below = rect.bottom + 4;
+    const fitsBelow = below + approxPopoverHeight <= window.innerHeight;
+    const top = fitsBelow ? below : Math.max(4, rect.top - approxPopoverHeight - 4);
+    setPopoverPos({
+      top,
+      right: Math.max(4, window.innerWidth - rect.right),
+    });
+  }, [colorPickerOpen]);
 
   return (
     <div
+      ref={tileWrapperRef}
       className="relative group focus-within:z-10"
       style={{ scrollSnapAlign: isMobile ? "start" : undefined }}
     >
@@ -211,8 +253,8 @@ function ServerTile({
         role="option"
         aria-selected={isActive}
         title={name}
-        className={`relative block w-full text-left rounded border border-border bg-bg-card overflow-hidden transition-colors hover:border-text-secondary ${activeClasses}`}
-        style={{ backgroundColor: bodyBg }}
+        className={`relative block w-full text-left border border-border overflow-hidden transition-colors hover:border-text-secondary ${uncoloredHoverClass}`}
+        style={bodyBg ? { backgroundColor: bodyBg } : undefined}
       >
         {/* Top color stripe */}
         <div className="h-1" style={{ backgroundColor: stripeBg }} />
@@ -238,7 +280,7 @@ function ServerTile({
               type="button"
               aria-label={`Set color for server ${name}`}
               onClick={onColorClick}
-              className="text-text-secondary hover:text-text-primary text-[11px] leading-none px-0.5 py-0.5 rounded bg-bg-card/70"
+              className="text-text-secondary hover:text-text-primary text-[11px] leading-none px-0.5 py-0.5"
             >
               &#x25A0;
             </button>
@@ -248,7 +290,7 @@ function ServerTile({
               type="button"
               aria-label={`Kill server ${name}`}
               onClick={onKill}
-              className="text-text-secondary hover:text-red-400 text-[11px] leading-none px-0.5 py-0.5 rounded bg-bg-card/70"
+              className="text-text-secondary hover:text-red-400 text-[11px] leading-none px-0.5 py-0.5"
             >
               &#x2715;
             </button>
@@ -256,8 +298,19 @@ function ServerTile({
         </div>
       )}
 
-      {colorPickerOpen && (
-        <div className="absolute right-0 top-full z-50 mt-1">{colorPickerNode}</div>
+      {/* Color picker portalled to body so it escapes the panel's overflow-y: auto clip. */}
+      {colorPickerOpen && colorPickerNode && popoverPos && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: popoverPos.top,
+            right: popoverPos.right,
+            zIndex: 100,
+          }}
+        >
+          {colorPickerNode}
+        </div>,
+        document.body,
       )}
     </div>
   );

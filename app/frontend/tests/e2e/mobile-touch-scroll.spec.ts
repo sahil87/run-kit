@@ -108,6 +108,26 @@ test.describe("Mobile touch scroll", () => {
     expect(seqs[0]).not.toContain(";1;1M");
   });
 
+  test("role=application wrapper has measurable bounding box at 375x812", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await mockTouchDevice(page);
+
+    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/0`);
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
+
+    // Wrapper must stay mounted and measurable — a selector-count assertion
+    // catches navigation-driven unmounts that would make boundingBox hang.
+    const wrapper = page.locator('[role="application"]');
+    await expect(wrapper).toHaveCount(1, { timeout: 3000 });
+
+    const box = await wrapper.boundingBox({ timeout: 3000 });
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.height).toBeGreaterThan(0);
+  });
+
   test("tap on terminal focuses textarea for keyboard", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await mockTouchDevice(page);

@@ -263,6 +263,23 @@ function AppShell() {
     setCurrentWindow(currentWindow);
   }, [currentSession, currentWindow, setCurrentSession, setCurrentWindow]);
 
+  // Track whether the URL's (session, window) pair has been observed as valid
+  // in SSE data since the last server/session/window URL change. Gates the
+  // "gone" redirect so a stale-cached or partially-populated first SSE payload
+  // (missing the freshly-navigated session, or reporting it with an empty
+  // windows list) can't bounce the user to the dashboard before the real data
+  // arrives.
+  const currentWindowEverSeenRef = useRef(false);
+  const lastObservedUrlKeyRef = useRef<string>("");
+  useEffect(() => {
+    const key = `${server}|${sessionName ?? ""}|${windowIndex ?? ""}`;
+    if (lastObservedUrlKeyRef.current !== key) {
+      lastObservedUrlKeyRef.current = key;
+      currentWindowEverSeenRef.current = false;
+    }
+    if (currentWindow) currentWindowEverSeenRef.current = true;
+  }, [server, sessionName, windowIndex, currentWindow]);
+
   // Redirect when the current session/window no longer exists (e.g. window/session killed)
   useEffect(() => {
     const target = computeKillRedirect({
@@ -271,6 +288,7 @@ function AppShell() {
       currentSessionWindows: currentSession?.windows ?? null,
       currentWindowExists: !!currentWindow,
       isConnected,
+      currentWindowEverSeen: currentWindowEverSeenRef.current,
     });
     if (!target) return;
     if (target.to === "window") {

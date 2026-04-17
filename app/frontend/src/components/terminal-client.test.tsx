@@ -4,46 +4,47 @@ import { TerminalClient } from "./terminal-client";
 
 // Mock all xterm-related modules to avoid actual terminal initialization
 vi.mock("@xterm/xterm", () => ({
-  Terminal: vi.fn().mockImplementation(() => ({
-    loadAddon: vi.fn(),
-    open: vi.fn(),
-    onData: vi.fn(),
-    attachCustomKeyEventHandler: vi.fn(),
-    dispose: vi.fn(),
-    focus: vi.fn(),
-    reset: vi.fn(),
-    write: vi.fn(),
-    scrollToBottom: vi.fn(),
-    cols: 80,
-    rows: 24,
-    options: { fontSize: 13 },
-    hasSelection: vi.fn().mockReturnValue(false),
-  })),
+  Terminal: vi.fn().mockImplementation(function () {
+    return {
+      loadAddon: vi.fn(),
+      open: vi.fn(),
+      onData: vi.fn(),
+      attachCustomKeyEventHandler: vi.fn(),
+      dispose: vi.fn(),
+      focus: vi.fn(),
+      reset: vi.fn(),
+      write: vi.fn(),
+      scrollToBottom: vi.fn(),
+      cols: 80,
+      rows: 24,
+      options: { fontSize: 13 },
+      hasSelection: vi.fn().mockReturnValue(false),
+    };
+  }),
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
-  FitAddon: vi.fn().mockImplementation(() => ({
-    fit: vi.fn(),
-    dispose: vi.fn(),
-  })),
+  FitAddon: vi.fn().mockImplementation(function () {
+    return { fit: vi.fn(), dispose: vi.fn() };
+  }),
 }));
 
 vi.mock("@xterm/addon-clipboard", () => ({
-  ClipboardAddon: vi.fn().mockImplementation(() => ({
-    dispose: vi.fn(),
-  })),
+  ClipboardAddon: vi.fn().mockImplementation(function () {
+    return { dispose: vi.fn() };
+  }),
 }));
 
 vi.mock("@xterm/addon-web-links", () => ({
-  WebLinksAddon: vi.fn().mockImplementation(() => ({
-    dispose: vi.fn(),
-  })),
+  WebLinksAddon: vi.fn().mockImplementation(function () {
+    return { dispose: vi.fn() };
+  }),
 }));
 
 vi.mock("@xterm/addon-webgl", () => ({
-  WebglAddon: vi.fn().mockImplementation(() => ({
-    dispose: vi.fn(),
-  })),
+  WebglAddon: vi.fn().mockImplementation(function () {
+    return { dispose: vi.fn() };
+  }),
 }));
 
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));

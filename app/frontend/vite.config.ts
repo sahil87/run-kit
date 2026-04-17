@@ -15,9 +15,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          xterm: ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links"],
-          router: ["@tanstack/react-router"],
+        manualChunks(id) {
+          if (id.includes("@xterm/")) return "xterm";
+          if (id.includes("@tanstack/react-router")) return "router";
         },
       },
     },

@@ -497,12 +497,12 @@ func (s *Server) handleWindowCapture(w http.ResponseWriter, r *http.Request) {
 
 	stripped := tmux.StripANSI(raw)
 	// Split on \n, drop trailing empty lines so callers get a tidy array.
+	// strings.Split never returns nil: for "" it returns [""], which the
+	// trim-trailing loop below reduces to a zero-length slice — callers
+	// always see a non-nil array.
 	split := strings.Split(stripped, "\n")
 	for len(split) > 0 && strings.TrimSpace(split[len(split)-1]) == "" {
 		split = split[:len(split)-1]
-	}
-	if split == nil {
-		split = []string{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

@@ -89,6 +89,22 @@ export function WindowRow({
   // Track the previously seen non-empty lastLine so we only re-fetch on real
   // transitions (non-empty → different non-empty).
   const prevLastLineRef = useRef<string>("");
+  // Invalidation token — bumped on collapse (and stale-target detection) so
+  // in-flight promise callbacks ignore their response instead of resurrecting
+  // peekState after collapse or attributing output to the wrong window.
+  const requestIdRef = useRef(0);
+  // Latest session/index/isExpanded refs so trailing re-fetches read the
+  // current values rather than the closure captured when the fetch started.
+  // This matters if the parent passes a reordered win prop or the row is
+  // collapsed while a request is still in flight.
+  const sessionRef = useRef(session);
+  const indexRef = useRef(win.index);
+  const isExpandedRef = useRef(isExpanded);
+  useEffect(() => {
+    sessionRef.current = session;
+    indexRef.current = win.index;
+    isExpandedRef.current = isExpanded;
+  }, [session, win.index, isExpanded]);
 
   const tint = useMemo(() => {
     if (color == null || !rowTints) return null;
@@ -128,29 +144,48 @@ export function WindowRow({
   }, [tint, isSelected]);
 
   // Shared fetcher — dispatches a capture request and flips peek state based on
-  // the response. The single-flight guard lives in `inFlightRef`.
+  // the response. The single-flight guard lives in `inFlightRef`; `requestIdRef`
+  // invalidates in-flight callbacks when the row collapses, so stale responses
+  // cannot resurrect `peekState` or attribute output to the wrong window.
   function fetchPeek() {
     if (inFlightRef.current) {
       pendingRefetchRef.current = true;
       return;
     }
     inFlightRef.current = true;
+    const token = requestIdRef.current;
+    // Read latest coordinates from refs so a trailing re-fetch issued after
+    // the parent reordered windows still targets the correct pane.
+    const targetSession = sessionRef.current;
+    const targetIndex = indexRef.current;
     // Only flip to "loading" on the first fetch. Subsequent in-place refreshes
     // keep the previous `ready` rendered to avoid flicker.
     setPeekState((prev) => (prev.kind === "ready" ? prev : { kind: "loading" }));
-    capturePane(session, win.index, 3)
+    capturePane(targetSession, targetIndex, 3)
       .then((res) => {
+        if (token !== requestIdRef.current) return;
         setPeekState({ kind: "ready", lines: res.lines });
       })
       .catch(() => {
+        if (token !== requestIdRef.current) return;
         setPeekState({ kind: "error" });
       })
       .finally(() => {
         inFlightRef.current = false;
-        if (pendingRefetchRef.current) {
-          pendingRefetchRef.current = false;
-          fetchPeek();
+        // If the token is still valid, drain any pending re-fetch queued
+        // while this request was in flight.
+        // If invalidated (collapse during flight), only honor a pending
+        // re-fetch if the row is currently expanded (re-expand queued it
+        // after collapse); otherwise drop it so we don't resurrect fetches
+        // post-collapse.
+        const invalidated = token !== requestIdRef.current;
+        const pending = pendingRefetchRef.current;
+        pendingRefetchRef.current = false;
+        if (invalidated) {
+          if (pending && isExpandedRef.current) fetchPeek();
+          return;
         }
+        if (pending) fetchPeek();
       });
   }
 
@@ -163,6 +198,12 @@ export function WindowRow({
   // fetchPeek.
   useEffect(() => {
     if (!isExpanded) {
+      // Bump the invalidation token so any in-flight capture's then/catch
+      // refuses to write state after collapse — prevents stale responses
+      // from resurrecting peekState. The original request's finally() still
+      // runs (clearing inFlightRef), so we don't touch that here to preserve
+      // single-flight if re-expanded before the in-flight settles.
+      requestIdRef.current += 1;
       setPeekState({ kind: "idle" });
       pendingRefetchRef.current = false;
       prevLastLineRef.current = "";

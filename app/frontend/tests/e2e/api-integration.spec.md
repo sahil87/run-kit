@@ -19,9 +19,6 @@ dialog removes it cleanly.
 
 **Steps:**
 1. Run `tmux new-session -d -s e2e-api-victim-<ts>` on the e2e server.
-   (Name deliberately avoids the substring "kill" — otherwise
-   `button:has-text('Kill')` would match the session card's own expand
-   button.)
 2. Navigate to `/${TMUX_SERVER}` and wait for `[aria-label='Connected']`.
 3. Assert the `Navigate to <sessionName>` button appears in the Sessions nav
    within 8s (allowing for the 2.5s SSE poll interval).

@@ -31,9 +31,7 @@ test.describe("API Integration", () => {
     page,
   }) => {
     // Unique session name per run avoids collisions with other tests or
-    // leftover state on the shared rk-e2e tmux server. Note: the name must
-    // not contain "Kill" — `button:has-text('Kill')` would otherwise match
-    // the session card's expand button and click the wrong target.
+    // leftover state on the shared rk-e2e tmux server.
     const sessionName = `e2e-api-victim-${Date.now()}`;
     execSync(
       `tmux -L ${TMUX_SERVER} new-session -d -s ${sessionName} -x 80 -y 24`,

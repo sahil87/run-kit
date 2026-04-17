@@ -158,14 +158,14 @@ export const PICKER_ANSI_INDICES = [1, 2, 3, 4, 5, 6, 8] as const;
 
 /** Pre-blended row tint colors for a single ANSI index at three states. */
 export type RowTint = {
-  base: string;     // 7% ANSI into background
-  hover: string;    // 11% ANSI into background
-  selected: string; // 16% ANSI into background
+  base: string;     // 14% ANSI into background
+  hover: string;    // 22% ANSI into background
+  selected: string; // 32% ANSI into background
 };
 
 /**
  * Pre-compute blended hex values for all picker ANSI indices.
- * Single axis: blend ratio increases with interaction depth (7% → 11% → 16%).
+ * Single axis: blend ratio increases with interaction depth (14% → 22% → 32%).
  */
 export function computeRowTints(palette: ThemePalette): Map<number, RowTint> {
   const bg = palette.background;
@@ -174,9 +174,9 @@ export function computeRowTints(palette: ThemePalette): Map<number, RowTint> {
   for (const idx of PICKER_ANSI_INDICES) {
     const fg = palette.ansi[idx];
     tints.set(idx, {
-      base: blendHex(fg, bg, 0.07),
-      hover: blendHex(fg, bg, 0.11),
-      selected: blendHex(fg, bg, 0.16),
+      base: blendHex(fg, bg, 0.14),
+      hover: blendHex(fg, bg, 0.22),
+      selected: blendHex(fg, bg, 0.32),
     });
   }
 

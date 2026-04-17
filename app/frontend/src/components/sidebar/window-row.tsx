@@ -81,14 +81,14 @@ export function WindowRow({
     }
     // Always reserve left border space to prevent text shift between states
     style.borderLeft = isSelected
-      ? `3px solid ${borderColor ?? "var(--color-accent)"}`
-      : "3px solid transparent";
+      ? `8px solid ${borderColor ?? "var(--color-accent)"}`
+      : "8px solid transparent";
     return Object.keys(style).length > 0 ? style : undefined;
   }, [tint, isSelected, borderColor]);
 
   // Build className for the button
   const buttonClass = useMemo(() => {
-    const base = "w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-11 text-sm transition-colors min-h-[36px] rounded-l-lg rounded-r-none";
+    const base = "w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-11 text-sm transition-colors min-h-[36px]";
     if (isSelected) {
       // Colored selected: inline bg via buttonStyle. Uncolored selected: bg-accent/15.
       return `${base} ${tint ? "" : "bg-accent/15 "}text-text-primary font-medium`;

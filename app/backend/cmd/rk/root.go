@@ -27,6 +27,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(initConfCmd)
 	rootCmd.AddCommand(contextCmd)
+	rootCmd.AddCommand(riffCmd)
 }
 
 func execute() {

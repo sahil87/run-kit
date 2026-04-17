@@ -73,6 +73,20 @@ Server management endpoints:
 Window cross-session move endpoint:
 - `POST /api/sessions/{session}/windows/{index}/move-to-session` — moves a window to another session. Request body: `{ "targetSession": "string" }`. Validates source session, window index, and target session name. Returns 400 if `targetSession` equals source session or fails validation. Returns `200 { "ok": true }` on success. Handler in `api/windows.go`, `MoveWindowToSession` method on `TmuxOps` interface in `router.go`.
 
+## `rk riff` Window Creation
+
+`rk riff` creates a new tmux window in the **user's current tmux server** (not the managed `runkit`/`default` server that `internal/tmux` targets). The command lives at `app/backend/cmd/rk/riff.go` and deliberately bypasses `internal/tmux`'s execution helpers — it invokes `tmux` directly via `exec.CommandContext` so the window lands where the user is attached.
+
+Mechanics:
+
+- **Preconditions** — `$TMUX` must be set (read via `tmux.OriginalTMUX`, captured before `internal/tmux` init() strips `$TMUX` from the process env) and `wt` must be on PATH. Fast-fail, exit 2.
+- **Window** — `tmux new-window -c <worktree-path> "<launcher> '<cmd>'"`. The second argument is a shell string interpreted by tmux's shell (documented exception to the argv-only rule, per spec §Process Execution Constraints). User-provided `--cmd` is single-quote-escaped via `escapeSingleQuotes` (`'` → `'\''`). No `-t` target: tmux defaults to the current session.
+- **Optional split** — when `--split <setup-cmd>` is non-empty, a trailing `tmux split-window -h -c <worktree-path> "<setup-cmd>; exec zsh"` creates a horizontal split on the just-created window. Split is skipped entirely when `--split` is empty/unset or when `new-window` failed.
+- **Child env** — `tmuxChildEnv()` restores `TMUX=<OriginalTMUX>` in the spawned process so tmux targets the user's server. Mirrors the pattern in `cmd/rk/context.go`.
+- **Timeouts** — `exec.CommandContext` with 30s for `wt create` and 10s per tmux call.
+
+The new windows never appear on the managed `runkit`/`default` servers unless the user's current `$TMUX` happens to point there. See `rk-riff.md` for flag surface, exit codes, and launcher resolution.
+
 ## Related Files
 
 - `app/backend/internal/tmux/tmux.go` — `serverArgs()`, `tmuxExecServer()`, `ListSessions()`, `ListServers()`, `ListKeys()`, `KillServer()`, `CreateSession()`, `SelectWindow()`, `ReloadConfig()`, `EnsureConfig()`, `ConfigPath()`, `MoveWindowToSession()`
@@ -84,6 +98,8 @@ Window cross-session move endpoint:
 - `app/backend/api/sse.go` — per-server SSE polling hub
 - `app/backend/api/relay.go` — WebSocket relay reads `?server=` query param to attach to the correct tmux server
 - `app/backend/internal/tmux/tmux.conf` — canonical tmux configuration (Go-embedded, written to `~/.run-kit/tmux.conf` on first run)
+- `app/backend/cmd/rk/riff.go` — `rk riff` subcommand: `tmux new-window` + optional `tmux split-window -h` on the user's current tmux server (via `tmux.OriginalTMUX` restore in child env)
+- `app/backend/internal/fabconfig/fabconfig.go` — `ReadSpawnCommand(repoRoot)` reads `agent.spawn_command` from `fab/project/config.yaml` (best-effort `yaml.v3`; returns `""` on any failure)
 
 ## Changelog
 
@@ -95,3 +111,4 @@ Window cross-session move endpoint:
 | 2026-03-20 | tmux config and keybindings — `EnsureConfig()` auto-creates `~/.run-kit/tmux.conf` on serve startup. `-f` config flag scoped to `CreateSession`/`ReloadConfig` via `configArgs()`. Enhanced `internal/tmux/tmux.conf` with agent-optimized defaults and power-user keybindings. `ListKeys(server)` runs `tmux list-keys`, returns raw output (nil on "no server"). New `GET /api/keybindings` endpoint filters `list-keys` via whitelist map. `KillServer()` handles socket teardown gracefully (returns nil on "No such file or directory"). | `260320-9ldy-ui-polish-tmux-config-embed` |
 | 2026-04-04 | Cross-session window move — `MoveWindowToSession(srcSession, srcIndex, dstSession, server)` wraps `tmux move-window -s {src}:{idx} -t {dst}:` with `tmuxExecServer` and `withTimeout()`. New `POST /api/sessions/{session}/windows/{index}/move-to-session` endpoint with `{ "targetSession" }` body. `TmuxOps` interface extended with `MoveWindowToSession`. Validates source/target differ (400 if same). | `260404-dq70-move-window-between-sessions` |
 | 2026-04-06 | Pane CWD tracking — `ListWindows` now calls `list-panes -s -t <session>` after `list-windows` to populate `Panes []PaneInfo` on each `WindowInfo`; failure is non-fatal. `parsePanes(lines []string) map[int][]PaneInfo` parses 6-field tab-delimited output (field 0 = `#{window_index}` for grouping, fields 1–5 = pane data). Package-level `paneFormat` var: `#{window_index}\t#{pane_id}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_active}`. `WorktreePath` unchanged — still sourced from `list-windows #{pane_current_path}`. | `260405-rx38-pane-cwd-tracking` |
+| 2026-04-17 | `rk riff` window creation — new subcommand creates `tmux new-window -c <path> "<launcher> '<cmd>'"` on the user's current tmux server (not the managed `runkit`/`default` servers). `$TMUX` recovered via `tmux.OriginalTMUX` and restored in child env (mirrors `context.go`). Optional `--split` appends `tmux split-window -h -c <path> "<setup>; exec zsh"`. Bypasses `internal/tmux` because that package targets specific named servers via `-L <server>`. | `260416-r1j6-add-riff-command` |

@@ -188,6 +188,9 @@ export function CollapsiblePanel({
       dragStateRef.current = null;
       document.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("pointerup", onPointerUp);
+      // Restore the CSS transition (suppressed during drag to prevent the 150ms
+      // height animation from chasing each pointermove — see onHandlePointerDown).
+      contentRef.current.style.transition = "";
       setHeight(final);
       writePersistedHeight(heightStorageKey, final);
     },
@@ -202,6 +205,9 @@ export function CollapsiblePanel({
         startY: e.clientY,
         startHeight: contentRef.current.getBoundingClientRect().height,
       };
+      // Disable the height transition during drag so direct style mutations
+      // in onPointerMove snap immediately instead of animating toward each value.
+      contentRef.current.style.transition = "none";
       document.addEventListener("pointermove", onPointerMove);
       document.addEventListener("pointerup", onPointerUp);
     },

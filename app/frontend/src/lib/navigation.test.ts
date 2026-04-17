@@ -106,6 +106,52 @@ describe("computeKillRedirect", () => {
     expect(result).toEqual({ to: "window", session: "sess", windowIndex: 2 });
   });
 
+  it("does not redirect when URL (session, window) was never observed (stale SSE)", () => {
+    // Freshly navigated URL: isConnected=true but first SSE payload didn't
+    // include our session yet (stale cached data from previous URL/state).
+    // Must wait for fresh data before redirecting.
+    expect(
+      computeKillRedirect({
+        sessionName: "fresh-session",
+        windowIndex: "0",
+        currentSessionWindows: null,
+        currentWindowExists: false,
+        isConnected: true,
+        currentWindowEverSeen: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not redirect when URL never observed and session briefly has empty windows", () => {
+    // Transient SSE state: session is present but its windows enumeration
+    // hasn't populated yet. Without the ever-seen guard this would fire the
+    // "window gone, no siblings remain" → dashboard branch.
+    expect(
+      computeKillRedirect({
+        sessionName: "fresh-session",
+        windowIndex: "0",
+        currentSessionWindows: [],
+        currentWindowExists: false,
+        isConnected: true,
+        currentWindowEverSeen: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("redirects to dashboard when URL was observed and session is now gone", () => {
+    // URL was valid earlier, now the session has been killed — safe to redirect.
+    expect(
+      computeKillRedirect({
+        sessionName: "killed-session",
+        windowIndex: "0",
+        currentSessionWindows: null,
+        currentWindowExists: false,
+        isConnected: true,
+        currentWindowEverSeen: true,
+      }),
+    ).toEqual({ to: "dashboard" });
+  });
+
   it("navigates to only remaining sibling", () => {
     const siblings = [{ index: 5 }];
     const result = computeKillRedirect({

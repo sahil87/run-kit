@@ -14,7 +14,7 @@ type ServerPanelProps = {
   ansiPalette?: readonly string[];
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
-  onKillServer: () => void;
+  onKillServer: (name: string) => void;
   onRefreshServers: () => void;
   onServerColorChange?: (server: string, color: number | null) => void;
 };
@@ -110,6 +110,7 @@ export function ServerPanel({
         </button>
       }
       tint={activeTint}
+      tintOnlyWhenCollapsed
       resizable
       defaultHeight={60}
       minHeight={60}
@@ -150,7 +151,7 @@ export function ServerPanel({
                 isMobile={isMobile}
                 tileRef={isActive ? activeTileRef : undefined}
                 onClick={() => onSwitchServer(name)}
-                onKill={isActive ? onKillServer : undefined}
+                onKill={() => onKillServer(name)}
                 onColorClick={
                   onServerColorChange
                     ? () => setColorPickerFor((prev) => (prev === name ? null : name))
@@ -217,7 +218,7 @@ function ServerTile({
     ? tint?.selected ?? uncoloredSelectedTint?.selected
     : tint?.base;
   const uncoloredHoverClass = !tint && !isActive ? "hover:bg-bg-card/50" : "";
-  const showActions = !isMobile && (onColorClick || (isActive && onKill));
+  const showActions = !isMobile && (onColorClick || onKill);
 
   const tileWrapperRef = useRef<HTMLDivElement>(null);
   const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
@@ -270,11 +271,11 @@ function ServerTile({
       </button>
 
       {/* Hover-revealed actions — sibling of the tile button to avoid nested buttons.
-          Opacity-based reveal (rather than `display: none`) keeps the buttons in the DOM
-          and in tab order so keyboard users can focus them. `group-focus-within:opacity-100`
-          also reveals on keyboard focus. `z-10` keeps actions on top of the tile. */}
+          Opacity-based reveal keeps the buttons in the DOM and in tab order. Visibility
+          matches window-row: mouse hover only (no focus-within) so clicking a tile
+          doesn't leave the icons visible while the button retains focus. */}
       {showActions && (
-        <div className="absolute top-1 right-1 flex gap-0.5 z-10 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+        <div className="absolute top-1 right-1 flex gap-0.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
           {onColorClick && (
             <button
               type="button"
@@ -285,11 +286,14 @@ function ServerTile({
               &#x25A0;
             </button>
           )}
-          {isActive && onKill && (
+          {onKill && (
             <button
               type="button"
               aria-label={`Kill server ${name}`}
-              onClick={onKill}
+              onClick={(e) => {
+                e.stopPropagation();
+                onKill();
+              }}
               className="text-text-secondary hover:text-red-400 text-[11px] leading-none px-0.5 py-0.5"
             >
               &#x2715;

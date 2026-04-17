@@ -28,7 +28,7 @@ export type SidebarProps = {
   servers: ServerInfo[];
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
-  onKillServer: () => void;
+  onKillServer: (name: string) => void;
   onRefreshServers: () => void;
   metrics?: MetricsSnapshot | null;
   isConnected?: boolean;

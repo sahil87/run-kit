@@ -22,7 +22,7 @@ function renderPanel(overrides: {
   servers?: ServerInfo[];
   serverColors?: Record<string, number>;
   onSwitchServer?: (name: string) => void;
-  onKillServer?: () => void;
+  onKillServer?: (name: string) => void;
   onCreateServer?: () => void;
   onRefreshServers?: () => void;
   onServerColorChange?: (server: string, color: number | null) => void;
@@ -130,27 +130,27 @@ describe("ServerPanel", () => {
     expect(screen.getByRole("listbox", { name: /Color picker/i })).toBeInTheDocument();
   });
 
-  it("kill button renders only on the active tile", () => {
+  it("kill button renders on every tile", () => {
     const onKillServer = vi.fn();
     const onServerColorChange = vi.fn();
     renderPanel({ server: "default", onKillServer, onServerColorChange });
     openPanel();
 
     expect(screen.getByRole("button", { name: /Kill server default/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Kill server work/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Kill server e2e/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Kill server work/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Kill server e2e/ })).toBeInTheDocument();
   });
 
-  it("kill button fires onKillServer without firing onSwitchServer", () => {
+  it("kill button fires onKillServer with the tile's name and does not switch servers", () => {
     const onSwitchServer = vi.fn();
     const onKillServer = vi.fn();
     renderPanel({ server: "default", onSwitchServer, onKillServer, onServerColorChange: vi.fn() });
     openPanel();
 
-    const killBtn = screen.getByRole("button", { name: /Kill server default/ });
+    const killBtn = screen.getByRole("button", { name: /Kill server work/ });
     fireEvent.click(killBtn);
 
-    expect(onKillServer).toHaveBeenCalled();
+    expect(onKillServer).toHaveBeenCalledWith("work");
     expect(onSwitchServer).not.toHaveBeenCalled();
   });
 

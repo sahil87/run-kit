@@ -141,7 +141,7 @@ function AppShell() {
   const [hostname, setHostname] = useState("");
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
   const [createServerName, setCreateServerName] = useState("");
-  const [showKillServerConfirm, setShowKillServerConfirm] = useState(false);
+  const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
   const [showCreateSessionAtFolderDialog, setShowCreateSessionAtFolderDialog] = useState(false);
@@ -359,7 +359,7 @@ function AppShell() {
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
   dialogOpenRef.current =
-    dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || showKillServerConfirm || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog;
+    dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -528,10 +528,14 @@ function AppShell() {
   });
 
   const handleKillServer = useCallback(() => {
-    executeKillServer(server);
-    navigate({ to: "/" });
-    setShowKillServerConfirm(false);
-  }, [server, navigate, executeKillServer]);
+    if (!killServerTarget) return;
+    const target = killServerTarget;
+    executeKillServer(target);
+    // Route away only when killing the currently-active server; killing another
+    // server in the panel should leave the user where they are.
+    if (target === server) navigate({ to: "/" });
+    setKillServerTarget(null);
+  }, [killServerTarget, server, navigate, executeKillServer]);
 
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -808,7 +812,7 @@ function AppShell() {
       {
         id: "kill-server",
         label: "Server: Kill",
-        onSelect: () => setShowKillServerConfirm(true),
+        onSelect: () => setKillServerTarget(server),
       },
       ...servers.map(({ name }) => ({
         id: `switch-server-${name}`,
@@ -884,7 +888,7 @@ function AppShell() {
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
-                onKillServer={() => setShowKillServerConfirm(true)}
+                onKillServer={(name) => setKillServerTarget(name)}
                 onRefreshServers={refreshServers}
                 metrics={metrics}
                 isConnected={isConnected}
@@ -985,7 +989,7 @@ function AppShell() {
                 servers={servers}
                 onSwitchServer={handleSwitchServer}
                 onCreateServer={() => setShowCreateServerDialog(true)}
-                onKillServer={() => setShowKillServerConfirm(true)}
+                onKillServer={(name) => setKillServerTarget(name)}
                 onRefreshServers={refreshServers}
                 metrics={metrics}
                 isConnected={isConnected}
@@ -1170,14 +1174,14 @@ function AppShell() {
         </Dialog>
       )}
 
-      {showKillServerConfirm && (
-        <Dialog title="Kill tmux server?" onClose={() => setShowKillServerConfirm(false)}>
+      {killServerTarget && (
+        <Dialog title="Kill tmux server?" onClose={() => setKillServerTarget(null)}>
           <p className="text-text-secondary mb-2.5">
-            Kill server <strong>{server}</strong> and all its sessions? This cannot be undone.
+            Kill server <strong>{killServerTarget}</strong> and all its sessions? This cannot be undone.
           </p>
           <div className="flex gap-2">
             <button
-              onClick={() => setShowKillServerConfirm(false)}
+              onClick={() => setKillServerTarget(null)}
               className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
             >
               Cancel

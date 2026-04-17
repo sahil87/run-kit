@@ -14,6 +14,8 @@ type CollapsiblePanelProps = {
   onToggle?: (isOpen: boolean) => void;
   /** Optional row tint for background color. */
   tint?: RowTint | null;
+  /** When true, the tint is applied to the header only while the panel is collapsed. */
+  tintOnlyWhenCollapsed?: boolean;
   /** When true, renders a drag handle at the bottom and persists user-set height to localStorage. */
   resizable?: boolean;
   /** Initial open height in pixels when no persisted value exists. Default 200 (matches legacy max-height). */
@@ -101,6 +103,7 @@ export function CollapsiblePanel({
   minHeight = 80,
   maxHeight = "calc(100vh - 120px)",
   mobileHeight = 56,
+  tintOnlyWhenCollapsed = false,
   children,
 }: CollapsiblePanelProps) {
   const [isOpen, setIsOpen] = useState(() => readPersistedState(storageKey, defaultOpen));
@@ -240,14 +243,19 @@ export function CollapsiblePanel({
 
   const showDragHandle = resizable && isOpen && !isMobile;
 
+  // Header tint is applied unconditionally, or only while collapsed when
+  // `tintOnlyWhenCollapsed` is set — header-color as a "what's inside" hint
+  // that doesn't double-up with the body while the panel is open.
+  const headerTint = tint && (!tintOnlyWhenCollapsed || !isOpen) ? tint : null;
+
   return (
     <div className="border-t border-border">
       {/* Header — always visible */}
       <div
         className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0 transition-colors"
-        style={tint ? { backgroundColor: tint.base } : undefined}
-        onMouseEnter={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
-        onMouseLeave={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
+        style={headerTint ? { backgroundColor: headerTint.base } : undefined}
+        onMouseEnter={headerTint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerTint.hover; } : undefined}
+        onMouseLeave={headerTint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerTint.base; } : undefined}
       >
         <button
           type="button"

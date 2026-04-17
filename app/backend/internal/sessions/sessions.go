@@ -44,7 +44,9 @@ func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "fab", "pane", "map", "--json", "--all-sessions")
-	cmd.Dir = repoRoot
+	if repoRoot != "" {
+		cmd.Dir = repoRoot
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -337,10 +339,7 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 
 	// Fetch pane-map once for all sessions. On error, paneMap is nil
 	// and all windows get empty fab fields (graceful degradation).
-	var paneMap map[string]paneMapEntry
-	if repoRoot != "" {
-		paneMap, _ = fetchPaneMapCached(repoRoot)
-	}
+	paneMap, _ := fetchPaneMapCached(repoRoot)
 
 	// Collect all pane cwds for git branch resolution.
 	var allCwds []string

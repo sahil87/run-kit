@@ -21,7 +21,7 @@ type ProjectSession struct {
 	Windows      []tmux.WindowInfo `json:"windows"`
 }
 
-// paneMapEntry matches the JSON output of `fab-go pane-map --json`.
+// paneMapEntry matches the JSON output of `fab pane map --json`.
 type paneMapEntry struct {
 	Session           string  `json:"session"`
 	WindowIndex       int     `json:"window_index"`
@@ -34,14 +34,17 @@ type paneMapEntry struct {
 	AgentIdleDuration *string `json:"agent_idle_duration"`
 }
 
-// fetchPaneMap runs fab-go pane-map --json --all-sessions and returns a lookup
-// map keyed by "session:windowIndex". Returns nil map and an error on failure.
+// fetchPaneMap runs `fab pane map --json --all-sessions` via the fab router on
+// PATH and returns a lookup map keyed by "session:windowIndex". The subprocess
+// runs with cmd.Dir = repoRoot so the router can resolve the project's
+// fab_version from fab/project/config.yaml. Returns nil map and an error on
+// failure.
 func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	bin := filepath.Join(repoRoot, "fab/.kit/bin/fab-go")
-	cmd := exec.CommandContext(ctx, bin, "pane-map", "--json", "--all-sessions")
+	cmd := exec.CommandContext(ctx, "fab", "pane", "map", "--json", "--all-sessions")
+	cmd.Dir = repoRoot
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -75,7 +78,7 @@ func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
 }
 
 // Pane-map cache: package-level with sync.RWMutex protection.
-// Avoids re-running fab-go pane-map on every SSE tick (5s TTL).
+// Avoids re-running `fab pane map` on every SSE tick (5s TTL).
 var (
 	paneMapCache     map[string]paneMapEntry
 	paneMapCacheTime time.Time
@@ -118,10 +121,11 @@ func fetchPaneMapCached(repoRoot string) (map[string]paneMapEntry, error) {
 }
 
 // findRepoRoot walks up from dir until it finds a directory containing
-// fab/.kit/bin/fab-go, returning that directory. Returns "" if not found.
+// fab/project/config.yaml (the fab-project identity marker), returning that
+// directory. Returns "" if not found.
 func findRepoRoot(dir string) string {
 	for {
-		candidate := filepath.Join(dir, "fab/.kit/bin/fab-go")
+		candidate := filepath.Join(dir, "fab/project/config.yaml")
 		if _, err := os.Stat(candidate); err == nil {
 			return dir
 		}
@@ -132,7 +136,6 @@ func findRepoRoot(dir string) string {
 		dir = parent
 	}
 }
-
 
 // Per-entry git branch cache with separate positive/negative TTLs.
 type gitBranchCacheEntry struct {
@@ -314,8 +317,9 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 	wg.Wait()
 
 	// Derive repoRoot by walking up from the first available window's
-	// WorktreePath until we find a directory containing fab/.kit/bin/fab-go.
-	// WorktreePath is the pane's cwd which may be a subdirectory of the repo.
+	// WorktreePath until we find a directory containing fab/project/config.yaml
+	// (the fab-project identity marker). WorktreePath is the pane's cwd which
+	// may be a subdirectory of the repo.
 	repoRoot := ""
 	for _, sd := range data {
 		for _, w := range sd.windows {

@@ -2,36 +2,41 @@ id: r1j6
 name: 260416-r1j6-add-riff-command
 created: 2026-04-16T15:44:59Z
 created_by: sahil-weaver
-change_type: feat
+change_type: refactor
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    tasks: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 checklist:
-    generated: false
+    generated: true
     path: checklist.md
-    completed: 0
+    completed: 33
     total: 0
 confidence:
-    certain: 2
-    confident: 2
-    tentative: 1
-    unresolved: 1
-    score: 0.0
-    indicative: true
+    certain: 15
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 3.8
     fuzzy: true
     dimensions:
-        signal: 68.3
-        reversibility: 79.2
-        competence: 68.3
-        disambiguation: 66.7
+        signal: 86.9
+        reversibility: 81.7
+        competence: 80.3
+        disambiguation: 81.1
 stage_metrics:
-    intake: {started_at: "2026-04-16T15:44:59Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-04-16T15:44:59Z", driver: fab-new, iterations: 1, completed_at: "2026-04-17T07:31:06Z"}
+    spec: {started_at: "2026-04-17T07:31:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T07:33:24Z"}
+    tasks: {started_at: "2026-04-17T07:33:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T07:38:06Z"}
+    apply: {started_at: "2026-04-17T07:38:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T07:44:59Z"}
+    review: {started_at: "2026-04-17T07:44:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T07:49:00Z"}
+    hydrate: {started_at: "2026-04-17T07:49:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T07:52:41Z"}
+    ship: {started_at: "2026-04-17T07:52:41Z", driver: fab-fff, iterations: 1}
 prs: []
-last_updated: 2026-04-16T15:45:44Z
+last_updated: 2026-04-17T07:52:41Z

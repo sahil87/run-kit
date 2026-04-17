@@ -125,6 +125,8 @@ func writeCapabilities(b *strings.Builder) {
 	b.WriteString("**Server**\n\n")
 	b.WriteString("- `rk serve` — Start the HTTP server\n")
 	b.WriteString("- `rk update` — Update rk to the latest version\n\n")
+	b.WriteString("**Workflow**\n\n")
+	b.WriteString("- `rk riff` — Create a worktree, tmux window, and Claude Code session\n\n")
 	b.WriteString("**Diagnostics**\n\n")
 	b.WriteString("- `rk doctor` — Check runtime dependencies\n")
 	b.WriteString("- `rk status` — Show tmux session summary\n\n")

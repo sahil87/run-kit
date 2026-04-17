@@ -118,7 +118,7 @@ The `await` must be followed by a fresh `cancelled` check, per the existing patt
 
 ### 6. Build verification
 
-- `just build-frontend` — verify Vite includes the font file(s) in the output bundle and path references resolve.
+- `just build` — verify Vite includes the font file(s) in the output bundle and path references resolve.
 - `just test-e2e` — verify the golden-path terminal rendering test still passes.
 - Manual Playwright check at desktop (1024×768, 13px) and mobile (375×812, 11px) viewports — confirm no visible baseline wobble in a rendered prompt.
 

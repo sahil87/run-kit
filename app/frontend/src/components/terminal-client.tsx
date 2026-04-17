@@ -130,12 +130,22 @@ export function TerminalClient({
       // Ensure the bundled webfont is loaded before xterm measures cell
       // dimensions. xterm.js measures once at open() and does not re-measure
       // when fonts arrive later, so fallback metrics would persist as
-      // misaligned glyphs. Load all three weights concurrently.
-      await Promise.all([
-        document.fonts.load(`${fontPx}px "JetBrainsMono Nerd Font"`),
-        document.fonts.load(`bold ${fontPx}px "JetBrainsMono Nerd Font"`),
-        document.fonts.load(`italic ${fontPx}px "JetBrainsMono Nerd Font"`),
-      ]);
+      // misaligned glyphs. Load all three weights concurrently, but do not
+      // block terminal startup indefinitely if the FontFaceSet API is
+      // unavailable or a font request stalls (e.g., proxy blackholes .woff2).
+      if (typeof document.fonts?.load === "function") {
+        const FONT_LOAD_TIMEOUT_MS = 3000;
+        const fontLoads = Promise.all([
+          document.fonts.load(`${fontPx}px "JetBrainsMono Nerd Font"`),
+          document.fonts.load(`bold ${fontPx}px "JetBrainsMono Nerd Font"`),
+          document.fonts.load(`italic ${fontPx}px "JetBrainsMono Nerd Font"`),
+        ]);
+        const timeout = new Promise<void>((resolve) => {
+          window.setTimeout(resolve, FONT_LOAD_TIMEOUT_MS);
+        });
+        // Proceed with the fallback font stack if font loading fails or stalls.
+        await Promise.race([fontLoads, timeout]).catch(() => undefined);
+      }
 
       // Component unmounted while awaiting font loads
       if (cancelled || !terminalRef.current) return;

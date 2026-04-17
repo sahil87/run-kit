@@ -46,7 +46,7 @@
 
 - [ ] CHK-024 `cd app/frontend && npx tsc --noEmit` exits 0.
 - [ ] CHK-025 `just test-frontend` (Vitest) exits 0.
-- [ ] CHK-026 `just build-frontend` exits 0; `app/frontend/dist/` contains three `.woff2` files referenced by the built CSS (path a: fontsource-bundled; path b: copied from `public/fonts/`).
+- [ ] CHK-026 `just build` exits 0; `app/frontend/dist/` contains three `.woff2` files referenced by the built CSS (path a: fontsource-bundled; path b: copied from `public/fonts/`).
 - [ ] CHK-027 `just test-backend` exits 0 (sanity — no expected impact).
 - [ ] CHK-028 `just test-e2e` exits 0; any rebaselined visual snapshot is noted explicitly in tasks.md rework notes.
 

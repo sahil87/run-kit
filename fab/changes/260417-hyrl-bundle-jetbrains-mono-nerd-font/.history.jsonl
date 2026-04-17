@@ -18,3 +18,6 @@
 {"event":"review","result":"passed","ts":"2026-04-17T11:12:42Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-17T11:14:15Z"}
 {"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-04-17T11:16:25Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-04-17T11:17:19Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-04-17T11:28:21Z"}
+{"delta":"-0.6","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-04-17T11:28:23Z"}

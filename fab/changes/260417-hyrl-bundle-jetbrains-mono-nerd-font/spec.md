@@ -142,11 +142,11 @@ The `--font-mono` custom property in `app/frontend/src/globals.css` SHALL contin
 
 ### Requirement: Frontend build succeeds with the bundled font
 
-`just build-frontend` SHALL succeed, producing a Vite bundle that includes the three `.woff2` files (either vendored via fontsource or copied from `public/fonts/`). All `@font-face` URLs in the built CSS MUST resolve to paths actually served from the `dist/` output.
+`just build` SHALL succeed, producing a Vite bundle that includes the three `.woff2` files (either vendored via fontsource or copied from `public/fonts/`). All `@font-face` URLs in the built CSS MUST resolve to paths actually served from the `dist/` output.
 
 #### Scenario: fresh build
 - **GIVEN** the frontend source tree with the font bundled per the earlier requirements
-- **WHEN** `just build-frontend` runs
+- **WHEN** `just build` runs
 - **THEN** the command SHALL exit 0
 - **AND** the `app/frontend/dist/` output SHALL contain three `.woff2` files (Regular, Bold, Italic) referenced by the built CSS
 

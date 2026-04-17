@@ -3,6 +3,10 @@ package sessions
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"testing"
 
 	"rk/internal/tmux"
@@ -273,18 +277,79 @@ func TestPaneMapNilLeavesAllFieldsEmpty(t *testing.T) {
 	}
 }
 
-func TestFetchPaneMapNonexistentBinary(t *testing.T) {
-	// fetchPaneMap with a bad repoRoot should return an error.
-	m, err := fetchPaneMap("/nonexistent/path")
+func TestFetchPaneMapFabNotOnPath(t *testing.T) {
+	// When `fab` is not reachable via $PATH, fetchPaneMap MUST return a
+	// non-nil error and a nil map. We force the failure by clearing PATH
+	// for the duration of this test.
+	t.Setenv("PATH", "")
+	repoRoot := t.TempDir()
+	m, err := fetchPaneMap(repoRoot)
 	if err == nil {
-		t.Error("expected error for nonexistent binary, got nil")
+		t.Error("expected error when fab is not on PATH, got nil")
 	}
 	if m != nil {
 		t.Errorf("expected nil map, got %v", m)
 	}
 }
 
+// TestFetchPaneMapIntegration exercises the real subprocess invocation path.
+// Skips when `fab` is not on PATH (CI without fab-kit installed).
+//
+// Go test binaries run with CWD = package directory, so to find the running
+// repo's fab/project/config.yaml we walk up from os.Getwd() using findRepoRoot.
+// We then reuse the running repo's fab_version in a freshly-written config.yaml
+// inside a t.TempDir(), so the router can resolve a version it knows how to run.
+func TestFetchPaneMapIntegration(t *testing.T) {
+	if _, err := exec.LookPath("fab"); err != nil {
+		t.Skip("fab router not available on PATH")
+	}
+
+	// Locate the running repo's fab/project/config.yaml by walking up from the
+	// test binary's CWD (the package dir).
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	repoRoot := findRepoRoot(cwd)
+	if repoRoot == "" {
+		t.Fatalf("could not locate repo root by walking up from %q", cwd)
+	}
+	configBytes, err := os.ReadFile(filepath.Join(repoRoot, "fab/project/config.yaml"))
+	if err != nil {
+		t.Fatalf("read running repo config.yaml: %v", err)
+	}
+	// Extract the fab_version line verbatim so the router sees a real,
+	// installed version.
+	versionRe := regexp.MustCompile(`(?m)^fab_version:\s*(\S+)\s*$`)
+	matches := versionRe.FindStringSubmatch(string(configBytes))
+	if len(matches) < 2 {
+		t.Fatalf("running repo config.yaml missing fab_version line:\n%s", configBytes)
+	}
+	fabVersion := matches[1]
+
+	// Create a temp dir with a minimal fab/project/config.yaml.
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "fab", "project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", projectDir, err)
+	}
+	configPath := filepath.Join(projectDir, "config.yaml")
+	minimalConfig := fmt.Sprintf("fab_version: %s\nproject:\n  name: integration-test\n", fabVersion)
+	if err := os.WriteFile(configPath, []byte(minimalConfig), 0o644); err != nil {
+		t.Fatalf("write %s: %v", configPath, err)
+	}
+
+	// Sanity-check: findRepoRoot on tempDir should return tempDir itself.
+	if got := findRepoRoot(tempDir); got != tempDir {
+		t.Fatalf("findRepoRoot(%q) = %q, want %q", tempDir, got, tempDir)
+	}
+
+	// The subprocess call SHALL succeed. The returned map MAY be empty —
+	// we assert absence of error, not specific contents.
+	if _, err := fetchPaneMap(tempDir); err != nil {
+		t.Errorf("fetchPaneMap(%q) error: %v", tempDir, err)
+	}
+}
+
 // strPtr is a test helper returning a pointer to s.
 func strPtr(s string) *string { return &s }
-
-

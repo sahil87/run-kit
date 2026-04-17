@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-17T10:32:29Z"}
+{"args":"Bundle JetBrainsMono Nerd Font as a webfont in the frontend","cmd":"fab-new","event":"command","ts":"2026-04-17T10:32:29Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-17T10:34:07Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-17T10:34:16Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-17T10:34:39Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-17T10:34:44Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-17T10:43:58Z"}
+{"delta":"+3.2","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-04-17T10:44:12Z"}
+{"delta":"+0.0","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-04-17T10:44:15Z"}

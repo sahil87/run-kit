@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-17T13:32:03Z"}
+{"args":"Name the tmux window created by rk riff after the worktree (pass -n riff-\u003cbasename\u003e to tmux new-window)","cmd":"fab-new","event":"command","ts":"2026-04-17T13:32:03Z"}
+{"delta":"+3.5","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-04-17T13:33:41Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-04-17T13:33:50Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-17T13:34:56Z"}
+{"delta":"+0.3","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-04-17T13:37:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-17T13:38:02Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-04-17T13:38:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-17T13:40:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-17T13:40:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-17T13:43:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-17T13:45:58Z"}
+{"event":"review","result":"passed","ts":"2026-04-17T13:45:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-17T13:47:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review-pr","ts":"2026-04-17T13:49:40Z"}

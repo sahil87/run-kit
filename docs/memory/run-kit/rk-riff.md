@@ -62,7 +62,7 @@ The launcher is treated as a **shell command string** (not an argv slice). It ma
 2. Launcher resolution.
 3. `wt create --non-interactive --worktree-open skip [<passthrough>...]` via `exec.CommandContext` (30s timeout). Captures combined stdout+stderr.
 4. Parse the `Path:` line from wt output via `parseWorktreePath` — scans lines, trims whitespace, returns the first non-empty value after `Path:`. Missing/empty `Path:` or non-existent path → subprocess error.
-5. `tmux new-window -c <worktree-path> "<launcher> '<cmd>'"` via `exec.CommandContext` (10s timeout). `cmd.Env = tmuxChildEnv()` restores `TMUX=<OriginalTMUX>` so tmux targets the user's server.
+5. `tmux new-window -n riff-<worktree-basename> -c <worktree-path> "<launcher> '<cmd>'"` via `exec.CommandContext` (10s timeout). The `-n` flag pins the window name so it's easy to locate in `tmux list-windows` and signals provenance (the window came from `rk riff`). Passing `-n` also prevents tmux's `automatic-rename` from overwriting the name as processes come and go. Basename is `filepath.Base(worktreePath)` where `worktreePath` is the already-validated output of `parseWorktreePath`. The argv is constructed by the pure helper `buildNewWindowArgs(worktreePath, launcher, cmdArg) []string`. `cmd.Env = tmuxChildEnv()` restores `TMUX=<OriginalTMUX>` so tmux targets the user's server.
 6. If `--split` is non-empty: `tmux split-window -h -c <worktree-path> "<setup>; exec zsh"` (10s timeout). Same child-env restore. `--split ""` (empty) is treated identically to unset — the step is skipped entirely.
 
 ## Exit Code Discipline
@@ -148,3 +148,4 @@ No integration tests invoke real `wt`/`tmux` — the pure helpers are the unit-t
 | Date | Change | Reference |
 |------|--------|-----------|
 | 2026-04-17 | Initial `rk riff` subcommand — worktree + tmux window + Claude launcher. Unifies the personal-dotfile `riff`/`riffs` shell functions into a first-class `rk` command. `--cmd` (default `/fab-discuss`), `--split <setup-cmd>` (optional horizontal split), `-- <wt-flags>` passthrough to `wt create`. Preconditions: `$TMUX` set + `wt` on PATH (exit 2). Launcher from `agent.spawn_command` in `fab/project/config.yaml` via new `internal/fabconfig/` (falls back to `claude --dangerously-skip-permissions`). Local `exitCodeError` wrapper maps exit codes (2 precondition, 3 subprocess) without touching `main.execute()`. `exec.CommandContext` with 30s/10s timeouts. `tmux.OriginalTMUX` restored in child env so tmux targets the user's current server. | `260416-r1j6-add-riff-command` |
+| 2026-04-17 | Name the tmux window `riff-<worktree-basename>` via the `-n` flag, and document via the pure helper `buildNewWindowArgs`. | `260417-w4af-name-riff-window-after-worktree` |

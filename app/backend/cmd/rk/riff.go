@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -213,16 +214,31 @@ func parseWorktreePath(output string) string {
 	return ""
 }
 
+// buildNewWindowArgs returns the argv slice (after the binary name "tmux")
+// passed to `tmux new-window` by runTmuxNewWindow. Pure, no side effects —
+// exposed as the test seam so riff_test.go can assert the naming and argv
+// ordering rules without invoking real tmux. The window is named
+// `riff-<filepath.Base(worktreePath)>`; -n and -c are distinct argv elements
+// per constitution §I (Security First); the trailing shell-command element
+// is the documented exception to the argv-only rule (interpreted by tmux's
+// shell).
+func buildNewWindowArgs(worktreePath, launcher, cmdArg string) []string {
+	windowName := "riff-" + filepath.Base(worktreePath)
+	shellCmd := fmt.Sprintf("%s '%s'", launcher, escapeSingleQuotes(cmdArg))
+	return []string{"new-window", "-n", windowName, "-c", worktreePath, shellCmd}
+}
+
 // runTmuxNewWindow opens a new tmux window rooted at worktreePath, with the
 // initial command being `<launcher> '<cmd>'` (cmd single-quote-escaped). The
-// second arg to tmux new-window IS a shell string interpreted by tmux's shell
-// — this is the spec's documented exception to the argv-only rule.
+// window is named `riff-<worktree-basename>` via `-n`; the exact argv is
+// constructed by buildNewWindowArgs. The trailing shell-command arg to tmux
+// new-window IS a shell string interpreted by tmux's shell — this is the
+// spec's documented exception to the argv-only rule.
 func runTmuxNewWindow(parent context.Context, worktreePath, launcher, cmdArg string) error {
 	ctx, cancel := context.WithTimeout(parent, tmuxTimeout)
 	defer cancel()
 
-	shellCmd := fmt.Sprintf("%s '%s'", launcher, escapeSingleQuotes(cmdArg))
-	cmd := exec.CommandContext(ctx, "tmux", "new-window", "-c", worktreePath, shellCmd)
+	cmd := exec.CommandContext(ctx, "tmux", buildNewWindowArgs(worktreePath, launcher, cmdArg)...)
 	cmd.Env = tmuxChildEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {

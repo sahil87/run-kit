@@ -125,12 +125,25 @@ export function TerminalClient({
       if (cancelled || !terminalRef.current) return;
 
       const isMobile = !window.matchMedia("(min-width: 640px)").matches;
+      const fontPx = isMobile ? 11 : 13;
+
+      // Ensure the bundled webfont is loaded before xterm measures cell
+      // dimensions. xterm.js measures once at open() and does not re-measure
+      // when fonts arrive later, so fallback metrics would persist as
+      // misaligned glyphs. Load all three weights concurrently.
+      await Promise.all([
+        document.fonts.load(`${fontPx}px "JetBrainsMono Nerd Font"`),
+        document.fonts.load(`bold ${fontPx}px "JetBrainsMono Nerd Font"`),
+        document.fonts.load(`italic ${fontPx}px "JetBrainsMono Nerd Font"`),
+      ]);
+
+      // Component unmounted while awaiting font loads
+      if (cancelled || !terminalRef.current) return;
 
       terminal = new Terminal({
         cursorBlink: true,
-        fontFamily:
-          "JetBrainsMono Nerd Font, JetBrains Mono, Fira Code, SF Mono, Menlo, Monaco, Consolas, monospace",
-        fontSize: isMobile ? 11 : 13,
+        fontFamily: '"JetBrainsMono Nerd Font", ui-monospace, monospace',
+        fontSize: fontPx,
         theme: deriveXtermTheme(activeTheme.palette),
       });
 

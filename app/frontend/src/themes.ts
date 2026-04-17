@@ -103,6 +103,48 @@ export function blendHex(fg: string, bg: string, ratio: number): string {
   });
 }
 
+function rgbToHsl(rgb: RGB): { h: number; s: number; l: number } {
+  const r = rgb.r / 255, g = rgb.g / 255, b = rgb.b / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return { h: h * 60, s, l };
+}
+
+function hslToRgb(hsl: { h: number; s: number; l: number }): RGB {
+  const { h, s, l } = hsl;
+  if (s === 0) return { r: l * 255, g: l * 255, b: l * 255 };
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hh = h / 360;
+  return {
+    r: hue2rgb(p, q, hh + 1 / 3) * 255,
+    g: hue2rgb(p, q, hh) * 255,
+    b: hue2rgb(p, q, hh - 1 / 3) * 255,
+  };
+}
+
+/** Multiply the HSL saturation of a hex color by a factor, clamped to [0, 1]. */
+export function saturateHex(hex: string, factor: number): string {
+  const hsl = rgbToHsl(hexToRgb(hex));
+  hsl.s = Math.max(0, Math.min(1, hsl.s * factor));
+  return rgbToHex(hslToRgb(hsl));
+}
+
 // ── Derivation functions ─────────────────────────────────────────────────────
 
 /** Derive the 8 UI CSS colors from a full theme palette. */
@@ -113,7 +155,7 @@ export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"
     bgCard: isDark ? lightenHex(palette.background, 8) : darkenHex(palette.background, 3),
     bgInset: isDark ? darkenHex(palette.background, 5) : darkenHex(palette.background, 6),
     textPrimary: palette.foreground,
-    textSecondary: palette.ansi[8],
+    textSecondary: blendHex(palette.foreground, palette.ansi[8], 0.3),
     border: blendHex(palette.foreground, palette.background, 0.25),
     accent: palette.ansi[4],
     accentGreen: palette.ansi[2],
@@ -162,27 +204,32 @@ export const UNCOLORED_SELECTED_ANSI = 8;
 
 /** Pre-blended row tint colors for a single ANSI index at three states. */
 export type RowTint = {
-  base: string;     // 14% ANSI into background
-  hover: string;    // 22% ANSI into background
-  selected: string; // 32% ANSI into background
+  base: string;     // 14% saturated-ANSI into background
+  hover: string;    // 22% saturated-ANSI into background
+  selected: string; // 32% saturated-ANSI into background
 };
 
 /**
  * Pre-compute blended hex values for all picker ANSI indices.
- * Single axis: blend ratio increases with interaction depth (14% → 22% → 32%).
+ * The ANSI hue is saturated (×1.5) before blending so row tints read as their
+ * intended color rather than grayish, while blend ratios stay muted.
+ * Gray (ANSI 8) is not saturated (near-zero saturation by definition) and uses
+ * a 0.5 selected ratio so uncolored selected rows beat the bg-card/50 hover.
  */
 export function computeRowTints(palette: ThemePalette): Map<number, RowTint> {
   const bg = palette.background;
   const tints = new Map<number, RowTint>();
 
-  // Picker colors plus gray (ANSI 8), which backs the uncolored-selected state.
   const indices = [...PICKER_ANSI_INDICES, UNCOLORED_SELECTED_ANSI];
   for (const idx of indices) {
-    const fg = palette.ansi[idx];
+    const fg = idx === UNCOLORED_SELECTED_ANSI
+      ? palette.ansi[idx]
+      : saturateHex(palette.ansi[idx], 1.5);
+    const selectedRatio = idx === UNCOLORED_SELECTED_ANSI ? 0.5 : 0.32;
     tints.set(idx, {
       base: blendHex(fg, bg, 0.14),
       hover: blendHex(fg, bg, 0.22),
-      selected: blendHex(fg, bg, 0.32),
+      selected: blendHex(fg, bg, selectedRatio),
     });
   }
 

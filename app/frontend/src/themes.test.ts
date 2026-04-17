@@ -119,7 +119,7 @@ describe("deriveUIColors", () => {
     const ui = deriveUIColors(dracula.palette, "dark");
     expect(ui.bgPrimary).toBe("#282a36");
     expect(ui.textPrimary).toBe("#f8f8f2");
-    expect(ui.textSecondary).toBe("#6272a4"); // ansi[8]
+    expect(ui.textSecondary).toBe("#8f9abb"); // foreground blended 30% into ansi[8]
     expect(ui.accent).toBe("#bd93f9"); // ansi[4]
     expect(ui.accentGreen).toBe("#50fa7b"); // ansi[2]
   });

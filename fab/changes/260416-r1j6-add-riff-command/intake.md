@@ -53,35 +53,48 @@ rk riff [--cmd <command>] [--split <setup-cmd>] [-- <wt-flags...>]
 | `-- <wt-flags>` | *(none)* | Passthrough flags to `wt create` (e.g., `--worktree-name`, `--base`, `--reuse`) |
 
 Steps:
-1. Run `wt create --non-interactive --worktree-open skip [wt-flags...]` to create a worktree
-2. Parse the `Path:` line from wt output to get the worktree path
-3. Open a tmux window: `tmux new-window -c <path> "clauded '<cmd>'"`
-4. If `--split` provided: `tmux split-window -h -c <path> "<setup-cmd>; exec zsh"`
+1. Validate preconditions: `wt` must be on PATH and `$TMUX` must be set; error out otherwise.
+2. Resolve the launcher from `agent.spawn_command` in `fab/project/config.yaml` (same resolution as `fab operator`; falls back to `claude --dangerously-skip-permissions` if the key is absent).
+3. Run `wt create --non-interactive --worktree-open skip [wt-flags...]` to create a worktree.
+4. Parse the `Path:` line from wt output to get the worktree path.
+5. Open a tmux window: `tmux new-window -c <path> "<spawn_command> '<cmd>'"`
+6. If `--split` provided: `tmux split-window -h -c <path> "<setup-cmd>; exec zsh"`
 
 This unifies `riff` and `riffs` into a single command — `rk riff` is the basic version, `rk riff --split "just setup"` is the split version.
 
 ### 2. Dependencies
 
-- **`wt`** — must be available on PATH (run-kit already documents wt as a companion tool)
-- **`clauded`** — the Claude Code launcher script. Should be configurable or discoverable (e.g., fall back to `claude --dangerously-skip-permissions` if `clauded` not found)
-- **`tmux`** — required (rk already depends on tmux)
+- **`wt`** — REQUIRED on PATH; `rk riff` errors out with a clear message if missing. Aligns with constitution's "Wrap, Don't Reinvent" — rk does not fall back to `git worktree add`. <!-- clarified: wt is required; no git-worktree fallback -->
+- **`tmux`** — REQUIRED; `rk riff` errors out if `$TMUX` is unset. Matches `fab operator` behavior. <!-- clarified: must run inside tmux; no auto-start -->
+- **Launcher** — resolved from `agent.spawn_command` in `fab/project/config.yaml`, falling back to `claude --dangerously-skip-permissions`. No `clauded` dependency; matches `fab operator`. <!-- clarified: launcher reuses agent.spawn_command -->
+- **Default `--cmd`** — hardcoded to `/fab-discuss`; overridable via `--cmd` flag. No config key for the default. <!-- clarified: hardcoded default, flag override only -->
 
 ## Affected Memory
 
-- To be determined based on run-kit's memory structure
+- `docs/memory/run-kit/architecture.md` (modify) — add `rk riff` to the command registry / subcommand list.
+- `docs/memory/run-kit/tmux-sessions.md` (modify) — document `rk riff`'s window-creation flow alongside existing session semantics.
+- `docs/memory/run-kit/rk-riff.md` (new) — dedicated file for the `rk riff` subcommand: flags, defaults resolution, dependency chain, error cases.
 
 ## Impact
 
 - **`rk` CLI**: New subcommand added to the command registry
-- **Dependencies**: Requires `wt` and `clauded` (or `claude`) on PATH
+- **Dependencies**: Requires `wt` and `tmux` on PATH; launcher resolved from `agent.spawn_command` (fab/project/config.yaml)
 - **Existing shell functions**: Users can remove their `riff`/`riffs` shell functions after adopting `rk riff`
 
 ## Open Questions
 
-- Should `rk riff` auto-detect the Claude launcher (`clauded` → `claude --dangerously-skip-permissions` → `claude`) or require explicit configuration?
-- Should the default `--cmd` be configurable (e.g., in a `.rk-config.yaml` or similar)?
-- Should `rk riff` work without `wt` by falling back to `git worktree add` directly?
-- What happens if not inside a tmux session? Error, or auto-start tmux?
+*(All open questions resolved in 2026-04-17 clarification session — see `## Clarifications` below.)*
+
+## Clarifications
+
+### Session 2026-04-17
+
+| # | Question | Answer |
+|---|----------|--------|
+| 1 | Config model for launcher binary and default `--cmd`? | Reuse `agent.spawn_command` from `fab/project/config.yaml` for the launcher (same as `fab operator`). Hardcode `/fab-discuss` as the default `--cmd`, overridable via flag. No new config keys. |
+| 2 | What should `rk riff` do when `wt` is not on PATH? | Error out. Require `wt` — aligns with constitution's "Wrap, Don't Reinvent". No fallback to `git worktree add`. |
+| 3 | What should `rk riff` do when `$TMUX` is unset? | Error out. Matches `fab operator` behavior — no auto-start, no detached launch. |
+| 4 | Which memory files does the hydrate stage touch? | Modify `run-kit/architecture.md` and `run-kit/tmux-sessions.md`; create new `run-kit/rk-riff.md` for the subcommand reference. |
 
 ## Assumptions
 
@@ -89,9 +102,12 @@ This unifies `riff` and `riffs` into a single command — `rk riff` is the basic
 |---|-------|----------|-----------|--------|
 | 1 | Certain | `rk` is the home for riff, not `fab` or `wt` | Discussed — rk owns tmux window lifecycle, riff creates tmux windows | S:95 R:85 A:90 D:95 |
 | 2 | Certain | Unify `riff` and `riffs` into single `rk riff` command with `--split` flag | Discussed — `riffs` is just `riff` + split pane, single command is cleaner | S:90 R:85 A:85 D:90 |
-| 3 | Confident | Default command is `/fab-discuss` | Matches current shell function default; reasonable starting point | S:75 R:90 A:75 D:70 |
+| 3 | Certain | Default `--cmd` is `/fab-discuss` (hardcoded, overridable via flag) | Clarified — user confirmed hardcoded default, no config surface | S:95 R:90 A:75 D:70 |
 | 4 | Confident | wt passthrough via `--` separator | Standard CLI pattern for forwarding flags to sub-tools | S:70 R:85 A:80 D:75 |
-| 5 | Tentative | `clauded` as the default launcher with fallback chain | User currently uses `clauded` but other users may not have it; needs fallback strategy | S:50 R:70 A:50 D:45 |
-| 6 | Unresolved | Configuration mechanism for defaults (cmd, launcher) | Multiple valid approaches: env vars, config file, flags only — user preference needed | S:30 R:60 A:30 D:25 |
+| 5 | Certain | Launcher resolved from `agent.spawn_command` in `fab/project/config.yaml` (falls back to `claude --dangerously-skip-permissions`) | Clarified — user confirmed; matches `fab operator`, honors Convention Over Configuration | S:95 R:70 A:50 D:45 |
+| 6 | Certain | Config mechanism: reuse existing `agent.spawn_command`; no new config keys; flag-only overrides for `--cmd` and `--split` | Clarified — user confirmed | S:95 R:60 A:30 D:25 |
+| 7 | Certain | Require `wt` on PATH; error out if missing (no `git worktree add` fallback) | Clarified — user confirmed; "Wrap, Don't Reinvent" | S:95 R:80 A:85 D:90 |
+| 8 | Certain | Require `$TMUX` to be set; error out if not in a tmux session | Clarified — user confirmed; matches `fab operator` | S:95 R:85 A:90 D:95 |
+| 9 | Certain | Affected memory: modify `run-kit/architecture.md` + `run-kit/tmux-sessions.md`; add new `run-kit/rk-riff.md` | Clarified — user selected all three | S:95 R:75 A:75 D:80 |
 
-6 assumptions (2 certain, 2 confident, 1 tentative, 1 unresolved). Run /fab-clarify to review.
+9 assumptions (8 certain, 1 confident, 0 tentative, 0 unresolved).

@@ -62,6 +62,22 @@ export function Sidebar({
   }, []);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Expanded peek state — keyed by `${session}:${windowId}` (stable window id,
+  // not index, to survive reorder). In-memory React state only; resets on
+  // page reload per spec Non-Goals.
+  const [expandedPeeks, setExpandedPeeks] = useState<Set<string>>(() => new Set());
+  const togglePeek = useCallback((session: string, windowId: string) => {
+    setExpandedPeeks((prev) => {
+      const key = `${session}:${windowId}`;
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
   const [killTarget, setKillTarget] = useState<{
     type: "session" | "window";
     session: string;
@@ -584,6 +600,8 @@ export function Sidebar({
                       const ghost = isGhostWindow(win);
                       const isDragOver = dropTarget?.session === session.name && dropTarget?.index === win.index && dragSource?.index !== win.index;
 
+                      const peekKey = ghost ? "" : `${session.name}:${win.windowId}`;
+                      const isExpanded = peekKey !== "" && expandedPeeks.has(peekKey);
                       return (
                         <WindowRow
                           key={ghost ? `ghost-${win.optimisticId}` : win.windowId}
@@ -598,6 +616,8 @@ export function Sidebar({
                           editingWindow={editingWindow}
                           editingName={editingName}
                           inputRef={inputRef}
+                          isExpanded={isExpanded}
+                          onToggleExpand={ghost ? undefined : () => togglePeek(session.name, win.windowId)}
                           onSelectWindow={() => onSelectWindow(session.name, win.index)}
                           onDoubleClickName={() => handleStartEditing(session.name, win.windowId, win.name)}
                           onWindowNameChange={setEditingName}

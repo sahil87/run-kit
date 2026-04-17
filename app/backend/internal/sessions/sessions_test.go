@@ -1,9 +1,12 @@
 package sessions
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"rk/internal/tmux"
 )
@@ -287,4 +290,132 @@ func TestFetchPaneMapNonexistentBinary(t *testing.T) {
 // strPtr is a test helper returning a pointer to s.
 func strPtr(s string) *string { return &s }
 
+// --- enrichLastLines tests ---
 
+// withCaptureFn swaps capturePaneFn for the duration of a test and restores it.
+func withCaptureFn(t *testing.T, fn func(ctx context.Context, session string, index int, lines int, server string) (string, error)) {
+	t.Helper()
+	prev := capturePaneFn
+	capturePaneFn = fn
+	t.Cleanup(func() { capturePaneFn = prev })
+}
+
+func TestEnrichLastLinesHappyPath(t *testing.T) {
+	withCaptureFn(t, func(ctx context.Context, session string, index int, lines int, server string) (string, error) {
+		// Return a simple fake capture that includes ANSI escapes to verify
+		// the stripper is wired in.
+		return fmt.Sprintf("\x1b[32mrunning %s:%d\x1b[0m\n", session, index), nil
+	})
+
+	sessions := []ProjectSession{
+		{
+			Name: "dev",
+			Windows: []tmux.WindowInfo{
+				{Index: 0, Name: "main"},
+				{Index: 1, Name: "build"},
+			},
+		},
+		{
+			Name: "ops",
+			Windows: []tmux.WindowInfo{
+				{Index: 0, Name: "logs"},
+			},
+		},
+	}
+
+	enrichLastLines(context.Background(), "default", sessions)
+
+	if got := sessions[0].Windows[0].LastLine; got != "running dev:0" {
+		t.Errorf("dev:0 LastLine = %q, want %q", got, "running dev:0")
+	}
+	if got := sessions[0].Windows[1].LastLine; got != "running dev:1" {
+		t.Errorf("dev:1 LastLine = %q, want %q", got, "running dev:1")
+	}
+	if got := sessions[1].Windows[0].LastLine; got != "running ops:0" {
+		t.Errorf("ops:0 LastLine = %q, want %q", got, "running ops:0")
+	}
+}
+
+func TestEnrichLastLinesPerWindowErrorIsolation(t *testing.T) {
+	withCaptureFn(t, func(ctx context.Context, session string, index int, lines int, server string) (string, error) {
+		if session == "dev" && index == 1 {
+			return "", fmt.Errorf("simulated tmux error")
+		}
+		return fmt.Sprintf("ok-%s-%d\n", session, index), nil
+	})
+
+	sessions := []ProjectSession{
+		{
+			Name: "dev",
+			Windows: []tmux.WindowInfo{
+				{Index: 0, Name: "main"},
+				{Index: 1, Name: "build"},
+				{Index: 2, Name: "test"},
+			},
+		},
+	}
+	enrichLastLines(context.Background(), "default", sessions)
+
+	if got := sessions[0].Windows[0].LastLine; got != "ok-dev-0" {
+		t.Errorf("dev:0 LastLine = %q, want %q", got, "ok-dev-0")
+	}
+	if got := sessions[0].Windows[1].LastLine; got != "" {
+		t.Errorf("dev:1 LastLine = %q, want empty on error", got)
+	}
+	if got := sessions[0].Windows[2].LastLine; got != "ok-dev-2" {
+		t.Errorf("dev:2 LastLine = %q, want %q", got, "ok-dev-2")
+	}
+}
+
+func TestEnrichLastLinesEmptyOnWhitespaceCapture(t *testing.T) {
+	withCaptureFn(t, func(ctx context.Context, session string, index int, lines int, server string) (string, error) {
+		return "\n\n   \n", nil
+	})
+
+	sessions := []ProjectSession{
+		{
+			Name: "dev",
+			Windows: []tmux.WindowInfo{
+				{Index: 0, Name: "main"},
+			},
+		},
+	}
+	enrichLastLines(context.Background(), "default", sessions)
+
+	if got := sessions[0].Windows[0].LastLine; got != "" {
+		t.Errorf("LastLine from whitespace capture = %q, want empty", got)
+	}
+}
+
+func TestEnrichLastLinesConcurrencyCap(t *testing.T) {
+	// Verify that no more than captureConcurrency captures run at once even
+	// when we feed it many windows.
+	var inflight int32
+	var maxInflight int32
+	withCaptureFn(t, func(ctx context.Context, session string, index int, lines int, server string) (string, error) {
+		cur := atomic.AddInt32(&inflight, 1)
+		for {
+			max := atomic.LoadInt32(&maxInflight)
+			if cur <= max || atomic.CompareAndSwapInt32(&maxInflight, max, cur) {
+				break
+			}
+		}
+		// Small delay to ensure overlap.
+		time.Sleep(10 * time.Millisecond)
+		atomic.AddInt32(&inflight, -1)
+		return "hello\n", nil
+	})
+
+	const total = 40
+	windows := make([]tmux.WindowInfo, total)
+	for i := 0; i < total; i++ {
+		windows[i] = tmux.WindowInfo{Index: i, Name: fmt.Sprintf("w%d", i)}
+	}
+	sessions := []ProjectSession{{Name: "s", Windows: windows}}
+
+	enrichLastLines(context.Background(), "default", sessions)
+
+	if maxInflight > int32(captureConcurrency) {
+		t.Errorf("max concurrent captures = %d, want <= %d", maxInflight, captureConcurrency)
+	}
+}

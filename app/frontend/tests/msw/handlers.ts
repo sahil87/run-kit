@@ -157,4 +157,15 @@ export const handlers = [
     const sessionName = params.session as string;
     return HttpResponse.json({ ok: true, path: `/tmp/uploads/${sessionName}/file.txt` });
   }),
+
+  // GET /api/sessions/:session/windows/:index/capture
+  http.get("/api/sessions/:session/windows/:index/capture", ({ request }) => {
+    const url = new URL(request.url);
+    const n = Number(url.searchParams.get("lines") ?? "3");
+    const available = ["alpha", "beta", "gamma", "delta", "epsilon"].slice(0, n);
+    return HttpResponse.json({
+      content: available.join("\n"),
+      lines: available,
+    });
+  }),
 ];

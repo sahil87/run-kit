@@ -271,6 +271,26 @@ export async function selectWindow(
   return res.json();
 }
 
+/**
+ * Capture the last N lines of the active pane of a window.
+ * Deliberately skips `deduplicatedFetch` — each call represents a distinct
+ * intent (fresh pane snapshot), and the WindowRow coordinates its own
+ * single-flight requests.
+ */
+export async function capturePane(
+  session: string,
+  index: number,
+  lines: number,
+): Promise<{ content: string; lines: string[] }> {
+  const res = await fetch(
+    withServer(
+      `/api/sessions/${encodeURIComponent(session)}/windows/${index}/capture?lines=${lines}`,
+    ),
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function getDirectories(prefix: string): Promise<string[]> {
   const res = await deduplicatedFetch(`/api/directories?prefix=${encodeURIComponent(prefix)}`);
   if (!res.ok) return [];

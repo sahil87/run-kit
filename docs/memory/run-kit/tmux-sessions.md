@@ -60,6 +60,21 @@ All tmux functions accept a `server string` parameter:
 - `KillSession(session, server)` — kills the named session on the specified server
 - `SendKeys(session, window, keys, server)` — targets the correct window on the specified server
 - `MoveWindowToSession(srcSession, srcIndex, dstSession, server)` — moves a window from one session to another on the specified server via `tmux move-window -s {srcSession}:{srcIndex} -t {dstSession}:`. Destination index is auto-assigned by tmux
+- `CapturePane(paneID, lines, server)` — legacy pane-ID form, unchanged for backward compatibility. Wraps `tmux [-L server] capture-pane -t {paneID} -p -S -{lines}` using the package-level `TmuxTimeout = 10s` via `withTimeout()`
+- `CapturePaneByWindow(ctx, session, windowIndex, lines, server)` — additive variant used by the sidebar peek feature. Targets the active pane of the window via `fmt.Sprintf("%s:%d", session, windowIndex)`. Takes a caller-provided `context.Context` (enabling the enrichment path's 3s per-window timeout and the HTTP handler's 3s `r.Context()` derivative). Validates `session` via `validate.ValidateName` and rejects `lines` outside `[1, 100]` before invoking tmux. Calls `tmux [-L server] capture-pane -t {session}:{index} -p -S -{lines}` via `tmuxExecRawServer`, returning raw stdout (no ANSI stripping at this layer)
+
+## Capture Helpers (`internal/tmux/ansi.go`)
+
+A small helper module supports the pane-content preview path:
+
+- `StripANSI(s string) string` — compiled once at package init via a single `var ansiRegex = regexp.MustCompile(...)`. The regex union matches CSI (`\x1b\[[0-9;?]*[a-zA-Z]`), OSC terminated by BEL or ST (`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`), and other `\x1b[\x40-\x5f].` ESC sequences. After regex replacement, a second pass drops ASCII control characters (`r < 0x20` or `r == 0x7f`) while preserving `\n` and `\t` so line/column structure survives. Color semantics are deliberately discarded — callers render plain monochrome text.
+- `LastLine(s string) string` — splits on `\n`, walks backwards, skips lines that are empty or whitespace-only after `TrimRight(" \t\r")`, returns the first non-empty line with trailing whitespace trimmed. Empty / whitespace-only input returns `""`.
+
+Both helpers run server-side before any data reaches the frontend (in both the SSE enrichment path and the on-demand capture HTTP handler).
+
+## Security
+
+`CapturePaneByWindow` validates `session` via `validate.ValidateName` (forbidden-chars regex including `$`, `;`, `` ` ``, etc.) before constructing the `{session}:{index}` target, so shell-injection payloads like `s; rm -rf /` or `s$(rm -rf /)` are rejected without spawning a subprocess. The HTTP handler (`handleWindowCapture` in `api/windows.go`) also validates the same input pre-flight, giving two independent guards. All subprocess execution uses `exec.CommandContext` with an argument slice (via `tmuxExecRawServer`) — never a shell string. Per-capture context timeouts (3s) prevent zombie tmux processes: `exec.CommandContext` cancellation terminates the child on deadline exceeded.
 
 ## API Server Parameter
 
@@ -75,8 +90,9 @@ Window cross-session move endpoint:
 
 ## Related Files
 
-- `app/backend/internal/tmux/tmux.go` — `serverArgs()`, `tmuxExecServer()`, `ListSessions()`, `ListServers()`, `ListKeys()`, `KillServer()`, `CreateSession()`, `SelectWindow()`, `ReloadConfig()`, `EnsureConfig()`, `ConfigPath()`, `MoveWindowToSession()`
-- `app/backend/internal/sessions/sessions.go` — `FetchSessions(server)` builds the dashboard view, `ProjectSession` has `Name` and `Windows` (no `Server` field)
+- `app/backend/internal/tmux/tmux.go` — `serverArgs()`, `tmuxExecServer()`, `ListSessions()`, `ListServers()`, `ListKeys()`, `KillServer()`, `CreateSession()`, `SelectWindow()`, `ReloadConfig()`, `EnsureConfig()`, `ConfigPath()`, `MoveWindowToSession()`, `CapturePane()`, `CapturePaneByWindow()`
+- `app/backend/internal/tmux/ansi.go` — `StripANSI()`, `LastLine()` helpers used by the capture path
+- `app/backend/internal/sessions/sessions.go` — `FetchSessions(server)` builds the dashboard view, `ProjectSession` has `Name` and `Windows` (no `Server` field). Also hosts `enrichLastLines()` and the package-level `capturePaneFn = tmux.CapturePaneByWindow` indirection used by tests
 - `app/backend/api/router.go` — `serverFromRequest()` helper, `TmuxOps` interface with server params, route registration
 - `app/backend/api/windows.go` — window action handlers including move-to-session
 - `app/backend/api/servers.go` — server list/create/kill handlers
@@ -95,3 +111,4 @@ Window cross-session move endpoint:
 | 2026-03-20 | tmux config and keybindings — `EnsureConfig()` auto-creates `~/.run-kit/tmux.conf` on serve startup. `-f` config flag scoped to `CreateSession`/`ReloadConfig` via `configArgs()`. Enhanced `internal/tmux/tmux.conf` with agent-optimized defaults and power-user keybindings. `ListKeys(server)` runs `tmux list-keys`, returns raw output (nil on "no server"). New `GET /api/keybindings` endpoint filters `list-keys` via whitelist map. `KillServer()` handles socket teardown gracefully (returns nil on "No such file or directory"). | `260320-9ldy-ui-polish-tmux-config-embed` |
 | 2026-04-04 | Cross-session window move — `MoveWindowToSession(srcSession, srcIndex, dstSession, server)` wraps `tmux move-window -s {src}:{idx} -t {dst}:` with `tmuxExecServer` and `withTimeout()`. New `POST /api/sessions/{session}/windows/{index}/move-to-session` endpoint with `{ "targetSession" }` body. `TmuxOps` interface extended with `MoveWindowToSession`. Validates source/target differ (400 if same). | `260404-dq70-move-window-between-sessions` |
 | 2026-04-06 | Pane CWD tracking — `ListWindows` now calls `list-panes -s -t <session>` after `list-windows` to populate `Panes []PaneInfo` on each `WindowInfo`; failure is non-fatal. `parsePanes(lines []string) map[int][]PaneInfo` parses 6-field tab-delimited output (field 0 = `#{window_index}` for grouping, fields 1–5 = pane data). Package-level `paneFormat` var: `#{window_index}\t#{pane_id}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_active}`. `WorktreePath` unchanged — still sourced from `list-windows #{pane_current_path}`. | `260405-rx38-pane-cwd-tracking` |
+| 2026-04-17 | Pane content capture — new `CapturePaneByWindow(ctx, session, windowIndex, lines, server)` accepts a caller-provided context (enables per-call 3s timeouts) and validates `session` + `lines` before invoking `tmux capture-pane -t {session}:{index} -p -S -{lines}`. Legacy `CapturePane(paneID, ...)` unchanged. New `internal/tmux/ansi.go` adds `StripANSI` (CSI/OSC/other ESC regex + control-char pass, preserves `\n` and `\t`) and `LastLine` (reverse walk, trims trailing whitespace, returns `""` for all-blank input). Both helpers compiled once at package init. | `260405-7l79-inline-output-peek-live-previews` |

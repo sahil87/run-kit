@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,25 @@ import (
 
 	"rk/internal/tmux"
 )
+
+// capturePaneFn is the tmux capture-pane function used during enrichment.
+// Declared as a package variable so tests can stub subprocess execution.
+var capturePaneFn = tmux.CapturePaneByWindow
+
+// captureConcurrency bounds the number of concurrent capture subprocesses
+// spawned per FetchSessions call. See spec §Performance — at most
+// min(len(windows), 16).
+const captureConcurrency = 16
+
+// captureTimeout is the per-window context timeout for capture-pane. Short
+// (3s) to prevent a single hung pane from blowing past the 2.5s SSE poll
+// interval.
+const captureTimeout = 3 * time.Second
+
+// captureLines is the number of trailing lines to request from tmux for the
+// last-line preview. Grab 3 so LastLine has surrounding context if the most
+// recent line is blank.
+const captureLines = 3
 
 // ProjectSession is a tmux session with its windows and optional fab enrichment.
 type ProjectSession struct {
@@ -366,11 +386,65 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 				}
 			}
 		}
-
 		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, Windows: sd.windows}
 	}
 
+	// Enrich each window with a last-line preview. Runs in parallel with a
+	// bounded goroutine pool; per-window context timeout isolates hung panes.
+	// Failures are logged at Debug and leave LastLine empty — the enrichment
+	// never aborts the broader FetchSessions result (graceful degradation).
+	enrichLastLines(ctx, server, result)
+
 	return result, nil
+}
+
+// enrichLastLines populates the LastLine field on every window in sessions
+// by invoking capturePaneFn in parallel. Bounded by captureConcurrency; each
+// capture uses a dedicated captureTimeout context derived from ctx.
+func enrichLastLines(ctx context.Context, server string, sessions []ProjectSession) {
+	type target struct {
+		sessionIdx int
+		windowIdx  int
+	}
+	var targets []target
+	for i := range sessions {
+		for j := range sessions[i].Windows {
+			targets = append(targets, target{sessionIdx: i, windowIdx: j})
+		}
+	}
+	if len(targets) == 0 {
+		return
+	}
+
+	concurrency := captureConcurrency
+	if len(targets) < concurrency {
+		concurrency = len(targets)
+	}
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+
+	for _, t := range targets {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(t target) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			win := &sessions[t.sessionIdx].Windows[t.windowIdx]
+			sessionName := sessions[t.sessionIdx].Name
+			capCtx, cancel := context.WithTimeout(ctx, captureTimeout)
+			defer cancel()
+
+			raw, err := capturePaneFn(capCtx, sessionName, win.Index, captureLines, server)
+			if err != nil {
+				slog.Debug("capture-pane failed", "session", sessionName, "window", win.Index, "err", err)
+				return
+			}
+			stripped := tmux.StripANSI(raw)
+			win.LastLine = tmux.LastLine(stripped)
+		}(t)
+	}
+	wg.Wait()
 }
 
 // ProjectRoot derives the project root from a session's target window.

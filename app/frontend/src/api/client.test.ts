@@ -14,6 +14,7 @@ import {
   getDirectories,
   uploadFile,
   setThemePreference,
+  capturePane,
 } from "./client";
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -106,6 +107,35 @@ describe("API client", () => {
     const result = await uploadFile("run-kit", file, "0");
     expect(result.ok).toBe(true);
     expect(result.path).toContain("run-kit");
+  });
+
+  it("capturePane sends GET with lines query param", async () => {
+    const result = await capturePane("run-kit", 0, 3);
+    expect(result.content).toBe("alpha\nbeta\ngamma");
+    expect(result.lines).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  it("capturePane URL-encodes session name", async () => {
+    let capturedUrl = "";
+    server.use(
+      http.get("/api/sessions/:session/windows/:index/capture", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ content: "x", lines: ["x"] });
+      }),
+    );
+    await capturePane("weird session", 2, 3);
+    expect(capturedUrl).toContain("weird%20session");
+    expect(capturedUrl).toContain("/windows/2/capture");
+    expect(capturedUrl).toContain("lines=3");
+  });
+
+  it("capturePane rejects with error message on 500", async () => {
+    server.use(
+      http.get("/api/sessions/:session/windows/:index/capture", () => {
+        return HttpResponse.json({ error: "capture failed: timeout" }, { status: 500 });
+      }),
+    );
+    await expect(capturePane("run-kit", 0, 3)).rejects.toThrow("capture failed: timeout");
   });
 });
 

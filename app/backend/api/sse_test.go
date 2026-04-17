@@ -368,6 +368,112 @@ func TestSSEHubRemoveLastClientDeletesKey(t *testing.T) {
 	}
 }
 
+// changingSessionFetcher produces sessions from a supplier function so tests
+// can script per-tick differences. Used to verify SSE dedup around the
+// newly-added lastLine field.
+type changingSessionFetcher struct {
+	mu     sync.Mutex
+	supply func() []sessions.ProjectSession
+}
+
+func (f *changingSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.supply(), nil
+}
+
+func TestSSEHubDedupCollapsesIdenticalLastLineTicks(t *testing.T) {
+	// Two consecutive ticks with the identical lastLine across all windows
+	// should produce exactly one broadcast (initial), not a second one.
+	build := func(lastLine string) []sessions.ProjectSession {
+		return []sessions.ProjectSession{
+			{
+				Name: "dev",
+				Windows: []tmux.WindowInfo{
+					{Index: 0, Name: "main", LastLine: lastLine},
+					{Index: 1, Name: "build", LastLine: lastLine},
+				},
+			},
+		}
+	}
+	sf := &changingSessionFetcher{supply: func() []sessions.ProjectSession { return build("hello") }}
+	hub := newSSEHub(sf, nil)
+	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
+
+	hub.addClient(client)
+	defer hub.removeClient(client)
+
+	// Wait for the first poll tick to deliver the initial event.
+	time.Sleep(ssePollInterval + 500*time.Millisecond)
+
+	count := 0
+drainFirst:
+	for {
+		select {
+		case <-client.ch:
+			count++
+		default:
+			break drainFirst
+		}
+	}
+	if count == 0 {
+		t.Fatal("expected at least one initial broadcast, got 0")
+	}
+
+	// Wait for another tick. Since the lastLine is identical, dedup should
+	// suppress a second broadcast.
+	time.Sleep(ssePollInterval + 500*time.Millisecond)
+
+	select {
+	case <-client.ch:
+		t.Error("received duplicate event when lastLine didn't change")
+	default:
+		// Expected
+	}
+}
+
+func TestSSEHubBroadcastOnLastLineChange(t *testing.T) {
+	// Two consecutive ticks with a DIFFERENT lastLine for one window should
+	// result in a new broadcast.
+	var tick int
+	sf := &changingSessionFetcher{
+		supply: func() []sessions.ProjectSession {
+			tick++
+			return []sessions.ProjectSession{
+				{
+					Name: "dev",
+					Windows: []tmux.WindowInfo{
+						{Index: 0, Name: "main", LastLine: fmt.Sprintf("tick-%d", tick)},
+					},
+				},
+			}
+		},
+	}
+	hub := newSSEHub(sf, nil)
+	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
+
+	hub.addClient(client)
+	defer hub.removeClient(client)
+
+	// Collect events from two poll cycles. We expect at least two distinct
+	// broadcasts because lastLine changes every tick.
+	time.Sleep(ssePollInterval*2 + 500*time.Millisecond)
+
+	distinct := map[string]struct{}{}
+drain:
+	for {
+		select {
+		case ev := <-client.ch:
+			distinct[string(ev)] = struct{}{}
+		default:
+			break drain
+		}
+	}
+	if len(distinct) < 2 {
+		t.Errorf("expected at least 2 distinct broadcasts across lastLine changes, got %d", len(distinct))
+	}
+}
+
 func TestSSEHubConcurrentAddRemove(t *testing.T) {
 	sf := &slowSessionFetcher{
 		result: []sessions.ProjectSession{

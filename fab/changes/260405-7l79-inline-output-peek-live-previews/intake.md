@@ -97,6 +97,27 @@ Alternatively, a **hybrid of A+C**: SSE delivers the last-line preview (1 line, 
 - Should expanded peek state be per-session (collapse all when switching sessions) or global?
 - How should the output preview handle binary/garbled terminal content (e.g., ncurses-based apps, raw escape sequences)?
 
+## Clarifications
+
+### Session 2026-04-17
+
+Resolved tentative assumptions (Q&A):
+
+| # | Question | Answer |
+|---|----------|--------|
+| 8 | ANSI escape sequence handling — strip or render? | Strip all ANSI (confirmed recommendation) |
+| 9 | Data delivery: extend SSE, hybrid, or on-demand for both? | Hybrid: SSE carries last-line; expanded peek fetches on-demand (confirmed recommendation) |
+| 10 | Backend capture timing — piggyback, separate cycle, or lazy? | Piggyback on existing pane-map cycle (confirmed recommendation) |
+
+### Session 2026-04-17 (bulk confirm)
+
+| # | Action | Detail |
+|---|--------|--------|
+| 4 | Confirmed | — |
+| 5 | Confirmed | — |
+| 6 | Confirmed | — |
+| 7 | Confirmed | — |
+
 ## Assumptions
 
 <!-- STATE TRANSFER: This table is the sole continuity mechanism between the intake-stage
@@ -109,15 +130,15 @@ Alternatively, a **hybrid of A+C**: SSE delivers the last-line preview (1 line, 
 | 1 | Certain | tmux capture-pane is the mechanism for reading pane content | Constitution III (Wrap, Don't Reinvent) — `tmux capture-pane -t {pane} -p -l {N}` is the standard tmux command, already wrapped by `fab pane capture` | S:90 R:95 A:95 D:95 |
 | 2 | Certain | No database or persistent cache for pane content | Constitution II (No Database) — content derived from tmux at request time | S:90 R:95 A:95 D:95 |
 | 3 | Certain | Go backend with exec.CommandContext and timeout for capture | Constitution I (Security First) — all subprocess calls use CommandContext with explicit args | S:90 R:95 A:95 D:95 |
-| 4 | Confident | Toggle-based expand (not hover) for the inline peek | Hover is not accessible on touch/mobile; toggle is more predictable and works across devices. Constitution V (Keyboard-First) supports explicit interaction | S:70 R:85 A:80 D:65 |
-| 5 | Confident | Extend existing SSE stream rather than new endpoint or polling | code-quality.md anti-pattern explicitly prohibits client-side polling. Extending SSE is the simplest path that reuses existing infrastructure. New SSE stream adds complexity without clear benefit | S:65 R:70 A:75 D:60 |
-| 6 | Confident | Last-line preview shows 1 line, expanded peek shows 2-3 lines | User description says "last 2-3 lines" for peek and "scrolling last line" for preview — two tiers of detail map naturally | S:75 R:90 A:70 D:70 |
-| 7 | Confident | Capture limited to 3-5 lines with short timeout (2-3 seconds) | Performance concern — capture is a subprocess per window. Must be bounded to avoid blocking SSE tick | S:60 R:85 A:80 D:75 |
-| 8 | Tentative | Strip ANSI escape sequences from captured content before display | Terminal output contains colors, cursor movement, etc. Raw display would be garbled. But stripping loses semantic info (error colors). Need to decide: strip all, or render a subset | S:50 R:75 A:55 D:45 |
-<!-- assumed: ANSI stripping — most terminal content includes escape sequences that would render as garbage in a text preview; stripping is the safe default but loses color info -->
-| 9 | Tentative | Hybrid approach: SSE carries last-line, on-demand fetch for expanded peek | Balances payload size (1 line per window in SSE is modest) with detail-on-demand (2-3 lines only when user asks). But adds two code paths | S:55 R:70 A:50 D:40 |
-<!-- assumed: Hybrid data delivery — splitting last-line (SSE) from expanded peek (on-demand) reduces SSE payload growth while still providing detail when needed -->
-| 10 | Tentative | Pane content captured in parallel with existing pane-map enrichment | The existing `fetchPaneMapCached` runs `fab-go pane-map` with 5s TTL. Capture could piggyback on the same cycle. But adding capture to every tick increases subprocess load | S:50 R:65 A:55 D:45 |
-<!-- assumed: Capture piggybacks on pane-map cycle — reusing the existing enrichment timing avoids a separate polling mechanism, though it increases per-tick work -->
+| 4 | Certain | Toggle-based expand (not hover) for the inline peek | Clarified — user confirmed | S:95 R:85 A:80 D:65 |
+| 5 | Certain | Extend existing SSE stream rather than new endpoint or polling | Clarified — user confirmed | S:95 R:70 A:75 D:60 |
+| 6 | Certain | Last-line preview shows 1 line, expanded peek shows 2-3 lines | Clarified — user confirmed | S:95 R:90 A:70 D:70 |
+| 7 | Certain | Capture limited to 3-5 lines with short timeout (2-3 seconds) | Clarified — user confirmed | S:95 R:85 A:80 D:75 |
+| 8 | Certain | Strip ANSI escape sequences from captured content before display | Clarified — user confirmed strip-all is the safe default; losing color semantics is an accepted tradeoff | S:95 R:75 A:55 D:45 |
+<!-- clarified: ANSI stripping — user confirmed strip all ANSI; garbled raw output is avoided at the cost of color semantics -->
+| 9 | Certain | Hybrid approach: SSE carries last-line, on-demand fetch for expanded peek | Clarified — user confirmed hybrid delivery: SSE for always-visible last-line, GET /api/sessions/{s}/windows/{i}/capture for expanded peek on toggle | S:95 R:70 A:50 D:40 |
+<!-- clarified: Hybrid data delivery — SSE carries 1 last-line per window; expanded peek fetches 2-3 lines on-demand -->
+| 10 | Certain | Pane content captured in parallel with existing pane-map enrichment | Clarified — user confirmed piggybacking on the existing pane-map cycle (5s TTL) rather than a separate capture ticker | S:95 R:65 A:55 D:45 |
+<!-- clarified: Capture piggybacks on pane-map cycle — reuses existing enrichment timing; expanded peek remains on-demand (not piggybacked) -->
 
-10 assumptions (3 certain, 4 confident, 3 tentative, 0 unresolved).
+10 assumptions (10 certain, 0 confident, 0 tentative, 0 unresolved).

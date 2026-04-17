@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"rk/internal/tmux"
 	"rk/internal/validate"
 )
 
@@ -444,6 +446,69 @@ func (s *Server) handleWindowTypeUpdate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleWindowCapture returns the last N lines of the active pane of the
+// given session:window as plain (ANSI-stripped) text. Read-only, on-demand
+// endpoint powering the sidebar peek expansion.
+func (s *Server) handleWindowCapture(w http.ResponseWriter, r *http.Request) {
+	session := chi.URLParam(r, "session")
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	index, ok := parseWindowIndex(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid window index")
+		return
+	}
+
+	// Parse lines query param: default 3, clamp to [1, 100], reject non-integer.
+	lines := 3
+	if raw := r.URL.Query().Get("lines"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid lines parameter")
+			return
+		}
+		if n < 1 {
+			n = 1
+		}
+		if n > 100 {
+			n = 100
+		}
+		lines = n
+	}
+
+	server := serverFromRequest(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	raw, err := s.tmux.CapturePaneByWindow(ctx, session, index, lines, server)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			writeError(w, http.StatusGatewayTimeout, "capture timeout")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	stripped := tmux.StripANSI(raw)
+	// Split on \n, drop trailing empty lines so callers get a tidy array.
+	split := strings.Split(stripped, "\n")
+	for len(split) > 0 && strings.TrimSpace(split[len(split)-1]) == "" {
+		split = split[:len(split)-1]
+	}
+	if split == nil {
+		split = []string{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"content": stripped,
+		"lines":   split,
+	})
 }
 
 func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {

@@ -49,6 +49,7 @@ type TmuxOps interface {
 	SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error
 	UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error
 	CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error
+	CapturePaneByWindow(ctx context.Context, session string, windowIndex int, lines int, server string) (string, error)
 }
 
 // Server holds handler dependencies.
@@ -164,6 +165,9 @@ func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, session string, ind
 func (p *prodTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
 	return tmux.CreateWindowWithOptions(session, name, cwd, server, options)
 }
+func (p *prodTmuxOps) CapturePaneByWindow(ctx context.Context, session string, windowIndex int, lines int, server string) (string, error) {
+	return tmux.CapturePaneByWindow(ctx, session, windowIndex, lines, server)
+}
 
 // NewRouter creates the chi router with all middleware and routes.
 // Uses production dependencies (live tmux, real session fetcher).
@@ -228,6 +232,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)
 	r.Post("/api/sessions/{session}/windows/{index}/split", s.handleWindowSplit)
 	r.Post("/api/sessions/{session}/windows/{index}/close-pane", s.handleClosePaneKill)
+	r.Get("/api/sessions/{session}/windows/{index}/capture", s.handleWindowCapture)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)

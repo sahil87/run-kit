@@ -58,4 +58,5 @@ export type WindowInfo = {
   rkType?: string;
   rkUrl?: string;
   panes?: PaneInfo[];
+  lastLine?: string;
 };

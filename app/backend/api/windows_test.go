@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -880,5 +881,202 @@ func TestWindowCreateWithoutRkTypeUsesStandardCreate(t *testing.T) {
 	}
 	if !ops.createWindowCalled {
 		t.Error("CreateWindow was not called")
+	}
+}
+
+// --- Window Capture endpoint tests ---
+
+func TestWindowCaptureDefaultLines(t *testing.T) {
+	ops := &mockTmuxOps{captureByWindowResult: "line1\nline2\nline3\n"}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/run-kit/windows/0/capture", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.captureByWindowCalled {
+		t.Fatal("CapturePaneByWindow was not called")
+	}
+	if ops.captureByWindowLines != 3 {
+		t.Errorf("lines = %d, want 3 (default)", ops.captureByWindowLines)
+	}
+
+	var result struct {
+		Content string   `json:"content"`
+		Lines   []string `json:"lines"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if len(result.Lines) != 3 {
+		t.Errorf("len(lines) = %d, want 3", len(result.Lines))
+	}
+	if result.Content != "line1\nline2\nline3\n" {
+		t.Errorf("content = %q", result.Content)
+	}
+}
+
+func TestWindowCaptureExplicitLines(t *testing.T) {
+	ops := &mockTmuxOps{captureByWindowResult: "a\nb\nc\nd\ne\n"}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/run-kit/windows/0/capture?lines=5", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ops.captureByWindowLines != 5 {
+		t.Errorf("lines = %d, want 5", ops.captureByWindowLines)
+	}
+}
+
+func TestWindowCaptureClampLinesHigh(t *testing.T) {
+	ops := &mockTmuxOps{captureByWindowResult: "x\n"}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/run-kit/windows/0/capture?lines=1000", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ops.captureByWindowLines != 100 {
+		t.Errorf("lines = %d, want 100 (clamped)", ops.captureByWindowLines)
+	}
+}
+
+func TestWindowCaptureNonIntegerLines(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/run-kit/windows/0/capture?lines=abc", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.captureByWindowCalled {
+		t.Error("CapturePaneByWindow should NOT be called on invalid lines")
+	}
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if !strings.Contains(result["error"], "Invalid lines parameter") {
+		t.Errorf("error = %q, want containing %q", result["error"], "Invalid lines parameter")
+	}
+}
+
+func TestWindowCaptureInvalidSession(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	// Chi will only match single-segment params, so use a forbidden character
+	// within the session slug.
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/bad;session/windows/0/capture", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.captureByWindowCalled {
+		t.Error("CapturePaneByWindow should NOT be called for invalid session")
+	}
+}
+
+func TestWindowCaptureShellInjectionSession(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	// Plaintext injection — chi only path-percent-decodes on routing, param
+	// values are taken as-is from the URL path. Use a session name that
+	// contains forbidden characters without being URL-encoded.
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/bad$session/windows/0/capture", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if ops.captureByWindowCalled {
+		t.Error("CapturePaneByWindow should NOT be called for shell-injection session name")
+	}
+}
+
+func TestWindowCaptureStripsANSIInResponse(t *testing.T) {
+	ops := &mockTmuxOps{captureByWindowResult: "\x1b[32m$ \x1b[0mgo build\nhello\n"}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/run-kit/windows/0/capture", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var result struct {
+		Content string   `json:"content"`
+		Lines   []string `json:"lines"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if strings.Contains(result.Content, "\x1b") {
+		t.Errorf("content contains ANSI escape: %q", result.Content)
+	}
+	if len(result.Lines) != 2 {
+		t.Fatalf("len(lines) = %d, want 2", len(result.Lines))
+	}
+	if result.Lines[0] != "$ go build" {
+		t.Errorf("lines[0] = %q, want %q", result.Lines[0], "$ go build")
+	}
+	if result.Lines[1] != "hello" {
+		t.Errorf("lines[1] = %q, want %q", result.Lines[1], "hello")
+	}
+}
+
+func TestWindowCaptureTimeout(t *testing.T) {
+	ops := &mockTmuxOps{
+		captureByWindowFn: func(ctx context.Context, session string, index int, lines int, server string) (string, error) {
+			// Return the context's deadline-exceeded error, simulating a hung tmux.
+			return "", context.DeadlineExceeded
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/run-kit/windows/0/capture", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusGatewayTimeout)
+	}
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result["error"] != "capture timeout" {
+		t.Errorf("error = %q, want %q", result["error"], "capture timeout")
+	}
+}
+
+func TestWindowCaptureTmuxError(t *testing.T) {
+	ops := &mockTmuxOps{captureByWindowErr: fmt.Errorf("tmux exploded")}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/run-kit/windows/0/capture", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }

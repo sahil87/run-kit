@@ -111,6 +111,15 @@ type mockTmuxOps struct {
 	createWindowWithOptionsCwd     string
 	createWindowWithOptionsOpts    map[string]string
 
+	// CapturePaneByWindow hooks
+	captureByWindowCalled  bool
+	captureByWindowSession string
+	captureByWindowIndex   int
+	captureByWindowLines   int
+	captureByWindowFn      func(ctx context.Context, session string, index int, lines int, server string) (string, error)
+	captureByWindowResult  string
+	captureByWindowErr     error
+
 	err error
 }
 
@@ -267,6 +276,16 @@ func (m *mockTmuxOps) CreateWindowWithOptions(session, name, cwd, server string,
 	m.createWindowWithOptionsCwd = cwd
 	m.createWindowWithOptionsOpts = options
 	return m.err
+}
+func (m *mockTmuxOps) CapturePaneByWindow(ctx context.Context, session string, index int, lines int, server string) (string, error) {
+	m.captureByWindowCalled = true
+	m.captureByWindowSession = session
+	m.captureByWindowIndex = index
+	m.captureByWindowLines = lines
+	if m.captureByWindowFn != nil {
+		return m.captureByWindowFn(ctx, session, index, lines, server)
+	}
+	return m.captureByWindowResult, m.captureByWindowErr
 }
 
 func newTestRouter(sf SessionFetcher, ops TmuxOps) http.Handler {

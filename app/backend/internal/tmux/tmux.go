@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"rk/internal/validate"
 )
 
 // OriginalTMUX captures the TMUX env var before init() strips it.
@@ -176,6 +178,7 @@ type WindowInfo struct {
 	RkType            string     `json:"rkType,omitempty"`
 	RkUrl             string     `json:"rkUrl,omitempty"`
 	Panes             []PaneInfo `json:"panes,omitempty"`
+	LastLine          string     `json:"lastLine,omitempty"`
 }
 
 // tmuxExecServer runs a tmux command targeting the specified server and returns stdout lines (empty lines filtered).
@@ -782,6 +785,25 @@ func CapturePane(paneID string, lines int, server string) (string, error) {
 
 	start := -lines
 	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", paneID, "-p", "-S", strconv.Itoa(start))
+}
+
+// CapturePaneByWindow captures the last N lines from the active pane of the
+// given session:windowIndex target. Validates session name and lines range
+// before invoking tmux. The caller-provided ctx controls timeout/cancellation.
+func CapturePaneByWindow(ctx context.Context, session string, windowIndex int, lines int, server string) (string, error) {
+	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+		return "", fmt.Errorf("%s", errMsg)
+	}
+	if windowIndex < 0 {
+		return "", fmt.Errorf("window index must be non-negative")
+	}
+	if lines < 1 || lines > 100 {
+		return "", fmt.Errorf("lines must be in [1, 100]")
+	}
+
+	target := fmt.Sprintf("%s:%d", session, windowIndex)
+	start := -lines
+	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", target, "-p", "-S", strconv.Itoa(start))
 }
 
 // ListServers discovers available tmux servers by scanning the tmux socket directory

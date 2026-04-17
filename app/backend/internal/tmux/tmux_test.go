@@ -1,11 +1,13 @@
 package tmux
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Helper to build a tab-delimited tmux line.
@@ -785,4 +787,188 @@ func sessionInfoSliceEqual(a, b []SessionInfo) bool {
 		}
 	}
 	return true
+}
+
+func TestStripANSI(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "colored prompt",
+			in:   "\x1b[32m$ \x1b[0mgo build\n",
+			want: "$ go build\n",
+		},
+		{
+			name: "OSC title setter (BEL-terminated)",
+			in:   "\x1b]0;title\x07hello",
+			want: "hello",
+		},
+		{
+			name: "OSC title setter (ST-terminated)",
+			in:   "\x1b]0;title\x1b\\hello",
+			want: "hello",
+		},
+		{
+			name: "preserve newlines and tabs",
+			in:   "a\n\tb",
+			want: "a\n\tb",
+		},
+		{
+			name: "strip multiple CSI codes",
+			in:   "\x1b[1;33mBOLD\x1b[0m \x1b[31mRED\x1b[0m",
+			want: "BOLD RED",
+		},
+		{
+			name: "strip control chars but keep printable",
+			in:   "\x01\x02hello\x7fworld\x08",
+			want: "helloworld",
+		},
+		{
+			name: "empty input",
+			in:   "",
+			want: "",
+		},
+		{
+			name: "no escapes passes through",
+			in:   "plain text",
+			want: "plain text",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := StripANSI(tt.in)
+			if got != tt.want {
+				t.Errorf("StripANSI(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLastLine(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "typical output",
+			in:   "$ go build\nhello\n\n",
+			want: "hello",
+		},
+		{
+			name: "all blank lines",
+			in:   "\n\n   \n",
+			want: "",
+		},
+		{
+			name: "single line",
+			in:   "only line",
+			want: "only line",
+		},
+		{
+			name: "trailing whitespace trimmed",
+			in:   "foo\nbar   \t\n",
+			want: "bar",
+		},
+		{
+			name: "empty input",
+			in:   "",
+			want: "",
+		},
+		{
+			name: "whitespace only",
+			in:   "   \t ",
+			want: "",
+		},
+		{
+			name: "last line is blank, take previous non-blank",
+			in:   "first\nsecond\n\n\n",
+			want: "second",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := LastLine(tt.in)
+			if got != tt.want {
+				t.Errorf("LastLine(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCapturePaneByWindowValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		session     string
+		windowIndex int
+		lines       int
+		wantErr     string // substring; empty means no error expected (but we allow tmux call to fail naturally)
+	}{
+		{
+			name:    "invalid session with semicolon",
+			session: "s1; rm -rf /",
+			lines:   3,
+			wantErr: "forbidden",
+		},
+		{
+			name:    "empty session",
+			session: "",
+			lines:   3,
+			wantErr: "empty",
+		},
+		{
+			name:    "lines too low",
+			session: "valid",
+			lines:   0,
+			wantErr: "[1, 100]",
+		},
+		{
+			name:    "lines too high",
+			session: "valid",
+			lines:   101,
+			wantErr: "[1, 100]",
+		},
+		{
+			name:        "negative window index",
+			session:     "valid",
+			windowIndex: -1,
+			lines:       3,
+			wantErr:     "non-negative",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
+			_, err := CapturePaneByWindow(ctx, tt.session, tt.windowIndex, tt.lines, "default")
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want containing %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestCapturePaneByWindowContextTimeout(t *testing.T) {
+	// Use a context already expired — exec.CommandContext should return quickly
+	// with the context error without leaving zombie processes.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	defer cancel()
+	// Small sleep so the deadline is definitely in the past.
+	time.Sleep(5 * time.Millisecond)
+
+	_, err := CapturePaneByWindow(ctx, "valid-session", 0, 3, "nonexistent-test-server")
+	if err == nil {
+		t.Fatal("expected error from expired context, got nil")
+	}
+	// The error may be either "deadline exceeded" from the context (if the
+	// binary was reachable and launched) or a nonexistent-server error.
+	// We just verify we got SOMETHING, so no zombie/hang.
 }

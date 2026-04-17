@@ -283,7 +283,7 @@ func TestFetchPaneMapFabNotOnPath(t *testing.T) {
 	// for the duration of this test.
 	t.Setenv("PATH", "")
 	repoRoot := t.TempDir()
-	m, err := fetchPaneMap(repoRoot)
+	m, err := fetchPaneMap("", repoRoot)
 	if err == nil {
 		t.Error("expected error when fab is not on PATH, got nil")
 	}
@@ -346,7 +346,7 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 
 	// The subprocess call SHALL succeed. The returned map MAY be empty —
 	// we assert absence of error, not specific contents.
-	if _, err := fetchPaneMap(tempDir); err != nil {
+	if _, err := fetchPaneMap("", tempDir); err != nil {
 		t.Errorf("fetchPaneMap(%q) error: %v", tempDir, err)
 	}
 }

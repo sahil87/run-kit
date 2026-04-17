@@ -35,17 +35,23 @@ type paneMapEntry struct {
 }
 
 // fetchPaneMap runs `fab pane map --json --all-sessions` via the fab router on
-// PATH and returns a lookup map keyed by "session:windowIndex". When repoRoot
-// is non-empty, cmd.Dir is set to it so the router can resolve the project's
-// fab_version from fab/project/config.yaml; otherwise the subprocess inherits
-// the server's CWD, which is fine because --all-sessions output is repo-
-// independent and the router tolerates running outside a fab project. Returns
-// nil map and an error on failure.
-func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
+// PATH and returns a lookup map keyed by "session:windowIndex". When server is
+// non-empty, it is passed as `-L <server>` so the subprocess targets the same
+// tmux socket the backend is querying; otherwise fab falls back to $TMUX or
+// the default socket. When repoRoot is non-empty, cmd.Dir is set to it so the
+// router can resolve the project's fab_version from fab/project/config.yaml;
+// otherwise the subprocess inherits the server's CWD. Returns nil map and an
+// error on failure.
+func fetchPaneMap(server, repoRoot string) (map[string]paneMapEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "fab", "pane", "map", "--json", "--all-sessions")
+	args := make([]string, 0, 6)
+	if server != "" {
+		args = append(args, "-L", server)
+	}
+	args = append(args, "pane", "map", "--json", "--all-sessions")
+	cmd := exec.CommandContext(ctx, "fab", args...)
 	if repoRoot != "" {
 		cmd.Dir = repoRoot
 	}
@@ -81,22 +87,27 @@ func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
 	return m, nil
 }
 
-// Pane-map cache: package-level with sync.RWMutex protection.
+// Pane-map cache: package-level with sync.RWMutex protection, keyed by
+// tmux server label so queries against different sockets don't collide.
 // Avoids re-running `fab pane map` on every SSE tick (5s TTL).
+type paneMapCacheEntry struct {
+	data map[string]paneMapEntry
+	time time.Time
+}
+
 var (
-	paneMapCache     map[string]paneMapEntry
-	paneMapCacheTime time.Time
-	paneMapCacheMu   sync.RWMutex
-	paneMapCacheTTL  = 5 * time.Second
+	paneMapCache    = make(map[string]paneMapCacheEntry)
+	paneMapCacheMu  sync.RWMutex
+	paneMapCacheTTL = 5 * time.Second
 )
 
-// fetchPaneMapCached wraps fetchPaneMap with a TTL cache.
+// fetchPaneMapCached wraps fetchPaneMap with a per-server TTL cache.
 // Uses a double-check pattern after write lock acquisition to prevent thundering herd.
-// On fetch error, the stale cache entry is preserved (if one exists).
-func fetchPaneMapCached(repoRoot string) (map[string]paneMapEntry, error) {
+// On fetch error, the stale cache entry for that server is preserved (if one exists).
+func fetchPaneMapCached(server, repoRoot string) (map[string]paneMapEntry, error) {
 	paneMapCacheMu.RLock()
-	if paneMapCache != nil && time.Since(paneMapCacheTime) < paneMapCacheTTL {
-		cached := paneMapCache
+	if entry, ok := paneMapCache[server]; ok && time.Since(entry.time) < paneMapCacheTTL {
+		cached := entry.data
 		paneMapCacheMu.RUnlock()
 		return cached, nil
 	}
@@ -106,21 +117,20 @@ func fetchPaneMapCached(repoRoot string) (map[string]paneMapEntry, error) {
 	defer paneMapCacheMu.Unlock()
 
 	// Double-check: another goroutine may have refreshed while we waited for the write lock.
-	if paneMapCache != nil && time.Since(paneMapCacheTime) < paneMapCacheTTL {
-		return paneMapCache, nil
+	if entry, ok := paneMapCache[server]; ok && time.Since(entry.time) < paneMapCacheTTL {
+		return entry.data, nil
 	}
 
-	m, err := fetchPaneMap(repoRoot)
+	m, err := fetchPaneMap(server, repoRoot)
 	if err != nil {
 		// Preserve stale cache entry on error (graceful degradation).
-		if paneMapCache != nil {
-			return paneMapCache, nil
+		if entry, ok := paneMapCache[server]; ok {
+			return entry.data, nil
 		}
 		return nil, err
 	}
 
-	paneMapCache = m
-	paneMapCacheTime = time.Now()
+	paneMapCache[server] = paneMapCacheEntry{data: m, time: time.Now()}
 	return m, nil
 }
 
@@ -342,7 +352,7 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 	// Fetch pane-map once for all sessions. If refreshing the cache fails,
 	// fetchPaneMapCached may return a stale cached paneMap; if no data is
 	// available, windows keep empty fab fields (graceful degradation).
-	paneMap, _ := fetchPaneMapCached(repoRoot)
+	paneMap, _ := fetchPaneMapCached(server, repoRoot)
 
 	// Collect all pane cwds for git branch resolution.
 	var allCwds []string

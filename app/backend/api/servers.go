@@ -4,20 +4,59 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"sort"
+	"sync"
 
 	"rk/internal/validate"
 )
 
+// serverInfo is the per-server response entry from GET /api/servers.
+type serverInfo struct {
+	Name         string `json:"name"`
+	SessionCount int    `json:"sessionCount"`
+}
+
 func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
-	servers, err := s.tmux.ListServers(r.Context())
+	names, err := s.tmux.ListServers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if servers == nil {
-		servers = []string{}
+	if len(names) == 0 {
+		writeJSON(w, http.StatusOK, []serverInfo{})
+		return
 	}
-	writeJSON(w, http.StatusOK, servers)
+
+	// Fan out ListSessions calls concurrently. A failure for one server
+	// yields sessionCount: 0 for that entry; no 5xx to the client.
+	counts := make(map[string]int, len(names))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, name := range names {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			sessions, err := s.tmux.ListSessions(r.Context(), name)
+			n := 0
+			if err == nil {
+				n = len(sessions)
+			} else {
+				s.logger.Warn("servers: ListSessions failed", "server", name, "err", err)
+			}
+			mu.Lock()
+			counts[name] = n
+			mu.Unlock()
+		}(name)
+	}
+	wg.Wait()
+
+	out := make([]serverInfo, 0, len(names))
+	for _, name := range names {
+		out = append(out, serverInfo{Name: name, SessionCount: counts[name]})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleServerCreate(w http.ResponseWriter, r *http.Request) {

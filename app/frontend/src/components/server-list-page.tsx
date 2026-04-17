@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { listServers, createServer } from "@/api/client";
+import { listServers, createServer, type ServerInfo } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 
 export function ServerListPage() {
-  const [servers, setServers] = useState<string[]>([]);
+  const [servers, setServers] = useState<ServerInfo[]>([]);
   const [ghostServers, setGhostServers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -20,7 +20,8 @@ export function ServerListPage() {
       const data = await listServers();
       setServers(data);
       // Reconcile: remove ghost servers that now exist in real data
-      setGhostServers((prev) => prev.filter((g) => !data.includes(g)));
+      const realNames = new Set(data.map((s) => s.name));
+      setGhostServers((prev) => prev.filter((g) => !realNames.has(g)));
     } catch {
       setServers([]);
     } finally {
@@ -82,7 +83,7 @@ export function ServerListPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {servers.map((name) => (
+          {servers.map(({ name, sessionCount }) => (
             <button
               key={name}
               onClick={() =>
@@ -92,6 +93,9 @@ export function ServerListPage() {
             >
               <div className="text-text-primary font-medium text-sm">
                 {name}
+              </div>
+              <div className="text-text-secondary text-xs mt-1">
+                {sessionCount} sess
               </div>
             </button>
           ))}

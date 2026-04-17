@@ -810,10 +810,10 @@ function AppShell() {
         label: "Server: Kill",
         onSelect: () => setShowKillServerConfirm(true),
       },
-      ...servers.map((s) => ({
-        id: `switch-server-${s}`,
-        label: `Server: Switch to ${s}${s === server ? " (current)" : ""}`,
-        onSelect: () => handleSwitchServer(s),
+      ...servers.map(({ name }) => ({
+        id: `switch-server-${name}`,
+        label: `Server: Switch to ${name}${name === server ? " (current)" : ""}`,
+        onSelect: () => handleSwitchServer(name),
       })),
     ],
     [servers, server, handleSwitchServer],
@@ -837,7 +837,7 @@ function AppShell() {
   const displaySession = sessionName ?? "";
 
   // Server not found check — once server list loads, verify server exists
-  if (servers.length > 0 && !servers.includes(server)) {
+  if (servers.length > 0 && !servers.some((s) => s.name === server)) {
     return <ServerNotFound serverName={server} />;
   }
 

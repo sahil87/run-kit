@@ -352,7 +352,12 @@ export async function setSessionColor(
 
 // --- Server management ---
 
-export async function listServers(): Promise<string[]> {
+export type ServerInfo = {
+  name: string;
+  sessionCount: number;
+};
+
+export async function listServers(): Promise<ServerInfo[]> {
   const res = await deduplicatedFetch("/api/servers");
   if (!res.ok) await throwOnError(res);
   return res.json();

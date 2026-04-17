@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi, type ServerInfo } from "@/api/client";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
@@ -25,10 +25,10 @@ export type SidebarProps = {
   onCreateWindow: (session: string) => void;
   onCreateSession: () => void;
   server: string;
-  servers: string[];
+  servers: ServerInfo[];
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
-  onKillServer: () => void;
+  onKillServer: (name: string) => void;
   onRefreshServers: () => void;
   metrics?: MetricsSnapshot | null;
   isConnected?: boolean;
@@ -489,6 +489,7 @@ export function Sidebar({
         servers={servers}
         serverColors={serverColors}
         rowTints={rowTints}
+        ansiPalette={ansiPalette}
         onSwitchServer={onSwitchServer}
         onCreateServer={onCreateServer}
         onKillServer={onKillServer}

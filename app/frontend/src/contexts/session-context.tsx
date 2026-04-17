@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef, startTransition } from "react";
 import { useChromeDispatch } from "./chrome-context";
-import { setServerGetter } from "@/api/client";
+import { setServerGetter, listServers, type ServerInfo } from "@/api/client";
 import type { MetricsSnapshot, ProjectSession } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
@@ -9,7 +9,7 @@ type SessionContextType = {
   sessions: ProjectSession[];
   isConnected: boolean;
   server: string;
-  servers: string[];
+  servers: ServerInfo[];
   refreshServers: () => void;
   metrics: MetricsSnapshot | null;
 };
@@ -24,7 +24,7 @@ type SessionProviderProps = {
 export function SessionProvider({ children, server }: SessionProviderProps) {
   const [sessions, setSessions] = useState<ProjectSession[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [servers, setServers] = useState<string[]>([]);
+  const [servers, setServers] = useState<ServerInfo[]>([]);
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
 
@@ -46,11 +46,8 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
 
   const fetchServers = useCallback(async () => {
     try {
-      const res = await fetch("/api/servers");
-      if (res.ok) {
-        const data = await res.json();
-        setServers(Array.isArray(data) ? data : []);
-      }
+      const data = await listServers();
+      setServers(Array.isArray(data) ? data : []);
     } catch {
       // ignore
     }

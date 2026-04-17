@@ -112,7 +112,7 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
           onCreateWindow={vi.fn()}
           onCreateSession={vi.fn()}
           server="runkit"
-          servers={["runkit"]}
+          servers={[{ name: "runkit", sessionCount: 0 }]}
           onSwitchServer={vi.fn()}
           onCreateServer={vi.fn()}
           onKillServer={vi.fn()}
@@ -815,7 +815,7 @@ describe("Sidebar", () => {
               onCreateWindow={vi.fn()}
               onCreateSession={vi.fn()}
               server="runkit"
-              servers={["runkit"]}
+              servers={[{ name: "runkit", sessionCount: 0 }]}
               onSwitchServer={vi.fn()}
               onCreateServer={vi.fn()}
               onKillServer={vi.fn()}

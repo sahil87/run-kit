@@ -44,6 +44,7 @@ type TmuxOps interface {
 	SetWindowColor(session string, index int, color int, server string) error
 	UnsetWindowColor(session string, index int, server string) error
 	ListServers(ctx context.Context) ([]string, error)
+	ListSessions(ctx context.Context, server string) ([]tmux.SessionInfo, error)
 	KillServer(server string) error
 	ListKeys(server string) ([]string, error)
 	SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error
@@ -148,6 +149,9 @@ func (p *prodTmuxOps) UnsetWindowColor(session string, index int, server string)
 }
 func (p *prodTmuxOps) ListServers(ctx context.Context) ([]string, error) {
 	return tmux.ListServers(ctx)
+}
+func (p *prodTmuxOps) ListSessions(ctx context.Context, server string) ([]tmux.SessionInfo, error) {
+	return tmux.ListSessions(ctx, server)
 }
 func (p *prodTmuxOps) KillServer(server string) error {
 	return tmux.KillServer(server)

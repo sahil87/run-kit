@@ -239,6 +239,9 @@ func (m *mockTmuxOps) UnsetWindowColor(session string, index int, server string)
 func (m *mockTmuxOps) ListServers(ctx context.Context) ([]string, error) {
 	return []string{"default"}, nil
 }
+func (m *mockTmuxOps) ListSessions(ctx context.Context, server string) ([]tmux.SessionInfo, error) {
+	return nil, nil
+}
 func (m *mockTmuxOps) KillServer(server string) error {
 	return nil
 }

@@ -3,7 +3,7 @@ import { isGhostWindow } from "@/contexts/optimistic-context";
 import { getWindowDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
-import type { RowTint } from "@/themes";
+import { UNCOLORED_SELECTED_ANSI, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 
 type ProjectWindow = ProjectSession["windows"][number];
@@ -69,29 +69,41 @@ export function WindowRow({
     return rowTints.get(color) ?? null;
   }, [color, rowTints]);
 
+  // Uncolored rows borrow the gray tint only in the selected state.
+  const uncoloredSelectedTint = useMemo(() => {
+    if (color != null || !rowTints || !isSelected) return null;
+    return rowTints.get(UNCOLORED_SELECTED_ANSI) ?? null;
+  }, [color, rowTints, isSelected]);
+
   // Full-saturation ANSI color for the left border on selected rows.
-  // Colored rows use their ANSI color; uncolored rows use the theme accent.
-  const borderColor = color != null && ansiPalette ? ansiPalette[color] : undefined;
+  const borderColor = useMemo(() => {
+    if (!ansiPalette) return undefined;
+    if (color != null) return ansiPalette[color];
+    if (isSelected) return ansiPalette[UNCOLORED_SELECTED_ANSI];
+    return undefined;
+  }, [color, ansiPalette, isSelected]);
 
   // Compute inline style for the button (background + left accent border)
   const buttonStyle = useMemo(() => {
     const style: React.CSSProperties = {};
     if (tint) {
       style.backgroundColor = isSelected ? tint.selected : tint.base;
+    } else if (uncoloredSelectedTint) {
+      style.backgroundColor = uncoloredSelectedTint.selected;
     }
-    // Always reserve left border space to prevent text shift between states
+    // Always reserve left border space to prevent text shift between states.
     style.borderLeft = isSelected
       ? `8px solid ${borderColor ?? "var(--color-accent)"}`
       : "8px solid transparent";
     return Object.keys(style).length > 0 ? style : undefined;
-  }, [tint, isSelected, borderColor]);
+  }, [tint, uncoloredSelectedTint, isSelected, borderColor]);
 
   // Build className for the button
   const buttonClass = useMemo(() => {
     const base = "w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-11 text-sm transition-colors min-h-[36px]";
     if (isSelected) {
-      // Colored selected: inline bg via buttonStyle. Uncolored selected: bg-accent/15.
-      return `${base} ${tint ? "" : "bg-accent/15 "}text-text-primary font-medium`;
+      // Colored selected uses tint.selected; uncolored selected borrows gray tint — both via buttonStyle.
+      return `${base} text-text-primary font-medium`;
     }
     if (tint) {
       // Colored non-selected: inline bg via buttonStyle, hover via JS

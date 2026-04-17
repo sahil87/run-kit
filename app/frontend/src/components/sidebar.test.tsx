@@ -172,7 +172,8 @@ describe("Sidebar", () => {
     renderSidebar();
     // First "main" is in the tree row
     const mainBtn = screen.getAllByText("main")[0].closest("button");
-    expect(mainBtn?.className).toContain("bg-accent/15");
+    expect(mainBtn?.getAttribute("aria-current")).toBe("page");
+    expect(mainBtn?.className).toContain("font-medium");
   });
 
   it("calls onSelectWindow when clicking a window", () => {

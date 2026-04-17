@@ -112,8 +112,8 @@ export function ServerPanel({
       tint={activeTint}
       tintOnlyWhenCollapsed
       resizable
-      defaultHeight={60}
-      minHeight={60}
+      defaultHeight={56}
+      minHeight={56}
       mobileHeight={56}
     >
       {servers.length === 0 ? (

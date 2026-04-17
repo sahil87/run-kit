@@ -35,10 +35,12 @@ type paneMapEntry struct {
 }
 
 // fetchPaneMap runs `fab pane map --json --all-sessions` via the fab router on
-// PATH and returns a lookup map keyed by "session:windowIndex". The subprocess
-// runs with cmd.Dir = repoRoot so the router can resolve the project's
-// fab_version from fab/project/config.yaml. Returns nil map and an error on
-// failure.
+// PATH and returns a lookup map keyed by "session:windowIndex". When repoRoot
+// is non-empty, cmd.Dir is set to it so the router can resolve the project's
+// fab_version from fab/project/config.yaml; otherwise the subprocess inherits
+// the server's CWD, which is fine because --all-sessions output is repo-
+// independent and the router tolerates running outside a fab project. Returns
+// nil map and an error on failure.
 func fetchPaneMap(repoRoot string) (map[string]paneMapEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -337,8 +339,9 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 		}
 	}
 
-	// Fetch pane-map once for all sessions. On error, paneMap is nil
-	// and all windows get empty fab fields (graceful degradation).
+	// Fetch pane-map once for all sessions. If refreshing the cache fails,
+	// fetchPaneMapCached may return a stale cached paneMap; if no data is
+	// available, windows keep empty fab fields (graceful degradation).
 	paneMap, _ := fetchPaneMapCached(repoRoot)
 
 	// Collect all pane cwds for git branch resolution.

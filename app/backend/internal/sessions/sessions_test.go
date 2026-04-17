@@ -282,7 +282,8 @@ func TestFetchPaneMapFabNotOnPath(t *testing.T) {
 	// non-nil error and a nil map. We force the failure by clearing PATH
 	// for the duration of this test.
 	t.Setenv("PATH", "")
-	m, err := fetchPaneMap("/tmp")
+	repoRoot := t.TempDir()
+	m, err := fetchPaneMap(repoRoot)
 	if err == nil {
 		t.Error("expected error when fab is not on PATH, got nil")
 	}

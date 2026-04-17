@@ -103,7 +103,6 @@ func TestResolveLauncher(t *testing.T) {
 		name       string
 		setup      func(t *testing.T, root string)
 		withChdir  bool
-		wantSuffix string // allow OS path normalization where relevant
 		want       string
 	}{
 		{

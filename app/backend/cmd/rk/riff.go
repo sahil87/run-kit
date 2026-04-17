@@ -197,7 +197,8 @@ func runWtCreate(parent context.Context, passthrough []string) (string, error) {
 
 // parseWorktreePath scans wt's combined output line by line looking for
 // `^Path: <path>$` (after trimming whitespace). Returns the path or "" if
-// not found. Exported for direct testing.
+// not found. Split into its own function so riff_test.go can assert the
+// parsing rules directly, without staging a full wt invocation.
 func parseWorktreePath(output string) string {
 	for _, raw := range strings.Split(output, "\n") {
 		line := strings.TrimSpace(raw)
@@ -260,9 +261,11 @@ func tmuxChildEnv() []string {
 	return env
 }
 
-// escapeSingleQuotes returns s with every literal ' replaced by '\” so it
-// can be embedded inside a single-quoted shell string. This matches the
-// canonical POSIX shell-safe encoding.
+// escapeSingleQuotes returns s with every literal ' replaced by the
+// 4-character sequence '\'' so the result can be embedded inside a
+// single-quoted shell string. This matches the canonical POSIX shell-safe
+// encoding: close the current single-quoted string, escape a literal quote,
+// then reopen.
 func escapeSingleQuotes(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)
 }

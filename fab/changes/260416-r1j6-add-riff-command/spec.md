@@ -325,7 +325,7 @@ Installing this change SHALL NOT disturb any user's existing `riff` / `riffs` sh
    - *Rejected*: separate `rk riffs` subcommand — doubles the test surface, surprises users who discover only one.
 
 5. **Keep launcher concatenation inside tmux's shell string (not Go exec args)**
-   - *Why*: `agent.spawn_command` is a shell-syntax string that may contain shell subsitutions like `$(basename "$(pwd)")`. Passing it as an argv slice would break those. Concatenating inside tmux's own shell string preserves the user's configured expansion semantics.
+   - *Why*: `agent.spawn_command` is a shell-syntax string that may contain shell substitutions like `$(basename "$(pwd)")`. Passing it as an argv slice would break those. Concatenating inside tmux's own shell string preserves the user's configured expansion semantics.
    - *Rejected*: splitting `spawn_command` on whitespace and passing as argv — breaks quoted args and shell substitution.
 
 6. **New Go file at `app/backend/cmd/rk/riff.go`; new `internal/fabconfig/` (or similar) helper for reading `fab/project/config.yaml`**

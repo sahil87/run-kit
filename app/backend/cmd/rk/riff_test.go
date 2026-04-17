@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"rk/internal/fabconfig"
@@ -89,6 +90,93 @@ func TestEscapeSingleQuotes(t *testing.T) {
 			got := escapeSingleQuotes(tc.in)
 			if got != tc.want {
 				t.Errorf("escapeSingleQuotes(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildNewWindowArgs asserts the argv slice produced by buildNewWindowArgs
+// for the `tmux new-window` invocation. This is a pure-function test — it MUST
+// NOT invoke real tmux or exec.CommandContext. The helper is the test seam
+// required by the spec's "Test seam for argv construction" requirement; this
+// test covers the naming rule (`riff-<filepath.Base(worktreePath)>`), argv
+// ordering (`new-window -n <name> -c <path> <shellCmd>`), the distinct-argv
+// security constraint, and the shell-command escape for cmdArg.
+func TestBuildNewWindowArgs(t *testing.T) {
+	cases := []struct {
+		name         string
+		worktreePath string
+		launcher     string
+		cmdArg       string
+		want         []string
+	}{
+		{
+			name:         "typical .worktrees/ path",
+			worktreePath: "/home/sahil/code/sahil87/run-kit.worktrees/pacing-canyon",
+			launcher:     "claude --dangerously-skip-permissions",
+			cmdArg:       "/fab-discuss",
+			want: []string{
+				"new-window",
+				"-n", "riff-pacing-canyon",
+				"-c", "/home/sahil/code/sahil87/run-kit.worktrees/pacing-canyon",
+				"claude --dangerously-skip-permissions '/fab-discuss'",
+			},
+		},
+		{
+			name:         "trailing slash stripped",
+			worktreePath: "/tmp/myrepo.worktrees/alpha/",
+			launcher:     "claude",
+			cmdArg:       "/x",
+			want: []string{
+				"new-window",
+				"-n", "riff-alpha",
+				"-c", "/tmp/myrepo.worktrees/alpha/",
+				"claude '/x'",
+			},
+		},
+		{
+			name:         "relative path no dir",
+			worktreePath: "alpha",
+			launcher:     "claude",
+			cmdArg:       "/x",
+			want: []string{
+				"new-window",
+				"-n", "riff-alpha",
+				"-c", "alpha",
+				"claude '/x'",
+			},
+		},
+		{
+			name:         "cmdArg with single quote",
+			worktreePath: "/tmp/myrepo.worktrees/alpha",
+			launcher:     "claude",
+			cmdArg:       "it's a test",
+			want: []string{
+				"new-window",
+				"-n", "riff-alpha",
+				"-c", "/tmp/myrepo.worktrees/alpha",
+				`claude 'it'\''s a test'`,
+			},
+		},
+		{
+			name:         "empty launcher tolerated",
+			worktreePath: "/tmp/myrepo.worktrees/alpha",
+			launcher:     "",
+			cmdArg:       "/x",
+			want: []string{
+				"new-window",
+				"-n", "riff-alpha",
+				"-c", "/tmp/myrepo.worktrees/alpha",
+				" '/x'",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildNewWindowArgs(tc.worktreePath, tc.launcher, tc.cmdArg)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("buildNewWindowArgs(%q, %q, %q) =\n  %#v\nwant\n  %#v", tc.worktreePath, tc.launcher, tc.cmdArg, got, tc.want)
 			}
 		})
 	}

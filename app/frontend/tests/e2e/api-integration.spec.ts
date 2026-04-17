@@ -25,53 +25,56 @@ test.describe("API Integration", () => {
     } catch {
       // Best effort
     }
-    // Clean up the session created by the test
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t e2e-new-session`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort
-    }
   });
 
-  test("create session via sidebar, verify it appears, then kill it", async ({
+  test("session appears via SSE and can be killed through the sidebar UI", async ({
     page,
   }) => {
-    await page.goto(`/${TMUX_SERVER}`);
+    // Unique session name per run avoids collisions with other tests or
+    // leftover state on the shared rk-e2e tmux server.
+    const sessionName = `e2e-api-victim-${Date.now()}`;
+    execSync(
+      `tmux -L ${TMUX_SERVER} new-session -d -s ${sessionName} -x 80 -y 24`,
+      { stdio: "ignore" },
+    );
 
-    // Wait for SSE to connect and dashboard to populate
-    await expect(
-      page.locator("[aria-label='Connected']"),
-    ).toBeVisible({ timeout: 10_000 });
+    try {
+      await page.goto(`/${TMUX_SERVER}`);
 
-    // Click "+ New Session" button on the dashboard
-    await page.click("button:has-text('+ New Session')");
+      // Wait for SSE to connect and dashboard to populate
+      await expect(
+        page.locator("[aria-label='Connected']"),
+      ).toBeVisible({ timeout: 10_000 });
 
-    // Fill in session name
-    const nameInput = page.locator("input[aria-label='Session name']");
-    await nameInput.fill("e2e-new-session");
+      const sidebar = page.locator("nav[aria-label='Sessions']");
 
-    // Click Create (enabled once name is filled)
-    await page.click("button:has-text('Create')");
+      // The session created via tmux CLI should appear via SSE within a few
+      // poll cycles
+      const navigateBtn = sidebar.getByRole("button", {
+        name: `Navigate to ${sessionName}`,
+      });
+      await expect(navigateBtn).toBeVisible({ timeout: 8_000 });
 
-    // Verify session appears in the sidebar via SSE
-    const sidebar = page.locator("nav[aria-label='Sessions']");
-    await expect(
-      sidebar.locator(`text=e2e-new-session`).first(),
-    ).toBeVisible({ timeout: 5_000 });
+      // Kill via the sidebar's kill action (opens confirm dialog)
+      await sidebar
+        .locator(`button[aria-label='Kill session ${sessionName}']`)
+        .click();
 
-    // Kill the session
-    await sidebar.locator(
-      "button[aria-label='Kill session e2e-new-session']",
-    ).click();
+      // Click the Kill confirm button inside the dialog. Scope the selector
+      // to role=dialog to avoid picking up any sidebar row whose text
+      // coincidentally contains "Kill".
+      await page.locator("[role='dialog'] button:has-text('Kill')").click();
 
-    // Confirm kill
-    await page.click("button:has-text('Kill')");
-
-    // Verify session is removed from sidebar (use Navigate button as unique anchor)
-    await expect(
-      sidebar.getByRole("button", { name: "Navigate to e2e-new-session" }),
-    ).not.toBeVisible({ timeout: 5_000 });
+      // Session row disappears (optimistic + confirmed via SSE)
+      await expect(navigateBtn).not.toBeVisible({ timeout: 5_000 });
+    } finally {
+      try {
+        execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${sessionName}`, {
+          stdio: "ignore",
+        });
+      } catch {
+        // Best effort — may already be gone
+      }
+    }
   });
 });

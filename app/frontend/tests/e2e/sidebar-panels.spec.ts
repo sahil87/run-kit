@@ -39,8 +39,10 @@ test.describe("Sidebar Host & Window Panels", () => {
     await expect(hostButton).toBeVisible();
     await expect(hostButton).toHaveAttribute("aria-expanded", "true");
 
-    // Host panel container is the button's parent div
-    const hostPanel = hostButton.locator("..");
+    // CollapsiblePanel renders: <outer-div> > <header-div> > <button> and
+    // <outer-div> > <content-div>. Two ups from the button reaches the outer
+    // panel div, which contains both the header and the content.
+    const hostPanel = hostButton.locator("../..");
 
     // Wait for metrics to arrive via SSE (at least one tick ~2.5s)
     // CPU line with label and percentage
@@ -76,7 +78,7 @@ test.describe("Sidebar Host & Window Panels", () => {
     await expect(paneButton).toBeVisible();
     await expect(paneButton).toHaveAttribute("aria-expanded", "true");
 
-    const panePanel = paneButton.locator("..");
+    const panePanel = paneButton.locator("../..");
 
     // Before selecting a window — shows fallback text
     await expect(
@@ -108,7 +110,7 @@ test.describe("Sidebar Host & Window Panels", () => {
     await expect(hostButton).toBeVisible();
     await expect(hostButton).toHaveAttribute("aria-expanded", "true");
 
-    const hostPanel = hostButton.locator("..");
+    const hostPanel = hostButton.locator("../..");
     await expect(hostPanel.locator("text=cpu")).toBeVisible({ timeout: 8_000 });
 
     // Collapse the Host panel
@@ -136,7 +138,7 @@ test.describe("Sidebar Host & Window Panels", () => {
 
     // Content reappears
     await expect(
-      hostButtonAfter.locator("..").locator("text=cpu"),
+      hostButtonAfter.locator("../..").locator("text=cpu"),
     ).toBeVisible({ timeout: 8_000 });
 
     // Clean up localStorage for other tests
@@ -150,7 +152,7 @@ test.describe("Sidebar Host & Window Panels", () => {
       page.locator("[aria-label='Connected']"),
     ).toBeVisible({ timeout: 10_000 });
 
-    const hostPanel = page.getByRole("button", { name: /^Host/ }).locator("..");
+    const hostPanel = page.getByRole("button", { name: /^Host/ }).locator("../..");
 
     // Wait for first metrics tick
     await expect(hostPanel.locator("text=cpu")).toBeVisible({ timeout: 8_000 });

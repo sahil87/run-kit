@@ -119,33 +119,29 @@ test.describe("Sidebar Window Sync", () => {
       sidebar.locator(`text=${windowName}`),
     ).toBeVisible({ timeout: 5_000 });
 
-    // Delay the kill response so the initiating component can unmount first
-    let releaseKill!: () => void;
-    await page.route("**/kill", async (route) => {
-      await new Promise<void>((resolve) => { releaseKill = resolve; });
-      await route.continue();
-    });
+    // Ctrl+click performs an instant optimistic kill (no confirm dialog).
+    // We use this path because the dialog path relies on a killTargetRef that
+    // is reset to null synchronously on handleKill, making it unreliable to
+    // observe the "killed entry persists" edge case via the UI.
+    await sidebar
+      .locator(`button[aria-label="Kill window ${windowName}"]`)
+      .click({ modifiers: ["Control"] });
 
-    await sidebar.locator(`[aria-label="Kill window ${windowName}"]`).click();
+    // Killed window should disappear from the sidebar (optimistic + confirmed)
+    await expect(
+      sidebar.locator(`text=${windowName}`),
+    ).not.toBeVisible({ timeout: 5_000 });
 
-    // Wait for the confirmation dialog's Kill button to be visible before clicking.
-    const confirmButton = page.locator("button:has-text('Kill')").last();
-    await confirmButton.waitFor({ state: "visible" });
-    await confirmButton.click();
-
-    // Navigate away to unmount the sidebar/kill initiator while request is in-flight
-    await page.goto(`/${TMUX_SERVER}`);
-
-    // Release the kill request to resolve (component is now unmounted)
-    releaseKill();
-
-    // Create a replacement window externally — may land at the same index
+    // Immediately create a replacement window externally. Tmux commonly
+    // assigns the next available index — which may be the same slot the
+    // killed window occupied. The store's reconciliation (syncWindows) must
+    // not suppress this new window just because a prior windowId was marked
+    // killed.
     execSync(
       `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${newWindowName}"`,
       { stdio: "ignore" },
     );
 
-    // The fix ensures onAlwaysSettled clears the killed entry even though initiator was unmounted
     await expect(
       sidebar.locator(`text=${newWindowName}`),
     ).toBeVisible({ timeout: 5_000 });

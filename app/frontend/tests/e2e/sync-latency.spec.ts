@@ -52,7 +52,17 @@ test.describe("Sync Latency Audit", () => {
   });
 
   test.afterAll(() => {
-    for (const s of [SESSION_A, SESSION_B, `${SESSION_A}-renamed`, "e2e-create-timing", `e2e-kill-${SESSION_A}`]) {
+    // Best-effort cleanup. Instant-create sessions land on auto-derived names
+    // ("session", "session-2", etc.) so we also sweep those here.
+    const names = [
+      SESSION_A,
+      SESSION_B,
+      `${SESSION_A}-renamed`,
+      `e2e-kill-${SESSION_A}`,
+      "session",
+    ];
+    for (let i = 2; i <= 11; i++) names.push(`session-${i}`);
+    for (const s of names) {
       try { tmux(`kill-session -t ${s}`); } catch { /* ok */ }
     }
 
@@ -74,23 +84,21 @@ test.describe("Sync Latency Audit", () => {
   test("1. Create session via UI", async ({ page }) => {
     const sidebar = await setup(page);
 
-    // Match the pattern from api-integration.spec.ts
-    await page.click("button:has-text('+ New Session')");
-
-    const nameInput = page.locator("input[aria-label='Session name']");
-    await expect(nameInput).toBeVisible({ timeout: 5_000 });
-    await nameInput.fill("e2e-create-timing");
+    // "+ New Session" performs instant creation with an auto-derived name
+    // (no dialog, no input). Measure the time for the new session row to
+    // appear — a ghost entry should show up optimistically well under 500ms.
+    const beforeCount = await sidebar.locator("button[aria-label^='Navigate to ']").count();
 
     const t0 = Date.now();
-    await page.click("button:has-text('Create')");
+    await page.click("button:has-text('+ New Session')");
 
-    // Wait for session to appear in sidebar (ghost or real)
-    await expect(
-      sidebar.locator("text=e2e-create-timing").first(),
-    ).toBeVisible({ timeout: 8_000 });
+    await expect
+      .poll(
+        () => sidebar.locator("button[aria-label^='Navigate to ']").count(),
+        { timeout: 8_000 },
+      )
+      .toBeGreaterThan(beforeCount);
     record("Create session (UI)", Date.now() - t0);
-
-    try { tmux("kill-session -t e2e-create-timing"); } catch { /* ok */ }
   });
 
   test("2. Rename session via UI (double-click)", async ({ page }) => {

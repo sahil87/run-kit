@@ -432,6 +432,18 @@ Addons loaded in `init()` via dynamic import, after `terminal.open()`, before `R
 
 Terminal font size adapts at initialization: 13px on viewports >= 640px, 11px below. Determined via `window.matchMedia('(min-width: 640px)')` at xterm Terminal construction time. FitAddon recalculates columns automatically.
 
+### Terminal Font Bundling
+
+The frontend bundles JetBrainsMono Nerd Font (patched single-file variant) as a webfont so terminal rendering is deterministic across all viewers, independent of which monospace fonts the browser happens to have installed. Without bundling, per-glyph font fallback for Nerd Font private-use-area codepoints produces visible baseline wobble within a single terminal row.
+
+**Asset layout**: Three `.woff2` weights served from `/fonts/` — `JetBrainsMonoNerdFont-Regular.woff2` (400 normal), `-Bold.woff2` (700 normal), `-Italic.woff2` (400 italic). All three `@font-face` rules in `app/frontend/src/globals.css` expose the same `font-family: "JetBrainsMono Nerd Font"` name and MUST declare `font-display: block`. `swap` or `fallback` would let xterm measure cells against system-font metrics that persist as misalignment — xterm measures the character cell grid exactly once at `terminal.open()` and does not re-measure when a deferred font arrives. `index.html` includes a `<link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/JetBrainsMonoNerdFont-Regular.woff2" />` to overlap the Regular download with JS parsing (only Regular is preloaded — Bold/Italic are a smaller fraction of the initial paint and don't justify the extra critical-path bytes).
+
+**Load convention before `terminal.open()`**: The init routine in `app/frontend/src/components/terminal-client.tsx` awaits a concurrent `Promise.all([document.fonts.load(...), document.fonts.load(...), document.fonts.load(...)])` for all three weights at the exact `fontPx` (`isMobile ? 11 : 13`) the Terminal will use, BEFORE `new Terminal(...)` / `terminal.open()` / `fitAddon.fit()`. Three explicit `document.fonts.load(size, family)` calls (not `document.fonts.ready`) scope the await to exactly the weights xterm will request. A fresh `if (cancelled || !terminalRef.current) return;` guard MUST follow the await, matching the existing pattern after every `await import(...)` in the same effect.
+
+**Primary `fontFamily`**: `'"JetBrainsMono Nerd Font", ui-monospace, monospace'` — bundled webfont first, `ui-monospace` as the system-default monospace, generic `monospace` as final guard against total load failure. The older long tail (`JetBrains Mono`, `Fira Code`, `SF Mono`, `Menlo`, `Monaco`, `Consolas`) is dead code once `font-display: block` plus a successful load makes the webfont always win; do not reintroduce it. Non-terminal monospace surfaces pick up the same font automatically via Tailwind's `--font-mono` custom property (webfont-first). Introduced by change `260417-hyrl-bundle-jetbrains-mono-nerd-font`.
+
+**Test caveat**: jsdom does not implement the FontFaceSet API. `src/test-setup.ts` stubs a minimal `document.fonts.load()` / `document.fonts.ready` surface (same pattern as the existing `ResizeObserver` stub) so unit tests that mount `TerminalClient` do not hang on the await.
+
 ### Command Palette Mobile Trigger
 
 The `CommandPalette` component listens for a `palette:open` CustomEvent on `document` (in addition to `⌘K`). The `⋯` button in Line 1 dispatches this event on mobile. This is the mobile equivalent of `⌘K` — physical keyboards aren't available on phones.

@@ -43,9 +43,9 @@ test.describe("Server Panel Tile Grid", () => {
       page.locator("[aria-label='Connected']"),
     ).toBeVisible({ timeout: 10_000 });
 
-    const tmuxButton = page.getByRole("button", { name: /^Tmux/ });
-    await expect(tmuxButton).toBeVisible();
-    await tmuxButton.click(); // expand
+    const serverButton = page.getByRole("button", { name: /^Server/ });
+    await expect(serverButton).toBeVisible();
+    await serverButton.click(); // expand
 
     const grid = page.getByRole("listbox", { name: /Tmux servers/ });
     await expect(grid).toBeVisible({ timeout: 5_000 });
@@ -66,7 +66,7 @@ test.describe("Server Panel Tile Grid", () => {
       page.locator("[aria-label='Connected']"),
     ).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole("button", { name: /^Tmux/ }).click();
+    await page.getByRole("button", { name: /^Server/ }).click();
 
     const grid = page.getByRole("listbox", { name: /Tmux servers/ });
     const activeOption = grid.getByRole("option", { name: new RegExp(TMUX_SERVER) });
@@ -82,7 +82,7 @@ test.describe("Server Panel Tile Grid", () => {
     const sidebar = page.getByRole("navigation", { name: "Sessions" });
     await expect(sidebar).toBeVisible();
 
-    await sidebar.getByRole("button", { name: /^Tmux/ }).click();
+    await sidebar.getByRole("button", { name: /^Server/ }).click();
 
     const grid = sidebar.getByRole("listbox", { name: /Tmux servers/ });
     await expect(grid).toBeVisible();
@@ -102,10 +102,10 @@ test.describe("Server Panel Tile Grid", () => {
     const sidebar = page.getByRole("navigation", { name: "Sessions" });
     await expect(sidebar).toBeVisible();
 
-    await sidebar.getByRole("button", { name: /^Tmux/ }).click();
+    await sidebar.getByRole("button", { name: /^Server/ }).click();
 
     await expect(
-      sidebar.getByRole("separator", { name: /Resize.*Tmux/ }),
+      sidebar.getByRole("separator", { name: /Resize.*Server/ }),
     ).not.toBeVisible();
   });
 
@@ -117,10 +117,10 @@ test.describe("Server Panel Tile Grid", () => {
       page.locator("[aria-label='Connected']"),
     ).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole("button", { name: /^Tmux/ }).click();
+    await page.getByRole("button", { name: /^Server/ }).click();
 
     await expect(
-      page.getByRole("separator", { name: /Resize.*Tmux/ }),
+      page.getByRole("separator", { name: /Resize.*Server/ }),
     ).toBeVisible();
   });
 });

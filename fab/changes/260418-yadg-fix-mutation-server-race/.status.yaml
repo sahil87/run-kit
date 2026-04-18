@@ -1,0 +1,42 @@
+id: yadg
+name: 260418-yadg-fix-mutation-server-race
+created: 2026-04-18T06:44:47Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 27
+    total: 27
+confidence:
+    certain: 11
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 94.5
+        reversibility: 72.7
+        competence: 80.0
+        disambiguation: 75.9
+stage_metrics:
+    intake: {started_at: "2026-04-18T06:44:47Z", driver: fab-new, iterations: 1, completed_at: "2026-04-18T06:58:03Z"}
+    spec: {started_at: "2026-04-18T06:58:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:00:28Z"}
+    tasks: {started_at: "2026-04-18T07:00:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:04:13Z"}
+    apply: {started_at: "2026-04-18T07:04:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:18:14Z"}
+    review: {started_at: "2026-04-18T07:18:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:22:47Z"}
+    hydrate: {started_at: "2026-04-18T07:22:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:29:00Z"}
+    ship: {started_at: "2026-04-18T07:29:00Z", driver: fab-fff, iterations: 1}
+prs: []
+last_updated: 2026-04-18T07:29:00Z

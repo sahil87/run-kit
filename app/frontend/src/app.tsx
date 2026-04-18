@@ -122,7 +122,7 @@ function AppShell() {
   useVisualViewport();
 
   const { sessions: rawSessions, isConnected, server, servers, refreshServers, metrics } = useSessionContext();
-  const sessions = useMergedSessions(rawSessions);
+  const sessions = useMergedSessions(rawSessions, server);
   const { sidebarOpen, drawerOpen, fixedWidth } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen, toggleFixedWidth } = useChromeDispatch();
   const navigate = useNavigate();
@@ -170,12 +170,12 @@ function AppShell() {
   }, [rawSessions, setWindowsForSession]);
 
   // Palette split/close actions (button loading not visible since palette closes, but we need error toasts)
-  const { execute: executeSplit } = useOptimisticAction<[string, number, boolean, string | undefined]>({
-    action: (session, index, horizontal, cwd) => splitWindow(session, index, horizontal, cwd),
+  const { execute: executeSplit } = useOptimisticAction<[string, string, number, boolean, string | undefined]>({
+    action: (srv, session, index, horizontal, cwd) => splitWindow(srv, session, index, horizontal, cwd),
     onError: (err) => addToast(err.message || "Failed to split pane"),
   });
-  const { execute: executeClosePane } = useOptimisticAction<[string, number]>({
-    action: (session, index) => closePane(session, index),
+  const { execute: executeClosePane } = useOptimisticAction<[string, string, number]>({
+    action: (srv, session, index) => closePane(srv, session, index),
     onError: (err) => addToast(err.message || "Failed to close pane"),
   });
 
@@ -333,7 +333,7 @@ function AppShell() {
       });
       setDrawerOpen(false);
       // Fire-and-forget: tell tmux to select this window too
-      selectWindow(session, windowIdx).catch(() => {});
+      selectWindow(server, session, windowIdx).catch(() => {});
     },
     [navigate, setDrawerOpen, server],
   );
@@ -369,13 +369,13 @@ function AppShell() {
   }, [sessions]);
 
   // Create a new window in a session (from sidebar "+" button)
-  const { execute: executeCreateWindow } = useOptimisticAction<[string]>({
-    action: (session) => {
+  const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
+    action: (srv, session) => {
       const targetSession = sessions.find((s) => s.name === session);
       const activeWin = targetSession?.windows.find((w) => w.isActiveWindow);
-      return createWindow(session, "zsh", activeWin?.worktreePath);
+      return createWindow(srv, session, "zsh", activeWin?.worktreePath);
     },
-    onOptimistic: (session) => {
+    onOptimistic: (_srv, session) => {
       ghostWindowIdRef.current = addGhostWindowStore(session, "zsh");
     },
     onRollback: () => {
@@ -393,10 +393,10 @@ function AppShell() {
   });
 
   // Instant session creation — derives name from active window's CWD, deduplicates, no dialog
-  const { execute: executeCreateSessionInstant, isPending: isSessionCreatePending } = useOptimisticAction<[string, string | undefined]>({
-    action: (name, cwd) => createSession(name, cwd),
-    onOptimistic: (name) => {
-      ghostSessionIdRef.current = addGhostSession(name);
+  const { execute: executeCreateSessionInstant, isPending: isSessionCreatePending } = useOptimisticAction<[string, string, string | undefined]>({
+    action: (srv, name, cwd) => createSession(srv, name, cwd),
+    onOptimistic: (srv, name) => {
+      ghostSessionIdRef.current = addGhostSession(srv, name);
     },
     onRollback: () => {
       if (ghostSessionIdRef.current) {
@@ -419,14 +419,14 @@ function AppShell() {
     const cwd = currentWindow?.worktreePath;
     const existingNames = sessions.map((s) => s.name);
     const name = deriveInstantSessionName(cwd, existingNames);
-    executeCreateSessionInstant(name, cwd || undefined);
-  }, [isSessionCreatePending, currentWindow, sessions, executeCreateSessionInstant]);
+    executeCreateSessionInstant(server, name, cwd || undefined);
+  }, [isSessionCreatePending, currentWindow, sessions, server, executeCreateSessionInstant]);
 
   const handleCreateWindow = useCallback(
     (session: string) => {
-      executeCreateWindow(session);
+      executeCreateWindow(server, session);
     },
-    [executeCreateWindow],
+    [server, executeCreateWindow],
   );
 
 
@@ -434,14 +434,14 @@ function AppShell() {
     const name = iframeWindowName.trim();
     const url = iframeWindowUrl.trim();
     if (!name || !url || !sessionName) return;
-    createWindow(sessionName, name, undefined, "iframe", url)
+    createWindow(server, sessionName, name, undefined, "iframe", url)
       .catch((err) => addToast(err.message || "Failed to create iframe window"))
       .finally(() => {
         setShowCreateIframeDialog(false);
         setIframeWindowName("");
         setIframeWindowUrl("");
       });
-  }, [iframeWindowName, iframeWindowUrl, sessionName, addToast]);
+  }, [iframeWindowName, iframeWindowUrl, sessionName, server, addToast]);
 
   // Theme
   const { preference: themePreference, resolved: themeResolved, themeDark, themeLight } = useTheme();
@@ -515,7 +515,7 @@ function AppShell() {
     },
     onRollback: () => {
       if (killedServerNameRef.current) {
-        unmarkKilled(killedServerNameRef.current);
+        unmarkKilled("server", killedServerNameRef.current);
         killedServerNameRef.current = null;
       }
     },
@@ -630,7 +630,7 @@ function AppShell() {
                     onSelect: () => {
                       if (sessionName) {
                         const newType = currentWindow.rkType === "iframe" ? "" : "iframe";
-                        updateWindowType(sessionName, currentWindow.index, newType).catch((err) =>
+                        updateWindowType(server, sessionName, currentWindow.index, newType).catch((err) =>
                           addToast(err.message || "Failed to toggle window type"),
                         );
                       }
@@ -646,7 +646,7 @@ function AppShell() {
                     onSelect: () => {
                       if (sessionName) {
                         const targetIndex = currentWindow.index - 1;
-                        moveWindow(sessionName, currentWindow.index, targetIndex)
+                        moveWindow(server, sessionName, currentWindow.index, targetIndex)
                           .then(() => {
                             navigate({
                               to: "/$server/$session/$window",
@@ -669,7 +669,7 @@ function AppShell() {
                     onSelect: () => {
                       if (sessionName) {
                         const targetIndex = currentWindow.index + 1;
-                        moveWindow(sessionName, currentWindow.index, targetIndex)
+                        moveWindow(server, sessionName, currentWindow.index, targetIndex)
                           .then(() => {
                             navigate({
                               to: "/$server/$session/$window",
@@ -692,7 +692,7 @@ function AppShell() {
                     label: `Window: Move to ${s.name}`,
                     onSelect: () => {
                       if (sessionName) {
-                        moveWindowToSession(sessionName, currentWindow.index, s.name)
+                        moveWindowToSession(server, sessionName, currentWindow.index, s.name)
                           .then(() => {
                             navigate({ to: "/$server", params: { server } });
                           })
@@ -721,21 +721,21 @@ function AppShell() {
               id: "split-vertical",
               label: "Window: Split Vertical",
               onSelect: () => {
-                if (sessionName) executeSplit(sessionName, currentWindow.index, true, currentWindow.worktreePath);
+                if (sessionName) executeSplit(server, sessionName, currentWindow.index, true, currentWindow.worktreePath);
               },
             },
             {
               id: "split-horizontal",
               label: "Window: Split Horizontal",
               onSelect: () => {
-                if (sessionName) executeSplit(sessionName, currentWindow.index, false, currentWindow.worktreePath);
+                if (sessionName) executeSplit(server, sessionName, currentWindow.index, false, currentWindow.worktreePath);
               },
             },
             {
               id: "close-pane",
               label: "Pane: Close",
               onSelect: () => {
-                if (sessionName) executeClosePane(sessionName, currentWindow.index);
+                if (sessionName) executeClosePane(server, sessionName, currentWindow.index);
               },
             },
             {
@@ -746,7 +746,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, setShowCreateWindowAtFolderDialog],
+    [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
   );
 
   const viewActions: PaletteAction[] = useMemo(
@@ -769,14 +769,14 @@ function AppShell() {
     [sessionName, fixedWidth, toggleFixedWidth],
   );
 
-  const { execute: executeReloadConfig } = useOptimisticAction({
-    action: () => reloadTmuxConfig(),
+  const { execute: executeReloadConfig } = useOptimisticAction<[string]>({
+    action: (srv) => reloadTmuxConfig(srv),
     onSettled: () => addToast("Tmux config reloaded", "info"),
     onError: () => addToast("Failed to reload tmux config", "error"),
   });
 
-  const { execute: executeResetConfig } = useOptimisticAction({
-    action: () => initTmuxConf().then(() => reloadTmuxConfig()),
+  const { execute: executeResetConfig } = useOptimisticAction<[string]>({
+    action: (srv) => initTmuxConf().then(() => reloadTmuxConfig(srv)),
     onSettled: () => addToast("Tmux config reset to default", "info"),
     onError: () => addToast("Failed to reset tmux config", "error"),
   });
@@ -786,12 +786,12 @@ function AppShell() {
       {
         id: "reload-tmux-config",
         label: "Config: Reload tmux",
-        onSelect: () => executeReloadConfig(),
+        onSelect: () => executeReloadConfig(server),
       },
       {
         id: "init-tmux-conf",
         label: "Config: Reset tmux to default",
-        onSelect: () => executeResetConfig(),
+        onSelect: () => executeResetConfig(server),
       },
       {
         id: "keyboard-shortcuts",
@@ -799,7 +799,7 @@ function AppShell() {
         onSelect: () => setShowKeyboardShortcuts(true),
       },
     ],
-    [executeReloadConfig, executeResetConfig],
+    [server, executeReloadConfig, executeResetConfig],
   );
 
   const serverActions: PaletteAction[] = useMemo(
@@ -929,7 +929,7 @@ function AppShell() {
                   {currentWindow?.rkUrl && (
                     <div className="shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-bg-primary">
                       <button
-                        onClick={() => sessionName && currentWindow && updateWindowType(sessionName, currentWindow.index, "iframe")}
+                        onClick={() => sessionName && currentWindow && updateWindowType(server, sessionName, currentWindow.index, "iframe")}
                         className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
                         title="Switch to iframe view"
                       >
@@ -1221,11 +1221,11 @@ function AppShell() {
                 }
                 onSelect={(c) => {
                   if (showColorPicker === "session" && sessionName) {
-                    setSessionColorApi(sessionName, c).catch((err) =>
+                    setSessionColorApi(server, sessionName, c).catch((err) =>
                       addToast(err.message || "Failed to set session color"),
                     );
                   } else if (showColorPicker === "window" && sessionName && currentWindow) {
-                    setWindowColorApi(sessionName, currentWindow.index, c).catch((err) =>
+                    setWindowColorApi(server, sessionName, currentWindow.index, c).catch((err) =>
                       addToast(err.message || "Failed to set window color"),
                     );
                   }

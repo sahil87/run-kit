@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { uploadFile } from "@/api/client";
+import { useSessionContext } from "@/contexts/session-context";
 
 export type UploadedFile = {
   path: string;
@@ -13,6 +14,7 @@ type UseFileUploadReturn = {
 
 export function useFileUpload(session: string, windowIndex: string): UseFileUploadReturn {
   const [uploading, setUploading] = useState(false);
+  const { server } = useSessionContext();
 
   const uploadFiles = useCallback(
     async (files: FileList): Promise<UploadedFile[]> => {
@@ -23,7 +25,7 @@ export function useFileUpload(session: string, windowIndex: string): UseFileUplo
       try {
         for (const file of Array.from(files)) {
           try {
-            const result = await uploadFile(session, file, windowIndex);
+            const result = await uploadFile(server, session, file, windowIndex);
             if (result.ok && result.path) {
               results.push({ path: result.path, file });
             }
@@ -37,7 +39,7 @@ export function useFileUpload(session: string, windowIndex: string): UseFileUplo
 
       return results;
     },
-    [session, windowIndex],
+    [server, session, windowIndex],
   );
 
   return { uploadFiles, uploading };

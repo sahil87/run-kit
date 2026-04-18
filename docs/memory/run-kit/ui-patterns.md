@@ -54,7 +54,7 @@ Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server li
 
 **Iframe attributes**: `sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"`, `title="Proxied content"`, `border-0`.
 
-**Window creation**: "Window: New Iframe Window" command palette action (id `create-iframe-window`) opens a `Dialog` with two inputs: window name (autofocused, Enter focuses URL input) and URL (Enter creates window). Create button disabled until both fields non-empty. Calls `createWindow(session, name, undefined, "iframe", url)` — the extended API client function passes `rkType` and `rkUrl` in the POST body. Backend uses `CreateWindowWithOptions` for atomic `\;`-chained tmux command. Only shown when a session is active.
+**Window creation**: "Window: New Iframe Window" command palette action (id `create-iframe-window`) opens a `Dialog` with two inputs: window name (autofocused, Enter focuses URL input) and URL (Enter creates window). Create button disabled until both fields non-empty. Calls `createWindow(server, session, name, undefined, "iframe", url)` — the extended API client function passes `rkType` and `rkUrl` in the POST body. Backend uses `CreateWindowWithOptions` for atomic `\;`-chained tmux command. Only shown when a session is active.
 
 ## Chrome (Top Bar)
 
@@ -86,9 +86,9 @@ The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derive
 
 **Right section (mobile < 640px)**: `⋯  >_` — only command palette trigger and compose button visible. Logo, "Run Kit" text, dot, toggle, split buttons, close pane button, ⌘K hidden via `hidden sm:flex` / `hidden sm:inline-flex`
 
-**Split buttons** (`SplitButton` in `top-bar.tsx`): Two inline components calling `splitWindow(session, windowIndex, horizontal)` from `api/client.ts`. Custom SVG icons (square-split pattern). Best-effort error handling — tmux may reject if pane is too small. `POST /api/sessions/{session}/windows/{index}/split` with `{ "horizontal": bool }`.
+**Split buttons** (`SplitButton` in `top-bar.tsx`): Two inline components calling `splitWindow(server, session, windowIndex, horizontal)` from `api/client.ts`. The active `server` is passed as a prop from `TopBar` (read from `useSessionContext()` at handler scope). Custom SVG icons (square-split pattern). Best-effort error handling — tmux may reject if pane is too small. `POST /api/sessions/{session}/windows/{index}/split` with `{ "horizontal": bool }`.
 
-**Close pane button** (`ClosePaneButton` in `top-bar.tsx`): Inline component calling `closePane(session, windowIndex)` from `api/client.ts`. X-shaped close icon SVG (`width="14" height="14" viewBox="0 0 24 24"`). Same base styling as `SplitButton` (`min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary`). Hidden on mobile (`hidden sm:flex`). Only rendered when `currentWindow` exists. Best-effort error handling (`.catch(() => {})`), matching split button pattern. Kills the active pane of the current window — no pane ID tracking needed, targets via `POST /api/sessions/{session}/windows/{index}/close-pane`. Also available as "Pane: Close" in the command palette.
+**Close pane button** (`ClosePaneButton` in `top-bar.tsx`): Inline component calling `closePane(server, session, windowIndex)` from `api/client.ts`. X-shaped close icon SVG (`width="14" height="14" viewBox="0 0 24 24"`). Same base styling as `SplitButton` (`min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary`). Hidden on mobile (`hidden sm:flex`). Only rendered when `currentWindow` exists. Best-effort error handling (`.catch(() => {})`), matching split button pattern. Kills the active pane of the current window — no pane ID tracking needed, targets via `POST /api/sessions/{session}/windows/{index}/close-pane`. Also available as "Pane: Close" in the command palette.
 
 **Toolbar button color convention**: All toolbar buttons (top bar and bottom bar) use `text-text-secondary` as their default foreground color. Active toggle states (Ctrl/Alt modifiers when armed, FixedWidthToggle when active) use `text-accent` with accent background. Hover state uses `hover:border-text-secondary` (border highlight). This convention applies to: compose button, theme toggle, fixed-width toggle, split buttons, close pane button, Esc, Tab, Ctrl, Alt, Fn trigger, arrow pad, and ⌘K.
 
@@ -193,18 +193,18 @@ Popover state managed via `popoverKey` state in `Sidebar`, keyed by `session:win
 - Escape cancels editing. A `cancelledRef` / `sessionCancelledRef` prevents blur from committing after an Escape (or cross-cancel).
 - Single-click behavior is preserved (navigate to window / navigate to session's first window) — only `onDoubleClick` triggers editing.
 
-**Window rename**: calls `renameWindow(session, index, newName)` via `useOptimisticAction`. The UI updates immediately via `windowStore.renameWindow(session, windowId, newName)`; on API failure it rolls back via `windowStore.clearRename(session, windowId)` and shows a toast error. SSE still reconciles the canonical updated name once the server event arrives.
+**Window rename**: calls `renameWindow(server, session, index, newName)` via `useOptimisticAction` (`server` captured at handler time from `useSessionContext()`). The UI updates immediately via `windowStore.renameWindow(session, windowId, newName)`; on API failure it rolls back via `windowStore.clearRename(session, windowId)` and shows a toast error. SSE still reconciles the canonical updated name once the server event arrives.
 
-**Session rename**: calls `renameSession(oldName, newName)` via `useOptimisticAction`. The UI updates immediately via `markRenamed("session", oldName, newName)`; on API failure it rolls back via `unmarkRenamed(oldName)` and shows a toast error. The dialog-based session rename in `app.tsx` remains unchanged — inline editing is an additional path.
+**Session rename**: calls `renameSession(server, oldName, newName)` via `useOptimisticAction`. The UI updates immediately via `markRenamed("session", server, oldName, newName)`; on API failure it rolls back via `unmarkRenamed(server, oldName)` (`lastRenameSessionRef` snapshots `{ server, name }` together for cross-server-safe rollback). Toast error on failure. The dialog-based session rename in `app.tsx` remains unchanged — inline editing is an additional path.
 
 **Cross-cancellation**: Only one inline edit (window or session) may be active at a time. Starting any new inline edit cancels the currently active one without committing it. `handleStartEditing` (window edit) sets `sessionCancelledRef.current = true` and clears `editingSession` before activating the window input; `handleStartSessionEditing` sets `cancelledRef.current = true` and clears `editingWindow` before activating the session input. This ensures blur on the cancelled input is a no-op.
 
-**Window drag-and-drop reorder**: Window items in the sidebar are `draggable={true}` (ghost windows excluded). Uses native HTML5 drag-and-drop — no external library (constitution IV). Drag state managed via `dragSource` and `dropTarget` state in `Sidebar`. On `dragStart`, sets `dataTransfer` with JSON `{ session, index, windowId, name }` and `effectAllowed: "move"`. The `windowId` and `name` fields were added for cross-session optimistic operations; within-session drops use only `session` and `index`. Within-session drops: drop indicator is a 2px accent-colored top border (`borderTop: 2px solid var(--color-accent)`) on the hovered window item when source and target differ. On `drop`, uses `useOptimisticAction` to immediately swap window indices in the Zustand store via `swapWindowOrder(session, srcIndex, dstIndex)`, then fires `moveWindow(session, srcIndex, dstIndex)` API call in the background. `onSelectWindow` is called immediately (not deferred to API success). On API failure, `onAlwaysRollback` reverses the swap via `swapWindowOrder(session, dstIndex, srcIndex)` and shows a toast error. SSE reconciliation naturally clears the optimistic state when `setWindowsForSession` replaces all entries with server-confirmed data. Same-position drops are no-ops (source === target check). All drag visual state (drop indicators) cleared on `dragEnd` and `drop` — handles both successful drops and cancelled drags (Escape, drag outside sidebar).
+**Window drag-and-drop reorder**: Window items in the sidebar are `draggable={true}` (ghost windows excluded). Uses native HTML5 drag-and-drop — no external library (constitution IV). Drag state managed via `dragSource` and `dropTarget` state in `Sidebar`. On `dragStart`, sets `dataTransfer` with JSON `{ session, index, windowId, name }` and `effectAllowed: "move"`. The `windowId` and `name` fields were added for cross-session optimistic operations; within-session drops use only `session` and `index`. Within-session drops: drop indicator is a 2px accent-colored top border (`borderTop: 2px solid var(--color-accent)`) on the hovered window item when source and target differ. On `drop`, uses `useOptimisticAction` to immediately swap window indices in the Zustand store via `swapWindowOrder(session, srcIndex, dstIndex)`, then fires `moveWindow(server, session, srcIndex, dstIndex)` API call in the background (server captured at drop-handler time). `onSelectWindow` is called immediately (not deferred to API success). On API failure, `onAlwaysRollback` reverses the swap via `swapWindowOrder(session, dstIndex, srcIndex)` and shows a toast error. SSE reconciliation naturally clears the optimistic state when `setWindowsForSession` replaces all entries with server-confirmed data. Same-position drops are no-ops (source === target check). All drag visual state (drop indicators) cleared on `dragEnd` and `drop` — handles both successful drops and cancelled drags (Escape, drag outside sidebar).
 
-**Cross-session drag-and-drop**: Dropping a window onto a different session's header moves it to that session. `handleDragOver` accepts drag events on session headers when the dragged window is from a different session. Visual feedback: the session header shows an accent border (`border-accent`) when a valid cross-session drop is hovering. The drag data payload includes `{ session, index, windowId, name }` — `windowId` and `name` were added for optimistic store operations (within-session drop ignores the extra fields). On drop, `handleSessionDrop` calls `executeMoveToSession` (a `useOptimisticAction` instance) with all five arguments `(srcSession, srcIndex, windowId, windowName, dstSession)`. The optimistic lifecycle:
+**Cross-session drag-and-drop**: Dropping a window onto a different session's header moves it to that session. `handleDragOver` accepts drag events on session headers when the dragged window is from a different session. Visual feedback: the session header shows an accent border (`border-accent`) when a valid cross-session drop is hovering. The drag data payload includes `{ session, index, windowId, name }` — `windowId` and `name` were added for optimistic store operations (within-session drop ignores the extra fields). On drop, `handleSessionDrop` calls `executeMoveToSession` (a `useOptimisticAction` instance) with all six arguments `(server, srcSession, srcIndex, windowId, windowName, dstSession)`. The optimistic lifecycle:
 
 - **`onOptimistic`**: calls `killWindow(srcSession, windowId)` to hide the window from the source session, `addGhostWindow(dstSession, windowName)` to show it in the target (using the source window's display name, not a placeholder), and navigates to `/$server` immediately. The `optimisticId` is stored in a ref for rollback.
-- **`action`**: calls `moveWindowToSession(srcSession, srcIndex, dstSession)` — the existing API client function.
+- **`action`**: calls `moveWindowToSession(server, srcSession, srcIndex, dstSession)` — the API client function with `server` as the first positional argument.
 - **`onAlwaysRollback`** (API failure): calls `restoreWindow(srcSession, windowId)` to un-hide in source + `removeGhost(optimisticId)` to remove from target. Toast: "Failed to move window to session".
 - **`onAlwaysSettled`** (success): clears the ref. SSE reconciliation handles final state — `setWindowsForSession` removes the entry from the source (not in incoming list), adds it to the target (new incoming entry), and reconciles the ghost (new `windowId` not in ghost's `snapshotWindowIds`).
 
@@ -313,7 +313,7 @@ All primary session creation entry points create a session immediately without a
 **Algorithm**:
 1. Derive a name from the active window's `worktreePath` using `deriveNameFromPath(worktreePath)` (exported from `create-session-dialog.tsx`). If the result is empty (CWD is `/`, `~`, or `worktreePath` is undefined), the name is `session`.
 2. Deduplicate against `sessions`: if the name is taken, try `{name}-2`, `{name}-3`, … up to `{name}-10`. If all are taken, use `{name}-11` (best-effort).
-3. Call `createSession(derivedName, worktreePath)`. If no active window exists, call `createSession("session")` (no `cwd` — tmux defaults to server CWD).
+3. Call `createSession(server, derivedName, worktreePath)`. If no active window exists, call `createSession(server, "session")` (no `cwd` — tmux defaults to server CWD).
 4. The session appears in the sidebar via the existing optimistic/ghost mechanism.
 
 **Entry points** (all call `onCreateSession` → `executeCreateSessionInstant`):
@@ -330,7 +330,7 @@ All primary session creation entry points create a session immediately without a
 Two secondary entry points open `CreateSessionDialog` for users who want to specify a starting directory:
 
 - **"Session: Create at Folder"** — opens `CreateSessionDialog` (mode `"session"`, default). The dialog's path input is pre-filled with `currentWindow.worktreePath` via the `defaultPath?: string` prop added to `CreateSessionDialogProps`. If no active window, the field starts empty.
-- **"Window: Create at Folder"** — opens `CreateSessionDialog` with `mode="window"` and `session={currentSession}`. In window mode: title changes to "Create window at folder", session name input hidden, confirming calls `createWindow(session, "zsh", cwd)`.
+- **"Window: Create at Folder"** — opens `CreateSessionDialog` with `mode="window"` and `session={currentSession}`. In window mode: title changes to "Create window at folder", session name input hidden, confirming calls `createWindow(server, session, "zsh", cwd)`.
 
 `CreateSessionDialog` gains three optional backward-compatible props:
 - `defaultPath?: string` — pre-fills the path input
@@ -487,8 +487,8 @@ Command palette actions include: create/rename/kill session, create/rename/kill 
 | `create-session` | "Session: Create" | Instant creation — no dialog (see Instant Session Creation) |
 | `create-session-at-folder` | "Session: Create at Folder" | Opens `CreateSessionDialog` pre-filled with `currentWindow.worktreePath`; empty if no active window |
 | `create-window` | "Window: Create" | Instant window creation (existing behavior, unchanged) |
-| `create-window-at-folder` | "Window: Create at Folder" | Opens `CreateSessionDialog` in `mode="window"` (dialog title changes, session name input hidden, confirms via `createWindow(session, "zsh", cwd)`); only shown when a session is active |
-| `create-iframe-window` | "Window: New Iframe Window" | Opens dialog with name + URL inputs; creates iframe window via `createWindow(session, name, undefined, "iframe", url)`; only shown when a session is active |
+| `create-window-at-folder` | "Window: Create at Folder" | Opens `CreateSessionDialog` in `mode="window"` (dialog title changes, session name input hidden, confirms via `createWindow(server, session, "zsh", cwd)`); only shown when a session is active |
+| `create-iframe-window` | "Window: New Iframe Window" | Opens dialog with name + URL inputs; creates iframe window via `createWindow(server, session, name, undefined, "iframe", url)`; only shown when a session is active |
 
 **Window move actions**: "Window: Move Left" (id `move-window-left`) and "Window: Move Right" (id `move-window-right`) in the `windowActions` group. Only shown when `currentWindow` exists. "Move Left" excluded when the current window is at the minimum index in the session; "Move Right" excluded when at the maximum index (boundary exclusion, not disabled state). On select, calls `moveWindow(session, currentIndex, targetIndex)` then navigates to `/$server/$session/$targetIndex` so the user follows their window to its new position after the swap.
 
@@ -608,7 +608,7 @@ The "Create session" dialog (breadcrumb `+ New Session` action, sidebar empty st
 
 3. **Session name** — Auto-derived from the last segment of the selected path (e.g., `~/code/sahil87/run-kit` yields `run_kit`). Editable — auto-derivation is a convenience, not a lock. When the name field is left empty at submit time, the name is derived from the path automatically via `deriveNameFromPath()`. The Create button is enabled when either a name or a path is provided.
 
-On submit, the dialog calls `createSession(name, cwd)` which sends `POST /api/sessions` with `{ name, cwd }`. If the name field is empty but a path is set, the name is derived from the path's last segment (sanitized for tmux/byobu: hyphens→underscores, colons/periods replaced with underscores). Collision with existing session names is checked on the derived name and shows an error. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior. Accessible from breadcrumb `+ New Session` dropdown action, sidebar empty state button, and command palette.
+On submit, the dialog calls `createSession(server, name, cwd)` which sends `POST /api/sessions?server={server}` with `{ name, cwd }`. If the name field is empty but a path is set, the name is derived from the path's last segment (sanitized for tmux/byobu: hyphens→underscores, colons/periods replaced with underscores). Collision with existing session names is checked on the derived name and shows an error. The `cwd` field is omitted when no path is selected, preserving the original name-only behavior. Accessible from breadcrumb `+ New Session` dropdown action, sidebar empty state button, and command palette.
 
 ## Session-to-Project Mapping
 
@@ -710,7 +710,7 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 
 **Three feedback patterns:**
 
-1. **Ghost entries** (CRUD operations): Creating a session/window/server immediately inserts a ghost entry with `opacity-50 animate-pulse` styling. SSE reconciliation auto-clears ghosts when real data arrives. Failure removes the ghost and shows an error toast. Kill operations immediately hide the entry; failure restores it. Rename operations immediately update the displayed name; failure reverts. **Window** ghost/kill/rename state is managed by the Zustand window store (`app/frontend/src/store/window-store.ts`); **session and server** ghost/kill/rename state remains in `OptimisticProvider` context (`app/frontend/src/contexts/optimistic-context.tsx`). Both feed into `useMergedSessions(realSessions)` which merges all optimistic state with SSE data.
+1. **Ghost entries** (CRUD operations): Creating a session/window/server immediately inserts a ghost entry with `opacity-50 animate-pulse` styling. SSE reconciliation auto-clears ghosts when real data arrives. Failure removes the ghost and shows an error toast. Kill operations immediately hide the entry; failure restores it. Rename operations immediately update the displayed name; failure reverts. **Window** ghost/kill/rename state is managed by the Zustand window store (`app/frontend/src/store/window-store.ts`); **session and server** ghost/kill/rename state remains in `OptimisticProvider` context (`app/frontend/src/contexts/optimistic-context.tsx`). Both feed into `useMergedSessions(realSessions, currentServer)` which filters session-level overlays by `currentServer` (so cross-server ghosts/kills/renames don't leak — see "Server Capture Convention" below) and merges with SSE data.
 
 2. **Button loading states** (fire-and-forget): Split pane and close pane top-bar buttons show a spinner SVG (`animate-spin`) and `disabled` attribute during `isPending`. Command palette equivalents use the same hook for error toast feedback (palette closes, so spinner not visible).
 
@@ -744,6 +744,86 @@ When the next SSE update arrives without the `windowId`, `setWindowsForSession` 
 ### Cross-Session Move: Compound Optimistic Update
 
 The `executeMoveToSession` hook in `sidebar/index.tsx` combines two store actions (`killWindow` + `addGhostWindow`) for a single optimistic update. This is the only `useOptimisticAction` instance that performs a compound optimistic mutation (hiding in one session while inserting a ghost in another). The ref-based `lastMoveToSessionRef` stores `{ srcSession, windowId, optimisticId }` so `onAlwaysRollback` can reverse both operations even after the component navigates away.
+
+### Server Capture Convention (Optimistic Actions)
+
+The `server` argument that scopes a mutation to a tmux server is **always captured at user-event time**, never read from an ambient module-level global, never frozen at component mount. This is enforced both by the API client signature (every server-scoped function takes `server: string` as its first arg — see `tmux-sessions.md` → "Frontend Server Routing Contract") and by the React handler shape on every call site.
+
+#### The two compliant capture shapes
+
+**Shape A — explicit capture inside `useCallback`**: read `server` from `useSessionContext()` at component scope, list it in the callback's deps array, and pass it as the first argument to the action when the user-event handler fires:
+
+```tsx
+const { server } = useSessionContext();
+const handleRenameSession = useCallback(() => {
+  if (!renameSessionName.trim() || !sessionName) return;
+  executeRenameSession(server, sessionName, renameSessionName.trim());
+  setShowRenameSessionDialog(false);
+}, [renameSessionName, sessionName, server, executeRenameSession]);
+```
+
+**Shape B — `server` threaded through the `useOptimisticAction` argument tuple**: extend the tuple's first slot to `string` and forward it inside `action`. This is the standard shape for hooks like `executeRenameSession`, `executeKillFromDialog`, `executeMoveToSession`, etc.:
+
+```tsx
+const { execute: executeRenameSession } = useOptimisticAction<[string, string, string]>({
+  action: (srv, oldName, newName) => renameSession(srv, oldName, newName),
+  onOptimistic: (srv, oldName, newName) => {
+    lastRenameSessionRef.current = { server: srv, name: oldName };
+    markRenamed("session", srv, oldName, newName);
+  },
+  onRollback: () => {
+    const last = lastRenameSessionRef.current;
+    if (last) unmarkRenamed(last.server, last.name);
+  },
+  ...
+});
+```
+
+**Refs that bridge async callbacks** (e.g., `lastKillSessionRef`, `lastRenameSessionRef`, `killDialogServerRef`) snapshot `{ server, name }` together inside `onOptimistic`, so `onAlwaysRollback`/`onAlwaysSettled` can target the originating server even if the user has switched servers by the time the API resolves. Snapshotting the name without the server is a bug — rollback would invalidate the wrong server's overlay.
+
+#### Optimistic overlays carry `server` (session-level)
+
+`OptimisticContext` (`app/frontend/src/contexts/optimistic-context.tsx`) stores session-level entries with their originating `server` and filters by `(server, name)` at render time. The discriminated-union types reflect this:
+
+```ts
+type GhostEntry =
+  | { optimisticId: string; type: "session"; name: string; server: string }
+  | { optimisticId: string; type: "server"; name: string };
+
+type KilledEntry =
+  | { type: "session"; identifier: string; server: string }
+  | { type: "server"; identifier: string };
+
+type RenamedEntry = { type: "session"; identifier: string; newName: string; server: string };
+```
+
+API surface (session-level entries take `server` first; server-level entries are global):
+
+| Method | Signature | Notes |
+|--------|-----------|-------|
+| `addGhostSession` | `(server, name) => optimisticId` | Session ghost |
+| `addGhostServer` | `(name) => optimisticId` | Server ghost — global, no `server` arg |
+| `markKilled("session", server, name)` | overload | Session kill |
+| `markKilled("server", name)` | overload | Server kill — global |
+| `unmarkKilled("session", server, name)` | overload | Mirror of `markKilled` |
+| `unmarkKilled("server", name)` | overload | Mirror of `markKilled` |
+| `markRenamed("session", server, name, newName)` | required `server` | |
+| `unmarkRenamed(server, name)` | required `server` | |
+| `useMergedSessions(real, currentServer)` | filter | Drops session-level overlays whose `server !== currentServer` |
+
+`useMergedSessions` filters ghosts/kills/renames by `currentServer` before applying them. SSE reconciliation only inspects ghosts whose `server === currentServer` so the other server's pending state is left intact when the user switches servers and back.
+
+**Window-store entries are NOT keyed by server** — windows cannot migrate across tmux servers (`MoveWindowToSession` operates within a single server, and there is no cross-server move API). The `windowId` (tmux `@N`) is unique per server, and `setWindowsForSession` is only ever called with data for the active server. Adding `server` to the window-store key would be defensive bookkeeping with no failure mode to defend against.
+
+#### Why this convention exists
+
+The pre-fix client kept `server` in a module-level closure (`_getServer`) wired to `serverRef.current`. The closure dereferenced live state at fetch time, so any switch between user intent and fetch dispatch silently retargeted the request — most commonly via Cmd+K's near-instant server switcher between opening a rename dialog and pressing Enter. The optimistic overlay made the bug invisible until SSE reconciled (~2–5 s later), which manifested as random renames/kills landing on the wrong server with a flicker on rollback.
+
+#### General rule: don't introduce ambient state for request parameters
+
+Any value that scopes an HTTP request to a particular backend resource (server, project, account, tenant) MUST be passed as an explicit argument to the API call, captured at user-event time. Module-level mutable getters, refs read at fetch time, or context reads inside the action callback (rather than the handler) all create the same closure-race shape that this change retired. If a value travels with a mutation, it travels in the call signature — period.
+
+The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips `SessionProvider`'s `server` prop between `openRenameSessionDialog("foo")` and `handleRenameSession()` and asserts the API call uses the post-flip server (`server-B`), proving the capture point is the handler invocation, not the dialog open.
 
 ## Changelog
 
@@ -806,3 +886,4 @@ The `executeMoveToSession` hook in `sidebar/index.tsx` combines two store action
 | 2026-04-18 | Server panel tile grid + resizable CollapsiblePanel — `ServerPanel` rewritten from vertical list to swatch-style tile grid (`repeat(auto-fill, minmax(72px, 1fr))` desktop, single-row horizontal scroll with `scroll-snap-type` on `pointer: coarse` / `<640px`). Tiles: 4px ANSI-tinted top stripe + 11px truncated name + 10px "N sess" meta. Active tile: `aria-current` + inset accent ring + `rowTints.get(color).selected` body tint. Hover-revealed color-picker and kill buttons rendered as siblings to the tile `<button>` (avoids nested-button HTML) with `group-hover:flex`; hidden on coarse pointer. Scrolls internally when tile grid overflows the user-set height. `CollapsiblePanel` gained opt-in `resizable`, `defaultHeight`, `minHeight`, `maxHeight`, `mobileHeight` props: 6px `ns-resize` drag handle persisted to `localStorage[${storageKey}-height]`, height clamping, `calc(100vh - Npx)` maxHeight parsing, mobile drag-handle hide. Window/Host panels unchanged (opt-in preserves legacy behaviour). `/api/servers` now returns `{name, sessionCount}[]` per architecture.md. | `260417-jpkl-server-panel-tile-grid` |
 | 2026-04-18 | Right-align server name in ServerPanel header — `ServerPanel` title changed from dynamic `Tmux · {server}` to static `"Server"` (matches WindowPanel/HostPanel convention). Active server name moved into `headerRight` slot with `truncate text-text-primary font-mono` classes (mirrors `host-panel.tsx`); `LogoSpinner` follows the name when `refreshing`. Left-side chevron and title are now visually fixed across server switches — only the right-slot text updates. Playwright spec `server-panel-grid.spec.ts` and its companion `.spec.md` updated to match the new `name: /^Server/` accessible name and `Resize Server panel` separator label. No new patterns introduced — aligns with existing sidebar panel header convention. | `260418-2cjc-right-align-server-name` |
 | 2026-04-18 | xterm Unicode 15 grapheme widths — added `@xterm/addon-unicode-graphemes` to the Terminal init chain (loads after WebLinks, before WebGL), set `allowProposedApi: true` on the Terminal constructor, and assigned `terminal.unicode.activeVersion = "15-graphemes"` after `loadAddon()`. Aligns xterm's cell-width measurements with tmux's wcwidth-based layout so emojis and other wide graphemes (ZWJ sequences, flag/skin-tone modifiers) render without ghost/overlap artifacts. The `unicodeVersion` constructor option remains a no-op past `"6"` without the addon. | `260418-xgl2-xterm-emoji-width` |
+| 2026-04-18 | Server-capture-at-trigger convention for optimistic actions — every `useOptimisticAction` instance for a server-scoped mutation now threads `server: string` as the first slot of its argument tuple (Shape B), with `server` read from `useSessionContext()` and listed in the calling handler's `useCallback` deps (Shape A). Async-bridge refs (`lastKillSessionRef`, `lastRenameSessionRef`, `killDialogServerRef`) snapshot `{ server, name }` together so rollback/settle target the originating server. `OptimisticContext` switched session-level `GhostEntry`/`KilledEntry`/`RenamedEntry` to discriminated unions carrying `server`; `markKilled`/`unmarkKilled` overloaded by `type` ("session" requires `server`, "server" is global); `useMergedSessions(real, currentServer)` now filters session-level overlays so cross-server overlays don't leak. Window-store keying unchanged — windows don't migrate across servers. Establishes the rule: ambient module-level state for request parameters is prohibited; request-scoping values travel in the call signature, captured at user-event time. Regression test in `use-dialog-state.test.tsx` flips `SessionProvider.server` between dialog open and submit. | `260418-yadg-fix-mutation-server-race` |

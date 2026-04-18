@@ -4,6 +4,7 @@ import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
+import { useSessionContext } from "@/contexts/session-context";
 import type { ProjectSession } from "@/types";
 
 type CreateSessionDialogProps = {
@@ -47,6 +48,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { addGhostSession, removeGhost } = useOptimisticContext();
+  const { server } = useSessionContext();
   const ghostIdRef = useRef<string | null>(null);
 
   const existingNames = useMemo(
@@ -168,10 +170,10 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
     };
   }, []);
 
-  const { execute: executeCreate } = useOptimisticAction<[string, string | undefined]>({
-    action: (sessionName, cwd) => createSession(sessionName, cwd),
-    onOptimistic: (sessionName) => {
-      ghostIdRef.current = addGhostSession(sessionName);
+  const { execute: executeCreate } = useOptimisticAction<[string, string, string | undefined]>({
+    action: (srv, sessionName, cwd) => createSession(srv, sessionName, cwd),
+    onOptimistic: (srv, sessionName) => {
+      ghostIdRef.current = addGhostSession(srv, sessionName);
     },
     onRollback: () => {
       if (ghostIdRef.current) {
@@ -187,8 +189,8 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
     },
   });
 
-  const { execute: executeCreateWindowAction } = useOptimisticAction<[string, string | undefined]>({
-    action: (targetSession, cwd) => createWindow(targetSession, "zsh", cwd),
+  const { execute: executeCreateWindowAction } = useOptimisticAction<[string, string, string | undefined]>({
+    action: (srv, targetSession, cwd) => createWindow(srv, targetSession, "zsh", cwd),
     onError: (err) => {
       setError(err.message || "Failed to create window");
     },
@@ -201,7 +203,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
         return;
       }
       setError("");
-      executeCreateWindowAction(session, path.trim() || undefined);
+      executeCreateWindowAction(server, session, path.trim() || undefined);
       onClose();
       return;
     }
@@ -216,7 +218,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
       return;
     }
     setError("");
-    executeCreate(trimmedName, path.trim() || undefined);
+    executeCreate(server, trimmedName, path.trim() || undefined);
     onClose();
   }
 

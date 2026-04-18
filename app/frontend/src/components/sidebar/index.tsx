@@ -98,18 +98,20 @@ export function Sidebar({
   const removeGhost = useWindowStore((state) => state.removeGhost);
 
   // Ctrl+click kill session (optimistic)
-  const lastKillSessionRef = useRef<string | null>(null);
-  const { execute: executeKillSession } = useOptimisticAction<[string]>({
-    action: (name) => killSessionApi(name),
-    onOptimistic: (name) => {
-      lastKillSessionRef.current = name;
-      markKilled("session", name);
+  const lastKillSessionRef = useRef<{ server: string; name: string } | null>(null);
+  const { execute: executeKillSession } = useOptimisticAction<[string, string]>({
+    action: (srv, name) => killSessionApi(srv, name),
+    onOptimistic: (srv, name) => {
+      lastKillSessionRef.current = { server: srv, name };
+      markKilled("session", srv, name);
     },
     onAlwaysRollback: () => {
-      if (lastKillSessionRef.current) unmarkKilled(lastKillSessionRef.current);
+      const last = lastKillSessionRef.current;
+      if (last) unmarkKilled("session", last.server, last.name);
     },
     onAlwaysSettled: () => {
-      if (lastKillSessionRef.current) clearSession(lastKillSessionRef.current);
+      const last = lastKillSessionRef.current;
+      if (last) clearSession(last.name);
       lastKillSessionRef.current = null;
     },
     onError: (err) => {
@@ -119,9 +121,9 @@ export function Sidebar({
 
   // Ctrl+click kill window (optimistic)
   const lastKillWindowRef = useRef<{ session: string; windowId: string } | null>(null);
-  const { execute: executeKillWindow } = useOptimisticAction<[string, string, number]>({
-    action: (session, _windowId, index) => killWindowApi(session, index),
-    onOptimistic: (session, windowId) => {
+  const { execute: executeKillWindow } = useOptimisticAction<[string, string, string, number]>({
+    action: (srv, session, _windowId, index) => killWindowApi(srv, session, index),
+    onOptimistic: (_srv, session, windowId) => {
       lastKillWindowRef.current = { session, windowId };
       killWindowStore(session, windowId);
     },
@@ -144,19 +146,22 @@ export function Sidebar({
   // Kill from confirmation dialog (optimistic)
   const killTargetRef = useRef(killTarget);
   killTargetRef.current = killTarget;
+  // Snapshot the server at dialog-confirm time so rollback/settle target the right server.
+  const killDialogServerRef = useRef<string>(server);
 
-  const { execute: executeKillFromDialog } = useOptimisticAction<[{ type: "session" | "window"; session: string; windowId?: string; windowIndex?: number }]>({
-    action: (target) => {
+  const { execute: executeKillFromDialog } = useOptimisticAction<[string, { type: "session" | "window"; session: string; windowId?: string; windowIndex?: number }]>({
+    action: (srv, target) => {
       if (target.type === "window" && target.windowIndex != null) {
-        return killWindowApi(target.session, target.windowIndex);
+        return killWindowApi(srv, target.session, target.windowIndex);
       }
-      return killSessionApi(target.session);
+      return killSessionApi(srv, target.session);
     },
-    onOptimistic: (target) => {
+    onOptimistic: (srv, target) => {
+      killDialogServerRef.current = srv;
       if (target.type === "window" && target.windowId) {
         killWindowStore(target.session, target.windowId);
       } else {
-        markKilled("session", target.session);
+        markKilled("session", srv, target.session);
       }
     },
     onAlwaysRollback: () => {
@@ -165,7 +170,7 @@ export function Sidebar({
       if (target.type === "window" && target.windowId) {
         restoreWindow(target.session, target.windowId);
       } else {
-        unmarkKilled(target.session);
+        unmarkKilled("session", killDialogServerRef.current, target.session);
       }
     },
     onAlwaysSettled: () => {
@@ -175,7 +180,7 @@ export function Sidebar({
         restoreWindow(target.session, target.windowId);
       } else {
         clearSession(target.session);
-        unmarkKilled(target.session);
+        unmarkKilled("session", killDialogServerRef.current, target.session);
       }
     },
     onError: (err) => {
@@ -184,15 +189,16 @@ export function Sidebar({
   });
 
   // Inline rename session (optimistic)
-  const lastRenameSessionRef = useRef<string | null>(null);
-  const { execute: executeRenameSession } = useOptimisticAction<[string, string]>({
-    action: (oldName, newName) => renameSession(oldName, newName),
-    onOptimistic: (oldName, newName) => {
-      lastRenameSessionRef.current = oldName;
-      markRenamed("session", oldName, newName);
+  const lastRenameSessionRef = useRef<{ server: string; name: string } | null>(null);
+  const { execute: executeRenameSession } = useOptimisticAction<[string, string, string]>({
+    action: (srv, oldName, newName) => renameSession(srv, oldName, newName),
+    onOptimistic: (srv, oldName, newName) => {
+      lastRenameSessionRef.current = { server: srv, name: oldName };
+      markRenamed("session", srv, oldName, newName);
     },
     onRollback: () => {
-      if (lastRenameSessionRef.current) unmarkRenamed(lastRenameSessionRef.current);
+      const last = lastRenameSessionRef.current;
+      if (last) unmarkRenamed(last.server, last.name);
     },
     onError: (err) => {
       addToast(err.message || "Failed to rename session");
@@ -206,9 +212,9 @@ export function Sidebar({
   const lastRenameWindowRef = useRef<{ session: string; windowId: string } | null>(null);
   const renameWindowStore = useWindowStore((state) => state.renameWindow);
   const clearRename = useWindowStore((state) => state.clearRename);
-  const { execute: executeRenameWindow } = useOptimisticAction<[string, number, string, string]>({
-    action: (session, index, newName, _windowId) => renameWindow(session, index, newName),
-    onOptimistic: (session, _index, newName, windowId) => {
+  const { execute: executeRenameWindow } = useOptimisticAction<[string, string, number, string, string]>({
+    action: (srv, session, index, newName, _windowId) => renameWindow(srv, session, index, newName),
+    onOptimistic: (_srv, session, _index, newName, windowId) => {
       lastRenameWindowRef.current = { session, windowId };
       renameWindowStore(session, windowId, newName);
     },
@@ -230,9 +236,9 @@ export function Sidebar({
 
   // Optimistic move for drag-drop window reorder (insert-before semantics)
   const preMoveEntriesRef = useRef<Map<string, { session: string; index: number }> | null>(null);
-  const { execute: executeMoveWindow, isPending: isMovePending } = useOptimisticAction<[string, number, number]>({
-    action: (session, srcIndex, dstIndex) => moveWindow(session, srcIndex, dstIndex),
-    onOptimistic: (session, srcIndex, dstIndex) => {
+  const { execute: executeMoveWindow, isPending: isMovePending } = useOptimisticAction<[string, string, number, number]>({
+    action: (srv, session, srcIndex, dstIndex) => moveWindow(srv, session, srcIndex, dstIndex),
+    onOptimistic: (_srv, session, srcIndex, dstIndex) => {
       // Snapshot entries for rollback (move isn't self-inverse like swap)
       const entries = useWindowStore.getState().entries;
       const snapshot = new Map<string, { session: string; index: number }>();
@@ -266,10 +272,10 @@ export function Sidebar({
 
   // Optimistic cross-session window move
   const lastMoveToSessionRef = useRef<{ srcSession: string; windowId: string; optimisticId: string } | null>(null);
-  const { execute: executeMoveToSession, isPending: isCrossMovePending } = useOptimisticAction<[string, number, string, string, string]>({
-    action: (srcSession, srcIndex, _windowId, _windowName, dstSession) =>
-      moveWindowToSession(srcSession, srcIndex, dstSession),
-    onOptimistic: (srcSession, _srcIndex, windowId, windowName, dstSession) => {
+  const { execute: executeMoveToSession, isPending: isCrossMovePending } = useOptimisticAction<[string, string, number, string, string, string]>({
+    action: (srv, srcSession, srcIndex, _windowId, _windowName, dstSession) =>
+      moveWindowToSession(srv, srcSession, srcIndex, dstSession),
+    onOptimistic: (_srv, srcSession, _srcIndex, windowId, windowName, dstSession) => {
       killWindowStore(srcSession, windowId);
       const optimisticId = addGhostWindow(dstSession, windowName);
       lastMoveToSessionRef.current = { srcSession, windowId, optimisticId };
@@ -320,7 +326,7 @@ export function Sidebar({
     const sessionName = editingSession;
     setEditingSession(null);
     if (trimmed && trimmed !== originalName) {
-      executeRenameSession(sessionName, trimmed);
+      executeRenameSession(server, sessionName, trimmed);
     }
   }
 
@@ -366,7 +372,7 @@ export function Sidebar({
         .find((s) => s.name === session)
         ?.windows.find((w) => !isGhostWindow(w) && w.windowId === windowId)?.index;
       if (winIndex != null) {
-        executeRenameWindow(session, winIndex, trimmed, windowId);
+        executeRenameWindow(server, session, winIndex, trimmed, windowId);
       }
     }
   }
@@ -422,7 +428,7 @@ export function Sidebar({
     if (data.session !== sessionName || data.index === windowIndex) return;
     if (isMovePending) return;
 
-    executeMoveWindow(data.session, data.index, windowIndex);
+    executeMoveWindow(server, data.session, data.index, windowIndex);
   }
 
   function handleDragEnd() {
@@ -460,7 +466,7 @@ export function Sidebar({
     if (data.session === sessionName) return;
     if (isCrossMovePending) return;
 
-    executeMoveToSession(data.session, data.index, data.windowId, data.name, sessionName);
+    executeMoveToSession(server, data.session, data.index, data.windowId, data.name, sessionName);
   }
 
   const toggleSession = useCallback((name: string) => {
@@ -469,7 +475,7 @@ export function Sidebar({
 
   function handleKill() {
     if (!killTarget) return;
-    executeKillFromDialog(killTarget);
+    executeKillFromDialog(server, killTarget);
     setKillTarget(null);
   }
 
@@ -557,7 +563,7 @@ export function Sidebar({
                   onCreateWindow={() => onCreateWindow(session.name)}
                   onKillClick={(e) => {
                     if (e.ctrlKey || e.metaKey) {
-                      executeKillSession(session.name);
+                      executeKillSession(server, session.name);
                       return;
                     }
                     setKillTarget({
@@ -574,7 +580,7 @@ export function Sidebar({
                   onDragLeave={(e) => handleSessionDragLeave(e, session.name)}
                   onDrop={(e) => handleSessionDrop(e, session.name)}
                   onColorChange={(c) => {
-                    setSessionColorApi(session.name, c).catch((err) =>
+                    setSessionColorApi(server, session.name, c).catch((err) =>
                       addToast(err.message || "Failed to set session color"),
                     );
                   }}
@@ -612,7 +618,7 @@ export function Sidebar({
                           onKillClick={(e) => {
                             e.stopPropagation();
                             if (e.ctrlKey || e.metaKey) {
-                              if (!ghost) executeKillWindow(session.name, win.windowId, win.index);
+                              if (!ghost) executeKillWindow(server, session.name, win.windowId, win.index);
                               return;
                             }
                             if (!ghost) {
@@ -630,7 +636,7 @@ export function Sidebar({
                           onDrop={ghost ? undefined : (e) => handleDrop(e, session.name, win.index)}
                           onDragEnd={ghost ? undefined : handleDragEnd}
                           onColorChange={ghost ? undefined : (c) => {
-                            setWindowColorApi(session.name, win.index, c).catch((err) =>
+                            setWindowColorApi(server, session.name, win.index, c).catch((err) =>
                               addToast(err.message || "Failed to set window color"),
                             );
                           }}

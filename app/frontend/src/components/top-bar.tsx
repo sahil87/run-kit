@@ -194,6 +194,7 @@ export function TopBar({
             <>
               <span className="hidden sm:flex">
                 <SplitButton
+                  server={server}
                   session={sessionName}
                   windowIndex={currentWindow.index}
                   cwd={currentWindow.worktreePath}
@@ -202,6 +203,7 @@ export function TopBar({
               <span className="hidden sm:flex">
                 <SplitButton
                   horizontal
+                  server={server}
                   session={sessionName}
                   windowIndex={currentWindow.index}
                   cwd={currentWindow.worktreePath}
@@ -209,6 +211,7 @@ export function TopBar({
               </span>
               <span className="hidden sm:flex">
                 <ClosePaneButton
+                  server={server}
                   session={sessionName}
                   windowIndex={currentWindow.index}
                 />
@@ -319,11 +322,13 @@ function ThemeToggle() {
 
 function SplitButton({
   horizontal,
+  server,
   session,
   windowIndex,
   cwd,
 }: {
   horizontal?: boolean;
+  server: string;
   session: string;
   windowIndex: number;
   cwd?: string;
@@ -332,7 +337,7 @@ function SplitButton({
   const { addToast } = useToast();
 
   const { execute, isPending } = useOptimisticAction<[]>({
-    action: () => splitWindow(session, windowIndex, !!horizontal, cwd),
+    action: () => splitWindow(server, session, windowIndex, !!horizontal, cwd),
     onError: (err) => {
       addToast(err.message || "Failed to split pane");
     },
@@ -383,16 +388,18 @@ function SplitButton({
 }
 
 function ClosePaneButton({
+  server,
   session,
   windowIndex,
 }: {
+  server: string;
   session: string;
   windowIndex: number;
 }) {
   const { addToast } = useToast();
 
   const { execute, isPending } = useOptimisticAction<[]>({
-    action: () => closePane(session, windowIndex),
+    action: () => closePane(server, session, windowIndex),
     onError: (err) => {
       addToast(err.message || "Failed to close pane");
     },

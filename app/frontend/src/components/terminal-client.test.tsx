@@ -18,6 +18,7 @@ vi.mock("@xterm/xterm", () => ({
       cols: 80,
       rows: 24,
       options: { fontSize: 13 },
+      unicode: { activeVersion: "6" },
       hasSelection: vi.fn().mockReturnValue(false),
     };
   }),
@@ -43,6 +44,12 @@ vi.mock("@xterm/addon-web-links", () => ({
 
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: vi.fn().mockImplementation(function () {
+    return { dispose: vi.fn() };
+  }),
+}));
+
+vi.mock("@xterm/addon-unicode-graphemes", () => ({
+  UnicodeGraphemesAddon: vi.fn().mockImplementation(function () {
     return { dispose: vi.fn() };
   }),
 }));

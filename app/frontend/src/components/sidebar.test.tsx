@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { Sidebar } from "./sidebar";
 import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-context";
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -125,13 +125,21 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
   );
 }
 
+// The session name appears inside the SessionRow's "Navigate to {name}" button.
+// The Sessions panel header also renders the current session name, so `getByText`
+// would ambiguously match both. This helper scopes to the row.
+function getSessionRowNameSpan(name: string): HTMLElement {
+  const btn = screen.getByLabelText(`Navigate to ${name}`);
+  return within(btn).getByText(name);
+}
+
 describe("Sidebar", () => {
   afterEach(cleanup);
 
   it("renders all sessions", () => {
     renderSidebar();
-    expect(screen.getByText("run-kit")).toBeInTheDocument();
-    expect(screen.getByText("ao-server")).toBeInTheDocument();
+    expect(getSessionRowNameSpan("run-kit")).toBeInTheDocument();
+    expect(getSessionRowNameSpan("ao-server")).toBeInTheDocument();
   });
 
   it("renders windows for expanded sessions", () => {
@@ -345,7 +353,7 @@ describe("Sidebar", () => {
   describe("inline rename session", () => {
     it("double-click on session name activates inline input", () => {
       renderSidebar();
-      const nameSpan = screen.getByText("run-kit");
+      const nameSpan = getSessionRowNameSpan("run-kit");
       fireEvent.doubleClick(nameSpan);
       const input = screen.getByLabelText("Rename session");
       expect(input).toBeInTheDocument();
@@ -357,7 +365,7 @@ describe("Sidebar", () => {
       vi.mocked(renameSessionMock).mockResolvedValue({ ok: true });
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("run-kit"));
+      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       const input = screen.getByLabelText("Rename session");
       fireEvent.change(input, { target: { value: "staging" } });
       await act(async () => {
@@ -373,7 +381,7 @@ describe("Sidebar", () => {
       vi.mocked(renameSessionMock).mockClear();
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("run-kit"));
+      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       const input = screen.getByLabelText("Rename session");
       fireEvent.change(input, { target: { value: "staging" } });
       fireEvent.keyDown(input, { key: "Escape" });
@@ -387,7 +395,7 @@ describe("Sidebar", () => {
       vi.mocked(renameSessionMock).mockResolvedValue({ ok: true });
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("run-kit"));
+      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       const input = screen.getByLabelText("Rename session");
       fireEvent.change(input, { target: { value: "blur-session" } });
       await act(async () => {
@@ -403,7 +411,7 @@ describe("Sidebar", () => {
       vi.mocked(renameSessionMock).mockClear();
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("run-kit"));
+      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       const input = screen.getByLabelText("Rename session");
       fireEvent.change(input, { target: { value: "   " } });
       fireEvent.keyDown(input, { key: "Enter" });
@@ -417,7 +425,7 @@ describe("Sidebar", () => {
       vi.mocked(renameSessionMock).mockClear();
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("run-kit"));
+      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       const input = screen.getByLabelText("Rename session");
       // Don't change the value — just press Enter
       fireEvent.keyDown(input, { key: "Enter" });
@@ -431,7 +439,7 @@ describe("Sidebar", () => {
 
       renderSidebar();
       // Start editing "run-kit"
-      fireEvent.doubleClick(screen.getByText("run-kit"));
+      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       const inputA = screen.getByLabelText("Rename session");
       fireEvent.change(inputA, { target: { value: "renamed-run-kit" } });
 
@@ -466,7 +474,7 @@ describe("Sidebar", () => {
       fireEvent.change(windowInput, { target: { value: "renamed-scratch" } });
 
       // Double-click on session name — should cancel window edit without committing
-      fireEvent.doubleClick(screen.getByText("run-kit"));
+      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
       expect(screen.getByLabelText("Rename session")).toBeInTheDocument();
       expect(renameWindowMock).not.toHaveBeenCalled();
@@ -478,7 +486,7 @@ describe("Sidebar", () => {
 
       renderSidebar();
       // Start editing session "run-kit"
-      fireEvent.doubleClick(screen.getByText("run-kit"));
+      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       const sessionInput = screen.getByLabelText("Rename session");
       fireEvent.change(sessionInput, { target: { value: "renamed-run-kit" } });
 

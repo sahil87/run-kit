@@ -508,9 +508,14 @@ export function Sidebar({
 
       {/* Sessions — always open, flex-grow to fill space */}
       <div className="border-t border-border flex-1 min-h-0 flex flex-col">
-        <div className="flex items-center gap-1.5 w-full pl-5 pr-1.5 sm:pr-2 py-1 text-xs text-text-primary shrink-0 border-b border-border">
+        <div className="flex items-center gap-1.5 w-full pl-5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
           <span className="font-medium">Sessions</span>
-          <span className="ml-auto">
+          {currentSession && (
+            <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
+              <span className="truncate text-text-primary font-mono">{currentSession}</span>
+            </span>
+          )}
+          <span className={currentSession ? "" : "ml-auto"}>
             <button
               onClick={onCreateSession}
               aria-label="New session"

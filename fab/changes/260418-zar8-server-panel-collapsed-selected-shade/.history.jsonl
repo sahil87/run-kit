@@ -1,0 +1,23 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-18T06:48:59Z"}
+{"args":"When the Server Panel is collapsed, it shows the background color of the selected server. But the shade it is using is that of the unselected mode. Instead, switch the shade to selected mode","cmd":"fab-new","event":"command","ts":"2026-04-18T06:48:59Z"}
+{"delta":"+2.8","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-04-18T06:49:54Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-04-18T06:50:03Z"}
+{"delta":"-1.6","event":"confidence","score":1.2,"trigger":"calc-score","ts":"2026-04-18T06:52:45Z"}
+{"delta":"+0.0","event":"confidence","score":1.2,"trigger":"calc-score","ts":"2026-04-18T06:52:47Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-04-18T06:55:38Z"}
+{"delta":"+1.8","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-04-18T06:58:47Z"}
+{"delta":"+1.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-04-18T07:01:19Z"}
+{"delta":"+1.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-18T07:04:16Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-18T07:04:19Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-18T07:04:29Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-18T07:04:36Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-18T07:04:39Z"}
+{"delta":"-0.9","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-18T07:09:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-18T07:09:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-18T07:11:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-18T07:11:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-18T07:15:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-18T07:19:58Z"}
+{"event":"review","result":"passed","ts":"2026-04-18T07:19:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-18T07:21:15Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-04-18T07:22:54Z"}

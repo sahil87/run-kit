@@ -17,7 +17,9 @@ const SessionContext = createContext<SessionContextType | null>(null);
 
 // Metrics live in a separate context so that the ~2.5s metrics stream does not
 // cascade re-renders through the whole app tree — only HostPanel subscribes.
-const MetricsContext = createContext<MetricsSnapshot | null>(null);
+// The default sentinel is `undefined` so `useMetrics()` can distinguish
+// "outside provider" (throw) from the valid "no metrics yet" state (`null`).
+const MetricsContext = createContext<MetricsSnapshot | null | undefined>(undefined);
 
 type SessionProviderProps = {
   children: React.ReactNode;
@@ -150,5 +152,20 @@ export function useSessionContext(): SessionContextType {
 }
 
 export function useMetrics(): MetricsSnapshot | null {
-  return useContext(MetricsContext);
+  const ctx = useContext(MetricsContext);
+  if (ctx === undefined) throw new Error("useMetrics must be used within SessionProvider");
+  return ctx;
+}
+
+// Standalone provider for tests and storybook — supplies a `null` or fake
+// metrics value without requiring the full SessionProvider (which opens an
+// EventSource).
+export function MetricsProvider({
+  value,
+  children,
+}: {
+  value: MetricsSnapshot | null;
+  children: React.ReactNode;
+}) {
+  return <MetricsContext.Provider value={value}>{children}</MetricsContext.Provider>;
 }

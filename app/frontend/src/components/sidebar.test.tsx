@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { Sidebar } from "./sidebar";
 import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-context";
+import { MetricsProvider } from "@/contexts/session-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
@@ -104,21 +105,23 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
     <ThemeProvider>
     <ToastProvider>
       <OptimisticProvider>
-        <Sidebar
-          sessions={sessions}
-          currentSession="run-kit"
-          currentWindowIndex="0"
-          onSelectWindow={vi.fn()}
-          onCreateWindow={vi.fn()}
-          onCreateSession={vi.fn()}
-          server="runkit"
-          servers={[{ name: "runkit", sessionCount: 0 }]}
-          onSwitchServer={vi.fn()}
-          onCreateServer={vi.fn()}
-          onKillServer={vi.fn()}
-          onRefreshServers={vi.fn()}
-          {...overrides}
-        />
+        <MetricsProvider value={null}>
+          <Sidebar
+            sessions={sessions}
+            currentSession="run-kit"
+            currentWindowIndex="0"
+            onSelectWindow={vi.fn()}
+            onCreateWindow={vi.fn()}
+            onCreateSession={vi.fn()}
+            server="runkit"
+            servers={[{ name: "runkit", sessionCount: 0 }]}
+            onSwitchServer={vi.fn()}
+            onCreateServer={vi.fn()}
+            onKillServer={vi.fn()}
+            onRefreshServers={vi.fn()}
+            {...overrides}
+          />
+        </MetricsProvider>
       </OptimisticProvider>
     </ToastProvider>
     </ThemeProvider>,
@@ -814,21 +817,23 @@ describe("Sidebar", () => {
         <ThemeProvider>
         <ToastProvider>
           <OptimisticProvider>
-            <KilledCountDisplay />
-            <Sidebar
-              sessions={sessions}
-              currentSession="run-kit"
-              currentWindowIndex="0"
-              onSelectWindow={vi.fn()}
-              onCreateWindow={vi.fn()}
-              onCreateSession={vi.fn()}
-              server="runkit"
-              servers={[{ name: "runkit", sessionCount: 0 }]}
-              onSwitchServer={vi.fn()}
-              onCreateServer={vi.fn()}
-              onKillServer={vi.fn()}
-              onRefreshServers={vi.fn()}
-            />
+            <MetricsProvider value={null}>
+              <KilledCountDisplay />
+              <Sidebar
+                sessions={sessions}
+                currentSession="run-kit"
+                currentWindowIndex="0"
+                onSelectWindow={vi.fn()}
+                onCreateWindow={vi.fn()}
+                onCreateSession={vi.fn()}
+                server="runkit"
+                servers={[{ name: "runkit", sessionCount: 0 }]}
+                onSwitchServer={vi.fn()}
+                onCreateServer={vi.fn()}
+                onKillServer={vi.fn()}
+                onRefreshServers={vi.fn()}
+              />
+            </MetricsProvider>
           </OptimisticProvider>
         </ToastProvider>
         </ThemeProvider>,

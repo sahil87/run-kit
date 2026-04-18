@@ -38,5 +38,6 @@ stage_metrics:
     review: {started_at: "2026-04-18T07:16:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:18:42Z"}
     hydrate: {started_at: "2026-04-18T07:18:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:20:15Z"}
     ship: {started_at: "2026-04-18T07:20:15Z", driver: fab-fff, iterations: 1}
-prs: []
-last_updated: 2026-04-18T07:20:15Z
+prs:
+    - https://github.com/sahil87/run-kit/pull/164
+last_updated: 2026-04-18T07:22:42Z

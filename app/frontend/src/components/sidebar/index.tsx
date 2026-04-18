@@ -6,7 +6,7 @@ import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import { useTheme } from "@/contexts/theme-context";
 import { computeRowTints } from "@/themes";
-import type { MetricsSnapshot, ProjectSession } from "@/types";
+import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
@@ -30,7 +30,6 @@ export type SidebarProps = {
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
   onRefreshServers: () => void;
-  metrics?: MetricsSnapshot | null;
   isConnected?: boolean;
 };
 
@@ -47,7 +46,6 @@ export function Sidebar({
   onCreateServer,
   onKillServer,
   onRefreshServers,
-  metrics = null,
   isConnected = false,
 }: SidebarProps) {
   // Pre-compute row tints from the active theme palette.
@@ -679,7 +677,7 @@ export function Sidebar({
 
       {/* Collapsible panels — pinned at bottom */}
       <WindowPanel window={selectedWindow} nowSeconds={nowSeconds} />
-      <HostPanel metrics={metrics} isConnected={isConnected} />
+      <HostPanel isConnected={isConnected} />
 
       {/* Kill confirmation */}
       {killTarget && (

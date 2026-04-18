@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { sparkline } from "@/lib/sparkline";
 import { gaugeBar, gaugeColor, formatMemory } from "@/lib/gauge";
-import type { MetricsSnapshot } from "@/types";
+import { useMetrics } from "@/contexts/session-context";
 
 /** Format uptime seconds as "Nd Nh" or "Nh Nm" if < 1 day. */
 function formatUptime(secs: number): string {
@@ -24,11 +24,11 @@ function formatDisk(used: number, total: number): string {
 }
 
 type HostPanelProps = {
-  metrics: MetricsSnapshot | null;
   isConnected: boolean;
 };
 
-export function HostPanel({ metrics, isConnected }: HostPanelProps) {
+export function HostPanel({ isConnected }: HostPanelProps) {
+  const metrics = useMetrics();
   const hostnameHeader = metrics ? (
     <>
       <span className="truncate text-text-primary font-mono">{metrics.hostname}</span>

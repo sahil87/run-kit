@@ -121,7 +121,7 @@ function ServerNotFound({ serverName }: { serverName: string }) {
 function AppShell() {
   useVisualViewport();
 
-  const { sessions: rawSessions, isConnected, server, servers, refreshServers, metrics } = useSessionContext();
+  const { sessions: rawSessions, isConnected, server, servers, refreshServers } = useSessionContext();
   const sessions = useMergedSessions(rawSessions, server);
   const { sidebarOpen, drawerOpen, fixedWidth } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen, toggleFixedWidth } = useChromeDispatch();
@@ -890,7 +890,6 @@ function AppShell() {
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onKillServer={(name) => setKillServerTarget(name)}
                 onRefreshServers={refreshServers}
-                metrics={metrics}
                 isConnected={isConnected}
               />
             </div>
@@ -991,7 +990,6 @@ function AppShell() {
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onKillServer={(name) => setKillServerTarget(name)}
                 onRefreshServers={refreshServers}
-                metrics={metrics}
                 isConnected={isConnected}
               />
             </div>

@@ -253,15 +253,20 @@ export function CollapsiblePanel({
   // `tintOnlyWhenCollapsed` is set — header-color as a "what's inside" hint
   // that doesn't double-up with the body while the panel is open.
   const headerTint = tint && (!tintOnlyWhenCollapsed || !isOpen) ? tint : null;
+  // When the collapsed header stands in for a selected item (tintOnlyWhenCollapsed),
+  // paint the selected shade and stay flat on hover — tint.hover (22%) is less
+  // saturated than tint.selected (32%) and would read as an inverted hover.
+  const headerBg = headerTint ? (tintOnlyWhenCollapsed ? headerTint.selected : headerTint.base) : null;
+  const headerHoverBg = headerTint && !tintOnlyWhenCollapsed ? headerTint.hover : null;
 
   return (
     <div className="border-t border-border">
       {/* Header — always visible */}
       <div
         className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0 transition-colors"
-        style={headerTint ? { backgroundColor: headerTint.base } : undefined}
-        onMouseEnter={headerTint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerTint.hover; } : undefined}
-        onMouseLeave={headerTint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerTint.base; } : undefined}
+        style={headerBg ? { backgroundColor: headerBg } : undefined}
+        onMouseEnter={headerHoverBg && headerBg ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerHoverBg; } : undefined}
+        onMouseLeave={headerHoverBg && headerBg ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerBg; } : undefined}
       >
         <button
           type="button"

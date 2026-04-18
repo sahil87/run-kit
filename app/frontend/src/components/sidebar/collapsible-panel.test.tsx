@@ -322,4 +322,98 @@ describe("CollapsiblePanel", () => {
       expect(contentArea.style.height).toBe("260px");
     });
   });
+
+  describe("tint shade selection", () => {
+    const fixtureTint = {
+      base: "rgb(10, 20, 30)",
+      hover: "rgb(20, 40, 60)",
+      selected: "rgb(40, 80, 120)",
+    };
+
+    it("uses tint.selected on collapsed header when tintOnlyWhenCollapsed is true", () => {
+      render(
+        <CollapsiblePanel
+          title="Test"
+          storageKey="test-tint-selected"
+          defaultOpen={false}
+          tint={fixtureTint}
+          tintOnlyWhenCollapsed
+        >
+          <span>Content</span>
+        </CollapsiblePanel>,
+      );
+      const header = screen.getByRole("button", { name: /Test/ }).parentElement as HTMLElement;
+      expect(header.style.backgroundColor).toBe(fixtureTint.selected);
+    });
+
+    it("applies no header background when open and tintOnlyWhenCollapsed is true", () => {
+      render(
+        <CollapsiblePanel
+          title="Test"
+          storageKey="test-tint-open"
+          defaultOpen={true}
+          tint={fixtureTint}
+          tintOnlyWhenCollapsed
+        >
+          <span>Content</span>
+        </CollapsiblePanel>,
+      );
+      const header = screen.getByRole("button", { name: /Test/ }).parentElement as HTMLElement;
+      expect(header.style.backgroundColor).toBe("");
+    });
+
+    it("uses tint.base on header in legacy mode (tintOnlyWhenCollapsed omitted)", () => {
+      render(
+        <CollapsiblePanel
+          title="Test"
+          storageKey="test-tint-legacy"
+          defaultOpen={true}
+          tint={fixtureTint}
+        >
+          <span>Content</span>
+        </CollapsiblePanel>,
+      );
+      const header = screen.getByRole("button", { name: /Test/ }).parentElement as HTMLElement;
+      expect(header.style.backgroundColor).toBe(fixtureTint.base);
+    });
+
+    it("hover stays flat at tint.selected on collapsed tintOnlyWhenCollapsed header", () => {
+      render(
+        <CollapsiblePanel
+          title="Test"
+          storageKey="test-tint-hover-flat"
+          defaultOpen={false}
+          tint={fixtureTint}
+          tintOnlyWhenCollapsed
+        >
+          <span>Content</span>
+        </CollapsiblePanel>,
+      );
+      const header = screen.getByRole("button", { name: /Test/ }).parentElement as HTMLElement;
+      expect(header.style.backgroundColor).toBe(fixtureTint.selected);
+      fireEvent.mouseEnter(header);
+      expect(header.style.backgroundColor).toBe(fixtureTint.selected);
+      fireEvent.mouseLeave(header);
+      expect(header.style.backgroundColor).toBe(fixtureTint.selected);
+    });
+
+    it("hover toggles base ↔ hover in legacy mode", () => {
+      render(
+        <CollapsiblePanel
+          title="Test"
+          storageKey="test-tint-hover-legacy"
+          defaultOpen={true}
+          tint={fixtureTint}
+        >
+          <span>Content</span>
+        </CollapsiblePanel>,
+      );
+      const header = screen.getByRole("button", { name: /Test/ }).parentElement as HTMLElement;
+      expect(header.style.backgroundColor).toBe(fixtureTint.base);
+      fireEvent.mouseEnter(header);
+      expect(header.style.backgroundColor).toBe(fixtureTint.hover);
+      fireEvent.mouseLeave(header);
+      expect(header.style.backgroundColor).toBe(fixtureTint.base);
+    });
+  });
 });

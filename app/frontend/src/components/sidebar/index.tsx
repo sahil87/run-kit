@@ -179,8 +179,11 @@ export function Sidebar({
       if (target.type === "window" && target.windowId) {
         restoreWindow(target.session, target.windowId);
       } else {
+        // Keep the killed overlay in place on success — SSE reconciliation
+        // removes the session from the underlying list. Unmarking here would
+        // briefly re-show it. Rollback path (onAlwaysRollback) handles the
+        // failure case by clearing the optimistic mark.
         clearSession(target.session);
-        unmarkKilled("session", killDialogServerRef.current, target.session);
       }
     },
     onError: (err) => {

@@ -388,42 +388,41 @@ describe("OptimisticProvider", () => {
 
   describe("server-scoped optimistic overlays", () => {
     it("ghost session on server-A is not rendered when viewing server-B", () => {
-      function View({ server }: { server: string }) {
+      function DualView() {
         const ctx = useOptimisticContext();
-        const merged = useMergedSessions([], server);
+        const mergedA = useMergedSessions([], "server-A");
+        const mergedB = useMergedSessions([], "server-B");
         return (
           <div>
-            <span data-testid="count">{merged.length}</span>
-            <span data-testid="names">{merged.map((s) => s.name).join(",")}</span>
+            <span data-testid="count-a">{mergedA.length}</span>
+            <span data-testid="count-b">{mergedB.length}</span>
+            <span data-testid="names-a">{mergedA.map((s) => s.name).join(",")}</span>
+            <span data-testid="names-b">{mergedB.map((s) => s.name).join(",")}</span>
             <button onClick={() => ctx.addGhostSession("server-A", "pending")}>Add</button>
           </div>
         );
       }
 
-      const { rerender } = render(
+      render(
         <OptimisticProvider>
-          <View server="server-A" />
+          <DualView />
         </OptimisticProvider>,
       );
+
+      expect(screen.getByTestId("count-a").textContent).toBe("0");
+      expect(screen.getByTestId("count-b").textContent).toBe("0");
+      expect(screen.getByTestId("names-a").textContent).toBe("");
+      expect(screen.getByTestId("names-b").textContent).toBe("");
 
       act(() => {
         screen.getByText("Add").click();
       });
 
-      // On server-A, ghost is visible
-      expect(screen.getByTestId("count").textContent).toBe("1");
-      expect(screen.getByTestId("names").textContent).toBe("pending");
-
-      // Switch viewer to server-B
-      rerender(
-        <OptimisticProvider>
-          <View server="server-B" />
-        </OptimisticProvider>,
-      );
-
-      // The newly remounted provider has empty state — so add a ghost on server-A
-      // then render a dual viewer to confirm cross-server isolation within a
-      // single provider instance.
+      // A-side sees the ghost added for server-A; B-side remains unaffected.
+      expect(screen.getByTestId("count-a").textContent).toBe("1");
+      expect(screen.getByTestId("names-a").textContent).toBe("pending");
+      expect(screen.getByTestId("count-b").textContent).toBe("0");
+      expect(screen.getByTestId("names-b").textContent).toBe("");
     });
 
     it("kill overlay keyed by server: kill on server-A does not hide session on server-B", () => {

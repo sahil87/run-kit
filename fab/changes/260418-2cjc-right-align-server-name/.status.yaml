@@ -11,8 +11,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 checklist:
     generated: true
     path: checklist.md
@@ -37,6 +37,8 @@ stage_metrics:
     apply: {started_at: "2026-04-18T05:49:26Z", driver: fab-fff, iterations: 2, completed_at: "2026-04-18T05:58:49Z"}
     review: {started_at: "2026-04-18T05:58:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T06:01:37Z"}
     hydrate: {started_at: "2026-04-18T06:01:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T06:03:28Z"}
-    ship: {started_at: "2026-04-18T06:03:28Z", driver: fab-fff, iterations: 1}
-prs: []
-last_updated: 2026-04-18T06:03:51Z
+    ship: {started_at: "2026-04-18T06:03:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T06:05:34Z"}
+    review-pr: {started_at: "2026-04-18T06:05:34Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/163
+last_updated: 2026-04-18T06:05:34Z

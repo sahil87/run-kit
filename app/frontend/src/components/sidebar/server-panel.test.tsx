@@ -49,8 +49,8 @@ function renderPanel(overrides: {
 }
 
 function openPanel() {
-  // Header button whose accessible name includes "Tmux". Opening triggers a refresh.
-  const toggle = screen.getByRole("button", { name: /Tmux/ });
+  // Header button whose accessible name includes "Server". Opening triggers a refresh.
+  const toggle = screen.getByRole("button", { name: /Server/ });
   fireEvent.click(toggle);
 }
 
@@ -178,5 +178,14 @@ describe("ServerPanel", () => {
     openPanel();
     const tile = screen.getByRole("option");
     expect(tile.getAttribute("title")).toBe("bench-really-long-name");
+  });
+
+  it("renders static title and active server name in the header while collapsed", () => {
+    renderPanel({ server: "work" });
+
+    expect(screen.getByText("Server")).toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: /Server/ });
+    expect(within(toggle).getByText("work")).toBeInTheDocument();
   });
 });

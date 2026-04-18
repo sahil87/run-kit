@@ -78,7 +78,12 @@ export function ServerPanel({
 
   const activeColor = serverColors[server];
   const activeTint = activeColor != null && rowTints ? rowTints.get(activeColor) ?? null : null;
-  const headerRight = refreshing ? <LogoSpinner size={10} /> : null;
+  const headerRight = (
+    <>
+      <span className="truncate text-text-primary font-mono">{server}</span>
+      {refreshing && <LogoSpinner size={10} />}
+    </>
+  );
 
   const gridStyle: React.CSSProperties = isMobile
     ? {
@@ -94,7 +99,7 @@ export function ServerPanel({
 
   return (
     <CollapsiblePanel
-      title={`Tmux \u00B7 ${server}`}
+      title="Server"
       storageKey="runkit-panel-server"
       defaultOpen={false}
       onToggle={handleToggle}

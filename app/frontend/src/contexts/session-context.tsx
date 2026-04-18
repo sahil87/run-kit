@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef, startTransition } from "react";
 import { useChromeDispatch } from "./chrome-context";
-import { setServerGetter, listServers, type ServerInfo } from "@/api/client";
+import { listServers, type ServerInfo } from "@/api/client";
 import type { MetricsSnapshot, ProjectSession } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
@@ -27,13 +27,6 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
-
-  // Keep API client in sync with current server
-  const serverRef = useRef(server);
-  serverRef.current = server;
-  useEffect(() => {
-    setServerGetter(() => serverRef.current);
-  }, []);
 
   // Persist last-used server to localStorage for convenience
   useEffect(() => {

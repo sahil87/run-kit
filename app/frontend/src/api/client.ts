@@ -2,17 +2,10 @@ import type { ProjectSession } from "@/types";
 
 export type { ProjectSession };
 
-// Module-level server getter — set by SessionProvider
-let _getServer: () => string = () => "runkit";
-
-export function setServerGetter(fn: () => string) {
-  _getServer = fn;
-}
-
 /** Append ?server= to a URL (handles existing query params). */
-function withServer(url: string): string {
+function withServer(url: string, server: string): string {
   const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}server=${encodeURIComponent(_getServer())}`;
+  return `${url}${sep}server=${encodeURIComponent(server)}`;
 }
 
 /** In-flight GET request deduplication map. */
@@ -48,19 +41,20 @@ export async function getHealth(): Promise<HealthResponse> {
   return res.json();
 }
 
-export async function getSessions(): Promise<ProjectSession[]> {
-  const res = await deduplicatedFetch(withServer("/api/sessions"));
+export async function getSessions(server: string): Promise<ProjectSession[]> {
+  const res = await deduplicatedFetch(withServer("/api/sessions", server));
   if (!res.ok) await throwOnError(res);
   return res.json();
 }
 
 export async function createSession(
+  server: string,
   name: string,
   cwd?: string,
 ): Promise<{ ok: boolean }> {
   const body: Record<string, string> = { name };
   if (cwd) body.cwd = cwd;
-  const res = await fetch(withServer("/api/sessions"), {
+  const res = await fetch(withServer("/api/sessions", server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -70,11 +64,12 @@ export async function createSession(
 }
 
 export async function renameSession(
+  server: string,
   session: string,
   name: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/rename`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/rename`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -85,8 +80,8 @@ export async function renameSession(
   return res.json();
 }
 
-export async function killSession(session: string): Promise<{ ok: boolean }> {
-  const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/kill`), {
+export async function killSession(server: string, session: string): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/kill`, server), {
     method: "POST",
   });
   if (!res.ok) await throwOnError(res);
@@ -94,6 +89,7 @@ export async function killSession(session: string): Promise<{ ok: boolean }> {
 }
 
 export async function createWindow(
+  server: string,
   session: string,
   name: string,
   cwd?: string,
@@ -104,7 +100,7 @@ export async function createWindow(
   if (cwd) body.cwd = cwd;
   if (rkType) body.rkType = rkType;
   if (rkUrl) body.rkUrl = rkUrl;
-  const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/windows`), {
+  const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/windows`, server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -114,11 +110,12 @@ export async function createWindow(
 }
 
 export async function killWindow(
+  server: string,
   session: string,
   index: number,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/kill`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/kill`, server),
     { method: "POST" },
   );
   if (!res.ok) await throwOnError(res);
@@ -126,12 +123,13 @@ export async function killWindow(
 }
 
 export async function moveWindow(
+  server: string,
   session: string,
   index: number,
   targetIndex: number,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/move`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/move`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -143,12 +141,13 @@ export async function moveWindow(
 }
 
 export async function moveWindowToSession(
+  server: string,
   session: string,
   index: number,
   targetSession: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/move-to-session`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/move-to-session`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -160,12 +159,13 @@ export async function moveWindowToSession(
 }
 
 export async function renameWindow(
+  server: string,
   session: string,
   index: number,
   name: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/rename`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/rename`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -177,12 +177,13 @@ export async function renameWindow(
 }
 
 export async function sendKeys(
+  server: string,
   session: string,
   index: number,
   keys: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/keys`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/keys`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -194,6 +195,7 @@ export async function sendKeys(
 }
 
 export async function splitWindow(
+  server: string,
   session: string,
   index: number,
   horizontal: boolean,
@@ -202,7 +204,7 @@ export async function splitWindow(
   const body: Record<string, unknown> = { horizontal };
   if (cwd) body.cwd = cwd;
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/split`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/split`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -214,11 +216,12 @@ export async function splitWindow(
 }
 
 export async function closePane(
+  server: string,
   session: string,
   index: number,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/close-pane`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/close-pane`, server),
     { method: "POST" },
   );
   if (!res.ok) await throwOnError(res);
@@ -226,12 +229,13 @@ export async function closePane(
 }
 
 export async function updateWindowUrl(
+  server: string,
   session: string,
   index: number,
   url: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/url`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/url`, server),
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -243,12 +247,13 @@ export async function updateWindowUrl(
 }
 
 export async function updateWindowType(
+  server: string,
   session: string,
   index: number,
   rkType: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/type`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/type`, server),
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -260,11 +265,12 @@ export async function updateWindowType(
 }
 
 export async function selectWindow(
+  server: string,
   session: string,
   index: number,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/select`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/select`, server),
     { method: "POST" },
   );
   if (!res.ok) await throwOnError(res);
@@ -278,8 +284,8 @@ export async function getDirectories(prefix: string): Promise<string[]> {
   return data.directories ?? [];
 }
 
-export async function reloadTmuxConfig(): Promise<{ ok: boolean }> {
-  const res = await fetch(withServer("/api/tmux/reload-config"), {
+export async function reloadTmuxConfig(server: string): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/tmux/reload-config", server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
@@ -299,6 +305,7 @@ export async function initTmuxConf(): Promise<{ ok: boolean }> {
 }
 
 export async function uploadFile(
+  server: string,
   session: string,
   file: File,
   window?: string,
@@ -307,7 +314,7 @@ export async function uploadFile(
   formData.append("file", file);
   if (window) formData.append("window", window);
 
-  const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/upload`), {
+  const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/upload`, server), {
     method: "POST",
     body: formData,
   });
@@ -318,12 +325,13 @@ export async function uploadFile(
 // --- Color management ---
 
 export async function setWindowColor(
+  server: string,
   session: string,
   index: number,
   color: number | null,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/color`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/color`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -335,11 +343,12 @@ export async function setWindowColor(
 }
 
 export async function setSessionColor(
+  server: string,
   session: string,
   color: number | null,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/color`),
+    withServer(`/api/sessions/${encodeURIComponent(session)}/color`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -390,8 +399,8 @@ export interface Keybinding {
   label: string;
 }
 
-export async function getKeybindings(): Promise<Keybinding[]> {
-  const res = await deduplicatedFetch(withServer("/api/keybindings"));
+export async function getKeybindings(server: string): Promise<Keybinding[]> {
+  const res = await deduplicatedFetch(withServer("/api/keybindings", server));
   if (!res.ok) await throwOnError(res);
   return res.json();
 }

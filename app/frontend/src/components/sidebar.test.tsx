@@ -261,7 +261,7 @@ describe("Sidebar", () => {
       });
 
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
-      expect(renameWindowMock).toHaveBeenCalledWith("run-kit", 1, "new-name");
+      expect(renameWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 1, "new-name");
     });
 
     it("Escape cancels without calling renameWindow", async () => {
@@ -291,7 +291,7 @@ describe("Sidebar", () => {
       });
 
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
-      expect(renameWindowMock).toHaveBeenCalledWith("run-kit", 1, "blur-name");
+      expect(renameWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 1, "blur-name");
     });
 
     it("empty input cancels without API call", async () => {
@@ -373,7 +373,7 @@ describe("Sidebar", () => {
       });
 
       expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
-      expect(renameSessionMock).toHaveBeenCalledWith("run-kit", "staging");
+      expect(renameSessionMock).toHaveBeenCalledWith("runkit", "run-kit", "staging");
     });
 
     it("Escape cancels without calling renameSession", async () => {
@@ -403,7 +403,7 @@ describe("Sidebar", () => {
       });
 
       expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
-      expect(renameSessionMock).toHaveBeenCalledWith("run-kit", "blur-session");
+      expect(renameSessionMock).toHaveBeenCalledWith("runkit", "run-kit", "blur-session");
     });
 
     it("empty input cancels without API call", async () => {
@@ -588,7 +588,7 @@ describe("Sidebar", () => {
         fireEvent.drop(scratchDraggable, { dataTransfer });
       });
 
-      expect(moveWindowMock).toHaveBeenCalledWith("run-kit", 0, 1);
+      expect(moveWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 0, 1);
     });
 
     it("drop on window in different session does not call moveWindow", async () => {
@@ -685,7 +685,7 @@ describe("Sidebar", () => {
       // Navigate to server dashboard
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "runkit" } });
       // API was called
-      expect(moveWindowToSessionMock).toHaveBeenCalledWith("run-kit", 0, "ao-server");
+      expect(moveWindowToSessionMock).toHaveBeenCalledWith("runkit", "run-kit", 0, "ao-server");
     });
 
     it("drop on same session header is no-op", async () => {
@@ -793,7 +793,7 @@ describe("Sidebar", () => {
         fireEvent.drop(scratchDraggable, { dataTransfer });
       });
 
-      expect(moveWindowMock).toHaveBeenCalledWith("run-kit", 0, 1);
+      expect(moveWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 0, 1);
     });
   });
 
@@ -840,7 +840,7 @@ describe("Sidebar", () => {
       });
 
       // API was called
-      expect(killWindowMock).toHaveBeenCalledWith("run-kit", 1);
+      expect(killWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 1);
       // After the API call resolves, the killed entry must be removed (unmarkKilled called)
       expect(killedCount).toBe(0);
     });

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Dialog } from "@/components/dialog";
 import { getKeybindings, type Keybinding } from "@/api/client";
+import { useSessionContext } from "@/contexts/session-context";
 
 type KeyboardShortcutsProps = {
   onClose: () => void;
@@ -62,12 +63,13 @@ function ShortcutRow({ label, keys }: GroupedBinding) {
 
 export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
   const [bindings, setBindings] = useState<Keybinding[] | null>(null);
+  const { server } = useSessionContext();
 
   useEffect(() => {
-    getKeybindings()
+    getKeybindings(server)
       .then(setBindings)
       .catch(() => setBindings([]));
-  }, []);
+  }, [server]);
 
   const rootBindings = bindings ? groupBindings(bindings, "root") : [];
   const prefixBindings = bindings

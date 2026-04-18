@@ -70,6 +70,53 @@ Server management endpoints:
 - `POST /api/servers` — creates a server (starts session "0" in $HOME)
 - `POST /api/servers/kill` — kills a server via `tmux kill-server`
 
+## Frontend Server Routing Contract
+
+Every API client function in `app/frontend/src/api/client.ts` that hits a server-scoped endpoint takes `server: string` as its **first positional argument** and forwards it to `withServer(url, server)` to build `?server=<server>`. There is **no module-level `_getServer` global, no `setServerGetter` export, and no ambient state** — `server` is always passed explicitly per call. This mirrors the backend `tmuxExecServer(ctx, server, args...)` shape so the routing parameter is visible in every signature on both sides of the wire.
+
+Functions that take `server` (read + mutation):
+
+| Category | Functions |
+|----------|-----------|
+| Read | `getSessions`, `getKeybindings` |
+| Session mutation | `createSession`, `renameSession`, `killSession` |
+| Window mutation | `createWindow`, `renameWindow`, `killWindow`, `moveWindow`, `moveWindowToSession`, `selectWindow`, `splitWindow`, `closePane`, `sendKeys` |
+| Window options | `updateWindowUrl`, `updateWindowType` |
+| Color | `setWindowColor`, `setSessionColor` |
+| Server-scoped | `reloadTmuxConfig` |
+| Session-scoped | `uploadFile` |
+
+Signature shape:
+
+```ts
+function withServer(url: string, server: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}server=${encodeURIComponent(server)}`;
+}
+
+export async function renameSession(server: string, session: string, name: string): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/rename`, server),
+    { method: "POST", headers: {...}, body: JSON.stringify({ name }) },
+  );
+  ...
+}
+```
+
+**Functions that intentionally do NOT take `server`** (operate on the server itself or are global): `listServers`, `createServer`, `killServer`, theme settings (`getThemePreference`, `setThemePreference`), and server-color settings. `killServer` targets the server via request body (`{"name":"runkit"}`) rather than `?server=` query.
+
+SSE and the WebSocket relay both interpolate `?server=` directly when constructing their connection URLs (not via `withServer`) and re-open on server change, so they are unaffected by the closure-race class of bugs that motivated this contract.
+
+### Why the explicit server contract exists (closure-race fix)
+
+Pre-fix, the client kept a module-level getter (`let _getServer = () => "runkit"`) that `SessionProvider` installed once via `setServerGetter(() => serverRef.current)`. `withServer` dereferenced the getter at fetch time, so any switch of `serverRef.current` between user intent (open dialog, type new name) and fetch dispatch (Enter pressed) silently retargeted the mutation at the **new** server. A typical reproducer: open rename for `foo` on server-A → Cmd+K → switch to server-B → return → Enter — the rename then ran against server-B, hitting either the wrong `foo` or returning an error while the optimistic overlay still drew the rename on server-A until SSE reconciled.
+
+The fix retired the global entirely. With `server` threaded explicitly, the captured server is fixed at the moment the React handler runs (see `ui-patterns.md` → "Optimistic UI & Mutation Feedback" → "Server Capture Convention" for the React idiom). The single source of truth for `server` is `useSessionContext()`; callers read it inside their event handler and pass it as the first arg.
+
+### Verifying the contract
+
+A single grep enforces the invariant — the symbols `_getServer` and `setServerGetter` MUST NOT exist anywhere under `app/frontend/src/`. The `useDialogState` regression test (`app/frontend/src/hooks/use-dialog-state.test.tsx`) flips `SessionProvider`'s `server` prop between `openRenameSessionDialog("foo")` and `handleRenameSession()` and asserts `renameSession` was called with the post-flip server (`"server-B"`) and never with the pre-flip server.
+
 Window cross-session move endpoint:
 - `POST /api/sessions/{session}/windows/{index}/move-to-session` — moves a window to another session. Request body: `{ "targetSession": "string" }`. Validates source session, window index, and target session name. Returns 400 if `targetSession` equals source session or fails validation. Returns `200 { "ok": true }` on success. Handler in `api/windows.go`, `MoveWindowToSession` method on `TmuxOps` interface in `router.go`.
 
@@ -112,3 +159,4 @@ The new windows never appear on the managed `runkit`/`default` servers unless th
 | 2026-04-04 | Cross-session window move — `MoveWindowToSession(srcSession, srcIndex, dstSession, server)` wraps `tmux move-window -s {src}:{idx} -t {dst}:` with `tmuxExecServer` and `withTimeout()`. New `POST /api/sessions/{session}/windows/{index}/move-to-session` endpoint with `{ "targetSession" }` body. `TmuxOps` interface extended with `MoveWindowToSession`. Validates source/target differ (400 if same). | `260404-dq70-move-window-between-sessions` |
 | 2026-04-06 | Pane CWD tracking — `ListWindows` now calls `list-panes -s -t <session>` after `list-windows` to populate `Panes []PaneInfo` on each `WindowInfo`; failure is non-fatal. `parsePanes(lines []string) map[int][]PaneInfo` parses 6-field tab-delimited output (field 0 = `#{window_index}` for grouping, fields 1–5 = pane data). Package-level `paneFormat` var: `#{window_index}\t#{pane_id}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_active}`. `WorktreePath` unchanged — still sourced from `list-windows #{pane_current_path}`. | `260405-rx38-pane-cwd-tracking` |
 | 2026-04-17 | `rk riff` window creation — new subcommand creates `tmux new-window -c <path> "<launcher> '<cmd>'"` on the user's current tmux server (not the managed `runkit`/`default` servers). `$TMUX` recovered via `tmux.OriginalTMUX` and restored in child env (mirrors `context.go`). Optional `--split` appends `tmux split-window -h -c <path> "<setup>; exec zsh"`. Bypasses `internal/tmux` because that package targets specific named servers via `-L <server>`. | `260416-r1j6-add-riff-command` |
+| 2026-04-18 | Frontend server-routing contract — `server: string` now threaded as the first positional argument through every `api/client.ts` function that hits a server-scoped endpoint (`getSessions`, `createSession`, `renameSession`, `killSession`, `createWindow`, `renameWindow`, `killWindow`, `moveWindow`, `moveWindowToSession`, `selectWindow`, `splitWindow`, `closePane`, `sendKeys`, `updateWindowUrl`, `updateWindowType`, `setWindowColor`, `setSessionColor`, `reloadTmuxConfig`, `uploadFile`, `getKeybindings`). `withServer(url, server)` is pure — the module-level `_getServer` global and `setServerGetter` export are removed; `SessionProvider` no longer wires a getter. Server-management endpoints (`listServers`, `createServer`, `killServer`) and theme/server-color settings remain server-parameter-free by design. Eliminates a closure-race where mid-action server switches retargeted in-flight rename/kill/create calls at the wrong tmux server. Mirrors the backend `tmuxExecServer(ctx, server, …)` shape. | `260418-yadg-fix-mutation-server-race` |

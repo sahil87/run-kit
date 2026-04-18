@@ -3,10 +3,12 @@ import { render, screen, act, cleanup } from "@testing-library/react";
 import { OptimisticProvider, useOptimisticContext, useMergedSessions } from "./optimistic-context";
 import type { ProjectSession } from "@/types";
 
+const TEST_SERVER = "test-server";
+
 // Test consumer to expose context methods and state
-function TestConsumer({ realSessions }: { realSessions: ProjectSession[] }) {
+function TestConsumer({ realSessions, server = TEST_SERVER }: { realSessions: ProjectSession[]; server?: string }) {
   const ctx = useOptimisticContext();
-  const merged = useMergedSessions(realSessions);
+  const merged = useMergedSessions(realSessions, server);
   return (
     <div>
       <span data-testid="ghost-count">{ctx.ghosts.length}</span>
@@ -29,22 +31,22 @@ function TestConsumer({ realSessions }: { realSessions: ProjectSession[] }) {
           )
           .join(",")}
       </span>
-      <button data-testid="add-ghost-session" onClick={() => ctx.addGhostSession("ghost-sess")}>
+      <button data-testid="add-ghost-session" onClick={() => ctx.addGhostSession(server, "ghost-sess")}>
         Add Ghost Session
       </button>
       <button data-testid="add-ghost-server" onClick={() => ctx.addGhostServer("ghost-srv")}>
         Add Ghost Server
       </button>
-      <button data-testid="kill-session" onClick={() => ctx.markKilled("session", "dev")}>
+      <button data-testid="kill-session" onClick={() => ctx.markKilled("session", server, "dev")}>
         Kill Session
       </button>
-      <button data-testid="unkill-session" onClick={() => ctx.unmarkKilled("dev")}>
+      <button data-testid="unkill-session" onClick={() => ctx.unmarkKilled("session", server, "dev")}>
         Unkill Session
       </button>
-      <button data-testid="rename-session" onClick={() => ctx.markRenamed("session", "dev", "staging")}>
+      <button data-testid="rename-session" onClick={() => ctx.markRenamed("session", server, "dev", "staging")}>
         Rename Session
       </button>
-      <button data-testid="unrename-session" onClick={() => ctx.unmarkRenamed("dev")}>
+      <button data-testid="unrename-session" onClick={() => ctx.unmarkRenamed(server, "dev")}>
         Unrename Session
       </button>
     </div>
@@ -249,11 +251,11 @@ describe("OptimisticProvider", () => {
     let ghostId = "";
     function Adder() {
       const ctx = useOptimisticContext();
-      const merged = useMergedSessions([]);
+      const merged = useMergedSessions([], TEST_SERVER);
       return (
         <div>
           <span data-testid="count">{merged.length}</span>
-          <button onClick={() => { ghostId = ctx.addGhostSession("a"); }}>Add</button>
+          <button onClick={() => { ghostId = ctx.addGhostSession(TEST_SERVER, "a"); }}>Add</button>
           <button onClick={() => ctx.removeGhost(ghostId)}>Remove</button>
         </div>
       );
@@ -334,7 +336,7 @@ describe("OptimisticProvider", () => {
 
     function FailureConsumer({ realSessions }: { realSessions: ProjectSession[] }) {
       const ctx = useOptimisticContext();
-      const merged = useMergedSessions(realSessions);
+      const merged = useMergedSessions(realSessions, TEST_SERVER);
       return (
         <div>
           <span data-testid="fc-ghost-count">{ctx.ghosts.length}</span>
@@ -344,7 +346,7 @@ describe("OptimisticProvider", () => {
           </span>
           <button
             data-testid="fc-add"
-            onClick={() => { capturedId = ctx.addGhostSession("fail-sess"); }}
+            onClick={() => { capturedId = ctx.addGhostSession(TEST_SERVER, "fail-sess"); }}
           >
             Add
           </button>
@@ -382,5 +384,151 @@ describe("OptimisticProvider", () => {
     expect(screen.getByTestId("fc-ghost-count").textContent).toBe("0");
     expect(screen.getByTestId("fc-merged-count").textContent).toBe("2");
     expect(screen.getByTestId("fc-merged-optimistic").textContent).toBe("");
+  });
+
+  describe("server-scoped optimistic overlays", () => {
+    it("ghost session on server-A is not rendered when viewing server-B", () => {
+      function DualView() {
+        const ctx = useOptimisticContext();
+        const mergedA = useMergedSessions([], "server-A");
+        const mergedB = useMergedSessions([], "server-B");
+        return (
+          <div>
+            <span data-testid="count-a">{mergedA.length}</span>
+            <span data-testid="count-b">{mergedB.length}</span>
+            <span data-testid="names-a">{mergedA.map((s) => s.name).join(",")}</span>
+            <span data-testid="names-b">{mergedB.map((s) => s.name).join(",")}</span>
+            <button onClick={() => ctx.addGhostSession("server-A", "pending")}>Add</button>
+          </div>
+        );
+      }
+
+      render(
+        <OptimisticProvider>
+          <DualView />
+        </OptimisticProvider>,
+      );
+
+      expect(screen.getByTestId("count-a").textContent).toBe("0");
+      expect(screen.getByTestId("count-b").textContent).toBe("0");
+      expect(screen.getByTestId("names-a").textContent).toBe("");
+      expect(screen.getByTestId("names-b").textContent).toBe("");
+
+      act(() => {
+        screen.getByText("Add").click();
+      });
+
+      // A-side sees the ghost added for server-A; B-side remains unaffected.
+      expect(screen.getByTestId("count-a").textContent).toBe("1");
+      expect(screen.getByTestId("names-a").textContent).toBe("pending");
+      expect(screen.getByTestId("count-b").textContent).toBe("0");
+      expect(screen.getByTestId("names-b").textContent).toBe("");
+    });
+
+    it("kill overlay keyed by server: kill on server-A does not hide session on server-B", () => {
+      const sharedSession: ProjectSession = {
+        name: "foo",
+        windows: [
+          { index: 0, windowId: "@0", name: "zsh", worktreePath: "/", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+        ],
+      };
+
+      function DualView() {
+        const ctx = useOptimisticContext();
+        const mergedA = useMergedSessions([sharedSession], "server-A");
+        const mergedB = useMergedSessions([sharedSession], "server-B");
+        return (
+          <div>
+            <span data-testid="count-a">{mergedA.length}</span>
+            <span data-testid="count-b">{mergedB.length}</span>
+            <button onClick={() => ctx.markKilled("session", "server-A", "foo")}>Kill A</button>
+          </div>
+        );
+      }
+
+      render(
+        <OptimisticProvider>
+          <DualView />
+        </OptimisticProvider>,
+      );
+
+      expect(screen.getByTestId("count-a").textContent).toBe("1");
+      expect(screen.getByTestId("count-b").textContent).toBe("1");
+
+      act(() => {
+        screen.getByText("Kill A").click();
+      });
+
+      // A side sees the session killed; B side is unaffected.
+      expect(screen.getByTestId("count-a").textContent).toBe("0");
+      expect(screen.getByTestId("count-b").textContent).toBe("1");
+    });
+
+    it("rename overlay keyed by server: rename on server-A does not re-label session on server-B", () => {
+      const sharedSession: ProjectSession = {
+        name: "foo",
+        windows: [
+          { index: 0, windowId: "@0", name: "zsh", worktreePath: "/", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+        ],
+      };
+
+      function DualView() {
+        const ctx = useOptimisticContext();
+        const mergedA = useMergedSessions([sharedSession], "server-A");
+        const mergedB = useMergedSessions([sharedSession], "server-B");
+        return (
+          <div>
+            <span data-testid="name-a">{mergedA[0]?.name ?? ""}</span>
+            <span data-testid="name-b">{mergedB[0]?.name ?? ""}</span>
+            <button onClick={() => ctx.markRenamed("session", "server-A", "foo", "bar")}>Rename A</button>
+          </div>
+        );
+      }
+
+      render(
+        <OptimisticProvider>
+          <DualView />
+        </OptimisticProvider>,
+      );
+
+      expect(screen.getByTestId("name-a").textContent).toBe("foo");
+      expect(screen.getByTestId("name-b").textContent).toBe("foo");
+
+      act(() => {
+        screen.getByText("Rename A").click();
+      });
+
+      expect(screen.getByTestId("name-a").textContent).toBe("bar");
+      expect(screen.getByTestId("name-b").textContent).toBe("foo");
+    });
+
+    it("ghost server (no server key) appears regardless of current-server selection", () => {
+      // Ghost servers are rendered in the server list, not the session list, so
+      // they are intentionally not filtered here. We verify addGhostServer still
+      // produces a server-type ghost entry in the ghosts list.
+      function View() {
+        const ctx = useOptimisticContext();
+        return (
+          <div>
+            <span data-testid="server-ghosts">
+              {ctx.ghosts.filter((g) => g.type === "server").map((g) => g.name).join(",")}
+            </span>
+            <button onClick={() => ctx.addGhostServer("new-server")}>Add</button>
+          </div>
+        );
+      }
+
+      render(
+        <OptimisticProvider>
+          <View />
+        </OptimisticProvider>,
+      );
+
+      act(() => {
+        screen.getByText("Add").click();
+      });
+
+      expect(screen.getByTestId("server-ghosts").textContent).toBe("new-server");
+    });
   });
 });

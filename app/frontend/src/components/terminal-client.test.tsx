@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, cleanup, act } from "@testing-library/react";
+import { render, cleanup, act, waitFor } from "@testing-library/react";
+import { Terminal } from "@xterm/xterm";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { TerminalClient } from "./terminal-client";
 
 // Mock all xterm-related modules to avoid actual terminal initialization
@@ -18,6 +21,7 @@ vi.mock("@xterm/xterm", () => ({
       cols: 80,
       rows: 24,
       options: { fontSize: 13 },
+      unicode: { activeVersion: "6" },
       hasSelection: vi.fn().mockReturnValue(false),
     };
   }),
@@ -43,6 +47,12 @@ vi.mock("@xterm/addon-web-links", () => ({
 
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: vi.fn().mockImplementation(function () {
+    return { dispose: vi.fn() };
+  }),
+}));
+
+vi.mock("@xterm/addon-unicode-graphemes", () => ({
+  UnicodeGraphemesAddon: vi.fn().mockImplementation(function () {
     return { dispose: vi.fn() };
   }),
 }));
@@ -143,5 +153,76 @@ describe("TerminalClient scroll-lock focus prevention", () => {
     });
 
     expect(preventSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalClient Unicode width init", () => {
+  beforeEach(() => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: false,
+      media: "",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    // The component opens a real WebSocket in a separate effect; stub it so
+    // the test environment doesn't try to connect to a relay endpoint.
+    vi.stubGlobal("WebSocket", vi.fn().mockImplementation(function () {
+      return {
+        readyState: 0,
+        binaryType: "",
+        send: vi.fn(),
+        close: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+      };
+    }));
+    vi.mocked(Terminal).mockClear();
+    vi.mocked(UnicodeGraphemesAddon).mockClear();
+    vi.mocked(WebglAddon).mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("loads UnicodeGraphemesAddon and activates 15-graphemes before WebGL", async () => {
+    renderTerminalClient(false);
+
+    // Init is async (font loads + dynamic addon imports). Wait for the
+    // addon constructors to fire — guards against regressions in load order
+    // or accidental removal of the Unicode width setup.
+    await waitFor(() => {
+      expect(vi.mocked(UnicodeGraphemesAddon)).toHaveBeenCalled();
+      expect(vi.mocked(WebglAddon)).toHaveBeenCalled();
+    });
+
+    // Terminal must be constructed with allowProposedApi so the proposed
+    // unicode-graphemes API is available to the addon.
+    const ctorArgs = vi.mocked(Terminal).mock.calls[0]?.[0];
+    expect(ctorArgs?.allowProposedApi).toBe(true);
+
+    // Unicode addon must be instantiated before the WebGL addon so the
+    // renderer measures cells against the Unicode 15 width table on first
+    // paint (see terminal-client.tsx comment above the addon load).
+    const unicodeOrder = vi.mocked(UnicodeGraphemesAddon).mock.invocationCallOrder[0];
+    const webglOrder = vi.mocked(WebglAddon).mock.invocationCallOrder[0];
+    expect(unicodeOrder).toBeLessThan(webglOrder);
+
+    // The terminal instance's activeVersion must be flipped to the
+    // grapheme-aware Unicode 15 table after the addon registers it.
+    const terminalInstance = vi.mocked(Terminal).mock.results[0]?.value as
+      | { unicode: { activeVersion: string } }
+      | undefined;
+    expect(terminalInstance?.unicode.activeVersion).toBe("15-graphemes");
   });
 });

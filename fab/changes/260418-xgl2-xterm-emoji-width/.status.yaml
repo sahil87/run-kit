@@ -1,0 +1,44 @@
+id: xgl2
+name: 260418-xgl2-xterm-emoji-width
+created: 2026-04-18T05:34:02Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+checklist:
+    generated: true
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 11
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 92.5
+        reversibility: 78.9
+        competence: 85.7
+        disambiguation: 86.1
+stage_metrics:
+    intake: {started_at: "2026-04-18T05:34:02Z", driver: fab-new, iterations: 1, completed_at: "2026-04-18T06:42:52Z"}
+    spec: {started_at: "2026-04-18T06:42:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T06:44:58Z"}
+    tasks: {started_at: "2026-04-18T06:44:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T06:44:58Z"}
+    apply: {started_at: "2026-04-18T06:44:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:16:34Z"}
+    review: {started_at: "2026-04-18T07:16:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:18:42Z"}
+    hydrate: {started_at: "2026-04-18T07:18:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:20:15Z"}
+    ship: {started_at: "2026-04-18T07:20:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:22:54Z"}
+    review-pr: {started_at: "2026-04-18T07:22:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-18T07:30:32Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/164
+last_updated: 2026-04-18T07:30:32Z

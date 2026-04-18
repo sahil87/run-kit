@@ -422,13 +422,14 @@ The viewport meta tag in `app/frontend/index.html` includes `maximum-scale=1.0` 
 
 ### Terminal Addons
 
-Addons loaded in `init()` via dynamic import, after `terminal.open()`, before `ResizeObserver` setup. Order: FitAddon (existing) → fit() → ClipboardAddon → WebLinksAddon → WebglAddon.
+Addons loaded in `init()` via dynamic import, after `terminal.open()`, before `ResizeObserver` setup. Order: FitAddon (existing) → fit() → ClipboardAddon → WebLinksAddon → UnicodeGraphemesAddon → WebglAddon. The Unicode addon MUST precede WebGL so the renderer measures cell widths against the active Unicode 15 table on first paint.
 
 | Addon | Purpose | Notes |
 |-------|---------|-------|
 | `@xterm/addon-fit` | Auto-resize columns/rows | Existing — loaded first, `fit()` called immediately |
 | `@xterm/addon-clipboard` | OSC 52 clipboard sequences | Custom `ClipboardProvider` accepts both `""` (empty/default, tmux's format) and `"c"` (explicit) selection targets. Rejects `"p"`, `"s"`, `"0"`–`"7"`. Provider exported as `clipboardProvider` for testability |
 | `@xterm/addon-web-links` | Clickable URLs in terminal output | |
+| `@xterm/addon-unicode-graphemes` | Unicode 15 + grapheme-cluster width tables | Requires `allowProposedApi: true` on the Terminal constructor; `terminal.unicode.activeVersion = "15-graphemes"` set after `loadAddon()`. Must load before the WebGL addon |
 | `@xterm/addon-webgl` | GPU-accelerated rendering | Wrapped in try/catch — silently falls back to canvas renderer on failure |
 
 ### Terminal Font Scaling
@@ -446,6 +447,19 @@ The frontend bundles JetBrainsMono Nerd Font (patched single-file variant) as a 
 **Primary `fontFamily`**: `'"JetBrainsMono Nerd Font", ui-monospace, monospace'` — bundled webfont first, `ui-monospace` as the system-default monospace, generic `monospace` as final guard against total load failure. The older long tail (`JetBrains Mono`, `Fira Code`, `SF Mono`, `Menlo`, `Monaco`, `Consolas`) is dead code once `font-display: block` plus a successful load makes the webfont always win; do not reintroduce it. Non-terminal monospace surfaces pick up the same font automatically via Tailwind's `--font-mono` custom property (webfont-first). Introduced by change `260417-hyrl-bundle-jetbrains-mono-nerd-font`.
 
 **Test caveat**: jsdom does not implement the FontFaceSet API. `src/test-setup.ts` stubs a minimal `document.fonts.load()` / `document.fonts.ready` surface (same pattern as the existing `ResizeObserver` stub) so unit tests that mount `TerminalClient` do not hang on the await.
+
+### Terminal Unicode Width Handling
+
+xterm.js defaults to Unicode 6 width tables, which classify many modern glyphs (most emojis, several Misc Symbols codepoints) as 1 cell. Modern tmux lays out its buffer using wcwidth with a newer Unicode table (typically 14/15), treating the same glyphs as 2 cells. Without alignment, subsequent characters in a row drift between tmux's intended column and xterm's rendered column, producing visible ghost/overlap artifacts — especially with the WebGL renderer.
+
+**Resolution** (`app/frontend/src/components/terminal-client.tsx`):
+1. Construct the Terminal with `allowProposedApi: true` — required to access `terminal.unicode` (a proposed-API surface in xterm v6).
+2. After `terminal.open()`, dynamically import `@xterm/addon-unicode-graphemes`, `loadAddon(new UnicodeGraphemesAddon())`, and set `terminal.unicode.activeVersion = "15-graphemes"`.
+3. Load order MUST precede the WebGL addon so the renderer initialises against the Unicode 15 table on first measure.
+
+The `addon-unicode-graphemes` package (v6-era) supersedes `addon-unicode11`: it covers Unicode 15 and grapheme clusters (ZWJ sequences, flag emoji, skin-tone modifiers) at the same install cost. The `unicodeVersion` Terminal constructor option is a no-op past `"6"` without the addon — the addon is what registers the newer width table.
+
+Introduced by change `260418-xgl2-xterm-emoji-width`.
 
 ### Command Palette Mobile Trigger
 
@@ -791,3 +805,4 @@ The `executeMoveToSession` hook in `sidebar/index.tsx` combines two store action
 | 2026-04-16 | Iframe proxy windows — `IframeWindow` component (`iframe-window.tsx`) renders URL bar chrome + iframe for windows with `rkType === "iframe"`. Rendering branch in `app.tsx`: `currentWindow?.rkType === "iframe" && currentWindow?.rkUrl` renders `IframeWindow`, otherwise `TerminalClient`. URL bar: refresh button (↻), editable URL input (Enter submits via `updateWindowUrl` PUT API), submit indicator (⏎). SSE-driven URL sync via `useEffect` on `rkUrl` with `currentSrcRef` guard (no reload on identical data). `toProxySrc()` converts localhost URLs to `/proxy/{port}/...` paths. New "Window: New Iframe Window" command palette action (id `create-iframe-window`) opens dialog with name + URL inputs. Bottom bar hidden for iframe windows. | `260416-6b0h-iframe-proxy-windows` |
 | 2026-04-18 | Server panel tile grid + resizable CollapsiblePanel — `ServerPanel` rewritten from vertical list to swatch-style tile grid (`repeat(auto-fill, minmax(72px, 1fr))` desktop, single-row horizontal scroll with `scroll-snap-type` on `pointer: coarse` / `<640px`). Tiles: 4px ANSI-tinted top stripe + 11px truncated name + 10px "N sess" meta. Active tile: `aria-current` + inset accent ring + `rowTints.get(color).selected` body tint. Hover-revealed color-picker and kill buttons rendered as siblings to the tile `<button>` (avoids nested-button HTML) with `group-hover:flex`; hidden on coarse pointer. Scrolls internally when tile grid overflows the user-set height. `CollapsiblePanel` gained opt-in `resizable`, `defaultHeight`, `minHeight`, `maxHeight`, `mobileHeight` props: 6px `ns-resize` drag handle persisted to `localStorage[${storageKey}-height]`, height clamping, `calc(100vh - Npx)` maxHeight parsing, mobile drag-handle hide. Window/Host panels unchanged (opt-in preserves legacy behaviour). `/api/servers` now returns `{name, sessionCount}[]` per architecture.md. | `260417-jpkl-server-panel-tile-grid` |
 | 2026-04-18 | Right-align server name in ServerPanel header — `ServerPanel` title changed from dynamic `Tmux · {server}` to static `"Server"` (matches WindowPanel/HostPanel convention). Active server name moved into `headerRight` slot with `truncate text-text-primary font-mono` classes (mirrors `host-panel.tsx`); `LogoSpinner` follows the name when `refreshing`. Left-side chevron and title are now visually fixed across server switches — only the right-slot text updates. Playwright spec `server-panel-grid.spec.ts` and its companion `.spec.md` updated to match the new `name: /^Server/` accessible name and `Resize Server panel` separator label. No new patterns introduced — aligns with existing sidebar panel header convention. | `260418-2cjc-right-align-server-name` |
+| 2026-04-18 | xterm Unicode 15 grapheme widths — added `@xterm/addon-unicode-graphemes` to the Terminal init chain (loads after WebLinks, before WebGL), set `allowProposedApi: true` on the Terminal constructor, and assigned `terminal.unicode.activeVersion = "15-graphemes"` after `loadAddon()`. Aligns xterm's cell-width measurements with tmux's wcwidth-based layout so emojis and other wide graphemes (ZWJ sequences, flag/skin-tone modifiers) render without ghost/overlap artifacts. The `unicodeVersion` constructor option remains a no-op past `"6"` without the addon. | `260418-xgl2-xterm-emoji-width` |

@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-18T05:34:02Z"}
+{"args":"fix xterm.js emoji/wide-character rendering — terminal text after emojis (✅ etc.) shows ghost overlapping glyphs because xterm.js defaults to Unicode 6 width tables, classifying emojis as 1 cell wide while the browser renders them at ~2 cells (JetBrainsMono Nerd Font lacks color emoji → system font fallback). Fix: install @xterm/addon-unicode-graphemes, set allowProposedApi: true on Terminal, load addon and set terminal.unicode.activeVersion = 15-graphemes so xterm aligns with tmux's wcwidth-based layout.","cmd":"fab-new","event":"command","ts":"2026-04-18T05:34:02Z"}
+{"delta":"+2.9","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-04-18T05:35:33Z"}
+{"delta":"+0.0","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-04-18T05:35:38Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-18T05:36:29Z"}
+{"delta":"+1.8","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-18T06:41:05Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-04-18T06:41:09Z"}
+{"delta":"-0.6","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-04-18T06:42:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-18T06:42:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-18T06:44:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-18T06:44:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-18T07:16:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-18T07:18:42Z"}
+{"event":"review","result":"passed","ts":"2026-04-18T07:18:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-18T07:20:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review-pr","ts":"2026-04-18T07:22:54Z"}
+{"event":"review","result":"passed","ts":"2026-04-18T07:30:32Z"}

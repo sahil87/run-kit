@@ -155,6 +155,7 @@ export function TerminalClient({
         fontFamily: '"JetBrainsMono Nerd Font", ui-monospace, monospace',
         fontSize: fontPx,
         theme: deriveXtermTheme(activeTheme.palette),
+        allowProposedApi: true,
       });
 
       const fitAddon = new FitAddon();
@@ -173,6 +174,16 @@ export function TerminalClient({
       const { WebLinksAddon } = await import("@xterm/addon-web-links");
       if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
       terminal.loadAddon(new WebLinksAddon());
+
+      // xterm defaults to Unicode 6 width tables, but tmux lays out its buffer
+      // using wcwidth (Unicode 14/15). Without this addon, emojis tmux treats
+      // as 2 cells wide land in 1-cell slots and subsequent glyphs overlap.
+      // Must load before WebGL so the renderer measures cells against the
+      // correct table on first paint.
+      const { UnicodeGraphemesAddon } = await import("@xterm/addon-unicode-graphemes");
+      if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
+      terminal.loadAddon(new UnicodeGraphemesAddon());
+      terminal.unicode.activeVersion = "15-graphemes";
 
       // GPU-accelerated rendering (silent fallback to canvas)
       try {

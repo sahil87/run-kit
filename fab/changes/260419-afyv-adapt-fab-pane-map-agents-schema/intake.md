@@ -94,10 +94,9 @@ Existing tests (`TestPaneMapEntryParsing`, `TestPaneMapJoinPopulatesPerWindowFab
 
 ### 5. Pickup timing
 
-This change is blocked on fab-kit shipping. Do not activate or advance past intake until the upstream refactor lands and run-kit's `fab_version` in `fab/project/config.yaml` is bumped to a version containing it. After that bump:
+Unblocked as of 2026-04-19: fab-kit v1.5.0 has shipped the `_agents` schema refactor, and `fab/project/config.yaml` has `fab_version: 1.5.0`. Ready to proceed to spec/apply. Pre-spec sanity check:
 
 1. Run `fab pane map --json --all-sessions` from a worktree with a discussion-mode agent running (no active change); confirm the entry shows populated `agent_state`.
-2. Activate this change via `/fab-switch 260419-afyv-adapt-fab-pane-map-agents-schema` and proceed to spec/apply.
 
 ## Affected Memory
 
@@ -128,6 +127,26 @@ This change is blocked on fab-kit shipping. Do not activate or advance past inta
 - Should the dedup rule also consider a Process/PID axis in the future? The upstream refactor adds `pid` as a new runtime axis (for GC via `kill(pid, 0)`), but fab-kit doesn't surface it in pane-map JSON output today. Defer unless the schema grows a `pid` column.
 - Is there value in consuming `tmux_pane` directly (e.g., via a future `fab pane map --by-pane-id` mode) to avoid the `session:window_index` join entirely? Defer — current join is correct for all current consumers.
 
+## Clarifications
+
+### Session 2026-04-19
+
+| # | Action | Detail |
+|---|--------|--------|
+| 7 | Confirmed | Defer direct `tmux_pane` consumption; keep current join logic |
+| 8 | Confirmed | Performance impact negligible; 5s pane-map cache absorbs fab-side churn |
+| 4 | Confirmed | Extend dedup rule to prefer entries with populated `AgentState` |
+| 5 | Confirmed | Frontend rendering changes are improvements, not regressions |
+| 6 | Changed | Precondition met: fab-kit v1.5.0 shipped and `fab_version: 1.5.0` in `fab/project/config.yaml`; no longer blocked |
+
+### Session 2026-04-19 (bulk confirm)
+
+| # | Action | Detail |
+|---|--------|--------|
+| 4 | Confirmed | — |
+| 5 | Confirmed | — |
+| 6 | Changed | "fab-kit v1.5.0 shipped; run-kit config.yaml at 1.5.0 — unblocked" |
+
 ## Assumptions
 
 | # | Grade | Decision | Rationale | Scores |
@@ -135,10 +154,10 @@ This change is blocked on fab-kit shipping. Do not activate or advance past inta
 | 1 | Certain | The `.fab-runtime.yaml` schema change is invisible to run-kit | Grep-verified: no direct reads in live code. Sole contract is `fab pane map --json` subprocess output. Direct reads were removed in `260313-3vlx-pane-map-enrichment` | S:95 R:90 A:95 D:95 |
 | 2 | Certain | JSON field names in `fab pane map` output are unchanged | Task brief explicitly states "CLI columns unchanged in name; semantics expand". `paneMapEntry` struct at `sessions.go:25-35` remains valid | S:95 R:85 A:90 D:95 |
 | 3 | Certain | No run-kit code treats `agent_state == null` as a proxy for "no change" | Code audit of all 3 consumers: `sessions.go:374-377` joins both independently; `status-panel.tsx:52,67,147-150` branches on each separately; `format.ts:24-38,52,66-70` branches on each separately | S:90 R:90 A:90 D:95 |
-| 4 | Confident | Dedup rule should extend to prefer entries with populated `AgentState` when neither has `Change` | A split window with one discussion-mode-agent pane and one bare pane would non-deterministically lose the agent visibility without this extension. Cost is ~5 lines; benefit is correctness in a new-but-foreseeable scenario | S:80 R:80 A:70 D:85 |
-| 5 | Confident | Frontend rendering changes in discussion mode are improvements, not regressions | `status-panel.tsx` explicitly separates `run` and `agt` rows; having `agt` populate for discussion-mode agents matches the existing design intent. Manual visual verification recommended but risk is low | S:75 R:80 A:75 D:80 |
-| 6 | Confident | This change is blocked until fab-kit ships and run-kit's `fab_version` is bumped | The behavior change is only observable with the new upstream contract. Activating earlier means asserting on nonexistent data | S:85 R:90 A:80 D:90 |
-| 7 | Tentative | `tmux_pane` property in `_agents` entries is not worth consuming directly in run-kit today | run-kit already has reliable `session:window_index` joining via tmux queries + pane-map JSON. Direct consumption would require reading `.fab-runtime.yaml` — reintroducing a coupling we intentionally removed. Revisit if fab-kit exposes a pane-ID-keyed JSON mode | S:60 R:65 A:55 D:60 |
-| 8 | Tentative | Performance impact from more `_agents` entries and mtime churn is negligible for run-kit | Run-kit's 5s pane-map cache (`sessions.go:101`) absorbs any fab-side churn. Each `fab pane map` invocation reads the file once per ~5s per tmux server. Not a concern unless entry count grows by orders of magnitude | S:55 R:70 A:60 D:65 |
+| 4 | Certain | Dedup rule should extend to prefer entries with populated `AgentState` when neither has `Change` | Clarified — user confirmed | S:95 R:80 A:70 D:85 |
+| 5 | Certain | Frontend rendering changes in discussion mode are improvements, not regressions | Clarified — user confirmed | S:95 R:80 A:75 D:80 |
+| 6 | Certain | Precondition met: fab-kit v1.5.0 has shipped the `_agents` schema refactor and run-kit's `fab_version` is at 1.5.0; change is unblocked and ready to proceed | Clarified — user confirmed after `fab upgrade-repo` to 1.5.0 | S:95 R:90 A:80 D:90 |
+| 7 | Certain | `tmux_pane` property in `_agents` entries is not worth consuming directly in run-kit today | Clarified — user confirmed | S:95 R:65 A:55 D:60 |
+| 8 | Certain | Performance impact from more `_agents` entries and mtime churn is negligible for run-kit | Clarified — user confirmed | S:95 R:70 A:60 D:65 |
 
-8 assumptions (3 certain, 3 confident, 2 tentative, 0 unresolved).
+8 assumptions (8 certain, 0 confident, 0 tentative, 0 unresolved).

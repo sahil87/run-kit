@@ -351,5 +351,98 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 	}
 }
 
+// TestPaneMapDedupPrefersAgentState verifies rule-2: when both colliding
+// entries have nil Change, the entry with non-nil AgentState wins over the
+// all-nil entry. Runs both input orderings to prove the result is determined
+// by entry content, not slice position.
+func TestPaneMapDedupPrefersAgentState(t *testing.T) {
+	agentState := "active"
+	bare := paneMapEntry{
+		Session:     "dev",
+		WindowIndex: 0,
+		Pane:        "%0",
+		Change:      nil,
+		AgentState:  nil,
+	}
+	agent := paneMapEntry{
+		Session:     "dev",
+		WindowIndex: 0,
+		Pane:        "%1",
+		Change:      nil,
+		AgentState:  &agentState,
+	}
+
+	orderings := []struct {
+		name    string
+		entries []paneMapEntry
+	}{
+		{name: "agent-first", entries: []paneMapEntry{agent, bare}},
+		{name: "bare-first", entries: []paneMapEntry{bare, agent}},
+	}
+
+	for _, o := range orderings {
+		t.Run(o.name, func(t *testing.T) {
+			m := dedupEntries(o.entries)
+			got, ok := m["dev:0"]
+			if !ok {
+				t.Fatalf("map missing key dev:0")
+			}
+			if got.Pane != agent.Pane {
+				t.Errorf("got pane %q, want %q (agent entry should win)", got.Pane, agent.Pane)
+			}
+			if got.AgentState == nil || *got.AgentState != agentState {
+				t.Errorf("got AgentState %v, want %q", got.AgentState, agentState)
+			}
+		})
+	}
+}
+
+// TestPaneMapDedupChangeStillWinsOverAgent verifies rule-1 priority is
+// unaffected by the new rule-2: an entry with non-nil Change (and nil
+// AgentState) beats an entry with nil Change (and non-nil AgentState),
+// regardless of input order.
+func TestPaneMapDedupChangeStillWinsOverAgent(t *testing.T) {
+	change := "260313-abc-feature"
+	agentState := "active"
+	changeEntry := paneMapEntry{
+		Session:     "dev",
+		WindowIndex: 0,
+		Pane:        "%0",
+		Change:      &change,
+		AgentState:  nil,
+	}
+	agentEntry := paneMapEntry{
+		Session:     "dev",
+		WindowIndex: 0,
+		Pane:        "%1",
+		Change:      nil,
+		AgentState:  &agentState,
+	}
+
+	orderings := []struct {
+		name    string
+		entries []paneMapEntry
+	}{
+		{name: "change-first", entries: []paneMapEntry{changeEntry, agentEntry}},
+		{name: "agent-first", entries: []paneMapEntry{agentEntry, changeEntry}},
+	}
+
+	for _, o := range orderings {
+		t.Run(o.name, func(t *testing.T) {
+			m := dedupEntries(o.entries)
+			got, ok := m["dev:0"]
+			if !ok {
+				t.Fatalf("map missing key dev:0")
+			}
+			if got.Pane != changeEntry.Pane {
+				t.Errorf("got pane %q, want %q (change entry should win)", got.Pane, changeEntry.Pane)
+			}
+			if got.Change == nil || *got.Change != change {
+				t.Errorf("got Change %v, want %q", got.Change, change)
+			}
+		})
+	}
+}
+
 // strPtr is a test helper returning a pointer to s.
 func strPtr(s string) *string { return &s }

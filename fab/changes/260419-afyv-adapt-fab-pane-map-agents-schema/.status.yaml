@@ -2,36 +2,43 @@ id: afyv
 name: 260419-afyv-adapt-fab-pane-map-agents-schema
 created: 2026-04-19T09:35:30Z
 created_by: sahil-weaver
-change_type: refactor
+change_type: fix
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    tasks: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+  intake: done
+  spec: done
+  tasks: done
+  apply: done
+  review: done
+  hydrate: done
+  ship: done
+  review-pr: active
 checklist:
-    generated: false
-    path: checklist.md
-    completed: 0
-    total: 0
+  generated: true
+  path: checklist.md
+  completed: 0
+  total: 1
 confidence:
-    certain: 3
-    confident: 3
-    tentative: 2
-    unresolved: 0
-    score: 2.1
-    indicative: true
-    fuzzy: true
-    dimensions:
-        signal: 79.4
-        reversibility: 81.3
-        competence: 76.9
-        disambiguation: 83.1
+  certain: 11
+  confident: 0
+  tentative: 0
+  unresolved: 0
+  score: 5.0
+  fuzzy: true
+  dimensions:
+    signal: 93.2
+    reversibility: 77.3
+    competence: 78.6
+    disambiguation: 84.1
 stage_metrics:
-    intake: {started_at: "2026-04-19T09:35:30Z", driver: fab-new, iterations: 1}
-prs: []
-last_updated: 2026-04-19T09:37:18Z
+  intake: {started_at: "2026-04-19T09:35:30Z", driver: fab-new, iterations: 1, completed_at: "2026-04-19T15:43:25Z"}
+  spec: {started_at: "2026-04-19T15:43:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-19T15:45:07Z"}
+  tasks: {started_at: "2026-04-19T15:45:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-19T15:45:07Z"}
+  apply: {started_at: "2026-04-19T15:45:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-19T15:53:05Z"}
+  review: {started_at: "2026-04-19T15:53:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-19T15:56:14Z"}
+  hydrate: {started_at: "2026-04-19T15:56:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-19T15:58:44Z"}
+  ship: {started_at: "2026-04-19T15:58:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-19T16:01:37Z"}
+  review-pr: {started_at: "2026-04-19T16:01:37Z", driver: git-pr, iterations: 1, phase: fixing}
+prs:
+  - https://github.com/sahil87/run-kit/pull/169
+last_updated: 2026-04-19T16:23:30Z

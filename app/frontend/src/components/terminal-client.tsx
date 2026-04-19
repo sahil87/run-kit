@@ -136,9 +136,9 @@ export function TerminalClient({
       if (typeof document.fonts?.load === "function") {
         const FONT_LOAD_TIMEOUT_MS = 3000;
         const fontLoads = Promise.all([
-          document.fonts.load(`${fontPx}px "JetBrainsMono Nerd Font"`),
-          document.fonts.load(`bold ${fontPx}px "JetBrainsMono Nerd Font"`),
-          document.fonts.load(`italic ${fontPx}px "JetBrainsMono Nerd Font"`),
+          document.fonts.load(`${fontPx}px "MonaspiceNe Nerd Font Mono"`),
+          document.fonts.load(`bold ${fontPx}px "MonaspiceNe Nerd Font Mono"`),
+          document.fonts.load(`italic ${fontPx}px "MonaspiceNe Nerd Font Mono"`),
         ]);
         const timeout = new Promise<void>((resolve) => {
           window.setTimeout(resolve, FONT_LOAD_TIMEOUT_MS);
@@ -152,7 +152,7 @@ export function TerminalClient({
 
       terminal = new Terminal({
         cursorBlink: true,
-        fontFamily: '"JetBrainsMono Nerd Font", ui-monospace, monospace',
+        fontFamily: '"MonaspiceNe Nerd Font Mono", ui-monospace, monospace',
         fontSize: fontPx,
         theme: deriveXtermTheme(activeTheme.palette),
         allowProposedApi: true,

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
-import { BlockPulse } from "@/components/block-pulse";
 import { BrailleSnake } from "@/components/braille-snake";
+import { ClockSpinner } from "@/components/clock-spinner";
+import { StarTwinkle } from "@/components/star-twinkle";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatDuration, parseFabChange } from "@/lib/format";
@@ -48,9 +49,6 @@ function getProcessLine(win: WindowInfo, nowSeconds: number): string {
   const command = win.panes?.find((p) => p.isActive)?.command ?? win.paneCommand ?? "";
   if (win.activity === "active") return command || "active";
 
-  // When agent state is present, idle info goes in the dedicated agent row
-  if (win.agentState) return command || "";
-
   let idle = "";
   if (win.activityTimestamp) {
     const elapsed = nowSeconds - win.activityTimestamp;
@@ -87,7 +85,9 @@ export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {
   );
 }
 
-/** Reusable interactive row that copies a value on click and shows inline "copied" feedback. */
+/** Reusable interactive row that copies a value on click and shows inline "copied" feedback.
+ *  The `group` class enables `group-hover:text-accent` on the value span so callers can
+ *  reveal the accent color on hover as a clickability affordance. */
 function CopyableRow({ prefix, copied, onCopy, children, className, title }: {
   prefix: string;
   copied: boolean;
@@ -100,7 +100,7 @@ function CopyableRow({ prefix, copied, onCopy, children, className, title }: {
     <button
       type="button"
       onClick={onCopy}
-      className={`truncate text-left w-full cursor-pointer hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent bg-transparent border-0 p-0 m-0 font-inherit text-inherit ${className ?? ""}`}
+      className={`group truncate text-left w-full cursor-pointer hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent bg-transparent border-0 p-0 m-0 font-inherit text-inherit ${className ?? ""}`}
       title={title}
     >
       <span className="text-text-secondary">{copied ? "copied \u2713 " : `${prefix} `}</span>
@@ -140,68 +140,77 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
   const activePaneIndex = activePane?.paneIndex ?? 0;
   const paneId = activePane?.paneId ?? "";
 
-  // Git branch from active pane
   const gitBranch = activePane?.gitBranch ?? "";
 
-  // Fab state (preferred) or process info (fallback)
   const fabChange = parseFabChange(win.fabChange ?? "");
   const fabLine = fabChange && win.fabStage
     ? `${fabChange.id} ${fabChange.slug} \u00b7 ${win.fabStage}`
     : null;
   const processLine = getProcessLine(win, nowSeconds);
-  const runLine = fabLine ?? processLine;
-  const isActive = win.activity === "active";
-
-  // Agent state (dedicated row)
   const agentLine = getAgentLine(win);
 
   return (
     <div className="flex flex-col gap-0 text-xs">
-      {/* Tmux pane info */}
+      {/* tmx */}
       {paneId ? (
         <CopyableRow prefix="tmx" copied={copiedRow === "tmx"} onCopy={() => handleCopy("tmx", paneId)}>
-          <span className="text-text-secondary">
+          <span className="text-accent" aria-hidden="true">{"\uF489"}</span>
+          {" "}
+          <span className="text-text-secondary group-hover:text-accent">
             pane {activePaneIndex + 1}/{paneCount}{paneId && ` ${paneId}`}
           </span>
         </CopyableRow>
       ) : (
         <div className="truncate">
           <span className="text-text-secondary">tmx </span>
+          <span className="text-accent" aria-hidden="true">{"\uF489"}</span>
+          {" "}
           <span className="text-text-secondary">
             pane {activePaneIndex + 1}/{paneCount}
           </span>
         </div>
       )}
-      {/* CWD */}
+
+      {/* cwd */}
       <CopyableRow prefix="cwd" copied={copiedRow === "cwd"} onCopy={() => handleCopy("cwd", activePaneCwd)} title={activePaneCwd}>
-        <span className="text-text-primary">{cwd}</span>
+        <span className="text-accent" aria-hidden="true">{"\uF413"}</span>
+        {" "}
+        <span className="text-text-secondary group-hover:text-accent">{cwd}</span>
       </CopyableRow>
-      {/* Git branch */}
+
+      {/* git */}
       {gitBranch && (
         <CopyableRow prefix="git" copied={copiedRow === "git"} onCopy={() => handleCopy("git", gitBranch)}>
-          <span className="text-accent">{gitBranch}</span>
+          <span className="text-accent" aria-hidden="true">{"\uF418"}</span>
+          {" "}
+          <span className="text-text-primary group-hover:text-accent">{gitBranch}</span>
         </CopyableRow>
       )}
-      {/* Fab state or process */}
-      {fabLine && runLine ? (
-        <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
-          {isActive && <BlockPulse className="text-accent" />}{isActive && " "}
-          <span className="text-accent">{runLine}</span>
-        </CopyableRow>
-      ) : runLine ? (
+
+      {/* run */}
+      {processLine && (
         <div className="truncate">
           <span className="text-text-secondary">run </span>
-          {isActive && <BlockPulse className="text-accent-green" />}{isActive && " "}
-          <span className="text-text-secondary">{runLine}</span>
+          <BrailleSnake className="text-accent" />{" "}
+          <span className="text-text-secondary">{processLine}</span>
         </div>
-      ) : null}
-      {/* Agent state */}
+      )}
+
+      {/* agt */}
       {agentLine && (
         <div className="truncate">
           <span className="text-text-secondary">agt </span>
-          <BrailleSnake className="text-accent" />{" "}
-          <span className="text-text-primary">{agentLine}</span>
+          <StarTwinkle className="text-accent" />{" "}
+          <span className="text-text-secondary">{agentLine}</span>
         </div>
+      )}
+
+      {/* fab */}
+      {fabLine && (
+        <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
+          <ClockSpinner className="text-accent" />{" "}
+          <span className="text-text-primary group-hover:text-accent">{fabLine}</span>
+        </CopyableRow>
       )}
     </div>
   );

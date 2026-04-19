@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 
 const FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
-const INTERVAL_MS = 80;
+const INTERVAL_MS = 250;
 
 export function BrailleSnake({ className }: { className?: string }) {
   const [frame, setFrame] = useState(0);

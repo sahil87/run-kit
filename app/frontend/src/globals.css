@@ -1,24 +1,24 @@
 @import "tailwindcss";
 
 @font-face {
-  font-family: "JetBrainsMono Nerd Font";
-  src: url("/fonts/JetBrainsMonoNerdFont-Regular.woff2") format("woff2");
+  font-family: "MonaspiceNe Nerd Font Mono";
+  src: url("/fonts/MonaspiceNeNerdFontMono-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: block;
 }
 
 @font-face {
-  font-family: "JetBrainsMono Nerd Font";
-  src: url("/fonts/JetBrainsMonoNerdFont-Bold.woff2") format("woff2");
+  font-family: "MonaspiceNe Nerd Font Mono";
+  src: url("/fonts/MonaspiceNeNerdFontMono-Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
   font-display: block;
 }
 
 @font-face {
-  font-family: "JetBrainsMono Nerd Font";
-  src: url("/fonts/JetBrainsMonoNerdFont-Italic.woff2") format("woff2");
+  font-family: "MonaspiceNe Nerd Font Mono";
+  src: url("/fonts/MonaspiceNeNerdFontMono-Italic.woff2") format("woff2");
   font-weight: 400;
   font-style: italic;
   font-display: block;
@@ -35,8 +35,7 @@
   --color-border: #454d66;
   --color-accent: #5b8af0;
   --color-accent-green: #22c55e;
-  --font-mono: "JetBrainsMono Nerd Font", "JetBrains Mono", "Fira Code", "SF Mono",
-    "Menlo", "Monaco", "Consolas", monospace;
+  --font-mono: "MonaspiceNe Nerd Font Mono", monospace;
 }
 
 html[data-theme="dark"] {

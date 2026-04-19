@@ -70,21 +70,29 @@ func fetchPaneMap(server, repoRoot string) (map[string]paneMapEntry, error) {
 		return nil, err
 	}
 
+	return dedupEntries(entries), nil
+}
+
+// dedupEntries collapses pane-map entries sharing a (session, window_index) key,
+// preferring richer fab state. Priority: Change > AgentState > first-seen.
+func dedupEntries(entries []paneMapEntry) map[string]paneMapEntry {
 	m := make(map[string]paneMapEntry, len(entries))
 	for _, e := range entries {
 		key := fmt.Sprintf("%s:%d", e.Session, e.WindowIndex)
-		if existing, ok := m[key]; ok {
-			// Multiple panes in the same window (splits). Prefer the entry
-			// with richer fab state to keep enrichment deterministic.
-			if e.Change != nil && existing.Change == nil {
-				m[key] = e
-			}
-			// Otherwise keep the first entry seen.
-		} else {
+		existing, ok := m[key]
+		if !ok {
+			m[key] = e
+			continue
+		}
+		// Multiple panes in the same window (splits). Priority: Change > AgentState > first-seen.
+		switch {
+		case e.Change != nil && existing.Change == nil:
+			m[key] = e
+		case e.Change == nil && existing.Change == nil && e.AgentState != nil && existing.AgentState == nil:
 			m[key] = e
 		}
 	}
-	return m, nil
+	return m
 }
 
 // Pane-map cache: package-level with sync.RWMutex protection, keyed by

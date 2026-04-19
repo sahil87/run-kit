@@ -1,3 +1,17 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-19T09:35:30Z"}
 {"args":"Adapt run-kit for fab-kit schema refactor where .fab-runtime.yaml moves to a session-keyed _agents bucket and fab pane map surfaces agent state in discussion mode","cmd":"fab-new","event":"command","ts":"2026-04-19T09:35:30Z"}
 {"delta":"+2.1","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-04-19T09:37:06Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-04-19T15:27:30Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-04-19T15:28:35Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-04-19T15:38:12Z"}
+{"delta":"+2.9","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-19T15:38:44Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-19T15:38:48Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-19T15:39:45Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-04-19T15:42:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-19T15:43:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-19T15:45:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-19T15:45:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-19T15:53:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-19T15:56:14Z"}
+{"event":"review","result":"passed","ts":"2026-04-19T15:56:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-19T15:58:44Z"}

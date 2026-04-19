@@ -12,7 +12,7 @@ _(none)_
 
 ## Phase 2: Core Implementation
 
-- [x] T001 Extend dedup rule in `app/backend/internal/sessions/sessions.go` (lines 73-87) — replace the single `if e.Change != nil && existing.Change == nil` branch with a `switch` that implements the priority ordering specified by the spec's "Pane-map dedup SHALL prefer richer fab state" requirement: (1) entry with non-nil `Change` wins over nil `Change`; (2) when both have nil `Change`, entry with non-nil `AgentState` wins; (3) otherwise first-seen is preserved. Keep the `paneMapEntry` struct (lines 25-35) unchanged.
+- [x] T001 Extend the pane-map dedup logic in `app/backend/internal/sessions/sessions.go` (including the extracted `dedupEntries` helper) to implement the priority ordering specified by the spec's "Pane-map dedup SHALL prefer richer fab state" requirement: (1) entry with non-nil `Change` wins over nil `Change`; (2) when both have nil `Change`, entry with non-nil `AgentState` wins; (3) otherwise first-seen is preserved. Keep the `paneMapEntry` struct unchanged.
 
 ## Phase 3: Integration & Edge Cases
 

@@ -21,7 +21,7 @@ When `fab pane map --json --all-sessions` returns multiple entries that collide 
 2. When both entries have a nil `Change`, an entry whose `AgentState` is non-nil SHALL win over an entry whose `AgentState` is nil.
 3. When both entries are equally rich (either both have `Change` set, or both have `Change` nil and either both-or-neither have `AgentState` set), the first-seen entry SHALL be preserved (stable iteration order).
 
-The existing struct tag and field shape of `paneMapEntry` (`sessions.go:25-35`) MUST remain unchanged. The change is strictly within the body of the dedup loop at `sessions.go:73-87`.
+The existing struct tag and field shape of `paneMapEntry` in `app/backend/internal/sessions/sessions.go` MUST remain unchanged. The implementation change is limited to the pane-map deduplication logic in that file, as exercised by `fetchPaneMap` and its `dedupEntries` helper.
 
 #### Scenario: Discussion-mode agent pane wins over bare pane
 

@@ -26,6 +26,12 @@ type CollapsiblePanelProps = {
   maxHeight?: number | string;
   /** Panel body height in pixels used on mobile single-row layouts. When set, the drag handle is hidden on coarse-pointer / narrow viewports and the content area uses this height. Default 56. */
   mobileHeight?: number;
+  /** When set, renders a small corner element at the right edge of the drag-handle row.
+   *  The corner's pointerdown invokes the internal horizontal-drag start, then calls this
+   *  callback (which starts a vertical drag in the parent), then overrides the body cursor
+   *  to `nwse-resize` so the diagonal cursor wins over the two axis cursors. Only rendered
+   *  when the internal `showDragHandle` condition is true (resizable + open + !mobile). */
+  onCornerPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
   children: React.ReactNode;
 };
 
@@ -104,6 +110,7 @@ export function CollapsiblePanel({
   maxHeight = "calc(100vh - 120px)",
   mobileHeight = 56,
   tintOnlyWhenCollapsed = false,
+  onCornerPointerDown,
   children,
 }: CollapsiblePanelProps) {
   const [isOpen, setIsOpen] = useState(() => readPersistedState(storageKey, defaultOpen));
@@ -182,6 +189,10 @@ export function CollapsiblePanel({
 
   const onPointerUp = useCallback(
     (e: PointerEvent) => {
+      // Clear the document-level cursor override set in onHandlePointerDown. Done
+      // first so an early return below (no active drag state) still releases the
+      // cursor — though in practice onPointerUp only fires when a drag is live.
+      document.body.style.cursor = "";
       const st = dragStateRef.current;
       if (!st || !contentRef.current) return;
       const final = clampHeight(st.startHeight + (e.clientY - st.startY));
@@ -208,17 +219,25 @@ export function CollapsiblePanel({
       // Disable the height transition during drag so direct style mutations
       // in onPointerMove snap immediately instead of animating toward each value.
       contentRef.current.style.transition = "none";
+      // Force the drag cursor at the document level for the duration of the drag.
+      // Without this, the pointer can leave the 3px handle mid-drag and the browser
+      // reverts to the default cursor (implicit pointer capture loss on thin handles).
+      // Cleared in onPointerUp.
+      document.body.style.cursor = "row-resize";
       document.addEventListener("pointermove", onPointerMove);
       document.addEventListener("pointerup", onPointerUp);
     },
     [resizable, onPointerMove, onPointerUp],
   );
 
-  // Cleanup dangling listeners on unmount.
+  // Cleanup dangling listeners on unmount. Also clear the body cursor in case the
+  // component unmounts mid-drag (navigation, hot-reload, error boundary) — otherwise
+  // the `row-resize` / `nwse-resize` cursor would leak across the rest of the UI.
   useEffect(() => {
     return () => {
       document.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("pointerup", onPointerUp);
+      document.body.style.cursor = "";
     };
   }, [onPointerMove, onPointerUp]);
 
@@ -303,16 +322,46 @@ export function CollapsiblePanel({
         </div>
       </div>
 
-      {/* Drag handle — resizable desktop only. 3px thick line, colored as the border. */}
+      {/* Drag handle — resizable desktop only. 3px thick line, colored as the border.
+          When `onCornerPointerDown` is supplied, render as a flex row: the handle
+          consumes the remaining width (`flex-1`) and a small fixed-width corner sits
+          flush against its right edge. The corner initiates both horizontal and
+          vertical drags and overrides the cursor to `nwse-resize`. */}
       {showDragHandle && (
-        <div
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label={`Resize ${title} panel`}
-          onPointerDown={onHandlePointerDown}
-          className="relative z-10 h-[3px] bg-border hover:bg-text-secondary transition-colors cursor-ns-resize select-none"
-          style={{ touchAction: "none" }}
-        />
+        onCornerPointerDown ? (
+          <div className="relative z-10 flex flex-row">
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label={`Resize ${title} panel`}
+              onPointerDown={onHandlePointerDown}
+              className="flex-1 h-[3px] bg-border hover:bg-text-secondary transition-colors cursor-row-resize select-none"
+              style={{ touchAction: "none" }}
+            />
+            <div
+              aria-hidden="true"
+              onPointerDown={(e) => {
+                // Order matters: the two axis handlers each write their own cursor
+                // (`row-resize` then `col-resize`) to `document.body.style.cursor`,
+                // then the final write here (`nwse-resize`) wins.
+                onHandlePointerDown(e);
+                onCornerPointerDown(e);
+                document.body.style.cursor = "nwse-resize";
+              }}
+              className="w-[7px] h-[3px] bg-border hover:bg-text-secondary transition-colors select-none cursor-nwse-resize"
+              style={{ touchAction: "none" }}
+            />
+          </div>
+        ) : (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label={`Resize ${title} panel`}
+            onPointerDown={onHandlePointerDown}
+            className="relative z-10 h-[3px] bg-border hover:bg-text-secondary transition-colors cursor-row-resize select-none"
+            style={{ touchAction: "none" }}
+          />
+        )
       )}
     </div>
   );

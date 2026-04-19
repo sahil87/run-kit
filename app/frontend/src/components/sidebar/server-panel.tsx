@@ -17,6 +17,10 @@ type ServerPanelProps = {
   onKillServer: (name: string) => void;
   onRefreshServers: () => void;
   onServerColorChange?: (server: string, color: number | null) => void;
+  /** Forwarded to CollapsiblePanel's corner affordance. When supplied, a corner
+   *  element renders at the bottom-right of the drag handle and initiates a
+   *  sidebar-width drag in addition to the panel's vertical resize. */
+  onSidebarResizeStart?: (e: React.PointerEvent<HTMLDivElement>) => void;
 };
 
 /** Matches coarse-pointer (touch) devices and viewports narrower than 640px. */
@@ -52,6 +56,7 @@ export function ServerPanel({
   onKillServer,
   onRefreshServers,
   onServerColorChange,
+  onSidebarResizeStart,
 }: ServerPanelProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
@@ -120,6 +125,7 @@ export function ServerPanel({
       defaultHeight={56}
       minHeight={56}
       mobileHeight={56}
+      onCornerPointerDown={onSidebarResizeStart}
     >
       {servers.length === 0 ? (
         <span className="block text-xs text-text-secondary py-1">No servers</span>

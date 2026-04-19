@@ -197,6 +197,11 @@ function AppShell() {
 
   const handleDragStart = useCallback((startX: number) => {
     isDraggingRef.current = true;
+    // Force the drag cursor at the document level so it persists when the pointer
+    // leaves the 5px handle mid-drag (implicit pointer-capture workaround). Cleared
+    // in handleEnd below. The corner affordance in CollapsiblePanel may overwrite
+    // this to `nwse-resize` after this write — that's intended (last write wins).
+    document.body.style.cursor = "col-resize";
     const startWidth = sidebarWidth;
 
     const handleMove = (clientX: number) => {
@@ -211,6 +216,7 @@ function AppShell() {
 
     const handleEnd = () => {
       isDraggingRef.current = false;
+      document.body.style.cursor = "";
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleEnd);
       document.removeEventListener("touchmove", handleTouchMove);
@@ -891,11 +897,12 @@ function AppShell() {
                 onKillServer={(name) => setKillServerTarget(name)}
                 onRefreshServers={refreshServers}
                 isConnected={isConnected}
+                onSidebarResizeStart={(e) => handleDragStart(e.clientX)}
               />
             </div>
             {/* Drag handle */}
             <div
-              className="w-[5px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary/40 transition-colors"
+              className="w-[5px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary transition-colors"
               onMouseDown={handleDragHandleMouseDown}
               onTouchStart={handleDragHandleTouchStart}
               role="separator"

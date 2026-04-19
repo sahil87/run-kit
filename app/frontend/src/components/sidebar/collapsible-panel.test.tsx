@@ -301,6 +301,67 @@ describe("CollapsiblePanel", () => {
       expect(localStorage.getItem("test-max-height")).toBe("300");
     });
 
+    it("renders a corner when onCornerPointerDown is supplied and invokes it plus the internal drag with nwse-resize cursor", () => {
+      const onCornerPointerDown = vi.fn();
+      const { container } = render(
+        <CollapsiblePanel
+          title="Test"
+          storageKey="test-corner"
+          defaultOpen={true}
+          resizable
+          defaultHeight={140}
+          onCornerPointerDown={onCornerPointerDown}
+        >
+          <span>Content</span>
+        </CollapsiblePanel>,
+      );
+
+      // Separator (horizontal handle) still renders as before.
+      const handle = screen.getByRole("separator", { name: /Resize Test panel/ }) as HTMLElement;
+      expect(handle).toBeInTheDocument();
+
+      // Corner is a sibling element with the `cursor-nwse-resize` class.
+      const corner = container.querySelector(".cursor-nwse-resize") as HTMLElement | null;
+      expect(corner).toBeTruthy();
+
+      // Pointerdown on the corner: fires the external callback and sets the body cursor.
+      // Stub getBoundingClientRect so the internal handler's drag-state setup doesn't throw.
+      const contentArea = container.querySelector("[class*='transition-[height]']") as HTMLElement;
+      vi.spyOn(contentArea, "getBoundingClientRect").mockReturnValue({
+        top: 0, left: 0, right: 0, bottom: 140, width: 240, height: 140,
+        x: 0, y: 0, toJSON: () => ({}),
+      } as DOMRect);
+
+      fireEvent.pointerDown(corner!, { clientY: 300, clientX: 200 });
+
+      expect(onCornerPointerDown).toHaveBeenCalledTimes(1);
+      // The final write in the corner's pointerdown handler is `nwse-resize`, which
+      // overrides the internal `row-resize` write and wins.
+      expect(document.body.style.cursor).toBe("nwse-resize");
+
+      // Clean up — release the pointer so the internal drag doesn't leak listeners
+      // across tests, and the unmount cleanup clears the body cursor.
+      fireEvent.pointerUp(document, { clientY: 300, clientX: 200 });
+      expect(document.body.style.cursor).toBe("");
+    });
+
+    it("does not render a corner when onCornerPointerDown is not supplied (default path unchanged)", () => {
+      const { container } = render(
+        <CollapsiblePanel
+          title="Test"
+          storageKey="test-no-corner"
+          defaultOpen={true}
+          resizable
+          defaultHeight={140}
+        >
+          <span>Content</span>
+        </CollapsiblePanel>,
+      );
+      expect(container.querySelector(".cursor-nwse-resize")).toBeNull();
+      // Separator still renders and is the sole handle (no flex wrapper around it).
+      expect(screen.getByRole("separator", { name: /Resize Test panel/ })).toBeInTheDocument();
+    });
+
     it("collapse animates to 0 and does not lose the persisted height", () => {
       localStorage.setItem("test-toggle-height", "260");
       const { container } = render(

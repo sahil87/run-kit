@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 
-const FRAMES = ["░", "▒", "▓", "█", "▓", "▒"];
-const INTERVAL_MS = 150;
+const FRAMES = ["◴", "◷", "◶", "◵"];
+const INTERVAL_MS = 250;
 
-export function BlockPulse({ className }: { className?: string }) {
+export function ClockSpinner({ className }: { className?: string }) {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
@@ -12,7 +12,11 @@ export function BlockPulse({ className }: { className?: string }) {
   }, []);
 
   return (
-    <span className={className} aria-hidden="true">
+    <span
+      className={className}
+      aria-hidden="true"
+      style={{ display: "inline-block", width: "1ch", textAlign: "center" }}
+    >
       {FRAMES[frame]}
     </span>
   );

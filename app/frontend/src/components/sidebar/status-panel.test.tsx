@@ -106,6 +106,37 @@ describe("StatusPanel", () => {
     expect(screen.getByText(/zsh \u2014 idle 1h/)).toBeInTheDocument();
   });
 
+  it("renders fab and run rows independently when both are present", () => {
+    const win = makeWindow({
+      activity: "idle",
+      activityTimestamp: 100,
+      fabChange: "260405-rx38-pane-cwd-tracking",
+      fabStage: "apply",
+      panes: [
+        { paneId: "%1", paneIndex: 0, cwd: "/home", command: "claude", isActive: true },
+      ],
+    });
+    render(<StatusPanel window={win} nowSeconds={3700} />);
+    expect(screen.getByText(/rx38/)).toBeInTheDocument();
+    expect(screen.getByText(/apply/)).toBeInTheDocument();
+    expect(screen.getByText(/claude \u2014 idle 1h/)).toBeInTheDocument();
+  });
+
+  it("run row still shows idle duration when an agent is present", () => {
+    const win = makeWindow({
+      activity: "idle",
+      activityTimestamp: 100,
+      agentState: "Thinking",
+      agentIdleDuration: "2m",
+      panes: [
+        { paneId: "%1", paneIndex: 0, cwd: "/home", command: "claude", isActive: true },
+      ],
+    });
+    render(<StatusPanel window={win} nowSeconds={3700} />);
+    expect(screen.getByText(/claude \u2014 idle 1h/)).toBeInTheDocument();
+    expect(screen.getByText(/Thinking 2m/)).toBeInTheDocument();
+  });
+
   describe("shortenPath", () => {
     it("Linux home substitution: /home/sahil/code/run-kit → ~/code/run-kit", () => {
       renderCwd("/home/sahil/code/run-kit");
@@ -176,7 +207,7 @@ describe("StatusPanel", () => {
       renderCwd("/home/sahil/code/org/repo/src");
       const cwdButton = document.querySelector("[title='/home/sahil/code/org/repo/src']");
       expect(cwdButton).not.toBeNull();
-      expect(cwdButton?.querySelector(".text-text-primary")?.textContent).toBe("\u2026/repo/src");
+      expect(cwdButton?.querySelector(".group-hover\\:text-accent")?.textContent).toBe("\u2026/repo/src");
     });
   });
 });

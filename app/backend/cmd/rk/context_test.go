@@ -84,6 +84,17 @@ func TestContextCapabilitiesSections(t *testing.T) {
 		t.Error("expected proxy URL pattern '/proxy/{port}/...' in output")
 	}
 
+	// Visual Display Recipe subsection — the canonical iframe-display flow.
+	if !strings.Contains(output, "### Visual Display Recipe") {
+		t.Error("expected 'Visual Display Recipe' subsection")
+	}
+	if !strings.Contains(output, "tmux set-option -w @rk_url /proxy/<port>/<filename>") {
+		t.Error("expected exact relative @rk_url example 'tmux set-option -w @rk_url /proxy/<port>/<filename>' (no {server_url}, no host, no scheme)")
+	}
+	if !strings.Contains(output, "python3 -m http.server --bind 127.0.0.1") {
+		t.Error("expected loopback-bound local HTTP server example 'python3 -m http.server --bind 127.0.0.1' in Visual Display Recipe")
+	}
+
 	// CLI commands grouped by category.
 	if !strings.Contains(output, "### CLI Commands") {
 		t.Error("expected 'CLI Commands' subsection")
@@ -147,5 +158,38 @@ func TestContextExitsZero(t *testing.T) {
 	output := runContextOutsideTmux(t)
 	if output == "" {
 		t.Error("expected non-empty output")
+	}
+}
+
+func TestVisualDisplayRecipeOrdering(t *testing.T) {
+	output := runContextOutsideTmux(t)
+
+	proxyIdx := strings.Index(output, "### Proxy")
+	recipeIdx := strings.Index(output, "### Visual Display Recipe")
+	cliIdx := strings.Index(output, "### CLI Commands")
+
+	if proxyIdx < 0 || recipeIdx < 0 || cliIdx < 0 {
+		t.Fatalf("missing required subsection headings (proxy=%d, recipe=%d, cli=%d)", proxyIdx, recipeIdx, cliIdx)
+	}
+	if !(proxyIdx < recipeIdx && recipeIdx < cliIdx) {
+		t.Errorf("expected order: Proxy < Visual Display Recipe < CLI Commands, got proxy=%d recipe=%d cli=%d", proxyIdx, recipeIdx, cliIdx)
+	}
+}
+
+func TestVisualDisplayRecipeNoAbsoluteProxyURL(t *testing.T) {
+	output := runContextOutsideTmux(t)
+
+	recipeIdx := strings.Index(output, "### Visual Display Recipe")
+	if recipeIdx < 0 {
+		t.Fatal("expected 'Visual Display Recipe' subsection")
+	}
+	cliIdx := strings.Index(output, "### CLI Commands")
+	if cliIdx < 0 || cliIdx <= recipeIdx {
+		t.Fatal("expected '### CLI Commands' subsection after Visual Display Recipe")
+	}
+
+	recipeBody := output[recipeIdx:cliIdx]
+	if strings.Contains(recipeBody, "{server_url}/proxy") {
+		t.Error("Visual Display Recipe must not compose iframe URLs via {server_url}/proxy — the rk frontend resolves relative paths against the user's origin")
 	}
 }

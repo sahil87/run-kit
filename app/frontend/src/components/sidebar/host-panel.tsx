@@ -59,14 +59,6 @@ export function HostPanel({ isConnected }: HostPanelProps) {
           {/* Memory gauge */}
           <MemoryLine used={metrics.memory.used} total={metrics.memory.total} />
 
-          {/* Load averages */}
-          <LoadLine
-            avg1={metrics.load.avg1}
-            avg5={metrics.load.avg5}
-            avg15={metrics.load.avg15}
-            cpus={metrics.load.cpus}
-          />
-
           {/* Disk + Uptime */}
           <div className="text-text-secondary truncate">
             <span>dsk </span>
@@ -74,6 +66,14 @@ export function HostPanel({ isConnected }: HostPanelProps) {
             <span> &middot; up </span>
             <span>{formatUptime(metrics.uptime)}</span>
           </div>
+
+          {/* Load averages */}
+          <LoadLine
+            avg1={metrics.load.avg1}
+            avg5={metrics.load.avg5}
+            avg15={metrics.load.avg15}
+            cpus={metrics.load.cpus}
+          />
         </div>
       )}
     </CollapsiblePanel>

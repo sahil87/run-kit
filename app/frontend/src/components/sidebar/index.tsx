@@ -31,6 +31,11 @@ export type SidebarProps = {
   onKillServer: (name: string) => void;
   onRefreshServers: () => void;
   isConnected?: boolean;
+  /** Forwarded to `ServerPanel` → `CollapsiblePanel` as the corner pointerdown
+   *  callback. When supplied (desktop only), a corner affordance is rendered at
+   *  the bottom-right of the server panel drag handle that also starts a
+   *  sidebar-width drag. */
+  onSidebarResizeStart?: (e: React.PointerEvent<HTMLDivElement>) => void;
 };
 
 export function Sidebar({
@@ -47,6 +52,7 @@ export function Sidebar({
   onKillServer,
   onRefreshServers,
   isConnected = false,
+  onSidebarResizeStart,
 }: SidebarProps) {
   // Pre-compute row tints from the active theme palette.
   const { theme } = useTheme();
@@ -501,6 +507,7 @@ export function Sidebar({
         onCreateServer={onCreateServer}
         onKillServer={onKillServer}
         onRefreshServers={onRefreshServers}
+        onSidebarResizeStart={onSidebarResizeStart}
         onServerColorChange={(targetServer, c) => {
           setServerColors((prev) => {
             const next = { ...prev };

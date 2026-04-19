@@ -197,24 +197,29 @@ function AppShell() {
 
   const handleDragStart = useCallback((startX: number) => {
     isDraggingRef.current = true;
+    // Force the drag cursor at the document level so it persists when the pointer
+    // leaves the 5px handle mid-drag (implicit pointer-capture workaround). Cleared
+    // in handleEnd below. The corner affordance in CollapsiblePanel may overwrite
+    // this to `nwse-resize` after this write — that's intended (last write wins).
+    document.body.style.cursor = "col-resize";
     const startWidth = sidebarWidth;
 
-    const handleMove = (clientX: number) => {
-      const newWidth = clampSidebarWidth(startWidth + (clientX - startX));
+    // Pointer events (not mouse/touch): when the corner affordance initiates both
+    // drags, CollapsiblePanel's horizontal handler calls preventDefault() on the
+    // pointerdown, which per the Pointer Events spec suppresses the follow-up mouse
+    // compatibility events (mousemove/mouseup). Listening for pointermove/pointerup
+    // avoids that trap and keeps the same-pointer interaction working end-to-end.
+    const handlePointerMove = (e: PointerEvent) => {
+      const newWidth = clampSidebarWidth(startWidth + (e.clientX - startX));
       setSidebarWidth(newWidth);
-    };
-
-    const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX);
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches[0]) handleMove(e.touches[0].clientX);
     };
 
     const handleEnd = () => {
       isDraggingRef.current = false;
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleEnd);
-      document.removeEventListener("touchmove", handleTouchMove);
-      document.removeEventListener("touchend", handleEnd);
+      document.body.style.cursor = "";
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handleEnd);
+      document.removeEventListener("pointercancel", handleEnd);
       // Persist final width
       setSidebarWidth((w) => {
         try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(w)); } catch { /* noop */ }
@@ -222,23 +227,15 @@ function AppShell() {
       });
     };
 
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleEnd);
-    document.addEventListener("touchmove", handleTouchMove);
-    document.addEventListener("touchend", handleEnd);
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handleEnd);
+    document.addEventListener("pointercancel", handleEnd);
   }, [sidebarWidth]);
 
-  const handleDragHandleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  const handleDragHandlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       handleDragStart(e.clientX);
-    },
-    [handleDragStart],
-  );
-
-  const handleDragHandleTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      if (e.touches[0]) handleDragStart(e.touches[0].clientX);
     },
     [handleDragStart],
   );
@@ -891,13 +888,14 @@ function AppShell() {
                 onKillServer={(name) => setKillServerTarget(name)}
                 onRefreshServers={refreshServers}
                 isConnected={isConnected}
+                onSidebarResizeStart={(e) => handleDragStart(e.clientX)}
               />
             </div>
             {/* Drag handle */}
             <div
-              className="w-[5px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary/40 transition-colors"
-              onMouseDown={handleDragHandleMouseDown}
-              onTouchStart={handleDragHandleTouchStart}
+              className="w-[5px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary transition-colors"
+              onPointerDown={handleDragHandlePointerDown}
+              style={{ touchAction: "none" }}
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize sidebar"

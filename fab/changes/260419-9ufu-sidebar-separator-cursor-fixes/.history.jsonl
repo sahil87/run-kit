@@ -1,0 +1,22 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-19T08:41:02Z"}
+{"args":"Fix four inconsistencies in the sidebar resize separators: hover cursor lost after first drag (pointer capture), cursor style inconsistency (ns-resize vs col-resize → use row-resize/col-resize pair), hover highlight opacity mismatch (/40 vs full), and add a nwse-resize corner element at the separator intersection that drags both axes simultaneously.","cmd":"fab-new","event":"command","ts":"2026-04-19T08:41:02Z"}
+{"delta":"+2.2","event":"confidence","score":2.2,"trigger":"calc-score","ts":"2026-04-19T08:42:55Z"}
+{"delta":"+0.0","event":"confidence","score":2.2,"trigger":"calc-score","ts":"2026-04-19T08:43:07Z"}
+{"delta":"+2.2","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-19T08:43:26Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-19T08:43:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-19T08:44:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-04-19T08:45:05Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-19T08:47:12Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-04-19T08:47:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-04-19T08:47:26Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-04-19T08:48:27Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-04-19T08:50:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"tasks","ts":"2026-04-19T08:53:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-04-19T08:53:52Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-04-19T08:54:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-04-19T08:58:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-04-19T09:02:39Z"}
+{"event":"review","result":"passed","ts":"2026-04-19T09:02:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-04-19T09:04:55Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-04-19T09:06:15Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-04-19T09:06:59Z"}

@@ -2,7 +2,7 @@ agent:
     spawn_command: claude --dangerously-skip-permissions --effort xhigh -n "$(basename "$(pwd)")"
 checklist:
     extra_categories: []
-fab_version: 1.3.9
+fab_version: 1.4.0
 project:
     description: Web based agent orchestration framework
     name: run-kit

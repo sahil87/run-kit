@@ -22,6 +22,16 @@ import (
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the HTTP server",
+	Long: `Start the HTTP server.
+
+Environment variables:
+  RK_HOST    Host to bind (default "127.0.0.1")
+  RK_PORT    Port to bind (default 3000)
+
+Examples:
+  rk serve                              # foreground on 127.0.0.1:3000
+  RK_HOST=0.0.0.0 RK_PORT=8080 rk serve # bind all interfaces, port 8080
+  rk serve -d                           # run as background daemon`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		daemonFlag, _ := cmd.Flags().GetBool("daemon")
 		restartFlag, _ := cmd.Flags().GetBool("restart")

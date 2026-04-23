@@ -1,0 +1,37 @@
+id: jmwu
+name: 260423-jmwu-rk-riff-workflow-features
+created: 2026-04-23T02:22:25Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 2
+    confident: 9
+    tentative: 4
+    unresolved: 0
+    score: 0.0
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 73.0
+        reversibility: 71.3
+        competence: 76.3
+        disambiguation: 72.0
+stage_metrics:
+    intake: {started_at: "2026-04-23T02:22:25Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-04-23T02:24:03Z

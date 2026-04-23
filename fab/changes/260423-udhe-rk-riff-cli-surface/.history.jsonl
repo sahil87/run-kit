@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-23T02:20:39Z"}
+{"args":"rk riff: CLI surface refinement (bug 2 + DX 1,2,3,4)","cmd":"fab-new","event":"command","ts":"2026-04-23T02:20:39Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-23T02:22:11Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-23T02:22:16Z"}

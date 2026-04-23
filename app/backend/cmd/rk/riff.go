@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -59,15 +62,25 @@ func subprocessErr(format string, a ...any) error {
 }
 
 var (
-	riffSkillFlag     string
-	riffSetupPaneFlag string
+	// riffPaneSpecs is the shared ordered list of pane specs accumulated from
+	// argv-order occurrences of --skill and --cmd. Both flags append into
+	// this same slice via the paneFlag.target binding, so interleaved uses
+	// (e.g., `--cmd --skill /fab --cmd htop`) produce the correct pane order.
+	riffPaneSpecs []PaneSpec
+
+	riffLayoutFlag     string
+	riffFanOutFlag     int
+	riffPresetFlag     string
+	riffListPresetsFlg bool
 )
 
 var riffCmd = &cobra.Command{
-	Use:   "riff [--skill <skill>] [--setup-pane <cmd>] [-- <wt-flags>...]",
+	Use:   "riff [preset] [--skill <skill>...] [--cmd <cmd>...] [--layout <name>] [--fan-out <N>] [--preset <name>] [--list-presets] [-- <wt-flags>...]",
 	Short: "Create a worktree, tmux window, and Claude Code session",
 	Long: `Create a git worktree via wt, open a new tmux window in it, and launch
-a Claude Code session with a skill or slash-command.
+a Claude Code session with a skill or slash-command. Supports multi-pane
+windows via repeatable --skill and --cmd flags, named layouts, presets
+defined in fab/project/config.yaml, and parallel fan-out across N worktrees.
 
 Prerequisites:
   - You must be inside a tmux session ($TMUX set).
@@ -78,16 +91,38 @@ Flags before -- are parsed by rk; flags after -- are forwarded verbatim to
 wt create (e.g., --worktree-name, --base, --reuse). Run 'wt create --help' to
 see the available passthrough flags.
 
+Pane array model:
+  --skill and --cmd are repeatable. Each occurrence adds one pane; argv order
+  (left to right) becomes pane order (pane 0, 1, 2, …). Both flags may be
+  interleaved. Bare --skill (no value) launches a blank Claude session; bare
+  --cmd drops into $SHELL (fallback /bin/sh).
+
 Launcher resolution:
   If 'fab/project/config.yaml' has 'agent.spawn_command', that value is used
   as the launcher. Otherwise, falls back to 'claude --dangerously-skip-permissions'.
 
+Presets:
+  Named invocations like 'rk riff ship' or 'rk riff --preset ship' pull
+  layout, panes, and wt_args from fab/project/config.yaml under riff.presets.
+  CLI --skill/--cmd flags replace the preset's panes entirely. CLI --layout
+  overrides preset layout. Run 'rk riff --list-presets' to see defined presets.
+
+Fan-out:
+  --fan-out N creates N worktree/window pairs in parallel, each with the same
+  pane shape. Worktree names come from wt's random adjective-noun generator.
+  On any failure, successful worktrees and windows are rolled back before
+  returning a non-zero exit.
+
 Examples:
-  rk riff                                     # default skill in a new worktree
-  rk riff --skill /review                     # pick a specific skill
-  rk riff --setup-pane "just dev"             # add a setup pane running 'just dev'
-  rk riff -- --worktree-name pacing-canyon    # name the worktree
-  rk riff --skill /ship -- --reuse --base main
+  rk riff                                                # default: 1 pane, /fab-discuss
+  rk riff --skill /review                                # single-pane with specific skill
+  rk riff --skill /fab-fff --cmd "just dev"              # 2 panes (even-horizontal by default)
+  rk riff --cmd --skill /fab --cmd htop --skill          # 4 interleaved panes (auto-tiled)
+  rk riff --skill /a --cmd x --cmd y --layout main-vertical
+  rk riff ship                                           # invoke the 'ship' preset
+  rk riff --preset investigate                           # named-flag preset alias
+  rk riff ship --fan-out 3                               # 3 parallel ship workspaces
+  rk riff -- --worktree-name pacing-canyon               # name the worktree
 
 Exit codes:
   0  success
@@ -95,21 +130,96 @@ Exit codes:
   3  subprocess failure (wt or tmux non-zero, output parse failure, timeout)`,
 	// Interspersed=false so the "--" separator terminates cobra's flag parsing
 	// and the remainder lands in args[] for passthrough to `wt create`.
-	RunE: runRiffWithExitCode,
+	//
+	// DisableFlagParsing=true lets us pre-process argv (rewriting `--skill V`
+	// to `--skill=V` so pflag's NoOptDefVal + Set path handles both bare
+	// and with-value forms uniformly) before handing the cleaned argv to
+	// pflag.Parse. See pane_spec.go for the motivation.
+	DisableFlagParsing: true,
+	RunE:               runRiffWithExitCode,
 }
+
+// skillPaneFlag / cmdPaneFlag are the two pflag.Value instances bound to
+// --skill and --cmd. Both append into the shared riffPaneSpecs slice so
+// argv-order is preserved across interleaved occurrences. Module-level so
+// init() can hold references; both get their target field set to
+// &riffPaneSpecs before cobra sees them.
+var (
+	skillPaneFlag = &paneFlag{kind: PaneKindSkill, target: &riffPaneSpecs}
+	cmdPaneFlag   = &paneFlag{kind: PaneKindCmd, target: &riffPaneSpecs}
+)
 
 func init() {
-	riffCmd.Flags().SetInterspersed(false)
-	riffCmd.Flags().StringVar(&riffSkillFlag, "skill", defaultRiffSkill, "Claude Code skill or slash-command to run in the new window")
-	riffCmd.Flags().StringVar(&riffSetupPaneFlag, "setup-pane", "", "If non-empty, split the window and run this setup command in the right pane")
+	// Interspersed=true (pflag default) so flags may appear before OR after
+	// the positional preset token (e.g., `rk riff ship --fan-out 3`). The
+	// `--` separator still terminates parsing so wt passthrough works.
+	riffCmd.Flags().SetInterspersed(true)
+
+	// --skill and --cmd are repeatable pane flags. NoOptDefVal is set to the
+	// bare sentinel so pflag accepts bare usage (no argv lookahead in pflag
+	// itself; space-form with a value is handled by rewritePaneSpaceForm
+	// PreRunE below which rewrites argv to equals-form before cobra parses).
+	riffCmd.Flags().Var(skillPaneFlag, "skill", "Claude Code skill/slash-command for a pane (repeatable; bare form launches a blank Claude session)")
+	riffCmd.Flags().Lookup("skill").NoOptDefVal = paneBareSentinel
+	riffCmd.Flags().Var(cmdPaneFlag, "cmd", "Shell command for a pane (repeatable; bare form drops into $SHELL)")
+	riffCmd.Flags().Lookup("cmd").NoOptDefVal = paneBareSentinel
+
+	riffCmd.Flags().StringVar(&riffLayoutFlag, "layout", "auto", layoutFlagUsage())
+	riffCmd.Flags().IntVar(&riffFanOutFlag, "fan-out", 1, "Spawn N worktree/window pairs in parallel (N >= 1)")
+	riffCmd.Flags().StringVar(&riffPresetFlag, "preset", "", "Named preset from fab/project/config.yaml (riff.presets.<name>)")
+	riffCmd.Flags().BoolVar(&riffListPresetsFlg, "list-presets", false, "List defined presets and exit")
+
+	// PreRunE rewrites argv to translate `--skill VAL` → `--skill=VAL` for
+	// the custom pane flags before pflag does its parsing. This keeps pflag
+	// happy (it sees equals-form), while giving users the conventional
+	// space-form syntax (`--cmd htop`). See pane_spec.go for details.
+	riffCmd.Args = cobra.ArbitraryArgs
+	cobra.OnInitialize() // no-op but retains ordering explicitly
 }
 
-// runRiffWithExitCode is the cobra RunE. It delegates to runRiff for the
-// actual work, then inspects the returned error: if it's an *exitCodeError
-// we print msg to stderr and os.Exit with the specified code; otherwise we
-// return it so main.execute() handles it as a generic exit-1 error.
+// runRiffWithExitCode is the cobra RunE. Because the command sets
+// DisableFlagParsing=true (so we can pre-process --skill/--cmd space-form),
+// we manually call Flags().Parse on the rewritten argv. --help / -h are
+// handled explicitly since cobra's own help path is bypassed.
+//
+// After parsing, it delegates to runRiff for the actual work, then inspects
+// the returned error: if it's an *exitCodeError we print msg to stderr and
+// os.Exit with the specified code; otherwise we return it so main.execute()
+// handles it as a generic exit-1 error.
 func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
-	err := runRiff(cmd, args)
+	// Reset accumulator slice so repeated cobra.Execute() calls (e.g.,
+	// tests) start fresh. Flag vars also need reset to their defaults.
+	riffPaneSpecs = nil
+	riffLayoutFlag = "auto"
+	riffFanOutFlag = 1
+	riffPresetFlag = ""
+	riffListPresetsFlg = false
+
+	// Pre-process argv: rewrite space-form --skill/--cmd to equals-form so
+	// pflag's NoOptDefVal path handles both uniformly. See pane_spec.go.
+	rewritten := rewritePaneSpaceForm(args)
+
+	// Help handling — since DisableFlagParsing short-circuits cobra's help,
+	// detect -h/--help manually and delegate to cobra's renderer.
+	for _, tok := range rewritten {
+		if tok == "-h" || tok == "--help" {
+			return cmd.Help()
+		}
+		if tok == "--" {
+			break
+		}
+	}
+
+	// Parse flags. pflag respects SetInterspersed(false) and stops at the
+	// first non-flag argument; the remainder lands in flags.Args().
+	if err := cmd.Flags().Parse(rewritten); err != nil {
+		return err
+	}
+	// Non-flag positional args (includes everything after `--`, which pflag
+	// strips from the argv but preserves as args).
+	remaining := cmd.Flags().Args()
+
+	err := runRiff(cmd, remaining)
 	if err == nil {
 		return nil
 	}
@@ -121,51 +231,99 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-// runRiff executes the full workflow: preconditions → launcher resolution →
-// wt create → tmux new-window → optional tmux split-window.
+// effectiveSpec is the fully-resolved plan for spawning one riff window.
+// Populated by resolveEffectiveSpec from the CLI flags + optional preset.
+type effectiveSpec struct {
+	Panes       []PaneSpec
+	Layout      string   // canonical name, or "" for single-pane / explicit single-pane no-op
+	FanOut      int
+	Passthrough []string // forwarded to wt create
+	Launcher    string
+}
+
+// runRiff orchestrates the full workflow. Order:
+//  1. --list-presets short-circuit (before any other work — never side-effects)
+//  2. Preconditions
+//  3. Signal wrap on root context
+//  4. Layout / fan-out / preset-conflict validation (fail-fast, no subprocess)
+//  5. Launcher resolution
+//  6. Preset resolution (positional or --preset)
+//  7. effectiveSpec assembly
+//  8. Dispatch: fan-out == 1 → direct spawn; fan-out ≥ 2 → runFanOut
 func runRiff(cmd *cobra.Command, args []string) error {
-	// Step 1: validate preconditions in fast-fail order (spec §Precondition order).
+	// Step 1: --list-presets is a pure read + print. Must short-circuit BEFORE
+	// preconditions — a user outside tmux should still be able to list
+	// presets, and no subprocess invocation is permitted per spec.
+	if riffListPresetsFlg {
+		presets := readPresetsForRepo()
+		return printPresets(presets, cmd.OutOrStdout())
+	}
+
+	// Step 2: preconditions (fast-fail order: $TMUX first, wt second).
 	if err := checkPreconditions(); err != nil {
 		return err
 	}
 
-	// Wrap the root context with a signal handler so Ctrl-C / SIGTERM
-	// cancel every subprocess call below (wt create, tmux new-window, tmux
-	// split-window). Matches the stdlib idiom for CLI tools — single-site
-	// handler, propagate the cancellable context downstream. See spec
-	// §SIGINT Propagation.
+	// Step 3: signal wrap — Ctrl-C / SIGTERM cancel every subprocess below
+	// via exec.CommandContext propagation. Single-site handler; stdlib
+	// idiom for CLI tools. Spec §SIGINT Propagation.
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Step 2: resolve launcher from fab/project/config.yaml. Never errors —
-	// falls back to "claude --dangerously-skip-permissions" when config is
-	// absent / malformed / empty.
+	// Step 4a: fan-out validation — must be ≥ 1.
+	if riffFanOutFlag < 1 {
+		return &exitCodeError{code: 1, msg: fmt.Sprintf("rk riff: --fan-out requires a positive integer (got %d)", riffFanOutFlag)}
+	}
+
+	// Step 4b: layout validation — resolve to canonical or error with full list.
+	canonicalLayout, err := resolveLayout(riffLayoutFlag)
+	if err != nil {
+		return &exitCodeError{code: 1, msg: err.Error()}
+	}
+
+	// Step 5: launcher resolution. Never errors — falls back to built-in
+	// default when config is absent / malformed / empty.
 	launcher := resolveLauncher()
 
-	// Step 3: create the worktree via wt. args[] here is everything after the
-	// cobra-recognized flags (and "--", if present) — passthrough to wt.
-	worktreePath, err := runWtCreate(ctx, args)
+	// Step 6: preset resolution. Determines whether args[0] is a preset name
+	// (positional form) vs a pass-through token. --preset and positional
+	// forms are mutually exclusive.
+	presets := readPresetsForRepo()
+	positional := ""
+	if len(args) > 0 {
+		positional = args[0]
+	}
+	preset, remaining, err := resolveActivePreset(args, positional, riffPresetFlag, presets)
+	if err != nil {
+		return &exitCodeError{code: 1, msg: err.Error()}
+	}
+
+	// Step 7: effective spec — panes list, layout, fan-out, and passthrough
+	// all merged per the resolution-order rules (CLI > preset > default).
+	// cobra's Changed() tells us whether --layout was explicitly set; that's
+	// the signal the user wants to override a preset layout (even with "auto").
+	layoutExplicit := cmd.Flags().Changed("layout")
+	spec, err := resolveEffectiveSpec(riffPaneSpecs, layoutExplicit, canonicalLayout, riffFanOutFlag, preset, remaining)
 	if err != nil {
 		return err
 	}
+	spec.Launcher = launcher
 
-	// Step 4: open a tmux window rooted at the worktree, running launcher +
-	// cmd. The second arg to tmux new-window is a shell string interpreted by
-	// tmux's shell — this is the documented exception to constitution §I
-	// (Security First).
-	if err := runTmuxNewWindow(ctx, worktreePath, launcher, riffSkillFlag); err != nil {
-		return err
-	}
-
-	// Step 5: optional horizontal split with a setup command. Skipped entirely
-	// when --setup-pane is empty (treated identically to the flag being unset).
-	if riffSetupPaneFlag != "" {
-		if err := runTmuxSplitWindow(ctx, worktreePath, riffSetupPaneFlag); err != nil {
+	// Step 8: dispatch. N == 1 path invokes the same primitives used by
+	// the fan-out path's goroutines, just inlined to keep the simple case
+	// simple (no goroutine scheduling overhead).
+	if spec.FanOut == 1 {
+		worktreePath, err := runWtCreate(ctx, spec.Passthrough)
+		if err != nil {
 			return err
 		}
+		if err := spawnRiff(ctx, worktreePath, spec); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	return nil
+	return runFanOut(ctx, spec)
 }
 
 // checkPreconditions validates that we're inside tmux and that wt is on PATH.
@@ -200,6 +358,167 @@ func resolveLauncher() string {
 		return v
 	}
 	return defaultLauncher
+}
+
+// readPresetsForRepo returns the presets map from fab/project/config.yaml at
+// the current repo root. Wraps the path discovery boilerplate. Returns an
+// empty map on any failure (matching fabconfig's silent-best-effort posture).
+func readPresetsForRepo() map[string]fabconfig.Preset {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return map[string]fabconfig.Preset{}
+	}
+	root := config.FindGitRoot(cwd)
+	if root == "" {
+		return map[string]fabconfig.Preset{}
+	}
+	return fabconfig.ReadPresets(root)
+}
+
+// readPresetsOrderedForRepo is readPresetsForRepo but preserves YAML source
+// order. Used by printPresets for deterministic --list-presets output.
+func readPresetsOrderedForRepo() []fabconfig.PresetEntry {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	root := config.FindGitRoot(cwd)
+	if root == "" {
+		return nil
+	}
+	return fabconfig.ReadPresetsOrdered(root)
+}
+
+// resolveActivePreset determines which preset (if any) applies to this
+// invocation. Returns the preset, the remaining positional args after any
+// preset-consumption, and an error on ambiguous/unknown inputs.
+//
+// Rules per spec §Positional and named preset invocation:
+//   - If both --preset and a matching positional are provided, error.
+//   - If --preset is provided and unknown, error (lists defined presets).
+//   - Else if positional matches a defined preset exactly, consume arg[0].
+//   - Else no preset applies; args are returned untouched.
+func resolveActivePreset(args []string, positionalCandidate, presetFlag string, available map[string]fabconfig.Preset) (*fabconfig.Preset, []string, error) {
+	positionalMatch := positionalCandidate != "" && hasPreset(available, positionalCandidate)
+
+	if presetFlag != "" && positionalMatch {
+		return nil, args, fmt.Errorf("rk riff: positional preset %q and --preset %q are mutually exclusive", positionalCandidate, presetFlag)
+	}
+	if presetFlag != "" {
+		p, ok := available[presetFlag]
+		if !ok {
+			return nil, args, fmt.Errorf("rk riff: unknown preset %q (defined: %s)", presetFlag, joinPresetNames(available))
+		}
+		return &p, args, nil
+	}
+	if positionalMatch {
+		p := available[positionalCandidate]
+		return &p, args[1:], nil
+	}
+	return nil, args, nil
+}
+
+// hasPreset reports whether name exists as a key in available. Small helper
+// to keep resolveActivePreset readable.
+func hasPreset(available map[string]fabconfig.Preset, name string) bool {
+	_, ok := available[name]
+	return ok
+}
+
+// joinPresetNames returns a comma-separated sorted list of preset names, or
+// `(none)` if the map is empty. Used in error messages where a list of
+// valid inputs helps the user.
+func joinPresetNames(m map[string]fabconfig.Preset) string {
+	if len(m) == 0 {
+		return "(none)"
+	}
+	names := make([]string, 0, len(m))
+	for k := range m {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// resolveEffectiveSpec merges CLI flags with an optional preset into a single
+// effectiveSpec. Resolution order for each field:
+//
+//	panes:   CLI (replaces) > preset > built-in default single-pane
+//	layout:  explicit --layout (including --layout auto) > preset > default auto-by-count
+//	fanout:  --fan-out CLI (presets don't carry fan-out in this change)
+//	wt args: preset wt_args prepended to CLI passthrough
+//
+// layoutExplicit is true when the user passed --layout on the CLI (from
+// cobra's Flags().Changed("layout")). This distinguishes "user didn't set
+// --layout" from "user explicitly set --layout auto" — the latter should
+// override a preset layout, the former should defer to it.
+//
+// Single-pane windows have their layout forced empty regardless of source —
+// tmux select-layout has no meaningful effect on a 1-pane window.
+func resolveEffectiveSpec(cliPanes []PaneSpec, layoutExplicit bool, layoutCanonical string, cliFanOut int, preset *fabconfig.Preset, passthrough []string) (effectiveSpec, error) {
+	spec := effectiveSpec{FanOut: cliFanOut}
+
+	// Panes: CLI replaces preset entirely if any CLI pane flags were given.
+	switch {
+	case len(cliPanes) > 0:
+		spec.Panes = append(spec.Panes, cliPanes...)
+	case preset != nil && len(preset.Panes) > 0:
+		for _, p := range preset.Panes {
+			spec.Panes = append(spec.Panes, presetPaneToSpec(p))
+		}
+	default:
+		// No panes anywhere → preserve the change-2 default: single /fab-discuss pane.
+		spec.Panes = []PaneSpec{{Kind: PaneKindSkill, Value: defaultRiffSkill}}
+	}
+
+	// Layout: explicit CLI override (even --layout auto) wins over preset.
+	// Preset layout wins over default when user didn't override.
+	switch {
+	case layoutExplicit:
+		if layoutCanonical == "auto" {
+			spec.Layout = autoLayout(len(spec.Panes))
+		} else {
+			spec.Layout = layoutCanonical
+		}
+	case preset != nil && preset.Layout != "":
+		canonical, err := resolveLayout(preset.Layout)
+		if err != nil {
+			return effectiveSpec{}, &exitCodeError{code: 1, msg: fmt.Sprintf("rk riff: preset layout invalid: %v", err)}
+		}
+		spec.Layout = canonical
+	default:
+		spec.Layout = autoLayout(len(spec.Panes))
+	}
+
+	// Single-pane windows have no layout — tmux select-layout would be a no-op
+	// and the spec explicitly forbids emitting it for 1-pane cases.
+	if len(spec.Panes) <= 1 {
+		spec.Layout = ""
+	}
+
+	// Passthrough: preset wt_args prepended to user passthrough.
+	if preset != nil && len(preset.WtArgs) > 0 {
+		spec.Passthrough = append(spec.Passthrough, preset.WtArgs...)
+	}
+	spec.Passthrough = append(spec.Passthrough, passthrough...)
+
+	return spec, nil
+}
+
+// presetPaneToSpec converts an fabconfig.PaneSpec (YAML-layer) into the
+// rk-internal PaneSpec used by spawnRiff. The two types split because the
+// YAML struct has separate Skill/Cmd fields (round-tripping to disk is
+// clearer that way), while the rk type uses a single Value dispatched by
+// Kind (matches the argv-flag shape).
+func presetPaneToSpec(p fabconfig.PaneSpec) PaneSpec {
+	out := PaneSpec{Kind: p.Kind}
+	switch p.Kind {
+	case fabconfig.PaneKindSkill:
+		out.Value = p.Skill
+	case fabconfig.PaneKindCmd:
+		out.Value = p.Cmd
+	}
+	return out
 }
 
 // runWtCreate invokes `wt create --non-interactive --worktree-open skip
@@ -247,78 +566,322 @@ func parseWorktreePath(output string) string {
 }
 
 // buildNewWindowArgs returns the argv slice (after the binary name "tmux")
-// passed to `tmux new-window` by runTmuxNewWindow. Pure, no side effects —
-// exposed as the test seam so riff_test.go can assert the naming and argv
-// ordering rules without invoking real tmux. The window name is taken from
-// resolvedName verbatim (collision resolution happens upstream in
-// resolveWindowName). -n and -c are distinct argv elements per constitution §I
-// (Security First); the trailing shell-command element is the documented
-// exception to the argv-only rule (interpreted by tmux's shell).
+// passed to `tmux new-window` for a skill pane. Pure, no side effects — the
+// test seam used by riff_test.go to assert argv ordering without invoking
+// real tmux. See buildSpawnArgvs for the multi-pane variant.
 //
 // The trailing shell string is composed in three layers:
-//  1. launcher-with-cmd-arg: `<launcher> '<escaped-cmdArg>'`
+//  1. launcher-with-cmd-arg: `<launcher> '<escaped-cmdArg>'` OR just
+//     `<launcher>` when cmdArg is empty (bare-claude: no positional).
 //  2. interactive wrap: `${SHELL:-/bin/sh} -i -c '<escaped-layer-1>'` so
 //     .zshrc/.bashrc aliases, functions, and interactive PATH tweaks are
 //     available to the launcher.
 //  3. shellWrap suffix: `; exec "${SHELL:-/bin/sh}"` so the pane stays
 //     interactive after the launcher exits.
 func buildNewWindowArgs(worktreePath, resolvedName, launcher, cmdArg string) []string {
-	launcherWithArg := fmt.Sprintf("%s '%s'", launcher, escapeSingleQuotes(cmdArg))
-	interactive := fmt.Sprintf(`${SHELL:-/bin/sh} -i -c '%s'`, escapeSingleQuotes(launcherWithArg))
-	shellCmd := shellWrap(interactive)
+	shellCmd := buildSkillShellString(launcher, cmdArg)
 	return []string{"new-window", "-n", resolvedName, "-c", worktreePath, shellCmd}
 }
 
-// runTmuxNewWindow opens a new tmux window rooted at worktreePath, with the
-// initial command being `<launcher> '<cmd>'` (cmd single-quote-escaped). The
-// window name defaults to `riff-<worktree-basename>`; on collision with an
-// existing window in the current tmux session it is auto-suffixed via
-// resolveWindowName (-2, -3, …). The argv is constructed by
-// buildNewWindowArgs. The trailing shell-command arg to tmux new-window IS a
-// shell string interpreted by tmux's shell — this is the spec's documented
-// exception to the argv-only rule.
+// buildSkillShellString composes the shell string for a skill-type pane.
+// Preserves the three-layer wrap from buildNewWindowArgs (launcher + optional
+// escaped skill arg → interactive sh -i -c → shellWrap suffix). Empty
+// cmdArg is rendered as a bare `<launcher>` in layer 1 (no single-quoted
+// positional), matching spec §Bare-flag semantics.
 //
-// Note on TOCTOU: there is a small window between listWindowNames and
-// new-window where another process can create a conflicting name. This race
-// is explicitly accepted (see spec §Window-Name Collision Resolution) — the
-// fallback behavior is identical to the pre-change behavior (silent duplicate
-// under default allow-rename).
-func runTmuxNewWindow(parent context.Context, worktreePath, launcher, cmdArg string) error {
-	existing, err := listWindowNames(parent)
+// Reused by both the first-pane (new-window) and subsequent-pane
+// (split-window) paths so skill-pane composition is uniform across panes.
+func buildSkillShellString(launcher, cmdArg string) string {
+	var layer1 string
+	if cmdArg == "" {
+		// Bare skill: no positional argument. A trailing `<launcher>` keeps the
+		// interactive wrap syntactically valid (sh -i -c '<cmd>') and is
+		// equivalent to running the launcher with no args.
+		layer1 = launcher
+	} else {
+		layer1 = fmt.Sprintf("%s '%s'", launcher, escapeSingleQuotes(cmdArg))
+	}
+	interactive := fmt.Sprintf(`${SHELL:-/bin/sh} -i -c '%s'`, escapeSingleQuotes(layer1))
+	return shellWrap(interactive)
+}
+
+// buildCmdShellString composes the shell string for a cmd-type pane. Unlike
+// skill panes, cmd panes do NOT get the interactive `sh -i -c` wrap — the
+// user's command is expected to be self-sufficient (e.g., `just dev`, `htop`),
+// and wrapping would alter argv semantics. shellWrap still appends the
+// `; exec $SHELL` tail so the pane stays interactive after the command exits.
+//
+// Empty value is the bare-shell path — shellWrap("") returns just
+// `exec "${SHELL:-/bin/sh}"`, which drops the user into their shell.
+func buildCmdShellString(value string) string {
+	return shellWrap(value)
+}
+
+// buildSpawnArgvs returns the ordered slice of tmux argvs to execute for a
+// given (worktreePath, resolvedName, spec) triple. Pure, no side effects —
+// the test seam for T023. The order is:
+//
+//	[0]: new-window (creates the window with pane 0)
+//	[1..N-1]: split-window (one per additional pane, horizontal splits)
+//	[-2]: select-layout (skipped when spec.Layout == "")
+//	[-1]: select-pane -t <window>.0 (focus pane 0)
+//
+// The select-layout and select-pane steps are appended only when meaningful
+// (select-layout: non-empty canonical; select-pane: always, because pane 0
+// may have become non-active after splits).
+//
+// Each split-window uses the same -c <worktreePath> so the new pane inherits
+// the worktree cwd. Target selection is `:` (current window in current
+// session) — consistent with new-window's implicit target.
+func buildSpawnArgvs(worktreePath, resolvedName string, spec effectiveSpec) [][]string {
+	argvs := make([][]string, 0, len(spec.Panes)+2)
+	if len(spec.Panes) == 0 {
+		return argvs
+	}
+	// Pane 0 → new-window.
+	argvs = append(argvs, []string{
+		"new-window",
+		"-n", resolvedName,
+		"-c", worktreePath,
+		paneShellString(spec.Launcher, spec.Panes[0]),
+	})
+	// Panes 1..N → split-window. -h keeps the previous "horizontal split"
+	// semantics as the initial split direction; tmux select-layout then
+	// rearranges per canonical layout name.
+	for _, pane := range spec.Panes[1:] {
+		argvs = append(argvs, []string{
+			"split-window",
+			"-t", resolvedName,
+			"-c", worktreePath,
+			paneShellString(spec.Launcher, pane),
+		})
+	}
+	// select-layout: only when spec.Layout is non-empty. Empty layout means
+	// either single-pane or explicit single-pane no-op.
+	if spec.Layout != "" {
+		argvs = append(argvs, []string{"select-layout", "-t", resolvedName, spec.Layout})
+	}
+	// select-pane: focus pane 0 of the resolved window. Target uses the
+	// `<window>.0` form — tmux 3.0+ supports the dot-pane-index suffix, which
+	// avoids the ambiguity of a bare session/window target post-split.
+	argvs = append(argvs, []string{"select-pane", "-t", resolvedName + ".0"})
+	return argvs
+}
+
+// paneShellString dispatches between buildSkillShellString and
+// buildCmdShellString based on the pane kind. Keeps buildSpawnArgvs readable.
+func paneShellString(launcher string, pane PaneSpec) string {
+	if pane.Kind == PaneKindSkill {
+		return buildSkillShellString(launcher, pane.Value)
+	}
+	return buildCmdShellString(pane.Value)
+}
+
+// spawnRiff performs the full tmux window-spawn sequence for one riff. It
+// probes existing window names for collision resolution, then executes the
+// argv slice built by buildSpawnArgvs. Each tmux invocation gets its own
+// tmuxTimeout context; a failure mid-sequence aborts and returns a
+// subprocessErr — by design, panes created before the failure remain in the
+// window (tmux has no batch rollback). Fan-out rollback at the window level
+// is handled by runFanOut.
+//
+// Returns the resolved window name so fan-out can use it for rollback.
+func spawnRiff(ctx context.Context, worktreePath string, spec effectiveSpec) error {
+	_, err := spawnRiffReturningName(ctx, worktreePath, spec)
+	return err
+}
+
+func spawnRiffReturningName(ctx context.Context, worktreePath string, spec effectiveSpec) (string, error) {
+	existing, err := listWindowNames(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	base := "riff-" + filepath.Base(worktreePath)
 	resolvedName := resolveWindowName(existing, base)
 
+	for _, argv := range buildSpawnArgvs(worktreePath, resolvedName, spec) {
+		if err := runTmuxArgv(ctx, argv); err != nil {
+			return resolvedName, err
+		}
+	}
+	return resolvedName, nil
+}
+
+// runTmuxArgv executes one tmux argv with a tmuxTimeout context and the
+// child-env restore (so the user's tmux server, not the managed runkit one,
+// receives the call). Returns subprocessErr on non-zero exit / timeout.
+func runTmuxArgv(parent context.Context, argv []string) error {
 	ctx, cancel := context.WithTimeout(parent, tmuxTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux", buildNewWindowArgs(worktreePath, resolvedName, launcher, cmdArg)...)
+	cmd := exec.CommandContext(ctx, "tmux", argv...)
 	cmd.Env = tmuxChildEnv()
-	out, runErr := cmd.CombinedOutput()
-	if runErr != nil {
-		return subprocessErr("rk riff: tmux new-window failed: %v\n%s", runErr, string(out))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return subprocessErr("rk riff: tmux %s failed: %v\n%s", argv[0], err, string(out))
 	}
 	return nil
 }
 
-// runTmuxSplitWindow creates a horizontal split of the just-created window
-// running `<setupCmd>; exec "${SHELL:-/bin/sh}"` so the pane stays
-// interactive after setup. The split target defaults to the current window,
-// which is the one we just created via tmux new-window — so no explicit -t
-// flag is needed. The setup command is passed through shellWrap directly
-// (no interactive-launcher wrap — that applies only to the new-window path).
-func runTmuxSplitWindow(parent context.Context, worktreePath, setupCmd string) error {
-	ctx, cancel := context.WithTimeout(parent, tmuxTimeout)
+// fanOutResult records one goroutine's outcome: the created worktree path
+// (empty if creation failed) and the tmux window name (empty if the window
+// step was not reached or failed before naming). Used to build the rollback
+// plan on partial failure.
+type fanOutResult struct {
+	Index        int
+	WorktreePath string
+	WindowName   string
+	Err          error
+}
+
+// rollbackPlan lists the cleanup operations needed after a partial fan-out
+// failure. Worktrees are identified by their basename (`wt delete
+// --worktree-name <name>`) and windows by their resolved tmux name
+// (`tmux kill-window -t <name>`).
+type rollbackPlan struct {
+	Worktrees []string
+	Windows   []string
+}
+
+// planFanOutRollback computes the rollback plan from a completed set of
+// goroutine results. Pure function — no I/O. The plan includes all
+// successful (or partially-successful) worktrees + windows, excluding the
+// failing goroutine's own artifacts (because those either don't exist, or
+// exist in a partial state that `wt delete` + `tmux kill-window` would
+// already handle if we tried — but we're conservative and skip them, since
+// the failing goroutine may have its own cleanup path within `wt create`).
+//
+// Successes are identified by: Err == nil (full success) OR Err != nil but
+// worktree/window was successfully created before the later-step failure
+// (partial success — we DO want to clean these up).
+//
+// The failureIdx parameter identifies the first-reported failure's index;
+// its own worktree/window are skipped from the plan even if present, because
+// the single failing goroutine is expected to have its own cleanup semantics
+// (wt failure → no worktree; tmux failure → window may exist but is the
+// failure point).
+//
+// Actually — simpler: include every worktree/window the goroutine reported
+// as created (non-empty field), because `wt delete` / `tmux kill-window` are
+// idempotent-friendly (kill-window fails quietly if the window is gone, we
+// log and continue). The "exclude failing goroutine" nuance is handled by
+// the fact that the failing goroutine won't have populated both fields.
+func planFanOutRollback(results []fanOutResult, failureIdx int) rollbackPlan {
+	plan := rollbackPlan{}
+	for _, r := range results {
+		// Skip the failing goroutine's own artifacts — its partial state is
+		// the error we're reporting, not something to clean up blindly.
+		if r.Index == failureIdx {
+			continue
+		}
+		if r.WorktreePath != "" {
+			plan.Worktrees = append(plan.Worktrees, filepath.Base(r.WorktreePath))
+		}
+		if r.WindowName != "" {
+			plan.Windows = append(plan.Windows, r.WindowName)
+		}
+	}
+	return plan
+}
+
+// runFanOut spawns spec.FanOut worktree/window pairs in parallel. Each
+// goroutine runs `wt create` + `spawnRiff`; on any failure the successful
+// ones are rolled back (wt delete + tmux kill-window) before returning.
+// The first-reported error propagates out; rollback errors are logged to
+// stderr but do not mask the primary error.
+func runFanOut(ctx context.Context, spec effectiveSpec) error {
+	n := spec.FanOut
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	shellCmd := shellWrap(setupCmd)
-	cmd := exec.CommandContext(ctx, "tmux", "split-window", "-h", "-c", worktreePath, shellCmd)
-	cmd.Env = tmuxChildEnv()
+	results := make([]fanOutResult, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			res := fanOutResult{Index: i}
+			defer func() { results[i] = res }()
+
+			worktreePath, err := runWtCreate(ctx, spec.Passthrough)
+			if err != nil {
+				res.Err = err
+				cancel() // tear down siblings
+				return
+			}
+			res.WorktreePath = worktreePath
+
+			windowName, err := spawnRiffReturningName(ctx, worktreePath, spec)
+			res.WindowName = windowName
+			if err != nil {
+				res.Err = err
+				cancel()
+				return
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// Find first error (lowest index with Err != nil).
+	failureIdx := -1
+	var firstErr error
+	for i := range results {
+		if results[i].Err != nil {
+			failureIdx = i
+			firstErr = results[i].Err
+			break
+		}
+	}
+	if firstErr == nil {
+		return nil
+	}
+
+	// Roll back the other goroutines' artifacts.
+	plan := planFanOutRollback(results, failureIdx)
+	rollbackFanOut(context.Background(), plan)
+
+	// Return a subprocessErr that preserves the first goroutine's error
+	// message. If the underlying error is already an exitCodeError we
+	// preserve its code; otherwise wrap as subprocess (exit 3).
+	var ece *exitCodeError
+	if errors.As(firstErr, &ece) {
+		return ece
+	}
+	return subprocessErr("rk riff: fan-out failed: %v", firstErr)
+}
+
+// rollbackFanOut invokes wt delete per worktree and tmux kill-window per
+// window listed in plan. Errors are logged to stderr but do not halt
+// rollback — best-effort cleanup matches the spec's rollback posture.
+//
+// Uses a fresh (non-cancelled) context because the parent context may have
+// been cancelled as part of the failure path; rollback itself needs to run
+// to completion.
+func rollbackFanOut(ctx context.Context, plan rollbackPlan) {
+	for _, wtName := range plan.Worktrees {
+		if err := runWtDelete(ctx, wtName); err != nil {
+			fmt.Fprintf(os.Stderr, "rk riff: rollback warning: wt delete %s failed: %v\n", wtName, err)
+		}
+	}
+	for _, winName := range plan.Windows {
+		if err := runTmuxArgv(ctx, []string{"kill-window", "-t", winName}); err != nil {
+			fmt.Fprintf(os.Stderr, "rk riff: rollback warning: tmux kill-window %s failed: %v\n", winName, err)
+		}
+	}
+}
+
+// runWtDelete invokes `wt delete --worktree-name <name>` with a wtTimeout
+// context. Used exclusively by the fan-out rollback path. Returns the raw
+// exec error (not a subprocessErr) because the caller logs and continues.
+func runWtDelete(parent context.Context, name string) error {
+	ctx, cancel := context.WithTimeout(parent, wtTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "wt", "delete", "--worktree-name", name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return subprocessErr("rk riff: tmux split-window failed: %v\n%s", err, string(out))
+		return fmt.Errorf("%v\n%s", err, string(out))
 	}
 	return nil
 }
@@ -401,13 +964,79 @@ func resolveWindowName(existing []string, base string) string {
 //
 // Empty/whitespace-only input yields just the bare `exec "${SHELL:-/bin/sh}"`
 // form so the result is always a syntactically valid POSIX command list —
-// never a leading `; exec …`. In practice neither caller passes an empty
-// string today (runTmuxNewWindow always composes a non-empty `interactive`
-// string, and runTmuxSplitWindow guards on `riffSetupPaneFlag != ""`), but this
-// keeps the helper safe in isolation.
+// never a leading `; exec …`. This is the bare-cmd path (user ran `--cmd`
+// with no value).
 func shellWrap(cmd string) string {
 	if strings.TrimSpace(cmd) == "" {
 		return `exec "${SHELL:-/bin/sh}"`
 	}
 	return fmt.Sprintf(`%s; exec "${SHELL:-/bin/sh}"`, cmd)
+}
+
+// printPresets writes the presets map to out as indented YAML-like plain
+// text. Preset names appear in YAML source order (via
+// readPresetsOrderedForRepo). Empty map → a single "no presets defined"
+// line. Returns nil on all paths — rendering cannot fail.
+func printPresets(presets map[string]fabconfig.Preset, out io.Writer) error {
+	ordered := readPresetsOrderedForRepo()
+	// If ordered is empty but presets is non-empty, the map was supplied by
+	// a test (bypassing disk). Fall back to sorted keys for deterministic
+	// output in that case.
+	if len(ordered) == 0 && len(presets) > 0 {
+		names := make([]string, 0, len(presets))
+		for k := range presets {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			ordered = append(ordered, fabconfig.PresetEntry{Name: n, Preset: presets[n]})
+		}
+	}
+	if len(ordered) == 0 {
+		fmt.Fprintln(out, "No presets defined in fab/project/config.yaml")
+		return nil
+	}
+	for i, entry := range ordered {
+		if i > 0 {
+			fmt.Fprintln(out)
+		}
+		fmt.Fprintf(out, "%s:\n", entry.Name)
+		layout := entry.Preset.Layout
+		if layout == "" {
+			layout = "(default: auto)"
+		}
+		fmt.Fprintf(out, "  layout: %s\n", layout)
+		fmt.Fprintln(out, "  panes:")
+		if len(entry.Preset.Panes) == 0 {
+			fmt.Fprintln(out, "    (none)")
+		} else {
+			for _, p := range entry.Preset.Panes {
+				switch p.Kind {
+				case fabconfig.PaneKindSkill:
+					fmt.Fprintf(out, "    - skill: %s\n", quoteIfEmpty(p.Skill))
+				case fabconfig.PaneKindCmd:
+					fmt.Fprintf(out, "    - cmd: %s\n", quoteIfEmpty(p.Cmd))
+				}
+			}
+		}
+		fmt.Fprintln(out, "  wt_args:")
+		if len(entry.Preset.WtArgs) == 0 {
+			fmt.Fprintln(out, "    (none)")
+		} else {
+			for _, a := range entry.Preset.WtArgs {
+				fmt.Fprintf(out, "    - %s\n", a)
+			}
+		}
+	}
+	return nil
+}
+
+// quoteIfEmpty renders an empty string as the literal "" so bare
+// skill/cmd entries (`skill:` with no value) are visually distinguishable
+// from a missing line.
+func quoteIfEmpty(s string) string {
+	if s == "" {
+		return `""`
+	}
+	return s
 }

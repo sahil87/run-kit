@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/spf13/pflag"
 
 	"rk/internal/fabconfig"
 )
@@ -465,3 +469,665 @@ func chdir(t *testing.T, dir string) func() {
 		}
 	}
 }
+
+// TestRewritePaneSpaceForm covers the argv pre-processor that translates
+// `--skill VAL` / `--cmd VAL` into equals-form before cobra parses. Bare
+// form (next token is a flag or absent) is preserved, and tokens after the
+// `--` separator are passed through unchanged.
+func TestRewritePaneSpaceForm(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{
+			name: "bare --cmd at end",
+			in:   []string{"--cmd"},
+			want: []string{"--cmd"},
+		},
+		{
+			name: "space-form --cmd htop",
+			in:   []string{"--cmd", "htop"},
+			want: []string{"--cmd=htop"},
+		},
+		{
+			name: "bare --cmd followed by another flag",
+			in:   []string{"--cmd", "--skill", "/foo"},
+			want: []string{"--cmd", "--skill=/foo"},
+		},
+		{
+			name: "equals form preserved",
+			in:   []string{"--cmd=htop"},
+			want: []string{"--cmd=htop"},
+		},
+		{
+			name: "interleaved",
+			in:   []string{"--cmd", "--skill", "/fab-discuss", "--cmd", "htop", "--skill"},
+			want: []string{"--cmd", "--skill=/fab-discuss", "--cmd=htop", "--skill"},
+		},
+		{
+			name: "after -- separator tokens preserved verbatim",
+			in:   []string{"--skill", "/foo", "--", "--cmd", "something"},
+			want: []string{"--skill=/foo", "--", "--cmd", "something"},
+		},
+		{
+			name: "unrelated flags untouched",
+			in:   []string{"--layout", "tiled", "--fan-out", "3"},
+			want: []string{"--layout", "tiled", "--fan-out", "3"},
+		},
+		{
+			name: "next token is bare --",
+			in:   []string{"--skill", "--", "foo"},
+			want: []string{"--skill", "--", "foo"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rewritePaneSpaceForm(tc.in)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("rewritePaneSpaceForm(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPaneFlagParsing exercises the full argv-rewrite + pflag.Parse round
+// trip to assert that interleaved --skill/--cmd occurrences produce the
+// correct ordered PaneSpec slice. This is the end-to-end test for the
+// pane-array model; the argv rewriter + paneFlag.Set cooperate to produce
+// the observed order.
+func TestPaneFlagParsing(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		want []PaneSpec
+	}{
+		{
+			name: "single bare skill",
+			argv: []string{"--skill"},
+			want: []PaneSpec{{Kind: PaneKindSkill, Value: ""}},
+		},
+		{
+			name: "single skill with value",
+			argv: []string{"--skill", "/fab-discuss"},
+			want: []PaneSpec{{Kind: PaneKindSkill, Value: "/fab-discuss"}},
+		},
+		{
+			name: "single cmd with equals",
+			argv: []string{"--cmd=htop"},
+			want: []PaneSpec{{Kind: PaneKindCmd, Value: "htop"}},
+		},
+		{
+			name: "bare cmd followed by flag",
+			argv: []string{"--cmd", "--skill", "/foo"},
+			want: []PaneSpec{
+				{Kind: PaneKindCmd, Value: ""},
+				{Kind: PaneKindSkill, Value: "/foo"},
+			},
+		},
+		{
+			name: "interleaved four-pane",
+			argv: []string{"--cmd", "--skill", "/fab-discuss", "--cmd", "htop", "--skill"},
+			want: []PaneSpec{
+				{Kind: PaneKindCmd, Value: ""},
+				{Kind: PaneKindSkill, Value: "/fab-discuss"},
+				{Kind: PaneKindCmd, Value: "htop"},
+				{Kind: PaneKindSkill, Value: ""},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Reset the shared slice + re-create flag instances for isolation.
+			got := []PaneSpec{}
+			skill := &paneFlag{kind: PaneKindSkill, target: &got}
+			cmd := &paneFlag{kind: PaneKindCmd, target: &got}
+			fs := freshPaneFlagSet(skill, cmd)
+			rewritten := rewritePaneSpaceForm(tc.argv)
+			if err := fs.Parse(rewritten); err != nil {
+				t.Fatalf("Parse(%v): %v", rewritten, err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("panes = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+// freshPaneFlagSet is a test helper that sets up a standalone FlagSet with
+// the two pane flags registered. Keeps tests from touching the package-level
+// riffCmd state.
+func freshPaneFlagSet(skill, cmd *paneFlag) *pflag.FlagSet {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.SetInterspersed(false)
+	fs.Var(skill, "skill", "")
+	fs.Lookup("skill").NoOptDefVal = paneBareSentinel
+	fs.Var(cmd, "cmd", "")
+	fs.Lookup("cmd").NoOptDefVal = paneBareSentinel
+	return fs
+}
+
+// TestResolveLayout covers the canonical-name passthrough, shortform
+// resolution, and unknown-value error rules.
+func TestResolveLayout(t *testing.T) {
+	cases := []struct {
+		name      string
+		in        string
+		want      string
+		wantError bool
+	}{
+		{name: "canonical tiled", in: "tiled", want: "tiled"},
+		{name: "canonical even-horizontal", in: "even-horizontal", want: "even-horizontal"},
+		{name: "canonical even-vertical", in: "even-vertical", want: "even-vertical"},
+		{name: "canonical main-horizontal", in: "main-horizontal", want: "main-horizontal"},
+		{name: "canonical main-vertical", in: "main-vertical", want: "main-vertical"},
+		{name: "canonical auto", in: "auto", want: "auto"},
+		{name: "shortform t", in: "t", want: "tiled"},
+		{name: "shortform h", in: "h", want: "even-horizontal"},
+		{name: "shortform v", in: "v", want: "even-vertical"},
+		{name: "shortform deck-h", in: "deck-h", want: "main-horizontal"},
+		{name: "shortform deck-v", in: "deck-v", want: "main-vertical"},
+		{name: "shortform a", in: "a", want: "auto"},
+		{name: "unknown value errors", in: "diagonal", wantError: true},
+		{name: "empty string errors", in: "", wantError: true},
+		{name: "uppercase errors", in: "TILED", wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveLayout(tc.in)
+			if tc.wantError {
+				if err == nil {
+					t.Fatalf("expected error, got nil (got = %q)", got)
+				}
+				// Error must list all 12 valid names so the user knows what to pick.
+				msg := err.Error()
+				for _, want := range []string{"auto", "tiled", "even-horizontal", "even-vertical", "main-horizontal", "main-vertical", "a", "t", "h", "v", "deck-h", "deck-v"} {
+					if !strings.Contains(msg, want) {
+						t.Errorf("error message missing %q (msg = %q)", want, msg)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("resolveLayout(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAutoLayout covers the pane-count → layout dispatch.
+func TestAutoLayout(t *testing.T) {
+	cases := []struct {
+		count int
+		want  string
+	}{
+		{0, ""},
+		{1, ""},
+		{2, "even-horizontal"},
+		{3, "tiled"},
+		{4, "tiled"},
+		{10, "tiled"},
+	}
+	for _, tc := range cases {
+		got := autoLayout(tc.count)
+		if got != tc.want {
+			t.Errorf("autoLayout(%d) = %q, want %q", tc.count, got, tc.want)
+		}
+	}
+}
+
+// TestResolveActivePreset covers the six cases from the spec: positional
+// match, positional non-match, --preset flag resolution, conflict between
+// positional + --preset, unknown preset, no preset available.
+func TestResolveActivePreset(t *testing.T) {
+	presets := map[string]fabconfig.Preset{
+		"ship":        {Layout: "deck-h"},
+		"investigate": {Layout: "v"},
+	}
+	t.Run("positional match consumes arg", func(t *testing.T) {
+		p, rem, err := resolveActivePreset([]string{"ship", "--", "--base", "main"}, "ship", "", presets)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p == nil || p.Layout != "deck-h" {
+			t.Errorf("preset = %#v, want ship", p)
+		}
+		if !reflect.DeepEqual(rem, []string{"--", "--base", "main"}) {
+			t.Errorf("remaining = %v", rem)
+		}
+	})
+	t.Run("positional non-match leaves args untouched", func(t *testing.T) {
+		p, rem, err := resolveActivePreset([]string{"nosuch"}, "nosuch", "", presets)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p != nil {
+			t.Errorf("preset = %#v, want nil", p)
+		}
+		if !reflect.DeepEqual(rem, []string{"nosuch"}) {
+			t.Errorf("remaining = %v", rem)
+		}
+	})
+	t.Run("--preset flag resolves", func(t *testing.T) {
+		p, _, err := resolveActivePreset(nil, "", "investigate", presets)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p == nil || p.Layout != "v" {
+			t.Errorf("preset = %#v, want investigate", p)
+		}
+	})
+	t.Run("conflict positional + --preset", func(t *testing.T) {
+		_, _, err := resolveActivePreset([]string{"ship"}, "ship", "investigate", presets)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "mutually exclusive") {
+			t.Errorf("error missing 'mutually exclusive': %v", err)
+		}
+	})
+	t.Run("unknown preset via --preset", func(t *testing.T) {
+		_, _, err := resolveActivePreset(nil, "", "nope", presets)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "unknown preset") {
+			t.Errorf("error missing 'unknown preset': %v", err)
+		}
+		if !strings.Contains(err.Error(), "ship") || !strings.Contains(err.Error(), "investigate") {
+			t.Errorf("error should list defined presets: %v", err)
+		}
+	})
+	t.Run("no preset available returns nil", func(t *testing.T) {
+		p, rem, err := resolveActivePreset([]string{"ship"}, "ship", "", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p != nil {
+			t.Errorf("preset = %#v, want nil", p)
+		}
+		if !reflect.DeepEqual(rem, []string{"ship"}) {
+			t.Errorf("remaining = %v", rem)
+		}
+	})
+}
+
+// TestResolveEffectiveSpec covers pane/layout/wt-args precedence rules.
+func TestResolveEffectiveSpec(t *testing.T) {
+	t.Run("preset panes used when no CLI panes", func(t *testing.T) {
+		preset := &fabconfig.Preset{
+			Panes: []fabconfig.PaneSpec{
+				{Kind: fabconfig.PaneKindSkill, Skill: "/fab-fff"},
+				{Kind: fabconfig.PaneKindCmd, Cmd: "just dev"},
+			},
+		}
+		spec, err := resolveEffectiveSpec(nil, false, "auto", 1, preset, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if len(spec.Panes) != 2 {
+			t.Errorf("panes = %v, want 2", spec.Panes)
+		}
+		if spec.Panes[0] != (PaneSpec{Kind: PaneKindSkill, Value: "/fab-fff"}) {
+			t.Errorf("pane[0] = %#v", spec.Panes[0])
+		}
+		if spec.Panes[1] != (PaneSpec{Kind: PaneKindCmd, Value: "just dev"}) {
+			t.Errorf("pane[1] = %#v", spec.Panes[1])
+		}
+	})
+	t.Run("CLI panes replace preset panes", func(t *testing.T) {
+		preset := &fabconfig.Preset{
+			Panes: []fabconfig.PaneSpec{
+				{Kind: fabconfig.PaneKindSkill, Skill: "/fab-fff"},
+				{Kind: fabconfig.PaneKindCmd, Cmd: "just dev"},
+				{Kind: fabconfig.PaneKindCmd, Cmd: "just logs"},
+			},
+		}
+		cli := []PaneSpec{{Kind: PaneKindSkill, Value: "/review"}}
+		spec, err := resolveEffectiveSpec(cli, false, "auto", 1, preset, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if len(spec.Panes) != 1 || spec.Panes[0].Value != "/review" {
+			t.Errorf("panes = %#v, want 1 review pane", spec.Panes)
+		}
+	})
+	t.Run("CLI layout overrides preset layout", func(t *testing.T) {
+		preset := &fabconfig.Preset{
+			Layout: "deck-h",
+			Panes: []fabconfig.PaneSpec{
+				{Kind: fabconfig.PaneKindSkill, Skill: "/a"},
+				{Kind: fabconfig.PaneKindCmd, Cmd: "x"},
+			},
+		}
+		spec, err := resolveEffectiveSpec(nil, true, "even-vertical", 1, preset, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if spec.Layout != "even-vertical" {
+			t.Errorf("layout = %q, want even-vertical", spec.Layout)
+		}
+	})
+	t.Run("explicit --layout auto overrides preset layout", func(t *testing.T) {
+		preset := &fabconfig.Preset{
+			Layout: "deck-h",
+			Panes: []fabconfig.PaneSpec{
+				{Kind: fabconfig.PaneKindSkill, Skill: "/a"},
+				{Kind: fabconfig.PaneKindCmd, Cmd: "x"},
+			},
+		}
+		// layoutExplicit=true + canonical="auto" → auto-by-count wins over preset's deck-h.
+		spec, err := resolveEffectiveSpec(nil, true, "auto", 1, preset, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if spec.Layout != "even-horizontal" {
+			t.Errorf("layout = %q, want even-horizontal (auto for 2 panes)", spec.Layout)
+		}
+	})
+	t.Run("single-pane window suppresses layout regardless of source", func(t *testing.T) {
+		cli := []PaneSpec{{Kind: PaneKindSkill, Value: "/fab-fff"}}
+		// User explicitly passes --layout main-horizontal on a 1-pane window.
+		spec, err := resolveEffectiveSpec(cli, true, "main-horizontal", 1, nil, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if spec.Layout != "" {
+			t.Errorf("layout = %q, want empty (1-pane suppression)", spec.Layout)
+		}
+	})
+	t.Run("single-pane from preset suppresses preset layout", func(t *testing.T) {
+		preset := &fabconfig.Preset{
+			Layout: "tiled",
+			Panes:  []fabconfig.PaneSpec{{Kind: fabconfig.PaneKindSkill, Skill: "/a"}},
+		}
+		spec, err := resolveEffectiveSpec(nil, false, "auto", 1, preset, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if spec.Layout != "" {
+			t.Errorf("layout = %q, want empty (1-pane preset suppression)", spec.Layout)
+		}
+	})
+	t.Run("preset layout used when CLI is auto", func(t *testing.T) {
+		preset := &fabconfig.Preset{
+			Layout: "deck-h",
+			Panes: []fabconfig.PaneSpec{
+				{Kind: fabconfig.PaneKindSkill, Skill: "/a"},
+				{Kind: fabconfig.PaneKindCmd, Cmd: "x"},
+			},
+		}
+		spec, err := resolveEffectiveSpec(nil, false, "auto", 1, preset, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if spec.Layout != "main-horizontal" {
+			t.Errorf("layout = %q, want main-horizontal (canonical of deck-h)", spec.Layout)
+		}
+	})
+	t.Run("preset wt_args prepended to passthrough", func(t *testing.T) {
+		preset := &fabconfig.Preset{WtArgs: []string{"--base", "main"}}
+		spec, err := resolveEffectiveSpec(nil, false, "auto", 1, preset, []string{"--reuse"})
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		want := []string{"--base", "main", "--reuse"}
+		if !reflect.DeepEqual(spec.Passthrough, want) {
+			t.Errorf("passthrough = %v, want %v", spec.Passthrough, want)
+		}
+	})
+	t.Run("no panes anywhere defaults to single /fab-discuss pane", func(t *testing.T) {
+		spec, err := resolveEffectiveSpec(nil, false, "auto", 1, nil, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		want := []PaneSpec{{Kind: PaneKindSkill, Value: defaultRiffSkill}}
+		if !reflect.DeepEqual(spec.Panes, want) {
+			t.Errorf("panes = %#v, want %#v", spec.Panes, want)
+		}
+	})
+	t.Run("fan-out respects CLI value", func(t *testing.T) {
+		spec, err := resolveEffectiveSpec(nil, false, "auto", 5, nil, nil)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if spec.FanOut != 5 {
+			t.Errorf("fan-out = %d, want 5", spec.FanOut)
+		}
+	})
+}
+
+// TestBuildSpawnArgvs exercises the pure argv-construction helper that
+// underpins spawnRiff. Validates that the emitted argv sequence matches
+// what the spec demands for common pane shapes.
+func TestBuildSpawnArgvs(t *testing.T) {
+	worktree := "/tmp/wt/alpha"
+	name := "riff-alpha"
+	launcher := "claude"
+
+	t.Run("single skill pane (auto layout → no select-layout)", func(t *testing.T) {
+		spec := effectiveSpec{
+			Panes:    []PaneSpec{{Kind: PaneKindSkill, Value: "/fab-discuss"}},
+			Layout:   "",
+			Launcher: launcher,
+		}
+		got := buildSpawnArgvs(worktree, name, spec)
+		if len(got) != 2 {
+			t.Fatalf("got %d argvs, want 2 (new-window + select-pane)", len(got))
+		}
+		if got[0][0] != "new-window" {
+			t.Errorf("argv[0][0] = %q, want new-window", got[0][0])
+		}
+		if got[1][0] != "select-pane" {
+			t.Errorf("argv[1][0] = %q, want select-pane", got[1][0])
+		}
+		// Assert target of select-pane.
+		if got[1][len(got[1])-1] != "riff-alpha.0" {
+			t.Errorf("select-pane target = %q, want riff-alpha.0", got[1][len(got[1])-1])
+		}
+	})
+
+	t.Run("2 panes (skill + cmd) with auto → even-horizontal", func(t *testing.T) {
+		spec := effectiveSpec{
+			Panes: []PaneSpec{
+				{Kind: PaneKindSkill, Value: "/a"},
+				{Kind: PaneKindCmd, Value: "just dev"},
+			},
+			Layout:   "even-horizontal",
+			Launcher: launcher,
+		}
+		got := buildSpawnArgvs(worktree, name, spec)
+		if len(got) != 4 {
+			t.Fatalf("got %d argvs, want 4 (new-window + split-window + select-layout + select-pane)", len(got))
+		}
+		if got[0][0] != "new-window" {
+			t.Errorf("argv[0][0] = %q, want new-window", got[0][0])
+		}
+		if got[1][0] != "split-window" {
+			t.Errorf("argv[1][0] = %q, want split-window", got[1][0])
+		}
+		if got[2][0] != "select-layout" || got[2][len(got[2])-1] != "even-horizontal" {
+			t.Errorf("select-layout argv = %v", got[2])
+		}
+		if got[3][0] != "select-pane" {
+			t.Errorf("argv[3][0] = %q", got[3][0])
+		}
+		// Cmd pane's shell string: shellWrap("just dev") — no interactive
+		// launcher wrap.
+		cmdShell := got[1][len(got[1])-1]
+		if !strings.Contains(cmdShell, "just dev") {
+			t.Errorf("split-window shell string missing 'just dev': %q", cmdShell)
+		}
+		if strings.Contains(cmdShell, "${SHELL:-/bin/sh} -i -c") {
+			t.Errorf("split-window cmd pane should NOT have interactive wrap: %q", cmdShell)
+		}
+	})
+
+	t.Run("4 panes interleaved with tiled", func(t *testing.T) {
+		spec := effectiveSpec{
+			Panes: []PaneSpec{
+				{Kind: PaneKindCmd, Value: ""},
+				{Kind: PaneKindSkill, Value: "/fab-discuss"},
+				{Kind: PaneKindCmd, Value: "htop"},
+				{Kind: PaneKindSkill, Value: ""},
+			},
+			Layout:   "tiled",
+			Launcher: launcher,
+		}
+		got := buildSpawnArgvs(worktree, name, spec)
+		// 4 panes = 1 new-window + 3 split-window + 1 select-layout + 1 select-pane = 6
+		if len(got) != 6 {
+			t.Fatalf("got %d argvs, want 6", len(got))
+		}
+		// Pane 0 is bare cmd → shellWrap("") → just `exec "${SHELL:-/bin/sh}"`
+		pane0 := got[0][len(got[0])-1]
+		if !strings.Contains(pane0, `exec "${SHELL:-/bin/sh}"`) {
+			t.Errorf("pane 0 bare-cmd shell string = %q", pane0)
+		}
+		// Pane 3 is bare skill → `<launcher>` with no quoted arg, interactive wrap.
+		pane3 := got[3][len(got[3])-1]
+		if !strings.Contains(pane3, "${SHELL:-/bin/sh} -i -c 'claude'") {
+			t.Errorf("pane 3 bare-skill shell missing interactive wrap around bare launcher: %q", pane3)
+		}
+	})
+
+	t.Run("bare --skill alone", func(t *testing.T) {
+		spec := effectiveSpec{
+			Panes:    []PaneSpec{{Kind: PaneKindSkill, Value: ""}},
+			Layout:   "",
+			Launcher: launcher,
+		}
+		got := buildSpawnArgvs(worktree, name, spec)
+		// 1 pane → new-window + select-pane only
+		if len(got) != 2 {
+			t.Fatalf("got %d argvs, want 2", len(got))
+		}
+		shell := got[0][len(got[0])-1]
+		// No single-quoted arg after launcher — just `claude` inside the
+		// interactive wrap.
+		if strings.Contains(shell, "claude '") {
+			t.Errorf("bare --skill should NOT produce claude '<arg>': %q", shell)
+		}
+	})
+
+	t.Run("bare --cmd alone", func(t *testing.T) {
+		spec := effectiveSpec{
+			Panes:    []PaneSpec{{Kind: PaneKindCmd, Value: ""}},
+			Layout:   "",
+			Launcher: launcher,
+		}
+		got := buildSpawnArgvs(worktree, name, spec)
+		if len(got) != 2 {
+			t.Fatalf("got %d argvs, want 2", len(got))
+		}
+		shell := got[0][len(got[0])-1]
+		if shell != `exec "${SHELL:-/bin/sh}"` {
+			t.Errorf("bare --cmd shell = %q, want the exec-only form", shell)
+		}
+	})
+}
+
+// TestPrintPresets covers the empty-map and multi-preset rendering.
+func TestPrintPresets(t *testing.T) {
+	t.Run("empty map prints no-presets line", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := printPresets(map[string]fabconfig.Preset{}, &buf); err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !strings.Contains(buf.String(), "No presets defined in fab/project/config.yaml") {
+			t.Errorf("output missing no-presets line: %q", buf.String())
+		}
+	})
+
+	t.Run("two presets render all fields", func(t *testing.T) {
+		// Change into a tempdir with no fab/project/config.yaml so the
+		// ordered-read fallback path kicks in (alphabetical order when
+		// not from disk).
+		restore := chdir(t, t.TempDir())
+		defer restore()
+
+		presets := map[string]fabconfig.Preset{
+			"ship": {
+				Layout: "deck-h",
+				Panes: []fabconfig.PaneSpec{
+					{Kind: fabconfig.PaneKindSkill, Skill: "/fab-fff"},
+					{Kind: fabconfig.PaneKindCmd, Cmd: "just dev"},
+				},
+				WtArgs: []string{"--base", "main"},
+			},
+			"bare": {
+				Layout: "",
+				Panes:  nil,
+			},
+		}
+		var buf bytes.Buffer
+		if err := printPresets(presets, &buf); err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		out := buf.String()
+		for _, want := range []string{"ship:", "bare:", "/fab-fff", "just dev", "--base", "main", "layout: deck-h"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q; got: %s", want, out)
+			}
+		}
+		// "bare" should come before "ship" in alphabetical (fallback) order.
+		bareIdx := strings.Index(out, "bare:")
+		shipIdx := strings.Index(out, "ship:")
+		if bareIdx < 0 || shipIdx < 0 || bareIdx > shipIdx {
+			t.Errorf("alphabetical order failed: bare=%d ship=%d", bareIdx, shipIdx)
+		}
+	})
+}
+
+// TestPlanFanOutRollback exercises the pure rollback-plan builder. The
+// failing goroutine's own artifacts are excluded; successes (fully or
+// partially created) are included so rollback can clean them up.
+func TestPlanFanOutRollback(t *testing.T) {
+	t.Run("all succeeded except index 1", func(t *testing.T) {
+		results := []fanOutResult{
+			{Index: 0, WorktreePath: "/tmp/wt/a", WindowName: "riff-a", Err: nil},
+			{Index: 1, WorktreePath: "", WindowName: "", Err: errTestFail},
+			{Index: 2, WorktreePath: "/tmp/wt/c", WindowName: "riff-c", Err: nil},
+		}
+		plan := planFanOutRollback(results, 1)
+		if !reflect.DeepEqual(plan.Worktrees, []string{"a", "c"}) {
+			t.Errorf("worktrees = %v, want [a c]", plan.Worktrees)
+		}
+		if !reflect.DeepEqual(plan.Windows, []string{"riff-a", "riff-c"}) {
+			t.Errorf("windows = %v, want [riff-a riff-c]", plan.Windows)
+		}
+	})
+	t.Run("partial success — worktree created but window failed", func(t *testing.T) {
+		// Index 1 created a worktree but failed at tmux — its own artifacts
+		// are skipped (the failing index is excluded from the plan). Index 0's
+		// successful (worktree + window) are included; its window must be
+		// killed during rollback.
+		results := []fanOutResult{
+			{Index: 0, WorktreePath: "/tmp/wt/a", WindowName: "riff-a", Err: nil},
+			{Index: 1, WorktreePath: "/tmp/wt/b", WindowName: "", Err: errTestFail},
+		}
+		plan := planFanOutRollback(results, 1)
+		if !reflect.DeepEqual(plan.Worktrees, []string{"a"}) {
+			t.Errorf("worktrees = %v, want [a] (index 1's partial worktree excluded)", plan.Worktrees)
+		}
+		if !reflect.DeepEqual(plan.Windows, []string{"riff-a"}) {
+			t.Errorf("windows = %v, want [riff-a]", plan.Windows)
+		}
+	})
+	t.Run("no failures — plan is empty (caller shouldn't invoke)", func(t *testing.T) {
+		results := []fanOutResult{
+			{Index: 0, WorktreePath: "/tmp/wt/a", WindowName: "riff-a", Err: nil},
+		}
+		// failureIdx = -1 signals no failure; plan just excludes -1 which
+		// matches nothing, so all are included.
+		plan := planFanOutRollback(results, -1)
+		if len(plan.Worktrees) != 1 || plan.Worktrees[0] != "a" {
+			t.Errorf("worktrees = %v", plan.Worktrees)
+		}
+	})
+}
+
+var errTestFail = &exitCodeError{code: 3, msg: "test"}

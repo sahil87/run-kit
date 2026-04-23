@@ -5,33 +5,40 @@ created_by: sahil-weaver
 change_type: refactor
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    tasks: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    spec: done
+    tasks: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
 checklist:
-    generated: false
+    generated: true
     path: checklist.md
     completed: 0
-    total: 0
+    total: 27
 confidence:
-    certain: 2
-    confident: 5
-    tentative: 3
-    unresolved: 1
-    score: 0.0
-    indicative: true
+    certain: 12
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
     fuzzy: true
     dimensions:
-        signal: 68.2
-        reversibility: 67.7
-        competence: 69.5
-        disambiguation: 68.2
+        signal: 94.6
+        reversibility: 73.3
+        competence: 79.6
+        disambiguation: 79.2
 stage_metrics:
-    intake: {started_at: "2026-04-23T02:20:39Z", driver: fab-new, iterations: 1}
-prs: []
-last_updated: 2026-04-23T02:22:16Z
+    intake: {started_at: "2026-04-23T02:20:39Z", driver: fab-new, iterations: 1, completed_at: "2026-04-23T05:16:51Z"}
+    spec: {started_at: "2026-04-23T05:16:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-23T05:19:55Z"}
+    tasks: {started_at: "2026-04-23T05:19:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-23T05:19:55Z"}
+    apply: {started_at: "2026-04-23T05:19:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-23T05:23:57Z"}
+    review: {started_at: "2026-04-23T05:23:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-23T05:29:54Z"}
+    hydrate: {started_at: "2026-04-23T05:29:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-23T05:33:25Z"}
+    ship: {started_at: "2026-04-23T05:33:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-23T05:36:01Z"}
+    review-pr: {started_at: "2026-04-23T05:36:01Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/175
+last_updated: 2026-04-23T05:36:01Z

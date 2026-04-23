@@ -31,10 +31,10 @@ const (
 // Subprocess timeouts — `wt create` is the slowest step (matches constitution
 // §Process Execution's 30s build-op guidance); tmux operations are cheap.
 const (
-	wtTimeout       = 30 * time.Second
-	tmuxTimeout     = 10 * time.Second
-	defaultRiffCmd  = "/fab-discuss"
-	defaultLauncher = "claude --dangerously-skip-permissions"
+	wtTimeout        = 30 * time.Second
+	tmuxTimeout      = 10 * time.Second
+	defaultRiffSkill = "/fab-discuss"
+	defaultLauncher  = "claude --dangerously-skip-permissions"
 )
 
 // exitCodeError signals that the command should exit with a specific non-zero
@@ -59,18 +59,40 @@ func subprocessErr(format string, a ...any) error {
 }
 
 var (
-	riffCmdFlag   string
-	riffSplitFlag string
+	riffSkillFlag     string
+	riffSetupPaneFlag string
 )
 
 var riffCmd = &cobra.Command{
-	Use:   "riff [-- wt-flags...]",
+	Use:   "riff [--skill <skill>] [--setup-pane <cmd>] [-- <wt-flags>...]",
 	Short: "Create a worktree, tmux window, and Claude Code session",
 	Long: `Create a git worktree via wt, open a new tmux window in it, and launch
-a Claude Code session with a command/skill.
+a Claude Code session with a skill or slash-command.
+
+Prerequisites:
+  - You must be inside a tmux session ($TMUX set).
+  - 'wt' must be on your PATH (https://github.com/sahil87/wt).
+  - The launcher command (default: claude --dangerously-skip-permissions) must be available.
 
 Flags before -- are parsed by rk; flags after -- are forwarded verbatim to
-wt create (e.g., --worktree-name, --base, --reuse).`,
+wt create (e.g., --worktree-name, --base, --reuse). Run 'wt create --help' to
+see the available passthrough flags.
+
+Launcher resolution:
+  If 'fab/project/config.yaml' has 'agent.spawn_command', that value is used
+  as the launcher. Otherwise, falls back to 'claude --dangerously-skip-permissions'.
+
+Examples:
+  rk riff                                     # default skill in a new worktree
+  rk riff --skill /review                     # pick a specific skill
+  rk riff --setup-pane "just dev"             # add a setup pane running 'just dev'
+  rk riff -- --worktree-name pacing-canyon    # name the worktree
+  rk riff --skill /ship -- --reuse --base main
+
+Exit codes:
+  0  success
+  2  precondition failure ($TMUX unset, wt not found)
+  3  subprocess failure (wt or tmux non-zero, output parse failure, timeout)`,
 	// Interspersed=false so the "--" separator terminates cobra's flag parsing
 	// and the remainder lands in args[] for passthrough to `wt create`.
 	RunE: runRiffWithExitCode,
@@ -78,8 +100,8 @@ wt create (e.g., --worktree-name, --base, --reuse).`,
 
 func init() {
 	riffCmd.Flags().SetInterspersed(false)
-	riffCmd.Flags().StringVar(&riffCmdFlag, "cmd", defaultRiffCmd, "Claude Code command/skill to launch")
-	riffCmd.Flags().StringVar(&riffSplitFlag, "split", "", "If non-empty, split the window and run this setup command in the right pane")
+	riffCmd.Flags().StringVar(&riffSkillFlag, "skill", defaultRiffSkill, "Claude Code skill or slash-command to run in the new window")
+	riffCmd.Flags().StringVar(&riffSetupPaneFlag, "setup-pane", "", "If non-empty, split the window and run this setup command in the right pane")
 }
 
 // runRiffWithExitCode is the cobra RunE. It delegates to runRiff for the
@@ -131,14 +153,14 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	// cmd. The second arg to tmux new-window is a shell string interpreted by
 	// tmux's shell — this is the documented exception to constitution §I
 	// (Security First).
-	if err := runTmuxNewWindow(ctx, worktreePath, launcher, riffCmdFlag); err != nil {
+	if err := runTmuxNewWindow(ctx, worktreePath, launcher, riffSkillFlag); err != nil {
 		return err
 	}
 
 	// Step 5: optional horizontal split with a setup command. Skipped entirely
-	// when --split is empty (treated identically to the flag being unset).
-	if riffSplitFlag != "" {
-		if err := runTmuxSplitWindow(ctx, worktreePath, riffSplitFlag); err != nil {
+	// when --setup-pane is empty (treated identically to the flag being unset).
+	if riffSetupPaneFlag != "" {
+		if err := runTmuxSplitWindow(ctx, worktreePath, riffSetupPaneFlag); err != nil {
 			return err
 		}
 	}
@@ -381,7 +403,7 @@ func resolveWindowName(existing []string, base string) string {
 // form so the result is always a syntactically valid POSIX command list —
 // never a leading `; exec …`. In practice neither caller passes an empty
 // string today (runTmuxNewWindow always composes a non-empty `interactive`
-// string, and runTmuxSplitWindow guards on `riffSplitFlag != ""`), but this
+// string, and runTmuxSplitWindow guards on `riffSetupPaneFlag != ""`), but this
 // keeps the helper safe in isolation.
 func shellWrap(cmd string) string {
 	if strings.TrimSpace(cmd) == "" {

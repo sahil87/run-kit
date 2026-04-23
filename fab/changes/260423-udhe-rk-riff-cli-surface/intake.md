@@ -10,20 +10,22 @@ Second change in the three-change `rk riff` rework. The first change (`260423-ba
 
 Items covered (from the prior triage):
 
-- **Bug 2** — `/fab-discuss` passed as positional argv to `claude` rather than typed into the REPL; may require switching from the inline tmux-shell arg to `tmux send-keys`. Whether this is actually broken depends on current `claude` CLI behavior — must verify before designing the fix.
-- **DX 1** — Default `--cmd=/fab-discuss` is broken-by-default for users without fab-kit. Policy decision: fall back to empty when no fab config, or make the default itself configurable.
+- **Bug 2** — *(verified 2026-04-23 as phantom — no code change; see §1)*. Originally: `/fab-discuss` passed as positional argv to `claude`; suspected silent no-op. Confirmed working via live smoke test — positional argv dispatches slash-commands correctly.
+- **DX 1** — *(deferred to change 3)*. Default `--cmd=/fab-discuss` is broken-by-default for users without fab-kit. Policy decision deferred — the presets feature in change 3 is the better home for per-project default-skill configuration. This change keeps the `/fab-discuss` hardcoded default.
 - **DX 2** — `Long` help text mentions neither preconditions nor the default command nor launcher resolution; compare `serve.go:25-34` for house style.
 - **DX 3** — `Use: "riff [-- wt-flags...]"` hides `--cmd` and `--split` from the synopsis line.
 - **DX 4** — Flag names `--cmd` and `--split` are generic. Rename to more descriptive names (e.g., `--skill`, `--setup-pane`).
 
-Why these four belong together: any one of them alone is a CLI-surface change that breaks muscle memory and requires users to update scripts/aliases/docs. Bundling them into one break minimizes pain and lets users learn the new surface once.
+In-scope for this change: **DX 2, DX 3, DX 4** (pure CLI-surface refinement). Bug 2 is closed-as-phantom (documentation-only) and DX 1 is deferred to change 3.
+
+Why DX 2/3/4 belong together: any one of them alone is a CLI-surface change that breaks muscle memory and requires users to update scripts/aliases/docs. Bundling them into one break minimizes pain and lets users learn the new surface once.
 
 ## Why
 
-The main user-impact argument: `rk riff` today leaks its author's private workflow through defaults, flag names, and silent rc-file assumptions. If rk is to be installed by anyone outside the author's immediate context, the surface needs to stop surprising strangers:
+The main user-impact argument: `rk riff` today leaks its author's private workflow through flag names and a two-line help blurb. If rk is to be installed by anyone outside the author's immediate context, the surface needs to stop surprising strangers:
 
-- **Bug 2 is an unknown** — we do not currently know whether `claude ... /fab-discuss` as positional argv even invokes the slash command, or just drops into an empty REPL. If it's broken, the default has been silently useless since the feature landed. **Verification step is the first task.** If broken, the fix is likely `tmux new-window` (bare shell) + `tmux send-keys '<cmd>' Enter` after confirming the launcher has started.
-- **DX 1 (broken default)** — `/fab-discuss` assumes fab-kit is installed. A user who `brew install rk` and runs `rk riff` gets a Claude session that immediately hits an unknown slash-command. This is the single biggest onboarding landmine.
+- **Bug 2** — resolved during intake clarification (verified phantom via smoke test; current delivery is correct). Only a Changelog note remains.
+- **DX 1 (broken default)** — acknowledged but deferred to change 3. `/fab-discuss` assumes fab-kit is installed; strangers without it will hit an unknown-skill error on first run. The fix belongs with the presets feature, which will provide a cleaner per-project default-skill mechanism than a narrow config key added here.
 - **DX 2 and 3 (help text)** — pure ergonomics; the help output should tell a new user what they need and how. Compare `serve.go:25-34` — it enumerates env vars and gives examples; riff's help is a two-line stub.
 - **DX 4 (flag names)** — a one-time rename is cheaper than living with confusing names forever. `--cmd` is especially bad (ambiguous: shell command? claude command? REPL input?). `--skill` is more honest (it's a Claude Code slash-command / skill).
 
@@ -31,30 +33,19 @@ Why renaming once, here, and not later: once presets (change 3) reference flag n
 
 ## What Changes
 
-### 1. Verify and fix Bug 2 — `/fab-discuss` delivery mechanism
+### 1. Bug 2 — `/fab-discuss` delivery mechanism (verified: phantom bug)
 
-**Verification-first:** before deciding the fix, run `claude --help` (or the equivalent for whatever binary `agent.spawn_command` resolves to) and confirm what happens when a slash-command is passed as a positional argv. Two possible outcomes:
+**Verified 2026-04-23 via live smoke test (outcome (a)):** `claude --help` documents `Usage: claude [options] [command] [prompt]` with `prompt` as a positional arg, and running `tmux new-window 'claude --dangerously-skip-permissions /fab-discuss'` confirmed the slash-command dispatches as a skill invocation (not literal text, not empty REPL).
 
-- **(a) Positional arg IS interpreted as initial prompt and fires the slash-command** — current behavior is correct, no fix needed for this bug. Mark it as investigated-and-ruled-out, update the spec's Changelog.
-- **(b) Positional arg is NOT interpreted, or is sent as literal prompt text with no slash-handling** — the current implementation is silently broken. Fix by changing delivery from "pass as argv" to "launch launcher, then send keys":
+**Resolution:** no code change required. The current delivery path (`<launcher> '<escaped-cmd>'` composed inside `buildNewWindowArgs`) is correct. Drop Bug 2 from this change's scope — update the change spec's Changelog to record it as investigated-and-ruled-out.
 
-  ```go
-  // NEW delivery path:
-  // 1. tmux new-window -n <name> -c <path> '<launcher>'   (no quoted cmd arg)
-  // 2. wait for the launcher to be ready (fixed short delay, e.g., 800ms — launcher
-  //    start time. Or poll tmux capture-pane output for a readiness marker.)
-  // 3. tmux send-keys -t <window> '<cmd>' Enter
-  ```
-
-  The send-keys approach handles any Claude Code command (skills, slash commands, arbitrary prompts) uniformly; the current approach only works if `claude` happens to interpret `argv[1]` as a prompt.
-
-**[NEEDS CLARIFICATION]** the verification result (a vs b) and, if (b), whether we use a fixed delay or poll `tmux capture-pane`. Default recommendation: fixed 800ms delay — it matches the typical launcher start time and is the simplest correct implementation.
+<!-- clarified: Bug 2 verified as phantom — positional argv correctly dispatches slash-commands. No send-keys switch needed. -->
 
 ### 2. Rename `--cmd` → `--skill` and `--split` → `--setup-pane`
 
-Cobra supports deprecated flag aliases. Two sub-questions:
+**Decision: hard-rename.** No deprecated aliases. rk is early (v1.4.0) and the blast radius is small — likely only the author's own dotfiles. Keeping aliases would undo the "break the surface once" rationale that justifies bundling DX 2/3/4. If pain is observed post-merge, re-adding aliases as a patch release is cheap.
 
-- **Do we keep `--cmd` and `--split` as hidden deprecated aliases?** [NEEDS CLARIFICATION] — user input requested. Recommendation: hard-rename (rk is early; no external muscle memory to protect). If we do keep aliases, wire them via `pflag.Flag.Deprecated` so `--help` hides them and using them prints a deprecation warning.
+<!-- clarified: Hard-rename without deprecated aliases. User selected (a) in intake clarification 2026-04-23. -->
 
 Updated flag definitions (sketch):
 
@@ -65,26 +56,11 @@ riffCmd.Flags().StringVar(&riffSetupPaneFlag, "setup-pane", "", "If non-empty, s
 
 Rename in internal code: `riffCmdFlag` → `riffSkillFlag`, `riffSplitFlag` → `riffSetupPaneFlag`. Tests updated accordingly.
 
-### 3. Default `--skill` resolution policy (DX 1)
+### 3. Default `--skill` resolution policy (DX 1) — deferred to change 3
 
-**[NEEDS CLARIFICATION]** — three candidate policies, user must pick:
+Decision: **keep status quo**. `--skill` retains the hardcoded `/fab-discuss` default after renaming. No change to `internal/fabconfig`. The DX 1 onboarding landmine is acknowledged and deferred to change 3, where the presets feature will own per-project default-skill configuration with a cleaner story than a narrow single-key addition here.
 
-- **(a)** Keep `/fab-discuss` as the hardcoded default (status quo).
-- **(b)** Default to empty when no `fab/project/config.yaml` is detected; `/fab-discuss` only when fab is present.
-- **(c)** Move the default itself to `fab/project/config.yaml` under a new key like `agent.default_skill` (or `riff.default_skill`), with a built-in fallback of empty.
-
-Recommendation: (c) — composes naturally with the presets feature (change 3), and lets each project own its defaults. This means:
-
-```yaml
-# fab/project/config.yaml
-agent:
-    spawn_command: claude --dangerously-skip-permissions ...
-    default_skill: /fab-discuss      # new
-```
-
-`internal/fabconfig` grows a `ReadDefaultSkill(root string) string` function, same shape as `ReadSpawnCommand`. Empty return means no default. `runRiff` resolves the effective skill in this order: explicit `--skill` flag → config `agent.default_skill` → empty.
-
-If the user picks (b) instead, the flag default stays `/fab-discuss` but flipping to empty happens based on whether `fab/project/config.yaml` was readable. (b) is simpler but less extensible.
+<!-- clarified: DX 1 deferred to change 3 (presets); --skill default stays hardcoded as /fab-discuss. User selected option (a) in intake clarification 2026-04-23. -->
 
 ### 4. Expand help text (DX 2 and 3)
 
@@ -128,37 +104,32 @@ Exit codes:
 
 ### 5. Update memory and tests
 
-- `docs/memory/run-kit/rk-riff.md` — update every reference to `--cmd`/`--split`, the flag table, the flag-surface section, and the Changelog. Add a section on default-skill resolution and, if Bug 2 required a delivery change, update the "Workflow Step Order" to reflect the send-keys approach.
-- `app/backend/cmd/rk/riff_test.go` — rename test variables/cases to match new flag names; add a test for default-skill resolution (if policy c); update `TestBuildNewWindowArgs` if Bug 2 delivery changed.
-- `app/backend/internal/fabconfig/fabconfig.go` + test — add `ReadDefaultSkill` (if policy c).
+- `docs/memory/run-kit/rk-riff.md` — update every reference to `--cmd`/`--split`, the flag table, the flag-surface section, the Long/Use help blurbs, and the Changelog. Record Bug 2 as verified-phantom in the Changelog so future readers know the positional-argv delivery is intentional. No default-skill section added (deferred to change 3).
+- `app/backend/cmd/rk/riff_test.go` — rename test variables/cases to match new flag names. `TestBuildNewWindowArgs` stays on its current signature.
+- `app/backend/internal/fabconfig/fabconfig.go` — no changes (deferred to change 3).
 
 ## Affected Memory
 
-- `run-kit/rk-riff.md`: (modify) — flag renames, default-skill policy, Long text rewrite, Use synopsis update, Changelog entry. If Bug 2 required a delivery-mechanism change, update "Workflow Step Order" accordingly.
+- `run-kit/rk-riff.md`: (modify) — flag renames, Long text rewrite, Use synopsis update, Changelog entry (including the Bug 2 phantom-verification note).
 
 ## Impact
 
 **Code:**
-- `app/backend/cmd/rk/riff.go` — flag renames, `runTmuxNewWindow` delivery change (conditional on Bug 2 verification), resolveLauncher / effective-skill resolution, help text, possibly a helper for `tmux send-keys`.
-- `app/backend/cmd/rk/riff_test.go` — renames + new test cases for default-skill resolution and (if applicable) the send-keys flow.
-- `app/backend/internal/fabconfig/fabconfig.go` — new `ReadDefaultSkill` function (if policy c).
-- `app/backend/internal/fabconfig/fabconfig_test.go` — tests for `ReadDefaultSkill`.
+- `app/backend/cmd/rk/riff.go` — flag renames (`--cmd` → `--skill`, `--split` → `--setup-pane`) and help-text expansion. No change to `runTmuxNewWindow`, `resolveLauncher`, or delivery path.
+- `app/backend/cmd/rk/riff_test.go` — renames only.
+- `app/backend/internal/fabconfig/` — unchanged.
 
 **Docs:** `docs/memory/run-kit/rk-riff.md` per §5.
 
 **APIs/flags**: **BREAKING** — `--cmd` and `--split` are renamed. If we keep deprecated aliases they stay functional; if we hard-rename, existing scripts/aliases break. This is the reason the change is grouped at this boundary.
 
-**Dependencies**: none new. `tmux send-keys` (if Bug 2 path) is just another tmux subprocess call.
+**Dependencies**: none new.
 
-**Ordering caveat**: this change depends on change 1 landing first because change 1 introduces `shellWrap` and the window-name-suffix helper, both of which survive into this change's code unchanged.
+**Ordering caveat**: this change depends on change 1 landing first — now satisfied (change 1 merged as `f792890` on 2026-04-23).
 
 ## Open Questions
 
-- **Bug 2 verification** — what does `claude /fab-discuss` (as positional arg) actually do today? Need a one-command smoke test. This determines whether the delivery-mechanism change ships or not.
-- **DX 1 default-skill policy** — pick (a), (b), or (c). Recommendation: (c).
-- **DX 4 back-compat aliases** — hard-rename or keep deprecated `--cmd`/`--split` aliases for one release? Recommendation: hard-rename (rk is early).
-- **Bug 2 readiness signal** (only relevant if we go down the send-keys path) — fixed delay, or poll `tmux capture-pane`? Recommendation: fixed delay (800ms) for simplicity.
-- Should `tmux send-keys` escape the `--skill` value any differently than `escapeSingleQuotes` already does? send-keys uses tmux's own parsing, which has different rules than shell single-quoting. Needs a short investigation in the spec.
+*(all intake-level questions resolved during 2026-04-23 clarification — see Clarifications section below)*
 
 ## Assumptions
 
@@ -166,14 +137,35 @@ Exit codes:
 |---|-------|----------|-----------|--------|
 | 1 | Certain | Bundle Bug 2 + DX 1/2/3/4 into one "surface break" change; change 1 ships first (no surface change), change 3 ships after (features on stable surface) | User-specified three-change grouping | S:95 R:70 A:85 D:90 |
 | 2 | Certain | Change depends on 260423-ba9f (change 1) landing first — specifically the `shellWrap` and `resolveWindowName` helpers | Temporal dependency stated in the grouping plan | S:95 R:80 A:90 D:95 |
-| 3 | Confident | Rename `--cmd` to `--skill` | `--cmd` is ambiguous (shell cmd? claude cmd?); `--skill` matches Claude Code terminology and the default value's nature | S:75 R:65 A:75 D:70 |
-| 4 | Confident | Rename `--split` to `--setup-pane` | `--split` reads as a boolean; current value is a setup command for a pane. `--setup-pane` encodes intent | S:75 R:65 A:75 D:70 |
-| 5 | Confident | Expand `Long` help text to match `serve.go:25-34` house style with Prerequisites, Examples, and exit-code table | Pure ergonomics; low-risk pattern already established elsewhere in the codebase | S:85 R:95 A:85 D:90 |
-| 6 | Confident | Expand `Use:` synopsis to list all primary flags, not just the passthrough separator | Standard CLI convention; every other rk subcommand already does this | S:85 R:95 A:85 D:90 |
-| 7 | Tentative | Default-skill resolution policy: option (c) — move default to `fab/project/config.yaml`'s `agent.default_skill` key with empty built-in fallback | Composes with presets feature; three policy options are all valid but user input required | S:55 R:55 A:55 D:45 |
-| 8 | Tentative | Bug 2 fix path: verify first, then if broken switch to `tmux new-window` + `tmux send-keys` with 800ms fixed delay | Verification outcome unknown; delay-based readiness is the simplest correct approach if switch is needed | S:40 R:50 A:60 D:50 |
-| 9 | Tentative | DX 4 back-compat: hard-rename without deprecated aliases | rk is early; low blast radius — but a case can be made for aliases during the 1.x window | S:55 R:60 A:55 D:55 |
-| 10 | Confident | Default value of `--skill` flag itself is empty string; actual default comes from config resolution chain | Separates "flag defaulting" from "effective value resolution" cleanly | S:75 R:70 A:80 D:70 |
-| 11 | Unresolved | What does `claude --dangerously-skip-permissions /fab-discuss` actually do today (positional argv → slash command or no-op)? | Asked — user has not verified; blocks design of the Bug 2 fix path | S:15 R:40 A:20 D:25 |
+| 3 | Certain | Rename `--cmd` to `--skill` | Clarified — user confirmed | S:95 R:65 A:75 D:70 |
+| 4 | Certain | Rename `--split` to `--setup-pane` | Clarified — user confirmed | S:95 R:65 A:75 D:70 |
+| 5 | Certain | Expand `Long` help text to match `serve.go:25-34` house style with Prerequisites, Examples, and exit-code table | Clarified — user confirmed | S:95 R:95 A:85 D:90 |
+| 6 | Certain | Expand `Use:` synopsis to list all primary flags, not just the passthrough separator | Clarified — user confirmed | S:95 R:95 A:85 D:90 |
+| 7 | Certain | DX 1 default-skill policy: option (a) status quo — keep hardcoded `/fab-discuss` as `--skill` flag default; defer per-project default-skill to change 3 (presets) | Clarified — user selected (a) on 2026-04-23 | S:95 R:55 A:55 D:45 |
+| 8 | Certain | Bug 2: no code change — current `<launcher> '<escaped-cmd>'` delivery is correct; positional argv dispatches slash-commands | Clarified — verified 2026-04-23 via live smoke test (outcome (a)) | S:95 R:50 A:60 D:50 |
+| 9 | Certain | DX 4 back-compat: hard-rename without deprecated aliases | Clarified — user selected (a) on 2026-04-23 | S:95 R:60 A:55 D:55 |
+| 10 | Certain | Flag default for `--skill` is the hardcoded string `/fab-discuss` (status quo) — no separate config-resolution layer in this change | Clarified — consequential to #7 selection of option (a) on 2026-04-23 | S:95 R:70 A:80 D:70 |
+| 11 | Certain | `claude --dangerously-skip-permissions /fab-discuss` dispatches the slash-command correctly (positional argv is routed through the skill system) | Clarified — verified 2026-04-23 via live smoke test (outcome A) | S:95 R:40 A:20 D:25 |
 
-11 assumptions (2 certain, 5 confident, 3 tentative, 1 unresolved).
+11 assumptions (11 certain, 0 confident, 0 tentative, 0 unresolved).
+
+## Clarifications
+
+### Session 2026-04-23
+
+| # | Q | A |
+|---|---|---|
+| 11 | What does `claude --dangerously-skip-permissions /fab-discuss` actually do today? | Verified via live smoke test: outcome (A) — positional argv dispatches the slash-command as a skill invocation. Bug 2 is a phantom. |
+| 8 | Bug 2 fix path (resolved as consequence of #11) | No code change. Current `<launcher> '<escaped-cmd>'` delivery is correct. |
+| 7 | Default-skill resolution policy — (a), (b), or (c)? | (a) status quo. Keep `/fab-discuss` as hardcoded `--skill` flag default. DX 1 (onboarding landmine for non-fab users) is deferred to change 3 (presets), which has a better home for per-project default-skill configuration. |
+| 10 | Flag-default vs effective-default split (consequential to #7) | Collapsed: flag default *is* the effective default (`/fab-discuss`) under policy (a). No config resolution layer. |
+| 9 | DX 4 back-compat: hard-rename, or keep deprecated `--cmd`/`--split` aliases for one release? | (a) hard-rename. No aliases. rk is early, blast radius is small, and keeping aliases would undo the "break the surface once" rationale. |
+
+### Session 2026-04-23 (bulk confirm)
+
+| # | Action | Detail |
+|---|--------|--------|
+| 3 | Confirmed | — |
+| 4 | Confirmed | — |
+| 5 | Confirmed | — |
+| 6 | Confirmed | — |

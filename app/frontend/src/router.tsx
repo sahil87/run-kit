@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-router";
 import { RootWrapper, ServerShell } from "@/app";
 import { ServerListPage } from "@/components/server-list-page";
+import { LanesPage } from "@/components/lanes/lanes-page";
 
 function NotFoundPage() {
   return (
@@ -26,6 +27,12 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: ServerListPage,
+});
+
+const lanesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/lanes",
+  component: LanesPage,
 });
 
 const serverLayoutRoute = createRoute({
@@ -50,6 +57,7 @@ const terminalRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  lanesRoute,
   serverLayoutRoute.addChildren([serverIndexRoute, terminalRoute]),
 ]);
 

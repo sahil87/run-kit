@@ -10,6 +10,8 @@ import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
+import type { LanePin } from "@/hooks/use-pinned-lanes";
+import { ContextMenu } from "@/components/lanes/context-menu";
 import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerPanel } from "./server-panel";
@@ -36,6 +38,9 @@ export type SidebarProps = {
    *  the bottom-right of the server panel drag handle that also starts a
    *  sidebar-width drag. */
   onSidebarResizeStart?: (e: React.PointerEvent<HTMLDivElement>) => void;
+  isPinned: (pin: LanePin) => boolean;
+  pinWindow: (pin: LanePin) => void;
+  unpinWindow: (pin: LanePin) => void;
 };
 
 export function Sidebar({
@@ -53,6 +58,9 @@ export function Sidebar({
   onRefreshServers,
   isConnected = false,
   onSidebarResizeStart,
+  isPinned,
+  pinWindow,
+  unpinWindow,
 }: SidebarProps) {
   // Pre-compute row tints from the active theme palette.
   const { theme } = useTheme();
@@ -90,6 +98,14 @@ export function Sidebar({
   const [dragSource, setDragSource] = useState<{ session: string; index: number } | null>(null);
   const [dropTarget, setDropTarget] = useState<{ session: string; index: number } | null>(null);
   const [sessionDropTarget, setSessionDropTarget] = useState<string | null>(null);
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    session: string;
+    windowIndex: number;
+  } | null>(null);
 
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
   const { addToast } = useToast();
@@ -648,6 +664,24 @@ export function Sidebar({
                               addToast(err.message || "Failed to set window color"),
                             );
                           }}
+                          isPinned={ghost ? false : isPinned({ server, session: session.name, windowIndex: win.index })}
+                          onTogglePin={ghost ? undefined : () => {
+                            const pin = { server, session: session.name, windowIndex: win.index };
+                            if (isPinned(pin)) {
+                              unpinWindow(pin);
+                            } else {
+                              pinWindow(pin);
+                            }
+                          }}
+                          onContextMenu={ghost ? undefined : (e) => {
+                            e.preventDefault();
+                            setContextMenu({
+                              x: e.clientX,
+                              y: e.clientY,
+                              session: session.name,
+                              windowIndex: win.index,
+                            });
+                          }}
                         />
                       );
                     })}
@@ -692,6 +726,18 @@ export function Sidebar({
           killTarget={killTarget}
           onConfirm={handleKill}
           onCancel={() => setKillTarget(null)}
+        />
+      )}
+
+      {/* Right-click context menu for pin/unpin */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          pinned={isPinned({ server, session: contextMenu.session, windowIndex: contextMenu.windowIndex })}
+          onPin={() => pinWindow({ server, session: contextMenu.session, windowIndex: contextMenu.windowIndex })}
+          onUnpin={() => unpinWindow({ server, session: contextMenu.session, windowIndex: contextMenu.windowIndex })}
+          onClose={() => setContextMenu(null)}
         />
       )}
     </nav>

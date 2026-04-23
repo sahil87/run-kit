@@ -27,6 +27,7 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 import { useWindowStore } from "@/store/window-store";
+import { usePinnedLanes } from "@/hooks/use-pinned-lanes";
 
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
@@ -537,6 +538,48 @@ function AppShell() {
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Lanes pin state
+  const { isPinned: isLanePinned, pinWindow: lanePinWindow, unpinWindow: laneUnpinWindow } = usePinnedLanes();
+
+  const lanesActions: PaletteAction[] = useMemo(
+    () => [
+      ...(currentWindow && sessionName && !isLanePinned({ server, session: sessionName, windowIndex: currentWindow.index })
+        ? [
+            {
+              id: "lanes-pin",
+              label: "Lanes: Pin Current Window",
+              onSelect: () => {
+                if (sessionName && currentWindow) {
+                  lanePinWindow({ server, session: sessionName, windowIndex: currentWindow.index });
+                }
+              },
+            },
+          ]
+        : []),
+      ...(currentWindow && sessionName && isLanePinned({ server, session: sessionName, windowIndex: currentWindow.index })
+        ? [
+            {
+              id: "lanes-unpin",
+              label: "Lanes: Unpin Current Window",
+              onSelect: () => {
+                if (sessionName && currentWindow) {
+                  laneUnpinWindow({ server, session: sessionName, windowIndex: currentWindow.index });
+                }
+              },
+            },
+          ]
+        : []),
+      {
+        id: "lanes-open",
+        label: "View: Open Lanes",
+        onSelect: () => {
+          navigate({ to: "/lanes" });
+        },
+      },
+    ],
+    [currentWindow, sessionName, server, isLanePinned, lanePinWindow, laneUnpinWindow, navigate],
+  );
+
   const sessionActions: PaletteAction[] = useMemo(
     () => [
       {
@@ -830,8 +873,8 @@ function AppShell() {
   );
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
-    [sessionActions, windowActions, viewActions, themeActions, configActions, serverActions, terminalActions],
+    () => [...lanesActions, ...sessionActions, ...windowActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
+    [lanesActions, sessionActions, windowActions, viewActions, themeActions, configActions, serverActions, terminalActions],
   );
 
   const displayName = currentWindow?.name ?? windowIndex ?? "";
@@ -889,6 +932,9 @@ function AppShell() {
                 onRefreshServers={refreshServers}
                 isConnected={isConnected}
                 onSidebarResizeStart={(e) => handleDragStart(e.clientX)}
+                isPinned={isLanePinned}
+                pinWindow={lanePinWindow}
+                unpinWindow={laneUnpinWindow}
               />
             </div>
             {/* Drag handle */}
@@ -989,6 +1035,9 @@ function AppShell() {
                 onKillServer={(name) => setKillServerTarget(name)}
                 onRefreshServers={refreshServers}
                 isConnected={isConnected}
+                isPinned={isLanePinned}
+                pinWindow={lanePinWindow}
+                unpinWindow={laneUnpinWindow}
               />
             </div>
           </div>

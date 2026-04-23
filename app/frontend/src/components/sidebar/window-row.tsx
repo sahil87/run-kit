@@ -32,6 +32,9 @@ type WindowRowProps = {
   onDrop?: (e: React.DragEvent) => void;
   onDragEnd?: () => void;
   onColorChange?: (color: number | null) => void;
+  isPinned?: boolean;
+  onTogglePin?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 };
 
 export function WindowRow({
@@ -57,6 +60,9 @@ export function WindowRow({
   onDrop,
   onDragEnd,
   onColorChange,
+  isPinned,
+  onTogglePin,
+  onContextMenu,
 }: WindowRowProps) {
   const ghost = isGhostWindow(win);
   const duration = getWindowDuration(win, nowSeconds);
@@ -122,6 +128,7 @@ export function WindowRow({
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
+      onContextMenu={onContextMenu}
       style={isDragOver ? { boxShadow: "0 -2px 0 0 var(--color-accent)" } : undefined}
     >
       <button
@@ -175,8 +182,29 @@ export function WindowRow({
           )}
         </span>
       </button>
-      {/* Hover-reveal buttons: color swatch + kill */}
+      {/* Hover-reveal buttons: pin + color swatch + kill */}
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
+        {onTogglePin && (
+          <button
+            type="button"
+            aria-label={isPinned ? `Unpin ${win.name} from Lanes` : `Pin ${win.name} to Lanes`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin();
+            }}
+            className={`text-[12px] transition-opacity cursor-pointer px-0.5 min-h-[36px] flex items-center justify-center ${
+              isPinned
+                ? "text-accent opacity-100"
+                : "text-text-secondary hover:text-text-primary opacity-0 group-hover:opacity-100 coarse:opacity-100"
+            }`}
+          >
+            {/* Thumbtack/pin SVG icon */}
+            <svg width="12" height="12" viewBox="0 0 16 16" fill={isPinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9.5 2L13 5.5L10.5 8L11 12L4 5L8 5.5Z" />
+              <line x1="4" y1="12" x2="6.5" y2="9.5" />
+            </svg>
+          </button>
+        )}
         {onColorChange && (
           <button
             ref={colorBtnRef}

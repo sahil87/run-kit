@@ -119,6 +119,9 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> 
             onCreateServer={vi.fn()}
             onKillServer={vi.fn()}
             onRefreshServers={vi.fn()}
+            isPinned={() => false}
+            pinWindow={vi.fn()}
+            unpinWindow={vi.fn()}
             {...overrides}
           />
         </MetricsProvider>
@@ -832,6 +835,9 @@ describe("Sidebar", () => {
                 onCreateServer={vi.fn()}
                 onKillServer={vi.fn()}
                 onRefreshServers={vi.fn()}
+                isPinned={() => false}
+                pinWindow={vi.fn()}
+                unpinWindow={vi.fn()}
               />
             </MetricsProvider>
           </OptimisticProvider>

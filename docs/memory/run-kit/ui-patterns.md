@@ -7,8 +7,9 @@
 | `/` | Server list | Standalone page (`ServerListPage`) — lists tmux servers with "+" creation button. No sidebar, no SSE. |
 | `/$server` | Session dashboard | `AppShell` layout with `Dashboard` content. SSE connected to the specified server. |
 | `/$server/$session/$window` | Terminal or Iframe | `AppShell` layout. Rendering branch: `rkType === "iframe"` renders `IframeWindow` (URL bar + iframe), otherwise `TerminalClient` + `BottomBar`. SSE connected. |
+| `/lanes` | Pane Lanes | Standalone page (`LanesPage`) — multi-column live terminal view. No sidebar, no `AppShell`. Own minimal top bar. One SSE connection per unique pinned server, one WebSocket per lane. |
 
-Three-tier URL model with server always in path. URLs are fully shareable — copying a URL and opening it elsewhere on the same host opens the same server, session, and window. TanStack Router uses nested routes: `/$server` is a layout route whose component (`ServerShell`) wraps `SessionProvider` + `AppShell`. Child routes (dashboard index and terminal) are matched by the router but rendered conditionally by `AppShell` based on whether session/window params exist.
+Four top-level routes. Three-tier URL model with server always in path for server-scoped routes; `/lanes` is a cross-server root-level route outside the `/$server` hierarchy. URLs are fully shareable — copying a URL and opening it elsewhere on the same host opens the same server, session, and window. TanStack Router uses nested routes: `/$server` is a layout route whose component (`ServerShell`) wraps `SessionProvider` + `AppShell`. Child routes (dashboard index and terminal) are matched by the router but rendered conditionally by `AppShell` based on whether session/window params exist.
 
 Server not found: if the `$server` segment doesn't match any known tmux server, a "Server not found" page renders with a link to `/`. Unmatched URLs (e.g., `/$server/$session` with no window) show a generic not-found page.
 
@@ -55,6 +56,38 @@ Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server li
 **Iframe attributes**: `sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"`, `title="Proxied content"`, `border-0`.
 
 **Window creation**: "Window: New Iframe Window" command palette action (id `create-iframe-window`) opens a `Dialog` with two inputs: window name (autofocused, Enter focuses URL input) and URL (Enter creates window). Create button disabled until both fields non-empty. Calls `createWindow(server, session, name, undefined, "iframe", url)` — the extended API client function passes `rkType` and `rkUrl` in the POST body. Backend uses `CreateWindowWithOptions` for atomic `\;`-chained tmux command. Only shown when a session is active.
+
+## Lanes View
+
+`app/frontend/src/components/lanes/` — multi-column live terminal layout for monitoring multiple agent panes simultaneously. Accessible at `/lanes`. Cross-server: aggregates pinned panes from any tmux server and session.
+
+**Layout**: Full-viewport `flex flex-col h-screen`. Top bar (`shrink-0`, minimal chrome) + horizontally scrolling lane container (`flex-1 min-h-0 flex flex-row overflow-x-auto`, `scroll-snap-type: x mandatory`). Each lane snaps via `scroll-snap-align: start`.
+
+**Components**:
+
+- `lanes-page.tsx` — `LanesPage`; owns pin state (via `usePinnedLanes` hook), focused-lane index, SSE multi-server subscriptions, closed-lane detection with auto-unpin timers. Renders `LanesTopBar` + lane list (or empty state when no pins).
+- `lane.tsx` — `Lane`; self-contained terminal column. Owns xterm.js `Terminal` instance, `FitAddon`, `WebSocket` relay connection, `ResizeObserver`, width state, and resize drag handle. Same addon chain as `TerminalClient`: ClipboardAddon (with shared `clipboardProvider`), WebLinksAddon, UnicodeGraphemesAddon (`15-graphemes`), WebglAddon (silent fallback). Write batching via `requestAnimationFrame`. WebSocket reconnect with exponential backoff (1s–30s). Width: per-lane drag-resizable right edge (pointer-event pattern matching sidebar resize), min 280px, default 480px, persisted to localStorage `runkit-lanes-widths` keyed by `${server}:${session}:${windowIndex}`.
+- `lane-header.tsx` — `LaneHeader`; header bar (`bg-bg-card border-b`) showing `server · session · windowIndex`, connection status dot (green/gray, same convention as top bar), "Open" link (navigates to `/$server/$session/$window`), unpin ✕ button.
+- `context-menu.tsx` — `ContextMenu`; fixed-position menu (`z-50 bg-bg-primary border shadow-2xl`) for right-click pin/unpin on sidebar window rows. Dismisses on outside click, Escape, or selection.
+
+**Top bar** (`LanesTopBar` in `lanes-page.tsx`): "Lanes" title + pin count badge (right: `Ctrl+]/[` hint, theme toggle, "Run Kit" text + icon linking to `/`). Theme toggle replicates main top bar's cycle logic (system → light → dark). No sidebar, no command palette.
+
+**Focus management**: Three interaction modes coexist:
+- *Click-to-focus*: clicking a lane sets `focusedIndex` and gives that lane keyboard input
+- *Hover-to-focus*: `onMouseEnter` on each lane triggers focus (zero-click monitoring)
+- *Keyboard cycling*: `Ctrl+]` next lane, `Ctrl+[` previous lane (wrapping). Document-level `keydown` listener
+
+Focused lane gets `ring-2 ring-accent ring-inset`. Unfocused lanes have no ring.
+
+**Empty state**: Centered message ("No panes pinned"), guidance text ("Pin windows from the sidebar or command palette to monitor them here"), and a link back to `/`.
+
+**SSE subscriptions**: One `EventSource` per unique server among pinned lanes (`/api/sessions/stream?server=...`). Listens for `sessions` events to detect killed windows. When a pinned window disappears from SSE data, the lane shows a "Window closed" overlay (`bg-bg-primary/80`) with an unpin button and auto-unpins after 5 seconds. If the window reappears, the timer is cancelled.
+
+**Pin discovery paths** (4 entry points):
+1. Sidebar pin icon on window rows (hover-reveal, filled when pinned — see Sidebar section)
+2. Right-click context menu on sidebar window rows ("Pin to Lanes" / "Unpin from Lanes")
+3. Lane header unpin ✕ button
+4. Command palette actions (registered in `AppShell`)
 
 ## Chrome (Top Bar)
 
@@ -134,6 +167,7 @@ Connection indicator: green/gray dot only (no text label), driven by `isConnecte
 
 - **Session row ✕**: Always-visible ✕ button on session rows with red hover. Normal click opens confirmation dialog: "Kill session **{name}** and all {N} windows?" **Ctrl+Click / Cmd+Click** bypasses the confirmation dialog and kills immediately (best-effort `.catch(() => {})`).
 - **Window row ✕**: Hover-reveal ✕ button on window rows (always visible on touch devices via `coarse:opacity-100`). Normal click opens confirmation dialog: "Kill window in **{session}**?" **Ctrl+Click / Cmd+Click** bypasses the confirmation dialog and kills immediately (best-effort `.catch(() => {})`).
+- **Window row pin icon**: Hover-reveal thumbtack SVG icon (`12×12`) on window rows, positioned left of the color swatch and kill buttons in the `absolute right-2` button cluster. When unpinned: `text-text-secondary`, `opacity-0 group-hover:opacity-100 coarse:opacity-100`, `fill="none"` (outline). When pinned: `text-accent`, `opacity-100` (always visible), `fill="currentColor"` (filled). Clicking toggles `pinWindow`/`unpinWindow` via `usePinnedLanes` hook. Right-clicking the window row opens a `ContextMenu` component with "Pin to Lanes" / "Unpin from Lanes" toggle.
 
 The Ctrl+Click force-kill pattern matches the established "modifier = power action" convention: ThemeToggle uses Ctrl+Click to open the theme selector instead of cycling. Modifier detection uses `e.ctrlKey || e.metaKey` (Ctrl on Linux/Windows, Cmd on macOS).
 
@@ -143,7 +177,7 @@ The Ctrl+Click force-kill pattern matches the established "modifier = power acti
 
 - `index.tsx` — `Sidebar` orchestrator; owns all state (`collapsed`, `killTarget`, `editingWindow`, `editingSession`, `dragSource`, `dropTarget`, `sessionDropTarget`) and all `useOptimisticAction` hooks. Accepts `metrics` and `isConnected` props for HostPanel
 - `session-row.tsx` — `SessionRow`; pure presentational; renders the session header row (chevron, name, + button, ✕ button); handles cross-session drag-over styling; all event handlers passed as props
-- `window-row.tsx` — `WindowRow`; pure presentational; renders a single window row (activity dot, name, fab stage, duration, kill button); handles drag-and-drop and inline rename display; all event handlers passed as props
+- `window-row.tsx` — `WindowRow`; pure presentational; renders a single window row (activity dot, name, fab stage, duration, pin button, kill button); handles drag-and-drop, inline rename display, and right-click context menu; all event handlers passed as props. Optional `isPinned`/`onTogglePin`/`onContextMenu` props enable lane pin integration
 - `collapsible-panel.tsx` — `CollapsiblePanel`; reusable collapsible container with header (title + chevron) and localStorage open/closed state persistence via `storageKey` prop. Two modes: (a) legacy `max-height` CSS transition when `resizable` is absent/false (preserves existing Window/Host panel behaviour); (b) resizable mode (opt-in via `resizable` prop) — renders a 6px `ns-resize` drag handle at the bottom, persists user-set height to `localStorage[${storageKey}-height]`, and supports `defaultHeight`/`minHeight`/`maxHeight` props. `maxHeight` accepts a number or a `calc(100vh - Npx)` string form (parsed at drag time using `window.innerHeight`). Mobile breakpoint (`@media (pointer: coarse), (max-width: 639px)`) hides the drag handle and pins the content area to the `mobileHeight` prop (default 56px). All localStorage access wrapped in try/catch. **Header tint**: `tint` prop (`RowTint | null`) paints the header background. By default (legacy mode) the header uses `tint.base` with a `tint.base` ↔ `tint.hover` swap on hover. When `tintOnlyWhenCollapsed` is set, the tint is applied only while the panel is collapsed — and the shade switches to `tint.selected` with the hover swap disabled (stays flat), because in that mode the header is standing in for the selected item inside and a less-saturated hover would read as an inverted effect. `ServerPanel` is the only current consumer of `tintOnlyWhenCollapsed`; the legacy `base`/`hover` behavior is preserved for forward compatibility
 - `status-panel.tsx` — `WindowPanel` (exported as both `WindowPanel` and deprecated `StatusPanel`); wraps pane metadata rows (tmx, cwd, git, fab/run, agt) in a `CollapsiblePanel` with copyable row interactions
 - `host-panel.tsx` — `HostPanel`; 5-line server metrics display (hostname, CPU sparkline, memory gauge, load averages, disk+uptime) inside a `CollapsiblePanel`
@@ -499,6 +533,13 @@ Command palette actions include: create/rename/kill session, create/rename/kill 
 **Window move actions**: "Window: Move Left" (id `move-window-left`) and "Window: Move Right" (id `move-window-right`) in the `windowActions` group. Only shown when `currentWindow` exists. "Move Left" excluded when the current window is at the minimum index in the session; "Move Right" excluded when at the maximum index (boundary exclusion, not disabled state). On select, calls `moveWindow(session, currentIndex, targetIndex)` then navigates to `/$server/$session/$targetIndex` so the user follows their window to its new position after the swap.
 
 **Cross-session move actions**: Dynamically generated "Window: Move to {sessionName}" actions (id `move-window-to-session-{sessionName}`) — one per session other than the current one. Only shown when `currentWindow` exists AND there are at least 2 sessions. On select, calls `moveWindowToSession(currentSession, currentWindow.index, targetSession)` then navigates to `/$server` (server dashboard) because tmux auto-assigns the window index in the destination session and no `/$server/$session` route exists. Flat action list (not a sub-picker) — works well for typical session counts (2-5) and requires zero changes to the command palette component.
+
+**Lanes actions** (registered in `AppShell`):
+| Action ID | Label | Condition | Behavior |
+|-----------|-------|-----------|----------|
+| `lanes-pin` | "Lanes: Pin Current Window" | `currentWindow` exists AND not already pinned | Pin current window to lanes view |
+| `lanes-unpin` | "Lanes: Unpin Current Window" | `currentWindow` exists AND is pinned | Unpin current window from lanes view |
+| `lanes-open` | "View: Open Lanes" | On server routes (inside AppShell) | Navigate to `/lanes` |
 
 ### Keyboard Shortcuts Modal
 
@@ -894,3 +935,4 @@ The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips 
 | 2026-04-18 | xterm Unicode 15 grapheme widths — added `@xterm/addon-unicode-graphemes` to the Terminal init chain (loads after WebLinks, before WebGL), set `allowProposedApi: true` on the Terminal constructor, and assigned `terminal.unicode.activeVersion = "15-graphemes"` after `loadAddon()`. Aligns xterm's cell-width measurements with tmux's wcwidth-based layout so emojis and other wide graphemes (ZWJ sequences, flag/skin-tone modifiers) render without ghost/overlap artifacts. The `unicodeVersion` constructor option remains a no-op past `"6"` without the addon. | `260418-xgl2-xterm-emoji-width` |
 | 2026-04-18 | Server-capture-at-trigger convention for optimistic actions — every `useOptimisticAction` instance for a server-scoped mutation now threads `server: string` as the first slot of its argument tuple (Shape B), with `server` read from `useSessionContext()` and listed in the calling handler's `useCallback` deps (Shape A). Async-bridge refs (`lastKillSessionRef`, `lastRenameSessionRef`, `killDialogServerRef`) snapshot `{ server, name }` together so rollback/settle target the originating server. `OptimisticContext` switched session-level `GhostEntry`/`KilledEntry`/`RenamedEntry` to discriminated unions carrying `server`; `markKilled`/`unmarkKilled` overloaded by `type` ("session" requires `server`, "server" is global); `useMergedSessions(real, currentServer)` now filters session-level overlays so cross-server overlays don't leak. Window-store keying unchanged — windows don't migrate across servers. Establishes the rule: ambient module-level state for request parameters is prohibited; request-scoping values travel in the call signature, captured at user-event time. Regression test in `use-dialog-state.test.tsx` flips `SessionProvider.server` between dialog open and submit. | `260418-yadg-fix-mutation-server-race` |
 | 2026-04-19 | Sidebar separator cursor polish + corner resize affordance — horizontal separator cursor changed from `cursor-ns-resize` to `cursor-row-resize` (matches vertical's `cursor-col-resize` double-arrow-with-bar vocabulary); vertical hover fixed from `/40` opacity to full `hover:bg-text-secondary`. Both drag handlers now write `document.body.style.cursor` on pointerdown/start and clear to `""` on pointerup/end — document-level override survives the pointer leaving the thin handle (solves implicit-pointer-capture hover loss after first drag). `CollapsiblePanel` unmount cleanup also clears body cursor. New optional corner affordance at separator intersection: `CollapsiblePanel` gains `onCornerPointerDown` prop; when supplied + `showDragHandle` is true, renders a `w-[7px] h-[3px] cursor-nwse-resize` corner flush against the handle's right edge. Corner pointerdown invokes horizontal then vertical handlers, then overrides cursor to `nwse-resize` (last-write-wins). Handlers coexist without coordination because they use independent document listeners (clientY-only vs clientX-only). Prop threaded `app.tsx` → `Sidebar` (`onSidebarResizeStart`) → `ServerPanel` → `CollapsiblePanel` (`onCornerPointerDown`); all optional, mobile drawer omits it. | `260419-9ufu-sidebar-separator-cursor-fixes` |
+| 2026-04-23 | Pane Lanes — multi-column live terminal view at `/lanes` (root-level, cross-server). `LanesPage` with horizontal scroll container, per-lane xterm.js + WebSocket, resizable lane widths (drag handle, 480px default, min 280px, persisted to localStorage). Pin/unpin via 4 discovery paths: sidebar pin icon, right-click context menu, lane header unpin, command palette actions (`lanes-pin`/`lanes-unpin`/`lanes-open`). Focus: click-to-focus + hover-to-focus + keyboard cycling (`Ctrl+]`/`Ctrl+[`). SSE per unique pinned server for killed-window detection (auto-unpin after 5s). `usePinnedLanes` hook with cross-tab sync via `storage` event. Empty state with guidance. Own minimal chrome (no AppShell). `ContextMenu` component for right-click pin toggle on sidebar window rows | `260423-zq87-pane-lanes` |

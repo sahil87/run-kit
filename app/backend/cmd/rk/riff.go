@@ -646,11 +646,14 @@ func buildSpawnArgvs(worktreePath, resolvedName string, spec effectiveSpec) [][]
 		paneShellString(spec.Launcher, spec.Panes[0]),
 	})
 	// Panes 1..N → split-window. -h keeps the previous "horizontal split"
-	// semantics as the initial split direction; tmux select-layout then
-	// rearranges per canonical layout name.
+	// semantics (panes placed side-by-side) as the initial split direction;
+	// tmux select-layout then rearranges per canonical layout name. When
+	// spec.Layout is empty and there are 2+ panes, the -h direction is what
+	// the user sees — matching the pre-refactor baseline behavior.
 	for _, pane := range spec.Panes[1:] {
 		argvs = append(argvs, []string{
 			"split-window",
+			"-h",
 			"-t", resolvedName,
 			"-c", worktreePath,
 			paneShellString(spec.Launcher, pane),
@@ -798,6 +801,21 @@ func runFanOut(ctx context.Context, spec effectiveSpec) error {
 	var wg sync.WaitGroup
 	wg.Add(n)
 
+	// Capture the first goroutine to actually fail, using sync.Once to break
+	// ties at the moment of failure (not by index scan afterwards). Once one
+	// goroutine cancels the context, siblings may also surface errors
+	// (context.Canceled) — but only the first true failure should be treated
+	// as the primary error and be excluded from the rollback plan.
+	var firstFailOnce sync.Once
+	firstFailIdx := -1
+	var firstFailErr error
+	recordFailure := func(i int, err error) {
+		firstFailOnce.Do(func() {
+			firstFailIdx = i
+			firstFailErr = err
+		})
+	}
+
 	for i := 0; i < n; i++ {
 		go func(i int) {
 			defer wg.Done()
@@ -807,6 +825,7 @@ func runFanOut(ctx context.Context, spec effectiveSpec) error {
 			worktreePath, err := runWtCreate(ctx, spec.Passthrough)
 			if err != nil {
 				res.Err = err
+				recordFailure(i, err)
 				cancel() // tear down siblings
 				return
 			}
@@ -816,6 +835,7 @@ func runFanOut(ctx context.Context, spec effectiveSpec) error {
 			res.WindowName = windowName
 			if err != nil {
 				res.Err = err
+				recordFailure(i, err)
 				cancel()
 				return
 			}
@@ -823,19 +843,11 @@ func runFanOut(ctx context.Context, spec effectiveSpec) error {
 	}
 	wg.Wait()
 
-	// Find first error (lowest index with Err != nil).
-	failureIdx := -1
-	var firstErr error
-	for i := range results {
-		if results[i].Err != nil {
-			failureIdx = i
-			firstErr = results[i].Err
-			break
-		}
-	}
-	if firstErr == nil {
+	if firstFailErr == nil {
 		return nil
 	}
+	failureIdx := firstFailIdx
+	firstErr := firstFailErr
 
 	// Roll back the other goroutines' artifacts.
 	plan := planFanOutRollback(results, failureIdx)

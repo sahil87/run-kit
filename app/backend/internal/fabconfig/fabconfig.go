@@ -259,6 +259,11 @@ func decodePanes(node *yaml.Node) ([]PaneSpec, bool) {
 				if valNode.Kind == yaml.ScalarNode {
 					spec.Cmd = valNode.Value
 				}
+			default:
+				// Unknown key inside a pane entry — discard entire preset
+				// per spec: pane entries MUST have exactly one of
+				// {skill, cmd} and no other keys.
+				return nil, false
 			}
 		}
 		if hasSkill && hasCmd {
@@ -270,8 +275,9 @@ func decodePanes(node *yaml.Node) ([]PaneSpec, bool) {
 		} else if hasCmd {
 			spec.Kind = PaneKindCmd
 		} else {
-			// Entry has neither key — skip silently (best-effort).
-			continue
+			// Entry has neither key — discard entire preset per spec
+			// (pane entries MUST have exactly one of {skill, cmd}).
+			return nil, false
 		}
 		out = append(out, spec)
 	}

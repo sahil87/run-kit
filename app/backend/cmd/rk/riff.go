@@ -376,6 +376,16 @@ func resolveWindowName(existing []string, base string) string {
 // window-creation time — if the user's $SHELL is set it is used verbatim,
 // otherwise /bin/sh is the POSIX-safe fallback. Pure helper: no I/O, no env
 // reads, deterministic for a given input.
+//
+// Empty/whitespace-only input yields just the bare `exec "${SHELL:-/bin/sh}"`
+// form so the result is always a syntactically valid POSIX command list —
+// never a leading `; exec …`. In practice neither caller passes an empty
+// string today (runTmuxNewWindow always composes a non-empty `interactive`
+// string, and runTmuxSplitWindow guards on `riffSplitFlag != ""`), but this
+// keeps the helper safe in isolation.
 func shellWrap(cmd string) string {
+	if strings.TrimSpace(cmd) == "" {
+		return `exec "${SHELL:-/bin/sh}"`
+	}
 	return fmt.Sprintf(`%s; exec "${SHELL:-/bin/sh}"`, cmd)
 }

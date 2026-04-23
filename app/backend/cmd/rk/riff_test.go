@@ -224,9 +224,14 @@ func TestShellWrap(t *testing.T) {
 		want string
 	}{
 		{
-			name: "empty input still produces the exec suffix",
+			name: "empty input produces only the exec suffix",
 			in:   "",
-			want: `; exec "${SHELL:-/bin/sh}"`,
+			want: `exec "${SHELL:-/bin/sh}"`,
+		},
+		{
+			name: "whitespace-only input produces only the exec suffix",
+			in:   "   \t  ",
+			want: `exec "${SHELL:-/bin/sh}"`,
 		},
 		{
 			name: "simple command",

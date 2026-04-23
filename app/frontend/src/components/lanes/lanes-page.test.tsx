@@ -22,6 +22,7 @@ vi.mock("@/hooks/use-pinned-lanes", () => ({
           p.windowIndex === pin.windowIndex,
       ),
     clearPins: mockClearPins,
+    movePinToIndex: vi.fn(),
   }),
 }));
 
@@ -40,6 +41,16 @@ vi.mock("@/components/lanes/lane", () => ({
     onFocus: () => void;
     onUnpin: () => void;
     closed?: boolean;
+    hideHeader?: boolean;
+    fitMode?: boolean;
+    maximized?: boolean;
+    hidden?: boolean;
+    onDoubleClickHeader?: () => void;
+    windowInfo?: unknown;
+    isDragOver?: boolean;
+    onDragStart?: () => void;
+    onDragOver?: () => void;
+    onDragEnd?: () => void;
   }) => (
     <div
       data-testid={`lane-${pin.server}:${pin.session}:${pin.windowIndex}`}
@@ -71,12 +82,21 @@ vi.mock("@/contexts/theme-context", () => ({
 
 import { LanesPage } from "./lanes-page";
 
+// jsdom doesn't implement scrollIntoView or EventSource
+Element.prototype.scrollIntoView = vi.fn();
+globalThis.EventSource = vi.fn(() => ({
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  close: vi.fn(),
+})) as unknown as typeof EventSource;
+
 describe("LanesPage", () => {
   beforeEach(() => {
     mockPins = [];
     mockUnpinWindow.mockReset();
     mockPinWindow.mockReset();
     mockClearPins.mockReset();
+    try { sessionStorage.clear(); } catch { /* ignore */ }
 
     // Stub EventSource so SSE logic does not throw
     vi.stubGlobal(
@@ -122,23 +142,14 @@ describe("LanesPage", () => {
     expect(screen.getByTestId("lane-remote:build:0")).toBeInTheDocument();
   });
 
-  it("pin count badge shows correct count", () => {
+  it("top bar shows Lanes title when pins exist", () => {
     mockPins = [
       { server: "default", session: "work", windowIndex: 0 },
       { server: "default", session: "work", windowIndex: 1 },
     ];
     render(<LanesPage />);
 
-    // The badge renders the pin count as text inside the top bar
-    expect(screen.getByText("2")).toBeInTheDocument();
-  });
-
-  it("does not show pin count badge when no pins", () => {
-    mockPins = [];
-    render(<LanesPage />);
-
-    // Badge only shows when pinCount > 0
-    expect(screen.queryByText("0")).not.toBeInTheDocument();
+    expect(screen.getByText("Lanes")).toBeInTheDocument();
   });
 
   it("focus indicator (ring class) applied to the first lane by default", () => {

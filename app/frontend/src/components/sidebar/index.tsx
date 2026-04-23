@@ -545,15 +545,26 @@ export function Sidebar({
               <span className="truncate text-text-primary font-mono">{currentSession}</span>
             </span>
           )}
-          <span className={currentSession ? "" : "ml-auto"}>
-            <button
-              onClick={onCreateSession}
-              aria-label="New session"
-              className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
-            >
-              +
-            </button>
-          </span>
+          <span className={currentSession ? "" : "ml-auto"} />
+          <a
+            href="/lanes"
+            aria-label="Open Lanes"
+            title="Lanes"
+            className="text-text-secondary hover:text-text-primary transition-colors px-1 flex items-center justify-center"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              <line x1="3" y1="2" x2="3" y2="14" />
+              <line x1="8" y1="2" x2="8" y2="14" />
+              <line x1="13" y1="2" x2="13" y2="14" />
+            </svg>
+          </a>
+          <button
+            onClick={onCreateSession}
+            aria-label="New session"
+            className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+          >
+            +
+          </button>
         </div>
         <div className="pt-1 flex-1 min-h-0 overflow-y-auto">
         {sessions.length === 0 ? (

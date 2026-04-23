@@ -6,6 +6,7 @@ import { clipboardProvider } from "@/components/terminal-client";
 import { copyToClipboard } from "@/lib/clipboard";
 import { LaneHeader } from "@/components/lanes/lane-header";
 import type { LanePin } from "@/hooks/use-pinned-lanes";
+import type { WindowInfo } from "@/types";
 
 const WIDTHS_STORAGE_KEY = "runkit-lanes-widths";
 const DEFAULT_WIDTH = 480;
@@ -13,11 +14,20 @@ const MIN_WIDTH = 280;
 
 type LaneProps = {
   pin: LanePin;
+  windowInfo?: WindowInfo;
   focused: boolean;
   onFocus: () => void;
   onUnpin: () => void;
   closed?: boolean;
   hideHeader?: boolean;
+  isDragOver?: boolean;
+  onDragStart?: () => void;
+  onDragOver?: () => void;
+  onDragEnd?: () => void;
+  fitMode?: boolean;
+  maximized?: boolean;
+  hidden?: boolean;
+  onDoubleClickHeader?: () => void;
 };
 
 function laneWidthKey(pin: LanePin): string {
@@ -56,7 +66,7 @@ function readWidth(pin: LanePin): number {
   return typeof stored === "number" && stored >= MIN_WIDTH ? stored : DEFAULT_WIDTH;
 }
 
-export function Lane({ pin, focused, onFocus, onUnpin, closed, hideHeader }: LaneProps) {
+export function Lane({ pin, windowInfo, focused, onFocus, onUnpin, closed, hideHeader, isDragOver, onDragStart, onDragOver, onDragEnd, fitMode, maximized, hidden, onDoubleClickHeader }: LaneProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
@@ -368,15 +378,33 @@ export function Lane({ pin, focused, onFocus, onUnpin, closed, hideHeader }: Lan
     }
   }, [focused]);
 
+  // Reflow terminal when layout changes
+  useEffect(() => {
+    requestAnimationFrame(() => fitAddonRef.current?.fit());
+  }, [fitMode, maximized, hidden]);
+
   return (
     <div
-      className={`flex flex-col h-full shrink-0 relative border-r border-border ${
-        focused ? "ring-2 ring-accent ring-inset" : ""
-      }`}
-      style={{ width: `${width}px` }}
+      className={`flex flex-col h-full relative border-r border-border ${
+        maximized ? "flex-1 min-w-0" : fitMode ? "flex-1 min-w-0" : "shrink-0"
+      } ${focused ? "ring-2 ring-accent ring-inset" : ""} ${isDragOver ? "border-l-2 border-l-accent" : ""} ${hidden ? "hidden" : ""}`}
+      style={maximized || fitMode ? undefined : { width: `${width}px` }}
       onClick={onFocus}
+      onDragOver={(e) => { e.preventDefault(); onDragOver?.(); }}
+      onDrop={(e) => { e.preventDefault(); }}
     >
-      {!hideHeader && <LaneHeader pin={pin} connected={connected} onUnpin={onUnpin} />}
+      {!hideHeader && (
+        <LaneHeader
+          pin={pin}
+          connected={connected}
+          onUnpin={onUnpin}
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          windowInfo={windowInfo}
+          onDoubleClick={onDoubleClickHeader}
+        />
+      )}
 
       {/* Terminal area */}
       <div
@@ -399,11 +427,13 @@ export function Lane({ pin, focused, onFocus, onUnpin, closed, hideHeader }: Lan
         </div>
       )}
 
-      {/* Right-edge resize handle */}
-      <div
-        className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-accent/30 active:bg-accent/50 z-10"
-        onPointerDown={onPointerDown}
-      />
+      {/* Right-edge resize handle — hidden in fit mode */}
+      {!fitMode && (
+        <div
+          className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-accent/30 active:bg-accent/50 z-10"
+          onPointerDown={onPointerDown}
+        />
+      )}
     </div>
   );
 }

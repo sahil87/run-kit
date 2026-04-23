@@ -3,12 +3,18 @@ import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { usePinnedLanes } from "@/hooks/use-pinned-lanes";
 import { Lane } from "@/components/lanes/lane";
 import type { PaletteAction } from "@/components/command-palette";
-import type { ProjectSession } from "@/types";
+import type { ProjectSession, WindowInfo } from "@/types";
 
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
 
 export function LanesPage() {
-  const { pins, pinWindow, unpinWindow, isPinned } = usePinnedLanes();
+  const { pins, pinWindow, unpinWindow, isPinned, movePinToIndex } = usePinnedLanes();
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [fitMode, setFitMode] = useState(() => {
+    try { return sessionStorage.getItem("runkit-lanes-fit") === "true"; } catch { return false; }
+  });
+  const [maximizedIndex, setMaximizedIndex] = useState<number | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(() => {
     try {
       const saved = sessionStorage.getItem("runkit-lanes-focused");
@@ -23,6 +29,19 @@ export function LanesPage() {
 
   // Track available windows from SSE for pin-from-palette
   const [serverSessions, setServerSessions] = useState<Map<string, ProjectSession[]>>(new Map());
+
+  // Look up WindowInfo for each pin from SSE data
+  const getWindowInfo = useCallback((pin: { server: string; session: string; windowIndex: number }): WindowInfo | undefined => {
+    const sessions = serverSessions.get(pin.server);
+    if (!sessions) return undefined;
+    const session = sessions.find((s) => s.name === pin.session);
+    return session?.windows.find((w) => w.index === pin.windowIndex);
+  }, [serverSessions]);
+
+  // Persist fit mode
+  useEffect(() => {
+    try { sessionStorage.setItem("runkit-lanes-fit", String(fitMode)); } catch { /* ignore */ }
+  }, [fitMode]);
 
   // Persist focused index and scroll to focused lane
   useEffect(() => {
@@ -212,6 +231,8 @@ export function LanesPage() {
 
     return [
       { id: "lanes-zen", label: "Lanes: Toggle Zen Mode", shortcut: "Ctrl+.", onSelect: () => setZenMode((prev) => !prev) },
+      { id: "lanes-fit", label: fitMode ? "Lanes: Fixed Width" : "Lanes: Fit to Window", onSelect: () => setFitMode((prev) => !prev) },
+      { id: "lanes-max", label: maximizedIndex !== null ? "Lanes: Restore All" : "Lanes: Maximize Focused", onSelect: () => setMaximizedIndex((prev) => prev !== null ? null : focusedIndex) },
       { id: "lanes-back", label: "View: Go Back", onSelect: () => window.history.back() },
       ...pinActions,
       ...pins.map((pin, i) => ({
@@ -225,7 +246,7 @@ export function LanesPage() {
         onSelect: () => unpinWindow(pin),
       })),
     ];
-  }, [pins, unpinWindow, pinWindow, isPinned, serverSessions]);
+  }, [pins, unpinWindow, pinWindow, isPinned, serverSessions, fitMode, maximizedIndex, focusedIndex]);
 
   if (pins.length === 0) {
     return (
@@ -263,11 +284,27 @@ export function LanesPage() {
             <Lane
               key={pinId}
               pin={pin}
+              windowInfo={getWindowInfo(pin)}
               focused={index === focusedIndex}
               onFocus={() => handleFocus(index)}
               onUnpin={() => unpinWindow(pin)}
               closed={closedLanes.has(pinId)}
               hideHeader={zenMode}
+              fitMode={fitMode}
+              maximized={maximizedIndex === index}
+              hidden={maximizedIndex !== null && maximizedIndex !== index}
+              onDoubleClickHeader={() => setMaximizedIndex((prev) => prev === index ? null : index)}
+              isDragOver={dropIndex === index && dragIndex !== index}
+              onDragStart={() => setDragIndex(index)}
+              onDragOver={() => setDropIndex(index)}
+              onDragEnd={() => {
+                if (dragIndex !== null && dropIndex !== null && dragIndex !== dropIndex) {
+                  movePinToIndex(dragIndex, dropIndex);
+                  setFocusedIndex(dropIndex);
+                }
+                setDragIndex(null);
+                setDropIndex(null);
+              }}
             />
           );
         })}

@@ -14,6 +14,7 @@ type UsePinnedLanesReturn = {
   unpinWindow: (pin: LanePin) => void;
   isPinned: (pin: LanePin) => boolean;
   clearPins: () => void;
+  movePinToIndex: (fromIndex: number, toIndex: number) => void;
 };
 
 function pinKey(pin: LanePin): string {
@@ -93,8 +94,21 @@ export function usePinnedLanes(): UsePinnedLanesReturn {
     setPins([]);
   }, []);
 
+  const movePinToIndex = useCallback((fromIndex: number, toIndex: number) => {
+    setPins((prev) => {
+      if (fromIndex === toIndex) return prev;
+      if (fromIndex < 0 || fromIndex >= prev.length) return prev;
+      if (toIndex < 0 || toIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      writePins(next);
+      return next;
+    });
+  }, []);
+
   return useMemo(
-    () => ({ pins, pinWindow, unpinWindow, isPinned, clearPins }),
-    [pins, pinWindow, unpinWindow, isPinned, clearPins],
+    () => ({ pins, pinWindow, unpinWindow, isPinned, clearPins, movePinToIndex }),
+    [pins, pinWindow, unpinWindow, isPinned, clearPins, movePinToIndex],
   );
 }

@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-04-23T02:22:25Z"}
+{"args":"rk riff: workflow features (presets, fab-change bridge, fan-out)","cmd":"fab-new","event":"command","ts":"2026-04-23T02:22:25Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-23T02:23:59Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-04-23T02:24:03Z"}

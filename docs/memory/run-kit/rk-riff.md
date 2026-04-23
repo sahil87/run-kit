@@ -16,18 +16,18 @@ Spin up an isolated AI development workspace in one shot:
 ## Invocation
 
 ```
-rk riff [--cmd <command>] [--split <setup-cmd>] [-- <wt-flags...>]
+rk riff [--skill <skill>] [--setup-pane <setup-cmd>] [-- <wt-flags...>]
 ```
 
 ## Flag Surface
 
 | Flag | Type | Default | Purpose |
 |------|------|---------|---------|
-| `--cmd` | string | `/fab-discuss` | Claude Code command/skill launched in the new window |
-| `--split` | string | `""` | When non-empty, splits the window horizontally and runs this setup command in the right pane |
+| `--skill` | string | `/fab-discuss` | Claude Code skill or slash-command launched in the new window |
+| `--setup-pane` | string | `""` | When non-empty, splits the window horizontally and runs this setup command in the right pane |
 | `--` | separator | — | Everything after `--` forwards verbatim to `wt create` (e.g., `--worktree-name`, `--base`, `--reuse`) |
 
-Cobra's `SetInterspersed(false)` is called in `init()` so the `--` terminator routes passthrough args straight through to `RunE`'s `args []string` parameter unmolested (rather than being mis-parsed as flags for `rk riff`). No other user-facing flags exist.
+Cobra's `SetInterspersed(false)` is called in `init()` so the `--` terminator routes passthrough args straight through to `RunE`'s `args []string` parameter unmolested (rather than being mis-parsed as flags for `rk riff`). No other user-facing flags exist. Internal package-level variables that back the flags are `riffSkillFlag` and `riffSetupPaneFlag` (renamed from `riffCmdFlag` / `riffSplitFlag` in change `260423-udhe-rk-riff-cli-surface`).
 
 ## Precondition Checks
 
@@ -68,7 +68,7 @@ The launcher is treated as a **shell command string** (not an argv slice). It ma
    3. **`shellWrap` suffix**: appends `; exec "${SHELL:-/bin/sh}"` so the pane stays interactive in the user's shell after the launcher exits, rather than dying or showing `[exited]`.
 
    `cmd.Env = tmuxChildEnv()` restores `TMUX=<OriginalTMUX>` so tmux targets the user's server.
-6. If `--split` is non-empty: `tmux split-window -h -c <worktree-path> "<shellWrap(setupCmd)>"` (10s timeout). Same child-env restore. The literal `"<setup>; exec zsh"` form is gone — `shellWrap` now emits `<setupCmd>; exec "${SHELL:-/bin/sh}"`, so bash/fish users land in their own shell instead of zsh. Only the `shellWrap` suffix is applied here — the interactive-launcher wrap is scoped to step 5. `--split ""` (empty) is treated identically to unset — the step is skipped entirely.
+6. If `--setup-pane` is non-empty: `tmux split-window -h -c <worktree-path> "<shellWrap(setupCmd)>"` (10s timeout). Same child-env restore. The literal `"<setup>; exec zsh"` form is gone — `shellWrap` now emits `<setupCmd>; exec "${SHELL:-/bin/sh}"`, so bash/fish users land in their own shell instead of zsh. Only the `shellWrap` suffix is applied here — the interactive-launcher wrap is scoped to step 5. `--setup-pane ""` (empty) is treated identically to unset — the step is skipped entirely.
 
 ## Exit Code Discipline
 
@@ -81,9 +81,9 @@ The launcher is treated as a **shell command string** (not an argv slice). It ma
 | 2 | Precondition failure (`$TMUX` unset, `wt` not on PATH) |
 | 3 | Subprocess failure (wt or tmux non-zero, output parse failure, timeout) |
 
-## Single-Quote Escaping for `--cmd`
+## Single-Quote Escaping for `--skill`
 
-The second argument to `tmux new-window` is itself a shell command string. The launcher + `--cmd` are concatenated as:
+The second argument to `tmux new-window` is itself a shell command string. The launcher + `--skill` are concatenated as:
 
 ```
 <launcher> '<escaped-cmd>'
@@ -130,7 +130,7 @@ The split between I/O (`listWindowNames`) and pure logic (`resolveWindowName`) k
 `fabconfig.ReadSpawnCommand` returns the `agent.spawn_command` value from `fab/project/config.yaml` **unescaped and verbatim**. It is then concatenated into a shell command string that tmux's shell executes. This means:
 
 - `fab/project/config.yaml` is a **trust boundary equivalent to committed code**. A hostile or careless edit to that file can execute arbitrary shell the moment `rk riff` runs.
-- `escapeSingleQuotes` ONLY protects the `--cmd` argument. It does **not** protect the launcher string — shell expansion in the launcher is deliberate.
+- `escapeSingleQuotes` ONLY protects the `--skill` argument. It does **not** protect the launcher string — shell expansion in the launcher is deliberate.
 - Shell expansion inside the launcher (e.g., `claude -n "$(basename "$(pwd)")"`) is the documented **intentional exception** to constitution §I (Security First) — the "all process execution MUST use argv slices" rule. Removing that capability would break legitimate launcher patterns, and defensive escaping / allow-listing offers no meaningful protection against a hostile repo (which is an out-of-scope threat model).
 - Users who consume third-party repos SHOULD audit `fab/project/config.yaml` before running `rk riff` against them — the same way they would audit a `justfile` or `Makefile` checked into that repo.
 
@@ -195,3 +195,4 @@ No integration tests invoke real `wt`/`tmux` — the pure helpers are the unit-t
 | 2026-04-17 | Initial `rk riff` subcommand — worktree + tmux window + Claude launcher. Unifies the personal-dotfile `riff`/`riffs` shell functions into a first-class `rk` command. `--cmd` (default `/fab-discuss`), `--split <setup-cmd>` (optional horizontal split), `-- <wt-flags>` passthrough to `wt create`. Preconditions: `$TMUX` set + `wt` on PATH (exit 2). Launcher from `agent.spawn_command` in `fab/project/config.yaml` via new `internal/fabconfig/` (falls back to `claude --dangerously-skip-permissions`). Local `exitCodeError` wrapper maps exit codes (2 precondition, 3 subprocess) without touching `main.execute()`. `exec.CommandContext` with 30s/10s timeouts. `tmux.OriginalTMUX` restored in child env so tmux targets the user's current server. | `260416-r1j6-add-riff-command` |
 | 2026-04-17 | Name the tmux window `riff-<worktree-basename>` via the `-n` flag, and document via the pure helper `buildNewWindowArgs`. | `260417-w4af-name-riff-window-after-worktree` |
 | 2026-04-23 | Correctness and portability fixes — no CLI surface change. (1) New pure `shellWrap(cmd)` helper appends `; exec "${SHELL:-/bin/sh}"`; used by both new-window and split paths so panes stay interactive after their commands exit. (2) Launcher now runs under an interactive `${SHELL:-/bin/sh} -i -c '...'` wrap inside `buildNewWindowArgs` so `.zshrc`/`.bashrc` aliases, functions, and interactive-only PATH tweaks reach the Claude Code launcher (closes Bug 3). (3) Split pane replaces the hardcoded `exec zsh` with `shellWrap(setupCmd)` — bash/fish users land in their own shell (closes Bug 8). (4) SIGINT/SIGTERM propagation — `runRiff` wraps its root context via `signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)` with `defer stop()`, threaded through all three subprocess call sites; Ctrl-C no longer leaves orphan `wt`/`tmux` children (closes Bug 10). (5) Window-name auto-suffix — `listWindowNames(ctx)` probes `tmux list-windows -F '#W'` and `resolveWindowName(existing, base)` (pure, gap-filling) applies `-2`, `-3`, … on collision; TOCTOU race between list and new-window is accepted (closes Bug 11). (6) Added Security / Trust Boundary section documenting `fab/project/config.yaml` as committed-code-equivalent and naming launcher shell expansion as the intentional exception to constitution §I (addresses Bug 9 via docs only — no code mitigation). `buildNewWindowArgs` signature changed to accept the resolved name; new `TestShellWrap` and `TestResolveWindowName` cover the new pure helpers. | `260423-ba9f-rk-riff-correctness-fixes` |
+| 2026-04-23 | CLI surface refinement — hard-rename flags and expand help text, no behavioral change. (1) `--cmd` renamed to `--skill` (hard-rename, no deprecation alias — invocations using `--cmd` fail with cobra's "unknown flag" error). (2) `--split` renamed to `--setup-pane` (hard-rename, no deprecation alias). (3) Package-level Go variables renamed in lockstep: `riffCmdFlag` → `riffSkillFlag`, `riffSplitFlag` → `riffSetupPaneFlag`. (4) `Use:` synopsis expanded from `riff [-- wt-flags...]` to `riff [--skill <name>] [--setup-pane <cmd>] [-- <wt-flags>...]` so both primary flags and the `--` passthrough separator appear in `rk riff --help`'s Usage line. (5) `Long:` help expanded to match `serve.go` house style with `Prerequisites:`, `--` separator / `wt create` passthrough paragraph, `Launcher resolution:`, `Examples:` (at least four invocations covering bare default, `--skill`, `--setup-pane`, and wt passthrough), and `Exit codes:` blocks (0 success / 2 precondition / 3 subprocess). (6) Bug 2 investigation note — verified on 2026-04-23 via live smoke test that positional argv to `claude` (documented as `[prompt]` in `claude --help`) correctly dispatches slash-commands; the current `<launcher> '<escaped-cmd>'` composition in `buildNewWindowArgs` is correct. No delivery-mechanism change, no new test. | `260423-udhe-rk-riff-cli-surface` |

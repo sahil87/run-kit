@@ -79,11 +79,11 @@ func buildNewWindowArgs(worktreePath, launcher, cmdArg string) []string {
 
 `runTmuxSplitWindow` uses the same helper: `shellCmd := shellWrap(setupCmd)`.
 
-### 2. Decide whether to wrap the launcher in an *interactive* shell (Bug 3)
+### 2. Wrap the launcher in an interactive shell (Bug 3)
 
-**[NEEDS CLARIFICATION]** — two options, user must pick one:
+<!-- clarified: Option A (interactive `$SHELL -i -c`) chosen over Option B (non-interactive). Rationale: closes Bug 3 for real instead of relabeling it; escape hatch via a future `agent.shell_mode` config key if rc-file side effects bite. -->
 
-**Option A (recommended)**: wrap the launcher invocation itself in `$SHELL -i -c` so that `.zshrc`/`.bashrc` aliases, functions, and PATH additions are available to the launcher:
+Wrap the launcher invocation itself in `$SHELL -i -c` so that `.zshrc`/`.bashrc` aliases, functions, and PATH additions are available to the launcher:
 
 ```go
 // shellCmd before wrapping:
@@ -92,13 +92,11 @@ shellCmd := fmt.Sprintf(`%s -i -c %s`, shellBin(), singleQuote(launcherWithArg))
 return shellWrap(shellCmd)
 ```
 
-Risks:
+Accepted risks (documented, not mitigated preemptively):
 - `.zshrc` side effects (powerlevel10k instant-prompt warnings, heavy init) run twice — once for the launcher, once for the post-exit shell.
 - Interactive rc files that assume a tty might print warnings or behave oddly when invoked via `-i -c`.
 
-**Option B (conservative)**: leave non-interactive, document the limitation in `rk-riff.md`. Users who need aliases can set `agent.spawn_command` to include explicit PATH / absolute binary path.
-
-Default recommendation in this intake: Option A with an escape hatch — if a future config key like `agent.shell_mode: non-interactive` is ever needed it can be added then. Don't add it preemptively.
+If either of the above materially degrades the experience in the field, add an `agent.shell_mode: non-interactive` config key in a follow-up change. Do not add it preemptively.
 
 ### 3. Replace hardcoded `exec zsh` with `exec "${SHELL:-/bin/sh}"`
 
@@ -210,7 +208,7 @@ No code change. This is purely making the implicit-safe-because-we-trust-the-rep
 
 ## Open Questions
 
-- Interactive vs non-interactive shell wrap for the launcher (Bug 3 — see §2 above). **Must resolve before spec finalization.** Default recommendation: interactive.
+- ~~Interactive vs non-interactive shell wrap for the launcher (Bug 3 — see §2 above).~~ **Resolved 2026-04-23**: Option A (interactive `$SHELL -i -c`).
 - `resolveWindowName` — query `tmux list-windows` up front (explicit, one extra tmux call) or catch tmux's duplicate-name error retroactively (fewer calls but surfaces a race)? Recommendation: query up front; the extra call is ~5ms and the logic is easier to reason about.
 - Do we test the SIGINT behavior? A unit test here requires forking a hanging child; probably out of scope. Manual verification via `rk doctor`-style smoke test is enough. Recommendation: skip automated SIGINT test; note the manual check in the spec.
 - Should `shellWrap` use `${SHELL:-/bin/sh}` (POSIX safe, works everywhere) or `$SHELL` (simpler, fails if `$SHELL` is unset which is rare)? Recommendation: the `${SHELL:-/bin/sh}` form.
@@ -221,13 +219,33 @@ No code change. This is purely making the implicit-safe-because-we-trust-the-rep
 |---|-------|----------|-----------|--------|
 | 1 | Certain | Bundle five mechanical fixes + one doc-only fix in a single change, defer Bug 2 to the CLI-surface change | User-specified in the grouping plan — explicit directive | S:95 R:70 A:80 D:90 |
 | 2 | Certain | Factor a shared `shellWrap` helper used by both `runTmuxNewWindow` and `runTmuxSplitWindow` | Simple DRY; both paths now need identical "exec $SHELL" suffix | S:90 R:85 A:90 D:95 |
-| 3 | Confident | Use `${SHELL:-/bin/sh}` form over bare `$SHELL` | POSIX-safe fallback with zero downside; matches conservative stdlib patterns elsewhere in rk | S:70 R:90 A:85 D:80 |
-| 4 | Confident | Auto-suffix `-2`, `-3`, … on window-name collision rather than erroring or reusing | User explicitly preferred auto-suffix in the plan discussion (non-destructive, cheapest option) | S:80 R:75 A:75 D:70 |
-| 5 | Confident | Query `tmux list-windows` up front to detect collisions | More explicit than catching tmux's duplicate-name error; one extra fast call; reasoning-simpler | S:70 R:80 A:80 D:70 |
-| 6 | Confident | Wrap `runRiff`'s root context once via `signal.NotifyContext`, propagate to all three subprocess calls | Simpler than per-subprocess wrapping; matches stdlib idiom for CLI tools | S:75 R:85 A:85 D:85 |
-| 7 | Confident | Skip automated SIGINT test — verify manually | Unit-testing signal handling here requires forking a hung child; ROI is low, other bug fixes have clean unit tests | S:60 R:85 A:70 D:80 |
-| 8 | Confident | Add Security / Trust Boundary section to `rk-riff.md` as the Bug 9 "fix" — no code change | User-approved in the triage — explicit documentation of the existing design rather than new mitigation | S:85 R:90 A:85 D:85 |
-| 9 | Tentative | Use option A (`$SHELL -i -c`) over option B (non-interactive) for Bug 3 | Recommended default in the intake pending user confirmation; reversible via a config flag later if rc-file side effects bite | S:55 R:55 A:55 D:45 |
-| 10 | Tentative | Keep the existing `exitCodeError` discipline unchanged in this change | Promoting to a shared `internal/cliexit` helper was flagged as a DX concern but belongs in a follow-up change, not this one | S:70 R:75 A:75 D:65 |
+| 3 | Certain | Use `${SHELL:-/bin/sh}` form over bare `$SHELL` | Clarified — user confirmed | S:95 R:90 A:85 D:80 |
+| 4 | Certain | Auto-suffix `-2`, `-3`, … on window-name collision rather than erroring or reusing | Clarified — user confirmed | S:95 R:75 A:75 D:70 |
+| 5 | Certain | Query `tmux list-windows` up front to detect collisions | Clarified — user confirmed | S:95 R:80 A:80 D:70 |
+| 6 | Certain | Wrap `runRiff`'s root context once via `signal.NotifyContext`, propagate to all three subprocess calls | Clarified — user confirmed | S:95 R:85 A:85 D:85 |
+| 7 | Certain | Skip automated SIGINT test — verify manually | Clarified — user confirmed | S:95 R:85 A:70 D:80 |
+| 8 | Certain | Add Security / Trust Boundary section to `rk-riff.md` as the Bug 9 "fix" — no code change | Clarified — user confirmed | S:95 R:90 A:85 D:85 |
+| 9 | Certain | Use option A (`$SHELL -i -c`) over option B (non-interactive) for Bug 3 | Clarified — user confirmed (Option A) | S:95 R:55 A:55 D:45 |
+| 10 | Certain | Exit-code handling is out of scope — do not preserve, refactor, or otherwise touch it | Clarified — user: "we don't need to preserve exit code in riff" | S:95 R:75 A:75 D:65 |
 
-10 assumptions (2 certain, 6 confident, 2 tentative, 0 unresolved).
+10 assumptions (10 certain, 0 confident, 0 tentative, 0 unresolved).
+
+## Clarifications
+
+### Session 2026-04-23
+
+| # | Action | Detail |
+|---|--------|--------|
+| 9 | Resolved | Option A (interactive `$SHELL -i -c`) chosen for Bug 3 launcher shell mode |
+| 10 | Resolved | Exit-code handling explicitly out of scope — do not preserve, refactor, or touch it |
+
+### Session 2026-04-23 (bulk confirm)
+
+| # | Action | Detail |
+|---|--------|--------|
+| 3 | Confirmed | — |
+| 4 | Confirmed | — |
+| 5 | Confirmed | — |
+| 6 | Confirmed | — |
+| 7 | Confirmed | — |
+| 8 | Confirmed | — |

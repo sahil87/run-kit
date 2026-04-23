@@ -99,13 +99,21 @@ func TestEscapeSingleQuotes(t *testing.T) {
 // for the `tmux new-window` invocation. This is a pure-function test — it MUST
 // NOT invoke real tmux or exec.CommandContext. The helper is the test seam
 // required by the spec's "Test seam for argv construction" requirement; this
-// test covers the naming rule (`riff-<filepath.Base(worktreePath)>`), argv
-// ordering (`new-window -n <name> -c <path> <shellCmd>`), the distinct-argv
-// security constraint, and the shell-command escape for cmdArg.
+// test covers the resolvedName verbatim rule, argv ordering
+// (`new-window -n <name> -c <path> <shellCmd>`), the distinct-argv security
+// constraint, the interactive-shell wrap, and the shellWrap suffix.
+//
+// The trailing shell string has the shape
+//
+//	${SHELL:-/bin/sh} -i -c '<launcher-with-cmd-arg-single-quote-escaped>'; exec "${SHELL:-/bin/sh}"
+//
+// where single quotes in the layer-1 launcher-with-cmd-arg are escaped via
+// the canonical `'\''` sequence before being wrapped in `sh -i -c '…'`.
 func TestBuildNewWindowArgs(t *testing.T) {
 	cases := []struct {
 		name         string
 		worktreePath string
+		resolvedName string
 		launcher     string
 		cmdArg       string
 		want         []string
@@ -113,70 +121,186 @@ func TestBuildNewWindowArgs(t *testing.T) {
 		{
 			name:         "typical .worktrees/ path",
 			worktreePath: "/home/sahil/code/sahil87/run-kit.worktrees/pacing-canyon",
+			resolvedName: "riff-pacing-canyon",
 			launcher:     "claude --dangerously-skip-permissions",
 			cmdArg:       "/fab-discuss",
 			want: []string{
 				"new-window",
 				"-n", "riff-pacing-canyon",
 				"-c", "/home/sahil/code/sahil87/run-kit.worktrees/pacing-canyon",
-				"claude --dangerously-skip-permissions '/fab-discuss'",
+				`${SHELL:-/bin/sh} -i -c 'claude --dangerously-skip-permissions '\''/fab-discuss'\'''; exec "${SHELL:-/bin/sh}"`,
 			},
 		},
 		{
-			name:         "trailing slash stripped",
+			name:         "trailing slash preserved in -c",
 			worktreePath: "/tmp/myrepo.worktrees/alpha/",
+			resolvedName: "riff-alpha",
 			launcher:     "claude",
 			cmdArg:       "/x",
 			want: []string{
 				"new-window",
 				"-n", "riff-alpha",
 				"-c", "/tmp/myrepo.worktrees/alpha/",
-				"claude '/x'",
+				`${SHELL:-/bin/sh} -i -c 'claude '\''/x'\'''; exec "${SHELL:-/bin/sh}"`,
 			},
 		},
 		{
 			name:         "relative path no dir",
 			worktreePath: "alpha",
+			resolvedName: "riff-alpha",
 			launcher:     "claude",
 			cmdArg:       "/x",
 			want: []string{
 				"new-window",
 				"-n", "riff-alpha",
 				"-c", "alpha",
-				"claude '/x'",
+				`${SHELL:-/bin/sh} -i -c 'claude '\''/x'\'''; exec "${SHELL:-/bin/sh}"`,
 			},
 		},
 		{
 			name:         "cmdArg with single quote",
 			worktreePath: "/tmp/myrepo.worktrees/alpha",
+			resolvedName: "riff-alpha",
 			launcher:     "claude",
 			cmdArg:       "it's a test",
+			// Layer 1: claude 'it'\''s a test'
+			// Layer 2 escapes every ' in layer 1 to '\'' — the layer-1 string
+			// has 3 single quotes (one before `it`, the `'\''` sequence contains
+			// two more single quotes: the opening and closing wrappers contain
+			// quotes too — in full, layer 1 is: claude 'it'\''s a test' which
+			// has 4 single quotes). Each becomes '\'' in layer 2. The test
+			// asserts the final string verbatim.
 			want: []string{
 				"new-window",
 				"-n", "riff-alpha",
 				"-c", "/tmp/myrepo.worktrees/alpha",
-				`claude 'it'\''s a test'`,
+				`${SHELL:-/bin/sh} -i -c 'claude '\''it'\''\'\'''\''s a test'\'''; exec "${SHELL:-/bin/sh}"`,
 			},
 		},
 		{
 			name:         "empty launcher tolerated",
 			worktreePath: "/tmp/myrepo.worktrees/alpha",
+			resolvedName: "riff-alpha",
 			launcher:     "",
 			cmdArg:       "/x",
 			want: []string{
 				"new-window",
 				"-n", "riff-alpha",
 				"-c", "/tmp/myrepo.worktrees/alpha",
-				" '/x'",
+				`${SHELL:-/bin/sh} -i -c ' '\''/x'\'''; exec "${SHELL:-/bin/sh}"`,
+			},
+		},
+		{
+			name:         "resolved name with suffix used verbatim",
+			worktreePath: "/tmp/myrepo.worktrees/alpha",
+			resolvedName: "riff-alpha-3",
+			launcher:     "claude",
+			cmdArg:       "/x",
+			want: []string{
+				"new-window",
+				"-n", "riff-alpha-3",
+				"-c", "/tmp/myrepo.worktrees/alpha",
+				`${SHELL:-/bin/sh} -i -c 'claude '\''/x'\'''; exec "${SHELL:-/bin/sh}"`,
 			},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := buildNewWindowArgs(tc.worktreePath, tc.launcher, tc.cmdArg)
+			got := buildNewWindowArgs(tc.worktreePath, tc.resolvedName, tc.launcher, tc.cmdArg)
 			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("buildNewWindowArgs(%q, %q, %q) =\n  %#v\nwant\n  %#v", tc.worktreePath, tc.launcher, tc.cmdArg, got, tc.want)
+				t.Errorf("buildNewWindowArgs(%q, %q, %q, %q) =\n  %#v\nwant\n  %#v", tc.worktreePath, tc.resolvedName, tc.launcher, tc.cmdArg, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestShellWrap asserts shellWrap's output for the empty, simple, and
+// embedded-quote cases. Pure string equality — no tmux or exec invocation.
+func TestShellWrap(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "empty input still produces the exec suffix",
+			in:   "",
+			want: `; exec "${SHELL:-/bin/sh}"`,
+		},
+		{
+			name: "simple command",
+			in:   "claude '/fab-discuss'",
+			want: `claude '/fab-discuss'; exec "${SHELL:-/bin/sh}"`,
+		},
+		{
+			name: "command with embedded single quotes",
+			in:   `echo 'hello '\''world'\'''`,
+			want: `echo 'hello '\''world'\'''; exec "${SHELL:-/bin/sh}"`,
+		},
+		{
+			name: "command with embedded double quotes",
+			in:   `echo "hello \"world\""`,
+			want: `echo "hello \"world\""; exec "${SHELL:-/bin/sh}"`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shellWrap(tc.in)
+			if got != tc.want {
+				t.Errorf("shellWrap(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveWindowName asserts the collision-resolution rules for the pure
+// window-name helper. The scheme is "first gap wins, starting from base-2".
+func TestResolveWindowName(t *testing.T) {
+	cases := []struct {
+		name     string
+		existing []string
+		base     string
+		want     string
+	}{
+		{
+			name:     "no collision returns base",
+			existing: []string{"other-window", "unrelated"},
+			base:     "riff-alpha",
+			want:     "riff-alpha",
+		},
+		{
+			name:     "one collision returns base-2",
+			existing: []string{"riff-alpha"},
+			base:     "riff-alpha",
+			want:     "riff-alpha-2",
+		},
+		{
+			name:     "three collisions return base-4",
+			existing: []string{"riff-alpha", "riff-alpha-2", "riff-alpha-3"},
+			base:     "riff-alpha",
+			want:     "riff-alpha-4",
+		},
+		{
+			name:     "empty existing-list returns base",
+			existing: nil,
+			base:     "riff-alpha",
+			want:     "riff-alpha",
+		},
+		{
+			name:     "gap at base-2 filled before base-3",
+			existing: []string{"riff-alpha", "riff-alpha-3"},
+			base:     "riff-alpha",
+			want:     "riff-alpha-2",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveWindowName(tc.existing, tc.base)
+			if got != tc.want {
+				t.Errorf("resolveWindowName(%v, %q) = %q, want %q", tc.existing, tc.base, got, tc.want)
 			}
 		})
 	}

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"rk/internal/config"
@@ -105,6 +107,14 @@ func runRiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Wrap the root context with a signal handler so Ctrl-C / SIGTERM
+	// cancel every subprocess call below (wt create, tmux new-window, tmux
+	// split-window). Matches the stdlib idiom for CLI tools — single-site
+	// handler, propagate the cancellable context downstream. See spec
+	// §SIGINT Propagation.
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// Step 2: resolve launcher from fab/project/config.yaml. Never errors —
 	// falls back to "claude --dangerously-skip-permissions" when config is
 	// absent / malformed / empty.
@@ -112,7 +122,7 @@ func runRiff(cmd *cobra.Command, args []string) error {
 
 	// Step 3: create the worktree via wt. args[] here is everything after the
 	// cobra-recognized flags (and "--", if present) — passthrough to wt.
-	worktreePath, err := runWtCreate(cmd.Context(), args)
+	worktreePath, err := runWtCreate(ctx, args)
 	if err != nil {
 		return err
 	}
@@ -121,14 +131,14 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	// cmd. The second arg to tmux new-window is a shell string interpreted by
 	// tmux's shell — this is the documented exception to constitution §I
 	// (Security First).
-	if err := runTmuxNewWindow(cmd.Context(), worktreePath, launcher, riffCmdFlag); err != nil {
+	if err := runTmuxNewWindow(ctx, worktreePath, launcher, riffCmdFlag); err != nil {
 		return err
 	}
 
 	// Step 5: optional horizontal split with a setup command. Skipped entirely
 	// when --split is empty (treated identically to the flag being unset).
 	if riffSplitFlag != "" {
-		if err := runTmuxSplitWindow(cmd.Context(), worktreePath, riffSplitFlag); err != nil {
+		if err := runTmuxSplitWindow(ctx, worktreePath, riffSplitFlag); err != nil {
 			return err
 		}
 	}
@@ -217,45 +227,71 @@ func parseWorktreePath(output string) string {
 // buildNewWindowArgs returns the argv slice (after the binary name "tmux")
 // passed to `tmux new-window` by runTmuxNewWindow. Pure, no side effects —
 // exposed as the test seam so riff_test.go can assert the naming and argv
-// ordering rules without invoking real tmux. The window is named
-// `riff-<filepath.Base(worktreePath)>`; -n and -c are distinct argv elements
-// per constitution §I (Security First); the trailing shell-command element
-// is the documented exception to the argv-only rule (interpreted by tmux's
-// shell).
-func buildNewWindowArgs(worktreePath, launcher, cmdArg string) []string {
-	windowName := "riff-" + filepath.Base(worktreePath)
-	shellCmd := fmt.Sprintf("%s '%s'", launcher, escapeSingleQuotes(cmdArg))
-	return []string{"new-window", "-n", windowName, "-c", worktreePath, shellCmd}
+// ordering rules without invoking real tmux. The window name is taken from
+// resolvedName verbatim (collision resolution happens upstream in
+// resolveWindowName). -n and -c are distinct argv elements per constitution §I
+// (Security First); the trailing shell-command element is the documented
+// exception to the argv-only rule (interpreted by tmux's shell).
+//
+// The trailing shell string is composed in three layers:
+//  1. launcher-with-cmd-arg: `<launcher> '<escaped-cmdArg>'`
+//  2. interactive wrap: `${SHELL:-/bin/sh} -i -c '<escaped-layer-1>'` so
+//     .zshrc/.bashrc aliases, functions, and interactive PATH tweaks are
+//     available to the launcher.
+//  3. shellWrap suffix: `; exec "${SHELL:-/bin/sh}"` so the pane stays
+//     interactive after the launcher exits.
+func buildNewWindowArgs(worktreePath, resolvedName, launcher, cmdArg string) []string {
+	launcherWithArg := fmt.Sprintf("%s '%s'", launcher, escapeSingleQuotes(cmdArg))
+	interactive := fmt.Sprintf(`${SHELL:-/bin/sh} -i -c '%s'`, escapeSingleQuotes(launcherWithArg))
+	shellCmd := shellWrap(interactive)
+	return []string{"new-window", "-n", resolvedName, "-c", worktreePath, shellCmd}
 }
 
 // runTmuxNewWindow opens a new tmux window rooted at worktreePath, with the
 // initial command being `<launcher> '<cmd>'` (cmd single-quote-escaped). The
-// window is named `riff-<worktree-basename>` via `-n`; the exact argv is
-// constructed by buildNewWindowArgs. The trailing shell-command arg to tmux
-// new-window IS a shell string interpreted by tmux's shell — this is the
-// spec's documented exception to the argv-only rule.
+// window name defaults to `riff-<worktree-basename>`; on collision with an
+// existing window in the current tmux session it is auto-suffixed via
+// resolveWindowName (-2, -3, …). The argv is constructed by
+// buildNewWindowArgs. The trailing shell-command arg to tmux new-window IS a
+// shell string interpreted by tmux's shell — this is the spec's documented
+// exception to the argv-only rule.
+//
+// Note on TOCTOU: there is a small window between listWindowNames and
+// new-window where another process can create a conflicting name. This race
+// is explicitly accepted (see spec §Window-Name Collision Resolution) — the
+// fallback behavior is identical to the pre-change behavior (silent duplicate
+// under default allow-rename).
 func runTmuxNewWindow(parent context.Context, worktreePath, launcher, cmdArg string) error {
+	existing, err := listWindowNames(parent)
+	if err != nil {
+		return err
+	}
+	base := "riff-" + filepath.Base(worktreePath)
+	resolvedName := resolveWindowName(existing, base)
+
 	ctx, cancel := context.WithTimeout(parent, tmuxTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux", buildNewWindowArgs(worktreePath, launcher, cmdArg)...)
+	cmd := exec.CommandContext(ctx, "tmux", buildNewWindowArgs(worktreePath, resolvedName, launcher, cmdArg)...)
 	cmd.Env = tmuxChildEnv()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return subprocessErr("rk riff: tmux new-window failed: %v\n%s", err, string(out))
+	out, runErr := cmd.CombinedOutput()
+	if runErr != nil {
+		return subprocessErr("rk riff: tmux new-window failed: %v\n%s", runErr, string(out))
 	}
 	return nil
 }
 
 // runTmuxSplitWindow creates a horizontal split of the just-created window
-// running `<setupCmd>; exec zsh` so the pane stays interactive after setup.
-// The split target defaults to the current window, which is the one we just
-// created via tmux new-window — so no explicit -t flag is needed.
+// running `<setupCmd>; exec "${SHELL:-/bin/sh}"` so the pane stays
+// interactive after setup. The split target defaults to the current window,
+// which is the one we just created via tmux new-window — so no explicit -t
+// flag is needed. The setup command is passed through shellWrap directly
+// (no interactive-launcher wrap — that applies only to the new-window path).
 func runTmuxSplitWindow(parent context.Context, worktreePath, setupCmd string) error {
 	ctx, cancel := context.WithTimeout(parent, tmuxTimeout)
 	defer cancel()
 
-	shellCmd := fmt.Sprintf("%s; exec zsh", setupCmd)
+	shellCmd := shellWrap(setupCmd)
 	cmd := exec.CommandContext(ctx, "tmux", "split-window", "-h", "-c", worktreePath, shellCmd)
 	cmd.Env = tmuxChildEnv()
 	out, err := cmd.CombinedOutput()
@@ -284,4 +320,62 @@ func tmuxChildEnv() []string {
 // then reopen.
 func escapeSingleQuotes(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)
+}
+
+// listWindowNames invokes `tmux list-windows -F '#W'` against the user's
+// current tmux server (via tmuxChildEnv) and returns the resulting window
+// names with surrounding whitespace trimmed and empty lines dropped. Uses
+// exec.CommandContext with tmuxTimeout. Returns a subprocessErr (exit 3) on
+// non-zero exit or timeout, surfacing tmux's error output in the message.
+func listWindowNames(ctx context.Context) ([]string, error) {
+	qctx, cancel := context.WithTimeout(ctx, tmuxTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(qctx, "tmux", "list-windows", "-F", "#W")
+	cmd.Env = tmuxChildEnv()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, subprocessErr("rk riff: tmux list-windows failed: %v\n%s", err, string(out))
+	}
+
+	var names []string
+	for _, raw := range strings.Split(string(out), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		names = append(names, line)
+	}
+	return names, nil
+}
+
+// resolveWindowName returns base if no entry in existing matches, otherwise
+// probes base-2, base-3, … and returns the first free name. Pure helper: no
+// I/O, no context, deterministic for a given input. The suffix scheme starts
+// at -2 so the user's first-choice name (base) is preferred when free; gaps
+// are filled before appending beyond the current max.
+func resolveWindowName(existing []string, base string) string {
+	set := make(map[string]struct{}, len(existing))
+	for _, name := range existing {
+		set[name] = struct{}{}
+	}
+	if _, clash := set[base]; !clash {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if _, clash := set[candidate]; !clash {
+			return candidate
+		}
+	}
+}
+
+// shellWrap appends `; exec "${SHELL:-/bin/sh}"` to cmd so the tmux pane that
+// ran cmd drops into an interactive shell rather than closing when cmd exits.
+// The `${SHELL:-/bin/sh}` expansion is evaluated by tmux's shell at
+// window-creation time — if the user's $SHELL is set it is used verbatim,
+// otherwise /bin/sh is the POSIX-safe fallback. Pure helper: no I/O, no env
+// reads, deterministic for a given input.
+func shellWrap(cmd string) string {
+	return fmt.Sprintf(`%s; exec "${SHELL:-/bin/sh}"`, cmd)
 }

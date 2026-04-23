@@ -192,10 +192,10 @@ export function WindowRow({
               e.stopPropagation();
               onTogglePin();
             }}
-            className={`text-[12px] transition-opacity cursor-pointer px-0.5 min-h-[36px] flex items-center justify-center ${
+            className={`text-[12px] transition-opacity cursor-pointer px-0.5 min-h-[36px] flex items-center justify-center text-text-secondary hover:text-text-primary ${
               isPinned
-                ? "text-accent opacity-100"
-                : "text-text-secondary hover:text-text-primary opacity-0 group-hover:opacity-100 coarse:opacity-100"
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100 coarse:opacity-100"
             }`}
           >
             {/* Thumbtack/pin SVG icon */}

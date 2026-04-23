@@ -17,6 +17,7 @@ type LaneProps = {
   onFocus: () => void;
   onUnpin: () => void;
   closed?: boolean;
+  hideHeader?: boolean;
 };
 
 function laneWidthKey(pin: LanePin): string {
@@ -55,11 +56,13 @@ function readWidth(pin: LanePin): number {
   return typeof stored === "number" && stored >= MIN_WIDTH ? stored : DEFAULT_WIDTH;
 }
 
-export function Lane({ pin, focused, onFocus, onUnpin, closed }: LaneProps) {
+export function Lane({ pin, focused, onFocus, onUnpin, closed, hideHeader }: LaneProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
   const [connected, setConnected] = useState(false);
   const [width, setWidth] = useState(() => readWidth(pin));
   const { theme: activeTheme } = useTheme();
@@ -203,11 +206,13 @@ export function Lane({ pin, focused, onFocus, onUnpin, closed }: LaneProps) {
       // Cmd+C / Ctrl+C: copy selection instead of sending SIGINT
       const term = terminal;
       term.attachCustomKeyEventHandler((event) => {
-        if (
-          (event.metaKey || event.ctrlKey) &&
-          event.key === "c" &&
-          event.type === "keydown"
-        ) {
+        if (event.type !== "keydown") return true;
+        // Let lane-level shortcuts pass through to document
+        if (event.ctrlKey && (event.key === "]" || event.key === "[" || event.key === ".")) {
+          return false;
+        }
+        // Cmd+C / Ctrl+C: copy selection instead of sending SIGINT
+        if ((event.metaKey || event.ctrlKey) && event.key === "c") {
           if (term.hasSelection()) {
             const text = term.getSelection();
             void copyToClipboard(text).finally(() => {
@@ -246,6 +251,7 @@ export function Lane({ pin, focused, onFocus, onUnpin, closed }: LaneProps) {
       }
 
       resizeObserver.observe(terminalRef.current);
+      if (focusedRef.current) terminal.focus();
       connectWs(terminal);
     }
 
@@ -355,16 +361,22 @@ export function Lane({ pin, focused, onFocus, onUnpin, closed }: LaneProps) {
     xtermRef.current.options.theme = deriveXtermTheme(activeTheme.palette);
   }, [activeTheme]);
 
+  // Focus the xterm terminal when this lane becomes focused
+  useEffect(() => {
+    if (focused) {
+      xtermRef.current?.focus();
+    }
+  }, [focused]);
+
   return (
     <div
       className={`flex flex-col h-full shrink-0 relative border-r border-border ${
         focused ? "ring-2 ring-accent ring-inset" : ""
       }`}
-      style={{ width: `${width}px`, scrollSnapAlign: "start" }}
+      style={{ width: `${width}px` }}
       onClick={onFocus}
-      onMouseEnter={onFocus}
     >
-      <LaneHeader pin={pin} connected={connected} onUnpin={onUnpin} />
+      {!hideHeader && <LaneHeader pin={pin} connected={connected} onUnpin={onUnpin} />}
 
       {/* Terminal area */}
       <div

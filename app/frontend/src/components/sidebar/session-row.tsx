@@ -21,6 +21,10 @@ type SessionRowProps = {
   onSessionNameChange: (value: string) => void;
   onSessionRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onSessionRenameBlur: () => void;
+  draggable?: boolean;
+  isDragSource?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -44,6 +48,10 @@ export function SessionRow({
   onSessionNameChange,
   onSessionRenameKeyDown,
   onSessionRenameBlur,
+  draggable,
+  isDragSource,
+  onDragStart,
+  onDragEnd,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -69,7 +77,10 @@ export function SessionRow({
 
   return (
     <div
-      className={`flex items-center justify-between group pl-1.5 sm:pl-2 relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors`}
+      className={`flex items-center justify-between group pl-1.5 sm:pl-2 relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors${isDragSource ? " opacity-50" : ""}`}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}

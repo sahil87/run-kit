@@ -10,7 +10,7 @@ import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { useDialogState } from "@/hooks/use-dialog-state";
 import { TopBar } from "@/components/top-bar";
 import { Sidebar } from "@/components/sidebar";
-import { TerminalClient } from "@/components/terminal-client";
+import { TerminalPool } from "@/components/terminal-pool";
 import { IframeWindow } from "@/components/iframe-window";
 import { BottomBar } from "@/components/bottom-bar";
 import type { PaletteAction } from "@/components/command-palette";
@@ -936,7 +936,7 @@ function AppShell() {
                     </div>
                   )}
                   <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
-                    <TerminalClient
+                    <TerminalPool
                       sessionName={sessionName}
                       windowIndex={windowIndex}
                       server={server}

@@ -75,18 +75,11 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	// Determine which tmux server this session lives on
 	server := serverFromRequest(r)
 
-	// Verify the session exists and select the target window
-	windows, err := s.tmux.ListWindows(r.Context(), session, server)
-	if err != nil || windows == nil {
-		slog.Warn("session not found", "session", session)
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4004, "Session not found"))
-		return
-	}
+	// Select the target window — also validates that the session exists
 	if err := s.tmux.SelectWindow(session, winIdx, server); err != nil {
-		slog.Error("select-window failed", "err", err, "session", session, "window", windowIndex)
+		slog.Warn("select-window failed", "err", err, "session", session, "window", windowIndex)
 		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4004, "Window not found"))
+			websocket.FormatCloseMessage(4004, "Session or window not found"))
 		return
 	}
 
@@ -107,6 +100,15 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadDeadline(time.Time{}) // clear deadline
 
+	// Source-file the config into the running server so terminal-overrides
+	// (true color) and style settings are active even if the server was
+	// created outside of rk. Best-effort, non-blocking.
+	go func() {
+		if err := tmux.ReloadConfig(server); err != nil {
+			slog.Debug("config reload (best-effort)", "server", server, "err", err)
+		}
+	}()
+
 	// Attach to the session via PTY — renders the selected window as-is (no split)
 	ctx, cancel := context.WithCancel(context.Background())
 	var attachArgs []string
@@ -115,12 +117,6 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	if confPath := tmux.ConfigPath(); confPath != "" {
 		attachArgs = append(attachArgs, "-f", confPath)
-	}
-	// Source-file the config into the running server so terminal-overrides
-	// (true color) and style settings are active even if the server was
-	// created outside of rk. Best-effort — don't block the attach.
-	if err := tmux.ReloadConfig(server); err != nil {
-		slog.Debug("config reload before attach (best-effort)", "server", server, "err", err)
 	}
 
 	attachArgs = append(attachArgs, "attach-session", "-t", session)

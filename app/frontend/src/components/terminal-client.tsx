@@ -33,6 +33,7 @@ type TerminalClientProps = {
   onSessionNotFound?: () => void;
   focusRef?: React.MutableRefObject<(() => void) | null>;
   scrollLocked?: boolean;
+  active?: boolean;
 };
 
 export function TerminalClient({
@@ -45,16 +46,23 @@ export function TerminalClient({
   onSessionNotFound,
   focusRef,
   scrollLocked,
+  active = true,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
+  const localWsRef = useRef<WebSocket | null>(null);
   const [terminalReady, setTerminalReady] = useState(false);
+  const [wsGeneration, setWsGeneration] = useState(0);
+  const hasConnectedRef = useRef(false);
   const [dragOver, setDragOver] = useState(false);
   const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
   const [composeFiles, setComposeFiles] = useState<UploadedFile[]>([]);
   const { uploadFiles, uploading } = useFileUpload(sessionName, windowIndex);
   const { theme: activeTheme } = useTheme();
+
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   const openComposeWithUploads = useCallback(
     (uploads: UploadedFile[]) => {
@@ -68,6 +76,7 @@ export function TerminalClient({
 
   // Clipboard paste interception for file upload
   useEffect(() => {
+    if (!active) return;
     function handlePaste(e: ClipboardEvent) {
       const files = e.clipboardData?.files;
       if (!files || files.length === 0) return;
@@ -76,7 +85,7 @@ export function TerminalClient({
     }
     document.addEventListener("paste", handlePaste);
     return () => document.removeEventListener("paste", handlePaste);
-  }, [uploadFiles, openComposeWithUploads]);
+  }, [active, uploadFiles, openComposeWithUploads]);
 
   // Drag and drop
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -194,10 +203,10 @@ export function TerminalClient({
       }
       if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
 
-      // Keyboard input → current WebSocket (wsRef always points to latest)
+      // Keyboard input → this terminal's own WebSocket
       terminal.onData((data) => {
-        if (wsRef.current?.readyState === WebSocket.OPEN)
-          wsRef.current.send(data);
+        if (localWsRef.current?.readyState === WebSocket.OPEN)
+          localWsRef.current.send(data);
       });
 
       // Cmd+C / Ctrl+C: copy selection instead of sending SIGINT
@@ -228,8 +237,8 @@ export function TerminalClient({
           resizeRafId = null;
           fitAddonRef.current?.fit();
           xtermRef.current?.scrollToBottom();
-          if (wsRef.current?.readyState === WebSocket.OPEN && xtermRef.current) {
-            wsRef.current.send(
+          if (localWsRef.current?.readyState === WebSocket.OPEN && xtermRef.current) {
+            localWsRef.current.send(
               JSON.stringify({
                 type: "resize",
                 cols: xtermRef.current.cols,
@@ -247,7 +256,7 @@ export function TerminalClient({
       }
 
       resizeObserver.observe(terminalRef.current);
-      if (focusRef) focusRef.current = () => xtermRef.current?.focus();
+      if (focusRef && activeRef.current) focusRef.current = () => xtermRef.current?.focus();
       setTerminalReady(true);
     }
 
@@ -257,10 +266,9 @@ export function TerminalClient({
       cancelled = true;
       resizeObserver?.disconnect();
       if (resizeRafId) cancelAnimationFrame(resizeRafId);
-      // Close any active WS on true unmount
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (localWsRef.current) {
+        localWsRef.current.close();
+        localWsRef.current = null;
       }
       if (focusRef) focusRef.current = null;
       xtermRef.current = null;
@@ -268,7 +276,53 @@ export function TerminalClient({
       try { terminal?.dispose(); } catch { /* WebGL addon may throw during teardown */ }
       setTerminalReady(false);
     };
-  }, [wsRef, focusRef]);
+  }, [focusRef]);
+
+  // Sync parent refs when this terminal becomes the active one.
+  // Refit after display:none → visible transition so xterm measures correctly.
+  useEffect(() => {
+    if (!active || !terminalReady) return;
+    wsRef.current = localWsRef.current;
+    if (focusRef) focusRef.current = () => xtermRef.current?.focus();
+    // Reconnect if the WS was closed during background idle
+    const ws = localWsRef.current;
+    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      setWsGeneration((g) => g + 1);
+    }
+    requestAnimationFrame(() => {
+      fitAddonRef.current?.fit();
+      xtermRef.current?.refresh?.(0, (xtermRef.current?.rows ?? 1) - 1);
+      xtermRef.current?.focus();
+      if (localWsRef.current?.readyState === WebSocket.OPEN && xtermRef.current) {
+        localWsRef.current.send(
+          JSON.stringify({
+            type: "resize",
+            cols: xtermRef.current.cols,
+            rows: xtermRef.current.rows,
+          }),
+        );
+      }
+    });
+  }, [active, terminalReady, wsRef, focusRef]);
+
+  // Background idle: close WS after a configurable timeout to save bandwidth.
+  // xterm.js buffer retains the last screen content, so reactivation shows
+  // cached output instantly while the WS reconnects in the background.
+  // Set VITE_RK_POOL_IDLE_TIMEOUT=0 to keep all connections alive indefinitely.
+  const IDLE_CLOSE_CODE = 4000;
+  useEffect(() => {
+    if (active || !terminalReady) return;
+    const envSeconds = Number(import.meta.env.VITE_RK_POOL_IDLE_TIMEOUT);
+    const timeoutMs = (Number.isFinite(envSeconds) ? envSeconds : 30) * 1000;
+    if (timeoutMs <= 0) return;
+    const timer = setTimeout(() => {
+      const ws = localWsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close(IDLE_CLOSE_CODE, "idle");
+      }
+    }, timeoutMs);
+    return () => clearTimeout(timer);
+  }, [active, terminalReady]);
 
   // Scroll-lock: prevent xterm textarea from gaining focus when locked.
   // Instead of reactively blurring on focusin (which disrupts active touch
@@ -315,7 +369,7 @@ export function TerminalClient({
 
     function onTouchMove(e: TouchEvent) {
       if (e.touches.length !== 1) return;
-      const ws = wsRef.current;
+      const ws = localWsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
       const currentY = e.touches[0].clientY;
@@ -349,7 +403,7 @@ export function TerminalClient({
       container.removeEventListener("touchstart", onTouchStart, { capture: true });
       container.removeEventListener("touchmove", onTouchMove, { capture: true });
     };
-  }, [terminalReady, wsRef]);
+  }, [terminalReady]);
 
   // Update xterm theme when the app theme changes
   useEffect(() => {
@@ -363,13 +417,19 @@ export function TerminalClient({
   const windowIndexRef = useRef(windowIndex);
   windowIndexRef.current = windowIndex;
 
-  // WebSocket connection — reconnects only when the session changes.
-  // Window switches within the same session are handled by the relay's
-  // tmux attach-session, which follows the active window automatically.
+  // WebSocket connection — connects once on mount and reconnects on drop.
+  // With terminal pooling, each TerminalClient has a fixed session and stays
+  // alive across navigation. Session switching is handled by the pool's
+  // CSS visibility, not by WS teardown/rebuild.
   useEffect(() => {
     if (!terminalReady || !xtermRef.current) return;
 
     const terminal = xtermRef.current;
+    if (!hasConnectedRef.current) {
+      terminal.reset();
+      terminal.write("\x1b[90mConnecting...\x1b[0m");
+      hasConnectedRef.current = true;
+    }
 
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -399,9 +459,9 @@ export function TerminalClient({
       if (cancelled) return;
       const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndexRef.current}?server=${server}`;
       const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      localWsRef.current = ws;
+      if (activeRef.current) wsRef.current = ws;
       ws.binaryType = "arraybuffer";
-      let needsReset = true;
 
       ws.onopen = () => {
         if (cancelled) return;
@@ -413,10 +473,6 @@ export function TerminalClient({
 
       ws.onmessage = (event) => {
         if (cancelled) return;
-        if (needsReset) {
-          needsReset = false;
-          terminal.reset();
-        }
         if (typeof event.data === "string") {
           textBuffer += event.data;
         } else {
@@ -436,6 +492,8 @@ export function TerminalClient({
         try { flushToTerminal(); } catch { /* terminal may be disposed */ }
 
         if (cancelled) return;
+        // 4000 = intentional idle close — pool will reconnect when active
+        if (event.code === 4000) return;
         // 4004 = session or window not found — redirect instead of reconnecting
         if (event.code === 4004) {
           terminal.write("\r\n\x1b[91m[session not found]\x1b[0m\r\n");
@@ -459,13 +517,13 @@ export function TerminalClient({
       cancelled = true;
       if (flushRafId) cancelAnimationFrame(flushRafId);
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (localWsRef.current) {
+        localWsRef.current.close();
+        localWsRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalReady, sessionName, server, wsRef]);
+  }, [terminalReady, sessionName, server, wsGeneration]);
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">
@@ -474,21 +532,21 @@ export function TerminalClient({
         role="application"
         aria-label={`Terminal: ${sessionName}/${windowIndex}`}
         className={`flex-1 min-h-0 overflow-hidden touch-none transition-opacity ${
-          composeOpen ? "opacity-50" : ""
+          active && composeOpen ? "opacity-50" : ""
         } ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
         onContextMenu={(e) => e.preventDefault()}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       />
-      {uploading && (
+      {active && uploading && (
         <div className="absolute bottom-1 left-2 text-xs text-text-secondary bg-bg-card/80 px-2 py-0.5 rounded z-10">
           Uploading...
         </div>
       )}
-      {composeOpen && (
+      {active && composeOpen && (
         <ComposeBuffer
-          wsRef={wsRef}
+          wsRef={localWsRef}
           onClose={() => {
             setComposeOpen(false);
             setComposeInitialText(undefined);

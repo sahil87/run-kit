@@ -91,6 +91,34 @@ export function Sidebar({
   const [dropTarget, setDropTarget] = useState<{ session: string; index: number } | null>(null);
   const [sessionDropTarget, setSessionDropTarget] = useState<string | null>(null);
 
+  // Session reorder — frontend-only, persisted to localStorage
+  const SESSION_ORDER_KEY = `runkit-session-order-${server}`;
+  const [sessionOrder, setSessionOrder] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(`runkit-session-order-${server}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
+  const [sessionDragSource, setSessionDragSource] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`runkit-session-order-${server}`);
+      setSessionOrder(stored ? JSON.parse(stored) : []);
+    } catch { setSessionOrder([]); }
+  }, [server]);
+
+  const orderedSessions = useMemo(() => {
+    if (sessionOrder.length === 0) return sessions;
+    const orderMap = new Map(sessionOrder.map((name, i) => [name, i]));
+    return [...sessions].sort((a, b) => {
+      const ai = orderMap.get(a.name) ?? Infinity;
+      const bi = orderMap.get(b.name) ?? Infinity;
+      if (ai === bi) return 0;
+      return ai - bi;
+    });
+  }, [sessions, sessionOrder]);
+
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
   const { addToast } = useToast();
   const navigate = useNavigate();
@@ -476,6 +504,35 @@ export function Sidebar({
     executeMoveToSession(server, data.session, data.index, data.windowId, data.name, sessionName);
   }
 
+  function handleSessionReorderStart(e: React.DragEvent, sessionName: string) {
+    setSessionDragSource(sessionName);
+    e.dataTransfer.setData("application/x-session-reorder", sessionName);
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleSessionReorderOver(e: React.DragEvent, targetSession: string) {
+    if (!sessionDragSource || sessionDragSource === targetSession) return;
+    if (!e.dataTransfer.types.includes("application/x-session-reorder")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+
+    setSessionOrder(() => {
+      const names = orderedSessions.map((s) => s.name);
+      const fromIdx = names.indexOf(sessionDragSource);
+      const toIdx = names.indexOf(targetSession);
+      if (fromIdx === -1 || toIdx === -1) return names;
+      const next = [...names];
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, sessionDragSource);
+      try { localStorage.setItem(SESSION_ORDER_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+
+  function handleSessionReorderEnd() {
+    setSessionDragSource(null);
+  }
+
   const toggleSession = useCallback((name: string) => {
     setCollapsed((prev) => ({ ...prev, [name]: !prev[name] }));
   }, []);
@@ -551,7 +608,7 @@ export function Sidebar({
             </button>
           </div>
         ) : (
-          sessions.map((session) => {
+          orderedSessions.map((session) => {
             const isCollapsed = collapsed[session.name] ?? false;
             const isGhostSession = "optimistic" in session && session.optimistic;
             return (
@@ -566,6 +623,10 @@ export function Sidebar({
                   editingSession={editingSession}
                   editingSessionName={editingSessionName}
                   sessionInputRef={sessionInputRef}
+                  draggable={!isGhostSession}
+                  isDragSource={sessionDragSource === session.name}
+                  onDragStart={isGhostSession ? undefined : (e) => handleSessionReorderStart(e, session.name)}
+                  onDragEnd={isGhostSession ? undefined : handleSessionReorderEnd}
                   onToggleCollapse={() => toggleSession(session.name)}
                   onSelectFirstWindow={() => onSelectWindow(session.name, session.windows[0]?.index ?? 0)}
                   onCreateWindow={() => onCreateWindow(session.name)}
@@ -584,7 +645,7 @@ export function Sidebar({
                   onSessionNameChange={setEditingSessionName}
                   onSessionRenameKeyDown={handleSessionRenameKeyDown}
                   onSessionRenameBlur={handleSessionRenameBlur}
-                  onDragOver={(e) => handleSessionDragOver(e, session.name)}
+                  onDragOver={(e) => { handleSessionDragOver(e, session.name); handleSessionReorderOver(e, session.name); }}
                   onDragLeave={(e) => handleSessionDragLeave(e, session.name)}
                   onDrop={(e) => handleSessionDrop(e, session.name)}
                   onColorChange={(c) => {

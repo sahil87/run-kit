@@ -31,10 +31,10 @@ const (
 // Subprocess timeouts — `wt create` is the slowest step (matches constitution
 // §Process Execution's 30s build-op guidance); tmux operations are cheap.
 const (
-	wtTimeout       = 30 * time.Second
-	tmuxTimeout     = 10 * time.Second
-	defaultRiffCmd  = "/fab-discuss"
-	defaultLauncher = "claude --dangerously-skip-permissions"
+	wtTimeout        = 30 * time.Second
+	tmuxTimeout      = 10 * time.Second
+	defaultRiffSkill = "/fab-discuss"
+	defaultLauncher  = "claude --dangerously-skip-permissions"
 )
 
 // exitCodeError signals that the command should exit with a specific non-zero
@@ -64,15 +64,15 @@ var (
 )
 
 var riffCmd = &cobra.Command{
-	Use:   "riff [--skill <name>] [--setup-pane <cmd>] [-- <wt-flags>...]",
+	Use:   "riff [--skill <skill>] [--setup-pane <cmd>] [-- <wt-flags>...]",
 	Short: "Create a worktree, tmux window, and Claude Code session",
-	Long: `Create a git worktree via wt, open a new tmux window in it, and launch a
-Claude Code session with a skill or slash-command.
+	Long: `Create a git worktree via wt, open a new tmux window in it, and launch
+a Claude Code session with a skill or slash-command.
 
 Prerequisites:
   - You must be inside a tmux session ($TMUX set).
   - 'wt' must be on your PATH (https://github.com/sahil87/wt).
-  - The launcher binary (default: 'claude') must be installed.
+  - The launcher command (default: claude --dangerously-skip-permissions) must be available.
 
 Flags before -- are parsed by rk; flags after -- are forwarded verbatim to
 wt create (e.g., --worktree-name, --base, --reuse). Run 'wt create --help' to
@@ -100,7 +100,7 @@ Exit codes:
 
 func init() {
 	riffCmd.Flags().SetInterspersed(false)
-	riffCmd.Flags().StringVar(&riffSkillFlag, "skill", defaultRiffCmd, "Claude Code skill or slash-command to run in the new window")
+	riffCmd.Flags().StringVar(&riffSkillFlag, "skill", defaultRiffSkill, "Claude Code skill or slash-command to run in the new window")
 	riffCmd.Flags().StringVar(&riffSetupPaneFlag, "setup-pane", "", "If non-empty, split the window and run this setup command in the right pane")
 }
 

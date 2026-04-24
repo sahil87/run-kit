@@ -25,7 +25,6 @@ type TopBarProps = {
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
   onOpenCompose: () => void;
-  hasPinnedLanes?: boolean;
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
@@ -101,7 +100,6 @@ export function TopBar({
   onCreateSession,
   onCreateWindow,
   onOpenCompose,
-  hasPinnedLanes,
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
@@ -233,23 +231,6 @@ export function TopBar({
               aria-label={isConnected ? "Connected" : "Disconnected"}
             />
           </span>
-
-          {/* Lanes button — visible on mobile and desktop */}
-          <a
-            href="/lanes"
-            className="relative flex items-center justify-center min-w-[24px] min-h-[24px] coarse:min-h-[36px] coarse:min-w-[28px] rounded text-text-secondary hover:text-text-primary transition-colors"
-            title="Open Lanes"
-            aria-label="Open Lanes"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-              <line x1="3" y1="2" x2="3" y2="14" />
-              <line x1="8" y1="2" x2="8" y2="14" />
-              <line x1="13" y1="2" x2="13" y2="14" />
-            </svg>
-            {hasPinnedLanes && (
-              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-accent" />
-            )}
-          </a>
 
           {/* "Run Kit" + Logo — links to dashboard */}
           <a href="/" className="flex items-center gap-3 text-text-secondary hover:text-text-primary transition-colors">

@@ -357,15 +357,9 @@ export function TerminalClient({
     xtermRef.current.options.theme = deriveXtermTheme(activeTheme.palette);
   }, [activeTheme]);
 
-  // Keep a ref to windowIndex so the WS effect can read it without
-  // depending on it. The relay uses `tmux attach-session` which follows
-  // window switches automatically — only session changes need a reconnect.
-  const windowIndexRef = useRef(windowIndex);
-  windowIndexRef.current = windowIndex;
-
-  // WebSocket connection — reconnects only when the session changes.
-  // Window switches within the same session are handled by the relay's
-  // tmux attach-session, which follows the active window automatically.
+  // WebSocket connection — reconnects when session or window changes.
+  // Each relay connection creates its own linked tmux session for
+  // independent window focus (required for pane lanes multi-view).
   useEffect(() => {
     if (!terminalReady || !xtermRef.current) return;
 
@@ -397,7 +391,7 @@ export function TerminalClient({
 
     function connect() {
       if (cancelled) return;
-      const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndexRef.current}?server=${server}`;
+      const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndex}?server=${server}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.binaryType = "arraybuffer";
@@ -465,7 +459,7 @@ export function TerminalClient({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalReady, sessionName, server, wsRef]);
+  }, [terminalReady, sessionName, windowIndex, server, wsRef]);
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">

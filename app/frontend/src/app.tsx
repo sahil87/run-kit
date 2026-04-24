@@ -539,7 +539,7 @@ function AppShell() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Lanes pin state
-  const { pins: lanePins, isPinned: isLanePinned, pinWindow: lanePinWindow, unpinWindow: laneUnpinWindow } = usePinnedLanes();
+  const { isPinned: isLanePinned, pinWindow: lanePinWindow, unpinWindow: laneUnpinWindow } = usePinnedLanes();
 
   const lanesActions: PaletteAction[] = useMemo(
     () => [
@@ -905,7 +905,6 @@ function AppShell() {
           onCreateSession={handleCreateSessionInstant}
           onCreateWindow={handleCreateWindow}
           onOpenCompose={() => setComposeOpen((v) => !v)}
-          hasPinnedLanes={lanePins.length > 0}
         />
       </div>
 

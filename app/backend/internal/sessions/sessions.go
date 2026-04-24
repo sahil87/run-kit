@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -307,9 +308,17 @@ func derefStr(s *string) string {
 
 // FetchSessions fetches all sessions from the specified server, derives project roots from tmux, and enriches with fab state.
 func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error) {
-	sessionInfos, err := tmux.ListSessions(ctx, server)
+	allInfos, err := tmux.ListSessions(ctx, server)
 	if err != nil {
 		return nil, err
+	}
+
+	// Filter out relay-internal linked sessions
+	sessionInfos := make([]tmux.SessionInfo, 0, len(allInfos))
+	for _, s := range allInfos {
+		if !strings.HasPrefix(s.Name, "_rk-relay-") {
+			sessionInfos = append(sessionInfos, s)
+		}
 	}
 
 	if len(sessionInfos) == 0 {

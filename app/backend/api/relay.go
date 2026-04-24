@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -75,7 +76,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	// Determine which tmux server this session lives on
 	server := serverFromRequest(r)
 
-	// Verify the session exists and select the target window
+	// Verify the session exists
 	windows, err := s.tmux.ListWindows(r.Context(), session, server)
 	if err != nil || windows == nil {
 		slog.Warn("session not found", "session", session)
@@ -83,8 +84,17 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			websocket.FormatCloseMessage(4004, "Session not found"))
 		return
 	}
-	if err := s.tmux.SelectWindow(session, winIdx, server); err != nil {
-		slog.Error("select-window failed", "err", err, "session", session, "window", windowIndex)
+
+	// Verify the target window exists
+	windowFound := false
+	for _, w := range windows {
+		if w.Index == winIdx {
+			windowFound = true
+			break
+		}
+	}
+	if !windowFound {
+		slog.Error("window not found", "session", session, "window", windowIndex)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4004, "Window not found"))
 		return
@@ -107,7 +117,42 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadDeadline(time.Time{}) // clear deadline
 
-	// Attach to the session via PTY — renders the selected window as-is (no split)
+	// Create a linked (grouped) session so this relay connection has its own
+	// independent window focus. Multiple connections to the same session each
+	// get their own linked session and can view different windows simultaneously.
+	linkedSession := fmt.Sprintf("_rk-relay-%d", time.Now().UnixNano())
+	var newSessArgs []string
+	if server != "default" {
+		newSessArgs = []string{"-L", server}
+	}
+	newSessArgs = append(newSessArgs, "new-session", "-d", "-t", session, "-s", linkedSession)
+	newSessCmd := exec.CommandContext(r.Context(), "tmux", newSessArgs...)
+	if out, err := newSessCmd.CombinedOutput(); err != nil {
+		slog.Error("linked session creation failed", "err", err, "output", string(out), "session", session)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4001, "Failed to create linked session"))
+		return
+	}
+
+	// Hide status bar in linked session
+	var statusArgs []string
+	if server != "default" {
+		statusArgs = []string{"-L", server}
+	}
+	statusArgs = append(statusArgs, "set-option", "-s", "-t", linkedSession, "status", "off")
+	exec.CommandContext(r.Context(), "tmux", statusArgs...).Run()
+
+	// Select the target window in the linked session
+	var selectArgs []string
+	if server != "default" {
+		selectArgs = []string{"-L", server}
+	}
+	selectArgs = append(selectArgs, "select-window", "-t", fmt.Sprintf("%s:%d", linkedSession, winIdx))
+	selectCmd := exec.CommandContext(r.Context(), "tmux", selectArgs...)
+	if out, err := selectCmd.CombinedOutput(); err != nil {
+		slog.Error("select-window in linked session failed", "err", err, "output", string(out))
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	var attachArgs []string
 	if server != "default" {
@@ -116,14 +161,11 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	if confPath := tmux.ConfigPath(); confPath != "" {
 		attachArgs = append(attachArgs, "-f", confPath)
 	}
-	// Source-file the config into the running server so terminal-overrides
-	// (true color) and style settings are active even if the server was
-	// created outside of rk. Best-effort — don't block the attach.
 	if err := tmux.ReloadConfig(server); err != nil {
 		slog.Debug("config reload before attach (best-effort)", "server", server, "err", err)
 	}
 
-	attachArgs = append(attachArgs, "attach-session", "-t", session)
+	attachArgs = append(attachArgs, "attach-session", "-t", linkedSession)
 	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
 	cmd.Env = forceTERM(os.Environ())
 
@@ -144,10 +186,20 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			if cmd.Process != nil {
 				cmd.Process.Kill()
 			}
+			// Kill the linked session so it doesn't linger after disconnect
+			var killArgs []string
+			if server != "default" {
+				killArgs = []string{"-L", server}
+			}
+			killArgs = append(killArgs, "kill-session", "-t", linkedSession)
+			killCmd := exec.Command("tmux", killArgs...)
+			if err := killCmd.Run(); err != nil {
+				slog.Debug("linked session cleanup failed", "err", err, "linked", linkedSession)
+			}
 			// Set a short read deadline to unblock the main goroutine's
 			// conn.ReadMessage() when the PTY dies while the client is idle.
 			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			slog.Debug("relay cleanup", "session", session, "window", windowIndex)
+			slog.Debug("relay cleanup", "session", session, "window", windowIndex, "linked", linkedSession)
 		})
 	}
 	defer cleanup()

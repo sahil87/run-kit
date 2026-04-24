@@ -98,11 +98,15 @@ export function WindowRow({
       style.backgroundColor = uncoloredSelectedTint.selected;
     }
     // Always reserve left border space to prevent text shift between states.
-    style.borderLeft = isSelected
-      ? `8px solid ${borderColor ?? "var(--color-accent)"}`
-      : "8px solid transparent";
+    if (isSelected) {
+      style.borderLeft = `8px solid ${borderColor ?? "var(--color-accent)"}`;
+    } else if (isPinned) {
+      style.borderLeft = "8px dashed var(--color-accent)";
+    } else {
+      style.borderLeft = "8px solid transparent";
+    }
     return Object.keys(style).length > 0 ? style : undefined;
-  }, [tint, uncoloredSelectedTint, isSelected, borderColor]);
+  }, [tint, uncoloredSelectedTint, isSelected, borderColor, isPinned]);
 
   // Build className for the button
   const buttonClass = useMemo(() => {
@@ -182,29 +186,8 @@ export function WindowRow({
           )}
         </span>
       </button>
-      {/* Hover-reveal buttons: pin + color swatch + kill */}
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
-        {onTogglePin && (
-          <button
-            type="button"
-            aria-label={isPinned ? `Unpin ${win.name} from Lanes` : `Pin ${win.name} to Lanes`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onTogglePin();
-            }}
-            className={`text-[12px] transition-opacity cursor-pointer px-0.5 min-h-[36px] flex items-center justify-center text-text-secondary hover:text-text-primary ${
-              isPinned
-                ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100 coarse:opacity-100"
-            }`}
-          >
-            {/* Thumbtack/pin SVG icon */}
-            <svg width="12" height="12" viewBox="0 0 16 16" fill={isPinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M9.5 2L13 5.5L10.5 8L11 12L4 5L8 5.5Z" />
-              <line x1="4" y1="12" x2="6.5" y2="9.5" />
-            </svg>
-          </button>
-        )}
+      {/* Hover-reveal buttons: color swatch + kill */}
+      <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pr-2 pl-1 bg-inherit opacity-0 group-hover:opacity-100 coarse:opacity-100 transition-opacity">
         {onColorChange && (
           <button
             ref={colorBtnRef}
@@ -214,7 +197,7 @@ export function WindowRow({
               e.stopPropagation();
               setShowColorPicker((v) => !v);
             }}
-            className="text-[12px] text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[36px] flex items-center justify-center"
+            className="text-[12px] text-text-secondary hover:text-text-primary cursor-pointer px-0.5 min-h-[36px] flex items-center justify-center"
           >
             &#x25A0;
           </button>
@@ -223,7 +206,7 @@ export function WindowRow({
           type="button"
           aria-label={`Kill window ${win.name}`}
           onClick={onKillClick}
-          className="text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-1 min-h-[36px] flex items-center justify-center"
+          className="text-[14px] text-text-secondary hover:text-red-400 cursor-pointer px-1 min-h-[36px] flex items-center justify-center"
         >
           {"\u2715"}
         </button>

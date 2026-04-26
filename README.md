@@ -11,6 +11,8 @@ brew tap sahil87/tap
 brew install rk
 ```
 
+To upgrade later, run `rk update` — it pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
+
 ## Usage
 
 ```bash
@@ -49,9 +51,13 @@ just prod # Runs from built binary
 
 ## HTTPS
 
-To access rk over HTTPS (e.g., from other machines on your tailnet), see:
+Some browser features (e.g., copy to clipboard) require a secure context and only work over HTTPS. Accessing rk from other machines on your tailnet also requires HTTPS. To enable it:
 
-- [Tailscale guide](docs/wiki/tailscale.md) — zero-config with Tailscale Serve (recommended)
+1. Enable HTTPS at [DNS > HTTPS Certificates](https://login.tailscale.com/admin/dns).
+2. Run `tailscale serve --bg http://localhost:3000`.
+3. Open `https://<machine>.<tailnet>.ts.net`.
+
+For custom hostnames, Funnel, and other options, see the [Tailscale guide](docs/wiki/tailscale.md).
 
 ## Self-Improvement Loop
 
@@ -60,8 +66,6 @@ rk runs as a daemon in a dedicated tmux session. Lifecycle is managed via CLI fl
 - `rk serve -d` — start daemon in a tmux session (`rk-daemon` server)
 - `rk serve --restart` — idempotent restart (stop existing if running, start new)
 - `rk serve --stop` — graceful shutdown via SIGINT
-
-`rk update` automatically restarts the daemon after upgrading via Homebrew, so the new binary takes effect immediately.
 
 Key properties:
 

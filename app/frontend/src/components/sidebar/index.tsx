@@ -196,16 +196,35 @@ export function Sidebar({
   });
 
   // Inline rename session (optimistic)
-  const lastRenameSessionRef = useRef<{ server: string; name: string } | null>(null);
+  const lastRenameSessionRef = useRef<{ server: string; oldName: string; newName: string } | null>(null);
   const { execute: executeRenameSession } = useOptimisticAction<[string, string, string]>({
     action: (srv, oldName, newName) => renameSession(srv, oldName, newName),
     onOptimistic: (srv, oldName, newName) => {
-      lastRenameSessionRef.current = { server: srv, name: oldName };
+      lastRenameSessionRef.current = { server: srv, oldName, newName };
       markRenamed("session", srv, oldName, newName);
+      // Navigate immediately so the URL stays in sync with the optimistic display name.
+      // Without this, computeKillRedirect sees the old URL + renamed session = "gone" and
+      // bounces the user to dashboard.
+      if (currentSession === oldName && currentWindowIndex) {
+        navigate({
+          to: "/$server/$session/$window",
+          params: { server: srv, session: newName, window: currentWindowIndex },
+          replace: true,
+        });
+      }
     },
     onRollback: () => {
       const last = lastRenameSessionRef.current;
-      if (last) unmarkRenamed(last.server, last.name);
+      if (last) {
+        unmarkRenamed(last.server, last.oldName);
+        if (currentSession === last.newName && currentWindowIndex) {
+          navigate({
+            to: "/$server/$session/$window",
+            params: { server, session: last.oldName, window: currentWindowIndex },
+            replace: true,
+          });
+        }
+      }
     },
     onError: (err) => {
       addToast(err.message || "Failed to rename session");

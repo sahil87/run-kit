@@ -226,25 +226,68 @@ type SessionInfo struct {
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
-// Format: name, grouped, group, @color (4 fields).
+// Format: name, grouped, group, group_size, @color (5 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
-	var sessions []SessionInfo
+	type rawEntry struct {
+		name      string
+		grouped   bool
+		group     string
+		groupSize int
+		colorStr  string
+	}
+
+	// Pass 1: parse all valid lines.
+	var entries []rawEntry
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
 		if len(parts) < 2 {
 			continue
 		}
-		name, grouped := parts[0], parts[1]
-		group := ""
+		e := rawEntry{name: parts[0], grouped: parts[1] == "1"}
 		if len(parts) >= 3 {
-			group = parts[2]
+			e.group = parts[2]
 		}
-		// Filter out session-group copies: keep if ungrouped or if name matches group
-		if grouped == "0" || name == group {
-			si := SessionInfo{Name: name}
-			if len(parts) >= 4 && parts[3] != "" {
-				if n, err := strconv.Atoi(parts[3]); err == nil {
+		if len(parts) >= 4 {
+			e.groupSize, _ = strconv.Atoi(parts[3])
+		}
+		if len(parts) >= 5 {
+			e.colorStr = parts[4]
+		}
+		entries = append(entries, e)
+	}
+
+	// Build set of groups that still have a name-matching leader.
+	groupHasLeader := make(map[string]bool)
+	for _, e := range entries {
+		if e.grouped && e.name == e.group {
+			groupHasLeader[e.group] = true
+		}
+	}
+
+	// Pass 2: filter — keep ungrouped sessions, group leaders, sole members,
+	// and one representative from leaderless groups (renamed leader).
+	leaderlessIncluded := make(map[string]bool)
+	var sessions []SessionInfo
+	for _, e := range entries {
+		keep := false
+		switch {
+		case !e.grouped:
+			keep = true
+		case e.name == e.group:
+			keep = true
+		case e.groupSize == 1:
+			keep = true
+		case !groupHasLeader[e.group] && !leaderlessIncluded[e.group]:
+			// Leader was renamed — no session matches the group name.
+			// Include the first member as representative.
+			leaderlessIncluded[e.group] = true
+			keep = true
+		}
+		if keep {
+			si := SessionInfo{Name: e.name}
+			if e.colorStr != "" {
+				if n, err := strconv.Atoi(e.colorStr); err == nil {
 					si.Color = &n
 				}
 			}
@@ -260,7 +303,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{@session_color}", listDelim, listDelim, listDelim)
+	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}", listDelim, listDelim, listDelim, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {

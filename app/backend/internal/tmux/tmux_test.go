@@ -4,17 +4,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 // Helper to build a tab-delimited tmux line.
 func sessionLine(name, grouped, group string) string {
-	return strings.Join([]string{name, grouped, group}, listDelim)
+	return strings.Join([]string{name, grouped, group, "0"}, listDelim)
+}
+
+func sessionLineGrouped(name, grouped, group string, groupSize int) string {
+	return strings.Join([]string{name, grouped, group, strconv.Itoa(groupSize)}, listDelim)
 }
 
 func sessionLineColor(name, grouped, group, color string) string {
-	return strings.Join([]string{name, grouped, group, color}, listDelim)
+	return strings.Join([]string{name, grouped, group, "0", color}, listDelim)
 }
 
 func intPtr(n int) *int { return &n }
@@ -50,19 +55,70 @@ func TestParseSessions(t *testing.T) {
 			want: []SessionInfo{{Name: "alpha"}, {Name: "beta"}},
 		},
 		{
-			name: "filters out session-group copies (grouped=1, name != group)",
+			name: "filters out session-group copies (grouped=1, name != group, size > 1)",
 			lines: []string{
-				sessionLine("devshell", "0", "devshell"),
-				sessionLine("devshell-82", "1", "devshell"),
+				sessionLineGrouped("devshell", "1", "devshell", 2),
+				sessionLineGrouped("devshell-82", "1", "devshell", 2),
 			},
 			want: []SessionInfo{{Name: "devshell"}},
 		},
 		{
 			name: "keeps group-named session (grouped=1, name == group)",
 			lines: []string{
-				sessionLine("mygroup", "1", "mygroup"),
+				sessionLineGrouped("mygroup", "1", "mygroup", 1),
 			},
 			want: []SessionInfo{{Name: "mygroup"}},
+		},
+		{
+			name: "keeps sole group member after rename (grouped=1, name != group, size == 1)",
+			lines: []string{
+				sessionLine("other", "0", "other"),
+				sessionLineGrouped("run-kit-lane", "1", "run-kit-lanes", 1),
+			},
+			want: []SessionInfo{{Name: "other"}, {Name: "run-kit-lane"}},
+		},
+		{
+			name: "renamed leader in multi-member group — first member kept as representative",
+			lines: []string{
+				sessionLineGrouped("shell", "1", "devshell", 2),
+				sessionLineGrouped("devshell-82", "1", "devshell", 2),
+			},
+			want: []SessionInfo{{Name: "shell"}},
+		},
+		{
+			name: "renamed leader in 3-member group — only first member kept",
+			lines: []string{
+				sessionLineGrouped("renamed", "1", "original", 3),
+				sessionLineGrouped("original-1", "1", "original", 3),
+				sessionLineGrouped("original-2", "1", "original", 3),
+			},
+			want: []SessionInfo{{Name: "renamed"}},
+		},
+		{
+			name: "two independent groups — one with renamed leader, one normal",
+			lines: []string{
+				sessionLineGrouped("alpha", "1", "alpha", 2),
+				sessionLineGrouped("alpha-copy", "1", "alpha", 2),
+				sessionLineGrouped("new-beta", "1", "beta", 2),
+				sessionLineGrouped("beta-copy", "1", "beta", 2),
+			},
+			want: []SessionInfo{{Name: "alpha"}, {Name: "new-beta"}},
+		},
+		{
+			name: "group with leader plus ungrouped sessions — only leader kept from group",
+			lines: []string{
+				sessionLine("standalone", "0", ""),
+				sessionLineGrouped("grp", "1", "grp", 2),
+				sessionLineGrouped("grp-copy", "1", "grp", 2),
+			},
+			want: []SessionInfo{{Name: "standalone"}, {Name: "grp"}},
+		},
+		{
+			name: "sole group member with color preserved after rename",
+			lines: []string{
+				strings.Join([]string{"renamed-sess", "1", "old-sess", "1", "7"}, listDelim),
+			},
+			want: []SessionInfo{{Name: "renamed-sess", Color: intPtr(7)}},
 		},
 		{
 			name:  "empty input returns nil",
@@ -92,9 +148,9 @@ func TestParseSessions(t *testing.T) {
 		{
 			name: "multiple session-group copies filtered, original kept",
 			lines: []string{
-				sessionLine("proj", "0", "proj"),
-				sessionLine("proj-1", "1", "proj"),
-				sessionLine("proj-2", "1", "proj"),
+				sessionLineGrouped("proj", "1", "proj", 3),
+				sessionLineGrouped("proj-1", "1", "proj", 3),
+				sessionLineGrouped("proj-2", "1", "proj", 3),
 			},
 			want: []SessionInfo{{Name: "proj"}},
 		},
@@ -102,8 +158,8 @@ func TestParseSessions(t *testing.T) {
 			name: "mixed grouped and ungrouped sessions",
 			lines: []string{
 				sessionLine("alpha", "0", "alpha"),
-				sessionLine("beta", "1", "beta"),
-				sessionLine("beta-N", "1", "beta"),
+				sessionLineGrouped("beta", "1", "beta", 2),
+				sessionLineGrouped("beta-N", "1", "beta", 2),
 				sessionLine("gamma", "0", "gamma"),
 			},
 			want: []SessionInfo{{Name: "alpha"}, {Name: "beta"}, {Name: "gamma"}},

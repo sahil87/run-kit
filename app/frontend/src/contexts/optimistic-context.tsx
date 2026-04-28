@@ -163,7 +163,7 @@ export function useMergedSessions(realSessions: ProjectSession[], currentServer:
 
   if (!ctx) return realSessions;
 
-  const { ghosts, killed, renamed, removeGhost } = ctx;
+  const { ghosts, killed, renamed, removeGhost, unmarkRenamed } = ctx;
 
   return useMemo(() => {
     const realSessionNames = new Set(realSessions.map((s) => s.name));
@@ -180,6 +180,15 @@ export function useMergedSessions(realSessions: ProjectSession[], currentServer:
         queueMicrotask(() => removeGhost(ghost.optimisticId));
       } else {
         reconciledSessionGhosts.push(ghost);
+      }
+    }
+
+    // SSE reconciliation: clear renamed entries whose newName already appears
+    // in real SSE data — the rename is confirmed, optimistic overlay is stale.
+    for (const entry of renamed) {
+      if (entry.server !== currentServer) continue;
+      if (realSessionNames.has(entry.newName)) {
+        queueMicrotask(() => unmarkRenamed(entry.server, entry.identifier));
       }
     }
 
@@ -256,5 +265,5 @@ export function useMergedSessions(realSessions: ProjectSession[], currentServer:
     }
 
     return mergedSessions;
-  }, [realSessions, currentServer, ghosts, killed, renamed, removeGhost, windowEntries, windowGhosts]);
+  }, [realSessions, currentServer, ghosts, killed, renamed, removeGhost, unmarkRenamed, windowEntries, windowGhosts]);
 }

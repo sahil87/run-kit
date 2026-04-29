@@ -20,6 +20,7 @@ import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType } from "@/api/client";
+import { resolveWindowCycle, resolveSessionCycle } from "@/lib/keyboard-nav";
 import { deriveNameFromPath } from "@/components/create-session-dialog";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
@@ -334,6 +335,40 @@ function AppShell() {
     },
     [navigate, setDrawerOpen, server],
   );
+
+  // Global keyboard navigation: ⌘⌥ (Mac) or Ctrl+Alt (Win/Linux) + arrow keys
+  // Up/Down → cycle windows within current session; Left/Right → cycle sessions.
+  // Registered in capture phase so it fires before xterm.js consumes the event.
+  // Ghost/optimistic windows and sessions are excluded from the cycle so a freshly
+  // created tab that hasn't been confirmed by SSE yet is never a navigation target.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+      const hasModifiers = isMac
+        ? e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey
+        : e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey;
+      if (!hasModifiers) return;
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+      if (dialogOpenRef.current) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        if (!currentSession) return;
+        const direction = e.key === "ArrowDown" ? "down" : "up";
+        const targetIndex = resolveWindowCycle(currentSession.windows, windowIndex, direction);
+        if (targetIndex !== null) navigateToWindow(currentSession.name, targetIndex);
+      } else {
+        const direction = e.key === "ArrowRight" ? "right" : "left";
+        const target = resolveSessionCycle(sessions, sessionName, direction);
+        if (target) navigateToWindow(target.session, target.windowIndex);
+      }
+    };
+
+    document.addEventListener("keydown", handler, { capture: true });
+    return () => document.removeEventListener("keydown", handler, { capture: true });
+  }, [currentSession, sessions, sessionName, windowIndex, navigateToWindow]);
 
   // Dialog state management
   const dialogs = useDialogState({

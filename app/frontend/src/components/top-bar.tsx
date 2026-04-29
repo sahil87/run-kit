@@ -1,11 +1,12 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
-import { splitWindow, closePane } from "@/api/client";
+import { splitWindow, closePane, getNowPlaying, controlMusic } from "@/api/client";
+import type { NowPlayingInfo } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -186,6 +187,9 @@ export function TopBar({
         </nav>
 
         <div className="flex items-center gap-3 text-xs text-text-secondary">
+          <span className="hidden sm:flex">
+            <MusicControls />
+          </span>
           <span className="hidden sm:flex">
             <ThemeToggle />
           </span>
@@ -433,6 +437,205 @@ function ClosePaneButton({
         </svg>
       )}
     </button>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Music mascot: the Run Kit hexagon that bobs its head to music
+// ──────────────────────────────────────────────────────────────
+function MusicMascot({ isPlaying, size = 18 }: { isPlaying: boolean; size?: number }) {
+  return (
+    <svg
+      viewBox="7 10 50 44"
+      width={size}
+      height={size}
+      aria-hidden="true"
+      style={{
+        animation: isPlaying ? "music-bob 0.95s ease-in-out infinite" : "none",
+        transformOrigin: "50% 50%",
+        transition: "filter 0.2s ease",
+        display: "block",
+        flexShrink: 0,
+      }}
+    >
+      {/* Border segments */}
+      <polygon points="44,11.2 56,32 47.5,32 39.5,17.2" fill={isPlaying ? "#7aa2f7" : "#b4b4b4"} style={{ transition: "fill 0.4s" }} />
+      <polygon points="56,32 44,52.8 39.5,46.8 47.5,32"  fill={isPlaying ? "#7aa2f7" : "#b4b4b4"} style={{ transition: "fill 0.4s" }} />
+      <polygon points="44,52.8 20,52.8 24.5,46.8 39.5,46.8" fill="#2a2a2a" />
+      <polygon points="20,52.8 8,32 16.5,32 24.5,46.8"    fill="#2a2a2a" />
+      <polygon points="8,32 20,11.2 24.5,17.2 16.5,32"    fill="#2a2a2a" />
+      <polygon points="20,11.2 44,11.2 39.5,17.2 24.5,17.2" fill={isPlaying ? "#9db8fb" : "#b4b4b4"} style={{ transition: "fill 0.4s" }} />
+      {/* Inner cube faces */}
+      <polygon points="24.5,17.2 39.5,17.2 47.5,32 32,32" fill={isPlaying ? "#5b8af0" : "#888888"} style={{ transition: "fill 0.4s" }} />
+      <polygon points="47.5,32 39.5,46.8 24.5,46.8 32,32" fill={isPlaying ? "#4a70cc" : "#737373"} style={{ transition: "fill 0.4s" }} />
+      <polygon points="24.5,46.8 16.5,32 24.5,17.2 32,32"  fill={isPlaying ? "#3558a8" : "#545454"} style={{ transition: "fill 0.4s" }} />
+    </svg>
+  );
+}
+
+// Animated equalizer bars — visible when playing
+function EqualizerBars() {
+  return (
+    <div className="flex items-end gap-px h-[12px]" aria-hidden="true">
+      {[
+        { animation: "music-eq1 0.7s ease-in-out infinite", height: "3px" },
+        { animation: "music-eq2 0.9s ease-in-out infinite 0.1s", height: "9px" },
+        { animation: "music-eq3 0.75s ease-in-out infinite 0.2s", height: "5px" },
+      ].map((bar, i) => (
+        <div
+          key={i}
+          className="w-[2px] rounded-sm bg-accent"
+          style={{ animation: bar.animation, height: bar.height }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// Format seconds → m:ss
+function fmtTime(s: number) {
+  if (!s || !isFinite(s)) return "";
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+function MusicControls() {
+  const [info, setInfo] = useState<NowPlayingInfo>({
+    title: "", artist: "", state: "stopped", app: "", duration: 0, elapsedTime: 0,
+  });
+  const [polledAt, setPolledAt] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const doPoll = useCallback(async () => {
+    try {
+      const data = await getNowPlaying();
+      setInfo(data);
+      setPolledAt(Date.now());
+    } catch {
+      // best-effort
+    }
+  }, []);
+
+  useEffect(() => {
+    doPoll();
+    intervalRef.current = setInterval(doPoll, 5000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [doPoll]);
+
+  const handle = async (action: "play" | "pause" | "next" | "previous") => {
+    if (action === "play" || action === "pause") {
+      setInfo((prev) => ({ ...prev, state: action === "play" ? "playing" : "paused" }));
+    }
+    await controlMusic(action);
+    setTimeout(doPoll, 700);
+  };
+
+  if (info.state === "stopped" || !info.title) return null;
+
+  const isPlaying = info.state === "playing";
+  const progressPct = info.duration > 0 ? (info.elapsedTime / info.duration) * 100 : 0;
+  const remainingSecs = Math.max(0, info.duration - info.elapsedTime);
+  // How long since we last polled — approximate elapsed advance
+  const secondsSincePoll = isPlaying ? (Date.now() - polledAt) / 1000 : 0;
+  const liveElapsed = Math.min(info.duration, info.elapsedTime + secondsSincePoll);
+  const liveProgressPct = info.duration > 0 ? (liveElapsed / info.duration) * 100 : 0;
+
+  const btnBase =
+    "min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary " +
+    "hover:border-accent hover:text-accent hover:scale-110 " +
+    "transition-all duration-150 flex items-center justify-center active:scale-95";
+
+  return (
+    <div
+      className="group relative flex items-center gap-1.5"
+      title={`${info.title} — ${info.artist}`}
+    >
+      {/* Mascot — always visible, bobs when playing, glows on hover */}
+      <div
+        className="hover:drop-shadow-[0_0_6px_rgba(91,138,240,0.8)] transition-[filter] duration-200 cursor-default"
+        title={isPlaying ? "Now playing" : "Paused"}
+      >
+        <MusicMascot isPlaying={isPlaying} size={18} />
+      </div>
+
+      {/* Equalizer — visible when playing, hidden on hover (controls take over) */}
+      {isPlaying && (
+        <div className="group-hover:opacity-0 group-hover:w-0 overflow-hidden transition-all duration-200">
+          <EqualizerBars />
+        </div>
+      )}
+
+      {/* Track name — compact always-visible label */}
+      <span className="text-xs text-text-secondary max-w-[88px] truncate block group-hover:opacity-0 group-hover:max-w-0 overflow-hidden transition-all duration-200 select-none">
+        {info.title}
+      </span>
+
+      {/* ── Hover panel ─────────────────────────────────────────── */}
+      <div
+        className="flex items-center gap-1.5 overflow-hidden max-w-0 opacity-0 group-hover:opacity-100 group-hover:max-w-[320px] transition-all duration-250 ease-in-out"
+      >
+        {/* Previous */}
+        <button type="button" onClick={() => handle("previous")} aria-label="Previous track" className={btnBase} title="Previous">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <polygon points="19,20 9,12 19,4" />
+            <rect x="5" y="4" width="3" height="16" />
+          </svg>
+        </button>
+
+        {/* Play / Pause */}
+        <button
+          type="button"
+          onClick={() => handle(isPlaying ? "pause" : "play")}
+          aria-label={isPlaying ? "Pause" : "Play"}
+          className={`${btnBase} ${isPlaying ? "border-accent text-accent bg-accent/10" : ""}`}
+          title={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? (
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="6" y="4" width="4" height="16" />
+              <rect x="14" y="4" width="4" height="16" />
+            </svg>
+          ) : (
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <polygon points="5,3 19,12 5,21" />
+            </svg>
+          )}
+        </button>
+
+        {/* Next */}
+        <button type="button" onClick={() => handle("next")} aria-label="Next track" className={btnBase} title="Next">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <polygon points="5,4 15,12 5,20" />
+            <rect x="16" y="4" width="3" height="16" />
+          </svg>
+        </button>
+
+        {/* Track info + progress */}
+        <div className="flex flex-col justify-center min-w-0 gap-[2px] pl-0.5">
+          <span className="text-[11px] text-text-primary font-medium truncate max-w-[110px] leading-tight">{info.title}</span>
+          <span className="text-[10px] text-text-secondary truncate max-w-[110px] leading-tight">{info.artist}</span>
+
+          {/* Progress bar */}
+          {info.duration > 0 && (
+            <div className="flex items-center gap-1 mt-[2px]">
+              <span className="text-[9px] text-text-secondary tabular-nums">{fmtTime(liveElapsed)}</span>
+              <div className="relative h-[2px] flex-1 min-w-[40px] bg-border rounded-full overflow-hidden">
+                <div
+                  key={`${info.title}-${info.artist}`}
+                  className="absolute inset-y-0 left-0 bg-accent rounded-full"
+                  style={isPlaying ? {
+                    animation: `music-progress ${remainingSecs}s linear forwards`,
+                    "--music-progress-start": `${liveProgressPct}%`,
+                  } as React.CSSProperties : { width: `${progressPct}%` }}
+                />
+              </div>
+              <span className="text-[9px] text-text-secondary tabular-nums">{fmtTime(info.duration)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

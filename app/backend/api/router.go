@@ -61,6 +61,7 @@ type Server struct {
 	metrics  *metrics.Collector
 	sseHub   *sseHub
 	sseOnce  sync.Once
+	music    MusicBackend // nil → uses nowplayingCLI default
 }
 
 // initSSEHub lazily creates the SSE hub on first use.
@@ -242,6 +243,10 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/servers", s.handleServersList)
 	r.Post("/api/servers", s.handleServerCreate)
 	r.Post("/api/servers/kill", s.handleServerKill)
+
+	// Music controls
+	r.Get("/api/music/now-playing", s.handleMusicNowPlaying)
+	r.Post("/api/music/control", s.handleMusicControl)
 
 	// Keybindings
 	r.Get("/api/keybindings", s.handleKeybindings)

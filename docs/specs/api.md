@@ -345,6 +345,65 @@ WebSocket endpoint for interactive terminal access.
 
 ---
 
+### Music Controls
+
+Media playback info and control, powered by `nowplaying-cli` on macOS. Both endpoints degrade gracefully when the binary is absent or no media app is running — they never return errors for those cases.
+
+#### `GET /api/music/now-playing`
+
+Returns the currently playing track.
+
+**Response** `200`:
+```json
+{
+  "title": "Neon Gravestones",
+  "artist": "twenty one pilots",
+  "state": "playing",
+  "app": "nowplaying",
+  "duration": 284.5,
+  "elapsedTime": 42.1
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | `string` | Track title. Empty string when nothing is playing. |
+| `artist` | `string` | Artist name. |
+| `state` | `"playing" \| "paused" \| "stopped"` | Playback state. |
+| `app` | `string` | Source identifier (e.g. `"nowplaying"`). |
+| `duration` | `float64` | Total track length in seconds. `0` if unavailable. |
+| `elapsedTime` | `float64` | Current playback position in seconds. `0` if unavailable. |
+
+**Behavior:**
+- Returns `{ state: "stopped", title: "", ... }` when `nowplaying-cli` is absent, exits with error, or no media app is running.
+- Never returns a non-2xx status for a missing binary or stopped player.
+
+#### `POST /api/music/control`
+
+Send a playback command to the active media app.
+
+**Request:**
+```json
+{ "action": "next" }
+```
+
+| Field | Type | Required | Values |
+|-------|------|----------|--------|
+| `action` | `string` | yes | `"play"`, `"pause"`, `"next"`, `"previous"` |
+
+**Response** `200`:
+```json
+{ "ok": true }
+```
+
+**Errors:**
+- `400` — unknown action or malformed body
+- `500` — `nowplaying-cli` subprocess failed
+
+**Requirement:** `nowplaying-cli` must be installed and a supported media app must be running for control commands to take effect.
+
+---
+
 ### SPA Fallback
 
 #### `GET /*` (catch-all, lowest priority)
@@ -421,5 +480,7 @@ WebSocket endpoint for interactive terminal access.
 | `POST` | `/api/sessions/:session/windows/:index/keys` | `windows.go` | Send keystrokes |
 | `POST` | `/api/sessions/:session/upload` | `upload.go` | File upload |
 | `GET` | `/api/directories` | `directories.go` | Directory autocomplete |
+| `GET` | `/api/music/now-playing` | `music.go` | Current track info |
+| `POST` | `/api/music/control` | `music.go` | Playback control |
 | `WS` | `/relay/:session/:window` | `relay.go` | Terminal relay |
 | `GET` | `/*` | `spa.go` | SPA static + fallback |

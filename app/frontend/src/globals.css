@@ -97,6 +97,32 @@ summary {
   16.6%, 33.3% { opacity: 1; }
 }
 
+/* Music: hexagon mascot head-bob */
+@keyframes music-bob {
+  0%   { transform: translateY(0px)  rotate(0deg)  scale(1);    }
+  20%  { transform: translateY(-3px) rotate(-7deg) scale(1.08); }
+  50%  { transform: translateY(-1px) rotate(0deg)  scale(1.04); }
+  80%  { transform: translateY(-2px) rotate(6deg)  scale(1.06); }
+  100% { transform: translateY(0px)  rotate(0deg)  scale(1);    }
+}
+
+/* Music: progress bar fill from a CSS-variable start point */
+@keyframes music-progress {
+  from { width: var(--music-progress-start, 0%); }
+  to   { width: 100%; }
+}
+
+/* Music: equalizer bar bounce (3 variants with different phases) */
+@keyframes music-eq1 {
+  0%, 100% { height: 3px; } 40% { height: 11px; }
+}
+@keyframes music-eq2 {
+  0%, 100% { height: 9px; } 25% { height: 3px;  } 65% { height: 12px; }
+}
+@keyframes music-eq3 {
+  0%, 100% { height: 5px; } 55% { height: 10px; }
+}
+
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */
 html.fullbleed,
 html.fullbleed body {

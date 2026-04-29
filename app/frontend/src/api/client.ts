@@ -456,6 +456,31 @@ export async function getAllServerColors(): Promise<Record<string, number>> {
   return data.colors;
 }
 
+// --- Music controls ---
+
+export interface NowPlayingInfo {
+  title: string;
+  artist: string;
+  state: "playing" | "paused" | "stopped";
+  app: string;
+  duration: number;
+  elapsedTime: number;
+}
+
+export async function getNowPlaying(): Promise<NowPlayingInfo> {
+  const res = await deduplicatedFetch("/api/music/now-playing");
+  if (!res.ok) return { title: "", artist: "", state: "stopped", app: "", duration: 0, elapsedTime: 0 };
+  return res.json();
+}
+
+export async function controlMusic(action: "play" | "pause" | "next" | "previous"): Promise<void> {
+  await fetch("/api/music/control", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+}
+
 export async function setServerColor(server: string, color: number | null): Promise<void> {
   const res = await fetch("/api/settings/server-color", {
     method: "PUT",

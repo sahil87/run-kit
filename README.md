@@ -39,6 +39,16 @@ go install github.com/air-verse/air@latest
 
 Run `just doctor` to verify all dependencies are installed.
 
+### Optional: Music widget
+
+The top-bar music widget shows the currently playing track and lets you play/pause/skip from any session. It requires [nowplaying-cli](https://github.com/kirtan403/nowplaying-cli) (macOS only):
+
+```sh
+brew install nowplaying-cli
+```
+
+Without it the widget simply stays hidden — no errors, no required action.
+
 ## Getting Started
 
 ```bash

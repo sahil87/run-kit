@@ -84,6 +84,8 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
           <h3 className="text-xs text-text-secondary font-medium mb-1">App</h3>
           <div className="space-y-1">
             <ShortcutRow label="Command palette" keys={["⌘K"]} />
+            <ShortcutRow label="New tab (window)" keys={["⌘T", "Ctrl+T"]} />
+            <ShortcutRow label="Close tab (window)" keys={["⌘W", "Ctrl+W"]} />
             <ShortcutRow label="Next window" keys={["⌘⌥↓", "Ctrl+Alt+↓"]} />
             <ShortcutRow label="Previous window" keys={["⌘⌥↑", "Ctrl+Alt+↑"]} />
             <ShortcutRow label="Next session" keys={["⌘⌥→", "Ctrl+Alt+→"]} />

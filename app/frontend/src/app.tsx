@@ -353,6 +353,7 @@ function AppShell() {
 
       e.preventDefault();
       e.stopPropagation();
+      e.stopImmediatePropagation();
 
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         if (!currentSession) return;
@@ -366,8 +367,8 @@ function AppShell() {
       }
     };
 
-    document.addEventListener("keydown", handler, { capture: true });
-    return () => document.removeEventListener("keydown", handler, { capture: true });
+    window.addEventListener("keydown", handler, { capture: true });
+    return () => window.removeEventListener("keydown", handler, { capture: true });
   }, [currentSession, sessions, sessionName, windowIndex, navigateToWindow]);
 
   // Dialog state management
@@ -461,6 +462,49 @@ function AppShell() {
     [server, executeCreateWindow],
   );
 
+  // ⌘T (Mac) / Ctrl+T (Win/Linux) — new terminal tab in the current session
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "t" && e.key !== "T") return;
+      const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+      const hasModifier = isMac
+        ? e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey
+        : e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+      if (!hasModifier) return;
+      if (dialogOpenRef.current) return;
+      if (!sessionName) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      handleCreateWindow(sessionName);
+    };
+
+    window.addEventListener("keydown", handler, { capture: true });
+    return () => window.removeEventListener("keydown", handler, { capture: true });
+  }, [sessionName, handleCreateWindow]);
+
+  // ⌘W (Mac) / Ctrl+W (Win/Linux) — close current window with confirmation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "w" && e.key !== "W") return;
+      const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+      const hasModifier = isMac
+        ? e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey
+        : e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+      if (!hasModifier) return;
+      if (dialogOpenRef.current) return;
+      if (!currentWindow) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      dialogs.openKillConfirm();
+    };
+
+    window.addEventListener("keydown", handler, { capture: true });
+    return () => window.removeEventListener("keydown", handler, { capture: true });
+  }, [currentWindow, dialogs]);
 
   const handleCreateIframeWindow = useCallback(() => {
     const name = iframeWindowName.trim();
@@ -1136,7 +1180,7 @@ function AppShell() {
       )}
 
       {dialogs.showKillConfirm && (
-        <Dialog title="Kill window?" onClose={dialogs.closeKillConfirm}>
+        <Dialog title="Kill window?" onClose={dialogs.closeKillConfirm} onConfirm={dialogs.handleKillWindow}>
           <p className="text-text-secondary mb-2.5">
             Kill window <strong>{displayName}</strong>? This cannot be undone.
           </p>

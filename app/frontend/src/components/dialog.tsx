@@ -3,21 +3,33 @@ import { useEffect, useRef, useId, useCallback } from "react";
 type DialogProps = {
   title: string;
   onClose: () => void;
+  onConfirm?: () => void;
   children: React.ReactNode;
 };
 
-export function Dialog({ title, onClose, children }: DialogProps) {
+export function Dialog({ title, onClose, onConfirm, children }: DialogProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Stable ref so the keydown handler always calls the latest onClose
+  // Stable refs so keydown handler always calls the latest callbacks
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const onConfirmRef = useRef(onConfirm);
+  onConfirmRef.current = onConfirm;
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape") {
       onCloseRef.current();
       return;
+    }
+    if (e.key === "Enter" && onConfirmRef.current) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      // Let inputs/textareas handle their own Enter (submit, newline, etc.)
+      if (tag !== "INPUT" && tag !== "TEXTAREA") {
+        e.preventDefault();
+        onConfirmRef.current();
+        return;
+      }
     }
     const dialog = dialogRef.current;
     if (!dialog || e.key !== "Tab") return;

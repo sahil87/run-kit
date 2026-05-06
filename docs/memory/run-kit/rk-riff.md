@@ -14,13 +14,13 @@ Spin up an isolated AI development workspace in one shot, with multi-pane compos
 4. Open a tmux window per worktree rooted at its path.
 5. For each pane spec in argv order, run `tmux new-window` (pane 0) then `tmux split-window` (panes 1..N-1).
 6. Apply `tmux select-layout` when the layout is not empty.
-7. Focus pane 0 via `tmux select-pane -t <window>.0`.
+7. Focus the first pane by capturing its pane id from `tmux new-window -P -F '#{pane_id}'` and running `tmux select-pane -t <pane-id>` (canonical tmux primitive — works on any `pane-base-index`).
 
 ## Invocation
 
 ```
 rk riff [preset] [--skill <skill>...] [--cmd <cmd>...] [--layout <name>]
-        [--fan-out <N>] [--preset <name>] [--list-presets] [-- <wt-flags>...]
+        [--count <N>] [--preset <name>] [--list-presets] [-- <wt-flags>...]
 ```
 
 ## Flag Surface
@@ -30,14 +30,14 @@ rk riff [preset] [--skill <skill>...] [--cmd <cmd>...] [--layout <name>]
 | `--skill` | repeatable (custom `pflag.Value`) | — | Add one skill/slash-command pane. Bare form (no value) launches a blank Claude session. Argv order = pane order. |
 | `--cmd` | repeatable (custom `pflag.Value`) | — | Add one shell-command pane. Bare form drops into `$SHELL` (fallback `/bin/sh`). Argv order = pane order. |
 | `--layout` | string | `auto` | Canonical or shortform layout name (12 accepted: 6 canonical + 6 shortforms). See Layout Flag below. |
-| `--fan-out` | int | `1` | Spawn N worktree/window pairs in parallel. N ≥ 1; invalid values (0, negative) error out pre-subprocess. |
+| `--count` / `-N` | int | `1` | Spawn N worktree/window pairs in parallel. N ≥ 1; invalid values (0, negative) error out pre-subprocess. Short form `-N` (uppercase). |
 | `--preset` | string | `""` | Invoke a named preset from `fab/project/config.yaml`. Mutually exclusive with the positional form. |
 | `--list-presets` | bool | `false` | Print defined presets in plain text and exit 0. Short-circuits all subprocesses. |
 | `--` | separator | — | Everything after `--` forwards verbatim to `wt create`. Preset `wt_args` (if any) are prepended before the user's passthrough. |
 
-Cobra's `SetInterspersed(true)` (pflag default) lets flags appear before or after the positional preset token (so `rk riff ship --fan-out 3` works). The `--` separator still terminates parsing so the `wt create` passthrough mechanism is preserved. The command also sets `DisableFlagParsing: true` because pflag's `NoOptDefVal` pattern does not consume a space-form value — the custom pre-processor `rewritePaneSpaceForm` in `pane_spec.go` translates `--skill V` to `--skill=V` before the manual `Flags().Parse` call, so the final parsed state is identical to equals-form.
+Cobra's `SetInterspersed(true)` (pflag default) lets flags appear before or after the positional preset token (so `rk riff ship --count 3` works). The `--` separator still terminates parsing so the `wt create` passthrough mechanism is preserved. The command also sets `DisableFlagParsing: true` because pflag's `NoOptDefVal` pattern does not consume a space-form value — the custom pre-processor `rewritePaneSpaceForm` in `pane_spec.go` translates `--skill V` to `--skill=V` before the manual `Flags().Parse` call, so the final parsed state is identical to equals-form.
 
-Package-level variables: `riffPaneSpecs []PaneSpec` (shared accumulator for both pane flags, preserving argv order), `riffLayoutFlag`, `riffFanOutFlag`, `riffPresetFlag`, `riffListPresetsFlg`. The pane flag instances (`skillPaneFlag`, `cmdPaneFlag`) are `*paneFlag` values bound to `&riffPaneSpecs`.
+Package-level variables: `riffPaneSpecs []PaneSpec` (shared accumulator for both pane flags, preserving argv order), `riffLayoutFlag`, `riffCountFlag`, `riffPresetFlag`, `riffListPresetsFlg`. The pane flag instances (`skillPaneFlag`, `cmdPaneFlag`) are `*paneFlag` values bound to `&riffPaneSpecs`.
 
 ## Pane Array Model
 
@@ -50,7 +50,7 @@ rk riff --cmd --skill /fab-discuss --cmd htop --skill
          (bare sh) (/fab-discuss) (htop)  (blank claude)
 ```
 
-Pane 0 receives focus after layout is applied (`tmux select-pane -t <window>.0`). Bare-flag semantics:
+Pane 0 receives focus after layout is applied. Focus uses the pane id captured from `tmux new-window -P -F '#{pane_id}'` (e.g., `%87`) — `tmux select-pane -t <pane-id>` — rather than a hardcoded `<window>.0` index, because user tmux configs vary in `pane-base-index` (commonly 0 or 1) and pane id is the canonical primitive. Bare-flag semantics:
 
 - `--skill` with no value → launcher with no positional argument (blank Claude session).
 - `--cmd` with no value → `exec "${SHELL:-/bin/sh}"` (bare interactive shell).
@@ -76,7 +76,7 @@ Helpers: `buildSkillShellString(launcher, cmdArg)`, `buildCmdShellString(value)`
 
 ### Focus Rule
 
-After all panes are created and `select-layout` is applied (when the layout is non-empty), `tmux select-pane -t <resolvedName>.0` focuses pane 0 — the first argv occurrence regardless of type. The `.0` suffix is the pflag-style pane index.
+After all panes are created and `select-layout` is applied (when the layout is non-empty), `tmux select-pane -t <pane-id>` focuses the first pane — the first argv occurrence regardless of type. The pane id (e.g., `%87`) is captured at window-creation time from `tmux new-window -P -F '#{pane_id}'` rather than computed from a hardcoded `.0` index, because user tmux configs vary in `pane-base-index`.
 
 ## Layout Flag
 
@@ -145,7 +145,7 @@ Effective values for each field:
 
 1. **Panes**: CLI `--skill`/`--cmd` flags replace preset panes entirely. If no CLI panes AND preset has no panes AND no preset → single `/fab-discuss` skill pane (change-2 compatibility).
 2. **Layout**: explicit CLI `--layout` (anything other than `auto`) > preset `layout` > `autoLayout(paneCount)`.
-3. **Fan-out**: CLI `--fan-out` only. Presets do not carry a fan-out count in this change.
+3. **Count**: CLI `--count` (short `-N`) only. Presets do not carry a count in this change.
 4. **`wt_args`**: preset `wt_args` prepended to user's `-- <passthrough>` args.
 
 ### `--list-presets`
@@ -167,7 +167,7 @@ One blank line between presets. Empty map → `No presets defined in fab/project
 
 ## Fan-Out
 
-`--fan-out N` (N ≥ 2) spawns N worktree/window pairs in parallel. N = 1 is the identity case (no goroutines). N = 0 or negative is rejected (exit 1).
+`--count N` (short `-N N`; N ≥ 2) spawns N worktree/window pairs in parallel. N = 1 is the identity case (no goroutines). N = 0 or negative is rejected (exit 1). Internal helpers (`runCount`, `fanOutResult`, `planFanOutRollback`, `rollbackFanOut`, `rollbackPlan`) describe the parallelism mechanic and retain the `fanOut`/`Count` naming distinction: `runCount` is the orchestrator (matches the user-facing flag), while the result/plan/rollback types describe the mechanic.
 
 Each goroutine runs the same `runWtCreate` + `spawnRiff` sequence. Worktree names come from `wt create`'s own generator — rk does not impose a `-1..-N` numbering. Each window is named `riff-<basename>` where `<basename>` is `filepath.Base(worktreePath)`; `resolveWindowName` applies `-2`, `-3`, … suffixes on collision.
 
@@ -177,7 +177,7 @@ On any goroutine failure:
 
 1. The shared `context.CancelFunc` is invoked, propagating cancellation to sibling `exec.CommandContext` calls.
 2. `planFanOutRollback(results, failureIdx)` (pure) computes which worktrees + windows to clean up — excludes the failing goroutine's own artifacts (its `wt create` may have returned no worktree, or its pre-tmux state is the error we're reporting).
-3. `rollbackFanOut` invokes `wt delete --worktree-name <basename>` per worktree then `tmux kill-window -t <name>` per window. Rollback errors are logged to stderr but do not mask the primary error. Uses a fresh (non-cancelled) context so rollback runs to completion.
+3. `rollbackFanOut` invokes `wt delete --non-interactive <basename>` per worktree then `tmux kill-window -t <name>` per window. The `--non-interactive` flag suppresses `wt`'s `Delete this worktree?` prompt — rollback runs without a tty, and without it `wt` reads EOF on stdin and exits 1, silently leaking worktrees. The basename is passed positionally because `wt` deprecated `--worktree-name`. Argv built by the pure helper `buildWtDeleteArgs(name)`. Rollback errors are logged to stderr but do not mask the primary error. Uses a fresh (non-cancelled) context so rollback runs to completion.
 4. The first-reported goroutine error propagates out as a `subprocessErr` (exit 3), unless it already is an `exitCodeError` (in which case its code is preserved).
 
 ### Signal Handling
@@ -196,9 +196,9 @@ On any goroutine failure:
 6. **Launcher resolution** — `fabconfig.ReadSpawnCommand` or hardcoded default.
 7. **Preset resolution** — `resolveActivePreset` handles positional/named/conflict/unknown.
 8. **Effective spec assembly** — `resolveEffectiveSpec` merges CLI + preset + defaults.
-9. **Dispatch** — N = 1 calls `runWtCreate` + `spawnRiff` directly; N ≥ 2 calls `runFanOut`.
+9. **Dispatch** — N = 1 calls `runWtCreate` + `spawnRiff` directly; N ≥ 2 calls `runCount` (the orchestrator dispatching by `spec.Count`).
 
-`spawnRiff` internally calls `listWindowNames` + `resolveWindowName` for collision resolution, then executes the argv sequence from `buildSpawnArgvs(worktreePath, resolvedName, spec)` — each argv via `runTmuxArgv` (with `tmuxTimeout` and `tmuxChildEnv`). `buildSpawnArgvs` is a pure helper (test seam for T023).
+`spawnRiff` internally calls `listWindowNames` + `resolveWindowName` for collision resolution, then runs the spawn sequence in three phases: (a) `tmux new-window -P -F '#{pane_id}' …` via `runTmuxNewWindowCapturePaneID` (argv built by pure helper `buildNewWindowCaptureArgs`; pane id parsed by pure helper `parsePaneID` — single trimmed line); (b) the remaining pure-argv slice from `buildSpawnArgvs(worktreePath, resolvedName, spec)` (split-window × N + optional select-layout) via `runTmuxArgv`; (c) `tmux select-pane -t <pane-id>` constructed at runtime from the captured pane id. All subprocesses run with `tmuxTimeout` (10 s) and `tmuxChildEnv`. `buildSpawnArgvs` is a pure helper (test seam) — it no longer emits a trailing `select-pane` row, because the focus target is a runtime value not knowable until `new-window` returns.
 
 ## Exit Code Discipline
 
@@ -243,10 +243,10 @@ Unchanged from prior changes: `fab/project/config.yaml` is a trust boundary equi
 
 ## Tests
 
-- `app/backend/cmd/rk/riff_test.go` — existing helpers (`parseWorktreePath`, `escapeSingleQuotes`, `buildNewWindowArgs`, `shellWrap`, `resolveWindowName`, `resolveLauncher`) plus new coverage: `rewritePaneSpaceForm`, `paneFlag` parsing (interleaved argv → correct PaneSpec order), `resolveLayout` (all 12 inputs + unknown-value error), `autoLayout`, `resolveActivePreset` (6 scenarios), `resolveEffectiveSpec` (7 resolution rules), `buildSpawnArgvs` (single/2/4-pane shapes, bare skill, bare cmd), `printPresets` (empty + two-preset), `planFanOutRollback` (full success, partial with failure, no failure).
+- `app/backend/cmd/rk/riff_test.go` — existing helpers (`parseWorktreePath`, `escapeSingleQuotes`, `buildNewWindowArgs`, `shellWrap`, `resolveWindowName`, `resolveLauncher`) plus coverage: `rewritePaneSpaceForm`, `paneFlag` parsing (interleaved argv → correct PaneSpec order), `resolveLayout` (all 12 inputs + unknown-value error), `autoLayout`, `resolveActivePreset` (6 scenarios), `resolveEffectiveSpec` (7 resolution rules), `buildSpawnArgvs` (single/2/4-pane shapes, bare skill, bare cmd; no longer emits a trailing `select-pane` row), `buildNewWindowCaptureArgs` (argv shape for the `-P -F '#{pane_id}'` step), `parsePaneID` (single-line trim + empty-input error), `printPresets` (empty + two-preset), `planFanOutRollback` (full success, partial with failure, no failure), `TestRiffCountShortForm` (`-N`/`--count`/`--count=`/default), `TestRiffFanOutFlagRejected` (post-rename hard-rename regression), `TestBuildWtDeleteArgs` (`--non-interactive` + positional name; rejects `--worktree-name`).
 - `app/backend/internal/fabconfig/fabconfig_test.go` — existing `ReadSpawnCommand` cases plus `ReadPresets` cases (empty file, missing riff block, malformed YAML, valid preset with all fields, pane-with-both-keys discarded, unknown keys tolerated, empty panes list, multiple presets, nested `agent.riff.presets` ignored) and `ReadPresetsOrdered` preserves source order.
 
-No integration tests invoke real `wt`/`tmux` — the pure helpers remain the unit-test surface. SIGINT propagation and the fan-out goroutine orchestration are deliberately not automated — manual verification against a hung `wt create` + `--fan-out 3` is the acceptance check.
+No integration tests invoke real `wt`/`tmux` — the pure helpers remain the unit-test surface. SIGINT propagation and the fan-out goroutine orchestration are deliberately not automated — manual verification against a hung `wt create` + `--count 3` is the acceptance check.
 
 ## Related Files
 
@@ -275,3 +275,4 @@ No integration tests invoke real `wt`/`tmux` — the pure helpers remain the uni
 | 2026-04-23 | Correctness and portability fixes — no CLI surface change. (1) New pure `shellWrap(cmd)` helper appends `; exec "${SHELL:-/bin/sh}"`; used by both new-window and split paths so panes stay interactive after their commands exit. (2) Launcher now runs under an interactive `${SHELL:-/bin/sh} -i -c '...'` wrap inside `buildNewWindowArgs` so `.zshrc`/`.bashrc` aliases, functions, and interactive-only PATH tweaks reach the Claude Code launcher (closes Bug 3). (3) Split pane replaces the hardcoded `exec zsh` with `shellWrap(setupCmd)` — bash/fish users land in their own shell (closes Bug 8). (4) SIGINT/SIGTERM propagation — `runRiff` wraps its root context via `signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)` with `defer stop()`, threaded through all three subprocess call sites; Ctrl-C no longer leaves orphan `wt`/`tmux` children (closes Bug 10). (5) Window-name auto-suffix — `listWindowNames(ctx)` probes `tmux list-windows -F '#W'` and `resolveWindowName(existing, base)` (pure, gap-filling) applies `-2`, `-3`, … on collision; TOCTOU race between list and new-window is accepted (closes Bug 11). (6) Added Security / Trust Boundary section documenting `fab/project/config.yaml` as committed-code-equivalent and naming launcher shell expansion as the intentional exception to constitution §I (addresses Bug 9 via docs only — no code mitigation). `buildNewWindowArgs` signature changed to accept the resolved name; new `TestShellWrap` and `TestResolveWindowName` cover the new pure helpers. | `260423-ba9f-rk-riff-correctness-fixes` |
 | 2026-04-23 | CLI surface refinement — hard-rename flags and expand help text, no behavioral change. (1) `--cmd` renamed to `--skill` (hard-rename, no deprecation alias — invocations using `--cmd` fail with cobra's "unknown flag" error). (2) `--split` renamed to `--setup-pane` (hard-rename, no deprecation alias). (3) Package-level Go variables renamed in lockstep: `riffCmdFlag` → `riffSkillFlag`, `riffSplitFlag` → `riffSetupPaneFlag`. (4) `Use:` synopsis expanded from `riff [-- wt-flags...]` to `riff [--skill <name>] [--setup-pane <cmd>] [-- <wt-flags>...]`. (5) `Long:` help expanded to match `serve.go` house style. (6) Bug 2 investigation note — verified positional argv to `claude` dispatches slash-commands correctly. | `260423-udhe-rk-riff-cli-surface` |
 | 2026-04-23 | Workflow features — pane-array model, layouts, presets, and fan-out. (1) `--skill` and `--cmd` are now repeatable with argv-ordered pane composition; a custom `paneFlag` pflag.Value + argv pre-processor (`rewritePaneSpaceForm`) support bare / space-form / equals-form syntax uniformly. Pane 0 always gets tmux focus via `select-pane -t <window>.0`. (2) `--layout` flag accepts 6 canonical tmux names + 6 shortforms (`a`/`t`/`h`/`v`/`deck-h`/`deck-v`), resolved via `layoutAliases`; `auto` dispatches by pane count via `autoLayout`. Unicode box-drawing mockups render inline in `rk riff -h` via `layout_help.go`. (3) `--setup-pane` removed outright (no alias, no deprecation warning) — `--cmd` subsumes it. (4) Presets under `riff.presets.<name>` in `fab/project/config.yaml` invokable positionally (`rk riff ship`) or via `--preset`; panes are a typed ordered list of `{skill|cmd: value}` entries; CLI panes replace preset panes entirely; CLI layout overrides preset layout; preset `wt_args` are prepended to user passthrough. Preset with a pane having both `skill` and `cmd` keys is silently discarded (best-effort posture matching `ReadSpawnCommand`). (5) `--list-presets` short-circuits before preconditions and prints presets in YAML source order. (6) `--fan-out N` spawns N parallel worktree/window pairs sharing one pane shape; failure triggers rollback via `wt delete` + `tmux kill-window` for the non-failing goroutines' artifacts (computed by pure `planFanOutRollback`). `fabconfig.ReadPresets` + `ReadPresetsOrdered` added. New pure helpers: `resolveActivePreset`, `resolveEffectiveSpec`, `buildSpawnArgvs`, `buildSkillShellString`, `buildCmdShellString`, `planFanOutRollback`. | `260423-jmwu-rk-riff-workflow-features` |
+| 2026-05-06 | `--count` rename and fan-out correctness fixes. (1) Hard-rename `--fan-out N` → `--count N` (short form `-N`, uppercase) — no alias, no deprecation warning; `--fan-out` is now an unknown flag. Internal renames track the user-facing flag: `riffFanOutFlag` → `riffCountFlag`, `effectiveSpec.FanOut` → `effectiveSpec.Count`, `runFanOut` → `runCount`. The parallelism-mechanic helpers (`fanOutResult`, `planFanOutRollback`, `rollbackFanOut`, `rollbackPlan`) keep their `fanOut`/`Plan` naming because they describe the mechanic, not the flag. (2) Bug fix: pane focus targets the captured pane id from `tmux new-window -P -F '#{pane_id}'` rather than a hardcoded `<window>.0` index, which was wrong on tmux configs with `pane-base-index 1` (every riff invocation printed `can't find pane: 0` on stderr). New helpers: `buildNewWindowCaptureArgs` (pure argv shape), `parsePaneID` (pure stdout parser — single trimmed line), `runTmuxNewWindowCapturePaneID` (subprocess with `tmuxTimeout`, parent context propagation, `tmuxChildEnv()`). `buildSpawnArgvs` no longer emits the trailing `select-pane` row — pane id is a runtime value, so that step is constructed by the orchestrator (`spawnRiffReturningName`). (3) Bug fix: `runWtDelete` now invokes `wt delete --non-interactive <name>` (positional name; deprecated `--worktree-name` removed; `--non-interactive` suppresses the `Delete this worktree?` prompt that previously caused silent rollback failures because rollback runs without a tty). Argv shape extracted to pure helper `buildWtDeleteArgs`. (4) New tests: `TestParsePaneID`, `TestBuildNewWindowCaptureArgs`, `TestRiffCountShortForm` (`-N`/`--count`/`--count=`/default), `TestRiffFanOutFlagRejected` (regression-protect the rename), `TestBuildWtDeleteArgs` (regression-protect the `--non-interactive` + positional-name argv). `TestBuildSpawnArgvs` updated to drop the `select-pane` row expectation. | `260504-lald-rk-riff-count-rename-and-fanout-fixes` |

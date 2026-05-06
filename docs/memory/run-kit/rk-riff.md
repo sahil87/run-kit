@@ -167,7 +167,7 @@ One blank line between presets. Empty map → `No presets defined in fab/project
 
 ## Fan-Out
 
-`--count N` (short `-N N`; N ≥ 2) spawns N worktree/window pairs in parallel. N = 1 is the identity case (no goroutines). N = 0 or negative is rejected (exit 1). Internal helpers (`runCount`, `fanOutResult`, `planFanOutRollback`, `rollbackFanOut`, `rollbackPlan`) describe the parallelism mechanic and retain the `fanOut`/`Count` naming distinction: `runCount` is the orchestrator (matches the user-facing flag), while the result/plan/rollback types describe the mechanic.
+`--count <N>` (short `-N <N>`, e.g. `-N 3`; N ≥ 2) spawns N worktree/window pairs in parallel. N = 1 is the identity case (no goroutines). N = 0 or negative is rejected (exit 1). Internal helpers (`runCount`, `fanOutResult`, `planFanOutRollback`, `rollbackFanOut`, `rollbackPlan`) describe the parallelism mechanic and retain the `fanOut`/`Count` naming distinction: `runCount` is the orchestrator (matches the user-facing flag), while the result/plan/rollback types describe the mechanic.
 
 Each goroutine runs the same `runWtCreate` + `spawnRiff` sequence. Worktree names come from `wt create`'s own generator — rk does not impose a `-1..-N` numbering. Each window is named `riff-<basename>` where `<basename>` is `filepath.Base(worktreePath)`; `resolveWindowName` applies `-2`, `-3`, … suffixes on collision.
 
@@ -191,7 +191,7 @@ On any goroutine failure:
 1. **`--list-presets` short-circuit** — if set, print presets and return. No subprocess.
 2. **Preconditions** — `$TMUX` set (via `tmux.OriginalTMUX`), `wt` on PATH. Exit 2 on miss.
 3. **Signal wrap** — `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`.
-4. **Fan-out validation** — N ≥ 1 or exit 1.
+4. **Count validation** — N ≥ 1 or exit 1.
 5. **Layout validation** — `resolveLayout` or exit 1 (error lists all 12 valid values).
 6. **Launcher resolution** — `fabconfig.ReadSpawnCommand` or hardcoded default.
 7. **Preset resolution** — `resolveActivePreset` handles positional/named/conflict/unknown.
@@ -207,7 +207,7 @@ On any goroutine failure:
 | Exit | Condition |
 |------|-----------|
 | 0 | Success |
-| 1 | Validation error (unknown layout, invalid fan-out, unknown/conflicting preset) or generic/unclassified |
+| 1 | Validation error (unknown layout, invalid count, unknown/conflicting preset) or generic/unclassified |
 | 2 | Precondition failure (`$TMUX` unset, `wt` not on PATH) |
 | 3 | Subprocess failure (wt / tmux non-zero, output parse failure, timeout) |
 

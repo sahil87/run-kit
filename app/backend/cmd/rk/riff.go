@@ -717,12 +717,17 @@ func paneShellString(launcher string, pane PaneSpec) string {
 }
 
 // spawnRiff performs the full tmux window-spawn sequence for one riff. It
-// probes existing window names for collision resolution, then executes the
-// argv slice built by buildSpawnArgvs. Each tmux invocation gets its own
-// tmuxTimeout context; a failure mid-sequence aborts and returns a
-// subprocessErr — by design, panes created before the failure remain in the
-// window (tmux has no batch rollback). Multi-window rollback at the window level
-// is handled by runCount.
+// probes existing window names for collision resolution, then runs three
+// phases: (1) `tmux new-window -P -F '#{pane_id}' …` via
+// runTmuxNewWindowCapturePaneID to capture the first pane's id; (2) the
+// remaining argv rows from buildSpawnArgvs (split-window × N + optional
+// select-layout) via runTmuxArgv; (3) `tmux select-pane -t <pane-id>`
+// constructed at runtime from the captured id (pane id is the canonical
+// tmux primitive — unaffected by `pane-base-index` config). Each tmux
+// invocation gets its own tmuxTimeout context; a failure mid-sequence
+// aborts and returns a subprocessErr — by design, panes created before the
+// failure remain in the window (tmux has no batch rollback). Multi-window
+// rollback at the window level is handled by runCount.
 //
 // Returns the resolved window name so fan-out can use it for rollback.
 func spawnRiff(ctx context.Context, worktreePath string, spec effectiveSpec) error {
@@ -739,10 +744,11 @@ func spawnRiffReturningName(ctx context.Context, worktreePath string, spec effec
 	resolvedName := resolveWindowName(existing, base)
 
 	if len(spec.Panes) == 0 {
-		// Defensive: resolveEffectiveSpec always populates at least one pane,
-		// so this branch should be unreachable. Returning early avoids an
-		// out-of-bounds dereference in buildNewWindowCaptureArgs.
-		return resolvedName, nil
+		// Invariant: resolveEffectiveSpec always populates at least one pane.
+		// Reaching this branch means a caller bypassed that resolver; fail
+		// fast rather than silently succeeding with no window/panes (which
+		// would leak any worktree already created upstream).
+		return resolvedName, &exitCodeError{code: 1, msg: "rk riff: spawnRiff invariant violated: spec.Panes is empty"}
 	}
 
 	// Pane 0 — `tmux new-window -P -F '#{pane_id}'` so we can target the

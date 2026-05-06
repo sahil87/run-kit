@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -512,8 +513,8 @@ func TestRewritePaneSpaceForm(t *testing.T) {
 		},
 		{
 			name: "unrelated flags untouched",
-			in:   []string{"--layout", "tiled", "--fan-out", "3"},
-			want: []string{"--layout", "tiled", "--fan-out", "3"},
+			in:   []string{"--layout", "tiled", "--count", "3"},
+			want: []string{"--layout", "tiled", "--count", "3"},
 		},
 		{
 			name: "next token is bare --",
@@ -889,13 +890,13 @@ func TestResolveEffectiveSpec(t *testing.T) {
 			t.Errorf("panes = %#v, want %#v", spec.Panes, want)
 		}
 	})
-	t.Run("fan-out respects CLI value", func(t *testing.T) {
+	t.Run("count respects CLI value", func(t *testing.T) {
 		spec, err := resolveEffectiveSpec(nil, false, "auto", 5, nil, nil)
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
-		if spec.FanOut != 5 {
-			t.Errorf("fan-out = %d, want 5", spec.FanOut)
+		if spec.Count != 5 {
+			t.Errorf("count = %d, want 5", spec.Count)
 		}
 	})
 }
@@ -915,18 +916,19 @@ func TestBuildSpawnArgvs(t *testing.T) {
 			Launcher: launcher,
 		}
 		got := buildSpawnArgvs(worktree, name, spec)
-		if len(got) != 2 {
-			t.Fatalf("got %d argvs, want 2 (new-window + select-pane)", len(got))
+		// `select-pane` is no longer emitted by buildSpawnArgvs — it is
+		// constructed at runtime by the orchestrator from the captured pane id.
+		if len(got) != 1 {
+			t.Fatalf("got %d argvs, want 1 (new-window only)", len(got))
 		}
 		if got[0][0] != "new-window" {
 			t.Errorf("argv[0][0] = %q, want new-window", got[0][0])
 		}
-		if got[1][0] != "select-pane" {
-			t.Errorf("argv[1][0] = %q, want select-pane", got[1][0])
-		}
-		// Assert target of select-pane.
-		if got[1][len(got[1])-1] != "riff-alpha.0" {
-			t.Errorf("select-pane target = %q, want riff-alpha.0", got[1][len(got[1])-1])
+		// Defensive: no select-pane row should appear.
+		for _, argv := range got {
+			if argv[0] == "select-pane" {
+				t.Errorf("buildSpawnArgvs unexpectedly returned a select-pane row: %v", argv)
+			}
 		}
 	})
 
@@ -940,8 +942,10 @@ func TestBuildSpawnArgvs(t *testing.T) {
 			Launcher: launcher,
 		}
 		got := buildSpawnArgvs(worktree, name, spec)
-		if len(got) != 4 {
-			t.Fatalf("got %d argvs, want 4 (new-window + split-window + select-layout + select-pane)", len(got))
+		// 2 panes → new-window + split-window + select-layout. select-pane is
+		// constructed at runtime by the orchestrator using the captured pane id.
+		if len(got) != 3 {
+			t.Fatalf("got %d argvs, want 3 (new-window + split-window + select-layout)", len(got))
 		}
 		if got[0][0] != "new-window" {
 			t.Errorf("argv[0][0] = %q, want new-window", got[0][0])
@@ -951,9 +955,6 @@ func TestBuildSpawnArgvs(t *testing.T) {
 		}
 		if got[2][0] != "select-layout" || got[2][len(got[2])-1] != "even-horizontal" {
 			t.Errorf("select-layout argv = %v", got[2])
-		}
-		if got[3][0] != "select-pane" {
-			t.Errorf("argv[3][0] = %q", got[3][0])
 		}
 		// Cmd pane's shell string: shellWrap("just dev") — no interactive
 		// launcher wrap.
@@ -978,9 +979,10 @@ func TestBuildSpawnArgvs(t *testing.T) {
 			Launcher: launcher,
 		}
 		got := buildSpawnArgvs(worktree, name, spec)
-		// 4 panes = 1 new-window + 3 split-window + 1 select-layout + 1 select-pane = 6
-		if len(got) != 6 {
-			t.Fatalf("got %d argvs, want 6", len(got))
+		// 4 panes = 1 new-window + 3 split-window + 1 select-layout = 5.
+		// select-pane is constructed at runtime, not by buildSpawnArgvs.
+		if len(got) != 5 {
+			t.Fatalf("got %d argvs, want 5", len(got))
 		}
 		// Pane 0 is bare cmd → shellWrap("") → just `exec "${SHELL:-/bin/sh}"`
 		pane0 := got[0][len(got[0])-1]
@@ -1001,9 +1003,9 @@ func TestBuildSpawnArgvs(t *testing.T) {
 			Launcher: launcher,
 		}
 		got := buildSpawnArgvs(worktree, name, spec)
-		// 1 pane → new-window + select-pane only
-		if len(got) != 2 {
-			t.Fatalf("got %d argvs, want 2", len(got))
+		// 1 pane → new-window only (select-pane is runtime).
+		if len(got) != 1 {
+			t.Fatalf("got %d argvs, want 1", len(got))
 		}
 		shell := got[0][len(got[0])-1]
 		// No single-quoted arg after launcher — just `claude` inside the
@@ -1020,8 +1022,8 @@ func TestBuildSpawnArgvs(t *testing.T) {
 			Launcher: launcher,
 		}
 		got := buildSpawnArgvs(worktree, name, spec)
-		if len(got) != 2 {
-			t.Fatalf("got %d argvs, want 2", len(got))
+		if len(got) != 1 {
+			t.Fatalf("got %d argvs, want 1", len(got))
 		}
 		shell := got[0][len(got[0])-1]
 		if shell != `exec "${SHELL:-/bin/sh}"` {
@@ -1131,3 +1133,149 @@ func TestPlanFanOutRollback(t *testing.T) {
 }
 
 var errTestFail = &exitCodeError{code: 3, msg: "test"}
+
+// TestParsePaneID covers the trimmed-single-line parse rule for the stdout
+// of `tmux new-window -P -F '#{pane_id}'`. Pure string equality — no tmux
+// invocation. Spec scenario "pane-id capture parses a single trimmed line".
+func TestParsePaneID(t *testing.T) {
+	cases := []struct {
+		name      string
+		in        string
+		want      string
+		wantError bool
+	}{
+		{name: "typical pane id with newline", in: "%87\n", want: "%87"},
+		{name: "leading and trailing whitespace", in: "  %12  \n", want: "%12"},
+		{name: "no trailing newline", in: "%3", want: "%3"},
+		{name: "tabs trimmed", in: "\t%99\t\n", want: "%99"},
+		{name: "empty input errors", in: "", wantError: true},
+		{name: "whitespace-only input errors", in: "   \n\t", wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parsePaneID(tc.in)
+			if tc.wantError {
+				if err == nil {
+					t.Fatalf("expected error, got %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("parsePaneID(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildNewWindowCaptureArgs asserts the argv shape passed to
+// `tmux new-window -P -F '#{pane_id}' …` for the first-pane capture step.
+// Pure helper — argv ordering is the security-relevant contract (the
+// trailing shell string is the only argv element subject to user input;
+// the flags before it MUST be distinct argv elements per constitution §I).
+func TestBuildNewWindowCaptureArgs(t *testing.T) {
+	spec := effectiveSpec{
+		Panes:    []PaneSpec{{Kind: PaneKindSkill, Value: "/fab-discuss"}},
+		Layout:   "",
+		Launcher: "claude",
+	}
+	got := buildNewWindowCaptureArgs("/tmp/wt/alpha", "riff-alpha", spec)
+	want := []string{
+		"new-window",
+		"-P",
+		"-F", "#{pane_id}",
+		"-n", "riff-alpha",
+		"-c", "/tmp/wt/alpha",
+		`${SHELL:-/bin/sh} -i -c 'claude '\''/fab-discuss'\'''; exec "${SHELL:-/bin/sh}"`,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("buildNewWindowCaptureArgs =\n  %#v\nwant\n  %#v", got, want)
+	}
+}
+
+// TestRiffCountShortForm verifies that pflag's `-N` short-form parses into
+// the same integer value that `--count` populates. Constructs a fresh
+// pflag set mirroring riffCmd's registration so the test does not rely on
+// process-wide state. Spec scenario "short-form parse test asserts -N 3
+// populates count".
+func TestRiffCountShortForm(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		want int
+	}{
+		{name: "short form -N 3", argv: []string{"-N", "3"}, want: 3},
+		{name: "long form --count 3", argv: []string{"--count", "3"}, want: 3},
+		{name: "equals form --count=3", argv: []string{"--count=3"}, want: 3},
+		{name: "default when omitted", argv: nil, want: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got int
+			fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+			fs.IntVarP(&got, "count", "N", 1, "Spawn N worktree/window pairs in parallel (N >= 1)")
+			if err := fs.Parse(tc.argv); err != nil {
+				t.Fatalf("Parse(%v): %v", tc.argv, err)
+			}
+			if got != tc.want {
+				t.Errorf("count = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRiffFanOutFlagRejected asserts the post-rename hard-rename contract:
+// `--fan-out` is no longer a registered flag, and parsing it produces an
+// "unknown flag" error referencing the literal `fan-out` token. Constructs
+// a fresh pflag set mirroring riffCmd's registration so the test isolates
+// the flag-parse step from the cobra DisableFlagParsing wrapper.
+//
+// Spec scenario "post-rename rejection test fails-fast on --fan-out".
+func TestRiffFanOutFlagRejected(t *testing.T) {
+	var count int
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	// Suppress pflag's built-in error printing so the test output stays clean.
+	fs.SetOutput(io.Discard)
+	fs.IntVarP(&count, "count", "N", 1, "Spawn N worktree/window pairs in parallel (N >= 1)")
+	err := fs.Parse([]string{"--fan-out", "2"})
+	if err == nil {
+		t.Fatalf("expected parse error for --fan-out, got nil")
+	}
+	if !strings.Contains(err.Error(), "fan-out") {
+		t.Errorf("error message should reference 'fan-out': %v", err)
+	}
+}
+
+// TestBuildWtDeleteArgs asserts the argv shape produced for the rollback
+// path's `wt delete` subprocess. The contract is:
+//
+//   - `--non-interactive` MUST be present (suppresses wt's interactive
+//     prompt; rollback runs without a tty).
+//   - The worktree basename MUST be a positional argument.
+//   - The deprecated `--worktree-name` flag MUST NOT appear.
+//
+// Spec scenario "argv assertion catches a regression to --worktree-name".
+func TestBuildWtDeleteArgs(t *testing.T) {
+	got := buildWtDeleteArgs("pacing-canyon")
+	want := []string{"delete", "--non-interactive", "pacing-canyon"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildWtDeleteArgs(%q) = %v, want %v", "pacing-canyon", got, want)
+	}
+	for _, tok := range got {
+		if tok == "--worktree-name" {
+			t.Errorf("argv must not contain deprecated --worktree-name flag: %v", got)
+		}
+	}
+	hasNonInteractive := false
+	for _, tok := range got {
+		if tok == "--non-interactive" {
+			hasNonInteractive = true
+			break
+		}
+	}
+	if !hasNonInteractive {
+		t.Errorf("argv must contain --non-interactive: %v", got)
+	}
+}

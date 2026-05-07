@@ -26,6 +26,46 @@ func (prodSessionOrderFetcher) GetSessionOrder(ctx context.Context, server strin
 	return tmux.GetSessionOrder(ctx, server)
 }
 
+// BoardEntriesFetcher reads the @rk_board entries for a tmux server.
+// Injected so tests can stub the tmux dependency for bootstrap and cleanup.
+type BoardEntriesFetcher interface {
+	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
+	RemoveAllByWindowID(ctx context.Context, server, windowID string) ([]string, error)
+}
+
+type prodBoardEntriesFetcher struct{}
+
+func (prodBoardEntriesFetcher) ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error) {
+	return tmux.ListBoardEntries(ctx, server)
+}
+
+func (prodBoardEntriesFetcher) RemoveAllByWindowID(ctx context.Context, server, windowID string) ([]string, error) {
+	return tmux.RemoveAllByWindowID(ctx, server, windowID)
+}
+
+// boardEventName is the SSE event type for board-membership changes. Matches
+// the kebab-case convention established by `event: session-order`.
+const boardEventName = "board-changed"
+
+// boardChangedPayload is the body of `event: board-changed` for pin/unpin/
+// reorder/cleanup mutations.
+type boardChangedPayload struct {
+	Board    string `json:"board"`
+	Change   string `json:"change"` // "pin" | "unpin" | "reorder" | "cleanup" | "bootstrap"
+	Server   string `json:"server"`
+	WindowID string `json:"windowId,omitempty"`
+	OrderKey string `json:"orderKey,omitempty"`
+}
+
+// boardBootstrapPayload is the body of the synthetic bootstrap event sent on
+// first poll per server. Carries the full entries snapshot so the frontend
+// can rehydrate.
+type boardBootstrapPayload struct {
+	Server  string             `json:"server"`
+	Change  string             `json:"change"` // always "bootstrap"
+	Entries []tmux.BoardEntry  `json:"entries"`
+}
+
 const (
 	ssePollInterval    = 2500 * time.Millisecond
 	sseCacheTTL        = 500 * time.Millisecond
@@ -59,10 +99,13 @@ type sseHub struct {
 	previousJSON             map[string]string        // per-server sessions JSON dedup cache
 	previousOrderJSON        map[string]string        // per-server session-order event payload cache (only present when populated by a successful read or a PUT broadcast)
 	orderBootstrapAttempts   map[string]int           // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
+	previousBoardJSON        map[string]string        // per-server board bootstrap snapshot payload cache
+	previousWindowIDs        map[string]map[string]bool // per-server prior-tick live window ids for kill-detection
 	cache                    map[string]*cachedResult // per-server session fetch cache (500ms TTL)
 	polling                  bool
 	fetcher                  SessionFetcher
 	orderFetcher             SessionOrderFetcher
+	boardFetcher             BoardEntriesFetcher
 	metrics                  *metrics.Collector
 	cachedMetricsJSON        string // latest metrics JSON for new clients
 }
@@ -73,9 +116,12 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector) *sseHub {
 		previousJSON:           make(map[string]string),
 		previousOrderJSON:      make(map[string]string),
 		orderBootstrapAttempts: make(map[string]int),
+		previousBoardJSON:      make(map[string]string),
+		previousWindowIDs:      make(map[string]map[string]bool),
 		cache:                  make(map[string]*cachedResult),
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
+		boardFetcher:           prodBoardEntriesFetcher{},
 		metrics:                mc,
 	}
 }
@@ -98,6 +144,14 @@ func (h *sseHub) addClient(c *sseClient) {
 	if prev, ok := h.previousOrderJSON[c.server]; ok && prev != "" {
 		select {
 		case c.ch <- []byte(fmt.Sprintf("event: session-order\ndata: %s\n\n", prev)):
+		default:
+		}
+	}
+
+	// Send cached board-changed bootstrap snapshot (after session-order, before metrics).
+	if prev, ok := h.previousBoardJSON[c.server]; ok && prev != "" {
+		select {
+		case c.ch <- []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", boardEventName, prev)):
 		default:
 		}
 	}
@@ -172,6 +226,82 @@ func (h *sseHub) broadcastSessionOrder(server string, order []string) {
 			}
 		}
 	}
+}
+
+// broadcastBoardChanged pushes a board-changed event to every client
+// connected for the supplied server. The payload is rendered as JSON and
+// emitted using the shared SSE envelope. No payload caching is performed
+// for incremental events — the bootstrap cache covers the snapshot use
+// case via previousBoardJSON.
+func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayload) {
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("board-changed broadcast marshal failed", "err", err, "server", server)
+		return
+	}
+	event := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", boardEventName, string(jsonBytes)))
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, c := range h.clients[server] {
+		select {
+		case c.ch <- event:
+		default:
+			if !c.dropped {
+				slog.Warn("SSE event dropped", "server", server, "event", boardEventName)
+				c.dropped = true
+			}
+		}
+	}
+}
+
+// broadcastBoardBootstrap delivers the per-server snapshot of @rk_board
+// entries on first poll. Caches the payload under previousBoardJSON so
+// future addClient calls receive the same snapshot.
+func (h *sseHub) broadcastBoardBootstrap(server string, entries []tmux.BoardEntry) {
+	if entries == nil {
+		entries = []tmux.BoardEntry{}
+	}
+	payload := boardBootstrapPayload{
+		Server:  server,
+		Change:  "bootstrap",
+		Entries: entries,
+	}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("board-bootstrap broadcast marshal failed", "err", err, "server", server)
+		return
+	}
+	jsonStr := string(jsonBytes)
+	event := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", boardEventName, jsonStr))
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.previousBoardJSON[server] = jsonStr
+	for _, c := range h.clients[server] {
+		select {
+		case c.ch <- event:
+		default:
+			if !c.dropped {
+				slog.Warn("SSE event dropped", "server", server, "event", boardEventName)
+				c.dropped = true
+			}
+		}
+	}
+}
+
+// windowIDSetFromSessions extracts the union of window ids across every
+// session's windows. Used for window-kill detection between poll ticks.
+func windowIDSetFromSessions(sess []sessions.ProjectSession) map[string]bool {
+	out := make(map[string]bool)
+	for _, s := range sess {
+		for _, w := range s.Windows {
+			if w.WindowID != "" {
+				out[w.WindowID] = true
+			}
+		}
+	}
+	return out
 }
 
 func (h *sseHub) poll() {
@@ -279,6 +409,53 @@ func (h *sseHub) poll() {
 					h.broadcastSessionOrder(server, order)
 				}
 			}
+
+			// Board bootstrap on first successful poll for this server.
+			h.mu.RLock()
+			_, boardSeeded := h.previousBoardJSON[server]
+			h.mu.RUnlock()
+			if !boardSeeded && h.boardFetcher != nil {
+				bootCtx, cancelBoot := context.WithTimeout(context.Background(), 2*time.Second)
+				entries, berr := h.boardFetcher.ListBoardEntries(bootCtx, server)
+				cancelBoot()
+				if berr != nil {
+					slog.Debug("board bootstrap (best-effort)", "server", server, "err", berr)
+				} else {
+					h.broadcastBoardBootstrap(server, entries)
+				}
+			}
+
+			// Window-kill detection for eager board cleanup. Compute the
+			// current window-id set from the freshly fetched session list.
+			currentIDs := windowIDSetFromSessions(result)
+			h.mu.RLock()
+			prevIDs, hasPrev := h.previousWindowIDs[server]
+			h.mu.RUnlock()
+			if hasPrev && h.boardFetcher != nil {
+				for prevID := range prevIDs {
+					if currentIDs[prevID] {
+						continue
+					}
+					cleanCtx, cancelClean := context.WithTimeout(context.Background(), 2*time.Second)
+					boards, cerr := h.boardFetcher.RemoveAllByWindowID(cleanCtx, server, prevID)
+					cancelClean()
+					if cerr != nil {
+						slog.Debug("board cleanup (best-effort)", "server", server, "windowId", prevID, "err", cerr)
+						continue
+					}
+					for _, b := range boards {
+						h.broadcastBoardChanged(server, boardChangedPayload{
+							Board:    b,
+							Change:   "cleanup",
+							Server:   server,
+							WindowID: prevID,
+						})
+					}
+				}
+			}
+			h.mu.Lock()
+			h.previousWindowIDs[server] = currentIDs
+			h.mu.Unlock()
 		}
 
 		// Broadcast metrics to all clients (server-independent, every tick)

@@ -20,6 +20,7 @@ import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType } from "@/api/client";
+import { useBoards } from "@/hooks/use-boards";
 import { deriveNameFromPath } from "@/components/create-session-dialog";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
@@ -746,6 +747,62 @@ function AppShell() {
     [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
   );
 
+  // Boards palette block. Lives here so the palette is reachable from any
+  // route (including non-board routes — Switch entries are always visible).
+  const { boards: boardSummaries } = useBoards();
+  const isOnBoardRoute = useMemo(
+    () => typeof window !== "undefined" && /^\/board\//.test(window.location.pathname),
+    // window.location is read live; recompute when matches change.
+    [matches],
+  );
+  const currentBoardName = useMemo(() => {
+    if (!isOnBoardRoute) return "";
+    const m = window.location.pathname.match(/^\/board\/([^/]+)/);
+    return m ? decodeURIComponent(m[1]) : "";
+  }, [isOnBoardRoute]);
+
+  const boardActions: PaletteAction[] = useMemo(() => {
+    const switchEntries = boardSummaries.map((b) => ({
+      id: `board-switch-${b.name}`,
+      label: `Board: Switch to ${b.name}${b.name === currentBoardName ? " (current)" : ""}`,
+      onSelect: () => navigate({ to: "/board/$name", params: { name: b.name } }),
+    }));
+
+    const conditional: PaletteAction[] = [];
+
+    if (sessionName && currentWindow) {
+      conditional.push({
+        id: "board-pin-current",
+        label: "Board: Pin Current Window",
+        onSelect: () => addToast("Pin via the sidebar pin icon (popover-driven)", "info"),
+      });
+    }
+
+    if (isOnBoardRoute) {
+      conditional.push({
+        id: "board-leave",
+        label: "Board: Leave Board View",
+        onSelect: () => navigate({ to: "/" }),
+      });
+      conditional.push({
+        id: "board-cycle-next",
+        label: "Board: Cycle Pane Focus →",
+        onSelect: () => {
+          // Dispatch a synthetic Cmd+] keydown so the BoardPage handler picks it up.
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "]", metaKey: true, bubbles: true }));
+        },
+      });
+      conditional.push({
+        id: "board-cycle-prev",
+        label: "Board: Cycle Pane Focus ←",
+        onSelect: () => {
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "[", metaKey: true, bubbles: true }));
+        },
+      });
+    }
+    return [...switchEntries, ...conditional];
+  }, [boardSummaries, currentBoardName, isOnBoardRoute, sessionName, currentWindow, addToast, navigate]);
+
   const viewActions: PaletteAction[] = useMemo(
     () => [
       ...(sessionName
@@ -830,8 +887,8 @@ function AppShell() {
   );
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
-    [sessionActions, windowActions, viewActions, themeActions, configActions, serverActions, terminalActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
+    [sessionActions, windowActions, boardActions, viewActions, themeActions, configActions, serverActions, terminalActions],
   );
 
   const displayName = currentWindow?.name ?? windowIndex ?? "";

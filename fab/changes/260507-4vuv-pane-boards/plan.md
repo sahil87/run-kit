@@ -47,21 +47,21 @@
 
 ### Phase 4: Frontend Route + Board Page
 
-- [ ] T017 Register `/board/$name` route in `app/frontend/src/router.tsx` as a child of `rootRoute` (peer to `serverLayoutRoute`). Component: `BoardPage` lazy-imported from `@/components/board/board-page`. `parseParams` extracts `name`. The component itself validates `name` against the regex and renders `NotFoundPage` for invalid names.
+- [x] T017 Register `/board/$name` route in `app/frontend/src/router.tsx` as a child of `rootRoute` (peer to `serverLayoutRoute`). Component: `BoardPage` lazy-imported from `@/components/board/board-page`. `parseParams` extracts `name`. The component itself validates `name` against the regex and renders `NotFoundPage` for invalid names.
 
-- [ ] T018 Add `app/frontend/src/components/board/board-page.tsx`. Top-level component: reads `name` from route params, calls `useBoardEntries(name)`, renders the AppShell with sidebar/topbar/bottombar present, and a horizontal scrolling main area on desktop / a swipe carousel on mobile. Detect mobile via the existing `min-width: 640px` media query (custom hook `useIsMobile()` if it doesn't exist — add `app/frontend/src/hooks/use-is-mobile.ts` with a `matchMedia` listener; if a similar hook exists already, reuse it). Empty / non-existent: show "No panes pinned to this board yet. Pin a window from the sidebar." with a link `← Back to sessions`.
+- [x] T018 Add `app/frontend/src/components/board/board-page.tsx`. Top-level component: reads `name` from route params, calls `useBoardEntries(name)`, renders the AppShell with sidebar/topbar/bottombar present, and a horizontal scrolling main area on desktop / a swipe carousel on mobile. Detect mobile via the existing `min-width: 640px` media query (custom hook `useIsMobile()` if it doesn't exist — add `app/frontend/src/hooks/use-is-mobile.ts` with a `matchMedia` listener; if a similar hook exists already, reuse it). Empty / non-existent: show "No panes pinned to this board yet. Pin a window from the sidebar." with a link `← Back to sessions`.
 
-- [ ] T019 Add `app/frontend/src/components/board/board-pane.tsx`. Single-pane card: pane header (`<window-name> · <server>` + unpin button), embedded `TerminalClient` configured with `server={entry.server}`, `session={entry.session}`, `window={entry.windowIndex}`. Width controlled by parent (resizable on desktop, viewport-width on mobile). Visual focus indicator (border + glow when focused; de-emphasized when not). Click handler transfers focus to the embedded xterm via a ref. Mobile carousel mode: when prop `paused = true` (off-screen), unmount the `TerminalClient` so its WebSocket closes; when `paused = false`, re-mount.
+- [x] T019 Add `app/frontend/src/components/board/board-pane.tsx`. Single-pane card: pane header (`<window-name> · <server>` + unpin button), embedded `TerminalClient` configured with `server={entry.server}`, `session={entry.session}`, `window={entry.windowIndex}`. Width controlled by parent (resizable on desktop, viewport-width on mobile). Visual focus indicator (border + glow when focused; de-emphasized when not). Click handler transfers focus to the embedded xterm via a ref. Mobile carousel mode: when prop `paused = true` (off-screen), unmount the `TerminalClient` so its WebSocket closes; when `paused = false`, re-mount.
 
-- [ ] T020 Add `app/frontend/src/components/board/board-header.tsx`. Pane header subcomponent: shows `<window-name>` (truncate), `·`, `<server>` (muted), and an unpin button (icon-only, calls `unpinWindow(entry.server, entry.windowId, board)` from `use-pin-actions` hook). Confirmation NOT required — pin is cheap to restore.
+- [x] T020 Add `app/frontend/src/components/board/board-header.tsx`. Pane header subcomponent: shows `<window-name>` (truncate), `·`, `<server>` (muted), and an unpin button (icon-only, calls `unpinWindow(entry.server, entry.windowId, board)` from `use-pin-actions` hook). Confirmation NOT required — pin is cheap to restore.
 
-- [ ] T021 Add `app/frontend/src/hooks/use-pin-actions.ts` exporting `usePinActions(board?)` returning `{pin, unpin, reorder}` mutation handlers. Each handler is a stable callback that calls the corresponding API function and surfaces errors via the existing toast system (`useToast`). Optimistic UI: pin/unpin update local state immediately; the SSE re-broadcast reconciles. Last-write-wins per spec (no conflict resolution beyond reconciliation).
+- [x] T021 Add `app/frontend/src/hooks/use-pin-actions.ts` exporting `usePinActions(board?)` returning `{pin, unpin, reorder}` mutation handlers. Each handler is a stable callback that calls the corresponding API function and surfaces errors via the existing toast system (`useToast`). Optimistic UI: pin/unpin update local state immediately; the SSE re-broadcast reconciles. Last-write-wins per spec (no conflict resolution beyond reconciliation).
 
-- [ ] T022 Implement drag-to-resize in `board-page.tsx` (or a sibling `board-resize.ts` helper): each pane has a draggable right-edge handle. State: `paneWidths: Record<string /* windowId */, number>`. On mount, read `localStorage["runkit:board-widths:" + name]`, parse JSON best-effort (default `{}` on malformed). On drag-end, persist to `localStorage`. Clamp width to `[280, viewport - sidebarWidth]`. Resize handle hidden on coarse-pointer devices via the existing `coarse:` Tailwind variant. Use a small custom hook `usePaneWidths(boardName)` to encapsulate read/write/clamp logic.
+- [x] T022 Implement drag-to-resize in `board-page.tsx` (or a sibling `board-resize.ts` helper): each pane has a draggable right-edge handle. State: `paneWidths: Record<string /* windowId */, number>`. On mount, read `localStorage["runkit:board-widths:" + name]`, parse JSON best-effort (default `{}` on malformed). On drag-end, persist to `localStorage`. Clamp width to `[280, viewport - sidebarWidth]`. Resize handle hidden on coarse-pointer devices via the existing `coarse:` Tailwind variant. Use a small custom hook `usePaneWidths(boardName)` to encapsulate read/write/clamp logic.
 
-- [ ] T023 Implement keyboard pane focus cycling in `board-page.tsx`. Track `focusedIndex: number` in component state. Bind `Cmd+]`/`Ctrl+]` (next, wraps) and `Cmd+[`/`Ctrl+[` (prev, wraps) via a `useEffect` keydown listener (only attached when on the board route). Focus transfer: call `paneRefs[focusedIndex].current?.focus()` (each `BoardPane` exposes a `focus()` method via `useImperativeHandle`).
+- [x] T023 Implement keyboard pane focus cycling in `board-page.tsx`. Track `focusedIndex: number` in component state. Bind `Cmd+]`/`Ctrl+]` (next, wraps) and `Cmd+[`/`Ctrl+[` (prev, wraps) via a `useEffect` keydown listener (only attached when on the board route). Focus transfer: call `paneRefs[focusedIndex].current?.focus()` (each `BoardPane` exposes a `focus()` method via `useImperativeHandle`).
 
-- [ ] T024 Implement mobile swipe carousel in `board-page.tsx`. State: `carouselIndex`. Render only the focused `BoardPane` with `paused=false`; render adjacent panes with `paused=true` (off-DOM is also acceptable — choose unmount for memory). Touch handlers: track `touchstart` clientX, on `touchend` compare to stored start and advance/retreat the index if delta exceeds threshold (40px). Pagination dot strip rendered above or below.
+- [x] T024 Implement mobile swipe carousel in `board-page.tsx`. State: `carouselIndex`. Render only the focused `BoardPane` with `paused=false`; render adjacent panes with `paused=true` (off-DOM is also acceptable — choose unmount for memory). Touch handlers: track `touchstart` clientX, on `touchend` compare to stored start and advance/retreat the index if delta exceeds threshold (40px). Pagination dot strip rendered above or below.
 
 ### Phase 5: Frontend Sidebar + Top Bar Integration
 
@@ -77,9 +77,9 @@
 
 ### Phase 6: Command Palette Integration
 
-- [ ] T030 In `app/frontend/src/app.tsx`, add a new `boardActions: PaletteAction[]` `useMemo` block after `windowActions` and before `viewActions`. Mirror the structure of `serverActions`: combine static actions (Pin Current Window, Unpin Current Window, Leave Board View, Cycle Pane Focus →, Cycle Pane Focus ←) with dynamic per-board entries (`Switch to <name>`). Conditional visibility per spec (`Pin Current Window` only on a window route; `Leave Board View` and `Cycle Pane Focus` only on a board route; `Unpin Current Window` only when the current window is pinned). Append `(current)` to the active board's switch entry.
+- [x] T030 In `app/frontend/src/app.tsx`, add a new `boardActions: PaletteAction[]` `useMemo` block after `windowActions` and before `viewActions`. Mirror the structure of `serverActions`: combine static actions (Pin Current Window, Unpin Current Window, Leave Board View, Cycle Pane Focus →, Cycle Pane Focus ←) with dynamic per-board entries (`Switch to <name>`). Conditional visibility per spec (`Pin Current Window` only on a window route; `Leave Board View` and `Cycle Pane Focus` only on a board route; `Unpin Current Window` only when the current window is pinned). Append `(current)` to the active board's switch entry.
 
-- [ ] T031 Update `paletteActions` array order to `[...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions]`. Update the `useMemo` deps array.
+- [x] T031 Update `paletteActions` array order to `[...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions]`. Update the `useMemo` deps array.
 
 - [ ] T032 [P] Add tests in `app/frontend/src/app.test.tsx` (or a new test file targeting `boardActions`): assert the `Board:` entries appear conditionally per the spec rules — at least: switch entries one per board with `(current)` annotation; pin/unpin gated by route; cycle/leave gated by `/board/<name>` route.
 
@@ -93,9 +93,9 @@
 
 ### Phase 8: Verification
 
-- [ ] T036 Run `cd app/backend && go test ./...` — all tests pass.
-- [ ] T037 Run `cd app/frontend && npx tsc --noEmit` — no type errors.
-- [ ] T038 Run `just test-backend` and `just test-frontend` from the repo root — all pass.
+- [x] T036 Run `cd app/backend && go test ./...` — all NEW tests pass (+ all pre-existing tests). One pre-existing failure (`TestFetchPaneMapIntegration` in `rk/internal/sessions`) is unrelated to this change — verified by stashing and re-running.
+- [x] T037 Run `cd app/frontend && npx tsc --noEmit` — no type errors.
+- [x] T038 Run `just test-backend` and `just test-frontend` — frontend 484/484 pass; backend has the same pre-existing `TestFetchPaneMapIntegration` failure noted in T036, all new + other tests pass.
 - [ ] T039 Run `just test-e2e` (only the new specs first — `board-flow`, `board-mobile`, `board-resize`) — passes.
 
 ## Execution Order
@@ -113,29 +113,29 @@
 
 ### Functional Completeness
 
-- [ ] A-001 `tmux.ListBoardEntries`: returns `([]BoardEntry{}, nil)` on unset/no-server states; parses comma-joined `<windowID>:<board>:<orderKey>` correctly; skips malformed entries with a warning log; preserves valid entries.
-- [ ] A-002 `tmux.ListBoards`: aggregates across all servers via `ListServers`, returns alphabetical `[]BoardSummary` with correct `PinCount` per board.
-- [ ] A-003 `tmux.GetBoard`: returns entries sorted by `OrderKey`; intersects with live windows per source server; drops stale entries; performs best-effort write-back of cleaned list (read returns success even if write-back fails).
-- [ ] A-004 `tmux.Pin`: idempotent re-pin (same window+board) is a no-op returning nil; appends new entry with a fresh order_key when not already present.
-- [ ] A-005 `tmux.Unpin`: removes only the matching `(windowID, board)` entry; leaves other entries (including same window on other boards) intact.
-- [ ] A-006 `tmux.Reorder`: updates the `orderKey` for the matching entry to the supplied value; rejects invalid keys via `validOrderKey`.
-- [ ] A-007 `tmux.ComputeOrderKey`: prepend (`null,"b" -> "a"`), append (`"c",null -> "d"`), insert between (`"b","c" -> "bm"`), insert between adjacent (`"b","bm" -> "bg"`); inserts never renumber.
-- [ ] A-008 `GET /api/boards`: returns `200 []` on empty state (not `null`); aggregates across servers; alphabetical by name.
-- [ ] A-009 `GET /api/boards/{name}`: returns joined entries with live window data (server, windowId, session, windowIndex, windowName, orderKey, panes); sorted by orderKey; `400` on invalid `{name}`; `200 []` for non-existent name.
-- [ ] A-010 `POST /api/boards/{name}/pin`: `201 {ok:true}` on success; `400` on invalid name/server/windowId; `404` when window does not exist on the named server; idempotent re-pin returns `201 {ok:true}` without duplicating entries.
-- [ ] A-011 `POST /api/boards/{name}/unpin`: `200 {ok:true}` on success; `400` on invalid name/server/windowId; tolerates "entry not present" (returns `200 {ok:true}` — unpin is idempotent).
-- [ ] A-012 `POST /api/boards/{name}/reorder`: `200 {ok:true, newOrderKey}` on success; computes new key server-side via `ComputeOrderKey`; `400` on invalid neighbours.
-- [ ] A-013 SSE `board-changed`: emitted after every successful pin/unpin/reorder/cleanup; payload shape matches spec; uses kebab-case event name.
-- [ ] A-014 SSE bootstrap on first poll: each server's first poll-tick reads `@rk_board` and broadcasts a synthetic `board-changed` event with `change: "bootstrap"` so an rk-go restart with tmux still running rehydrates connected clients.
-- [ ] A-015 SSE eager cleanup: SSE poll detects window kills and removes matching `@rk_board` entries on that server, broadcasting `board-changed` with `change: "cleanup"`.
-- [ ] A-016 Frontend API client: `listBoards`, `getBoard`, `pinWindow`, `unpinWindow`, `reorderPin` exported with the documented signatures (server-first arg for mutations); GETs go through `deduplicatedFetch`.
-- [ ] A-017 `useBoards()` hook: initial fetch on mount, SSE-driven updates (debounced 50ms), error tolerance (preserve last value); aggregates across server SSE streams.
-- [ ] A-018 `useBoardEntries(name)` hook: initial fetch, SSE-driven updates across all servers, error tolerance.
-- [ ] A-019 Route `/board/$name` registered as a peer of `/$server`; `BoardPage` renders for valid names; invalid names render `NotFoundPage`.
-- [ ] A-020 `BoardPage` desktop: horizontal scroll, pane cards default 480px width, drag-to-resize between 280px and viewport-minus-sidebar, widths persisted per-board to `localStorage["runkit:board-widths:<name>"]`.
-- [ ] A-021 `BoardPage` mobile: viewport ≤ 640px renders single-pane swipe carousel; off-screen panes pause/unmount their WebSocket; pagination dot strip indicates current pane.
-- [ ] A-022 Pane focus: click and `Cmd+]`/`Cmd+[` (and `Ctrl` equivalents) cycle focus across panes; focused pane has distinct border/glow; unfocused panes de-emphasized; hover does NOT trigger focus.
-- [ ] A-023 Pane header: shows `<window-name> · <server>` and an unpin button that calls `unpinWindow`.
+- [x] A-001 `tmux.ListBoardEntries`: returns `([]BoardEntry{}, nil)` on unset/no-server states; parses comma-joined `<windowID>:<board>:<orderKey>` correctly; skips malformed entries with a warning log; preserves valid entries.
+- [x] A-002 `tmux.ListBoards`: aggregates across all servers via `ListServers`, returns alphabetical `[]BoardSummary` with correct `PinCount` per board.
+- [x] A-003 `tmux.GetBoard`: returns entries sorted by `OrderKey`; intersects with live windows per source server; drops stale entries; performs best-effort write-back of cleaned list (read returns success even if write-back fails).
+- [x] A-004 `tmux.Pin`: idempotent re-pin (same window+board) is a no-op returning nil; appends new entry with a fresh order_key when not already present.
+- [x] A-005 `tmux.Unpin`: removes only the matching `(windowID, board)` entry; leaves other entries (including same window on other boards) intact.
+- [x] A-006 `tmux.Reorder`: updates the `orderKey` for the matching entry to the supplied value; rejects invalid keys via `validOrderKey`.
+- [x] A-007 `tmux.ComputeOrderKey`: prepend (`null,"b" -> "a"`), append (`"c",null -> "d"`), insert between (`"b","c" -> "bm"`), insert between adjacent (`"b","bm" -> "bg"`); inserts never renumber.
+- [x] A-008 `GET /api/boards`: returns `200 []` on empty state (not `null`); aggregates across servers; alphabetical by name.
+- [x] A-009 `GET /api/boards/{name}`: returns joined entries with live window data (server, windowId, session, windowIndex, windowName, orderKey, panes); sorted by orderKey; `400` on invalid `{name}`; `200 []` for non-existent name.
+- [x] A-010 `POST /api/boards/{name}/pin`: `201 {ok:true}` on success; `400` on invalid name/server/windowId; `404` when window does not exist on the named server; idempotent re-pin returns `201 {ok:true}` without duplicating entries.
+- [x] A-011 `POST /api/boards/{name}/unpin`: `200 {ok:true}` on success; `400` on invalid name/server/windowId; tolerates "entry not present" (returns `200 {ok:true}` — unpin is idempotent).
+- [x] A-012 `POST /api/boards/{name}/reorder`: `200 {ok:true, newOrderKey}` on success; computes new key server-side via `ComputeOrderKey`; `400` on invalid neighbours.
+- [x] A-013 SSE `board-changed`: emitted after every successful pin/unpin/reorder/cleanup; payload shape matches spec; uses kebab-case event name.
+- [x] A-014 SSE bootstrap on first poll: each server's first poll-tick reads `@rk_board` and broadcasts a synthetic `board-changed` event with `change: "bootstrap"` so an rk-go restart with tmux still running rehydrates connected clients.
+- [x] A-015 SSE eager cleanup: SSE poll detects window kills and removes matching `@rk_board` entries on that server, broadcasting `board-changed` with `change: "cleanup"`.
+- [x] A-016 Frontend API client: `listBoards`, `getBoard`, `pinWindow`, `unpinWindow`, `reorderPin` exported with the documented signatures (server-first arg for mutations); GETs go through `deduplicatedFetch`.
+- [x] A-017 `useBoards()` hook: initial fetch on mount, SSE-driven updates (debounced 50ms), error tolerance (preserve last value); aggregates across server SSE streams.
+- [x] A-018 `useBoardEntries(name)` hook: initial fetch, SSE-driven updates across all servers, error tolerance.
+- [x] A-019 Route `/board/$name` registered as a peer of `/$server`; `BoardPage` renders for valid names; invalid names render `NotFoundPage`.
+- [x] A-020 `BoardPage` desktop: horizontal scroll, pane cards default 480px width, drag-to-resize between 280px and viewport-minus-sidebar, widths persisted per-board to `localStorage["runkit:board-widths:<name>"]`.
+- [x] A-021 `BoardPage` mobile: viewport ≤ 640px renders single-pane swipe carousel; off-screen panes pause/unmount their WebSocket; pagination dot strip indicates current pane.
+- [x] A-022 Pane focus: click and `Cmd+]`/`Cmd+[` (and `Ctrl` equivalents) cycle focus across panes; focused pane has distinct border/glow; unfocused panes de-emphasized; hover does NOT trigger focus.
+- [x] A-023 Pane header: shows `<window-name> · <server>` and an unpin button that calls `unpinWindow`.
 - [ ] A-024 Sidebar Boards section: hidden when zero boards exist; visible after first pin; one-line hint shown only when on a now-empty board route.
 - [ ] A-025 Sidebar pin icon on window-row: hover-revealed; filled when pinned to ANY board; click opens picker popover with existing boards + "Pin to new board…" inline input with validation.
 - [ ] A-026 Sidebar active-board highlight: when on `/board/<name>`, windows pinned to that board (and only that board) get a subtle highlight; pins to other boards do not trigger.

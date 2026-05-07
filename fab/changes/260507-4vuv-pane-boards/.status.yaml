@@ -17,7 +17,7 @@ plan:
     generated: true
     task_count: 39
     acceptance_count: 69
-    acceptance_completed: 41
+    acceptance_completed: 42
 confidence:
     certain: 35
     confident: 0
@@ -33,6 +33,6 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-05-07T08:14:57Z", driver: fab-new, iterations: 1, completed_at: "2026-05-07T10:12:34Z"}
     spec: {started_at: "2026-05-07T10:12:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-07T10:17:11Z"}
-    apply: {started_at: "2026-05-07T13:00:33Z", iterations: 3}
+    apply: {started_at: "2026-05-07T13:10:39Z", iterations: 4}
 prs: []
-last_updated: 2026-05-07T13:06:29Z
+last_updated: 2026-05-07T13:16:27Z

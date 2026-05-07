@@ -21,6 +21,8 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
+import { useWindowPins } from "@/hooks/use-window-pins";
+import { usePinActions } from "@/hooks/use-pin-actions";
 import { deriveNameFromPath } from "@/components/create-session-dialog";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
@@ -747,24 +749,31 @@ function AppShell() {
     [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
   );
 
-  // Boards palette block. Lives here so the palette is reachable from any
-  // route (including non-board routes — Switch entries are always visible).
+  // Boards palette block (server-route variant). AppShell only mounts under
+  // `/$server/...`, so the board-route-only entries (Leave Board View, Cycle
+  // Pane Focus) live in BoardPage's own palette mount. Here we provide the
+  // entries that make sense from a server route: Switch to <board>, Pin Current
+  // Window, and Unpin Current Window when the current window is pinned.
   const { boards: boardSummaries } = useBoards();
-  const isOnBoardRoute = useMemo(
-    () => typeof window !== "undefined" && /^\/board\//.test(window.location.pathname),
-    // window.location is read live; recompute when matches change.
-    [matches],
-  );
-  const currentBoardName = useMemo(() => {
-    if (!isOnBoardRoute) return "";
-    const m = window.location.pathname.match(/^\/board\/([^/]+)/);
-    return m ? decodeURIComponent(m[1]) : "";
-  }, [isOnBoardRoute]);
+  const { pinnedToBoard } = useWindowPins();
+  const { unpin: unpinPinAction } = usePinActions();
+
+  // Boards the current window is currently pinned to (for Unpin Current Window
+  // visibility + bulk-unpin behavior). Recomputed when the cross-board pin map
+  // updates via SSE.
+  const currentWindowPinnedBoards = useMemo(() => {
+    if (!currentWindow || !server) return [] as string[];
+    return boardSummaries
+      .map((b) => b.name)
+      .filter((b) => pinnedToBoard(b, server, currentWindow.windowId));
+  }, [boardSummaries, pinnedToBoard, currentWindow, server]);
 
   const boardActions: PaletteAction[] = useMemo(() => {
+    // No `currentBoardName` here — AppShell isn't on a board route, so no
+    // entry is ever annotated `(current)` from this palette mount.
     const switchEntries = boardSummaries.map((b) => ({
       id: `board-switch-${b.name}`,
-      label: `Board: Switch to ${b.name}${b.name === currentBoardName ? " (current)" : ""}`,
+      label: `Board: Switch to ${b.name}`,
       onSelect: () => navigate({ to: "/board/$name", params: { name: b.name } }),
     }));
 
@@ -785,32 +794,26 @@ function AppShell() {
           );
         },
       });
-    }
 
-    if (isOnBoardRoute) {
-      conditional.push({
-        id: "board-leave",
-        label: "Board: Leave Board View",
-        onSelect: () => navigate({ to: "/" }),
-      });
-      conditional.push({
-        id: "board-cycle-next",
-        label: "Board: Cycle Pane Focus →",
-        onSelect: () => {
-          // Dispatch a synthetic Cmd+] keydown so the BoardPage handler picks it up.
-          window.dispatchEvent(new KeyboardEvent("keydown", { key: "]", metaKey: true, bubbles: true }));
-        },
-      });
-      conditional.push({
-        id: "board-cycle-prev",
-        label: "Board: Cycle Pane Focus ←",
-        onSelect: () => {
-          window.dispatchEvent(new KeyboardEvent("keydown", { key: "[", metaKey: true, bubbles: true }));
-        },
-      });
+      // Unpin Current Window — visible only when the current window is pinned
+      // to ≥1 board. v1 semantics: unpin from ALL boards in parallel (simpler
+      // than a multi-board picker; users can re-pin via the popover if needed).
+      if (currentWindowPinnedBoards.length > 0) {
+        conditional.push({
+          id: "board-unpin-current",
+          label: "Board: Unpin Current Window",
+          onSelect: () => {
+            const win = currentWindow;
+            const srv = server;
+            for (const board of currentWindowPinnedBoards) {
+              unpinPinAction(srv, win.windowId, board);
+            }
+          },
+        });
+      }
     }
     return [...switchEntries, ...conditional];
-  }, [boardSummaries, currentBoardName, isOnBoardRoute, sessionName, currentWindow, server, navigate]);
+  }, [boardSummaries, sessionName, currentWindow, server, navigate, currentWindowPinnedBoards, unpinPinAction]);
 
   const viewActions: PaletteAction[] = useMemo(
     () => [

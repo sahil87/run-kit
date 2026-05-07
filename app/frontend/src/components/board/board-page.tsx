@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ToastProvider } from "@/components/toast";
 import { useBoardEntries, useBoards } from "@/hooks/use-boards";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { usePaneWidths, BOARD_PANE_DEFAULT_WIDTH } from "@/hooks/use-pane-widths";
 import { usePinActions } from "@/hooks/use-pin-actions";
+import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
 import { BoardPane, type BoardPaneHandle } from "./board-pane";
 import { NotFoundPage } from "@/router";
+
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette").then((m) => ({ default: m.CommandPalette })),
+);
 
 interface BoardPageRouteProps {
   // tanstack-router passes route params via useParams, but for type-safety
@@ -122,7 +127,48 @@ function BoardPageContent({ name }: { name: string }) {
   };
 
   const showEmptyState = !isLoading && entries.length === 0;
-  const otherBoards = useMemo(() => boards.filter((b) => b.name !== name), [boards, name]);
+
+  // Board-route-scoped command palette actions. Constitution V (Keyboard-First)
+  // requires the palette be reachable on every route — AppShell's palette is
+  // not mounted here (the board route does not render AppShell, see DD-8), so
+  // BoardPage owns its own palette mount with the entries that are meaningful
+  // on a board route: switch to other boards, leave the board view, and cycle
+  // pane focus. Pin/Unpin Current Window are AppShell-only (no current window
+  // exists in single-window sense on a board route).
+  const boardRouteActions: PaletteAction[] = useMemo(() => {
+    const switchEntries: PaletteAction[] = boards.map((b) => ({
+      id: `board-switch-${b.name}`,
+      label: `Board: Switch to ${b.name}${b.name === name ? " (current)" : ""}`,
+      onSelect: () => navigate({ to: "/board/$name", params: { name: b.name } }),
+    }));
+
+    const conditional: PaletteAction[] = [
+      {
+        id: "board-leave",
+        label: "Board: Leave Board View",
+        onSelect: () => navigate({ to: "/" }),
+      },
+    ];
+
+    if (entries.length > 0) {
+      conditional.push({
+        id: "board-cycle-next",
+        label: "Board: Cycle Pane Focus →",
+        onSelect: () => {
+          setFocusedIndex((prev) => (prev + 1) % entries.length);
+        },
+      });
+      conditional.push({
+        id: "board-cycle-prev",
+        label: "Board: Cycle Pane Focus ←",
+        onSelect: () => {
+          setFocusedIndex((prev) => (prev - 1 + entries.length) % entries.length);
+        },
+      });
+    }
+
+    return [...switchEntries, ...conditional];
+  }, [boards, name, entries.length, navigate]);
 
   return (
     <div className="h-screen w-screen flex bg-bg-primary text-text-primary">
@@ -172,11 +218,11 @@ function BoardPageContent({ name }: { name: string }) {
           </button>
           <span className="text-sm text-text-primary font-medium">{name}</span>
           <BoardSwitcherDropdown
-            boards={otherBoards.map((b) => b.name)}
+            currentBoard={name}
+            boards={boards.map((b) => b.name)}
             onSwitchToBoard={(target) => navigate({ to: "/board/$name", params: { name: target } })}
             onSwitchToSessions={() => navigate({ to: "/" })}
           />
-          <span className="text-xs text-text-secondary ml-2">(current)</span>
         </header>
 
         {/* Body */}
@@ -214,15 +260,26 @@ function BoardPageContent({ name }: { name: string }) {
           )}
         </div>
       </main>
+
+      {/* Command palette — board-route mount. The board route does NOT render
+          AppShell (DD-8), so AppShell's palette is unreachable here. Mounting
+          a second instance with board-scoped actions satisfies Constitution V
+          (Keyboard-First) by keeping every board-route action reachable via
+          Cmd+K. */}
+      <Suspense fallback={null}>
+        <CommandPalette actions={boardRouteActions} />
+      </Suspense>
     </div>
   );
 }
 
 function BoardSwitcherDropdown({
+  currentBoard,
   boards,
   onSwitchToBoard,
   onSwitchToSessions,
 }: {
+  currentBoard: string;
   boards: string[];
   onSwitchToBoard: (name: string) => void;
   onSwitchToSessions: () => void;
@@ -251,19 +308,28 @@ function BoardSwitcherDropdown({
           >
             ← Sessions
           </button>
-          {boards.map((b) => (
-            <button
-              key={b}
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onSwitchToBoard(b);
-              }}
-              className="w-full text-left px-3 py-1 text-sm hover:bg-bg-card"
-            >
-              {b}
-            </button>
-          ))}
+          {boards.map((b) => {
+            const isCurrent = b === currentBoard;
+            return (
+              <button
+                key={b}
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  if (!isCurrent) onSwitchToBoard(b);
+                }}
+                className={`w-full text-left px-3 py-1 text-sm hover:bg-bg-card ${
+                  isCurrent ? "text-text-secondary cursor-default" : ""
+                }`}
+                aria-current={isCurrent ? "true" : undefined}
+              >
+                {b}
+                {isCurrent && (
+                  <span className="ml-1 text-xs text-text-secondary">(current)</span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

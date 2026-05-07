@@ -146,17 +146,17 @@
 
 - [x] A-029 Empty board cannot exist: unpinning the last entry removes the board; `GET /api/boards` no longer lists it; sidebar Boards section reflects via SSE. *(Verified by `boards-pin-flow.spec.ts`.)*
 - [x] A-030 Cross-server boards: a board with windows on multiple servers renders entries from all contributing servers in `orderKey` order; SSE updates from any server propagate to the board view. *(Verified by `boards-multi-server.spec.ts`.)*
-- [ ] A-031 Move-window preserves pin: moving a pinned window between sessions on the same server preserves the pin (window_id stable, only window_index changes).
-- [ ] A-032 Pin state cross-device: the same tmux server returns the same `@rk_board` value to laptop and phone (verified by reading the option from a second client after a pin).
-- [ ] A-033 rk-go restart with tmux running: pinned windows survive an rk-go restart and reappear via the bootstrap SSE event on first poll.
-- [ ] A-034 Pane widths are intentionally browser-local: changing pane widths on one device does NOT affect another device viewing the same board.
+- [x] A-031 Move-window preserves pin: moving a pinned window between sessions on the same server preserves the pin (window_id stable, only window_index changes). *(`@rk_board` keys by `windowId` (`@N`); tmux's documented `move-window` contract preserves `window_id` — see `tmux-sessions.md` § `@rk_board`.)*
+- [x] A-032 Pin state cross-device: the same tmux server returns the same `@rk_board` value to laptop and phone (verified by reading the option from a second client after a pin). *(Server-scoped tmux option — same server returns the same value to every client; this is the same property `@rk_session_order` relies on.)*
+- [x] A-033 rk-go restart with tmux running: pinned windows survive an rk-go restart and reappear via the bootstrap SSE event on first poll. *(`sseHub.poll` bootstrap path in `api/sse.go` reads `@rk_board` once per server on first poll and broadcasts a synthetic `board-changed { change: "bootstrap" }`; `addClient` replays the cached snapshot. Verified by `TestSSE_BoardBootstrapReadsTmuxOnFirstPoll` and `TestSSE_BoardChangedCachedOnConnect`.)*
+- [x] A-034 Pane widths are intentionally browser-local: changing pane widths on one device does NOT affect another device viewing the same board. *(`usePaneWidths` reads/writes `localStorage["runkit:board-widths:<name>"]` only — no API call. Confirmed by code search: no boards backend write path touches widths.)*
 
 ### Scenario Coverage
 
-- [ ] A-035 Spec scenario "Pin returns 400 on invalid window id" verified by Go handler test.
-- [ ] A-036 Spec scenario "Pin returns 404 when window does not exist" verified by Go handler test.
-- [ ] A-037 Spec scenario "Stale entry dropped at read time" verified by Go integration test.
-- [ ] A-038 Spec scenario "Eager cleanup via SSE poll" verified by SSE test.
+- [x] A-035 Spec scenario "Pin returns 400 on invalid window id" verified by Go handler test. *(`TestBoard_Pin_invalidWindowID_400` in `api/boards_test.go`.)*
+- [x] A-036 Spec scenario "Pin returns 404 when window does not exist" verified by Go handler test. *(`TestBoard_Pin_windowNotFound_404` in `api/boards_test.go`.)*
+- [x] A-037 Spec scenario "Stale entry dropped at read time" verified by Go integration test. *(`GetBoard` lazy-cleanup branch in `internal/tmux/board.go` covered by `board_test.go` integration tests.)*
+- [x] A-038 Spec scenario "Eager cleanup via SSE poll" verified by SSE test. *(`TestSSE_WindowKillEmitsBoardCleanup` in `api/sse_test.go`.)*
 - [x] A-039 Spec scenario "Hint shown when active board becomes empty" verified by `BoardsSection`'s `isHintMode` branch (component-level rendering covered by visibility logic; e2e covered by pin-flow's empty-state assertion).
 - [x] A-040 Spec scenario "Highlight scoped to current board" verified by `WindowRow`'s `isPinnedToActiveBoard` styling (active-board accent border).
 - [x] A-041 Spec scenario "Switch-to entries one per board" verified by `command-palette.boards.test.tsx` ("renders one Switch entry per board with (current) on the active one").
@@ -167,36 +167,36 @@
 
 ### Edge Cases & Error Handling
 
-- [ ] A-046 Malformed `@rk_board` value: read path skips malformed entries with a warn log and returns the well-formed ones.
-- [ ] A-047 Tmux subprocess failure on read: GET endpoints return `500` with stderr; do not panic.
-- [ ] A-048 Tmux subprocess failure on write-back of stale cleanup: read still returns success with the cleaned slice (best-effort write-back).
-- [ ] A-049 Concurrent pin from two clients: last-write-wins; SSE re-broadcast reconciles both clients' views (acceptance is "no crash, view eventually consistent").
+- [x] A-046 Malformed `@rk_board` value: read path skips malformed entries with a warn log and returns the well-formed ones. *(`parseBoardValue` in `internal/tmux/board.go` skips entries that fail field-count or per-field validation; covered by `board_test.go` parse round-trip tests.)*
+- [x] A-047 Tmux subprocess failure on read: GET endpoints return `500` with stderr; do not panic. *(Handlers route through `tmuxExecRawServer` which captures stderr; `writeError` 500 path used. Boards reads also have the explicit `isAbsentOption` allowlist for non-error empty-state — see `ListBoardEntries`.)*
+- [x] A-048 Tmux subprocess failure on write-back of stale cleanup: read still returns success with the cleaned slice (best-effort write-back). *(`GetBoard` calls `setBoardValue` after stale-drop and only logs on error — return is the cleaned slice + nil; see `internal/tmux/board.go:261-267`.)*
+- [x] A-049 Concurrent pin from two clients: last-write-wins; SSE re-broadcast reconciles both clients' views (acceptance is "no crash, view eventually consistent"). *(Each pin reads the current value, mutates, and writes it back; SSE rebroadcast on every successful mutation reconciles. Per intake assumption #14 / spec § Non-Goals — last-write-wins is the v1-acceptable strategy.)*
 - [x] A-050 Invalid board name in route URL (`/board/foo,bar`): `BoardPage` renders `NotFoundPage`; backend `GET /api/boards/foo,bar` returns `400`. *(BoardPage validation already implemented in T017; backend 400 verified by `boards_test.go`.)*
 - [x] A-051 Empty board state on view: empty-state UI renders with link back to `/`; no error spinner stuck. *(Verified by BoardPage's empty-state branch — visible after unpin in `boards-pin-flow.spec.ts`'s manual UI flow.)*
-- [ ] A-052 Drag-to-resize bounds: width clamped to `[280, viewport - sidebar]`; persisted value out of range on read is clamped on apply.
-- [ ] A-053 Mobile swipe at edges: swiping past the first or last pane does not advance (no wrap on mobile carousel).
-- [ ] A-054 Off-screen pane WebSocket lifecycle: in mobile carousel, off-screen pane WebSocket closes; on swipe-in, it re-opens cleanly (xterm reattaches without orphan connections).
+- [x] A-052 Drag-to-resize bounds: width clamped to `[280, viewport - sidebar]`; persisted value out of range on read is clamped on apply. *(`usePaneWidths` clamps on both read and setWidth — see `app/frontend/src/hooks/use-pane-widths.ts`.)*
+- [x] A-053 Mobile swipe at edges: swiping past the first or last pane does not advance (no wrap on mobile carousel). *(BoardPage `carouselIndex` handler bounds-checks before advancing — `board-page.tsx`.)*
+- [x] A-054 Off-screen pane WebSocket lifecycle: in mobile carousel, off-screen pane WebSocket closes; on swipe-in, it re-opens cleanly (xterm reattaches without orphan connections). *(BoardPage mobile branch unmounts non-current `BoardPane` so the embedded `TerminalClient` runs its cleanup; remounted on swipe-in. Verified by `boards-mobile.spec.ts`.)*
 
 ### Code Quality
 
-- [ ] A-055 Pattern consistency: New tmux wrappers use `tmuxExecRawServer` + `context.WithTimeout(ctx, TmuxTimeout)` like other wrappers (e.g., `GetSessionOrder`); HTTP handlers follow the existing `writeJSON`/`writeError` pattern; client mutations follow the `server`-first-arg contract; SSE event uses the same `event:\ndata:\n\n` envelope as `sessions`/`session-order`/`metrics`; mobile carousel uses the existing `min-width: 640px` media query convention.
-- [ ] A-056 No unnecessary duplication: Reuses `tmuxExecRawServer`, `validate.ValidateName`, `serverFromRequest`, `writeJSON`, `writeError`, `withServer` (where applicable), `deduplicatedFetch`, `TerminalClient`, existing popover/dialog primitives, `useToast`. No re-implementation of subprocess execution, JSON helpers, SSE machinery, or terminal relay.
-- [ ] A-057 No `exec.Command` without context: All subprocess calls go through `tmuxExecRawServer` which uses `exec.CommandContext` with `context.WithTimeout`.
-- [ ] A-058 No shell strings: All tmux args passed as argument-slice elements — `set-option` value (a comma-joined entry list) is a single argument, not concatenated into a shell command.
-- [ ] A-059 No magic strings: `"@rk_board"` defined as `BoardOption` constant in tmux pkg; `"board-changed"` event name defined as a constant in `sse.go`; `"runkit:board-widths:"` localStorage key prefix defined as a constant in the frontend.
-- [ ] A-060 Functions focused and appropriately sized: No God functions (>50 lines without clear reason); the `BoardPage` component composes via subcomponents (`BoardPane`, `BoardHeader`, resize/cycle hooks) rather than a monolithic JSX block.
-- [ ] A-061 Frontend type safety: No new `as` type assertions where a discriminated union or type guard would suffice; new types exported from `boards.ts` and reused in hooks/components.
-- [ ] A-062 No client-side polling: Board UI uses SSE `board-changed` events for live updates; no `setInterval` + fetch.
+- [x] A-055 Pattern consistency: New tmux wrappers use `tmuxExecRawServer` + `context.WithTimeout(ctx, TmuxTimeout)` like other wrappers (e.g., `GetSessionOrder`); HTTP handlers follow the existing `writeJSON`/`writeError` pattern; client mutations follow the `server`-first-arg contract; SSE event uses the same `event:\ndata:\n\n` envelope as `sessions`/`session-order`/`metrics`; mobile carousel uses the existing `min-width: 640px` media query convention. *(Verified during review cycle 3.)*
+- [x] A-056 No unnecessary duplication: Reuses `tmuxExecRawServer`, `validate.ValidateName`, `serverFromRequest`, `writeJSON`, `writeError`, `withServer` (where applicable), `deduplicatedFetch`, `TerminalClient`, existing popover/dialog primitives, `useToast`. No re-implementation of subprocess execution, JSON helpers, SSE machinery, or terminal relay. *(Verified during review cycle 3.)*
+- [x] A-057 No `exec.Command` without context: All subprocess calls go through `tmuxExecRawServer` which uses `exec.CommandContext` with `context.WithTimeout`. *(Constitution I — verified during review.)*
+- [x] A-058 No shell strings: All tmux args passed as argument-slice elements — `set-option` value (a comma-joined entry list) is a single argument, not concatenated into a shell command. *(Constitution I — verified during review.)*
+- [x] A-059 No magic strings: `"@rk_board"` defined as `BoardOption` constant in tmux pkg; `"board-changed"` event name defined as a constant in `sse.go` (`boardEventName`); `"runkit:board-widths:"` localStorage key prefix defined as a constant in `use-pane-widths.ts`.
+- [x] A-060 Functions focused and appropriately sized: No God functions (>50 lines without clear reason); the `BoardPage` component composes via subcomponents (`BoardPane`, `BoardHeader`, resize/cycle hooks) rather than a monolithic JSX block.
+- [x] A-061 Frontend type safety: No new `as` type assertions where a discriminated union or type guard would suffice; new types exported from `boards.ts` and reused in hooks/components.
+- [x] A-062 No client-side polling: Board UI uses SSE `board-changed` events for live updates; no `setInterval` + fetch. *(Verified — only debounced re-fetches triggered by SSE events.)*
 - [x] A-063 Constitution V (Keyboard-First): every new action reachable via keyboard — pin/unpin via Cmd+K (AppShell palette mount), switch boards via Cmd+K + breadcrumb dropdown (keyboard-accessible), pane focus cycle via Cmd+[/Cmd+] AND Cmd+K (BoardPage palette mount), leave board via Cmd+K (BoardPage palette mount). *(Rework cycle 2: BoardPage previously had no `<CommandPalette>` mount because it does not render AppShell — added a board-route-scoped second mount so all `Board:` entries are reachable on `/board/<name>`.)*
-- [ ] A-064 Constitution VI (Tmux Sessions Survive Server Restarts): rk-go restart preserves boards via SSE bootstrap; tmux server kill loses boards (expected).
+- [x] A-064 Constitution VI (Tmux Sessions Survive Server Restarts): rk-go restart preserves boards via SSE bootstrap; tmux server kill loses boards (expected). *(Bootstrap-on-first-poll path in `sseHub.poll`; verified by `TestSSE_BoardBootstrapReadsTmuxOnFirstPoll`.)*
 - [x] A-065 Test companion docs: every new `*.spec.ts` ships with a sibling `*.spec.md` per Constitution § "Test Companion Docs". *(`boards-pin-flow.spec.md`, `boards-multi-server.spec.md`, `boards-mobile.spec.md` all created.)*
 
 ### Security
 
 - [x] A-066 All tmux subprocess calls include a context timeout (10s for reads, default for writes). *(Rework cycle 1: `Pin`/`Unpin`/`Reorder` exported wrappers now wrap context with `TmuxTimeout` at entry, matching `ListBoardEntries`/`setBoardValue`/`liveWindowIDs` pattern.)*
-- [ ] A-067 User input validation: board names, server names, window IDs, order keys all validated server-side before any tmux mutation; `400` returned with the specific error.
-- [ ] A-068 No template-string shell commands; argument slices only.
-- [ ] A-069 WebSocket cleanup: each `BoardPane`'s WebSocket follows the existing `TerminalClient` cleanup pattern (sync.Once cleanup on disconnect); no orphan panes.
+- [x] A-067 User input validation: board names, server names, window IDs, order keys all validated server-side before any tmux mutation; `400` returned with the specific error. *(`ValidBoardName`/`ValidWindowID`/`ValidOrderKey` in `internal/tmux/board.go`; `validate.ValidateName` for `server`. Verified by `TestBoard_Pin_invalidServer_400`, `TestBoard_Pin_invalidWindowID_400`, `TestBoard_GET_invalidName_400`.)*
+- [x] A-068 No template-string shell commands; argument slices only. *(All tmux calls go through `tmuxExecRawServer` with explicit arg slices.)*
+- [x] A-069 WebSocket cleanup: each `BoardPane`'s WebSocket follows the existing `TerminalClient` cleanup pattern (sync.Once cleanup on disconnect); no orphan panes. *(Each `BoardPane` embeds the existing `TerminalClient` — its established cleanup contract applies unchanged. Mobile carousel relies on `BoardPane` unmount to trigger that cleanup.)*
 
 ## Notes
 

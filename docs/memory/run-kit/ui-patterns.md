@@ -7,6 +7,7 @@
 | `/` | Server list | Standalone page (`ServerListPage`) — lists tmux servers with "+" creation button. No sidebar, no SSE. |
 | `/$server` | Session dashboard | `AppShell` layout with `Dashboard` content. SSE connected to the specified server. |
 | `/$server/$session/$window` | Terminal or Iframe | `AppShell` layout. Rendering branch: `rkType === "iframe"` renders `IframeWindow` (URL bar + iframe), otherwise `TerminalClient` + `BottomBar`. SSE connected. |
+| `/board/$name` | Pane board (cross-server) | `BoardPage` self-contained mini-layout (own sidebar + topbar + main pane area + own `<CommandPalette>` mount). Peer to `/$server`, NOT under it — boards aggregate windows across multiple tmux servers. Invalid `name` (fails `^[A-Za-z0-9_-]{1,32}$`) renders `NotFoundPage`. See § Boards View. |
 
 Three-tier URL model with server always in path. URLs are fully shareable — copying a URL and opening it elsewhere on the same host opens the same server, session, and window. TanStack Router uses nested routes: `/$server` is a layout route whose component (`ServerShell`) wraps `SessionProvider` + `AppShell`. Child routes (dashboard index and terminal) are matched by the router but rendered conditionally by `AppShell` based on whether session/window params exist.
 
@@ -55,6 +56,104 @@ Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server li
 **Iframe attributes**: `sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"`, `title="Proxied content"`, `border-0`.
 
 **Window creation**: "Window: New Iframe Window" command palette action (id `create-iframe-window`) opens a `Dialog` with two inputs: window name (autofocused, Enter focuses URL input) and URL (Enter creates window). Create button disabled until both fields non-empty. Calls `createWindow(server, session, name, undefined, "iframe", url)` — the extended API client function passes `rkType` and `rkUrl` in the POST body. Backend uses `CreateWindowWithOptions` for atomic `\;`-chained tmux command. Only shown when a session is active.
+
+## Boards View
+
+`/board/$name` renders a horizontal pane dashboard for windows pinned to a named board (see `tmux-sessions.md` § `@rk_board` for storage and `architecture.md` § Boards Feature for the route placement rationale). The board view does NOT mount under AppShell — it has its own self-contained layout because boards aggregate windows across multiple tmux servers while AppShell chrome is bound to a single `$server`.
+
+### BoardPage Mini-Layout (`app/frontend/src/components/board/board-page.tsx`)
+
+- **Mini-sidebar** — boards list + "← Back to {lastServer}" link to return to the most recently viewed server route
+- **Mini-topbar** — board name breadcrumb with a `▾` dropdown listing `← Sessions` (navigates to `/`) and one entry per other existing board (current board appended with `(current)` inside the dropdown). Connection status, `FixedWidthToggle`, and `⌘K` retain their AppShell positioning
+- **Main pane area** — horizontally-scrollable container of pane "cards" sorted by `orderKey`, each card a `BoardPane` with a `BoardHeader` (`<window-name> · <server>` + unpin button) and an embedded `TerminalClient` connected via WebSocket to `?server=<entry.server>` (one WS per pane)
+- **Own `<CommandPalette>` mount** — BoardPage mounts its own palette (board-route-only entries: Switch / Leave Board View / Cycle Pane Focus →/←) because AppShell's palette is unreachable on `/board/<name>`
+
+Empty / non-existent board (`name` exists in URL but `getBoard` returns `[]`): shows "No panes pinned to this board yet. Pin a window from the sidebar." with a back link.
+
+### Pane Cards (Desktop)
+
+- **Default width 480px**, drag-resizable between 280px (min) and viewport-minus-sidebar (max). Resize handle hidden on coarse-pointer devices
+- **Persisted per-board** in `localStorage["runkit:board-widths:<name>"]` as `Record<windowId, number>`. `usePaneWidths(boardName)` encapsulates read/write/clamp; missing entries fall back to 480px; malformed JSON is ignored silently. Pane widths are intentionally browser-local view state — they do NOT cross devices (pin state in tmux does)
+- **Click-to-focus** transfers focus to the pane's xterm via a `useImperativeHandle`-exposed `focus()` method on `BoardPaneHandle`. **Hover-to-focus is OFF in v1** (no hover handler attached)
+- **Visual focus indicator** — focused pane has a distinct border/glow; unfocused panes are de-emphasized
+- **Keyboard pane cycling** — `Cmd+]` / `Ctrl+]` next (wraps), `Cmd+[` / `Ctrl+[` previous (wraps). Bound via a `useEffect` keydown listener on the BoardPage component
+
+### Mobile Single-Pane Carousel
+
+Below the `min-width: 640px` breakpoint (matching the existing project mobile convention), the BoardPage renders a single-pane swipe carousel:
+
+- One pane fills the viewport width
+- Touch swipe left/right cycles in `orderKey` order; threshold 40px on `touchstart` → `touchend` `clientX` delta
+- **Off-screen panes pause** by unmounting their `TerminalClient` so the WebSocket closes; on swipe-in, the pane re-mounts and the terminal reattaches
+- A pagination dot strip indicates the current pane index (no wrap on edges in v1)
+
+### Sidebar Boards Section (`app/frontend/src/components/sidebar/boards-section.tsx`)
+
+Renders **above the Sessions section** in the AppShell sidebar (visible on `/$server/...` routes; not on the BoardPage's own mini-sidebar — the BoardPage has its own listing).
+
+- **Hidden entirely** when `useBoards()` returns zero boards
+- **Visible** the moment the first board materializes (first pin)
+- **Hint mode** — when zero boards exist AND the user is on `/board/<name>` (i.e., the active board just had its last window unpinned), shows the one-line hint "Pin a window to start a board". In all other zero-board cases, the section is hidden
+
+Each row: board name (left, truncate with ellipsis), pin count (right, muted), highlighted background when current route matches `/board/<name>`. Clicking the row navigates to `/board/<name>`.
+
+### Sidebar Pin Icon on Window Rows
+
+`window-row.tsx` gains a pin icon button that follows the existing icon-on-hover pattern in the sidebar:
+
+- **Hover-revealed** (always visible on touch devices via `coarse:opacity-100`)
+- **Filled** when the window is pinned to ANY board; **outline** when not pinned (computed via `useWindowPins(server, windowId)` which watches every board)
+- **Click opens `PinPopover`** (`app/frontend/src/components/sidebar/pin-popover.tsx`) anchored to the icon: list of existing boards (each row pins or unpins on click), plus an inline "Pin to new board…" text input (Enter validates against the board-name regex and creates the board on first pin). Validation errors surface inline. Outside-click + Escape dismiss
+
+### Active-Board Highlight in Sessions Tree
+
+When the current route is `/board/<name>`, `WindowRow` applies an accent left-border to windows pinned to **that specific board only**. Pins to other boards do NOT trigger the highlight. The pin icon's filled state is independent (always reflects "pinned to ANY board"). On non-board routes, no highlight is applied.
+
+### Pin Entry Points
+
+| Entry point | Location | Notes |
+|-------------|----------|-------|
+| Sidebar pin icon | `WindowRow` (only on server routes) | Hover-revealed; popover with board picker + inline input |
+| Command palette | `boardActions` block in `app.tsx` (AppShell mount) and BoardPage's own mount | See § Boards Command Palette |
+| Board pane header | `BoardHeader` (only on `/board/<name>`) | Per-pane unpin button — no confirmation (pin is cheap to restore) |
+
+Right-click context menu was deliberately NOT implemented in v1 — there is no existing context-menu pattern in the sidebar to extend, and the three entry points above cover all flows.
+
+### Boards Command Palette (`Board:` prefix)
+
+`boardActions: PaletteAction[]` is composed in a dedicated `useMemo` block in `app.tsx`, between `windowActions` and `viewActions`:
+
+```ts
+const paletteActions = useMemo(
+  () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
+  [...]
+);
+```
+
+| Entry | Visibility | Action |
+|-------|------------|--------|
+| `Board: Switch to <name>` (one per board, `(current)` on the active one) | Always | Navigate to `/board/<name>` |
+| `Board: Pin Current Window` | Only on `/$server/$session/$window` | Dispatches `pin-popover:open` to the matching `WindowRow` |
+| `Board: Unpin Current Window` | Only when current window is pinned to ≥1 board | Unpins from all boards the current window is pinned to (single-action — no per-board picker in v1) |
+| `Board: Leave Board View` | Only on `/board/<name>` | Navigate to last viewed window route, or `/` if none |
+| `Board: Cycle Pane Focus →` | Only on `/board/<name>` and ≥1 pane | Same as `Cmd+]` |
+| `Board: Cycle Pane Focus ←` | Only on `/board/<name>` and ≥1 pane | Same as `Cmd+[` |
+
+**v1 limits**: `Board: Reorder Pane` palette action is deferred to v1.1. The right-click context menu pin entry is not implemented (use sidebar pin icon, command palette, or board pane header). Hover-to-focus is disabled in v1.
+
+The AppShell palette mount carries `Switch to <name>` + `Pin Current Window` + `Unpin Current Window`. The BoardPage's own palette mount carries `Switch to <name>` + `Leave Board View` + `Cycle Pane Focus →/←` — board-route-only entries that AppShell's palette can't surface because the board route does not render AppShell.
+
+### Hooks (Frontend)
+
+| Hook | File | Returns |
+|------|------|---------|
+| `useBoards()` | `hooks/use-boards.ts` | `{ boards, isLoading, error }`. Initial `listBoards()` on mount; subscribes to `board-changed` SSE on every server returned by `listServers()`; 50ms debounce coalesces rapid events; preserves last good value on transient error |
+| `useBoardEntries(name)` | `hooks/use-boards.ts` | `{ entries, isLoading, error }`. Initial `getBoard(name)`; subscribes on all known servers (boards span servers); same debounce + error tolerance |
+| `usePinActions(board?)` | `hooks/use-pin-actions.ts` | `{ pin, unpin, reorder }` stable callbacks; toast on error; optimistic — SSE re-broadcast reconciles |
+| `usePaneWidths(boardName, sidebarWidth)` | `hooks/use-pane-widths.ts` | `{ getWidth, setWidth }`; reads/writes `localStorage["runkit:board-widths:<name>"]`; clamps to `[280, viewport - sidebar]`; default 480px |
+| `useIsMobile()` | `hooks/use-is-mobile.ts` | `boolean`; `matchMedia("(max-width: 640px)")` listener |
+| `useActiveBoardName()` | `hooks/use-active-board.ts` | active board name from `/board/<name>` route, else `null` |
+| `useWindowPins(server, windowId)` | `hooks/use-window-pins.ts` | list of boards the window is pinned to; drives the pin-icon filled state |
 
 ## Chrome (Top Bar)
 
@@ -908,3 +1007,4 @@ The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips 
 | 2026-04-18 | xterm Unicode 15 grapheme widths — added `@xterm/addon-unicode-graphemes` to the Terminal init chain (loads after WebLinks, before WebGL), set `allowProposedApi: true` on the Terminal constructor, and assigned `terminal.unicode.activeVersion = "15-graphemes"` after `loadAddon()`. Aligns xterm's cell-width measurements with tmux's wcwidth-based layout so emojis and other wide graphemes (ZWJ sequences, flag/skin-tone modifiers) render without ghost/overlap artifacts. The `unicodeVersion` constructor option remains a no-op past `"6"` without the addon. | `260418-xgl2-xterm-emoji-width` |
 | 2026-04-18 | Server-capture-at-trigger convention for optimistic actions — every `useOptimisticAction` instance for a server-scoped mutation now threads `server: string` as the first slot of its argument tuple (Shape B), with `server` read from `useSessionContext()` and listed in the calling handler's `useCallback` deps (Shape A). Async-bridge refs (`lastKillSessionRef`, `lastRenameSessionRef`, `killDialogServerRef`) snapshot `{ server, name }` together so rollback/settle target the originating server. `OptimisticContext` switched session-level `GhostEntry`/`KilledEntry`/`RenamedEntry` to discriminated unions carrying `server`; `markKilled`/`unmarkKilled` overloaded by `type` ("session" requires `server`, "server" is global); `useMergedSessions(real, currentServer)` now filters session-level overlays so cross-server overlays don't leak. Window-store keying unchanged — windows don't migrate across servers. Establishes the rule: ambient module-level state for request parameters is prohibited; request-scoping values travel in the call signature, captured at user-event time. Regression test in `use-dialog-state.test.tsx` flips `SessionProvider.server` between dialog open and submit. | `260418-yadg-fix-mutation-server-race` |
 | 2026-04-19 | Sidebar separator cursor polish + corner resize affordance — horizontal separator cursor changed from `cursor-ns-resize` to `cursor-row-resize` (matches vertical's `cursor-col-resize` double-arrow-with-bar vocabulary); vertical hover fixed from `/40` opacity to full `hover:bg-text-secondary`. Both drag handlers now write `document.body.style.cursor` on pointerdown/start and clear to `""` on pointerup/end — document-level override survives the pointer leaving the thin handle (solves implicit-pointer-capture hover loss after first drag). `CollapsiblePanel` unmount cleanup also clears body cursor. New optional corner affordance at separator intersection: `CollapsiblePanel` gains `onCornerPointerDown` prop; when supplied + `showDragHandle` is true, renders a `w-[7px] h-[3px] cursor-nwse-resize` corner flush against the handle's right edge. Corner pointerdown invokes horizontal then vertical handlers, then overrides cursor to `nwse-resize` (last-write-wins). Handlers coexist without coordination because they use independent document listeners (clientY-only vs clientX-only). Prop threaded `app.tsx` → `Sidebar` (`onSidebarResizeStart`) → `ServerPanel` → `CollapsiblePanel` (`onCornerPointerDown`); all optional, mobile drawer omits it. | `260419-9ufu-sidebar-separator-cursor-fixes` |
+| 2026-05-07 | Pane boards UX — new § Boards View covers `/board/$name` self-contained mini-layout (own sidebar + topbar + main pane area + own `<CommandPalette>` mount; not under AppShell because boards span servers). Pane cards: 480px default, drag-resize 280px–viewport-minus-sidebar, widths persisted per-board to `localStorage["runkit:board-widths:<name>"]`. Click-to-focus + `Cmd+]/Cmd+[` cycle (hover-to-focus OFF in v1). Mobile (< 640px): single-pane swipe carousel with off-screen pause via `TerminalClient` unmount + pagination dots. Sidebar gains `BoardsSection` above Sessions (hidden when zero boards, hint mode when on a now-empty board route), pin icon + `PinPopover` on `WindowRow` (filled state when pinned to ANY board), and active-board accent border on rows pinned to the current board. New `boardActions` `PaletteAction[]` block in `app.tsx`: `Switch to <name>` (one per board, `(current)` on active), `Pin Current Window` (window-route-gated, dispatches `pin-popover:open`), `Unpin Current Window` (unpins from all boards), `Leave Board View`, `Cycle Pane Focus →/←` (board-route-gated). Reorder Pane palette action deferred to v1.1; right-click context menu not implemented (use sidebar pin icon, command palette, or board pane header). Hooks: `useBoards`, `useBoardEntries`, `usePinActions`, `usePaneWidths`, `useIsMobile`, `useActiveBoardName`, `useWindowPins`. | `260507-4vuv-pane-boards` |

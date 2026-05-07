@@ -140,7 +140,7 @@
 - [x] A-025 Sidebar pin icon on window-row: hover-revealed; filled when pinned to ANY board; click opens picker popover with existing boards + "Pin to new board…" inline input with validation.
 - [x] A-026 Sidebar active-board highlight: when on `/board/<name>`, windows pinned to that board (and only that board) get a subtle highlight; pins to other boards do not trigger.
 - [x] A-027 Top bar: on `/board/<name>`, breadcrumb replaced with `Board ▸ <name> ▾` dropdown listing `← Sessions` and other boards (current board annotated `(current)`). *(Implemented at the BoardPage mini-header level — see T029 note.)*
-- [x] A-028 Command palette: `Board:` prefix entries appear per the spec — `Switch to <name>` (one per board, `(current)` annotation), `Pin Current Window` (window-route-gated), `Unpin Current Window` (pinned-window-gated, deferred wiring; current implementation surfaces Pin button, palette unpin can route through pin popover), `Leave Board View` (board-route-gated), `Cycle Pane Focus →`, `Cycle Pane Focus ←` (board-route-gated). `Reorder Pane` is NOT in v1.
+- [x] A-028 Command palette: `Board:` prefix entries appear per the spec — `Switch to <name>` (one per board, `(current)` annotation), `Pin Current Window` (window-route-gated; dispatches `pin-popover:open` custom event to the matching `WindowRow`), `Unpin Current Window` (pinned-window-gated, routes through same pin popover by re-dispatching), `Leave Board View` (board-route-gated), `Cycle Pane Focus →`, `Cycle Pane Focus ←` (board-route-gated). `Reorder Pane` is NOT in v1.
 
 ### Behavioral Correctness
 
@@ -193,7 +193,7 @@
 
 ### Security
 
-- [ ] A-066 All tmux subprocess calls include a context timeout (10s for reads, default for writes).
+- [x] A-066 All tmux subprocess calls include a context timeout (10s for reads, default for writes). *(Rework cycle 1: `Pin`/`Unpin`/`Reorder` exported wrappers now wrap context with `TmuxTimeout` at entry, matching `ListBoardEntries`/`setBoardValue`/`liveWindowIDs` pattern.)*
 - [ ] A-067 User input validation: board names, server names, window IDs, order keys all validated server-side before any tmux mutation; `400` returned with the specific error.
 - [ ] A-068 No template-string shell commands; argument slices only.
 - [ ] A-069 WebSocket cleanup: each `BoardPane`'s WebSocket follows the existing `TerminalClient` cleanup pattern (sync.Once cleanup on disconnect); no orphan panes.

@@ -311,7 +311,9 @@ The route SHALL parse `name` from the URL path. If `name` does not match the val
 
 ### Requirement: Board page layout
 
-`BoardPage` SHALL preserve the AppShell (sidebar + top bar + bottom bar visible) and render in the main content area:
+The board page SHALL render with its own self-contained layout (mini-sidebar showing the boards list and link back to a server view; mini-topbar with board name dropdown). The board page MUST NOT render the per-server AppShell (sidebar/topbar/bottombar) because boards aggregate windows across multiple tmux servers, while AppShell's chrome is scoped to a single server via the `/$server/...` route. The mini-sidebar SHALL contain a "← Back to {lastServer}" link to return to the most recently viewed server route, and a Boards section listing all current boards.
+
+`BoardPage` SHALL render in the main content area:
 
 1. A horizontally-scrollable container holding pane "cards" laid out left-to-right in `orderKey`-sorted order
 2. Each card has a default width of **480px**, may be drag-resized between **280px (min)** and **viewport-minus-sidebar (max)**, and fills the available height
@@ -706,6 +708,13 @@ The implementation SHALL satisfy:
    - *Why*: Intake assumption #21 — the boards feature touches storage (tmux-sessions), API+route (architecture), and UI (ui-patterns). A standalone `board-feature.md` would be smaller than each of those three sections and arbitrarily extracted; staying inline keeps related context together.
    - *Rejected*: New `docs/memory/run-kit/board-feature.md` — defer to a future change if the feature grows.
 
+8. **Board page renders its own layout, not AppShell** — chosen approach: the `/board/$name` route mounts at the root of the router tree (peer to `/` and `/$server`), and renders a self-contained layout — mini-sidebar (boards list + back link) and mini-topbar (board name + board switcher dropdown). It does NOT mount under or share state with the AppShell layout used by `/$server/...` routes.
+   - *Why*: AppShell's sidebar (sessions tree), topbar breadcrumbs, FixedWidthToggle, and bottombar are all derived from the URL's `$server` parameter and the SessionProvider scoped to that server. Boards aggregate windows across servers — there is no single `$server` to bind AppShell chrome to. Forcing AppShell would either (a) require non-trivial refactoring of SessionProvider to accept a "multi-server" mode, or (b) display chrome that misleads the user about which server they're viewing. The mini-layout is honest about the cross-server scope.
+   - *Rejected*: Render under AppShell with a designated "primary" server — arbitrary; misleading; doesn't match how the board contents work.
+   - *Rejected*: Refactor SessionProvider to support multi-server scope — large architectural change orthogonal to this feature.
+   - *Rejected*: Switch boards to a single-server design — loses the core value of cross-server pinning.
+   - *Consequences*: BoardsSection in the main app sidebar still exists (renders on `/$server/...` routes for discovery + entry into board view), but the board view itself does not show the main app sidebar. Pin entry points are: sidebar pin icon (when on a server route), command palette (always), board pane unpin button (on board route).
+
 ## Assumptions
 
 | # | Grade | Decision | Rationale | Scores |
@@ -718,7 +727,7 @@ The implementation SHALL satisfy:
 | 6 | Certain | Sidebar "Boards" section placed above Sessions section | Confirmed from intake #6 | S:100 R:95 A:100 D:100 |
 | 7 | Certain | Active-board pinned windows are subtly highlighted in Sessions tree | Confirmed from intake #7 | S:95 R:95 A:90 D:95 |
 | 8 | Certain | Sidebar Boards section uses one-line hint "Pin a window to start a board" only when user is on a now-empty board route; otherwise hide section entirely when zero boards exist | Confirmed from intake #8 — narrowed the trigger condition for the hint to one specific case during spec analysis | S:95 R:95 A:90 D:90 |
-| 9 | Certain | New route `/board/$name` placed at root level (peer to `/$server`), not under `/$server/board/...` | Confirmed from intake #9 — spec-stage analysis confirmed the cross-server aggregation requires a top-level route. Rejected `/$server/board/...` (single-server scoping) | S:90 R:60 A:85 D:90 |
+| 9 | Certain | New route `/board/$name` placed at root level (peer to `/$server`), and renders its own self-contained layout (mini-sidebar + mini-topbar) — NOT mounted under AppShell because AppShell chrome is bound to a single `$server` while boards aggregate cross-server | Confirmed from intake #9 — spec-stage analysis confirmed the cross-server aggregation requires a top-level route. Rework cycle 1 amended this row + added DD-8 to capture the AppShell deviation rationale. Rejected `/$server/board/...` (single-server scoping) and AppShell-with-primary-server (misleading chrome) | S:90 R:60 A:85 D:90 |
 | 10 | Certain | Top bar shows board breadcrumb dropdown (`Board ▸ name ▾`) when on a board | Confirmed from intake #10 | S:90 R:80 A:85 D:90 |
 | 11 | Certain | Fixed-width panes (480px default) in horizontally-scrollable container | Confirmed from intake #11 | S:90 R:70 A:85 D:90 |
 | 12 | Certain | Lexicographic / fractional order keys for cross-server ordering, lowercase a–z only, length 1–16 | Upgraded from intake #12 — narrowed alphabet and length during spec analysis to make validation deterministic | S:90 R:70 A:85 D:85 |

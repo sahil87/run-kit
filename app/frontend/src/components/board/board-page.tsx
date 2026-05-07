@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ToastProvider } from "@/components/toast";
 import { useBoardEntries, useBoards } from "@/hooks/use-boards";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -26,29 +26,15 @@ export function BoardPage(_props: BoardPageRouteProps) {
 }
 
 function BoardPageInner() {
-  // Read the board name from the URL path. We use window.location to avoid a
-  // tight tanstack-router dependency in the test surface.
-  const name = useBoardName();
+  // Read the board name from the route params via TanStack Router. boardRoute
+  // isn't exported from router.tsx (avoiding a circular import via app.tsx →
+  // router.tsx), so use `strict: false` and narrow the type ourselves.
+  const params = useParams({ strict: false }) as { name?: string };
+  const name = typeof params.name === "string" ? params.name : null;
   if (name === null || !ValidBoardName(name)) {
     return <NotFoundPage />;
   }
   return <BoardPageContent name={name} />;
-}
-
-function useBoardName(): string | null {
-  // Tanstack router: read from the path /board/<name>
-  const [name, setName] = useState<string | null>(() => parseBoardName(window.location.pathname));
-  useEffect(() => {
-    const onPop = () => setName(parseBoardName(window.location.pathname));
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
-  return name;
-}
-
-function parseBoardName(pathname: string): string | null {
-  const m = pathname.match(/^\/board\/([^/]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
 }
 
 function BoardPageContent({ name }: { name: string }) {

@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import { getWindowDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
@@ -88,6 +88,24 @@ export function WindowRow({
   const [showPinPopover, setShowPinPopover] = useState(false);
   const colorBtnRef = useRef<HTMLButtonElement>(null);
   const pinBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Listen for the imperative `pin-popover:open` event dispatched by the
+  // command palette's "Board: Pin Current Window" action. Only the row whose
+  // (server, windowId) matches the event detail opens its popover; other rows
+  // ignore the event. Mirrors the `palette:open` document-event pattern used
+  // elsewhere — see app.tsx command palette wiring.
+  useEffect(() => {
+    if (!server) return;
+    function handler(e: Event) {
+      const detail = (e as CustomEvent<{ server: string; windowId: string }>).detail;
+      if (!detail) return;
+      if (detail.server === server && detail.windowId === win.windowId) {
+        setShowPinPopover(true);
+      }
+    }
+    document.addEventListener("pin-popover:open", handler);
+    return () => document.removeEventListener("pin-popover:open", handler);
+  }, [server, win.windowId]);
 
   const tint = useMemo(() => {
     if (color == null || !rowTints) return null;

@@ -312,6 +312,8 @@ func nextAppendKey(entries []BoardEntry) string {
 // Idempotent: returns nil with no mutation if the same (windowID, board)
 // already exists on the server.
 func Pin(ctx context.Context, server, windowID, board string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
 	if !ValidWindowID(windowID) {
 		return fmt.Errorf("invalid window id")
 	}
@@ -349,6 +351,8 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 // Unpin removes the entry matching (windowID, board) on the given server.
 // Idempotent: silently succeeds if the entry is not present.
 func Unpin(ctx context.Context, server, windowID, board string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
 	if !ValidWindowID(windowID) {
 		return fmt.Errorf("invalid window id")
 	}
@@ -377,6 +381,8 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 // Reorder updates the order key of an existing entry. Returns an error if
 // the entry is not found or newOrderKey is invalid.
 func Reorder(ctx context.Context, server, windowID, board, newOrderKey string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
 	if !ValidWindowID(windowID) {
 		return fmt.Errorf("invalid window id")
 	}

@@ -770,11 +770,20 @@ function AppShell() {
 
     const conditional: PaletteAction[] = [];
 
-    if (sessionName && currentWindow) {
+    if (sessionName && currentWindow && server) {
       conditional.push({
         id: "board-pin-current",
         label: "Board: Pin Current Window",
-        onSelect: () => addToast("Pin via the sidebar pin icon (popover-driven)", "info"),
+        onSelect: () => {
+          // Imperatively open the existing sidebar pin popover for the current
+          // window. The matching WindowRow listens for this event and only the
+          // row whose (server, windowId) matches handles it.
+          document.dispatchEvent(
+            new CustomEvent("pin-popover:open", {
+              detail: { server, windowId: currentWindow.windowId },
+            }),
+          );
+        },
       });
     }
 
@@ -801,7 +810,7 @@ function AppShell() {
       });
     }
     return [...switchEntries, ...conditional];
-  }, [boardSummaries, currentBoardName, isOnBoardRoute, sessionName, currentWindow, addToast, navigate]);
+  }, [boardSummaries, currentBoardName, isOnBoardRoute, sessionName, currentWindow, server, navigate]);
 
   const viewActions: PaletteAction[] = useMemo(
     () => [

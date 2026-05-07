@@ -45,28 +45,38 @@ type sseClient struct {
 	dropped bool
 }
 
+// orderBootstrapMaxAttempts caps how many times poll() will try to read
+// @rk_session_order from tmux when previous reads errored. Limits the blast
+// radius of a hung or misbehaving tmux while still recovering from transient
+// failures. After the cap is hit the bootstrap stops attempting; a successful
+// PUT (which populates previousOrderJSON via broadcast) re-establishes the
+// cache without needing the bootstrap.
+const orderBootstrapMaxAttempts = 3
+
 type sseHub struct {
-	mu                sync.RWMutex
-	clients           map[string][]*sseClient
-	previousJSON      map[string]string        // per-server sessions JSON dedup cache
-	previousOrderJSON map[string]string        // per-server session-order event payload cache
-	cache             map[string]*cachedResult // per-server session fetch cache (500ms TTL)
-	polling           bool
-	fetcher           SessionFetcher
-	orderFetcher      SessionOrderFetcher
-	metrics           *metrics.Collector
-	cachedMetricsJSON string // latest metrics JSON for new clients
+	mu                       sync.RWMutex
+	clients                  map[string][]*sseClient
+	previousJSON             map[string]string        // per-server sessions JSON dedup cache
+	previousOrderJSON        map[string]string        // per-server session-order event payload cache (only present when populated by a successful read or a PUT broadcast)
+	orderBootstrapAttempts   map[string]int           // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
+	cache                    map[string]*cachedResult // per-server session fetch cache (500ms TTL)
+	polling                  bool
+	fetcher                  SessionFetcher
+	orderFetcher             SessionOrderFetcher
+	metrics                  *metrics.Collector
+	cachedMetricsJSON        string // latest metrics JSON for new clients
 }
 
 func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector) *sseHub {
 	return &sseHub{
-		clients:           make(map[string][]*sseClient),
-		previousJSON:      make(map[string]string),
-		previousOrderJSON: make(map[string]string),
-		cache:             make(map[string]*cachedResult),
-		fetcher:           fetcher,
-		orderFetcher:      prodSessionOrderFetcher{},
-		metrics:           mc,
+		clients:                make(map[string][]*sseClient),
+		previousJSON:           make(map[string]string),
+		previousOrderJSON:      make(map[string]string),
+		orderBootstrapAttempts: make(map[string]int),
+		cache:                  make(map[string]*cachedResult),
+		fetcher:                fetcher,
+		orderFetcher:           prodSessionOrderFetcher{},
+		metrics:                mc,
 	}
 }
 
@@ -245,20 +255,25 @@ func (h *sseHub) poll() {
 			// connecting clients otherwise see no order until the next PUT.
 			// Runs after the sessions broadcast so first-poll event order is
 			// sessions → session-order → metrics.
+			//
+			// Errors are retried up to orderBootstrapMaxAttempts before giving
+			// up — transient tmux failures (e.g., a momentary timeout) can
+			// recover, but a persistent failure won't poll-spam every tick.
+			// Bootstrap state is tracked separately from previousOrderJSON so
+			// a successful PUT (which populates previousOrderJSON via
+			// broadcastSessionOrder) cleanly satisfies the "seeded" gate.
 			h.mu.RLock()
 			_, orderSeeded := h.previousOrderJSON[server]
+			attempts := h.orderBootstrapAttempts[server]
 			h.mu.RUnlock()
-			if !orderSeeded {
+			if !orderSeeded && attempts < orderBootstrapMaxAttempts {
 				bootCtx, cancelBoot := context.WithTimeout(context.Background(), 2*time.Second)
 				order, oerr := h.orderFetcher.GetSessionOrder(bootCtx, server)
 				cancelBoot()
 				if oerr != nil {
-					slog.Debug("session-order bootstrap (best-effort)", "server", server, "err", oerr)
-					// Mark as seeded so we don't retry every tick
+					slog.Debug("session-order bootstrap (best-effort)", "server", server, "err", oerr, "attempt", attempts+1)
 					h.mu.Lock()
-					if _, exists := h.previousOrderJSON[server]; !exists {
-						h.previousOrderJSON[server] = ""
-					}
+					h.orderBootstrapAttempts[server] = attempts + 1
 					h.mu.Unlock()
 				} else {
 					h.broadcastSessionOrder(server, order)

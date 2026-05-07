@@ -88,7 +88,7 @@ The endpoint `GET /api/sessions/order?server=<name>` SHALL be registered in `rou
 The endpoint `PUT /api/sessions/order?server=<name>` SHALL accept a JSON body `{"order": [...]}` and write via `tmux.SetSessionOrder`.
 
 - On success: `200 OK`, body `{"ok": true}`.
-- The handler MUST validate the body shape (`order` is a string array) before calling tmux. Missing or wrong-typed `order` field returns `400 Bad Request`.
+- The handler MUST validate the body shape before calling tmux. **Wrong-typed** `order` field (e.g., string instead of array) and **malformed JSON** return `400 Bad Request`. A **missing** `order` field is treated as the empty array (`[]`) — `{}` is a shape-valid request that clears any persisted order, returning `200 {"ok": true}`. (Rationale: clients implementing "clear" via an empty PUT shouldn't have to special-case the property.)
 - Each element of `order` MUST be validated with the existing `validate.ValidateName` helper (the same validator used by `serverFromRequest` for server names — appropriate here because tmux session names share the same character class). Names that fail validation cause `400 Bad Request`.
 - The handler MUST tolerate names that don't currently match any live tmux session — clients can include stale names; the frontend's `orderedSessions` sort drops them to the bottom. (Stricter validation would race with concurrent session creation.)
 - After `tmux.SetSessionOrder` returns nil, the handler MUST trigger an SSE broadcast via `s.sseHub.broadcastSessionOrder(server, order)` (synchronously, before returning the HTTP response).
@@ -169,8 +169,8 @@ When a new client connects via `addClient`, the hub SHALL push the cached `sessi
 To avoid a cold-cache empty state when the rk-go server restarts but the tmux server retained `@rk_session_order`, the SSE hub SHALL read the persisted order via `tmux.GetSessionOrder` once per server during the first poll iteration and seed the `previousOrderJSON` cache.
 
 - Implementation: in `poll()`, when iterating servers for the `sessions` fetch, if `previousOrderJSON[server]` is unset, call `tmux.GetSessionOrder(ctx, server)`. On success, build the same payload as `broadcastSessionOrder` would, cache it in `previousOrderJSON[server]`, and broadcast to existing clients.
-- On `GetSessionOrder` error, log at Debug (best-effort) and proceed — the cache stays unset and reads return empty until a PUT happens.
-- This bootstrap MUST run only once per server per hub lifetime (gated on `previousOrderJSON[server]` presence — even an empty-array cached value counts as "seeded").
+- On `GetSessionOrder` error, log at Debug (best-effort) and increment a per-server bootstrap-attempts counter. Retries are bounded — after `orderBootstrapMaxAttempts` (default 3) failed attempts, bootstrap stops trying for that server. Transient tmux failures (timeouts, brief server unavailability) thus recover; persistent failures don't poll-spam.
+- A successful bootstrap broadcast (or any successful PUT-driven broadcast) populates `previousOrderJSON[server]` and is the "seeded" gate — any later poll iteration that sees `previousOrderJSON[server]` populated skips bootstrap. Bootstrap state and the cached payload are tracked in separate maps (`orderBootstrapAttempts` vs. `previousOrderJSON`) so that error attempts don't pollute the cache and a successful PUT cleanly stops the bootstrap loop.
 
 #### Scenario: Restart preserves order through SSE
 - **GIVEN** `@rk_session_order` was set to `["main","dev"]` before rk-go restarted

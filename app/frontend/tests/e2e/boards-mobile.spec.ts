@@ -41,32 +41,44 @@ test.describe("Boards: mobile carousel", () => {
     test.setTimeout(30_000);
     await page.setViewportSize({ width: 375, height: 812 });
 
-    // Belt-and-suspenders: ensure the session has 3 windows even if a
-    // previous run left only some of them. Idempotent: tmux ignores
-    // duplicate window names if the session/window already has them, but
-    // `new-window` creates fresh ones — so we tolerate failure.
+    // Ensure the session has the three required windows — m-a/m-b/m-c. We
+    // check first via `list-windows -F` and only create the missing names so
+    // re-runs don't accumulate duplicate windows (which would make later
+    // pinning non-deterministic about which `m-*` window each id refers to).
     const requiredWindows = ["m-a", "m-b", "m-c"];
+    const listNamesIds = () =>
+      execSync(
+        `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_name}\t#{window_id}"`,
+      )
+        .toString()
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const [name, id] = line.split("\t");
+          return { name, id };
+        });
+
+    const existing = new Set(listNamesIds().map((w) => w.name));
     for (const name of requiredWindows) {
+      if (existing.has(name)) continue;
       try {
         execSync(
           `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`,
           { stdio: "ignore" },
         );
       } catch {
-        // ignore — window may already exist
+        // ignore — best-effort recovery; the assertion below catches a
+        // genuinely broken state.
       }
     }
 
-    // Pin three windows via the HTTP API directly so the test doesn't depend
-    // on the mobile drawer dance.
-    const ids = execSync(
-      `tmux -L ${TMUX_SERVER} list-windows -t ${TEST_SESSION} -F "#{window_id}"`,
-    )
-      .toString()
-      .trim()
-      .split("\n");
-    expect(ids.length).toBeGreaterThanOrEqual(3);
-    for (const id of ids.slice(0, 3)) {
+    // Pin the three windows by *name* — not by `slice(0, 3)` of all ids,
+    // which would mis-pick if extra windows exist. This makes the test
+    // deterministic regardless of session leftovers.
+    const namesToIds = new Map(listNamesIds().map((w) => [w.name, w.id]));
+    for (const name of requiredWindows) {
+      const id = namesToIds.get(name);
+      expect(id, `window ${name} should exist`).toBeTruthy();
       const r = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
         data: { server: TMUX_SERVER, windowId: id },
       });

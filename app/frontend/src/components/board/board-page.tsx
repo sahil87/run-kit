@@ -88,25 +88,52 @@ function BoardPageContent({ name }: { name: string }) {
   }, [focusedIndex]);
 
   // Drag-resize state — separate from the persisted widths; live during drag.
+  // Handlers live in refs so an unmount cleanup or a `pointercancel` (e.g.
+  // OS gesture interrupt, route change mid-drag) can remove them — without
+  // this, the listeners stayed attached on `window` and kept calling
+  // `setWidth` on a stale closure.
   const dragRef = useRef<{ windowId: string; startX: number; startWidth: number } | null>(null);
+  const dragMoveRef = useRef<((ev: PointerEvent) => void) | null>(null);
+  const dragEndRef = useRef<(() => void) | null>(null);
+
+  const cleanupDragListeners = useCallback(() => {
+    if (dragMoveRef.current) {
+      window.removeEventListener("pointermove", dragMoveRef.current);
+      dragMoveRef.current = null;
+    }
+    if (dragEndRef.current) {
+      window.removeEventListener("pointerup", dragEndRef.current);
+      window.removeEventListener("pointercancel", dragEndRef.current);
+      dragEndRef.current = null;
+    }
+    dragRef.current = null;
+  }, []);
+
   const handleResizeStart = useCallback(
     (windowId: string, clientX: number) => {
+      // Defensive: clear any prior drag's listeners before starting a new one.
+      cleanupDragListeners();
       dragRef.current = { windowId, startX: clientX, startWidth: getWidth(windowId) };
       const onMove = (ev: PointerEvent) => {
         if (!dragRef.current) return;
         const delta = ev.clientX - dragRef.current.startX;
         setWidth(dragRef.current.windowId, dragRef.current.startWidth + delta);
       };
-      const onUp = () => {
-        dragRef.current = null;
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
+      const onEnd = () => {
+        cleanupDragListeners();
       };
+      dragMoveRef.current = onMove;
+      dragEndRef.current = onEnd;
       window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointerup", onEnd);
+      window.addEventListener("pointercancel", onEnd);
     },
-    [getWidth, setWidth],
+    [getWidth, setWidth, cleanupDragListeners],
   );
+
+  // Unmount cleanup — if the user navigates away mid-drag, remove the global
+  // listeners so they don't leak past component lifetime.
+  useEffect(() => cleanupDragListeners, [cleanupDragListeners]);
 
   // Mobile swipe handling.
   const swipeStartX = useRef<number | null>(null);
@@ -403,7 +430,11 @@ function MobileCarousel({
                 paneRefs.current[idx] = el;
               }}
               entry={entry}
-                  width={window.innerWidth}
+              // No `width` prop — mobile carousel uses CSS (`w-full`) so the
+              // pane stays reactive to viewport changes (orientation/resize)
+              // and works in non-browser environments (SSR/tests). Reading
+              // `window.innerWidth` at render time would lock the value at
+              // first render and break on rotation.
               paused={idx !== carouselIndex}
               isFocused={idx === focusedIndex}
               onClick={() => onPaneClick(idx)}

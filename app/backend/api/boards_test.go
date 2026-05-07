@@ -250,6 +250,36 @@ func TestBoard_Reorder_success(t *testing.T) {
 	}
 }
 
+func TestBoard_Reorder_nullNeighbours_success(t *testing.T) {
+	// `before`/`after` are nullable per the documented API contract — JSON
+	// `null` (or omitted) means prepend/append. This test locks in that the
+	// handler decodes `null` cleanly instead of failing JSON decoding.
+	ops := &mockTmuxOps{
+		reorderBoardNewKey: "ax",
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"server":"default","windowId":"@1234","before":null,"after":null}`
+	req := httptest.NewRequest(http.MethodPost, "/api/boards/main/reorder", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Ok          bool   `json:"ok"`
+		NewOrderKey string `json:"newOrderKey"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Ok || resp.NewOrderKey != "ax" {
+		t.Errorf("got %+v", resp)
+	}
+}
+
 func TestBoard_Reorder_invalidNeighbours_400(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)

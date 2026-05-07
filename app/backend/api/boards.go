@@ -114,11 +114,16 @@ type pinRequestBody struct {
 	WindowID string `json:"windowId"`
 }
 
+// reorderRequestBody mirrors the documented API contract — `before` and
+// `after` are nullable: `null` (or omitted) means prepend/append, a non-null
+// string is the neighbour windowId. Modeled as `*string` so JSON `null`
+// decodes cleanly (rather than failing the decoder, which a plain `string`
+// would).
 type reorderRequestBody struct {
-	Server   string `json:"server"`
-	WindowID string `json:"windowId"`
-	Before   string `json:"before"`
-	After    string `json:"after"`
+	Server   string  `json:"server"`
+	WindowID string  `json:"windowId"`
+	Before   *string `json:"before"`
+	After    *string `json:"after"`
 }
 
 // validatePinRequest decodes & validates the body shared by pin/unpin/reorder
@@ -230,16 +235,27 @@ func (s *Server) handleBoardReorder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid window id")
 		return
 	}
-	// Empty before/after is allowed (prepend/append). Non-empty must be a valid window id.
-	if body.Before != "" && !tmux.ValidWindowID(body.Before) {
+	// `before`/`after` are nullable per the API contract. Treat both `null`
+	// (pointer is nil) and `""` as prepend/append sentinels for backward
+	// compatibility with clients that emit empty strings. Non-empty must be a
+	// valid window id.
+	before := ""
+	if body.Before != nil {
+		before = *body.Before
+	}
+	after := ""
+	if body.After != nil {
+		after = *body.After
+	}
+	if before != "" && !tmux.ValidWindowID(before) {
 		writeError(w, http.StatusBadRequest, "invalid before window id")
 		return
 	}
-	if body.After != "" && !tmux.ValidWindowID(body.After) {
+	if after != "" && !tmux.ValidWindowID(after) {
 		writeError(w, http.StatusBadRequest, "invalid after window id")
 		return
 	}
-	newKey, err := s.tmux.ReorderBoard(r.Context(), body.Server, body.WindowID, name, body.Before, body.After)
+	newKey, err := s.tmux.ReorderBoard(r.Context(), body.Server, body.WindowID, name, before, after)
 	if err != nil {
 		// Distinguish "neighbour not found" from internal errors.
 		if errors.Is(err, errNeighbourNotFound) || strings.Contains(err.Error(), "neighbour window not found") || strings.Contains(err.Error(), "entry not found") {

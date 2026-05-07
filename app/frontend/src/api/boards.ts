@@ -93,14 +93,17 @@ export async function reorderPin(
   before: string | null,
   after: string | null,
 ): Promise<ReorderResponse> {
+  // `before`/`after` are sent as JSON `null` for prepend/append per the
+  // documented API contract. The backend accepts both `null` and `""` for
+  // backward compatibility, but `null` is the canonical wire form.
   const res = await fetch(`/api/boards/${encodeURIComponent(board)}/reorder`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       server,
       windowId,
-      before: before ?? "",
-      after: after ?? "",
+      before,
+      after,
     }),
   });
   if (!res.ok) await throwOnError(res);

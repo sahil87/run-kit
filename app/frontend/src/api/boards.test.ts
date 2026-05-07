@@ -92,7 +92,7 @@ describe("boards API client", () => {
     expect(captured).toEqual({ server: "default", windowId: "@1234" });
   });
 
-  it("reorderPin sends before/after as empty string for null", async () => {
+  it("reorderPin sends before/after as JSON null for null neighbours", async () => {
     let captured: unknown = null;
     mswServer.use(
       http.post("/api/boards/main/reorder", async ({ request }) => {
@@ -102,7 +102,7 @@ describe("boards API client", () => {
     );
     const r = await reorderPin("default", "@1234", "main", null, "@5678");
     expect(r.newOrderKey).toBe("bm");
-    expect(captured).toEqual({ server: "default", windowId: "@1234", before: "", after: "@5678" });
+    expect(captured).toEqual({ server: "default", windowId: "@1234", before: null, after: "@5678" });
   });
 
   it("pinWindow throws on 4xx with backend error message", async () => {

@@ -9,7 +9,15 @@ export interface BoardPaneHandle {
 
 interface BoardPaneProps {
   entry: BoardEntry;
-  width: number; // px on desktop
+  /**
+   * Pane width in px. Optional — when omitted, the pane uses CSS sizing
+   * (`w-full`) so the parent layout controls the width. Desktop row passes a
+   * concrete number (resizable per-pane); mobile carousel omits it and lets
+   * the wrapper's `w-full` drive the width, which keeps the pane reactive to
+   * viewport changes (orientation/resize) without reading `window.innerWidth`
+   * at render time.
+   */
+  width?: number;
   paused?: boolean; // mobile carousel: when true, terminal is unmounted (WebSocket closes)
   isFocused: boolean;
   onClick: () => void;
@@ -47,9 +55,11 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       aria-label={`board pane ${entry.windowName}`}
       onClick={onClick}
       className={`relative flex flex-col shrink-0 h-full bg-bg-primary border ${
+        width === undefined ? "w-full" : ""
+      } ${
         isFocused ? "border-accent shadow-[0_0_0_1px_var(--color-accent)]" : "border-border opacity-90"
       }`}
-      style={{ width }}
+      style={width !== undefined ? { width } : undefined}
     >
       <BoardHeader entry={entry} onUnpin={onUnpin} />
       <div className="flex-1 min-h-0 px-1 py-0.5 flex flex-col">

@@ -13,6 +13,10 @@ type SessionRowProps = {
   editingSession: string | null;
   editingSessionName: string;
   sessionInputRef: React.RefObject<HTMLInputElement | null>;
+  draggable?: boolean;
+  isDragSource?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
   onToggleCollapse: () => void;
   onSelectFirstWindow: () => void;
   onCreateWindow: () => void;
@@ -36,6 +40,10 @@ export function SessionRow({
   editingSession,
   editingSessionName,
   sessionInputRef,
+  draggable,
+  isDragSource,
+  onDragStart,
+  onDragEnd,
   onToggleCollapse,
   onSelectFirstWindow,
   onCreateWindow,
@@ -69,7 +77,10 @@ export function SessionRow({
 
   return (
     <div
-      className={`flex items-center justify-between group pl-1.5 sm:pl-2 relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors`}
+      className={`flex items-center justify-between group pl-1.5 sm:pl-2 relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors${isDragSource ? " opacity-50" : ""}`}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}

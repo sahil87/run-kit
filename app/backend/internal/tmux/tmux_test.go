@@ -1,12 +1,17 @@
 package tmux
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Helper to build a tab-delimited tmux line.
@@ -809,6 +814,154 @@ func TestMoveWindowToSessionArgs(t *testing.T) {
 	}
 	if expectedDst2 != "staging:" {
 		t.Errorf("dst target = %q, want %q", expectedDst2, "staging:")
+	}
+}
+
+// withSessionOrderTmux starts an isolated tmux server for session-order
+// integration tests, runs fn, and cleans up. Skips the test if tmux is
+// unavailable. Returns the server name fn should pass to tmux helpers.
+func withSessionOrderTmux(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	server := fmt.Sprintf("rk-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+
+	// Bootstrap: start a session so the server exists. Server-scoped options
+	// require a running server.
+	bootCtx, cancelBoot := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelBoot()
+	cmd := exec.CommandContext(bootCtx, "tmux", "-L", server, "new-session", "-d", "-s", "boot")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("could not start isolated tmux server %q: %v\n%s", server, err, string(out))
+	}
+
+	t.Cleanup(func() {
+		killCtx, cancelKill := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelKill()
+		_ = exec.CommandContext(killCtx, "tmux", "-L", server, "kill-server").Run()
+	})
+	return server
+}
+
+func TestGetSessionOrder_unsetReturnsEmpty(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := GetSessionOrder(ctx, server)
+	if err != nil {
+		t.Fatalf("GetSessionOrder unset: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %v, want empty", got)
+	}
+}
+
+func TestSetSessionOrder_roundTrip(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	want := []string{"main", "dev", "scratch"}
+	if err := SetSessionOrder(ctx, server, want); err != nil {
+		t.Fatalf("SetSessionOrder: %v", err)
+	}
+	got, err := GetSessionOrder(ctx, server)
+	if err != nil {
+		t.Fatalf("GetSessionOrder: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len got=%d want=%d (got=%v want=%v)", len(got), len(want), got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("idx %d: got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSetSessionOrder_specialCharacters(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// JSON-significant characters and non-ASCII. tmux session names cannot
+	// contain colons or periods (per validate.ValidateName) and the forbidden
+	// shell metacharacter set, so we exercise commas, quotes, backslashes
+	// (encoded as \\ in JSON), and unicode — all of which JSON escapes safely.
+	want := []string{`foo,bar`, `x"y`, `back\slash`, "café", "α-β"}
+	if err := SetSessionOrder(ctx, server, want); err != nil {
+		t.Fatalf("SetSessionOrder: %v", err)
+	}
+	got, err := GetSessionOrder(ctx, server)
+	if err != nil {
+		t.Fatalf("GetSessionOrder: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len got=%d want=%d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("idx %d: got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSetSessionOrder_emptySliceRoundTrip(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := SetSessionOrder(ctx, server, []string{}); err != nil {
+		t.Fatalf("SetSessionOrder empty: %v", err)
+	}
+	got, err := GetSessionOrder(ctx, server)
+	if err != nil {
+		t.Fatalf("GetSessionOrder: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %v, want empty", got)
+	}
+}
+
+func TestSetSessionOrder_nilTreatedAsEmpty(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := SetSessionOrder(ctx, server, nil); err != nil {
+		t.Fatalf("SetSessionOrder nil: %v", err)
+	}
+	got, err := GetSessionOrder(ctx, server)
+	if err != nil {
+		t.Fatalf("GetSessionOrder: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %v, want empty", got)
+	}
+}
+
+func TestGetSessionOrder_invalidJSONReturnsSyntaxError(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Plant invalid JSON via raw set-option (bypasses our SetSessionOrder
+	// encoder).
+	args := append(serverArgs(server), "set-option", "-s", SessionOrderOption, "not-json")
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("plant invalid JSON: %v\n%s", err, string(out))
+	}
+
+	_, err := GetSessionOrder(ctx, server)
+	if err == nil {
+		t.Fatal("expected JSON decode error, got nil")
+	}
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Errorf("expected wrapped *json.SyntaxError, got %v", err)
 	}
 }
 

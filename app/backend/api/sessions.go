@@ -119,6 +119,58 @@ func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleSessionOrderGet returns the persisted session order for the active server.
+// GET /api/sessions/order?server=<name> → 200 {"order": [...]}
+// Unset option returns 200 {"order": []} — never a 404.
+func (s *Server) handleSessionOrderGet(w http.ResponseWriter, r *http.Request) {
+	server := serverFromRequest(r)
+	order, err := s.tmux.GetSessionOrder(r.Context(), server)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if order == nil {
+		order = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string][]string{"order": order})
+}
+
+// handleSessionOrderPut persists the session order and broadcasts it to SSE clients.
+// PUT /api/sessions/order?server=<name> ← {"order": [...]} → 200 {"ok": true}
+func (s *Server) handleSessionOrderPut(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Order []string `json:"order"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body — expected {\"order\": [\"name\", ...]}")
+		return
+	}
+	if body.Order == nil {
+		body.Order = []string{}
+	}
+	for _, name := range body.Order {
+		if errMsg := validate.ValidateName(name, "Session name"); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
+	}
+
+	server := serverFromRequest(r)
+	if err := s.tmux.SetSessionOrder(r.Context(), server, body.Order); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Broadcast to any connected SSE clients on this server. initSSEHub is
+	// idempotent — a hub created here will pick up future SSE clients normally.
+	s.initSSEHub()
+	s.sseHub.broadcastSessionOrder(server, body.Order)
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (s *Server) handleSessionKill(w http.ResponseWriter, r *http.Request) {
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {

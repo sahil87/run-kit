@@ -1,0 +1,42 @@
+id: lvon
+name: 260507-lvon-session-order-tmux-persist
+created: 2026-05-07T08:29:41Z
+created_by: sahil-weaver
+change_type: feat
+issues: []
+progress:
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 26
+    acceptance_count: 33
+    acceptance_completed: 33
+confidence:
+    certain: 20
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 90.8
+        reversibility: 76.3
+        competence: 84.3
+        disambiguation: 83.3
+stage_metrics:
+    intake: {started_at: "2026-05-07T08:29:41Z", driver: fab-new, iterations: 1, completed_at: "2026-05-07T08:37:29Z"}
+    spec: {started_at: "2026-05-07T08:37:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-07T09:03:33Z"}
+    apply: {started_at: "2026-05-07T09:11:50Z", driver: fab-fff, iterations: 2, completed_at: "2026-05-07T09:18:07Z"}
+    review: {started_at: "2026-05-07T09:18:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-07T09:18:07Z"}
+    hydrate: {started_at: "2026-05-07T09:18:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-07T09:21:50Z"}
+    ship: {started_at: "2026-05-07T09:21:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-07T09:23:04Z"}
+    review-pr: {started_at: "2026-05-07T09:23:04Z", driver: fab-fff, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/185
+last_updated: 2026-05-07T09:31:57Z

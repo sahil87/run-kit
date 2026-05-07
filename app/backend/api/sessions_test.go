@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/sessions"
 	"rk/internal/tmux"
@@ -110,6 +111,14 @@ type mockTmuxOps struct {
 	createWindowWithOptionsName    string
 	createWindowWithOptionsCwd     string
 	createWindowWithOptionsOpts    map[string]string
+
+	getSessionOrderCalled bool
+	getSessionOrderResult []string
+	getSessionOrderErr    error
+
+	setSessionOrderCalled bool
+	setSessionOrderOrder  []string
+	setSessionOrderErr    error
 
 	err error
 }
@@ -269,6 +278,24 @@ func (m *mockTmuxOps) CreateWindowWithOptions(session, name, cwd, server string,
 	m.createWindowWithOptionsName = name
 	m.createWindowWithOptionsCwd = cwd
 	m.createWindowWithOptionsOpts = options
+	return m.err
+}
+func (m *mockTmuxOps) GetSessionOrder(ctx context.Context, server string) ([]string, error) {
+	m.getSessionOrderCalled = true
+	if m.getSessionOrderErr != nil {
+		return nil, m.getSessionOrderErr
+	}
+	if m.getSessionOrderResult == nil {
+		return []string{}, nil
+	}
+	return m.getSessionOrderResult, nil
+}
+func (m *mockTmuxOps) SetSessionOrder(ctx context.Context, server string, order []string) error {
+	m.setSessionOrderCalled = true
+	m.setSessionOrderOrder = order
+	if m.setSessionOrderErr != nil {
+		return m.setSessionOrderErr
+	}
 	return m.err
 }
 
@@ -611,5 +638,270 @@ func TestSessionKillInvalidName(t *testing.T) {
 	}
 	if !strings.Contains(result["error"], "forbidden characters") {
 		t.Errorf("error = %q, want containing %q", result["error"], "forbidden characters")
+	}
+}
+
+func TestSessionOrder_GET_unset(t *testing.T) {
+	ops := &mockTmuxOps{} // getSessionOrderResult nil → returns []string{}, nil
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/order?server=default", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var result struct {
+		Order []string `json:"order"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.Order == nil {
+		t.Fatal("order field is null in JSON, expected empty array")
+	}
+	if len(result.Order) != 0 {
+		t.Errorf("order = %v, want []", result.Order)
+	}
+	if !ops.getSessionOrderCalled {
+		t.Error("GetSessionOrder was not called")
+	}
+}
+
+func TestSessionOrder_GET_set(t *testing.T) {
+	ops := &mockTmuxOps{getSessionOrderResult: []string{"main", "dev"}}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/order?server=default", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var result struct {
+		Order []string `json:"order"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result.Order) != 2 || result.Order[0] != "main" || result.Order[1] != "dev" {
+		t.Errorf("order = %v, want [main dev]", result.Order)
+	}
+}
+
+func TestSessionOrder_GET_tmuxError(t *testing.T) {
+	ops := &mockTmuxOps{getSessionOrderErr: fmt.Errorf("decode @rk_session_order: invalid character")}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/order?server=default", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+}
+
+func TestSessionOrder_PUT_roundTrip(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"order":["main","dev","scratch"]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !ops.setSessionOrderCalled {
+		t.Fatal("SetSessionOrder was not called")
+	}
+	got := ops.setSessionOrderOrder
+	if len(got) != 3 || got[0] != "main" || got[1] != "dev" || got[2] != "scratch" {
+		t.Errorf("setSessionOrderOrder = %v, want [main dev scratch]", got)
+	}
+	var result map[string]bool
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !result["ok"] {
+		t.Error("expected ok: true")
+	}
+}
+
+func TestSessionOrder_PUT_invalidBody_notArray(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"order":"main"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.setSessionOrderCalled {
+		t.Error("SetSessionOrder should NOT be called for invalid body")
+	}
+}
+
+func TestSessionOrder_PUT_invalidBody_malformedJSON(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+	if ops.setSessionOrderCalled {
+		t.Error("SetSessionOrder should NOT be called for malformed JSON")
+	}
+}
+
+func TestSessionOrder_PUT_invalidName(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	// "bad;name" contains a forbidden shell metacharacter — validate.ValidateName rejects.
+	body := `{"order":["main","bad;name"]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.setSessionOrderCalled {
+		t.Error("SetSessionOrder should NOT be called for invalid name")
+	}
+	var result map[string]string
+	_ = json.NewDecoder(rec.Body).Decode(&result)
+	if !strings.Contains(result["error"], "forbidden characters") {
+		t.Errorf("error = %q, want containing %q", result["error"], "forbidden characters")
+	}
+}
+
+func TestSessionOrder_PUT_emptyArray(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"order":[]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	if !ops.setSessionOrderCalled {
+		t.Error("SetSessionOrder was not called")
+	}
+	if len(ops.setSessionOrderOrder) != 0 {
+		t.Errorf("got order %v, want empty", ops.setSessionOrderOrder)
+	}
+}
+
+func TestSessionOrder_PUT_staleNameAccepted(t *testing.T) {
+	// Names that pass validate.ValidateName but don't match a current session
+	// MUST be accepted — the frontend's render layer handles stale names.
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"order":["main","deleted-yesterday"]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestSessionOrder_PUT_tmuxError(t *testing.T) {
+	ops := &mockTmuxOps{setSessionOrderErr: fmt.Errorf("tmux failed")}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"order":["main"]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestSessionOrder_PUT_triggersBroadcast verifies the end-to-end wiring from
+// the PUT handler through the SSE hub: a successful PUT must result in a
+// connected client receiving a session-order event for that server.
+func TestSessionOrder_PUT_triggersBroadcast(t *testing.T) {
+	ops := &mockTmuxOps{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	server := &Server{
+		logger:   logger,
+		sessions: &mockSessionFetcher{},
+		tmux:     ops,
+		hostname: "test-host",
+	}
+
+	// Connect a client to the SSE hub directly. Using the hub avoids needing
+	// httptest.NewServer for a streaming response.
+	server.initSSEHub()
+	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	server.sseHub.addClient(client)
+	defer server.sseHub.removeClient(client)
+
+	// Drain any cached snapshot events so the channel is empty before the PUT.
+	drainDeadline := time.After(100 * time.Millisecond)
+draining:
+	for {
+		select {
+		case <-client.ch:
+		case <-drainDeadline:
+			break draining
+		}
+	}
+
+	router := server.buildRouter()
+	body := `{"order":["main","dev"]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The client must receive a session-order event within ~100ms (broadcast
+	// is synchronous on the PUT path).
+	select {
+	case ev := <-client.ch:
+		evStr := string(ev)
+		if !strings.Contains(evStr, "event: session-order") {
+			t.Errorf("expected session-order event, got: %s", evStr)
+		}
+		if !strings.Contains(evStr, `"server":"default"`) {
+			t.Errorf("event missing server field: %s", evStr)
+		}
+		if !strings.Contains(evStr, `"order":["main","dev"]`) {
+			t.Errorf("event missing or wrong order: %s", evStr)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("client did not receive session-order event after PUT")
 	}
 }

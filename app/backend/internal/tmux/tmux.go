@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,10 @@ import (
 	"sync"
 	"time"
 )
+
+// SessionOrderOption is the tmux server-scoped user option that stores the
+// JSON-encoded sidebar session order.
+const SessionOrderOption = "@rk_session_order"
 
 // OriginalTMUX captures the TMUX env var before init() strips it.
 // Package-level var init runs before init(), so this sees the original value.
@@ -202,13 +207,19 @@ func tmuxExecServer(ctx context.Context, server string, args ...string) ([]strin
 	return result, nil
 }
 
-// tmuxExecRawServer runs a tmux command targeting the specified server and returns raw stdout.
+// tmuxExecRawServer runs a tmux command targeting the specified server and
+// returns raw stdout. On non-zero exit, captured stderr is appended to the
+// error message so callers can pattern-match on tmux's diagnostic text
+// (e.g., "invalid option", "no server running") to distinguish operational
+// states from real failures.
 func tmuxExecRawServer(ctx context.Context, server string, args ...string) (string, error) {
 	full := append(serverArgs(server), args...)
 	cmd := exec.CommandContext(ctx, "tmux", full...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return string(out), nil
 }
@@ -911,5 +922,68 @@ func KillServer(server string) error {
 	if err != nil && strings.Contains(err.Error(), "No such file or directory") {
 		return nil
 	}
+	return err
+}
+
+// GetSessionOrder reads the user-defined session order from tmux user-option
+// @rk_session_order. The stored value is a JSON-encoded array of session names.
+//
+// Returns an empty (non-nil) slice and a nil error when the option is unset.
+// "Unset" is detected by tmux's stderr message ("unknown option") OR by the
+// "no server running" / "failed to connect" socket-not-found cases — these
+// are normal operational states (fresh server, no order ever set) and not
+// errors that should bubble up.
+//
+// Other subprocess failures (exec failure, permission, malformed value) AND
+// JSON decode errors propagate as wrapped errors so callers can surface 5xx.
+func GetSessionOrder(ctx context.Context, server string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", SessionOrderOption)
+	if err != nil {
+		errMsg := err.Error()
+		// Treat "option unset" and "no server" as empty rather than an error.
+		// Both are normal first-use states. tmux uses "invalid option:" for
+		// unset user-options and "no server running"/"failed to connect" for
+		// the absent-socket case.
+		if strings.Contains(errMsg, "invalid option") ||
+			strings.Contains(errMsg, "unknown option") ||
+			strings.Contains(errMsg, "no server running") ||
+			strings.Contains(errMsg, "failed to connect") {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", SessionOrderOption, err)
+	}
+	raw := strings.TrimSpace(out)
+	if raw == "" {
+		return []string{}, nil
+	}
+	var order []string
+	if jerr := json.Unmarshal([]byte(raw), &order); jerr != nil {
+		return nil, fmt.Errorf("decode %s: %w", SessionOrderOption, jerr)
+	}
+	if order == nil {
+		order = []string{}
+	}
+	return order, nil
+}
+
+// SetSessionOrder writes the session order to tmux user-option
+// @rk_session_order as a JSON-encoded array. A nil slice is treated as the
+// empty slice (encoded as "[]") so that round-trips through GetSessionOrder
+// are lossless.
+func SetSessionOrder(ctx context.Context, server string, order []string) error {
+	if order == nil {
+		order = []string{}
+	}
+	encoded, err := json.Marshal(order)
+	if err != nil {
+		return fmt.Errorf("encode session order: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err = tmuxExecRawServer(ctx, server, "set-option", "-s", SessionOrderOption, string(encoded))
 	return err
 }

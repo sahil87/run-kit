@@ -50,6 +50,8 @@ type TmuxOps interface {
 	SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error
 	UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error
 	CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error
+	GetSessionOrder(ctx context.Context, server string) ([]string, error)
+	SetSessionOrder(ctx context.Context, server string, order []string) error
 }
 
 // Server holds handler dependencies.
@@ -168,6 +170,12 @@ func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, session string, ind
 func (p *prodTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
 	return tmux.CreateWindowWithOptions(session, name, cwd, server, options)
 }
+func (p *prodTmuxOps) GetSessionOrder(ctx context.Context, server string) ([]string, error) {
+	return tmux.GetSessionOrder(ctx, server)
+}
+func (p *prodTmuxOps) SetSessionOrder(ctx context.Context, server string, order []string) error {
+	return tmux.SetSessionOrder(ctx, server, order)
+}
 
 // NewRouter creates the chi router with all middleware and routes.
 // Uses production dependencies (live tmux, real session fetcher).
@@ -217,6 +225,8 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/health", s.handleHealth)
 	r.Get("/api/sessions", s.handleSessionsList)
 	r.Post("/api/sessions", s.handleSessionCreate)
+	r.Get("/api/sessions/order", s.handleSessionOrderGet)
+	r.Put("/api/sessions/order", s.handleSessionOrderPut)
 	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)
 	r.Post("/api/sessions/{session}/rename", s.handleSessionRename)

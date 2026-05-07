@@ -10,6 +10,7 @@ type SessionContextType = {
   isConnected: boolean;
   server: string;
   servers: ServerInfo[];
+  sessionOrder: string[];
   refreshServers: () => void;
 };
 
@@ -31,6 +32,7 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
+  const [sessionOrder, setSessionOrder] = useState<string[]>([]);
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
 
   // Persist last-used server to localStorage for convenience
@@ -66,6 +68,7 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
     setIsConnected(false);
     setChromeConnected(false);
     setMetrics(null);
+    setSessionOrder([]);
 
     const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
 
@@ -113,6 +116,19 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
       }
     });
 
+    es.addEventListener("session-order", (e) => {
+      try {
+        const data = JSON.parse(e.data) as { server?: string; order?: string[] };
+        // Backend already filters by client.server; double-check here so a
+        // misrouted event (e.g., due to a bug or proxy reorder) cannot
+        // contaminate the active server's order.
+        if (data.server !== server) return;
+        setSessionOrder(Array.isArray(data.order) ? data.order : []);
+      } catch {
+        // Malformed event — skip
+      }
+    });
+
     es.onerror = () => {
       if (!disconnectTimer) {
         disconnectTimer = setTimeout(markDisconnected, 3000);
@@ -132,8 +148,8 @@ export function SessionProvider({ children, server }: SessionProviderProps) {
   }, [setChromeConnected, server]);
 
   const value = useMemo(
-    () => ({ sessions, isConnected, server, servers, refreshServers: fetchServers }),
-    [sessions, isConnected, server, servers, fetchServers],
+    () => ({ sessions, isConnected, server, servers, sessionOrder, refreshServers: fetchServers }),
+    [sessions, isConnected, server, servers, sessionOrder, fetchServers],
   );
 
   return (
@@ -168,4 +184,24 @@ export function MetricsProvider({
   children: React.ReactNode;
 }) {
   return <MetricsContext.Provider value={value}>{children}</MetricsContext.Provider>;
+}
+
+// Standalone provider for tests — supplies a static SessionContext value
+// without opening an EventSource. Counterpart to MetricsProvider above.
+export function StandaloneSessionContextProvider({
+  value,
+  children,
+}: {
+  value: Partial<SessionContextType> & { server: string };
+  children: React.ReactNode;
+}) {
+  const fullValue: SessionContextType = {
+    sessions: value.sessions ?? [],
+    isConnected: value.isConnected ?? false,
+    server: value.server,
+    servers: value.servers ?? [],
+    sessionOrder: value.sessionOrder ?? [],
+    refreshServers: value.refreshServers ?? (() => {}),
+  };
+  return <SessionContext.Provider value={fullValue}>{children}</SessionContext.Provider>;
 }

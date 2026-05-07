@@ -270,8 +270,18 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 		t.Fatal("default client received no events")
 	}
 
-	// Verify isolation: runkit client only sees rk-session, default only sees default-session
-	for _, ev := range rkEvents {
+	// Verify isolation: runkit client only sees rk-session, default only sees default-session.
+	// Scope assertions to "event: sessions" frames; the hub also emits "event: session-order"
+	// frames whose payload doesn't carry session names — those are checked separately below.
+	rkSessionEvents := filterSSEEvents(rkEvents, "sessions")
+	dfSessionEvents := filterSSEEvents(dfEvents, "sessions")
+	if len(rkSessionEvents) == 0 {
+		t.Fatal("runkit client received no sessions events")
+	}
+	if len(dfSessionEvents) == 0 {
+		t.Fatal("default client received no sessions events")
+	}
+	for _, ev := range rkSessionEvents {
 		if strings.Contains(ev, "default-session") {
 			t.Errorf("runkit client received default server data: %s", ev)
 		}
@@ -279,7 +289,7 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 			t.Errorf("runkit client event missing rk-session: %s", ev)
 		}
 	}
-	for _, ev := range dfEvents {
+	for _, ev := range dfSessionEvents {
 		if strings.Contains(ev, "rk-session") {
 			t.Errorf("default client received runkit server data: %s", ev)
 		}
@@ -287,6 +297,30 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 			t.Errorf("default client event missing default-session: %s", ev)
 		}
 	}
+
+	// Cross-server isolation also holds for session-order events.
+	for _, ev := range filterSSEEvents(rkEvents, "session-order") {
+		if strings.Contains(ev, `"server":"default"`) {
+			t.Errorf("runkit client received default's session-order: %s", ev)
+		}
+	}
+	for _, ev := range filterSSEEvents(dfEvents, "session-order") {
+		if strings.Contains(ev, `"server":"runkit"`) {
+			t.Errorf("default client received runkit's session-order: %s", ev)
+		}
+	}
+}
+
+// filterSSEEvents returns only the SSE frames whose first line is `event: <name>`.
+func filterSSEEvents(events []string, name string) []string {
+	var out []string
+	prefix := "event: " + name
+	for _, ev := range events {
+		if strings.HasPrefix(ev, prefix) {
+			out = append(out, ev)
+		}
+	}
+	return out
 }
 
 func TestSSEHubRemoveClientSwapDelete(t *testing.T) {
@@ -427,5 +461,123 @@ func TestSSEHubConcurrentAddRemove(t *testing.T) {
 	}
 	if isPolling {
 		t.Error("hub should have stopped polling after all clients removed")
+	}
+}
+
+// stubOrderFetcher returns a canned order per server.
+type stubOrderFetcher struct {
+	mu     sync.Mutex
+	orders map[string][]string
+	calls  int
+	err    error
+}
+
+func (s *stubOrderFetcher) GetSessionOrder(ctx context.Context, server string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.orders[server], nil
+}
+
+func TestSSE_BroadcastSessionOrderReachesMatchingClients(t *testing.T) {
+	hub := newSSEHub(&slowSessionFetcher{}, nil)
+	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
+
+	cDefault := &sseClient{ch: make(chan []byte, 32), server: "default"}
+	cStaging := &sseClient{ch: make(chan []byte, 32), server: "staging"}
+	hub.mu.Lock()
+	hub.clients["default"] = append(hub.clients["default"], cDefault)
+	hub.clients["staging"] = append(hub.clients["staging"], cStaging)
+	hub.mu.Unlock()
+
+	hub.broadcastSessionOrder("default", []string{"main", "dev"})
+
+	// The default client must receive a session-order event
+	select {
+	case ev := <-cDefault.ch:
+		if !strings.Contains(string(ev), "event: session-order") {
+			t.Errorf("default client got %q, want session-order event", string(ev))
+		}
+		if !strings.Contains(string(ev), `"order":["main","dev"]`) {
+			t.Errorf("default client payload missing order: %s", string(ev))
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("default client did not receive event")
+	}
+
+	// The staging client must NOT receive anything
+	select {
+	case ev := <-cStaging.ch:
+		t.Errorf("staging client unexpectedly got: %s", string(ev))
+	case <-time.After(100 * time.Millisecond):
+		// expected — no event
+	}
+}
+
+func TestSSE_SessionOrderCachedOnConnect(t *testing.T) {
+	hub := newSSEHub(&slowSessionFetcher{}, nil)
+	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
+
+	// Broadcast before any client connects — the payload should be cached.
+	hub.broadcastSessionOrder("default", []string{"main", "dev"})
+
+	c := &sseClient{ch: make(chan []byte, 32), server: "default"}
+	hub.addClient(c)
+	defer hub.removeClient(c)
+
+	// addClient should have queued the cached session-order event in the channel.
+	// First event may be sessions snapshot if previousJSON is set, then session-order.
+	deadline := time.After(500 * time.Millisecond)
+	gotOrder := false
+	for !gotOrder {
+		select {
+		case ev := <-c.ch:
+			if strings.Contains(string(ev), "event: session-order") {
+				if !strings.Contains(string(ev), `"order":["main","dev"]`) {
+					t.Errorf("cached event payload missing order: %s", string(ev))
+				}
+				gotOrder = true
+			}
+		case <-deadline:
+			t.Fatal("client did not receive cached session-order event on connect")
+		}
+	}
+}
+
+func TestSSE_HubBootstrapReadsOrderOnFirstPoll(t *testing.T) {
+	stub := &stubOrderFetcher{orders: map[string][]string{
+		"default": {"alpha", "beta"},
+	}}
+	hub := newSSEHub(&slowSessionFetcher{}, nil)
+	hub.orderFetcher = stub
+
+	c := &sseClient{ch: make(chan []byte, 32), server: "default"}
+	hub.addClient(c)
+	defer hub.removeClient(c)
+
+	// Poll loop should bootstrap the order on first iteration. Wait up to
+	// ssePollInterval + slack for the broadcast to land.
+	deadline := time.After(ssePollInterval + 1*time.Second)
+	gotOrder := false
+	for !gotOrder {
+		select {
+		case ev := <-c.ch:
+			if strings.Contains(string(ev), "event: session-order") &&
+				strings.Contains(string(ev), `"order":["alpha","beta"]`) {
+				gotOrder = true
+			}
+		case <-deadline:
+			t.Fatal("client did not receive bootstrapped session-order event")
+		}
+	}
+
+	stub.mu.Lock()
+	calls := stub.calls
+	stub.mu.Unlock()
+	if calls < 1 {
+		t.Errorf("orderFetcher calls = %d, want >= 1", calls)
 	}
 }

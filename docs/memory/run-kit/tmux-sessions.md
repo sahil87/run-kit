@@ -70,6 +70,21 @@ Server management endpoints:
 - `POST /api/servers` — creates a server (starts session "0" in $HOME)
 - `POST /api/servers/kill` — kills a server via `tmux kill-server`
 
+## Server-Scoped User Options
+
+tmux distinguishes window-scoped (`-w`) options from server-scoped (`-s`) options. We use both: window-scoped for per-window state (`@color`, `@rk_type`, `@rk_url`) and server-scoped for state that belongs to the tmux server as a whole.
+
+| Option | Scope | Set via | Read via | Owner |
+|--------|-------|---------|----------|-------|
+| `@color` | window (`-w`) | `tmux.SetWindowColor` | `ListWindows` format string field 8 | per-window |
+| `@rk_type` | window (`-w`) | `CreateWindowWithOptions`, `tmux.SetWindowOption` | `ListWindows` format string field 9 | per-window (iframe) |
+| `@rk_url` | window (`-w`) | `CreateWindowWithOptions`, `tmux.SetWindowOption` | `ListWindows` format string field 10 | per-window (iframe) |
+| `@rk_session_order` | server (`-s`) | `tmux.SetSessionOrder(ctx, server, order)` | `tmux.GetSessionOrder(ctx, server)` | sidebar reorder |
+
+`@rk_session_order` stores a JSON-encoded array of session names defining the user-preferred sidebar render order. Because the value is server-scoped, it is shared by every client connected to the same tmux server — laptop and phone hitting the same `tmux -L runkit` see the same order. Lifetime matches the tmux server (lost on server kill, NOT on rk-go restart per Constitution VI). Both wrapper functions wrap their context with `context.WithTimeout(ctx, TmuxTimeout)` (10s) and route through `tmuxExecRawServer` (which captures stderr in error messages so callers can pattern-match "invalid option" / "no server running" to distinguish operational empty-state from real failures).
+
+The HTTP endpoints `GET /api/sessions/order` and `PUT /api/sessions/order` (see `architecture.md` § Endpoints) layer over these wrappers. PUT triggers a synchronous SSE broadcast (`event: session-order`) so all connected clients on that server reorder live; the SSE hub also bootstraps the cache once per server on first poll so the order survives an rk-go restart that left tmux running.
+
 ## Frontend Server Routing Contract
 
 Every API client function in `app/frontend/src/api/client.ts` that hits a server-scoped endpoint takes `server: string` as its **first positional argument** and forwards it to `withServer(url, server)` to build `?server=<server>`. There is **no module-level `_getServer` global, no `setServerGetter` export, and no ambient state** — `server` is always passed explicitly per call. This mirrors the backend `tmuxExecServer(ctx, server, args...)` shape so the routing parameter is visible in every signature on both sides of the wire.
@@ -78,8 +93,8 @@ Functions that take `server` (read + mutation):
 
 | Category | Functions |
 |----------|-----------|
-| Read | `getSessions`, `getKeybindings` |
-| Session mutation | `createSession`, `renameSession`, `killSession` |
+| Read | `getSessions`, `getKeybindings`, `getSessionOrder` |
+| Session mutation | `createSession`, `renameSession`, `killSession`, `setSessionOrder` |
 | Window mutation | `createWindow`, `renameWindow`, `killWindow`, `moveWindow`, `moveWindowToSession`, `selectWindow`, `splitWindow`, `closePane`, `sendKeys` |
 | Window options | `updateWindowUrl`, `updateWindowType` |
 | Color | `setWindowColor`, `setSessionColor` |

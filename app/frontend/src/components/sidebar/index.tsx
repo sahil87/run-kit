@@ -11,6 +11,9 @@ import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
+import { useWindowPins } from "@/hooks/use-window-pins";
+import { useActiveBoardName } from "@/hooks/use-active-board";
+import { BoardsSection } from "./boards-section";
 import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerPanel } from "./server-panel";
@@ -194,6 +197,20 @@ export function Sidebar({
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
   const { addToast } = useToast();
   const navigate = useNavigate();
+
+  // Boards integration: aggregate pin map across all servers + boards. The
+  // pinned-to-any flag is rendered as the pin icon's filled state on each
+  // window row; `isPinnedToBoard` powers the popover's check marks; the
+  // active-board highlight uses `pinnedToBoard(activeBoard, ...)`.
+  const { boards: allBoards, pinnedSet, pinnedToBoard } = useWindowPins();
+  const activeBoardName = useActiveBoardName();
+  const isPinnedToActiveBoardFor = useCallback(
+    (winServer: string, windowId: string) => {
+      if (!activeBoardName) return false;
+      return pinnedToBoard(activeBoardName, winServer, windowId);
+    },
+    [activeBoardName, pinnedToBoard],
+  );
   const killWindowStore = useWindowStore((state) => state.killWindow);
   const restoreWindow = useWindowStore((state) => state.restoreWindow);
   const clearSession = useWindowStore((state) => state.clearSession);
@@ -639,6 +656,10 @@ export function Sidebar({
         }}
       />
 
+      {/* Boards — cross-server section above Sessions; self-hides when no boards
+          exist (unless the user is on a now-empty board route) */}
+      <BoardsSection />
+
       {/* Sessions — always open, flex-grow to fill space */}
       <div className="border-t border-border flex-1 min-h-0 flex flex-col">
         <div className="flex items-center gap-1.5 w-full pl-5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
@@ -744,6 +765,11 @@ export function Sidebar({
                           editingWindow={editingWindow}
                           editingName={editingName}
                           inputRef={inputRef}
+                          server={server}
+                          boards={allBoards}
+                          isPinnedToAny={!ghost && pinnedSet.has(`${server}:${win.windowId}`)}
+                          isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
+                          isPinnedToBoard={(b) => pinnedToBoard(b, server, win.windowId)}
                           onSelectWindow={() => onSelectWindow(session.name, win.index)}
                           onDoubleClickName={() => handleStartEditing(session.name, win.windowId, win.name)}
                           onWindowNameChange={setEditingName}

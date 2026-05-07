@@ -32,3 +32,5 @@
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-05-07T10:12:34Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-05-07T10:17:11Z"}
 {"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-07T10:17:52Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-05-07T12:11:46Z"}
+{"action":"re-entry","event":"stage-transition","stage":"apply","ts":"2026-05-07T12:19:41Z"}

@@ -14,7 +14,7 @@ type SessionContextType = {
   refreshServers: () => void;
 };
 
-const SessionContext = createContext<SessionContextType | null>(null);
+export const SessionContext = createContext<SessionContextType | null>(null);
 
 // Metrics live in a separate context so that the ~2.5s metrics stream does not
 // cascade re-renders through the whole app tree — only HostPanel subscribes.

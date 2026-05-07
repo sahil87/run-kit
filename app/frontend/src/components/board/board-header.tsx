@@ -21,6 +21,7 @@ export function BoardHeader({ entry, onUnpin }: BoardHeaderProps) {
       <button
         type="button"
         onClick={onUnpin}
+        aria-label={`Unpin ${entry.windowName || entry.windowId} from board`}
         className="text-text-secondary hover:text-text-primary px-1"
         title="Unpin from board"
       >

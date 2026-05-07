@@ -53,7 +53,7 @@ export function TerminalClient({
   const [dragOver, setDragOver] = useState(false);
   const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
   const [composeFiles, setComposeFiles] = useState<UploadedFile[]>([]);
-  const { uploadFiles, uploading } = useFileUpload(sessionName, windowIndex);
+  const { uploadFiles, uploading } = useFileUpload(sessionName, windowIndex, server);
   const { theme: activeTheme } = useTheme();
 
   const openComposeWithUploads = useCallback(

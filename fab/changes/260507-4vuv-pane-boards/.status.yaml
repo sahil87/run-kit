@@ -1,0 +1,37 @@
+id: 4vuv
+name: 260507-4vuv-pane-boards
+created: 2026-05-07T08:14:57Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    tasks: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+checklist:
+    generated: false
+    path: checklist.md
+    completed: 0
+    total: 0
+confidence:
+    certain: 30
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 93.7
+        reversibility: 78.0
+        competence: 79.5
+        disambiguation: 78.5
+stage_metrics:
+    intake: {started_at: "2026-05-07T08:14:57Z", driver: fab-new, iterations: 1}
+prs: []
+last_updated: 2026-05-07T08:53:12Z

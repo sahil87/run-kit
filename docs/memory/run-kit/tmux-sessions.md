@@ -1,20 +1,26 @@
 # tmux Session Enumeration
 
-## Single-Active-Server Model
+## Multi-Server Model
 
-run-kit connects to **one tmux server at a time**. The active server is selected by the user via the sidebar server selector or command palette. The backend is stateless — the frontend sends `?server={name}` on every API request (SSE, REST, WebSocket relay). If the parameter is omitted, the backend defaults to the `default` tmux server.
+run-kit connects to **multiple tmux servers**. Server identity is part of the URL path: `/` shows the server list, `/$server` is the per-server shell, `/$server/$session/$window` is the terminal route. The user navigates between servers by changing the `$server` route parameter (via sidebar, command palette `Server: Switch to <name>`, or direct URL).
 
-All tmux operations use `tmuxExecServer(ctx, server, args...)` which prepends `-L {server}` for named servers. The `"default"` server uses no `-L` flag, connecting to the user's standard tmux server. The config flag `-f {path}` is applied to all named servers (not just runkit).
+The backend is stateless — every API request carries the server identity (`?server={name}` query parameter for REST/SSE/WebSocket; `serverFromRequest(r)` validates and defaults to `"default"` when missing). All tmux operations use `tmuxExecServer(ctx, server, args...)` which prepends `-L {server}` for named servers. The `"default"` server uses no `-L` flag, connecting to the user's standard tmux server. The config flag `-f {path}` is applied to all named servers (not just runkit).
+
+### Per-View Server Scope
+
+While run-kit *as a whole* is multi-server, **any single view (terminal, dashboard, sidebar tree) is scoped to one server** — the one in the URL. Components that derive state from "current server" (sidebar tree, optimistic overlays, SSE polling) read it from the route via `useSessionContext()`. The `optimistic-context` filters ghosts/overlays by `currentServer` so cross-server in-flight mutations don't leak into the wrong view.
+
+Features that span multiple servers (e.g., the boards view) open multiple concurrent connections — one SSE per contributing server, one WebSocket per pinned terminal — and tag each entry with its source server in API responses.
 
 ### Server Discovery
 
-`ListServers()` discovers available tmux servers by scanning the socket directory at `/tmp/tmux-{uid}/`. Each socket file represents a running server. Returns sorted server names.
+`ListServers()` discovers available tmux servers by scanning the socket directory at `/tmp/tmux-{uid}/`. Each socket file represents a running server. Returns sorted server names. The frontend calls `listServers()` at mount and refreshes via SSE-driven invalidation.
 
 ### Server Lifecycle
 
 - **Create**: Implicit — `CreateSession("0", $HOME, serverName)` starts a new server when the first session is created on it
 - **Kill**: `KillServer(server)` runs `tmux [-L server] kill-server`, destroying all sessions
-- **Switch**: Frontend updates localStorage `"runkit-server"` and reconnects SSE with updated `?server=` param
+- **Switch**: navigate to `/$newServer/...` — the route change re-mounts the SessionProvider with the new `server` prop and reconnects SSE/WebSocket with the new `?server=` param
 
 ## Session-Group Filtering
 

@@ -1,0 +1,20 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-07T08:29:41Z"}
+{"args":"Persist sidebar session reorder to tmux user-option @rk_session_order (JSON string) instead of localStorage, with new GET/PUT /api/sessions/order endpoints, debounced PUT (250ms trailing) on drag, and SSE broadcast so reorder syncs live across all connected clients/devices on the same tmux server. Last-write-wins on concurrent edits. No migration from existing localStorage values. Cherry-picked from PR #178's drag-and-drop concept but with server-side persistence. Backend wrapper functions in internal/tmux/ via exec.CommandContext per constitution.","cmd":"fab-new","event":"command","ts":"2026-05-07T08:29:41Z"}
+{"delta":"+0.2","event":"confidence","score":0.2,"trigger":"calc-score","ts":"2026-05-07T08:31:10Z"}
+{"delta":"+0.0","event":"confidence","score":0.2,"trigger":"calc-score","ts":"2026-05-07T08:31:22Z"}
+{"delta":"+2.1","event":"confidence","score":2.3,"trigger":"calc-score","ts":"2026-05-07T08:31:46Z"}
+{"delta":"+0.0","event":"confidence","score":2.3,"trigger":"calc-score","ts":"2026-05-07T08:31:52Z"}
+{"delta":"+1.2","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-05-07T08:33:38Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-05-07T08:33:42Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-05-07T08:33:49Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-05-07T08:34:01Z"}
+{"delta":"+1.5","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-07T08:37:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-05-07T08:37:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-05-07T09:03:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-05-07T09:03:33Z"}
+{"event":"review","result":"failed","ts":"2026-05-07T09:11:50Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-05-07T09:11:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-05-07T09:18:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-05-07T09:18:07Z"}
+{"event":"review","result":"passed","ts":"2026-05-07T09:18:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-05-07T09:21:50Z"}

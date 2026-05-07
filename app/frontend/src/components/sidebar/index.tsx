@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
+import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
@@ -90,6 +91,105 @@ export function Sidebar({
   const [dragSource, setDragSource] = useState<{ session: string; index: number } | null>(null);
   const [dropTarget, setDropTarget] = useState<{ session: string; index: number } | null>(null);
   const [sessionDropTarget, setSessionDropTarget] = useState<string | null>(null);
+
+  // Session reorder state. The persisted order arrives via SSE
+  // (`sessionOrder` from SessionContext). During an active drag we render
+  // `localOrder` for snappy visual feedback and ignore incoming SSE events
+  // for this server until dragend, then drop back to `sessionOrder`.
+  const { sessionOrder } = useSessionContext();
+  const [sessionDragSource, setSessionDragSource] = useState<string | null>(null);
+  const [localOrder, setLocalOrder] = useState<string[] | null>(null);
+  const orderPutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const SESSION_ORDER_DEBOUNCE_MS = 250;
+
+  // Ref so the effect below reads the current drag state without re-firing
+  // every time it flips. We only want to drop localOrder when SSE delivers a
+  // fresh order, not on dragend itself (otherwise the sidebar reverts to the
+  // old order during the PUT round-trip and snaps back on SSE arrival).
+  const sessionDragSourceRef = useRef<string | null>(null);
+  sessionDragSourceRef.current = sessionDragSource;
+
+  useEffect(() => {
+    // SSE-delivered order arrived: if we're not mid-drag, the context is
+    // authoritative — drop our local override. If we ARE mid-drag, keep
+    // localOrder so the user's in-progress reorder is preserved; the next
+    // SSE tick post-drag will flush.
+    if (sessionDragSourceRef.current === null) {
+      setLocalOrder(null);
+    }
+  }, [sessionOrder]);
+
+  // Cleanup timer on unmount — pending PUT still flushes via the timer until
+  // the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (orderPutTimerRef.current) clearTimeout(orderPutTimerRef.current);
+    };
+  }, []);
+
+  // Compute rendered order: prefer localOrder during drag, then SSE-delivered
+  // sessionOrder, then natural session list order. Sessions absent from the
+  // saved order render at the bottom in their natural order so newly created
+  // sessions don't disappear and have a predictable home.
+  const orderedSessions = useMemo(() => {
+    const effectiveOrder = localOrder ?? sessionOrder;
+    if (effectiveOrder.length === 0) return sessions;
+    const orderMap = new Map(effectiveOrder.map((name, i) => [name, i]));
+    const ranked = (s: { name: string }) => orderMap.get(s.name) ?? Number.POSITIVE_INFINITY;
+    return [...sessions].sort((a, b) => {
+      const ai = ranked(a);
+      const bi = ranked(b);
+      if (ai === bi) return 0;
+      return ai - bi;
+    });
+  }, [sessions, sessionOrder, localOrder]);
+
+  function handleSessionReorderStart(e: React.DragEvent, name: string) {
+    setSessionDragSource(name);
+    e.dataTransfer.setData("application/x-session-reorder", name);
+    e.dataTransfer.effectAllowed = "move";
+    // Seed localOrder from current effective order so dragover splice operates
+    // on a stable basis even before SSE catches up.
+    const currentNames = orderedSessions.map((s) => s.name);
+    setLocalOrder(currentNames);
+  }
+
+  function handleSessionReorderOver(e: React.DragEvent, targetName: string) {
+    if (!sessionDragSource || sessionDragSource === targetName) return;
+    if (!e.dataTransfer.types.includes("application/x-session-reorder")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+
+    setLocalOrder((prev) => {
+      const base = prev ?? orderedSessions.map((s) => s.name);
+      const fromIdx = base.indexOf(sessionDragSource);
+      const toIdx = base.indexOf(targetName);
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return base;
+      const next = [...base];
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, sessionDragSource);
+
+      // Debounced trailing PUT — coalesce many dragover events into one HTTP
+      // call. dragend does NOT cancel this timer; a fast drag-and-release
+      // within 250ms still flushes.
+      if (orderPutTimerRef.current) clearTimeout(orderPutTimerRef.current);
+      const orderToPut = next.slice();
+      orderPutTimerRef.current = setTimeout(() => {
+        orderPutTimerRef.current = null;
+        setSessionOrder(server, orderToPut).catch((err) => {
+          addToast(err.message || "Failed to save session order");
+        });
+      }, SESSION_ORDER_DEBOUNCE_MS);
+
+      return next;
+    });
+  }
+
+  function handleSessionReorderEnd() {
+    setSessionDragSource(null);
+    // localOrder cleared via the useEffect above once SSE catches up. If SSE
+    // is slow, the next sessionOrder change will replace localOrder.
+  }
 
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
   const { addToast } = useToast();
@@ -570,7 +670,7 @@ export function Sidebar({
             </button>
           </div>
         ) : (
-          sessions.map((session) => {
+          orderedSessions.map((session) => {
             const isCollapsed = collapsed[session.name] ?? false;
             const isGhostSession = "optimistic" in session && session.optimistic;
             return (
@@ -585,6 +685,10 @@ export function Sidebar({
                   editingSession={editingSession}
                   editingSessionName={editingSessionName}
                   sessionInputRef={sessionInputRef}
+                  draggable={!isGhostSession}
+                  isDragSource={sessionDragSource === session.name}
+                  onDragStart={isGhostSession ? undefined : (e) => handleSessionReorderStart(e, session.name)}
+                  onDragEnd={isGhostSession ? undefined : handleSessionReorderEnd}
                   onToggleCollapse={() => toggleSession(session.name)}
                   onSelectFirstWindow={() => onSelectWindow(session.name, session.windows[0]?.index ?? 0)}
                   onCreateWindow={() => onCreateWindow(session.name)}
@@ -603,7 +707,10 @@ export function Sidebar({
                   onSessionNameChange={setEditingSessionName}
                   onSessionRenameKeyDown={handleSessionRenameKeyDown}
                   onSessionRenameBlur={handleSessionRenameBlur}
-                  onDragOver={(e) => handleSessionDragOver(e, session.name)}
+                  onDragOver={(e) => {
+                    handleSessionDragOver(e, session.name);
+                    handleSessionReorderOver(e, session.name);
+                  }}
                   onDragLeave={(e) => handleSessionDragLeave(e, session.name)}
                   onDrop={(e) => handleSessionDrop(e, session.name)}
                   onColorChange={(c) => {

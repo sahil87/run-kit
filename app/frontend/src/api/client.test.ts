@@ -5,6 +5,8 @@ import { resetMockSessions } from "../../tests/msw/handlers";
 import {
   getHealth,
   getSessions,
+  getSessionOrder,
+  setSessionOrder,
   createSession,
   renameSession,
   killSession,
@@ -354,5 +356,65 @@ describe("API request deduplication", () => {
     const results = await Promise.allSettled([getHealth(), getHealth()]);
     expect(results[0].status).toBe("rejected");
     expect(results[1].status).toBe("rejected");
+  });
+
+  it("getSessionOrder fetches GET /api/sessions/order with server query", async () => {
+    let capturedUrl = "";
+    mswServer.use(
+      http.get("/api/sessions/order", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ order: ["main", "dev"] });
+      }),
+    );
+    const order = await getSessionOrder("server-B");
+    expect(capturedUrl).toContain("?server=server-B");
+    expect(order).toEqual(["main", "dev"]);
+  });
+
+  it("getSessionOrder defaults to empty array when order is absent", async () => {
+    mswServer.use(
+      http.get("/api/sessions/order", () => HttpResponse.json({})),
+    );
+    const order = await getSessionOrder("default");
+    expect(order).toEqual([]);
+  });
+
+  it("getSessionOrder throws on non-2xx response", async () => {
+    mswServer.use(
+      http.get("/api/sessions/order", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    );
+    await expect(getSessionOrder("default")).rejects.toThrow("boom");
+  });
+
+  it("setSessionOrder sends PUT /api/sessions/order with JSON body and server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: { order?: string[] } = {};
+    let capturedContentType = "";
+    mswServer.use(
+      http.put("/api/sessions/order", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        capturedContentType = request.headers.get("content-type") ?? "";
+        capturedBody = (await request.json()) as { order?: string[] };
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await setSessionOrder("default", ["main", "dev"]);
+    expect(capturedMethod).toBe("PUT");
+    expect(capturedUrl).toContain("?server=default");
+    expect(capturedContentType).toContain("application/json");
+    expect(capturedBody.order).toEqual(["main", "dev"]);
+  });
+
+  it("setSessionOrder throws on non-2xx response", async () => {
+    mswServer.use(
+      http.put("/api/sessions/order", () =>
+        HttpResponse.json({ error: "bad" }, { status: 400 }),
+      ),
+    );
+    await expect(setSessionOrder("default", ["main"])).rejects.toThrow("bad");
   });
 });

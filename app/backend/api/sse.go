@@ -11,7 +11,20 @@ import (
 
 	"rk/internal/metrics"
 	"rk/internal/sessions"
+	"rk/internal/tmux"
 )
+
+// SessionOrderFetcher reads the persisted session order for a tmux server.
+// Injected into the SSE hub so tests can stub the tmux dependency.
+type SessionOrderFetcher interface {
+	GetSessionOrder(ctx context.Context, server string) ([]string, error)
+}
+
+type prodSessionOrderFetcher struct{}
+
+func (prodSessionOrderFetcher) GetSessionOrder(ctx context.Context, server string) ([]string, error) {
+	return tmux.GetSessionOrder(ctx, server)
+}
 
 const (
 	ssePollInterval    = 2500 * time.Millisecond
@@ -33,23 +46,27 @@ type sseClient struct {
 }
 
 type sseHub struct {
-	mu           sync.RWMutex
-	clients      map[string][]*sseClient
-	previousJSON map[string]string                // per-server JSON dedup cache
-	cache        map[string]*cachedResult // per-server session fetch cache (500ms TTL)
-	polling      bool
-	fetcher      SessionFetcher
-	metrics      *metrics.Collector
+	mu                sync.RWMutex
+	clients           map[string][]*sseClient
+	previousJSON      map[string]string        // per-server sessions JSON dedup cache
+	previousOrderJSON map[string]string        // per-server session-order event payload cache
+	cache             map[string]*cachedResult // per-server session fetch cache (500ms TTL)
+	polling           bool
+	fetcher           SessionFetcher
+	orderFetcher      SessionOrderFetcher
+	metrics           *metrics.Collector
 	cachedMetricsJSON string // latest metrics JSON for new clients
 }
 
 func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector) *sseHub {
 	return &sseHub{
-		clients:      make(map[string][]*sseClient),
-		previousJSON: make(map[string]string),
-		cache:        make(map[string]*cachedResult),
-		fetcher:      fetcher,
-		metrics:      mc,
+		clients:           make(map[string][]*sseClient),
+		previousJSON:      make(map[string]string),
+		previousOrderJSON: make(map[string]string),
+		cache:             make(map[string]*cachedResult),
+		fetcher:           fetcher,
+		orderFetcher:      prodSessionOrderFetcher{},
+		metrics:           mc,
 	}
 }
 
@@ -63,6 +80,14 @@ func (h *sseHub) addClient(c *sseClient) {
 	if prev, ok := h.previousJSON[c.server]; ok && prev != "" {
 		select {
 		case c.ch <- []byte(fmt.Sprintf("event: sessions\ndata: %s\n\n", prev)):
+		default:
+		}
+	}
+
+	// Send cached session-order snapshot immediately (after sessions, before metrics)
+	if prev, ok := h.previousOrderJSON[c.server]; ok && prev != "" {
+		select {
+		case c.ch <- []byte(fmt.Sprintf("event: session-order\ndata: %s\n\n", prev)):
 		default:
 		}
 	}
@@ -98,6 +123,44 @@ func (h *sseHub) removeClient(c *sseClient) {
 		delete(h.clients, c.server)
 	} else {
 		h.clients[c.server] = cs
+	}
+}
+
+// broadcastSessionOrder pushes a session-order event to every client connected
+// for the given server, and caches the payload so future clients receive it
+// during addClient. Order changes are eager — they do not wait for the next
+// poll tick.
+//
+// nil order is normalized to an empty slice so the cached JSON is always "[]"
+// rather than "null", matching the GET endpoint shape.
+func (h *sseHub) broadcastSessionOrder(server string, order []string) {
+	if order == nil {
+		order = []string{}
+	}
+	payload := struct {
+		Server string   `json:"server"`
+		Order  []string `json:"order"`
+	}{Server: server, Order: order}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("session-order broadcast marshal failed", "err", err, "server", server)
+		return
+	}
+	jsonStr := string(jsonBytes)
+	event := []byte(fmt.Sprintf("event: session-order\ndata: %s\n\n", jsonStr))
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.previousOrderJSON[server] = jsonStr
+	for _, c := range h.clients[server] {
+		select {
+		case c.ch <- event:
+		default:
+			if !c.dropped {
+				slog.Warn("SSE event dropped", "server", server, "event", "session-order")
+				c.dropped = true
+			}
+		}
 	}
 }
 
@@ -176,6 +239,31 @@ func (h *sseHub) poll() {
 				dataChanged = true
 			}
 			h.mu.Unlock()
+
+			// Bootstrap: on first poll per server, seed the order cache from
+			// tmux. Closes the gap when rk-go restarts but tmux survives —
+			// connecting clients otherwise see no order until the next PUT.
+			// Runs after the sessions broadcast so first-poll event order is
+			// sessions → session-order → metrics.
+			h.mu.RLock()
+			_, orderSeeded := h.previousOrderJSON[server]
+			h.mu.RUnlock()
+			if !orderSeeded {
+				bootCtx, cancelBoot := context.WithTimeout(context.Background(), 2*time.Second)
+				order, oerr := h.orderFetcher.GetSessionOrder(bootCtx, server)
+				cancelBoot()
+				if oerr != nil {
+					slog.Debug("session-order bootstrap (best-effort)", "server", server, "err", oerr)
+					// Mark as seeded so we don't retry every tick
+					h.mu.Lock()
+					if _, exists := h.previousOrderJSON[server]; !exists {
+						h.previousOrderJSON[server] = ""
+					}
+					h.mu.Unlock()
+				} else {
+					h.broadcastSessionOrder(server, order)
+				}
+			}
 		}
 
 		// Broadcast metrics to all clients (server-independent, every tick)

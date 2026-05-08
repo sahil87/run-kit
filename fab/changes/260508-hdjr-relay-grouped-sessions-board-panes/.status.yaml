@@ -5,32 +5,42 @@ created_by: sahil-weaver
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 13
+    acceptance_count: 40
+    acceptance_completed: 40
 confidence:
-    certain: 10
-    confident: 3
+    certain: 17
+    confident: 0
     tentative: 0
     unresolved: 0
-    score: 4.1
-    indicative: true
+    score: 5.0
     fuzzy: true
     dimensions:
-        signal: 88.5
-        reversibility: 84.2
-        competence: 85.4
-        disambiguation: 87.7
+        signal: 92.1
+        reversibility: 86.8
+        competence: 88.8
+        disambiguation: 90.6
 stage_metrics:
-    intake: {started_at: "2026-05-08T19:52:44Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-05-08T19:52:44Z", driver: fab-new, iterations: 1, completed_at: "2026-05-08T20:27:33Z"}
+    spec: {started_at: "2026-05-08T20:27:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-08T20:31:05Z"}
+    apply: {started_at: "2026-05-08T20:31:05Z", driver: fab-continue, iterations: 1, completed_at: "2026-05-08T20:39:58Z"}
+    review: {started_at: "2026-05-08T20:39:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-08T20:44:23Z"}
+    hydrate: {started_at: "2026-05-08T20:44:23Z", driver: fab-continue, iterations: 1, completed_at: "2026-05-08T20:48:11Z"}
+    ship: {started_at: "2026-05-08T20:48:11Z", driver: fab-fff, iterations: 1}
 prs: []
-last_updated: 2026-05-08T19:57:15Z
+true_impact:
+    added: 7477
+    deleted: 46
+    net: 7431
+    computed_at: "2026-05-08T20:48:11Z"
+    computed_at_stage: hydrate
+last_updated: 2026-05-08T20:48:11Z

@@ -27,6 +27,8 @@ type SessionFetcher interface {
 type TmuxOps interface {
 	CreateSession(name, cwd, server string) error
 	KillSession(session, server string) error
+	KillSessionCtx(ctx context.Context, server, session string) error
+	NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error
 	RenameSession(session, name, server string) error
 	CreateWindow(session, name, cwd, server string) error
 	KillWindow(session string, index int, server string) error
@@ -106,6 +108,12 @@ func (p *prodTmuxOps) CreateSession(name, cwd, server string) error {
 }
 func (p *prodTmuxOps) KillSession(session, server string) error {
 	return tmux.KillSession(session, server)
+}
+func (p *prodTmuxOps) KillSessionCtx(ctx context.Context, server, session string) error {
+	return tmux.KillSessionCtx(ctx, server, session)
+}
+func (p *prodTmuxOps) NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error {
+	return tmux.NewGroupedSession(ctx, server, realSession, ephemeral)
 }
 func (p *prodTmuxOps) RenameSession(session, name, server string) error {
 	return tmux.RenameSession(session, name, server)

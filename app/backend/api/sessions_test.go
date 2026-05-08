@@ -37,6 +37,12 @@ type mockTmuxOps struct {
 	renameSessionSession   string
 	renameSessionName      string
 
+	newGroupedSessionCalled    bool
+	newGroupedSessionServer    string
+	newGroupedSessionReal      string
+	newGroupedSessionEphemeral string
+	newGroupedSessionErr       error
+
 	createWindowCalled  bool
 	createWindowSession string
 	createWindowName    string
@@ -164,6 +170,21 @@ func (m *mockTmuxOps) CreateSession(name, cwd, server string) error {
 func (m *mockTmuxOps) KillSession(session, server string) error {
 	m.killSessionCalled = true
 	m.killSessionName = session
+	return m.err
+}
+func (m *mockTmuxOps) KillSessionCtx(ctx context.Context, server, session string) error {
+	m.killSessionCalled = true
+	m.killSessionName = session
+	return m.err
+}
+func (m *mockTmuxOps) NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error {
+	m.newGroupedSessionCalled = true
+	m.newGroupedSessionServer = server
+	m.newGroupedSessionReal = realSession
+	m.newGroupedSessionEphemeral = ephemeral
+	if m.newGroupedSessionErr != nil {
+		return m.newGroupedSessionErr
+	}
 	return m.err
 }
 func (m *mockTmuxOps) RenameSession(session, name, server string) error {

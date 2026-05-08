@@ -96,6 +96,17 @@ Examples:
 			return fmt.Errorf("ensuring tmux config: %w", err)
 		}
 
+		// Reap orphaned rk-relay-* ephemerals left by a previously crashed
+		// rk serve instance. Synchronous to eliminate races with new relays
+		// creating ephemerals concurrently with the sweep. Bounded to 30s
+		// so a misbehaving tmux server cannot stall startup indefinitely.
+		// Failures are logged but never block startup.
+		sweepCtx, sweepCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := sweepOrphanedRelaySessions(sweepCtx); err != nil {
+			slog.Warn("relay sweep finished with errors", "err", err)
+		}
+		sweepCancel()
+
 		logLevel := slog.LevelInfo
 		if strings.EqualFold(os.Getenv("LOG_LEVEL"), "debug") {
 			logLevel = slog.LevelDebug

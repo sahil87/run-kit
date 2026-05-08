@@ -74,14 +74,26 @@ test.describe("Boards: same-session multi-pane", () => {
     await expect(page.getByText("win-b").first()).toBeVisible({ timeout: 10_000 });
 
     // Each pane's terminal text content should contain ONLY its own marker.
-    // We poll the rendered terminal text because xterm.js writes asynchronously
-    // after the WebSocket relay starts streaming PTY output.
+    // We poll the rendered terminal text scoped to each pane container
+    // (aria-label="board pane <windowName>" — see board-pane.tsx) because
+    // xterm.js writes asynchronously after the WebSocket relay starts
+    // streaming PTY output. Scoping per-pane is what proves the per-WS
+    // grouped-ephemeral relay isolates active-window state correctly: pane A
+    // must contain WIN_A_MARKER and NOT WIN_B_MARKER, and vice versa.
+    const paneA = page.getByRole("group", { name: /^board pane win-a$/ });
+    const paneB = page.getByRole("group", { name: /^board pane win-b$/ });
     await expect
       .poll(
         async () => {
-          const text = await page.locator("body").innerText();
+          const [aText, bText] = await Promise.all([
+            paneA.innerText(),
+            paneB.innerText(),
+          ]);
           return (
-            text.includes(WIN_A_MARKER) && text.includes(WIN_B_MARKER)
+            aText.includes(WIN_A_MARKER) &&
+            !aText.includes(WIN_B_MARKER) &&
+            bText.includes(WIN_B_MARKER) &&
+            !bText.includes(WIN_A_MARKER)
           );
         },
         { timeout: 15_000 },

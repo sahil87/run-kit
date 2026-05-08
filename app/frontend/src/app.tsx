@@ -80,7 +80,15 @@ export function RootWrapper() {
     <ThemeProvider>
       <ToastProvider>
         <ChromeProvider>
-          <Outlet />
+          {/* Suspense boundary required because `BoardPage` is loaded via React.lazy
+            * (see router.tsx). Without it the first navigation to `/board/$name`
+            * would suspend with no fallback and throw. `null` matches the existing
+            * lazy-component fallbacks elsewhere in this file (CommandPalette,
+            * ThemeSelector) — the BoardPage chunk is small and renders quickly.
+            */}
+          <Suspense fallback={null}>
+            <Outlet />
+          </Suspense>
         </ChromeProvider>
       </ToastProvider>
     </ThemeProvider>

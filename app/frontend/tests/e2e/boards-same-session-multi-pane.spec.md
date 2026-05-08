@@ -37,7 +37,11 @@ relay refactor.
 2. POST `/api/boards/<name>/pin` for `win-a`, then for `win-b`.
 3. Navigate to `/board/<name>` (waitUntil `domcontentloaded`).
 4. Assert both `win-a` and `win-b` pane headers render.
-5. Poll the page text content until BOTH `PANE_ALPHA_OK` and `PANE_BRAVO_OK`
-   markers are present — each pane's terminal must show its own marker.
+5. Poll the per-pane terminal text (scoped via `getByRole("group", { name:
+   /^board pane win-a$/ })` and the matching `win-b` locator — the pane
+   container's `aria-label`) until pane A contains `PANE_ALPHA_OK` and NOT
+   `PANE_BRAVO_OK`, AND pane B contains `PANE_BRAVO_OK` and NOT
+   `PANE_ALPHA_OK`. Per-pane scoping is what proves isolation; a body-level
+   check would only confirm both markers appear somewhere on the page.
 6. Unpin both windows via the API to clean up (empty boards are removed
    per the boards spec).

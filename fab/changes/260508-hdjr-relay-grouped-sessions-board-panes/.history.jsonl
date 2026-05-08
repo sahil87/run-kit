@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-08T19:52:44Z"}
+{"args":"Fix board pane terminals showing identical content (relay grouped-session refactor): when multiple board panes attach to the same tmux session (different windows), all attached relays mirror the same active window because tmux clients in a session always share active-window state. Fix by giving each WebSocket relay its own ephemeral grouped session via tmux new-session -d -s rk-relay-\u003crand\u003e -t \u003creal_session\u003e per server, then select-window and attach-session against the ephemeral. On WebSocket close, kill-session the ephemeral. On rk serve startup, sweep orphaned rk-relay-* sessions across all known servers.","cmd":"fab-new","event":"command","ts":"2026-05-08T19:52:44Z"}
+{"delta":"+3.8","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-08T19:54:43Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-08T19:54:50Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-08T19:56:58Z"}
+{"delta":"+0.3","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-05-08T19:57:05Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-05-08T19:57:10Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-05-08T19:57:15Z"}

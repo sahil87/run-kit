@@ -12,7 +12,7 @@ function withServer(url: string, server: string): string {
 const inFlight = new Map<string, Promise<Response>>();
 
 /** Deduplicate concurrent GET requests to the same URL. Non-GET requests pass through. */
-async function deduplicatedFetch(url: string, init?: RequestInit): Promise<Response> {
+export async function deduplicatedFetch(url: string, init?: RequestInit): Promise<Response> {
   const method = init?.method?.toUpperCase() ?? "GET";
   if (method !== "GET") return fetch(url, init);
 
@@ -25,7 +25,7 @@ async function deduplicatedFetch(url: string, init?: RequestInit): Promise<Respo
 }
 
 /** Throw an error from a JSON error response, falling back to status text. */
-async function throwOnError(res: Response): Promise<never> {
+export async function throwOnError(res: Response): Promise<never> {
   const data = await res.json().catch(() => ({}));
   throw new Error((data as { error?: string }).error ?? `Request failed: ${res.status}`);
 }

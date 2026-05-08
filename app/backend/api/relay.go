@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,6 +23,18 @@ import (
 	"rk/internal/tmux"
 	"rk/internal/validate"
 )
+
+// newEphemeralRelayName returns a unique ephemeral session name of the form
+// "rk-relay-<8 hex chars>". The 8-hex suffix is read from crypto/rand and is
+// never derived from user input — keeping the surface inside the relay handler
+// closed against injection (constitution I).
+func newEphemeralRelayName() (string, error) {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s%s", tmux.RelaySessionPrefix, hex.EncodeToString(b[:])), nil
+}
 
 // No timeout for the attach command — it's a long-lived process that stays alive
 // for the duration of the WebSocket connection. Cancellation happens via the
@@ -75,7 +90,8 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	// Determine which tmux server this session lives on
 	server := serverFromRequest(r)
 
-	// Verify the session exists and select the target window
+	// Verify the real session exists and has the requested window. ListWindows
+	// returns nil for a missing session — preserve the existing 4004 close code.
 	windows, err := s.tmux.ListWindows(r.Context(), session, server)
 	if err != nil || windows == nil {
 		slog.Warn("session not found", "session", session)
@@ -83,8 +99,36 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			websocket.FormatCloseMessage(4004, "Session not found"))
 		return
 	}
-	if err := s.tmux.SelectWindow(session, winIdx, server); err != nil {
-		slog.Error("select-window failed", "err", err, "session", session, "window", windowIndex)
+
+	// Allocate a per-WebSocket ephemeral grouped session. tmux session groups
+	// share window membership but maintain independent active-window state, so
+	// each relay can SelectWindow on its own ephemeral without disturbing other
+	// clients attached to the same real session (e.g., other board panes, or
+	// other browser tabs).
+	ephemeral, err := newEphemeralRelayName()
+	if err != nil {
+		slog.Error("ephemeral name generation failed", "err", err)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4001, "Failed to allocate relay session"))
+		return
+	}
+	if err := s.tmux.NewGroupedSession(r.Context(), server, session, ephemeral); err != nil {
+		slog.Warn("new-session (grouped) failed", "err", err, "session", session, "ephemeral", ephemeral)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4004, "Session not found"))
+		return
+	}
+	// Best-effort cleanup with a fresh context — r.Context() is cancelled at
+	// disconnect time (the trigger for this defer), so reusing it would cause
+	// the kill to be cancelled before tmux can run it.
+	defer func() {
+		if err := s.tmux.KillSessionCtx(context.Background(), server, ephemeral); err != nil {
+			slog.Debug("ephemeral cleanup failed", "err", err, "ephemeral", ephemeral)
+		}
+	}()
+
+	if err := s.tmux.SelectWindow(ephemeral, winIdx, server); err != nil {
+		slog.Error("select-window failed", "err", err, "ephemeral", ephemeral, "window", windowIndex)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4004, "Window not found"))
 		return
@@ -123,7 +167,9 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("config reload before attach (best-effort)", "server", server, "err", err)
 	}
 
-	attachArgs = append(attachArgs, "attach-session", "-t", session)
+	// Attach to the ephemeral, not the real session — this is the linchpin of
+	// the grouped-session fix.
+	attachArgs = append(attachArgs, "attach-session", "-t", ephemeral)
 	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
 	cmd.Env = forceTERM(os.Environ())
 

@@ -1,20 +1,26 @@
 # tmux Session Enumeration
 
-## Single-Active-Server Model
+## Multi-Server Model
 
-run-kit connects to **one tmux server at a time**. The active server is selected by the user via the sidebar server selector or command palette. The backend is stateless — the frontend sends `?server={name}` on every API request (SSE, REST, WebSocket relay). If the parameter is omitted, the backend defaults to the `default` tmux server.
+run-kit connects to **multiple tmux servers**. Server identity is part of the URL path: `/` shows the server list, `/$server` is the per-server shell, `/$server/$session/$window` is the terminal route. The user navigates between servers by changing the `$server` route parameter (via sidebar, command palette `Server: Switch to <name>`, or direct URL).
 
-All tmux operations use `tmuxExecServer(ctx, server, args...)` which prepends `-L {server}` for named servers. The `"default"` server uses no `-L` flag, connecting to the user's standard tmux server. The config flag `-f {path}` is applied to all named servers (not just runkit).
+The backend is stateless — every API request carries the server identity (`?server={name}` query parameter for REST/SSE/WebSocket; `serverFromRequest(r)` validates and defaults to `"default"` when missing). All tmux operations use `tmuxExecServer(ctx, server, args...)` which prepends `-L {server}` for named servers. The `"default"` server uses no `-L` flag, connecting to the user's standard tmux server. The config flag `-f {path}` is applied to all named servers (not just runkit).
+
+### Per-View Server Scope
+
+While run-kit *as a whole* is multi-server, **any single view (terminal, dashboard, sidebar tree) is scoped to one server** — the one in the URL. Components that derive state from "current server" (sidebar tree, optimistic overlays, SSE polling) read it from the route via `useSessionContext()`. The `optimistic-context` filters ghosts/overlays by `currentServer` so cross-server in-flight mutations don't leak into the wrong view.
+
+Features that span multiple servers (e.g., the boards view) open multiple concurrent connections — one SSE per contributing server, one WebSocket per pinned terminal — and tag each entry with its source server in API responses.
 
 ### Server Discovery
 
-`ListServers()` discovers available tmux servers by scanning the socket directory at `/tmp/tmux-{uid}/`. Each socket file represents a running server. Returns sorted server names.
+`ListServers()` discovers available tmux servers by scanning the socket directory at `/tmp/tmux-{uid}/`. Each socket file represents a running server. Returns sorted server names. The frontend calls `listServers()` at mount and refreshes via SSE-driven invalidation.
 
 ### Server Lifecycle
 
 - **Create**: Implicit — `CreateSession("0", $HOME, serverName)` starts a new server when the first session is created on it
 - **Kill**: `KillServer(server)` runs `tmux [-L server] kill-server`, destroying all sessions
-- **Switch**: Frontend updates localStorage `"runkit-server"` and reconnects SSE with updated `?server=` param
+- **Switch**: navigate to `/$newServer/...` — the route change re-mounts the SessionProvider with the new `server` prop and reconnects SSE/WebSocket with the new `?server=` param
 
 ## Session-Group Filtering
 
@@ -48,6 +54,24 @@ Grouped sessions share the same windows, so displaying both is incorrect — it 
 
 `session_grouped=1` for ALL members of a group — including the primary session. You cannot simply filter out `grouped=1` sessions without also losing the primaries. The `name === group` check distinguishes primaries from copies.
 
+## Per-WebSocket Ephemeral Grouped Sessions (`rk-relay-*`)
+
+The terminal relay (`app/backend/api/relay.go`) creates one ephemeral grouped session per WebSocket connection. tmux session groups share window membership but maintain **independent active-window state**, so this is the natural unit of isolation for clients that must navigate windows independently — particularly board panes pointing at different windows of the same real session.
+
+**Naming convention**: `rk-relay-<8 hex>`. The prefix is exported as `tmux.RelaySessionPrefix = "rk-relay-"` and is reserved by run-kit. The 8-hex suffix is read from `crypto/rand` (constitution I — never derived from user input). 4B namespace, collision-free at any realistic scale.
+
+**Creation**: `tmux.NewGroupedSession(ctx, server, realSession, ephemeral)` runs `tmux [-L server] new-session -d -s <ephemeral> -t <realSession>`. It first probes `has-session -t <realSession>` because tmux's `new-session -t` silently creates an empty group when the target is missing — the explicit probe ensures the caller's `defer KillSessionCtx` is the only path that creates ephemerals. The wrapper applies `context.WithTimeout(ctx, TmuxTimeout)` consistent with sibling helpers.
+
+**Lifecycle**: bound to the WebSocket via `defer s.tmux.KillSessionCtx(context.Background(), server, ephemeral)` in the relay handler. Cleanup uses `context.Background()` rather than `r.Context()` because the request context is already cancelled at cleanup time (the trigger for the defer). The defer is placed before `pty.StartWithSize` so a PTY-start failure still reaps the ephemeral.
+
+**Filter at the chokepoint**: `parseSessions` in `internal/tmux/tmux.go` early-skips any line whose `#{session_name}` starts with `RelaySessionPrefix`. This is the single chokepoint — every user-facing list (REST `/api/sessions`, SSE `sessions` event, board derivation in `api/boards.go`, server-aggregate `/api/servers`) flows through `ListSessions`, so a single early-skip here guarantees ephemerals never leak into the UI regardless of future consumers (multi-server SessionProvider included).
+
+**Startup sweep**: `sweepOrphanedRelaySessions(ctx)` in `app/backend/cmd/rk/serve_sweep.go` reaps any `rk-relay-*` session left behind by a crashed prior `rk serve` instance. Wired into `serveCmd.RunE` after `tmux.EnsureConfig()` and before the goroutine that calls `server.ListenAndServe()`, with a 30s bounded context. The sweep iterates `tmux.ListServers(ctx)` and calls `tmux.ListRawSessionNames(ctx, server)` (the unfiltered variant — the user-facing filter would hide the very ephemerals being reaped). Per-server failures are logged and skipped — they MUST NOT abort the sweep or block startup. The sweep matches only the fixed `rk-relay-` prefix; user sessions and daemon sessions (`rk` on `rk-daemon`) are never touched (constitution VI).
+
+**Why `ListRawSessionNames` exists**: the housekeeping caller (sweep) needs to *see* the ephemerals that the user-facing path *hides*. `ListRawSessionNames(ctx, server)` runs `list-sessions -F '#{session_name}'` and returns every name without applying the group-copy de-duplication or the `rk-relay-*` exclusion that `ListSessions`/`parseSessions` applies. It returns `nil` when no tmux server is running on the socket. Treat it as an internal escape hatch — no other callers should use it.
+
+**WebSocket URL contract unchanged**: ephemeral names are purely backend-internal. The frontend continues to open `ws://.../relay/{session}/{window}?server={server}` and never sees an `rk-relay-*` name in URLs, request bodies, response payloads, or SSE frames.
+
 ## Impact on Other Operations
 
 All tmux functions accept a `server string` parameter:
@@ -57,7 +81,10 @@ All tmux functions accept a `server string` parameter:
 - `SelectWindow(session, index, server)` — selects a window on the specified server
 - `CreateSession(name, cwd, server)` — creates sessions on the specified server
 - `ReloadConfig(server)` — hot-reloads config via `source-file` on the specified server
-- `KillSession(session, server)` — kills the named session on the specified server
+- `KillSession(session, server)` — kills the named session on the specified server (thin `context.Background()` wrapper around `KillSessionCtx`)
+- `KillSessionCtx(ctx, server, session)` — ctx-accepting variant; relay handler cleanup passes `context.Background()` so the kill survives request-context cancellation (the trigger for the defer)
+- `NewGroupedSession(ctx, server, realSession, ephemeral)` — creates `rk-relay-*` ephemeral via `new-session -d -s <ephemeral> -t <realSession>`; probes `has-session -t <realSession>` first to avoid leaking an empty-group session when the target is missing
+- `ListRawSessionNames(ctx, server)` — unfiltered `list-sessions -F '#{session_name}'`; bypasses `parseSessions`'s group-copy and `rk-relay-*` filters. Reserved for housekeeping callers (the startup sweep). Returns nil when no server is running
 - `SendKeys(session, window, keys, server)` — targets the correct window on the specified server
 - `MoveWindowToSession(srcSession, srcIndex, dstSession, server)` — moves a window from one session to another on the specified server via `tmux move-window -s {srcSession}:{srcIndex} -t {dstSession}:`. Destination index is auto-assigned by tmux
 
@@ -80,10 +107,61 @@ tmux distinguishes window-scoped (`-w`) options from server-scoped (`-s`) option
 | `@rk_type` | window (`-w`) | `CreateWindowWithOptions`, `tmux.SetWindowOption` | `ListWindows` format string field 9 | per-window (iframe) |
 | `@rk_url` | window (`-w`) | `CreateWindowWithOptions`, `tmux.SetWindowOption` | `ListWindows` format string field 10 | per-window (iframe) |
 | `@rk_session_order` | server (`-s`) | `tmux.SetSessionOrder(ctx, server, order)` | `tmux.GetSessionOrder(ctx, server)` | sidebar reorder |
+| `@rk_board` | server (`-s`) | `tmux.Pin` / `tmux.Unpin` / `tmux.Reorder` | `tmux.ListBoardEntries(ctx, server)` | pane boards (cross-server union) |
 
 `@rk_session_order` stores a JSON-encoded array of session names defining the user-preferred sidebar render order. Because the value is server-scoped, it is shared by every client connected to the same tmux server — laptop and phone hitting the same `tmux -L runkit` see the same order. Lifetime matches the tmux server (lost on server kill, NOT on rk-go restart per Constitution VI). Both wrapper functions wrap their context with `context.WithTimeout(ctx, TmuxTimeout)` (10s) and route through `tmuxExecRawServer` (which captures stderr in error messages so callers can pattern-match "invalid option" / "no server running" to distinguish operational empty-state from real failures).
 
 The HTTP endpoints `GET /api/sessions/order` and `PUT /api/sessions/order` (see `architecture.md` § Endpoints) layer over these wrappers. PUT triggers a synchronous SSE broadcast (`event: session-order`) so all connected clients on that server reorder live; the SSE hub also bootstraps the cache once per server on first poll so the order survives an rk-go restart that left tmux running.
+
+### `@rk_board` — Pane Board Membership
+
+`@rk_board` stores the per-server portion of pane-board memberships. **Each tmux server stores memberships only for its own windows** — there is no central registry. The aggregate "boards" set is derived by reading `@rk_board` from every server discovered via `tmux.ListServers(ctx)` and unioning the entries. Boards are **derived from membership**: there is no separate `@rk_boards` registry option, and empty boards cannot exist (a board materializes on first pin and vanishes on last unpin).
+
+**Value format**: comma-separated entries, each entry colon-separated `<window_id>:<board_name>:<order_key>`. Empty value or unset option is treated as zero entries (no error). Example:
+
+```
+runkit:  @rk_board = "@1234:main:a,@5678:main:c,@9abc:deploy:a"
+default: @rk_board = "@def0:main:b"
+```
+
+This reconstructs board `main` as `[@1234@runkit:a, @def0@default:b, @5678@runkit:c]` (sorted by `order_key`).
+
+**Field separators are reserved**: `,` and `:` MUST NOT appear in board names. The board-name regex `^[A-Za-z0-9_-]{1,32}$` enforces this at validation time. `window_id` matches tmux's `#{window_id}` form (`^@\d+$`). `order_key` is `^[a-z]{1,16}$` (lowercase ASCII only).
+
+**Read pattern** — parallel `show-options -s -v @rk_board` across `ListServers()`, then union and tag each entry with its source server. The tmux pkg exposes:
+
+| Function | Purpose |
+|----------|---------|
+| `tmux.ListBoardEntries(ctx, server)` | per-server entries (unset/no-server/invalid-option ⇒ `([]BoardEntry{}, nil)`) |
+| `tmux.ListAllBoardEntries(ctx)` | aggregate across `ListServers()` |
+| `tmux.ListBoards(ctx)` | distinct board names + pin counts (alphabetical) |
+| `tmux.GetBoard(ctx, name)` | entries for one board, sorted by `OrderKey`, with lazy stale cleanup |
+| `tmux.Pin(ctx, server, windowID, board)` | append-or-noop (idempotent re-pin) |
+| `tmux.Unpin(ctx, server, windowID, board)` | remove `(windowID, board)` only; tolerant of missing entries |
+| `tmux.Reorder(ctx, server, windowID, board, newKey)` | rewrite the matching entry's `orderKey` |
+| `tmux.RemoveAllByWindowID(ctx, server, windowID)` | drop every entry for a window-id; returns the affected board names (used by the SSE hub for window-kill cleanup) |
+| `tmux.ComputeOrderKey(before, after)` | fractional indexing helper |
+
+All wrappers route through `tmuxExecRawServer` and wrap their context with `context.WithTimeout(ctx, TmuxTimeout)` (10s). Reads treat `invalid option`, `unknown option`, `no server running`, and `failed to connect` as the empty-entries case (mirrors `GetSessionOrder`). Malformed entries inside a well-formed value are silently skipped with `slog.Warn` — the well-formed entries are still returned.
+
+**Lexicographic / fractional order keys**: cross-server ordering is achieved without renumbering via Figma/Linear-style fractional indexing. `ComputeOrderKey(before, after)` returns a string strictly greater than `before` and strictly less than `after` in lexicographic order:
+
+- `(null, "b")` → `"a"` (prepend)
+- `("c", null)` → `"d"` (append)
+- `("b", "c")` → `"bm"` (insert)
+- `("b", "bm")` → `"bg"` (insert between adjacent suffixes)
+
+The algorithm is pure Go (no external deps). Inserts MUST NOT renumber existing entries.
+
+**Lazy stale-entry cleanup at read time** — `GetBoard(ctx, name)` runs `liveWindowIDs(server)` per source server and intersects with the parsed entries. Entries whose `window_id` no longer exists on its source server are omitted from the response and removed from `@rk_board` via a best-effort write-back (`setBoardValue`). Write-back failure does NOT fail the read — the response is still returned with stale entries dropped, and the failure is logged.
+
+**Eager cleanup via SSE poll-tick** — `sseHub.poll()` (`api/sse.go`) compares the per-server window-id set across consecutive ticks. For each killed `window_id`, the hub calls `tmux.RemoveAllByWindowID(ctx, server, windowID)` and broadcasts one `event: board-changed` per affected board with `change: "cleanup"`. This closes the gap when a board has not been read recently.
+
+**SSE event** — `event: board-changed` rides the existing per-server SSE stream (`GET /api/sessions/stream?server=<name>`). Payload shape: `{"board":"main","change":"pin"|"unpin"|"reorder"|"cleanup","server":"runkit","windowId":"@1234","orderKey":"bm"}`. `orderKey` is omitted (`omitempty`) for `unpin` / `cleanup`. Frontend clients viewing a board open one SSE connection per server contributing entries — boards span servers, so cross-server fan-out is required (see `architecture.md` § Boards Feature).
+
+**Bootstrap parity with `@rk_session_order`** — The hub reads `@rk_board` once per server on first poll and broadcasts a synthetic `board-changed` event with `change: "bootstrap"` and payload `{"server":"<name>","change":"bootstrap","entries":[...]}`. This survives an rk-go restart that left tmux running (Constitution VI). The cached payload is sent to new SSE clients on connect (positioned between `session-order` and `metrics`).
+
+**Window ID stability across `move-window`** — pins follow tmux's documented contract that `move-window` preserves `window_id` (`@N`) and only changes `window_index` (`:N`). A pinned window moved between sessions on the same server remains pinned without manual intervention.
 
 ## Frontend Server Routing Contract
 
@@ -165,7 +243,8 @@ The new windows never appear on the managed `runkit`/`default` servers unless th
 - `app/backend/api/servers.go` — server list/create/kill handlers
 - `app/backend/api/keybindings.go` — `GET /api/keybindings` handler (runs `list-keys`, filters via whitelist, returns JSON)
 - `app/backend/api/sse.go` — per-server SSE polling hub
-- `app/backend/api/relay.go` — WebSocket relay reads `?server=` query param to attach to the correct tmux server
+- `app/backend/api/relay.go` — WebSocket relay reads `?server=` query param, allocates a per-WebSocket ephemeral via `tmux.NewGroupedSession`, attaches to the ephemeral (not the real session), and reaps it on disconnect via deferred `KillSessionCtx`
+- `app/backend/cmd/rk/serve_sweep.go` — `sweepOrphanedRelaySessions(ctx)` reaps orphan `rk-relay-*` ephemerals across every server returned by `tmux.ListServers(ctx)` before HTTP bind
 - `app/backend/internal/tmux/tmux.conf` — canonical tmux configuration (Go-embedded, written to `~/.run-kit/tmux.conf` on first run)
 - `app/backend/cmd/rk/riff.go` — `rk riff` subcommand: N-pane `tmux new-window` + `split-window` + `select-layout` + `select-pane` sequence per window on the user's current tmux server (via `tmux.OriginalTMUX` restore in child env), with parallel fan-out + rollback on failure
 - `app/backend/cmd/rk/pane_spec.go` — `paneFlag` pflag.Value + `rewritePaneSpaceForm` argv pre-processor supporting bare/space/equals forms for repeatable `--skill`/`--cmd`
@@ -186,3 +265,5 @@ The new windows never appear on the managed `runkit`/`default` servers unless th
 | 2026-04-17 | `rk riff` window creation — new subcommand creates `tmux new-window -c <path> "<launcher> '<cmd>'"` on the user's current tmux server (not the managed `runkit`/`default` servers). `$TMUX` recovered via `tmux.OriginalTMUX` and restored in child env (mirrors `context.go`). Optional `--split` appends `tmux split-window -h -c <path> "<setup>; exec \"${SHELL:-/bin/sh}\""` via the shared `shellWrap` helper. Bypasses `internal/tmux` because that package targets specific named servers via `-L <server>`. | `260416-r1j6-add-riff-command` |
 | 2026-04-18 | Frontend server-routing contract — `server: string` now threaded as the first positional argument through every `api/client.ts` function that hits a server-scoped endpoint (`getSessions`, `createSession`, `renameSession`, `killSession`, `createWindow`, `renameWindow`, `killWindow`, `moveWindow`, `moveWindowToSession`, `selectWindow`, `splitWindow`, `closePane`, `sendKeys`, `updateWindowUrl`, `updateWindowType`, `setWindowColor`, `setSessionColor`, `reloadTmuxConfig`, `uploadFile`, `getKeybindings`). `withServer(url, server)` is pure — the module-level `_getServer` global and `setServerGetter` export are removed; `SessionProvider` no longer wires a getter. Server-management endpoints (`listServers`, `createServer`, `killServer`) and theme/server-color settings remain server-parameter-free by design. Eliminates a closure-race where mid-action server switches retargeted in-flight rename/kill/create calls at the wrong tmux server. Mirrors the backend `tmuxExecServer(ctx, server, …)` shape. | `260418-yadg-fix-mutation-server-race` |
 | 2026-04-23 | `rk riff` window creation now multi-pane + fan-out. Each window is built by a `tmux new-window` + N-1 `tmux split-window` sequence, followed by `tmux select-layout <canonical>` and `tmux select-pane -t <window>.0` (focus pane 0 per the argv-order rule). Skill panes preserve the three-layer `<launcher> '<escaped-skill>'` → `sh -i -c` → `shellWrap` composition from earlier changes; cmd panes skip the interactive wrap (would alter user-command argv). Fan-out with N ≥ 2 spawns N goroutines sharing one context; failure triggers rollback via the pure `planFanOutRollback(results, failureIdx)` builder + `wt delete` / `tmux kill-window` calls against a fresh (non-cancelled) context so rollback runs to completion. Worktree names come from `wt`'s generator (no rk-side `-1..-N` scheme); windows named `riff-<wt-basename>` with `resolveWindowName` suffix fallback on collision. `--setup-pane`/`--split` removed entirely — `--cmd` (repeatable) subsumes the single-split use case. | `260423-jmwu-rk-riff-workflow-features` |
+| 2026-05-09 | Per-WebSocket ephemeral grouped sessions for the relay. New `tmux.NewGroupedSession(ctx, server, realSession, ephemeral)` wraps `tmux new-session -d -s <ephemeral> -t <realSession>` (with a `has-session` probe to avoid leaking empty-group sessions when the target is missing), `tmux.KillSessionCtx(ctx, server, session)` exposes a ctx-accepting kill so relay cleanup can pass `context.Background()` (existing `KillSession` becomes a thin wrapper), and `tmux.RelaySessionPrefix = "rk-relay-"` reserves the name space. `parseSessions` early-skips any `rk-relay-*` line — single chokepoint for all user-facing session lists (REST, SSE, board derivation, server-aggregate). New `tmux.ListRawSessionNames(ctx, server)` returns the unfiltered list for housekeeping callers (the startup sweep, which would otherwise be unable to see the very ephemerals it needs to reap). Relay handler (`api/relay.go`) generates the ephemeral name via `crypto/rand` (constitution I), creates the grouped session, defers `KillSessionCtx(context.Background(), …)` (request context is cancelled at cleanup time), then `select-window` and `attach-session` against the ephemeral — never against the real session. Fixes the central bug where N board panes targeting different windows of one tmux session showed identical content (tmux's per-session active-window state); fixes a latent two-tabs-same-session focus-stealing bug as a side effect. Startup sweep `sweepOrphanedRelaySessions(ctx)` in `cmd/rk/serve_sweep.go` reaps orphans across all `tmux.ListServers(ctx)` before HTTP bind (synchronous, 30s bounded; per-server failures logged and skipped). `TmuxOps` interface gains `NewGroupedSession` and `KillSessionCtx`; `mockTmuxOps` updated. WebSocket URL contract unchanged. | `260508-hdjr-relay-grouped-sessions-board-panes` |
+| 2026-05-07 | `@rk_board` server-scoped option for pane boards. New `internal/tmux/board.go` exposes `ListBoardEntries`, `ListAllBoardEntries`, `ListBoards`, `GetBoard`, `Pin`, `Unpin`, `Reorder`, `RemoveAllByWindowID`, and `ComputeOrderKey`. Distributed storage: each tmux server stores entries only for its own windows; aggregate views read from every server returned by `ListServers()` and union/tag entries with their source server. Value format: comma-separated `<window_id>:<board>:<order_key>` entries (`,` and `:` reserved separators excluded by the board-name regex `^[A-Za-z0-9_-]{1,32}$`). Order keys use lowercase-`a..z` fractional indexing — inserts never renumber. Lazy stale-entry cleanup at read time intersects with `liveWindowIDs(server)` and best-effort writes back the cleaned slice (read still returns success on write-back failure). Eager cleanup via the SSE poll-tick: window-kill detection scans per-server entries and calls `RemoveAllByWindowID`, then broadcasts one `event: board-changed { change: "cleanup" }` per affected board. SSE hub bootstraps `@rk_board` once per server on first poll and emits a synthetic `board-changed { change: "bootstrap", entries: [...] }` so an rk-go restart with tmux still running rehydrates the boards UI (parity with `@rk_session_order`). All wrappers route through `tmuxExecRawServer` with `context.WithTimeout(ctx, TmuxTimeout)`. | `260507-4vuv-pane-boards` |

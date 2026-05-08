@@ -1,0 +1,48 @@
+id: hdjr
+name: 260508-hdjr-relay-grouped-sessions-board-panes
+created: 2026-05-08T19:52:44Z
+created_by: sahil-weaver
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 40
+    acceptance_completed: 40
+confidence:
+    certain: 17
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 92.1
+        reversibility: 86.8
+        competence: 88.8
+        disambiguation: 90.6
+stage_metrics:
+    intake: {started_at: "2026-05-08T19:52:44Z", driver: fab-new, iterations: 1, completed_at: "2026-05-08T20:27:33Z"}
+    spec: {started_at: "2026-05-08T20:27:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-08T20:31:05Z"}
+    apply: {started_at: "2026-05-08T20:31:05Z", driver: fab-continue, iterations: 1, completed_at: "2026-05-08T20:39:58Z"}
+    review: {started_at: "2026-05-08T20:39:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-08T20:44:23Z"}
+    hydrate: {started_at: "2026-05-08T20:44:23Z", driver: fab-continue, iterations: 1, completed_at: "2026-05-08T20:48:11Z"}
+    ship: {started_at: "2026-05-08T20:48:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-08T20:50:08Z"}
+    review-pr: {started_at: "2026-05-08T20:50:08Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/188
+true_impact:
+    added: 7477
+    deleted: 46
+    net: 7431
+    computed_at: "2026-05-08T20:48:11Z"
+    computed_at_stage: hydrate
+last_updated: 2026-05-08T20:50:08Z

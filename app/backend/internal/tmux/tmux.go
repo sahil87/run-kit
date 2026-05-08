@@ -151,6 +151,10 @@ const (
 	ActivityThresholdSeconds = 10
 	// listDelim is the tab delimiter used in tmux format strings.
 	listDelim = "\t"
+	// RelaySessionPrefix is the reserved name prefix for run-kit's per-WebSocket
+	// ephemeral grouped sessions. Sessions matching this prefix are filtered out
+	// of user-facing session lists and reaped at server start.
+	RelaySessionPrefix = "rk-relay-"
 )
 
 // PaneInfo describes a single tmux pane within a window.
@@ -255,6 +259,14 @@ func parseSessions(lines []string) []SessionInfo {
 		if len(parts) < 2 {
 			continue
 		}
+		// Filter run-kit's per-WebSocket ephemeral grouped sessions from every
+		// user-facing session list. This is the single chokepoint — every
+		// consumer (REST, SSE, board derivation, server-aggregate) flows
+		// through ListSessions/parseSessions, so a single early-skip here
+		// guarantees no ephemeral leaks into the UI.
+		if strings.HasPrefix(parts[0], RelaySessionPrefix) {
+			continue
+		}
 		e := rawEntry{name: parts[0], grouped: parts[1] == "1"}
 		if len(parts) >= 3 {
 			e.group = parts[2]
@@ -308,8 +320,31 @@ func parseSessions(lines []string) []SessionInfo {
 	return sessions
 }
 
+// ListRawSessionNames returns every session name on the given server WITHOUT
+// the user-facing filters applied by ListSessions (group-copy de-duplication
+// and rk-relay-* exclusion). It is intended only for housekeeping callers that
+// need to see every session, such as the startup sweep that reaps orphan
+// rk-relay-* ephemerals from a prior crashed instance.
+//
+// Returns nil if the server is not running.
+func ListRawSessionNames(ctx context.Context, server string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no server running") || strings.Contains(errMsg, "failed to connect") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return lines, nil
+}
+
 // ListSessions returns sessions from the specified tmux server,
-// filtering out session-group copies. Returns nil if no server is running.
+// filtering out session-group copies and run-kit's per-WebSocket ephemerals
+// (RelaySessionPrefix). Returns nil if no server is running.
 func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -568,12 +603,51 @@ func CreateWindow(session, name, cwd string, server string) error {
 	return err
 }
 
-// KillSession kills an entire tmux session on the specified server.
+// KillSession kills an entire tmux session on the specified server. Uses the
+// default tmux timeout via context.Background — see KillSessionCtx for callers
+// that need to supply their own context (e.g., relay handler cleanup that runs
+// after the request context is cancelled).
 func KillSession(session string, server string) error {
-	ctx, cancel := withTimeout()
+	return KillSessionCtx(context.Background(), server, session)
+}
+
+// KillSessionCtx kills a tmux session, scoping the underlying tmux call to the
+// provided parent context wrapped with TmuxTimeout. Callers that need cleanup
+// to survive request-context cancellation MUST pass context.Background() — the
+// relay handler's deferred cleanup is the canonical use case.
+func KillSessionCtx(ctx context.Context, server, session string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
 	_, err := tmuxExecServer(ctx, server, "kill-session", "-t", session)
+	return err
+}
+
+// NewGroupedSession creates a detached ephemeral session in the same group as
+// realSession on the given tmux server using `tmux new-session -d -s <ephemeral>
+// -t <realSession>`. The new session shares window membership with realSession
+// but maintains independent active-window state — clients attached to it can
+// navigate windows independently of clients attached to other group members.
+//
+// Used by the WebSocket relay to give each connection its own attach target so
+// concurrent board panes targeting the same real session do not steal each
+// other's active window. The returned session MUST be killed by the caller
+// (typically via `defer KillSessionCtx`).
+//
+// The parent ctx is wrapped with TmuxTimeout consistent with sibling helpers.
+//
+// Returns a non-nil error if realSession does not exist on the server. tmux's
+// new-session -t silently creates an empty group when the target is missing,
+// which would leak a useless ephemeral; we explicitly probe with has-session
+// first so the caller's defer-kill is the only path that creates ephemerals.
+func NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	if _, err := tmuxExecServer(ctx, server, "has-session", "-t", realSession); err != nil {
+		return fmt.Errorf("real session %q not found: %w", realSession, err)
+	}
+	_, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", ephemeral, "-t", realSession)
 	return err
 }
 

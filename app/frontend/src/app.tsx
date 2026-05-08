@@ -20,6 +20,9 @@ import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType } from "@/api/client";
+import { useBoards } from "@/hooks/use-boards";
+import { useWindowPins } from "@/hooks/use-window-pins";
+import { usePinActions } from "@/hooks/use-pin-actions";
 import { deriveNameFromPath } from "@/components/create-session-dialog";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
@@ -746,6 +749,72 @@ function AppShell() {
     [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
   );
 
+  // Boards palette block (server-route variant). AppShell only mounts under
+  // `/$server/...`, so the board-route-only entries (Leave Board View, Cycle
+  // Pane Focus) live in BoardPage's own palette mount. Here we provide the
+  // entries that make sense from a server route: Switch to <board>, Pin Current
+  // Window, and Unpin Current Window when the current window is pinned.
+  const { boards: boardSummaries } = useBoards();
+  const { pinnedToBoard } = useWindowPins();
+  const { unpin: unpinPinAction } = usePinActions();
+
+  // Boards the current window is currently pinned to (for Unpin Current Window
+  // visibility + bulk-unpin behavior). Recomputed when the cross-board pin map
+  // updates via SSE.
+  const currentWindowPinnedBoards = useMemo(() => {
+    if (!currentWindow || !server) return [] as string[];
+    return boardSummaries
+      .map((b) => b.name)
+      .filter((b) => pinnedToBoard(b, server, currentWindow.windowId));
+  }, [boardSummaries, pinnedToBoard, currentWindow, server]);
+
+  const boardActions: PaletteAction[] = useMemo(() => {
+    // No `currentBoardName` here — AppShell isn't on a board route, so no
+    // entry is ever annotated `(current)` from this palette mount.
+    const switchEntries = boardSummaries.map((b) => ({
+      id: `board-switch-${b.name}`,
+      label: `Board: Switch to ${b.name}`,
+      onSelect: () => navigate({ to: "/board/$name", params: { name: b.name } }),
+    }));
+
+    const conditional: PaletteAction[] = [];
+
+    if (sessionName && currentWindow && server) {
+      conditional.push({
+        id: "board-pin-current",
+        label: "Board: Pin Current Window",
+        onSelect: () => {
+          // Imperatively open the existing sidebar pin popover for the current
+          // window. The matching WindowRow listens for this event and only the
+          // row whose (server, windowId) matches handles it.
+          document.dispatchEvent(
+            new CustomEvent("pin-popover:open", {
+              detail: { server, windowId: currentWindow.windowId },
+            }),
+          );
+        },
+      });
+
+      // Unpin Current Window — visible only when the current window is pinned
+      // to ≥1 board. v1 semantics: unpin from ALL boards in parallel (simpler
+      // than a multi-board picker; users can re-pin via the popover if needed).
+      if (currentWindowPinnedBoards.length > 0) {
+        conditional.push({
+          id: "board-unpin-current",
+          label: "Board: Unpin Current Window",
+          onSelect: () => {
+            const win = currentWindow;
+            const srv = server;
+            for (const board of currentWindowPinnedBoards) {
+              unpinPinAction(srv, win.windowId, board);
+            }
+          },
+        });
+      }
+    }
+    return [...switchEntries, ...conditional];
+  }, [boardSummaries, sessionName, currentWindow, server, navigate, currentWindowPinnedBoards, unpinPinAction]);
+
   const viewActions: PaletteAction[] = useMemo(
     () => [
       ...(sessionName
@@ -830,8 +899,8 @@ function AppShell() {
   );
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
-    [sessionActions, windowActions, viewActions, themeActions, configActions, serverActions, terminalActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
+    [sessionActions, windowActions, boardActions, viewActions, themeActions, configActions, serverActions, terminalActions],
   );
 
   const displayName = currentWindow?.name ?? windowIndex ?? "";

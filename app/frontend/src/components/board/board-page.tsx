@@ -381,7 +381,7 @@ function DesktopRow({
   onPaneClick: (idx: number) => void;
 }) {
   return (
-    <div className="h-full overflow-x-auto flex gap-1 p-1">
+    <div className="h-full w-full overflow-x-auto flex gap-1 p-1">
       {entries.map((entry, idx) => (
         <BoardPane
           key={`${entry.server}:${entry.windowId}`}

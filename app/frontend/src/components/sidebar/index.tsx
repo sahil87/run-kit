@@ -11,6 +11,9 @@ import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
+import { useWindowPins } from "@/hooks/use-window-pins";
+import { useActiveBoardName } from "@/hooks/use-active-board";
+import { BoardsSection } from "./boards-section";
 import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerPanel } from "./server-panel";
@@ -67,6 +70,30 @@ export function Sidebar({
   }, []);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  // Sessions section collapse — persisted in localStorage, default open.
+  const SESSIONS_COLLAPSE_KEY = "runkit-panel-sessions";
+  const [sessionsOpen, setSessionsOpen] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem(SESSIONS_COLLAPSE_KEY);
+      if (v === "false") return false;
+      if (v === "true") return true;
+    } catch {
+      // localStorage unavailable
+    }
+    return true;
+  });
+  const toggleSessionsOpen = useCallback(() => {
+    setSessionsOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SESSIONS_COLLAPSE_KEY, String(next));
+      } catch {
+        // localStorage unavailable
+      }
+      return next;
+    });
+  }, []);
   const [killTarget, setKillTarget] = useState<{
     type: "session" | "window";
     session: string;
@@ -194,6 +221,20 @@ export function Sidebar({
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
   const { addToast } = useToast();
   const navigate = useNavigate();
+
+  // Boards integration: aggregate pin map across all servers + boards. The
+  // pinned-to-any flag is rendered as the pin icon's filled state on each
+  // window row; `isPinnedToBoard` powers the popover's check marks; the
+  // active-board highlight uses `pinnedToBoard(activeBoard, ...)`.
+  const { boards: allBoards, pinnedSet, pinnedToBoard } = useWindowPins();
+  const activeBoardName = useActiveBoardName();
+  const isPinnedToActiveBoardFor = useCallback(
+    (winServer: string, windowId: string) => {
+      if (!activeBoardName) return false;
+      return pinnedToBoard(activeBoardName, winServer, windowId);
+    },
+    [activeBoardName, pinnedToBoard],
+  );
   const killWindowStore = useWindowStore((state) => state.killWindow);
   const restoreWindow = useWindowStore((state) => state.restoreWindow);
   const clearSession = useWindowStore((state) => state.clearSession);
@@ -639,25 +680,43 @@ export function Sidebar({
         }}
       />
 
-      {/* Sessions — always open, flex-grow to fill space */}
-      <div className="border-t border-border flex-1 min-h-0 flex flex-col">
-        <div className="flex items-center gap-1.5 w-full pl-5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
-          <span className="font-medium">Sessions</span>
-          {currentSession && (
-            <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
-              <span className="truncate text-text-primary font-mono">{currentSession}</span>
-            </span>
-          )}
-          <span className={currentSession ? "" : "ml-auto"}>
-            <button
-              onClick={onCreateSession}
-              aria-label="New session"
-              className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+      {/* Boards — cross-server section above Sessions; self-hides when no boards
+          exist (unless the user is on a now-empty board route) */}
+      <BoardsSection />
+
+      {/* Sessions — collapsible header, flex-grows to fill remaining space when open */}
+      <div className={`border-t border-border flex flex-col ${sessionsOpen ? "flex-1 min-h-0" : "shrink-0"}`}>
+        <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
+          <button
+            type="button"
+            onClick={toggleSessionsOpen}
+            aria-expanded={sessionsOpen}
+            aria-label={sessionsOpen ? "Collapse sessions" : "Expand sessions"}
+            className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-text-primary transition-colors"
+          >
+            <span
+              className="inline-block transition-transform duration-150"
+              style={{ transform: sessionsOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
+              aria-hidden="true"
             >
-              +
-            </button>
-          </span>
+              &#x25BC;
+            </span>
+            <span className="font-medium">Sessions</span>
+            {currentSession && (
+              <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
+                <span className="truncate text-text-primary font-mono">{currentSession}</span>
+              </span>
+            )}
+          </button>
+          <button
+            onClick={onCreateSession}
+            aria-label="New session"
+            className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+          >
+            +
+          </button>
         </div>
+        {sessionsOpen && (
         <div className="pt-1 flex-1 min-h-0 overflow-y-auto">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
@@ -744,6 +803,11 @@ export function Sidebar({
                           editingWindow={editingWindow}
                           editingName={editingName}
                           inputRef={inputRef}
+                          server={server}
+                          boards={allBoards}
+                          isPinnedToAny={!ghost && pinnedSet.has(`${server}:${win.windowId}`)}
+                          isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
+                          isPinnedToBoard={(b) => pinnedToBoard(b, server, win.windowId)}
                           onSelectWindow={() => onSelectWindow(session.name, win.index)}
                           onDoubleClickName={() => handleStartEditing(session.name, win.windowId, win.name)}
                           onWindowNameChange={setEditingName}
@@ -806,6 +870,7 @@ export function Sidebar({
           })
         )}
         </div>
+        )}
       </div>
 
       {/* Collapsible panels — pinned at bottom */}

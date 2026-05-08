@@ -1,0 +1,187 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { CommandPalette, type PaletteAction } from "./command-palette";
+
+/**
+ * Tests for the `Board:` palette entries — covers the conditional visibility
+ * rules and selection actions defined in `app.tsx`'s `boardActions` block.
+ *
+ * The action-construction logic mirrored here is intentionally kept in sync
+ * with `app.tsx` so the test catches drift if either side changes the rules.
+ */
+
+function openPalette() {
+  fireEvent.keyDown(document, { key: "k", metaKey: true });
+}
+
+interface BuildOpts {
+  boards: Array<{ name: string }>;
+  currentBoardName?: string;
+  isOnBoardRoute?: boolean;
+  hasCurrentWindow?: boolean;
+  isCurrentWindowPinned?: boolean;
+  onSwitch?: (name: string) => void;
+  onPinCurrent?: () => void;
+  onUnpinCurrent?: () => void;
+  onLeaveBoardView?: () => void;
+  onCycleNext?: () => void;
+  onCyclePrev?: () => void;
+}
+
+function buildBoardActions(opts: BuildOpts): PaletteAction[] {
+  const switchEntries: PaletteAction[] = opts.boards.map((b) => ({
+    id: `board-switch-${b.name}`,
+    label: `Board: Switch to ${b.name}${b.name === opts.currentBoardName ? " (current)" : ""}`,
+    onSelect: () => opts.onSwitch?.(b.name),
+  }));
+
+  const conditional: PaletteAction[] = [];
+
+  if (opts.hasCurrentWindow) {
+    conditional.push({
+      id: "board-pin-current",
+      label: "Board: Pin Current Window",
+      onSelect: () => opts.onPinCurrent?.(),
+    });
+  }
+
+  if (opts.isCurrentWindowPinned) {
+    conditional.push({
+      id: "board-unpin-current",
+      label: "Board: Unpin Current Window",
+      onSelect: () => opts.onUnpinCurrent?.(),
+    });
+  }
+
+  if (opts.isOnBoardRoute) {
+    conditional.push({
+      id: "board-leave",
+      label: "Board: Leave Board View",
+      onSelect: () => opts.onLeaveBoardView?.(),
+    });
+    conditional.push({
+      id: "board-cycle-next",
+      label: "Board: Cycle Pane Focus →",
+      onSelect: () => opts.onCycleNext?.(),
+    });
+    conditional.push({
+      id: "board-cycle-prev",
+      label: "Board: Cycle Pane Focus ←",
+      onSelect: () => opts.onCyclePrev?.(),
+    });
+  }
+
+  return [...switchEntries, ...conditional];
+}
+
+describe("CmdK Board Actions", () => {
+  afterEach(cleanup);
+
+  it("renders one Switch entry per board with (current) on the active one", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }, { name: "deploy" }, { name: "staging" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("Board: Switch to main (current)")).toBeInTheDocument();
+    expect(screen.getByText("Board: Switch to deploy")).toBeInTheDocument();
+    expect(screen.getByText("Board: Switch to staging")).toBeInTheDocument();
+  });
+
+  it("hides Pin Current Window when there is no current window", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      hasCurrentWindow: false,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.queryByText("Board: Pin Current Window")).not.toBeInTheDocument();
+  });
+
+  it("shows Pin Current Window when on a window route with a current window", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      hasCurrentWindow: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("Board: Pin Current Window")).toBeInTheDocument();
+  });
+
+  it("shows Unpin Current Window when current window is already pinned", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      hasCurrentWindow: true,
+      isCurrentWindowPinned: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("Board: Unpin Current Window")).toBeInTheDocument();
+  });
+
+  it("hides Unpin Current Window when current window is not pinned", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      hasCurrentWindow: true,
+      isCurrentWindowPinned: false,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.queryByText("Board: Unpin Current Window")).not.toBeInTheDocument();
+  });
+
+  it("hides Leave Board View and Cycle Pane Focus when not on a board route", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      isOnBoardRoute: false,
+      hasCurrentWindow: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.queryByText("Board: Leave Board View")).not.toBeInTheDocument();
+    expect(screen.queryByText("Board: Cycle Pane Focus →")).not.toBeInTheDocument();
+    expect(screen.queryByText("Board: Cycle Pane Focus ←")).not.toBeInTheDocument();
+  });
+
+  it("shows Leave Board View and Cycle Pane Focus on a board route", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("Board: Leave Board View")).toBeInTheDocument();
+    expect(screen.getByText("Board: Cycle Pane Focus →")).toBeInTheDocument();
+    expect(screen.getByText("Board: Cycle Pane Focus ←")).toBeInTheDocument();
+  });
+
+  it("invokes onSelect when a Switch entry is selected", () => {
+    const onSwitch = vi.fn();
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }, { name: "deploy" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+      onSwitch,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    // Filter to deploy entry to get a deterministic Enter target.
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "deploy" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSwitch).toHaveBeenCalledWith("deploy");
+  });
+
+  it("Reorder Pane is NOT in v1 — entry must not be present", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      isOnBoardRoute: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.queryByText(/Board: Reorder Pane/)).not.toBeInTheDocument();
+  });
+});

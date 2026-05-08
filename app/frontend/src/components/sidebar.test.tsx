@@ -11,6 +11,8 @@ import type { ProjectSession } from "@/types";
 const mockNavigate = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
+  useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
+    select({ location: { pathname: "/" } }),
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {

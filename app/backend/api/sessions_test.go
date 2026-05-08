@@ -63,8 +63,10 @@ type mockTmuxOps struct {
 	sendKeysWindow      int
 	sendKeysKeys        string
 
-	listWindowsResult []tmux.WindowInfo
-	listWindowsErr    error
+	listWindowsResult  []tmux.WindowInfo
+	listWindowsErr     error
+	listSessionsResult []tmux.SessionInfo
+	listServersResult  []string
 
 	splitWindowCalled     bool
 	splitWindowSession    string
@@ -119,6 +121,36 @@ type mockTmuxOps struct {
 	setSessionOrderCalled bool
 	setSessionOrderOrder  []string
 	setSessionOrderErr    error
+
+	// Boards
+	listBoardsCalled         bool
+	listBoardsResult         []tmux.BoardSummary
+	listBoardsErr            error
+	getBoardCalled           bool
+	getBoardName             string
+	getBoardResult           []tmux.BoardEntry
+	getBoardErr              error
+	listBoardEntriesResult   []tmux.BoardEntry
+	listBoardEntriesByServer map[string][]tmux.BoardEntry
+	listBoardEntriesErr      error
+	pinBoardCalled           bool
+	pinBoardServer           string
+	pinBoardWindowID         string
+	pinBoardBoard            string
+	pinBoardErr              error
+	unpinBoardCalled         bool
+	unpinBoardServer         string
+	unpinBoardWindowID       string
+	unpinBoardBoard          string
+	unpinBoardErr            error
+	reorderBoardCalled       bool
+	reorderBoardServer       string
+	reorderBoardWindowID     string
+	reorderBoardBoard        string
+	reorderBoardBefore       string
+	reorderBoardAfter        string
+	reorderBoardNewKey       string
+	reorderBoardErr          error
 
 	err error
 }
@@ -246,10 +278,13 @@ func (m *mockTmuxOps) UnsetWindowColor(session string, index int, server string)
 	return m.err
 }
 func (m *mockTmuxOps) ListServers(ctx context.Context) ([]string, error) {
+	if m.listServersResult != nil {
+		return m.listServersResult, nil
+	}
 	return []string{"default"}, nil
 }
 func (m *mockTmuxOps) ListSessions(ctx context.Context, server string) ([]tmux.SessionInfo, error) {
-	return nil, nil
+	return m.listSessionsResult, nil
 }
 func (m *mockTmuxOps) KillServer(server string) error {
 	return nil
@@ -297,6 +332,60 @@ func (m *mockTmuxOps) SetSessionOrder(ctx context.Context, server string, order 
 		return m.setSessionOrderErr
 	}
 	return m.err
+}
+
+func (m *mockTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
+	m.listBoardsCalled = true
+	if m.listBoardsErr != nil {
+		return nil, m.listBoardsErr
+	}
+	return m.listBoardsResult, nil
+}
+func (m *mockTmuxOps) GetBoard(ctx context.Context, name string) ([]tmux.BoardEntry, error) {
+	m.getBoardCalled = true
+	m.getBoardName = name
+	if m.getBoardErr != nil {
+		return nil, m.getBoardErr
+	}
+	return m.getBoardResult, nil
+}
+func (m *mockTmuxOps) ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error) {
+	if m.listBoardEntriesErr != nil {
+		return nil, m.listBoardEntriesErr
+	}
+	if m.listBoardEntriesByServer != nil {
+		return m.listBoardEntriesByServer[server], nil
+	}
+	return m.listBoardEntriesResult, nil
+}
+func (m *mockTmuxOps) PinBoard(ctx context.Context, server, windowID, board string) error {
+	m.pinBoardCalled = true
+	m.pinBoardServer = server
+	m.pinBoardWindowID = windowID
+	m.pinBoardBoard = board
+	return m.pinBoardErr
+}
+func (m *mockTmuxOps) UnpinBoard(ctx context.Context, server, windowID, board string) error {
+	m.unpinBoardCalled = true
+	m.unpinBoardServer = server
+	m.unpinBoardWindowID = windowID
+	m.unpinBoardBoard = board
+	return m.unpinBoardErr
+}
+func (m *mockTmuxOps) ReorderBoard(ctx context.Context, server, windowID, board, before, after string) (string, error) {
+	m.reorderBoardCalled = true
+	m.reorderBoardServer = server
+	m.reorderBoardWindowID = windowID
+	m.reorderBoardBoard = board
+	m.reorderBoardBefore = before
+	m.reorderBoardAfter = after
+	if m.reorderBoardErr != nil {
+		return "", m.reorderBoardErr
+	}
+	if m.reorderBoardNewKey == "" {
+		return "m", nil
+	}
+	return m.reorderBoardNewKey, nil
 }
 
 func newTestRouter(sf SessionFetcher, ops TmuxOps) http.Handler {

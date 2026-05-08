@@ -52,6 +52,12 @@ type TmuxOps interface {
 	CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error
 	GetSessionOrder(ctx context.Context, server string) ([]string, error)
 	SetSessionOrder(ctx context.Context, server string, order []string) error
+	ListBoards(ctx context.Context) ([]tmux.BoardSummary, error)
+	GetBoard(ctx context.Context, name string) ([]tmux.BoardEntry, error)
+	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
+	PinBoard(ctx context.Context, server, windowID, board string) error
+	UnpinBoard(ctx context.Context, server, windowID, board string) error
+	ReorderBoard(ctx context.Context, server, windowID, board, before, after string) (string, error)
 }
 
 // Server holds handler dependencies.
@@ -176,6 +182,82 @@ func (p *prodTmuxOps) GetSessionOrder(ctx context.Context, server string) ([]str
 func (p *prodTmuxOps) SetSessionOrder(ctx context.Context, server string, order []string) error {
 	return tmux.SetSessionOrder(ctx, server, order)
 }
+func (p *prodTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
+	return tmux.ListBoards(ctx)
+}
+func (p *prodTmuxOps) GetBoard(ctx context.Context, name string) ([]tmux.BoardEntry, error) {
+	return tmux.GetBoard(ctx, name)
+}
+func (p *prodTmuxOps) ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error) {
+	return tmux.ListBoardEntries(ctx, server)
+}
+func (p *prodTmuxOps) PinBoard(ctx context.Context, server, windowID, board string) error {
+	return tmux.Pin(ctx, server, windowID, board)
+}
+func (p *prodTmuxOps) UnpinBoard(ctx context.Context, server, windowID, board string) error {
+	return tmux.Unpin(ctx, server, windowID, board)
+}
+
+// ReorderBoard locates the (server, windowID, board) entry, computes a new
+// order key strictly between the supplied neighbours via fractional indexing,
+// and writes it back. Returns the new key on success.
+func (p *prodTmuxOps) ReorderBoard(ctx context.Context, server, windowID, board, before, after string) (string, error) {
+	beforeKey, afterKey, err := lookupNeighbourKeys(ctx, p, server, board, before, after)
+	if err != nil {
+		return "", err
+	}
+	newKey, err := tmux.ComputeOrderKey(beforeKey, afterKey)
+	if err != nil {
+		return "", err
+	}
+	if err := tmux.Reorder(ctx, server, windowID, board, newKey); err != nil {
+		return "", err
+	}
+	return newKey, nil
+}
+
+// lookupNeighbourKeys translates neighbour windowIDs into their order keys on
+// the named board+server. Either neighbour may be empty (prepend/append).
+// A non-empty neighbour ID that does not exist on the board returns an error.
+func lookupNeighbourKeys(ctx context.Context, ops interface {
+	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
+}, server, board, beforeID, afterID string) (string, string, error) {
+	entries, err := ops.ListBoardEntries(ctx, server)
+	if err != nil {
+		return "", "", err
+	}
+	keys := map[string]string{}
+	for _, e := range entries {
+		if e.Board == board {
+			keys[e.WindowID] = e.OrderKey
+		}
+	}
+	beforeKey := ""
+	afterKey := ""
+	if beforeID != "" {
+		k, ok := keys[beforeID]
+		if !ok {
+			return "", "", errNeighbourNotFound
+		}
+		beforeKey = k
+	}
+	if afterID != "" {
+		k, ok := keys[afterID]
+		if !ok {
+			return "", "", errNeighbourNotFound
+		}
+		afterKey = k
+	}
+	return beforeKey, afterKey, nil
+}
+
+// errNeighbourNotFound is returned when reorder is called with a neighbour
+// windowID that has no entry on the target board+server.
+var errNeighbourNotFound = neighbourNotFoundError{}
+
+type neighbourNotFoundError struct{}
+
+func (neighbourNotFoundError) Error() string { return "neighbour window not found on board" }
 
 // NewRouter creates the chi router with all middleware and routes.
 // Uses production dependencies (live tmux, real session fetcher).
@@ -227,6 +309,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions", s.handleSessionCreate)
 	r.Get("/api/sessions/order", s.handleSessionOrderGet)
 	r.Put("/api/sessions/order", s.handleSessionOrderPut)
+	r.Get("/api/boards", s.handleBoardsList)
+	r.Get("/api/boards/{name}", s.handleBoardGet)
+	r.Post("/api/boards/{name}/pin", s.handleBoardPin)
+	r.Post("/api/boards/{name}/unpin", s.handleBoardUnpin)
+	r.Post("/api/boards/{name}/reorder", s.handleBoardReorder)
 	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)
 	r.Post("/api/sessions/{session}/rename", s.handleSessionRename)

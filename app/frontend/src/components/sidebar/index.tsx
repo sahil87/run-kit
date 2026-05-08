@@ -70,6 +70,30 @@ export function Sidebar({
   }, []);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  // Sessions section collapse — persisted in localStorage, default open.
+  const SESSIONS_COLLAPSE_KEY = "runkit-panel-sessions";
+  const [sessionsOpen, setSessionsOpen] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem(SESSIONS_COLLAPSE_KEY);
+      if (v === "false") return false;
+      if (v === "true") return true;
+    } catch {
+      // localStorage unavailable
+    }
+    return true;
+  });
+  const toggleSessionsOpen = useCallback(() => {
+    setSessionsOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SESSIONS_COLLAPSE_KEY, String(next));
+      } catch {
+        // localStorage unavailable
+      }
+      return next;
+    });
+  }, []);
   const [killTarget, setKillTarget] = useState<{
     type: "session" | "window";
     session: string;
@@ -660,25 +684,39 @@ export function Sidebar({
           exist (unless the user is on a now-empty board route) */}
       <BoardsSection />
 
-      {/* Sessions — always open, flex-grow to fill space */}
-      <div className="border-t border-border flex-1 min-h-0 flex flex-col">
-        <div className="flex items-center gap-1.5 w-full pl-5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
-          <span className="font-medium">Sessions</span>
-          {currentSession && (
-            <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
-              <span className="truncate text-text-primary font-mono">{currentSession}</span>
-            </span>
-          )}
-          <span className={currentSession ? "" : "ml-auto"}>
-            <button
-              onClick={onCreateSession}
-              aria-label="New session"
-              className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+      {/* Sessions — collapsible header, flex-grows to fill remaining space when open */}
+      <div className={`border-t border-border flex flex-col ${sessionsOpen ? "flex-1 min-h-0" : "shrink-0"}`}>
+        <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
+          <button
+            type="button"
+            onClick={toggleSessionsOpen}
+            aria-expanded={sessionsOpen}
+            aria-label={sessionsOpen ? "Collapse sessions" : "Expand sessions"}
+            className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-text-primary transition-colors"
+          >
+            <span
+              className="inline-block transition-transform duration-150"
+              style={{ transform: sessionsOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
+              aria-hidden="true"
             >
-              +
-            </button>
-          </span>
+              &#x25BC;
+            </span>
+            <span className="font-medium">Sessions</span>
+            {currentSession && (
+              <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
+                <span className="truncate text-text-primary font-mono">{currentSession}</span>
+              </span>
+            )}
+          </button>
+          <button
+            onClick={onCreateSession}
+            aria-label="New session"
+            className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+          >
+            +
+          </button>
         </div>
+        {sessionsOpen && (
         <div className="pt-1 flex-1 min-h-0 overflow-y-auto">
         {sessions.length === 0 ? (
           <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
@@ -832,6 +870,7 @@ export function Sidebar({
           })
         )}
         </div>
+        )}
       </div>
 
       {/* Collapsible panels — pinned at bottom */}

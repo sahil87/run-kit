@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useBoards } from "@/hooks/use-boards";
 import { useActiveBoardName } from "@/hooks/use-active-board";
+import { CollapsiblePanel } from "./collapsible-panel";
 
 /**
  * BoardsSection renders the cross-server boards list above the Sessions
@@ -31,41 +32,46 @@ export function BoardsSection() {
   const isHintMode = boards.length === 0 && !!activeBoardName;
 
   return (
-    <div className="border-t border-border shrink-0">
-      <div className="flex items-center gap-1.5 w-full pl-5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary border-b border-border">
-        <span className="font-medium">Boards</span>
-      </div>
-      <div className="py-1">
-        {isHintMode ? (
-          <div className="px-3 py-2 text-xs text-text-secondary">
-            Pin a window to start a board
-          </div>
-        ) : (
-          <ul className="flex flex-col">
-            {boards.map((b) => {
-              const isActive = b.name === activeBoardName;
-              return (
-                <li key={b.name}>
-                  <button
-                    type="button"
-                    onClick={() => navigate({ to: "/board/$name", params: { name: b.name } })}
-                    aria-current={isActive ? "page" : undefined}
-                    className={`w-full flex items-center justify-between gap-2 px-3 py-1 text-sm text-left transition-colors min-h-[36px] ${
-                      isActive
-                        ? "bg-bg-card text-text-primary font-medium"
-                        : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
-                    }`}
-                  >
-                    <span className="truncate">{b.name}</span>
-                    <span className="text-xs text-text-secondary shrink-0">{b.pinCount}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-    </div>
+    <CollapsiblePanel
+      title="Boards"
+      storageKey="runkit-panel-boards"
+      defaultOpen={false}
+      contentClassName="py-1"
+      headerRight={
+        boards.length > 0 ? (
+          <span className="text-xs text-text-secondary">{boards.length}</span>
+        ) : undefined
+      }
+    >
+      {isHintMode ? (
+        <div className="px-3 py-2 text-xs text-text-secondary">
+          Pin a window to start a board
+        </div>
+      ) : (
+        <ul className="flex flex-col">
+          {boards.map((b) => {
+            const isActive = b.name === activeBoardName;
+            return (
+              <li key={b.name}>
+                <button
+                  type="button"
+                  onClick={() => navigate({ to: "/board/$name", params: { name: b.name } })}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-1 text-sm text-left transition-colors min-h-[36px] ${
+                    isActive
+                      ? "bg-bg-card text-text-primary font-medium"
+                      : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
+                  }`}
+                >
+                  <span className="truncate">{b.name}</span>
+                  <span className="text-xs text-text-secondary shrink-0">{b.pinCount}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </CollapsiblePanel>
   );
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -9,10 +10,20 @@ import (
 // version is set at build time via ldflags: -X main.version=...
 var version = "dev"
 
+// displayVersion prefixes a numeric version with "v" to match the sahil87
+// toolkit standard (e.g. "rk version v1.5.3"). The "dev" sentinel used for
+// non-ldflags builds is left untouched so we don't end up with "vdev".
+func displayVersion() string {
+	if version == "dev" || strings.HasPrefix(version, "v") {
+		return version
+	}
+	return "v" + version
+}
+
 var rootCmd = &cobra.Command{
 	Use:     "rk",
 	Short:   "rk — tmux session manager with web UI",
-	Version: version,
+	Version: displayVersion(),
 	// No-args invocation defaults to serve (backwards compat).
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return serveCmd.RunE(cmd, args)

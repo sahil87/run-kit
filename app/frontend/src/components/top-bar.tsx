@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner } from "@/components/logo-spinner";
@@ -33,7 +33,6 @@ type TopBarProps = {
   onToggleSidebar: () => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
-  onOpenCompose: () => void;
   /** Board-mode metadata. Required when `mode === "board"`. */
   boardName?: string;
   paneCount?: number;
@@ -113,7 +112,6 @@ export function TopBar({
   onToggleSidebar,
   onCreateSession,
   onCreateWindow,
-  onOpenCompose,
   boardName,
   paneCount,
   serverCount,
@@ -289,6 +287,12 @@ export function TopBar({
  * The inline-info span is hidden on `< 640px` viewports via `hidden sm:inline`,
  * matching the existing chrome mobile-hide pattern documented in
  * `ui-patterns.md` § Chrome (Top Bar).
+ *
+ * The board switcher uses the shared `<BreadcrumbDropdown>` so it inherits the
+ * same a11y semantics as the session/window switchers: `role="menu"`/`menuitem`,
+ * Escape to close, ArrowUp/ArrowDown navigation, and outside-click dismiss.
+ * The `← Sessions` shortcut is wired through the `action` slot — it lives above
+ * the items list and navigates back to the root sessions view.
  */
 function BoardModeBreadcrumb({
   boardName,
@@ -302,10 +306,27 @@ function BoardModeBreadcrumb({
   boards: { name: string }[];
 }) {
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
 
   const paneNoun = paneCount === 1 ? "pane" : "panes";
   const serverNoun = serverCount === 1 ? "server" : "servers";
+
+  const boardItems: BreadcrumbDropdownItem[] = boards.map((b) => ({
+    label: b.name,
+    href: `/board/${encodeURIComponent(b.name)}`,
+    current: b.name === boardName,
+  }));
+
+  const handleNavigate = useCallback(
+    (href: string) => {
+      // `href` is `/board/{encoded-name}` — decode and route via the typed
+      // navigator so route params are validated.
+      const match = href.match(/^\/board\/(.+)$/);
+      if (match) {
+        navigate({ to: "/board/$name", params: { name: decodeURIComponent(match[1]) } });
+      }
+    },
+    [navigate],
+  );
 
   return (
     <>
@@ -317,51 +338,13 @@ function BoardModeBreadcrumb({
         Board ▸
       </button>
       <span className="text-sm text-text-primary font-medium">{boardName}</span>
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="text-sm text-text-secondary hover:text-text-primary px-1"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-label="Switch board"
-        >
-          ▾
-        </button>
-        {open && (
-          <div className="absolute top-full left-0 mt-1 z-10 bg-bg-secondary border border-border rounded shadow-md py-1 min-w-[160px]">
-            <button
-              type="button"
-              onClick={() => { setOpen(false); navigate({ to: "/" }); }}
-              className="w-full text-left px-3 py-1 text-sm hover:bg-bg-card"
-            >
-              ← Sessions
-            </button>
-            {boards.map((b) => {
-              const isCurrent = b.name === boardName;
-              return (
-                <button
-                  key={b.name}
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    if (!isCurrent) navigate({ to: "/board/$name", params: { name: b.name } });
-                  }}
-                  className={`w-full text-left px-3 py-1 text-sm hover:bg-bg-card ${
-                    isCurrent ? "text-text-secondary cursor-default" : ""
-                  }`}
-                  aria-current={isCurrent ? "true" : undefined}
-                >
-                  {b.name}
-                  {isCurrent && (
-                    <span className="ml-1 text-xs text-text-secondary">(current)</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <BreadcrumbDropdown
+        items={boardItems}
+        label="board"
+        onNavigate={handleNavigate}
+        action={{ label: "← Sessions", onAction: () => navigate({ to: "/" }) }}
+        triggerClassName="text-sm text-text-secondary hover:text-text-primary px-1"
+      />
       <span className="hidden sm:inline ml-2 text-xs text-text-secondary">
         {paneCount} {paneNoun} · {serverCount} {serverNoun} · ⌘[⌘] cycle
       </span>

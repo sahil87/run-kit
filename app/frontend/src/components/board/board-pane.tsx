@@ -67,9 +67,10 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
   // Click, cycle (Cmd+]/Cmd+[), and the initial pane on mount all flow
   // through this effect. We do NOT clear on focus loss — the next pane to
   // gain focus overwrites, which avoids a transient `null` state where the
-  // BottomBar would briefly be inert. TerminalClient inside this pane also
-  // registers itself, but its identifiers come from the same entry — the
-  // last-write-wins effect order is deterministic per render pass.
+  // BottomBar would briefly be inert. The inner `TerminalClient` is rendered
+  // with `registerFocus={false}` (board panes opt out of the per-terminal
+  // self-registration), so this pane-level effect is the single registration
+  // path for board mode — no last-write-wins coordination required.
   useEffect(() => {
     if (!isFocused) return;
     setFocused({

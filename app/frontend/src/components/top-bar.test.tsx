@@ -71,7 +71,6 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
             onToggleSidebar={vi.fn()}
             onCreateSession={vi.fn()}
             onCreateWindow={vi.fn()}
-            onOpenCompose={vi.fn()}
             {...overrides}
           />
         </ChromeProvider>

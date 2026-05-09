@@ -390,7 +390,6 @@ function BoardPageContent({ name }: { name: string }) {
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
             onCreateSession={() => {}}
             onCreateWindow={() => {}}
-            onOpenCompose={() => {}}
             boardName={name}
             paneCount={entries.length}
             serverCount={serverCount}

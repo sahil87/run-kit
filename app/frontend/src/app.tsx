@@ -1006,7 +1006,6 @@ function AppShell() {
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onCreateSession={handleCreateSessionInstant}
           onCreateWindow={handleCreateWindow}
-          onOpenCompose={() => setComposeOpen(!composeOpen)}
         />
       </header>
 

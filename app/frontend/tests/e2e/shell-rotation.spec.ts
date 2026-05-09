@@ -6,11 +6,13 @@ const TEST_SESSION = `e2e-shell-rotation-${Date.now()}`;
 const BOARD_NAME = `sr${Date.now().toString().slice(-6)}`;
 
 // Two distinct shell payloads so each window's terminal renders unique content.
-// The test pipes BottomBar input into the focused pane via Compose and verifies
-// that the *focused* pane received the typed text — and the unfocused pane did
-// not. This is the central focus-tracking invariant introduced by 17m3:
-// `FocusedTerminalContext` routes BottomBar input to whichever pane is
-// currently focused.
+// The test asserts the focus-cycling proxy of the central 17m3 invariant: when
+// the user presses Cmd+]/Cmd+[ on the board route, the focused pane changes,
+// which is the prerequisite for `FocusedTerminalContext` to route BottomBar
+// input to a different pane. The visible signal we assert against is the
+// `border-accent` class on the focused pane (and its absence on others) —
+// driving Compose end-to-end and asserting per-pane STDIN routing is left to
+// follow-up e2e coverage.
 const WIN_A_MARKER = "PANE_ALPHA_RDY";
 const WIN_B_MARKER = "PANE_BRAVO_RDY";
 

@@ -1,10 +1,17 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ToastProvider } from "@/components/toast";
 import { useBoardEntries, useBoards } from "@/hooks/use-boards";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { usePaneWidths, BOARD_PANE_DEFAULT_WIDTH } from "@/hooks/use-pane-widths";
 import { usePinActions } from "@/hooks/use-pin-actions";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useOptimisticContext } from "@/contexts/optimistic-context";
+import { useSessionContext } from "@/contexts/session-context";
+import { useToast } from "@/components/toast";
+import { Sidebar } from "@/components/sidebar";
+import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer } from "@/api/client";
+import { Dialog } from "@/components/dialog";
+import { deriveNameFromPath } from "@/components/create-session-dialog";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
 import { BoardPane, type BoardPaneHandle } from "./board-pane";
@@ -23,11 +30,9 @@ const SIDEBAR_WIDTH = 240;
 const SWIPE_THRESHOLD_PX = 40;
 
 export function BoardPage(_props: BoardPageRouteProps) {
-  return (
-    <ToastProvider>
-      <BoardPageInner />
-    </ToastProvider>
-  );
+  // ToastProvider, SessionProvider, and OptimisticProvider are mounted by
+  // RootWrapper above all routes — no per-route wrapping needed here.
+  return <BoardPageInner />;
 }
 
 function BoardPageInner() {
@@ -49,6 +54,90 @@ function BoardPageContent({ name }: { name: string }) {
   const { unpin } = usePinActions();
   const isMobile = useIsMobile();
   const { getWidth, setWidth } = usePaneWidths(name, SIDEBAR_WIDTH);
+
+  // Session/window/server creation handlers — match AppShell's wiring so the
+  // unified Sidebar can fire the same optimistic flows on the board route.
+  const ctx = useSessionContext();
+  const { addToast } = useToast();
+  const { addGhostSession, addGhostServer, removeGhost } = useOptimisticContext();
+  const ghostSessionIdRef = useRef<string | null>(null);
+  const ghostServerIdRef = useRef<string | null>(null);
+  const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
+  const [createServerName, setCreateServerName] = useState("");
+  const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
+
+  const { execute: executeCreateSession } = useOptimisticAction<[string, string, string | undefined]>({
+    action: (srv, sessName, cwd) => createSession(srv, sessName, cwd),
+    onOptimistic: (srv, sessName) => {
+      ghostSessionIdRef.current = addGhostSession(srv, sessName);
+    },
+    onRollback: () => {
+      if (ghostSessionIdRef.current) {
+        removeGhost(ghostSessionIdRef.current);
+        ghostSessionIdRef.current = null;
+      }
+    },
+    onError: (err) => addToast(err.message || "Failed to create session"),
+    onSettled: () => { ghostSessionIdRef.current = null; },
+  });
+
+  const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
+    action: (srv, sess) => createWindowApi(srv, sess, "zsh"),
+    onError: (err) => addToast(err.message || "Failed to create window"),
+  });
+
+  const { execute: executeCreateServer } = useOptimisticAction<[string]>({
+    action: (n) => createServer(n),
+    onOptimistic: (n) => { ghostServerIdRef.current = addGhostServer(n); },
+    onRollback: () => {
+      if (ghostServerIdRef.current) {
+        removeGhost(ghostServerIdRef.current);
+        ghostServerIdRef.current = null;
+      }
+    },
+    onError: (err) => addToast(err.message || "Failed to create server"),
+    onSettled: () => { ghostServerIdRef.current = null; },
+  });
+
+  const { execute: executeKillServer } = useOptimisticAction<[string]>({
+    action: (n) => killServerApi(n),
+    onError: (err) => addToast(err.message || "Failed to kill server"),
+  });
+
+  const handleCreateSession = useCallback(
+    (srv: string) => {
+      const existingNames = (ctx.sessionsByServer.get(srv) ?? []).map((s) => s.name);
+      const base = "session";
+      let candidate = base;
+      const set = new Set(existingNames);
+      let i = 2;
+      while (set.has(candidate)) {
+        candidate = `${base}-${i++}`;
+        if (i > 99) break;
+      }
+      executeCreateSession(srv, candidate, undefined);
+    },
+    [ctx.sessionsByServer, executeCreateSession],
+  );
+
+  const handleCreateWindow = useCallback(
+    (srv: string, session: string) => executeCreateWindow(srv, session),
+    [executeCreateWindow],
+  );
+
+  const handleCreateServerSubmit = useCallback(() => {
+    const trimmed = createServerName.trim();
+    if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
+    executeCreateServer(trimmed);
+    setShowCreateServerDialog(false);
+    setCreateServerName("");
+  }, [createServerName, executeCreateServer]);
+
+  const handleKillServer = useCallback(() => {
+    if (!killServerTarget) return;
+    executeKillServer(killServerTarget);
+    setKillServerTarget(null);
+  }, [killServerTarget, executeKillServer]);
 
   const paneRefs = useRef<Array<BoardPaneHandle | null>>([]);
   paneRefs.current = entries.map((_, i) => paneRefs.current[i] ?? null);
@@ -199,38 +288,28 @@ function BoardPageContent({ name }: { name: string }) {
 
   return (
     <div className="h-screen w-screen flex bg-bg-primary text-text-primary">
-      {/* Minimal sidebar — boards list + back link */}
+      {/* Unified sidebar — same component as AppShell renders. Per-server
+          session groups + Boards section. `currentServer = null` since the
+          board route has no `$server` param; no group is marked current. */}
       <aside
-        className="hidden md:flex flex-col shrink-0 border-r border-border w-[240px] p-2 gap-2 overflow-y-auto"
+        className="hidden md:flex flex-col shrink-0 border-r border-border w-[240px] overflow-hidden"
         aria-label="board sidebar"
       >
-        <Link
-          to="/"
-          className="text-sm text-text-secondary hover:text-text-primary px-2 py-1"
-        >
-          ← Sessions
-        </Link>
-        <h2 className="text-xs uppercase tracking-wide text-text-secondary px-2 mt-2">Boards</h2>
-        {boards.length === 0 ? (
-          <p className="text-xs text-text-secondary px-2">Pin a window to start a board</p>
-        ) : (
-          <ul className="flex flex-col gap-0.5">
-            {boards.map((b) => (
-              <li key={b.name}>
-                <Link
-                  to="/board/$name"
-                  params={{ name: b.name }}
-                  className={`flex items-center justify-between px-2 py-1 rounded text-sm hover:bg-bg-secondary ${
-                    b.name === name ? "bg-bg-secondary text-accent" : "text-text-primary"
-                  }`}
-                >
-                  <span className="truncate">{b.name}</span>
-                  <span className="text-text-secondary text-xs">{b.pinCount}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <Sidebar
+          currentServer={null}
+          currentSession={null}
+          currentWindowIndex={null}
+          onSelectWindow={(srv, sess, idx) => {
+            navigate({
+              to: "/$server/$session/$window",
+              params: { server: srv, session: sess, window: String(idx) },
+            });
+          }}
+          onCreateWindow={handleCreateWindow}
+          onCreateSession={handleCreateSession}
+          onCreateServer={() => setShowCreateServerDialog(true)}
+          onKillServer={(n) => setKillServerTarget(n)}
+        />
       </aside>
 
       <main className="flex-1 min-w-0 flex flex-col">
@@ -296,6 +375,56 @@ function BoardPageContent({ name }: { name: string }) {
       <Suspense fallback={null}>
         <CommandPalette actions={boardRouteActions} />
       </Suspense>
+
+      {/* Server create/kill dialogs — wired so the unified Sidebar's "+ tmux
+          server" and "kill server" affordances work on the board route too. */}
+      {showCreateServerDialog && (
+        <Dialog title="Create tmux server" onClose={() => { setShowCreateServerDialog(false); setCreateServerName(""); }}>
+          <input
+            autoFocus
+            type="text"
+            value={createServerName}
+            onChange={(e) => setCreateServerName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateServerSubmit()}
+            onFocus={(e) => e.target.select()}
+            aria-label="Server name"
+            placeholder="Server name..."
+            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+          />
+          <p className="text-xs text-text-secondary mt-1.5">
+            Alphanumeric, hyphens, and underscores only.
+          </p>
+          <button
+            onClick={handleCreateServerSubmit}
+            disabled={!createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim())}
+            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50"
+          >
+            Create
+          </button>
+        </Dialog>
+      )}
+
+      {killServerTarget && (
+        <Dialog title="Kill tmux server?" onClose={() => setKillServerTarget(null)}>
+          <p className="text-text-secondary mb-2.5">
+            Kill server <strong>{killServerTarget}</strong> and all its sessions? This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setKillServerTarget(null)}
+              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleKillServer}
+              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+            >
+              Kill
+            </button>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import {
   type BoardSummary,
   type BoardEntry,
 } from "@/api/boards";
-import { listServers } from "@/api/client";
+import { useSessionContext } from "@/contexts/session-context";
 
 /** Debounce window for coalescing rapid SSE events into one re-fetch. */
 const REFETCH_DEBOUNCE_MS = 50;
@@ -33,33 +33,18 @@ function useBoardChangedSubscription(onEvent: () => void): void {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
-  const [serverNames, setServerNames] = useState<string[]>([]);
-  const refreshServers = useCallback(async () => {
-    try {
-      const list = await listServers();
-      setServerNames(list.map((s) => s.name).sort());
-    } catch {
-      // best-effort: SSE will retry on next mount cycle
-    }
-  }, []);
-
+  // Use SessionProvider's EventSource pool instead of opening per-server
+  // connections here. We attach all known servers so cross-server
+  // board-changed events arrive (boards are explicitly cross-server).
+  const { servers: ctxServers, attachServer, subscribeBoardChange } = useSessionContext();
   useEffect(() => {
-    refreshServers();
-  }, [refreshServers]);
-
+    for (const s of ctxServers) attachServer(s.name);
+  }, [ctxServers, attachServer]);
   useEffect(() => {
-    if (serverNames.length === 0) return;
-    const sources: EventSource[] = serverNames.map((server) => {
-      const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
-      es.addEventListener("board-changed", () => {
-        onEventRef.current();
-      });
-      return es;
+    return subscribeBoardChange(() => {
+      onEventRef.current();
     });
-    return () => {
-      for (const es of sources) es.close();
-    };
-  }, [serverNames]);
+  }, [subscribeBoardChange]);
 }
 
 /**

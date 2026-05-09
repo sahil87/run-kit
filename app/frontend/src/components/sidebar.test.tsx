@@ -102,28 +102,45 @@ const sessions: ProjectSession[] = [
   },
 ];
 
-function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
-  const server = (overrides.server as string | undefined) ?? "runkit";
+type SidebarTestOverrides = Partial<React.ComponentProps<typeof Sidebar>> & {
+  /** Test convenience: override the per-server sessions Map fed to the
+   *  StandaloneSessionContextProvider. Defaults to `{ runkit: <sessions> }`. */
+  sessions?: ProjectSession[];
+  serverList?: { name: string; sessionCount: number }[];
+};
+
+function renderSidebar(overrides: SidebarTestOverrides = {}) {
+  const currentServer = overrides.currentServer ?? "runkit";
+  const sessionData = overrides.sessions ?? sessions;
+  const serverList = overrides.serverList ?? [{ name: "runkit", sessionCount: 0 }];
+  // Spread overrides minus the context-only fields onto Sidebar.
+  const { sessions: _omitSessions, serverList: _omitServerList, currentServer: _omitCurrentServer, ...sidebarOverrides } = overrides;
   return render(
     <ThemeProvider>
     <ToastProvider>
       <OptimisticProvider>
-        <StandaloneSessionContextProvider value={{ server }}>
+        <StandaloneSessionContextProvider
+          value={{
+            sessionsByServer: new Map(serverList.map((s) => [s.name, s.name === currentServer ? sessionData : []])),
+            sessionOrderByServer: new Map(serverList.map((s) => [s.name, []])),
+            isConnectedByServer: new Map(serverList.map((s) => [s.name, false])),
+            metricsByServer: new Map(),
+            currentServer,
+            servers: serverList,
+            refreshServers: vi.fn(),
+          }}
+        >
           <MetricsProvider value={null}>
             <Sidebar
-              sessions={sessions}
+              currentServer={currentServer}
               currentSession="run-kit"
               currentWindowIndex="0"
               onSelectWindow={vi.fn()}
               onCreateWindow={vi.fn()}
               onCreateSession={vi.fn()}
-              server="runkit"
-              servers={[{ name: "runkit", sessionCount: 0 }]}
-              onSwitchServer={vi.fn()}
               onCreateServer={vi.fn()}
               onKillServer={vi.fn()}
-              onRefreshServers={vi.fn()}
-              {...overrides}
+              {...sidebarOverrides}
             />
           </MetricsProvider>
         </StandaloneSessionContextProvider>
@@ -178,7 +195,7 @@ describe("Sidebar", () => {
 
     // Click the session name text
     fireEvent.click(screen.getByLabelText("Navigate to run-kit"));
-    expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 0);
+    expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 0);
 
     // Windows should still be visible (not collapsed)
     expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(1);
@@ -196,7 +213,7 @@ describe("Sidebar", () => {
     const onSelectWindow = vi.fn();
     renderSidebar({ onSelectWindow });
     fireEvent.click(screen.getByText("scratch"));
-    expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 1);
+    expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 1);
   });
 
   it("shows fab stage text on windows", () => {
@@ -353,7 +370,7 @@ describe("Sidebar", () => {
       renderSidebar({ onSelectWindow });
       fireEvent.click(screen.getByText("scratch"));
 
-      expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 1);
+      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 1);
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
     });
   });
@@ -465,7 +482,7 @@ describe("Sidebar", () => {
       renderSidebar({ onSelectWindow });
       fireEvent.click(screen.getByLabelText("Navigate to run-kit"));
 
-      expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 0);
+      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 0);
       expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
     });
   });
@@ -538,9 +555,10 @@ describe("Sidebar", () => {
 
       expect(dataTransfer.setData).toHaveBeenCalledWith(
         "application/json",
-        JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" }),
+        JSON.stringify({ server: "runkit", session: "run-kit", index: 0, windowId: "@0", name: "main" }),
       );
       const parsed = JSON.parse(transferredData);
+      expect(parsed.server).toBe("runkit");
       expect(parsed.session).toBe("run-kit");
       expect(parsed.index).toBe(0);
       expect(parsed.windowId).toBe("@0");
@@ -822,22 +840,28 @@ describe("Sidebar", () => {
         <ThemeProvider>
         <ToastProvider>
           <OptimisticProvider>
-            <StandaloneSessionContextProvider value={{ server: "runkit" }}>
+            <StandaloneSessionContextProvider
+              value={{
+                sessionsByServer: new Map([["runkit", sessions]]),
+                sessionOrderByServer: new Map([["runkit", []]]),
+                isConnectedByServer: new Map([["runkit", false]]),
+                metricsByServer: new Map(),
+                currentServer: "runkit",
+                servers: [{ name: "runkit", sessionCount: 0 }],
+                refreshServers: vi.fn(),
+              }}
+            >
               <MetricsProvider value={null}>
                 <KilledCountDisplay />
                 <Sidebar
-                  sessions={sessions}
+                  currentServer="runkit"
                   currentSession="run-kit"
                   currentWindowIndex="0"
                   onSelectWindow={vi.fn()}
                   onCreateWindow={vi.fn()}
                   onCreateSession={vi.fn()}
-                  server="runkit"
-                  servers={[{ name: "runkit", sessionCount: 0 }]}
-                  onSwitchServer={vi.fn()}
                   onCreateServer={vi.fn()}
                   onKillServer={vi.fn()}
-                  onRefreshServers={vi.fn()}
                 />
               </MetricsProvider>
             </StandaloneSessionContextProvider>

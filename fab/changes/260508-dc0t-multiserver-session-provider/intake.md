@@ -235,6 +235,21 @@ hdjr already commits to this filter (Assumption #10, Certain, mandatory). This c
 - **Migration order across the 9 consumer files**: do we ship one big PR or stage the migration via the transitional accessor? Default plan: stage via accessor, migrate one consumer per commit, delete the accessor in the final commit. Confirms in spec.
 - **Boards SSE separately**: today `useBoards` fetches `/api/boards` cross-server (not server-scoped). Does it need to be wrapped into the multi-server SSE pool, or stay as a separate SWR-like fetch? Keep separate — boards are explicitly cross-server already, no per-server keying needed.
 
+## Clarifications
+
+### Session 2026-05-09 (bulk confirm)
+
+| # | Action | Detail |
+|---|--------|--------|
+| 10 | Confirmed | — |
+| 11 | Confirmed | — |
+| 12 | Confirmed | — |
+| 13 | Confirmed | — |
+| 14 | Confirmed | — |
+| 15 | Confirmed | — |
+| 16 | Confirmed | — |
+| 17 | Confirmed | — |
+
 ## Assumptions
 
 | # | Grade | Decision | Rationale | Scores |
@@ -248,13 +263,13 @@ hdjr already commits to this filter (Assumption #10, Certain, mandatory). This c
 | 7 | Certain | `currentServer` is set by the active route: `params.server` for AppShell routes, `null` for `/board/$name` and `/` | Discussed — natural mapping; eliminates the "which server is this" ambiguity on board route | S:90 R:85 A:85 D:90 |
 | 8 | Certain | Backend does NOT change — SSE protocol and endpoints are already per-server; frontend just opens more connections | Discussed — backend was designed for this from day one (Server panel already enumerates servers) | S:95 R:95 A:95 D:95 |
 | 9 | Certain | Transitional accessor `useSessionContextForCurrentServer` lets consumers migrate one at a time | Discussed — staging the migration reduces blast radius and makes the diff reviewable | S:85 R:85 A:80 D:80 |
-| 10 | Confident | Default collapse state: only the current server's group is open by default; non-current servers start collapsed; user toggles persist per-server in localStorage | Open Question — default-closed-except-current is the quieter choice and saves DOM; verify in spec | S:75 R:80 A:75 D:75 |
-| 11 | Confident | EventSource concurrency is fine for typical N (≤6 servers) on HTTP/2 backends; lazy-attach (open only when a server section is expanded) is the mitigation if it becomes a problem | Open Question — modern browsers + HTTP/2 lift the 6-connection HTTP/1.1 cap; backend uses chi which supports HTTP/2 | S:75 R:75 A:75 D:75 |
-| 12 | Confident | Boards SSE / `useBoards` stays as a separate cross-server fetch — not wrapped into the per-server pool | Open Question — boards are explicitly cross-server; keying by server would be wrong; keep as-is | S:80 R:80 A:80 D:80 |
-| 13 | Confident | Migration order: stage via the transitional accessor, migrate consumers one commit at a time, delete accessor in final commit | Open Question — staging is safer than big-bang for a refactor that touches 9 files; confirms in spec | S:80 R:85 A:80 D:80 |
-| 14 | Confident | Window drag-and-drop within a server (existing behavior) is preserved; only cross-server is rejected | Discussed — preserves existing UX on the common path | S:85 R:90 A:85 D:85 |
-| 15 | Confident | Top-bar breadcrumbs are route-aware: read `currentServer` for AppShell routes; `Board ▸ name` for board routes; "no session" hint for `/` | Discussed — natural extension of existing breadcrumb behavior | S:80 R:85 A:80 D:80 |
-| 16 | Confident | All `useSessionContext` consumers (~9 files: app.tsx, sidebar/index.tsx, sidebar/host-panel.tsx, create-session-dialog, iframe-window, keyboard-shortcuts, hooks/use-dialog-state, hooks/use-sessions, session-context.test) migrate either to the keyed shape directly or to the transitional accessor | Discussed — file count verified via grep; no surprises | S:85 R:80 A:80 D:80 |
-| 17 | Confident | New e2e test exercising multi-server rendering — but the existing single-server e2e suite passes unchanged because single-server is just N=1 in the new shape | Discussed — multi-server is a generalization, not a breaking change for N=1 | S:85 R:85 A:80 D:80 |
+| 10 | Certain | Default collapse state: only the current server's group is open by default; non-current servers start collapsed; user toggles persist per-server in localStorage | Clarified — user confirmed | S:95 R:80 A:75 D:75 |
+| 11 | Certain | EventSource concurrency is fine for typical N (≤6 servers) on HTTP/2 backends; lazy-attach (open only when a server section is expanded) is the mitigation if it becomes a problem | Clarified — user confirmed | S:95 R:75 A:75 D:75 |
+| 12 | Certain | Boards SSE / `useBoards` stays as a separate cross-server fetch — not wrapped into the per-server pool | Clarified — user confirmed | S:95 R:80 A:80 D:80 |
+| 13 | Certain | Migration order: stage via the transitional accessor, migrate consumers one commit at a time, delete accessor in final commit | Clarified — user confirmed | S:95 R:85 A:80 D:80 |
+| 14 | Certain | Window drag-and-drop within a server (existing behavior) is preserved; only cross-server is rejected | Clarified — user confirmed | S:95 R:90 A:85 D:85 |
+| 15 | Certain | Top-bar breadcrumbs are route-aware: read `currentServer` for AppShell routes; `Board ▸ name` for board routes; "no session" hint for `/` | Clarified — user confirmed | S:95 R:85 A:80 D:80 |
+| 16 | Certain | All `useSessionContext` consumers (~9 files: app.tsx, sidebar/index.tsx, sidebar/host-panel.tsx, create-session-dialog, iframe-window, keyboard-shortcuts, hooks/use-dialog-state, hooks/use-sessions, session-context.test) migrate either to the keyed shape directly or to the transitional accessor | Clarified — user confirmed | S:95 R:80 A:80 D:80 |
+| 17 | Certain | New e2e test exercising multi-server rendering — but the existing single-server e2e suite passes unchanged because single-server is just N=1 in the new shape | Clarified — user confirmed | S:95 R:85 A:80 D:80 |
 
-17 assumptions (9 certain, 8 confident, 0 tentative, 0 unresolved).
+17 assumptions (17 certain, 0 confident, 0 tentative, 0 unresolved).

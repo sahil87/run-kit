@@ -6,13 +6,14 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import { useTheme } from "@/contexts/theme-context";
-import { computeRowTints } from "@/themes";
+import { computeRowTints, UNCOLORED_SELECTED_ANSI } from "@/themes";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { useActiveBoardName } from "@/hooks/use-active-board";
+import { useMergedSessions } from "@/contexts/optimistic-context";
 import { BoardsSection } from "./boards-section";
 import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
@@ -22,19 +23,21 @@ import { WindowPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
 
 export type SidebarProps = {
-  sessions: (ProjectSession | MergedSession)[];
+  /** Identifies the "active" server for visual treatment + default expanded
+   *  group. `null` on board route — no group is marked current and all
+   *  groups follow persisted toggles (defaulting to collapsed). */
+  currentServer: string | null;
   currentSession: string | null;
   currentWindowIndex: string | null;
-  onSelectWindow: (session: string, windowIndex: number) => void;
-  onCreateWindow: (session: string) => void;
-  onCreateSession: () => void;
-  server: string;
-  servers: ServerInfo[];
-  onSwitchServer: (name: string) => void;
+  /** Session/window navigation. The `server` argument carries the source
+   *  server so callers can route across servers. */
+  onSelectWindow: (server: string, session: string, windowIndex: number) => void;
+  /** Create a new window inside a session on a specific server. */
+  onCreateWindow: (server: string, session: string) => void;
+  /** Create a new session against a specific server (per-group "+" button). */
+  onCreateSession: (server: string) => void;
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
-  onRefreshServers: () => void;
-  isConnected?: boolean;
   /** Forwarded to `ServerPanel` → `CollapsiblePanel` as the corner pointerdown
    *  callback. When supplied (desktop only), a corner affordance is rendered at
    *  the bottom-right of the server panel drag handle that also starts a
@@ -43,25 +46,24 @@ export type SidebarProps = {
 };
 
 export function Sidebar({
-  sessions,
+  currentServer,
   currentSession,
   currentWindowIndex,
   onSelectWindow,
   onCreateWindow,
   onCreateSession,
-  server,
-  servers,
-  onSwitchServer,
   onCreateServer,
   onKillServer,
-  onRefreshServers,
-  isConnected = false,
   onSidebarResizeStart,
 }: SidebarProps) {
+  const ctx = useSessionContext();
+  const { servers, sessionsByServer, isConnectedByServer, refreshServers, attachServer } = ctx;
   // Pre-compute row tints from the active theme palette.
   const { theme } = useTheme();
   const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
   const ansiPalette = theme.palette.ansi;
+  const navigate = useNavigate();
+  const { addToast } = useToast();
 
   // Server colors from settings.yaml (all servers)
   const [serverColors, setServerColors] = useState<Record<string, number>>({});
@@ -69,163 +71,164 @@ export function Sidebar({
     getAllServerColors().then(setServerColors).catch(() => {});
   }, []);
 
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Server-switch handler — navigates and lets the route param drive
+  // `currentServer` via the provider's `useMatches()` lookup.
+  const handleSwitchServer = useCallback(
+    (name: string) => {
+      navigate({ to: "/$server", params: { server: name } });
+    },
+    [navigate],
+  );
 
-  // Sessions section collapse — persisted in localStorage, default open.
-  const SESSIONS_COLLAPSE_KEY = "runkit-panel-sessions";
-  const [sessionsOpen, setSessionsOpen] = useState<boolean>(() => {
-    try {
-      const v = localStorage.getItem(SESSIONS_COLLAPSE_KEY);
-      if (v === "false") return false;
-      if (v === "true") return true;
-    } catch {
-      // localStorage unavailable
-    }
-    return true;
-  });
-  const toggleSessionsOpen = useCallback(() => {
-    setSessionsOpen((prev) => {
-      const next = !prev;
+  // Sessions section collapse state — per-server, persisted in localStorage
+  // under `runkit-panel-sessions-{server}`. Default-open for `currentServer`,
+  // collapsed for everyone else. Includes a one-time migration of the legacy
+  // `runkit-panel-sessions` key to the current server's namespaced key.
+  const [serverSectionsOpen, setServerSectionsOpen] = useState<Record<string, boolean>>(() => {
+    const seed: Record<string, boolean> = {};
+    // Best-effort migration of the legacy key — only when currentServer is
+    // set, so we know which namespaced key inherits the value. No error if
+    // the key is missing.
+    if (currentServer) {
       try {
-        localStorage.setItem(SESSIONS_COLLAPSE_KEY, String(next));
+        const legacy = localStorage.getItem("runkit-panel-sessions");
+        if (legacy != null) {
+          const k = `runkit-panel-sessions-${currentServer}`;
+          if (localStorage.getItem(k) == null) {
+            localStorage.setItem(k, legacy);
+          }
+          localStorage.removeItem("runkit-panel-sessions");
+        }
       } catch {
         // localStorage unavailable
       }
-      return next;
+    }
+    return seed;
+  });
+
+  /** Read per-server collapse from localStorage (used inside the render loop
+   *  for servers we haven't touched yet). Default: open for currentServer,
+   *  collapsed otherwise. */
+  const readServerOpen = useCallback(
+    (server: string): boolean => {
+      const cached = serverSectionsOpen[server];
+      if (cached !== undefined) return cached;
+      try {
+        const v = localStorage.getItem(`runkit-panel-sessions-${server}`);
+        if (v === "false") return false;
+        if (v === "true") return true;
+      } catch {
+        // localStorage unavailable
+      }
+      return server === currentServer;
+    },
+    [serverSectionsOpen, currentServer],
+  );
+
+  // Lazy-attach: ask the provider to open an EventSource for any server
+  // whose group is open. The current server is auto-attached by the provider;
+  // this covers user-expanded non-current groups.
+  useEffect(() => {
+    for (const s of servers) {
+      if (readServerOpen(s.name)) {
+        attachServer(s.name);
+      }
+    }
+  }, [servers, attachServer, readServerOpen]);
+
+  const toggleServerSection = useCallback((server: string) => {
+    setServerSectionsOpen((prev) => {
+      let current = prev[server];
+      if (current === undefined) {
+        try {
+          const v = localStorage.getItem(`runkit-panel-sessions-${server}`);
+          current = v === "false" ? false : v === "true" ? true : server === currentServer;
+        } catch {
+          current = server === currentServer;
+        }
+      }
+      const next = !current;
+      try {
+        localStorage.setItem(`runkit-panel-sessions-${server}`, String(next));
+      } catch {
+        // localStorage unavailable
+      }
+      // When opening a non-current server's group, ask the provider to open
+      // its EventSource so the group's session list is populated.
+      if (next && server !== currentServer) {
+        attachServer(server);
+      }
+      return { ...prev, [server]: next };
     });
-  }, []);
+  }, [currentServer, attachServer]);
+
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{
     type: "session" | "window";
+    server: string;
     session: string;
     windowId?: string;
     windowIndex?: number;
     windowCount: number;
   } | null>(null);
 
-  const [editingWindow, setEditingWindow] = useState<{ session: string; windowId: string } | null>(null);
+  const [editingWindow, setEditingWindow] = useState<{ server: string; session: string; windowId: string } | null>(null);
   const [editingName, setEditingName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const cancelledRef = useRef(false);
   const originalNameRef = useRef("");
 
-  const [editingSession, setEditingSession] = useState<string | null>(null);
+  const [editingSession, setEditingSession] = useState<{ server: string; name: string } | null>(null);
   const [editingSessionName, setEditingSessionName] = useState("");
   const sessionInputRef = useRef<HTMLInputElement>(null);
   const sessionCancelledRef = useRef(false);
   const sessionOriginalNameRef = useRef("");
 
-  // Drag-and-drop state for window reordering
-  const [dragSource, setDragSource] = useState<{ session: string; index: number } | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ session: string; index: number } | null>(null);
-  const [sessionDropTarget, setSessionDropTarget] = useState<string | null>(null);
+  // Drag-and-drop state for window reordering. `dragSource.server` is the
+  // source's server, used to reject cross-server drops with a toast.
+  const [dragSource, setDragSource] = useState<{ server: string; session: string; index: number } | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ server: string; session: string; index: number } | null>(null);
+  const [sessionDropTarget, setSessionDropTarget] = useState<{ server: string; session: string } | null>(null);
 
-  // Session reorder state. The persisted order arrives via SSE
-  // (`sessionOrder` from SessionContext). During an active drag we render
-  // `localOrder` for snappy visual feedback and ignore incoming SSE events
-  // for this server until dragend, then drop back to `sessionOrder`.
-  const { sessionOrder } = useSessionContext();
-  const [sessionDragSource, setSessionDragSource] = useState<string | null>(null);
-  const [localOrder, setLocalOrder] = useState<string[] | null>(null);
+  // Session reorder per server. The persisted order arrives via SSE
+  // (`sessionOrderByServer`). During an active drag we render `localOrder`
+  // for snappy visual feedback and ignore incoming SSE events for that
+  // server until dragend.
+  const [sessionDragSource, setSessionDragSource] = useState<{ server: string; name: string } | null>(null);
+  const [localOrderByServer, setLocalOrderByServer] = useState<Record<string, string[] | null>>({});
   const orderPutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SESSION_ORDER_DEBOUNCE_MS = 250;
 
-  // Ref so the effect below reads the current drag state without re-firing
-  // every time it flips. We only want to drop localOrder when SSE delivers a
-  // fresh order, not on dragend itself (otherwise the sidebar reverts to the
-  // old order during the PUT round-trip and snaps back on SSE arrival).
-  const sessionDragSourceRef = useRef<string | null>(null);
+  const sessionDragSourceRef = useRef<typeof sessionDragSource>(null);
   sessionDragSourceRef.current = sessionDragSource;
 
+  // Drop the local override for any server NOT mid-drag whenever SSE-delivered
+  // order changes. Keep localOrder in place for the active drag's server.
   useEffect(() => {
-    // SSE-delivered order arrived: if we're not mid-drag, the context is
-    // authoritative — drop our local override. If we ARE mid-drag, keep
-    // localOrder so the user's in-progress reorder is preserved; the next
-    // SSE tick post-drag will flush.
-    if (sessionDragSourceRef.current === null) {
-      setLocalOrder(null);
-    }
-  }, [sessionOrder]);
+    setLocalOrderByServer((prev) => {
+      if (sessionDragSourceRef.current === null) {
+        // No active drag — flush all overrides.
+        if (Object.keys(prev).length === 0) return prev;
+        return {};
+      }
+      const activeServer = sessionDragSourceRef.current.server;
+      const next: Record<string, string[] | null> = {};
+      for (const [s, v] of Object.entries(prev)) {
+        if (s === activeServer) next[s] = v;
+      }
+      return next;
+    });
+  }, [ctx.sessionOrderByServer]);
 
-  // Cleanup timer on unmount — pending PUT still flushes via the timer until
-  // the component unmounts.
   useEffect(() => {
     return () => {
       if (orderPutTimerRef.current) clearTimeout(orderPutTimerRef.current);
     };
   }, []);
 
-  // Compute rendered order: prefer localOrder during drag, then SSE-delivered
-  // sessionOrder, then natural session list order. Sessions absent from the
-  // saved order render at the bottom in their natural order so newly created
-  // sessions don't disappear and have a predictable home.
-  const orderedSessions = useMemo(() => {
-    const effectiveOrder = localOrder ?? sessionOrder;
-    if (effectiveOrder.length === 0) return sessions;
-    const orderMap = new Map(effectiveOrder.map((name, i) => [name, i]));
-    const ranked = (s: { name: string }) => orderMap.get(s.name) ?? Number.POSITIVE_INFINITY;
-    return [...sessions].sort((a, b) => {
-      const ai = ranked(a);
-      const bi = ranked(b);
-      if (ai === bi) return 0;
-      return ai - bi;
-    });
-  }, [sessions, sessionOrder, localOrder]);
-
-  function handleSessionReorderStart(e: React.DragEvent, name: string) {
-    setSessionDragSource(name);
-    e.dataTransfer.setData("application/x-session-reorder", name);
-    e.dataTransfer.effectAllowed = "move";
-    // Seed localOrder from current effective order so dragover splice operates
-    // on a stable basis even before SSE catches up.
-    const currentNames = orderedSessions.map((s) => s.name);
-    setLocalOrder(currentNames);
-  }
-
-  function handleSessionReorderOver(e: React.DragEvent, targetName: string) {
-    if (!sessionDragSource || sessionDragSource === targetName) return;
-    if (!e.dataTransfer.types.includes("application/x-session-reorder")) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-
-    setLocalOrder((prev) => {
-      const base = prev ?? orderedSessions.map((s) => s.name);
-      const fromIdx = base.indexOf(sessionDragSource);
-      const toIdx = base.indexOf(targetName);
-      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return base;
-      const next = [...base];
-      next.splice(fromIdx, 1);
-      next.splice(toIdx, 0, sessionDragSource);
-
-      // Debounced trailing PUT — coalesce many dragover events into one HTTP
-      // call. dragend does NOT cancel this timer; a fast drag-and-release
-      // within 250ms still flushes.
-      if (orderPutTimerRef.current) clearTimeout(orderPutTimerRef.current);
-      const orderToPut = next.slice();
-      orderPutTimerRef.current = setTimeout(() => {
-        orderPutTimerRef.current = null;
-        setSessionOrder(server, orderToPut).catch((err) => {
-          addToast(err.message || "Failed to save session order");
-        });
-      }, SESSION_ORDER_DEBOUNCE_MS);
-
-      return next;
-    });
-  }
-
-  function handleSessionReorderEnd() {
-    setSessionDragSource(null);
-    // localOrder cleared via the useEffect above once SSE catches up. If SSE
-    // is slow, the next sessionOrder change will replace localOrder.
-  }
-
   const { markKilled, unmarkKilled, markRenamed, unmarkRenamed } = useOptimisticContext();
-  const { addToast } = useToast();
-  const navigate = useNavigate();
 
-  // Boards integration: aggregate pin map across all servers + boards. The
-  // pinned-to-any flag is rendered as the pin icon's filled state on each
-  // window row; `isPinnedToBoard` powers the popover's check marks; the
-  // active-board highlight uses `pinnedToBoard(activeBoard, ...)`.
+  // Boards integration: aggregate pin map across all servers + boards.
   const { boards: allBoards, pinnedSet, pinnedToBoard } = useWindowPins();
   const activeBoardName = useActiveBoardName();
   const isPinnedToActiveBoardFor = useCallback(
@@ -242,7 +245,7 @@ export function Sidebar({
   const addGhostWindow = useWindowStore((state) => state.addGhostWindow);
   const removeGhost = useWindowStore((state) => state.removeGhost);
 
-  // Ctrl+click kill session (optimistic)
+  // Ctrl+click kill session (optimistic) — captures (server, session) per call.
   const lastKillSessionRef = useRef<{ server: string; name: string } | null>(null);
   const { execute: executeKillSession } = useOptimisticAction<[string, string]>({
     action: (srv, name) => killSessionApi(srv, name),
@@ -264,7 +267,7 @@ export function Sidebar({
     },
   });
 
-  // Ctrl+click kill window (optimistic)
+  // Ctrl+click kill window (optimistic) — captures (session, windowId) per call.
   const lastKillWindowRef = useRef<{ session: string; windowId: string } | null>(null);
   const { execute: executeKillWindow } = useOptimisticAction<[string, string, string, number]>({
     action: (srv, session, _windowId, index) => killWindowApi(srv, session, index),
@@ -291,8 +294,7 @@ export function Sidebar({
   // Kill from confirmation dialog (optimistic)
   const killTargetRef = useRef(killTarget);
   killTargetRef.current = killTarget;
-  // Snapshot the server at dialog-confirm time so rollback/settle target the right server.
-  const killDialogServerRef = useRef<string>(server);
+  const killDialogServerRef = useRef<string>("");
 
   const { execute: executeKillFromDialog } = useOptimisticAction<[string, { type: "session" | "window"; session: string; windowId?: string; windowIndex?: number }]>({
     action: (srv, target) => {
@@ -324,10 +326,6 @@ export function Sidebar({
       if (target.type === "window" && target.windowId) {
         restoreWindow(target.session, target.windowId);
       } else {
-        // Keep the killed overlay in place on success — SSE reconciliation
-        // removes the session from the underlying list. Unmarking here would
-        // briefly re-show it. Rollback path (onAlwaysRollback) handles the
-        // failure case by clearing the optimistic mark.
         clearSession(target.session);
       }
     },
@@ -336,17 +334,19 @@ export function Sidebar({
     },
   });
 
-  // Inline rename session (optimistic)
+  // Inline rename session (optimistic). Captures (server, oldName, newName).
   const lastRenameSessionRef = useRef<{ server: string; oldName: string; newName: string } | null>(null);
   const { execute: executeRenameSession } = useOptimisticAction<[string, string, string]>({
     action: (srv, oldName, newName) => renameSession(srv, oldName, newName),
     onOptimistic: (srv, oldName, newName) => {
       lastRenameSessionRef.current = { server: srv, oldName, newName };
       markRenamed("session", srv, oldName, newName);
-      // Navigate immediately so the URL stays in sync with the optimistic display name.
-      // Without this, computeKillRedirect sees the old URL + renamed session = "gone" and
-      // bounces the user to dashboard.
-      if (currentSession === oldName && currentWindowIndex) {
+      // Navigate immediately if the renamed session is the user's current one.
+      if (
+        currentServer === srv &&
+        currentSession === oldName &&
+        currentWindowIndex
+      ) {
         navigate({
           to: "/$server/$session/$window",
           params: { server: srv, session: newName, window: currentWindowIndex },
@@ -358,10 +358,14 @@ export function Sidebar({
       const last = lastRenameSessionRef.current;
       if (last) {
         unmarkRenamed(last.server, last.oldName);
-        if (currentSession === last.newName && currentWindowIndex) {
+        if (
+          currentServer === last.server &&
+          currentSession === last.newName &&
+          currentWindowIndex
+        ) {
           navigate({
             to: "/$server/$session/$window",
-            params: { server, session: last.oldName, window: currentWindowIndex },
+            params: { server: last.server, session: last.oldName, window: currentWindowIndex },
             replace: true,
           });
         }
@@ -406,7 +410,6 @@ export function Sidebar({
   const { execute: executeMoveWindow, isPending: isMovePending } = useOptimisticAction<[string, string, number, number]>({
     action: (srv, session, srcIndex, dstIndex) => moveWindow(srv, session, srcIndex, dstIndex),
     onOptimistic: (_srv, session, srcIndex, dstIndex) => {
-      // Snapshot entries for rollback (move isn't self-inverse like swap)
       const entries = useWindowStore.getState().entries;
       const snapshot = new Map<string, { session: string; index: number }>();
       for (const [id, e] of entries) {
@@ -442,11 +445,11 @@ export function Sidebar({
   const { execute: executeMoveToSession, isPending: isCrossMovePending } = useOptimisticAction<[string, string, number, string, string, string]>({
     action: (srv, srcSession, srcIndex, _windowId, _windowName, dstSession) =>
       moveWindowToSession(srv, srcSession, srcIndex, dstSession),
-    onOptimistic: (_srv, srcSession, _srcIndex, windowId, windowName, dstSession) => {
+    onOptimistic: (srv, srcSession, _srcIndex, windowId, windowName, dstSession) => {
       killWindowStore(srcSession, windowId);
       const optimisticId = addGhostWindow(dstSession, windowName);
       lastMoveToSessionRef.current = { srcSession, windowId, optimisticId };
-      navigate({ to: "/$server", params: { server } });
+      navigate({ to: "/$server", params: { server: srv } });
     },
     onAlwaysRollback: () => {
       if (lastMoveToSessionRef.current) {
@@ -476,11 +479,11 @@ export function Sidebar({
     }
   }, [editingSession]);
 
-  function handleStartSessionEditing(sessionName: string) {
-    cancelledRef.current = true;    // cancel any in-progress window edit
+  function handleStartSessionEditing(server: string, sessionName: string) {
+    cancelledRef.current = true;
     setEditingWindow(null);
     sessionCancelledRef.current = true;
-    setEditingSession(sessionName);
+    setEditingSession({ server, name: sessionName });
     setEditingSessionName(sessionName);
     sessionOriginalNameRef.current = sessionName;
     sessionCancelledRef.current = false;
@@ -490,10 +493,10 @@ export function Sidebar({
     if (!editingSession) return;
     const trimmed = editingSessionName.trim();
     const originalName = sessionOriginalNameRef.current;
-    const sessionName = editingSession;
+    const { server: srv, name: sessionName } = editingSession;
     setEditingSession(null);
     if (trimmed && trimmed !== originalName) {
-      executeRenameSession(server, sessionName, trimmed);
+      executeRenameSession(srv, sessionName, trimmed);
     }
   }
 
@@ -517,29 +520,28 @@ export function Sidebar({
     handleSessionRenameCommit();
   }
 
-  function handleStartEditing(session: string, windowId: string, currentName: string) {
-    sessionCancelledRef.current = true;  // cancel any in-progress session edit
+  function handleStartEditing(server: string, session: string, windowId: string, currentName: string) {
+    sessionCancelledRef.current = true;
     setEditingSession(null);
-    cancelledRef.current = true;          // cancel any in-progress window edit before switching
-    setEditingWindow({ session, windowId });
+    cancelledRef.current = true;
+    setEditingWindow({ server, session, windowId });
     setEditingName(currentName);
     originalNameRef.current = currentName;
     cancelledRef.current = false;
   }
 
-  function handleRenameCommit() {
+  function handleRenameCommit(serverSessionsMap: Map<string, ProjectSession[]>) {
     if (!editingWindow) return;
     const trimmed = editingName.trim();
     const originalName = originalNameRef.current;
-    const { session, windowId } = editingWindow;
+    const { server: srv, session, windowId } = editingWindow;
     setEditingWindow(null);
     if (trimmed && trimmed !== originalName) {
-      // Find the window index for the API call
-      const winIndex = sessions
+      const winIndex = (serverSessionsMap.get(srv) ?? [])
         .find((s) => s.name === session)
-        ?.windows.find((w) => !isGhostWindow(w) && w.windowId === windowId)?.index;
+        ?.windows.find((w) => w.windowId === windowId)?.index;
       if (winIndex != null) {
-        executeRenameWindow(server, session, winIndex, trimmed, windowId);
+        executeRenameWindow(srv, session, winIndex, trimmed, windowId);
       }
     }
   }
@@ -549,49 +551,45 @@ export function Sidebar({
     setEditingWindow(null);
   }
 
-  function handleRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleRenameCommit();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      handleRenameCancel();
-    }
-  }
-
-  function handleRenameBlur() {
-    if (cancelledRef.current) return;
-    handleRenameCommit();
-  }
-
-  function handleDragStart(e: React.DragEvent, sessionName: string, windowIndex: number, windowId: string, windowName: string) {
-    setDragSource({ session: sessionName, index: windowIndex });
-    e.dataTransfer.setData("application/json", JSON.stringify({ session: sessionName, index: windowIndex, windowId, name: windowName }));
+  function handleDragStart(e: React.DragEvent, server: string, sessionName: string, windowIndex: number, windowId: string, windowName: string) {
+    setDragSource({ server, session: sessionName, index: windowIndex });
+    e.dataTransfer.setData(
+      "application/json",
+      JSON.stringify({ server, session: sessionName, index: windowIndex, windowId, name: windowName }),
+    );
     e.dataTransfer.effectAllowed = "move";
   }
 
-  function handleDragOver(e: React.DragEvent, sessionName: string, windowIndex: number) {
-    if (!dragSource || dragSource.session !== sessionName) return;
+  function handleDragOver(e: React.DragEvent, server: string, sessionName: string, windowIndex: number) {
+    if (!dragSource) return;
+    // Allow dragover only within the same server + same session (existing
+    // within-session reorder semantics). Cross-server is rejected at drop.
+    if (dragSource.server !== server || dragSource.session !== sessionName) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setDropTarget((prev) => {
-      if (prev?.session === sessionName && prev?.index === windowIndex) return prev;
-      return { session: sessionName, index: windowIndex };
+      if (prev?.server === server && prev?.session === sessionName && prev?.index === windowIndex) return prev;
+      return { server, session: sessionName, index: windowIndex };
     });
   }
 
-  function handleDrop(e: React.DragEvent, sessionName: string, windowIndex: number) {
+  function handleDrop(e: React.DragEvent, server: string, sessionName: string, windowIndex: number) {
     e.preventDefault();
     setDropTarget(null);
     setDragSource(null);
 
-    let data: { session: string; index: number; windowId: string; name: string };
+    let data: { server?: string; session: string; index: number; windowId: string; name: string };
     try {
       data = JSON.parse(e.dataTransfer.getData("application/json"));
     } catch {
       return;
     }
 
+    // Cross-server drop rejection.
+    if (data.server && data.server !== server) {
+      addToast("Moving windows across tmux servers isn't supported yet");
+      return;
+    }
     if (data.session !== sessionName || data.index === windowIndex) return;
     if (isMovePending) return;
 
@@ -604,69 +602,114 @@ export function Sidebar({
     setSessionDropTarget(null);
   }
 
-  function handleSessionDragOver(e: React.DragEvent, sessionName: string) {
-    if (!dragSource || dragSource.session === sessionName) return;
+  function handleSessionDragOver(e: React.DragEvent, server: string, sessionName: string) {
+    if (!dragSource) return;
+    // Allow within-server cross-session drag-over preview.
+    if (dragSource.server !== server) return;
+    if (dragSource.session === sessionName) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    setSessionDropTarget(sessionName);
+    setSessionDropTarget({ server, session: sessionName });
   }
 
-  function handleSessionDragLeave(e: React.DragEvent, sessionName: string) {
-    if (sessionDropTarget === sessionName) {
+  function handleSessionDragLeave(_e: React.DragEvent, server: string, sessionName: string) {
+    if (sessionDropTarget?.server === server && sessionDropTarget?.session === sessionName) {
       setSessionDropTarget(null);
     }
   }
 
-  function handleSessionDrop(e: React.DragEvent, sessionName: string) {
+  function handleSessionDrop(e: React.DragEvent, server: string, sessionName: string) {
     e.preventDefault();
     setSessionDropTarget(null);
     setDropTarget(null);
     setDragSource(null);
 
-    let data: { session: string; index: number; windowId: string; name: string };
+    let data: { server?: string; session: string; index: number; windowId: string; name: string };
     try {
       data = JSON.parse(e.dataTransfer.getData("application/json"));
     } catch {
       return;
     }
 
+    // Cross-server drop rejection.
+    if (data.server && data.server !== server) {
+      addToast("Moving windows across tmux servers isn't supported yet");
+      return;
+    }
     if (data.session === sessionName) return;
     if (isCrossMovePending) return;
 
     executeMoveToSession(server, data.session, data.index, data.windowId, data.name, sessionName);
   }
 
-  const toggleSession = useCallback((name: string) => {
-    setCollapsed((prev) => ({ ...prev, [name]: !prev[name] }));
+  // Per-server session drag-reorder. Source carries server so the drag is
+  // confined to one server's group.
+  function handleSessionReorderStart(e: React.DragEvent, server: string, name: string, orderedNames: string[]) {
+    setSessionDragSource({ server, name });
+    e.dataTransfer.setData("application/x-session-reorder", `${server}:${name}`);
+    e.dataTransfer.effectAllowed = "move";
+    setLocalOrderByServer((prev) => ({ ...prev, [server]: orderedNames }));
+  }
+
+  function handleSessionReorderOver(e: React.DragEvent, server: string, targetName: string, naturalNames: string[]) {
+    if (!sessionDragSource || sessionDragSource.server !== server || sessionDragSource.name === targetName) return;
+    if (!e.dataTransfer.types.includes("application/x-session-reorder")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+
+    setLocalOrderByServer((prev) => {
+      const base = prev[server] ?? naturalNames;
+      const dragName = sessionDragSource.name;
+      const fromIdx = base.indexOf(dragName);
+      const toIdx = base.indexOf(targetName);
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev;
+      const next = [...base];
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, dragName);
+
+      if (orderPutTimerRef.current) clearTimeout(orderPutTimerRef.current);
+      const orderToPut = next.slice();
+      orderPutTimerRef.current = setTimeout(() => {
+        orderPutTimerRef.current = null;
+        setSessionOrder(server, orderToPut).catch((err) => {
+          addToast(err.message || "Failed to save session order");
+        });
+      }, SESSION_ORDER_DEBOUNCE_MS);
+
+      return { ...prev, [server]: next };
+    });
+  }
+
+  function handleSessionReorderEnd() {
+    setSessionDragSource(null);
+  }
+
+  const toggleSession = useCallback((server: string, name: string) => {
+    setCollapsed((prev) => ({ ...prev, [`${server}:${name}`]: !prev[`${server}:${name}`] }));
   }, []);
 
   function handleKill() {
     if (!killTarget) return;
-    executeKillFromDialog(server, killTarget);
+    executeKillFromDialog(killTarget.server, killTarget);
     setKillTarget(null);
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
 
-  // Resolve selected window for status panel
-  const selectedWindow = currentSession && currentWindowIndex != null
-    ? sessions.find((s) => s.name === currentSession)
-        ?.windows.find((w) => String(w.index) === currentWindowIndex) ?? null
-    : null;
-
   return (
     <nav aria-label="Sessions" className="flex flex-col h-full">
-      {/* Server panel — collapsible */}
+      {/* Server panel — collapsible. The set of servers is the same multi-server
+          list, so this stays at the top regardless of route. */}
       <ServerPanel
-        server={server}
+        server={currentServer ?? ""}
         servers={servers}
         serverColors={serverColors}
         rowTints={rowTints}
         ansiPalette={ansiPalette}
-        onSwitchServer={onSwitchServer}
+        onSwitchServer={handleSwitchServer}
         onCreateServer={onCreateServer}
         onKillServer={onKillServer}
-        onRefreshServers={onRefreshServers}
+        onRefreshServers={refreshServers}
         onSidebarResizeStart={onSidebarResizeStart}
         onServerColorChange={(targetServer, c) => {
           setServerColors((prev) => {
@@ -684,198 +727,130 @@ export function Sidebar({
           exist (unless the user is on a now-empty board route) */}
       <BoardsSection />
 
-      {/* Sessions — collapsible header, flex-grows to fill remaining space when open */}
-      <div className={`border-t border-border flex flex-col ${sessionsOpen ? "flex-1 min-h-0" : "shrink-0"}`}>
+      {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}
+      <div className="border-t border-border flex flex-col flex-1 min-h-0">
         <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
-          <button
-            type="button"
-            onClick={toggleSessionsOpen}
-            aria-expanded={sessionsOpen}
-            aria-label={sessionsOpen ? "Collapse sessions" : "Expand sessions"}
-            className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-text-primary transition-colors"
-          >
-            <span
-              className="inline-block transition-transform duration-150"
-              style={{ transform: sessionsOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
-              aria-hidden="true"
-            >
-              &#x25BC;
+          <span className="font-medium">Sessions</span>
+          {currentServer && currentSession && (
+            <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
+              <span className="truncate text-text-primary font-mono">{currentSession}</span>
             </span>
-            <span className="font-medium">Sessions</span>
-            {currentSession && (
-              <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
-                <span className="truncate text-text-primary font-mono">{currentSession}</span>
-              </span>
-            )}
-          </button>
-          <button
-            onClick={onCreateSession}
-            aria-label="New session"
-            className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
-          >
-            +
-          </button>
+          )}
         </div>
-        {sessionsOpen && (
-        <div className="pt-1 flex-1 min-h-0 overflow-y-auto">
-        {sessions.length === 0 ? (
-          <div className="text-text-secondary text-xs py-4 text-center flex flex-col items-center gap-2">
-            <span>No sessions</span>
-            <button
-              onClick={onCreateSession}
-              className="text-sm px-3 py-1.5 border border-border rounded hover:border-text-secondary text-text-primary"
-            >
-              + New Session
-            </button>
-          </div>
-        ) : (
-          orderedSessions.map((session) => {
-            const isCollapsed = collapsed[session.name] ?? false;
-            const isGhostSession = "optimistic" in session && session.optimistic;
-            return (
-              <div key={session.name} className={`mb-2${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
-                {/* Session row */}
-                <SessionRow
-                  session={session}
-                  sessionColor={session.sessionColor}
-                  rowTints={rowTints}
-                  isCollapsed={isCollapsed}
-                  isSessionDropTarget={sessionDropTarget === session.name}
-                  editingSession={editingSession}
-                  editingSessionName={editingSessionName}
-                  sessionInputRef={sessionInputRef}
-                  draggable={!isGhostSession}
-                  isDragSource={sessionDragSource === session.name}
-                  onDragStart={isGhostSession ? undefined : (e) => handleSessionReorderStart(e, session.name)}
-                  onDragEnd={isGhostSession ? undefined : handleSessionReorderEnd}
-                  onToggleCollapse={() => toggleSession(session.name)}
-                  onSelectFirstWindow={() => onSelectWindow(session.name, session.windows[0]?.index ?? 0)}
-                  onCreateWindow={() => onCreateWindow(session.name)}
-                  onKillClick={(e) => {
-                    if (e.ctrlKey || e.metaKey) {
-                      executeKillSession(server, session.name);
-                      return;
-                    }
-                    setKillTarget({
-                      type: "session",
-                      session: session.name,
-                      windowCount: session.windows.length,
-                    });
-                  }}
-                  onDoubleClickName={() => handleStartSessionEditing(session.name)}
-                  onSessionNameChange={setEditingSessionName}
-                  onSessionRenameKeyDown={handleSessionRenameKeyDown}
-                  onSessionRenameBlur={handleSessionRenameBlur}
-                  onDragOver={(e) => {
-                    handleSessionDragOver(e, session.name);
-                    handleSessionReorderOver(e, session.name);
-                  }}
-                  onDragLeave={(e) => handleSessionDragLeave(e, session.name)}
-                  onDrop={(e) => handleSessionDrop(e, session.name)}
-                  onColorChange={(c) => {
-                    setSessionColorApi(server, session.name, c).catch((err) =>
-                      addToast(err.message || "Failed to set session color"),
-                    );
-                  }}
-                />
-
-                {/* Window rows */}
-                {!isCollapsed && (
-                  <div className="ml-3">
-                    {session.windows.map((win) => {
-                      const isSelected =
-                        currentSession === session.name &&
-                        currentWindowIndex === String(win.index);
-                      const ghost = isGhostWindow(win);
-                      const isDragOver = dropTarget?.session === session.name && dropTarget?.index === win.index && dragSource?.index !== win.index;
-
-                      return (
-                        <WindowRow
-                          key={ghost ? `ghost-${win.optimisticId}` : win.windowId}
-                          win={win}
-                          session={session.name}
-                          isSelected={isSelected}
-                          isDragOver={isDragOver}
-                          nowSeconds={nowSeconds}
-                          color={win.color}
-                          rowTints={rowTints}
-                          ansiPalette={ansiPalette}
-                          editingWindow={editingWindow}
-                          editingName={editingName}
-                          inputRef={inputRef}
-                          server={server}
-                          boards={allBoards}
-                          isPinnedToAny={!ghost && pinnedSet.has(`${server}:${win.windowId}`)}
-                          isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
-                          isPinnedToBoard={(b) => pinnedToBoard(b, server, win.windowId)}
-                          onSelectWindow={() => onSelectWindow(session.name, win.index)}
-                          onDoubleClickName={() => handleStartEditing(session.name, win.windowId, win.name)}
-                          onWindowNameChange={setEditingName}
-                          onRenameKeyDown={handleRenameKeyDown}
-                          onRenameBlur={handleRenameBlur}
-                          onKillClick={(e) => {
-                            e.stopPropagation();
-                            if (e.ctrlKey || e.metaKey) {
-                              if (!ghost) executeKillWindow(server, session.name, win.windowId, win.index);
-                              return;
-                            }
-                            if (!ghost) {
-                              setKillTarget({
-                                type: "window",
-                                session: session.name,
-                                windowId: win.windowId,
-                                windowIndex: win.index,
-                                windowCount: 1,
-                              });
-                            }
-                          }}
-                          onDragStart={ghost ? undefined : (e) => handleDragStart(e, session.name, win.index, win.windowId, win.name)}
-                          onDragOver={ghost ? undefined : (e) => handleDragOver(e, session.name, win.index)}
-                          onDrop={ghost ? undefined : (e) => handleDrop(e, session.name, win.index)}
-                          onDragEnd={ghost ? undefined : handleDragEnd}
-                          onColorChange={ghost ? undefined : (c) => {
-                            setWindowColorApi(server, session.name, win.index, c).catch((err) =>
-                              addToast(err.message || "Failed to set window color"),
-                            );
-                          }}
-                        />
-                      );
-                    })}
-                    {/* Drop zone after last window — enables moving items to the end.
-                        Relative wrapper keeps the absolute zone in flow position without adding height. */}
-                    {dragSource?.session === session.name && (
-                      <div className="relative">
-                        <div
-                          className="absolute inset-x-0 top-0 h-4 -mt-1"
-                          style={
-                            dropTarget?.session === session.name && dropTarget?.index === -1
-                              ? { boxShadow: "0 -2px 0 0 var(--color-accent)" }
-                              : undefined
-                          }
-                          onDragOver={(e) => handleDragOver(e, session.name, -1)}
-                          onDrop={(e) => {
-                            let lastReal: (typeof session.windows)[number] | undefined;
-                            for (let i = session.windows.length - 1; i >= 0; i--) {
-                              if (!isGhostWindow(session.windows[i])) { lastReal = session.windows[i]; break; }
-                            }
-                            if (lastReal) handleDrop(e, session.name, lastReal.index + 1);
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {servers.length === 0 ? (
+            <div className="text-text-secondary text-xs py-4 text-center">No servers</div>
+          ) : (
+            servers.map((srvInfo) => (
+              <ServerGroup
+                key={srvInfo.name}
+                server={srvInfo.name}
+                isCurrent={srvInfo.name === currentServer}
+                serverColor={serverColors[srvInfo.name]}
+                rowTints={rowTints}
+                ansiPalette={ansiPalette}
+                isOpen={readServerOpen(srvInfo.name)}
+                onToggleOpen={() => toggleServerSection(srvInfo.name)}
+                rawSessions={sessionsByServer.get(srvInfo.name) ?? []}
+                sessionOrder={ctx.sessionOrderByServer.get(srvInfo.name) ?? []}
+                localOrder={localOrderByServer[srvInfo.name] ?? null}
+                isConnected={isConnectedByServer.get(srvInfo.name) ?? false}
+                currentSessionName={srvInfo.name === currentServer ? currentSession : null}
+                currentWindowIndex={srvInfo.name === currentServer ? currentWindowIndex : null}
+                editingWindow={editingWindow?.server === srvInfo.name ? editingWindow : null}
+                editingName={editingName}
+                inputRef={inputRef}
+                editingSession={editingSession?.server === srvInfo.name ? editingSession.name : null}
+                editingSessionName={editingSessionName}
+                sessionInputRef={sessionInputRef}
+                sessionDragSource={sessionDragSource?.server === srvInfo.name ? sessionDragSource.name : null}
+                dragSource={dragSource?.server === srvInfo.name ? dragSource : null}
+                dropTarget={dropTarget?.server === srvInfo.name ? dropTarget : null}
+                sessionDropTarget={sessionDropTarget?.server === srvInfo.name ? sessionDropTarget.session : null}
+                allBoards={allBoards}
+                pinnedSet={pinnedSet}
+                pinnedToBoard={pinnedToBoard}
+                isPinnedToActiveBoardFor={isPinnedToActiveBoardFor}
+                collapsed={collapsed}
+                nowSeconds={nowSeconds}
+                onToggleSession={(name) => toggleSession(srvInfo.name, name)}
+                onSelectWindow={onSelectWindow}
+                onCreateWindow={onCreateWindow}
+                onCreateSession={onCreateSession}
+                onSessionRowKill={(name, count, ctrl) => {
+                  if (ctrl) {
+                    executeKillSession(srvInfo.name, name);
+                    return;
+                  }
+                  setKillTarget({
+                    type: "session",
+                    server: srvInfo.name,
+                    session: name,
+                    windowCount: count,
+                  });
+                }}
+                onWindowRowKill={(session, windowId, index, ctrl) => {
+                  if (ctrl) {
+                    executeKillWindow(srvInfo.name, session, windowId, index);
+                    return;
+                  }
+                  setKillTarget({
+                    type: "window",
+                    server: srvInfo.name,
+                    session,
+                    windowId,
+                    windowIndex: index,
+                    windowCount: 1,
+                  });
+                }}
+                onSessionStartEditing={(name) => handleStartSessionEditing(srvInfo.name, name)}
+                onSessionRenameKeyDown={handleSessionRenameKeyDown}
+                onSessionRenameBlur={handleSessionRenameBlur}
+                onSessionNameChange={setEditingSessionName}
+                onWindowStartEditing={(session, windowId, name) => handleStartEditing(srvInfo.name, session, windowId, name)}
+                onWindowNameChange={setEditingName}
+                onWindowRenameKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleRenameCommit(sessionsByServer);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    handleRenameCancel();
+                  }
+                }}
+                onWindowRenameBlur={() => {
+                  if (cancelledRef.current) return;
+                  handleRenameCommit(sessionsByServer);
+                }}
+                onSessionColorChange={(name, c) => {
+                  setSessionColorApi(srvInfo.name, name, c).catch((err) =>
+                    addToast(err.message || "Failed to set session color"),
+                  );
+                }}
+                onWindowColorChange={(session, index, c) => {
+                  setWindowColorApi(srvInfo.name, session, index, c).catch((err) =>
+                    addToast(err.message || "Failed to set window color"),
+                  );
+                }}
+                onWindowDragStart={handleDragStart}
+                onWindowDragOver={handleDragOver}
+                onWindowDrop={handleDrop}
+                onWindowDragEnd={handleDragEnd}
+                onSessionDragOver={handleSessionDragOver}
+                onSessionDragLeave={handleSessionDragLeave}
+                onSessionDrop={handleSessionDrop}
+                onSessionReorderStart={handleSessionReorderStart}
+                onSessionReorderOver={handleSessionReorderOver}
+                onSessionReorderEnd={handleSessionReorderEnd}
+              />
+            ))
+          )}
         </div>
-        )}
       </div>
 
-      {/* Collapsible panels — pinned at bottom */}
-      <WindowPanel window={selectedWindow} nowSeconds={nowSeconds} />
-      <HostPanel isConnected={isConnected} />
+      {/* Status panels — pinned at bottom. Show metrics + selected window
+          status only when there's a current server. */}
+      <BottomPanels currentServer={currentServer} currentSessionName={currentSession} currentWindowIndex={currentWindowIndex} />
 
       {/* Kill confirmation */}
       {killTarget && (
@@ -886,5 +861,379 @@ export function Sidebar({
         />
       )}
     </nav>
+  );
+}
+
+/** Bottom of sidebar: WindowPanel (selected window status) + HostPanel (metrics).
+ *  Pulls from context so the data follows `currentServer`. */
+function BottomPanels({
+  currentServer,
+  currentSessionName,
+  currentWindowIndex,
+}: {
+  currentServer: string | null;
+  currentSessionName: string | null;
+  currentWindowIndex: string | null;
+}) {
+  const ctx = useSessionContext();
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const sessions = currentServer ? ctx.sessionsByServer.get(currentServer) ?? [] : [];
+  const isConnected = currentServer ? ctx.isConnectedByServer.get(currentServer) ?? false : false;
+  const selectedWindow = currentSessionName && currentWindowIndex != null
+    ? sessions.find((s) => s.name === currentSessionName)
+        ?.windows.find((w) => String(w.index) === currentWindowIndex) ?? null
+    : null;
+  return (
+    <>
+      <WindowPanel window={selectedWindow} nowSeconds={nowSeconds} />
+      <HostPanel isConnected={isConnected} />
+    </>
+  );
+}
+
+/** Per-server group — renders the group header + the sessions tree. The
+ *  rendering logic mirrors the legacy single-server sidebar; per-server props
+ *  are threaded through from the parent. */
+type ServerGroupProps = {
+  server: string;
+  isCurrent: boolean;
+  serverColor: number | undefined;
+  rowTints: Map<number, import("@/themes").RowTint>;
+  ansiPalette: readonly string[];
+  isOpen: boolean;
+  onToggleOpen: () => void;
+  rawSessions: ProjectSession[];
+  sessionOrder: string[];
+  localOrder: string[] | null;
+  isConnected: boolean;
+  currentSessionName: string | null;
+  currentWindowIndex: string | null;
+
+  editingWindow: { server: string; session: string; windowId: string } | null;
+  editingName: string;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  editingSession: string | null;
+  editingSessionName: string;
+  sessionInputRef: React.RefObject<HTMLInputElement | null>;
+  sessionDragSource: string | null;
+  dragSource: { server: string; session: string; index: number } | null;
+  dropTarget: { server: string; session: string; index: number } | null;
+  sessionDropTarget: string | null;
+
+  allBoards: ReturnType<typeof useWindowPins>["boards"];
+  pinnedSet: Set<string>;
+  pinnedToBoard: (board: string, server: string, windowId: string) => boolean;
+  isPinnedToActiveBoardFor: (winServer: string, windowId: string) => boolean;
+  collapsed: Record<string, boolean>;
+  nowSeconds: number;
+
+  onToggleSession: (name: string) => void;
+  onSelectWindow: (server: string, session: string, windowIndex: number) => void;
+  onCreateWindow: (server: string, session: string) => void;
+  onCreateSession: (server: string) => void;
+  onSessionRowKill: (name: string, windowCount: number, ctrl: boolean) => void;
+  onWindowRowKill: (session: string, windowId: string, index: number, ctrl: boolean) => void;
+  onSessionStartEditing: (name: string) => void;
+  onSessionRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onSessionRenameBlur: () => void;
+  onSessionNameChange: (value: string) => void;
+  onWindowStartEditing: (session: string, windowId: string, currentName: string) => void;
+  onWindowNameChange: (value: string) => void;
+  onWindowRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onWindowRenameBlur: () => void;
+  onSessionColorChange: (name: string, color: number | null) => void;
+  onWindowColorChange: (session: string, index: number, color: number | null) => void;
+  onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
+  onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
+  onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
+  onWindowDragEnd: () => void;
+  onSessionDragOver: (e: React.DragEvent, server: string, session: string) => void;
+  onSessionDragLeave: (e: React.DragEvent, server: string, session: string) => void;
+  onSessionDrop: (e: React.DragEvent, server: string, session: string) => void;
+  onSessionReorderStart: (e: React.DragEvent, server: string, name: string, orderedNames: string[]) => void;
+  onSessionReorderOver: (e: React.DragEvent, server: string, targetName: string, naturalNames: string[]) => void;
+  onSessionReorderEnd: () => void;
+};
+
+function ServerGroup(props: ServerGroupProps) {
+  const {
+    server,
+    isCurrent,
+    serverColor,
+    rowTints,
+    ansiPalette,
+    isOpen,
+    onToggleOpen,
+    rawSessions,
+    sessionOrder,
+    localOrder,
+    currentSessionName,
+    currentWindowIndex,
+    editingWindow,
+    editingName,
+    inputRef,
+    editingSession,
+    editingSessionName,
+    sessionInputRef,
+    sessionDragSource,
+    dragSource,
+    dropTarget,
+    sessionDropTarget,
+    allBoards,
+    pinnedSet,
+    pinnedToBoard,
+    isPinnedToActiveBoardFor,
+    collapsed,
+    nowSeconds,
+    onToggleSession,
+    onSelectWindow,
+    onCreateWindow,
+    onCreateSession,
+    onSessionRowKill,
+    onWindowRowKill,
+    onSessionStartEditing,
+    onSessionRenameKeyDown,
+    onSessionRenameBlur,
+    onSessionNameChange,
+    onWindowStartEditing,
+    onWindowNameChange,
+    onWindowRenameKeyDown,
+    onWindowRenameBlur,
+    onSessionColorChange,
+    onWindowColorChange,
+    onWindowDragStart,
+    onWindowDragOver,
+    onWindowDrop,
+    onWindowDragEnd,
+    onSessionDragOver,
+    onSessionDragLeave,
+    onSessionDrop,
+    onSessionReorderStart,
+    onSessionReorderOver,
+    onSessionReorderEnd,
+  } = props;
+
+  // Sync this server's session windows into the global window store. The
+  // window store is what `useMergedSessions` reads to compose `MergedSession`
+  // entries with ghost/rename overlays. Without this sync per-server,
+  // non-current servers would render empty session rows. AppShell also
+  // syncs the current server's sessions; the duplicate write is idempotent.
+  const setWindowsForSession = useWindowStore((s) => s.setWindowsForSession);
+  useEffect(() => {
+    for (const s of rawSessions) {
+      setWindowsForSession(s.name, s.windows);
+    }
+  }, [rawSessions, setWindowsForSession]);
+
+  // Apply optimistic merging (ghosts/rename/kill markers) per server.
+  const sessions = useMergedSessions(rawSessions, server);
+
+  const orderedSessions = useMemo(() => {
+    const effectiveOrder = localOrder ?? sessionOrder;
+    if (effectiveOrder.length === 0) return sessions;
+    const orderMap = new Map(effectiveOrder.map((name, i) => [name, i]));
+    const ranked = (s: { name: string }) => orderMap.get(s.name) ?? Number.POSITIVE_INFINITY;
+    return [...sessions].sort((a, b) => {
+      const ai = ranked(a);
+      const bi = ranked(b);
+      if (ai === bi) return 0;
+      return ai - bi;
+    });
+  }, [sessions, sessionOrder, localOrder]);
+
+  // Header tint: borrow Server panel's selected-tile shade convention. Use
+  // the server's color tint when active; gray UNCOLORED_SELECTED when active
+  // and uncolored; nothing otherwise.
+  const headerTint = useMemo(() => {
+    if (!isCurrent) return null;
+    if (serverColor != null) return rowTints.get(serverColor) ?? null;
+    return rowTints.get(UNCOLORED_SELECTED_ANSI) ?? null;
+  }, [isCurrent, serverColor, rowTints]);
+
+  const headerStripeColor = useMemo(() => {
+    if (!isCurrent) return null;
+    if (serverColor != null) return ansiPalette[serverColor] ?? null;
+    return ansiPalette[UNCOLORED_SELECTED_ANSI] ?? null;
+  }, [isCurrent, serverColor, ansiPalette]);
+
+  const naturalNames = orderedSessions.map((s) => s.name);
+
+  return (
+    <div className="border-b border-border last:border-b-0">
+      {/* Group header — uses the same row-tint convention as session rows so
+          the active server is visually distinguished. */}
+      <div
+        className={`flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary border-b border-border ${
+          isCurrent ? "" : "hover:bg-bg-card/30"
+        }`}
+        style={headerTint ? { backgroundColor: headerTint.base } : undefined}
+        aria-current={isCurrent ? "true" : undefined}
+        data-current-server={isCurrent ? "true" : undefined}
+        data-server={server}
+      >
+        <button
+          type="button"
+          onClick={onToggleOpen}
+          aria-expanded={isOpen}
+          aria-label={isOpen ? `Collapse ${server} sessions` : `Expand ${server} sessions`}
+          className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-text-primary transition-colors min-h-[28px]"
+        >
+          <span
+            className="inline-block transition-transform duration-150"
+            style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
+            aria-hidden="true"
+          >
+            &#x25BC;
+          </span>
+          {/* Active server stripe — small color block matching the Server panel's
+              top-stripe convention. */}
+          {headerStripeColor && (
+            <span
+              aria-hidden="true"
+              className="inline-block w-1.5 h-3 rounded-sm"
+              style={{ backgroundColor: headerStripeColor }}
+            />
+          )}
+          <span className={`truncate font-mono ${isCurrent ? "text-text-primary font-medium" : ""}`}>
+            {server}
+          </span>
+        </button>
+        <button
+          onClick={() => onCreateSession(server)}
+          aria-label={`New session on ${server}`}
+          className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+        >
+          +
+        </button>
+      </div>
+
+      {isOpen && (
+        <div className="pt-1 pb-1">
+          {sessions.length === 0 ? (
+            <div className="text-text-secondary text-xs py-2 text-center flex flex-col items-center gap-2">
+              <span>No sessions</span>
+              <button
+                onClick={() => onCreateSession(server)}
+                className="text-sm px-3 py-1.5 border border-border rounded hover:border-text-secondary text-text-primary"
+              >
+                + New Session
+              </button>
+            </div>
+          ) : (
+            orderedSessions.map((session) => {
+              const isCollapsed = collapsed[`${server}:${session.name}`] ?? false;
+              const isGhostSession = "optimistic" in session && session.optimistic;
+              return (
+                <div key={session.name} className={`mb-2${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
+                  <SessionRow
+                    session={session}
+                    sessionColor={session.sessionColor}
+                    rowTints={rowTints}
+                    isCollapsed={isCollapsed}
+                    isSessionDropTarget={sessionDropTarget === session.name}
+                    editingSession={editingSession}
+                    editingSessionName={editingSessionName}
+                    sessionInputRef={sessionInputRef}
+                    draggable={!isGhostSession}
+                    isDragSource={sessionDragSource === session.name}
+                    onDragStart={isGhostSession ? undefined : (e) => onSessionReorderStart(e, server, session.name, naturalNames)}
+                    onDragEnd={isGhostSession ? undefined : onSessionReorderEnd}
+                    onToggleCollapse={() => onToggleSession(session.name)}
+                    onSelectFirstWindow={() => onSelectWindow(server, session.name, session.windows[0]?.index ?? 0)}
+                    onCreateWindow={() => onCreateWindow(server, session.name)}
+                    onKillClick={(e) => {
+                      onSessionRowKill(session.name, session.windows.length, e.ctrlKey || e.metaKey);
+                    }}
+                    onDoubleClickName={() => onSessionStartEditing(session.name)}
+                    onSessionNameChange={onSessionNameChange}
+                    onSessionRenameKeyDown={onSessionRenameKeyDown}
+                    onSessionRenameBlur={onSessionRenameBlur}
+                    onDragOver={(e) => {
+                      onSessionDragOver(e, server, session.name);
+                      onSessionReorderOver(e, server, session.name, naturalNames);
+                    }}
+                    onDragLeave={(e) => onSessionDragLeave(e, server, session.name)}
+                    onDrop={(e) => onSessionDrop(e, server, session.name)}
+                    onColorChange={(c) => onSessionColorChange(session.name, c)}
+                  />
+
+                  {!isCollapsed && (
+                    <div className="ml-3">
+                      {session.windows.map((win) => {
+                        const isSelected =
+                          currentSessionName === session.name &&
+                          currentWindowIndex === String(win.index);
+                        const ghost = isGhostWindow(win);
+                        const isDragOver =
+                          dropTarget?.server === server &&
+                          dropTarget?.session === session.name &&
+                          dropTarget?.index === win.index &&
+                          dragSource?.index !== win.index;
+
+                        return (
+                          <WindowRow
+                            key={ghost ? `ghost-${win.optimisticId}` : win.windowId}
+                            win={win}
+                            session={session.name}
+                            isSelected={isSelected}
+                            isDragOver={isDragOver}
+                            nowSeconds={nowSeconds}
+                            color={win.color}
+                            rowTints={rowTints}
+                            ansiPalette={ansiPalette}
+                            editingWindow={editingWindow ? { session: editingWindow.session, windowId: editingWindow.windowId } : null}
+                            editingName={editingName}
+                            inputRef={inputRef}
+                            server={server}
+                            boards={allBoards}
+                            isPinnedToAny={!ghost && pinnedSet.has(`${server}:${win.windowId}`)}
+                            isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
+                            isPinnedToBoard={(b) => pinnedToBoard(b, server, win.windowId)}
+                            onSelectWindow={() => onSelectWindow(server, session.name, win.index)}
+                            onDoubleClickName={() => onWindowStartEditing(session.name, win.windowId, win.name)}
+                            onWindowNameChange={onWindowNameChange}
+                            onRenameKeyDown={onWindowRenameKeyDown}
+                            onRenameBlur={onWindowRenameBlur}
+                            onKillClick={(e) => {
+                              e.stopPropagation();
+                              if (!ghost) onWindowRowKill(session.name, win.windowId, win.index, e.ctrlKey || e.metaKey);
+                            }}
+                            onDragStart={ghost ? undefined : (e) => onWindowDragStart(e, server, session.name, win.index, win.windowId, win.name)}
+                            onDragOver={ghost ? undefined : (e) => onWindowDragOver(e, server, session.name, win.index)}
+                            onDrop={ghost ? undefined : (e) => onWindowDrop(e, server, session.name, win.index)}
+                            onDragEnd={ghost ? undefined : onWindowDragEnd}
+                            onColorChange={ghost ? undefined : (c) => onWindowColorChange(session.name, win.index, c)}
+                          />
+                        );
+                      })}
+                      {dragSource?.session === session.name && (
+                        <div className="relative">
+                          <div
+                            className="absolute inset-x-0 top-0 h-4 -mt-1"
+                            style={
+                              dropTarget?.server === server && dropTarget?.session === session.name && dropTarget?.index === -1
+                                ? { boxShadow: "0 -2px 0 0 var(--color-accent)" }
+                                : undefined
+                            }
+                            onDragOver={(e) => onWindowDragOver(e, server, session.name, -1)}
+                            onDrop={(e) => {
+                              let lastReal: (typeof session.windows)[number] | undefined;
+                              for (let i = session.windows.length - 1; i >= 0; i--) {
+                                if (!isGhostWindow(session.windows[i])) { lastReal = session.windows[i]; break; }
+                              }
+                              if (lastReal) onWindowDrop(e, server, session.name, lastReal.index + 1);
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
   );
 }

@@ -22,7 +22,11 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
   const [renameName, setRenameName] = useState("");
   const [renameSessionName, setRenameSessionName] = useState("");
 
-  const { server } = useSessionContext();
+  // useDialogState is consumed only by AppShell where currentServer is set.
+  // When null (board route, defensive), handlers no-op via the empty-string
+  // guard at execute sites.
+  const { currentServer } = useSessionContext();
+  const server = currentServer ?? "";
   const { markRenamed, unmarkRenamed, markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
   const killWindowStore = useWindowStore((state) => state.killWindow);

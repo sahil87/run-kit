@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { listBoards, getBoard, type BoardSummary } from "@/api/boards";
-import { listServers } from "@/api/client";
+import { useSessionContext } from "@/contexts/session-context";
 
 /**
  * Aggregate pin state across all boards. Returns:
@@ -82,37 +82,24 @@ export function useWindowPins(): WindowPinsResult {
     };
   }, [fetchAll]);
 
-  // Subscribe to all server SSE streams, debounce re-fetch.
-  const [serverNames, setServerNames] = useState<string[]>([]);
+  // Subscribe to board-changed events through the SessionProvider's pool.
+  // The provider opens an EventSource per attached server; we hook into its
+  // SSE events instead of opening our own per-server connections (which would
+  // saturate the browser's HTTP/1.1 6-per-origin cap on multi-server setups).
+  // Attach all known servers so board-changed events from non-current servers
+  // are received — boards are explicitly cross-server.
+  const { servers, attachServer, subscribeBoardChange } = useSessionContext();
   useEffect(() => {
-    let cancelled = false;
-    listServers()
-      .then((list) => {
-        if (cancelled) return;
-        setServerNames(list.map((s) => s.name).sort());
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+    for (const s of servers) attachServer(s.name);
+  }, [servers, attachServer]);
   useEffect(() => {
-    if (serverNames.length === 0) return;
-    const sources: EventSource[] = serverNames.map((server) => {
-      const es = new EventSource(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
-      es.addEventListener("board-changed", () => {
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => {
-          fetchAll();
-        }, REFETCH_DEBOUNCE_MS);
-      });
-      return es;
+    return subscribeBoardChange(() => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        fetchAll();
+      }, REFETCH_DEBOUNCE_MS);
     });
-    return () => {
-      for (const es of sources) es.close();
-    };
-  }, [serverNames, fetchAll]);
+  }, [subscribeBoardChange, fetchAll]);
 
   const pinnedToBoard = useCallback(
     (board: string, server: string, windowId: string): boolean => {

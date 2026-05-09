@@ -1,6 +1,6 @@
-import { useState, useCallback, useContext } from "react";
+import { useState, useCallback } from "react";
 import { uploadFile } from "@/api/client";
-import { SessionContext } from "@/contexts/session-context";
+import { useSessionContext } from "@/contexts/session-context";
 
 export type UploadedFile = {
   path: string;
@@ -14,9 +14,8 @@ type UseFileUploadReturn = {
 
 /**
  * useFileUpload — when `serverOverride` is provided, that server is used
- * directly (no SessionProvider needed). Otherwise it falls back to the
- * SessionContext server. Boards mount TerminalClients outside the per-server
- * SessionProvider, so they pass the entry's server explicitly.
+ * directly (e.g., Boards mount TerminalClients with explicit per-entry
+ * servers). Otherwise it falls back to the provider's `currentServer`.
  */
 export function useFileUpload(
   session: string,
@@ -24,15 +23,13 @@ export function useFileUpload(
   serverOverride?: string,
 ): UseFileUploadReturn {
   const [uploading, setUploading] = useState(false);
-  // Read context lazily — undefined when not in a SessionProvider, which is
-  // valid as long as serverOverride is supplied.
-  const ctx = useContext(SessionContext);
-  if (!serverOverride && !ctx) {
+  const { currentServer } = useSessionContext();
+  const server = serverOverride ?? currentServer ?? "";
+  if (!server) {
     throw new Error(
-      "useFileUpload requires either serverOverride or to be inside SessionProvider",
+      "useFileUpload requires either serverOverride or a current-server route context",
     );
   }
-  const server = serverOverride ?? (ctx as NonNullable<typeof ctx>).server;
 
   const uploadFiles = useCallback(
     async (files: FileList): Promise<UploadedFile[]> => {

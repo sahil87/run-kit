@@ -59,11 +59,11 @@ Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server li
 
 ## Boards View
 
-`/board/$name` renders a horizontal pane dashboard for windows pinned to a named board (see `tmux-sessions.md` § `@rk_board` for storage and `architecture.md` § Boards Feature for the route placement rationale). The board view does NOT mount under AppShell — it has its own self-contained layout because boards aggregate windows across multiple tmux servers while AppShell chrome is bound to a single `$server`.
+`/board/$name` renders a horizontal pane dashboard for windows pinned to a named board (see `tmux-sessions.md` § `@rk_board` for storage and `architecture.md` § Boards Feature for the route placement rationale). The board view does NOT mount AppShell, but it shares the same root-mounted multi-server `SessionProvider` and renders the same unified `<Sidebar>` as AppShell — the sidebar's per-server session groups stay populated across the route switch because the provider lives at the root.
 
-### BoardPage Mini-Layout (`app/frontend/src/components/board/board-page.tsx`)
+### BoardPage Layout (`app/frontend/src/components/board/board-page.tsx`)
 
-- **Mini-sidebar** — boards list + "← Back to {lastServer}" link to return to the most recently viewed server route
+- **Sidebar** — the unified `<Sidebar>` (same component as AppShell) wrapped in a `<aside>` desktop container with `currentServer={null}`; no per-server group is marked current on board routes. Per-server session groups + Boards section + ServerPanel + bottom panels render as on AppShell. Mobile (< 768px) hides the desktop aside; the sidebar drawer pattern follows the same convention as AppShell
 - **Mini-topbar** — board name breadcrumb with a `▾` dropdown listing `← Sessions` (navigates to `/`) and one entry per other existing board (current board appended with `(current)` inside the dropdown). Connection status, `FixedWidthToggle`, and `⌘K` retain their AppShell positioning
 - **Main pane area** — horizontally-scrollable container of pane "cards" sorted by `orderKey`, each card a `BoardPane` with a `BoardHeader` (`<window-name> · <server>` + unpin button) and an embedded `TerminalClient` connected via WebSocket to `?server=<entry.server>` (one WS per pane)
 - **Own `<CommandPalette>` mount** — BoardPage mounts its own palette (board-route-only entries: Switch / Leave Board View / Cycle Pane Focus →/←) because AppShell's palette is unreachable on `/board/<name>`
@@ -89,7 +89,7 @@ Below the `min-width: 640px` breakpoint (matching the existing project mobile co
 
 ### Sidebar Boards Section (`app/frontend/src/components/sidebar/boards-section.tsx`)
 
-Renders **above the Sessions section** in the AppShell sidebar (visible on `/$server/...` routes; not on the BoardPage's own mini-sidebar — the BoardPage has its own listing).
+Renders **above the Sessions section** in the unified sidebar — visible on every route that mounts `<Sidebar>` (`/$server/...` and `/board/$name`). The board route reuses the same `BoardsSection` component for board switching; there is no separate BoardPage listing.
 
 - **Hidden entirely** when `useBoards()` returns zero boards
 - **Visible** the moment the first board materializes (first pin)
@@ -113,7 +113,7 @@ When the current route is `/board/<name>`, `WindowRow` applies an accent left-bo
 
 | Entry point | Location | Notes |
 |-------------|----------|-------|
-| Sidebar pin icon | `WindowRow` (only on server routes) | Hover-revealed; popover with board picker + inline input |
+| Sidebar pin icon | `WindowRow` (every server's window rows in the unified sidebar — server routes and board routes alike) | Hover-revealed; popover with board picker + inline input |
 | Command palette | `boardActions` block in `app.tsx` (AppShell mount) and BoardPage's own mount | See § Boards Command Palette |
 | Board pane header | `BoardHeader` (only on `/board/<name>`) | Per-pane unpin button — no confirmation (pin is cheap to restore) |
 
@@ -264,9 +264,19 @@ Consumers import `@/components/sidebar` as before — Vite resolves directory im
 
 **Padding**: `px-3 sm:px-6` (matches top bar and bottom bar chrome padding).
 
-**Sessions header**: The Sessions panel in `sidebar/index.tsx` is a plain always-open `<div>` (intentionally not a `CollapsiblePanel` — the session tree is a core always-visible nav surface). Its header row uses `text-text-secondary` as the baseline text color (matching `CollapsiblePanel`'s header baseline), with the "Sessions" label in `font-medium`. When `currentSession` is non-null, its name is rendered to the right of the label in `truncate text-text-primary font-mono` — exactly mirroring the ServerPanel `headerRight` pattern (`server-panel.tsx:81-86`). The `+` new-session button sits to the right of the name (and uses `ml-auto` only when `currentSession` is null, so the right-anchored layout holds in both cases). No background tint is applied — the Sessions panel is always open, so a tint would overlap the colored active `WindowRow` body tint.
+**Sessions header**: The Sessions panel in `sidebar/index.tsx` is a plain always-open `<div>` (intentionally not a `CollapsiblePanel` — the session tree is a core always-visible nav surface). Its header row uses `text-text-secondary` as the baseline text color, with the "Sessions" label in `font-medium`. When `currentSession` is non-null, its name is rendered to the right of the label in `truncate text-text-primary font-mono` — exactly mirroring the ServerPanel `headerRight` pattern (`server-panel.tsx:81-86`). No background tint on this header — per-server tints live on the `ServerGroup` headers below.
 
-**Session rows**: Chevron toggle (left, expands/collapses window list), session name (navigates to first window in session via `onSelectWindow(session, 0)`), + new window button (right), ✕ kill button (right, always visible). Click session name navigates to `/:session/0`; click chevron toggles expand/collapse. No server marker — all sessions belong to the active server. The session-level `+` button triggers instant session creation (calls `onCreateSession` → `executeCreateSessionInstant`), not a dialog. The window-level `+` button triggers instant window creation (existing `executeCreateWindow` behavior, passes `activeWin?.worktreePath` as CWD).
+**Per-server `ServerGroup`s**: Below the Sessions header, the sidebar renders one `ServerGroup` per server in `servers` (the list returned by `/api/servers`). Each group is a `CollapsiblePanel`-style collapsible whose header carries the server name and the `+` new-session affordance (creates against that section's server, regardless of `currentServer`); the body contains that server's session tree, fed by `sessionsByServer.get(server)` and ordered by `sessionOrderByServer.get(server)`. Per-server slice isolation is the rule — drag-and-drop, rename, kill, ghost reconciliation, and optimistic-action keys all carry the server they originated on so cross-server overlays do not leak.
+
+**Default collapse + persistence**: By default the `currentServer` group is open and all other groups are collapsed. User toggles persist per-server in `localStorage["runkit-panel-sessions-{server}"]`. On board routes (`currentServer === null`) no group is the implicit default — collapse follows persisted state, falling back to all-collapsed. The legacy single-server `runkit-panel-sessions` key is migrated best-effort into the current server's namespaced key on first read when `currentServer` is non-null; if the user first lands on a board route, the migration is skipped (acceptable per the spec's "best-effort, no error if missing" rule). Expanding a non-current server's group also calls `attachServer(name)` on the provider so its slice starts populating from SSE.
+
+**Current-server visual marker**: The `currentServer`'s group header carries the same selected-tile shade convention used by `ServerPanel` — `rowTints.get(serverColors.get(currentServer)).selected` when the server has a color assigned, with a neutral `UNCOLORED_SELECTED` fallback otherwise. No marker is drawn when `currentServer === null` (board routes / index). The marker tracks `currentServer` reactively, so server-route switches re-paint the marker without remounting the group.
+
+**Cross-server window navigation**: Clicking a session name or window row in a non-current server's group navigates to that server's route (`/$server/$session/$window`) via `navigate({ to: "/$server/...", params: { server: thatServer, ... } })`. The provider picks up the new `currentServer` via `useMatches()` on the next route match — no explicit `setCurrentServer` call. The previously-current server's group remains rendered (per default-collapse rules); its EventSource and slice persist so re-visiting is instant.
+
+**Cross-server drag-and-drop is rejected**: Dragging a window from one server's group and dropping it on another server's session/group fires a toast `"Moving windows across tmux servers isn't supported yet"` and skips any move API call. tmux's `move-window` does not span servers, so cross-server move is a separate problem. Within-server drag-and-drop (window reorder within a session, cross-session window move within the same server, session reorder within the same server) is preserved verbatim.
+
+**Session rows**: Chevron toggle (left, expands/collapses window list), session name (navigates to first window in session via `onSelectWindow(server, session, 0)`), + new window button (right), ✕ kill button (right, always visible). Click session name navigates to `/$server/$session/0`; click chevron toggles expand/collapse. The session-level `+` button triggers instant session creation against the parent group's server (calls `onCreateSession` → `executeCreateSessionInstant`), not a dialog. The window-level `+` button triggers instant window creation (existing `executeCreateWindow` behavior, passes `activeWin?.worktreePath` as CWD).
 
 **Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
 
@@ -327,7 +337,7 @@ The persisted order lives server-side in tmux user-option `@rk_session_order` (s
 
 `<SessionRow>` exposes optional drag props (`draggable`, `isDragSource`, `onDragStart`, `onDragEnd`) — present for the new feature, absent for any future caller that doesn't want session reorder. The row root passes them straight through to the underlying `<div>`.
 
-**Test ergonomics**: To avoid forcing every existing `Sidebar` test to wrap with the EventSource-opening `SessionProvider` (now required by `useSessionContext`), `session-context.tsx` exports a `StandaloneSessionContextProvider` test helper — counterpart to the existing `MetricsProvider` standalone — that supplies a static context value (`sessionOrder` defaults to `[]`) without opening any network connection. Tests requiring SSE-driven `sessionOrder` use the full `SessionProvider` with a stubbed `EventSource` (see `session-context.test.tsx` for the pattern).
+**Test ergonomics**: `session-context.tsx` exports a `StandaloneSessionContextProvider` test helper that accepts a partial multi-server shape (`sessionsByServer`, `sessionOrderByServer`, `isConnectedByServer`, `metricsByServer`, `currentServer`, etc.) and synthesizes the full context value without opening any network connection. Tests requiring SSE-driven behavior use the full `SessionProvider` with a stubbed `EventSource`; `MockEventSource` is keyed by URL so per-server streams can be driven independently (see `session-context.test.tsx` for the pattern).
 
 **Server selector footer** — pinned at the bottom of the sidebar below the scrollable session tree, separated by `border-t border-border`. Displays `Server: {name}` with a dropdown trigger. Clicking opens a dropdown listing all available tmux servers (from `GET /api/servers`); the current server is highlighted with `text-accent`. Selecting a different server calls `setServer(name)`, which updates localStorage (`runkit-server`), reconnects SSE, and navigates to `/`. The session tree area is `flex-1 min-h-0 overflow-y-auto` above the pinned footer.
 

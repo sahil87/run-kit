@@ -2,3 +2,20 @@
 {"args":"Refactor SessionProvider and Sidebar to be multi-server aware. Today SessionProvider is hard-bound to a single $server (provider key on params.server) — sessions, sessionOrder, metrics, isConnected are all single-server. Sidebar renders a flat sessions list under one server. The board route at /board/$name therefore cannot reuse Sidebar (boards span servers, no single $server to bind to) and ships its own minimal mini-sidebar (DD-8 in the pane-boards spec). This refactor changes provider state shape to per-server keyed maps; opens one EventSource per known server (lazy attach); Sidebar groups sessions by server header; AppShell and BoardPage both render the same Sidebar. Then deletes the BoardPage mini-sidebar. Prerequisite: hdjr (rk-relay-* filter must ship first so multi-server aggregation does not surface ephemerals).","cmd":"fab-new","event":"command","ts":"2026-05-08T19:57:26Z"}
 {"delta":"+2.6","event":"confidence","score":2.6,"trigger":"calc-score","ts":"2026-05-08T19:59:22Z"}
 {"delta":"+0.0","event":"confidence","score":2.6,"trigger":"calc-score","ts":"2026-05-08T19:59:28Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-05-08T20:52:23Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-05-09T04:12:25Z"}
+{"delta":"+2.4","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-09T04:13:12Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-09T04:13:19Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-09T04:13:23Z"}
+{"delta":"-2.2","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-05-09T04:19:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-05-09T04:19:07Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-05-09T04:20:51Z"}
+{"delta":"+1.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-09T04:21:00Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-09T04:21:05Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-09T04:21:16Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-09T04:21:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-05-09T04:21:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-05-09T05:39:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-05-09T05:54:56Z"}
+{"event":"review","result":"passed","ts":"2026-05-09T05:54:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-05-09T06:02:17Z"}

@@ -48,7 +48,10 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { addGhostSession, removeGhost } = useOptimisticContext();
-  const { server } = useSessionContext();
+  // The dialog only opens from AppShell where `currentServer` is set;
+  // fallback to empty string is defensive.
+  const { currentServer } = useSessionContext();
+  const server = currentServer ?? "";
   const ghostIdRef = useRef<string | null>(null);
 
   const existingNames = useMemo(

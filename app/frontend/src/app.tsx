@@ -74,33 +74,31 @@ function deriveInstantSessionName(cwd: string | undefined, existingNames: string
   return `${base}-11`;
 }
 
-/** Root wrapper — provides theme and chrome contexts, renders matched route via Outlet. */
+/** Root wrapper — provides theme, chrome, session, and optimistic contexts above
+ *  ALL routes. Mounting `SessionProvider` here means the multi-server EventSource
+ *  pool is shared across `/$server/...`, `/board/$name`, and `/`; navigating
+ *  between routes only flips `currentServer`, never tearing down the provider. */
 export function RootWrapper() {
   return (
     <ThemeProvider>
       <ToastProvider>
         <ChromeProvider>
-          <Outlet />
+          <SessionProvider>
+            <OptimisticProvider>
+              <Outlet />
+            </OptimisticProvider>
+          </SessionProvider>
         </ChromeProvider>
       </ToastProvider>
     </ThemeProvider>
   );
 }
 
-/** Server layout — wraps SessionProvider + AppShell for /$server routes. */
+/** Server layout — renders `<AppShell>` for `/$server/...`. The provider stack
+ *  lives in `RootWrapper` (above ALL routes); `ServerShell` is now a thin
+ *  pass-through that exists for tanstack-router's component slot. */
 export function ServerShell() {
-  const matches = useMatches();
-  const lastMatch = matches[matches.length - 1];
-  const params = (lastMatch?.params ?? {}) as { server: string };
-  const server = params.server;
-
-  return (
-    <SessionProvider server={server}>
-      <OptimisticProvider>
-        <AppShell />
-      </OptimisticProvider>
-    </SessionProvider>
-  );
+  return <AppShell />;
 }
 
 /** Server not found UI — shown when server param doesn't match any known server. */
@@ -124,18 +122,25 @@ function ServerNotFound({ serverName }: { serverName: string }) {
 function AppShell() {
   useVisualViewport();
 
-  const { sessions: rawSessions, isConnected, server, servers, refreshServers } = useSessionContext();
+  const ctx = useSessionContext();
+  const matches = useMatches();
+  const lastMatch = matches[matches.length - 1];
+  const params = (lastMatch?.params ?? {}) as { server?: string; session?: string; window?: string };
+  // AppShell only mounts under `/$server/...`, so `currentServer` is non-null
+  // here in practice. Fall back to URL params during the brief window between
+  // navigation and the provider's next render with `currentServer` set.
+  const server = ctx.currentServer ?? params.server ?? "";
+  const rawSessions = ctx.sessionsByServer.get(server) ?? [];
+  const isConnected = ctx.isConnectedByServer.get(server) ?? false;
+  const servers = ctx.servers;
+  const refreshServers = ctx.refreshServers;
   const sessions = useMergedSessions(rawSessions, server);
   const { sidebarOpen, drawerOpen, fixedWidth } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen, toggleFixedWidth } = useChromeDispatch();
   const navigate = useNavigate();
-  const matches = useMatches();
   const wsRef = useRef<WebSocket | null>(null);
   const focusTerminalRef = useRef<(() => void) | null>(null);
 
-  // Extract params -- the route may be /$server (no session/window) or /$server/$session/$window
-  const lastMatch = matches[matches.length - 1];
-  const params = (lastMatch?.params ?? {}) as { server?: string; session?: string; window?: string };
   const sessionName = params.session;
   const windowIndex = params.window;
 
@@ -944,19 +949,40 @@ function AppShell() {
           >
             <div className="flex-1 min-w-0 overflow-hidden">
               <Sidebar
-                sessions={sessions}
+                currentServer={server || null}
                 currentSession={sessionName ?? null}
                 currentWindowIndex={windowIndex ?? null}
-                onSelectWindow={navigateToWindow}
-                onCreateWindow={handleCreateWindow}
-                onCreateSession={handleCreateSessionInstant}
-                server={server}
-                servers={servers}
-                onSwitchServer={handleSwitchServer}
+                onSelectWindow={(srv, sess, idx) => {
+                  if (srv === server) {
+                    navigateToWindow(sess, idx);
+                  } else {
+                    navigate({
+                      to: "/$server/$session/$window",
+                      params: { server: srv, session: sess, window: String(idx) },
+                    });
+                    setDrawerOpen(false);
+                  }
+                }}
+                onCreateWindow={(srv, sess) => {
+                  if (srv === server) {
+                    handleCreateWindow(sess);
+                  } else {
+                    executeCreateWindow(srv, sess);
+                  }
+                }}
+                onCreateSession={(srv) => {
+                  if (srv === server) {
+                    handleCreateSessionInstant();
+                  } else {
+                    // For non-current servers, create with a default name
+                    // (no cwd source available).
+                    const existingNames = (ctx.sessionsByServer.get(srv) ?? []).map((s) => s.name);
+                    const name = deriveInstantSessionName(undefined, existingNames);
+                    executeCreateSessionInstant(srv, name, undefined);
+                  }
+                }}
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onKillServer={(name) => setKillServerTarget(name)}
-                onRefreshServers={refreshServers}
-                isConnected={isConnected}
                 onSidebarResizeStart={(e) => handleDragStart(e.clientX)}
               />
             </div>
@@ -1043,21 +1069,38 @@ function AppShell() {
               onClick={(e) => e.stopPropagation()}
             >
               <Sidebar
-                sessions={sessions}
+                currentServer={server || null}
                 currentSession={sessionName ?? null}
                 currentWindowIndex={windowIndex ?? null}
-                onSelectWindow={(s, w) => {
-                  navigateToWindow(s, w);
+                onSelectWindow={(srv, sess, idx) => {
+                  if (srv === server) {
+                    navigateToWindow(sess, idx);
+                  } else {
+                    navigate({
+                      to: "/$server/$session/$window",
+                      params: { server: srv, session: sess, window: String(idx) },
+                    });
+                    setDrawerOpen(false);
+                  }
                 }}
-                onCreateWindow={handleCreateWindow}
-                onCreateSession={handleCreateSessionInstant}
-                server={server}
-                servers={servers}
-                onSwitchServer={handleSwitchServer}
+                onCreateWindow={(srv, sess) => {
+                  if (srv === server) {
+                    handleCreateWindow(sess);
+                  } else {
+                    executeCreateWindow(srv, sess);
+                  }
+                }}
+                onCreateSession={(srv) => {
+                  if (srv === server) {
+                    handleCreateSessionInstant();
+                  } else {
+                    const existingNames = (ctx.sessionsByServer.get(srv) ?? []).map((s) => s.name);
+                    const name = deriveInstantSessionName(undefined, existingNames);
+                    executeCreateSessionInstant(srv, name, undefined);
+                  }
+                }}
                 onCreateServer={() => setShowCreateServerDialog(true)}
                 onKillServer={(name) => setKillServerTarget(name)}
-                onRefreshServers={refreshServers}
-                isConnected={isConnected}
               />
             </div>
           </div>

@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { http, HttpResponse } from "msw";
 import { server as mswServer } from "../../tests/msw/server";
 import { useBoards, useBoardEntries } from "./use-boards";
+import { SessionProvider } from "@/contexts/session-context";
+import { ChromeProvider } from "@/contexts/chrome-context";
 
 beforeAll(() => mswServer.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
@@ -10,8 +13,17 @@ afterEach(() => {
 });
 afterAll(() => mswServer.close());
 
+// Mock TanStack Router so SessionProvider can compute currentServer without
+// a real router. The hook tests don't depend on a specific currentServer —
+// `useBoards` calls `attachServer(name)` for every known server, so the
+// provider opens ES for them regardless.
+vi.mock("@tanstack/react-router", () => ({
+  useMatches: () => [],
+}));
+
 // Stub EventSource so the hook does not attempt to open real SSE connections
-// in JSDOM. We capture the registered listener so tests can dispatch events.
+// in JSDOM. We capture the `board-changed` listener per server so tests can
+// dispatch events. SessionProvider opens these on behalf of useBoards now.
 type Listener = (ev: MessageEvent) => void;
 const listenersByServer = new Map<string, Listener>();
 
@@ -22,14 +34,6 @@ class FakeEventSource {
   private listeners = new Map<string, Listener>();
   constructor(url: string) {
     this.url = url;
-    // capture by server query string for test-time dispatch
-    const u = new URL(url, "http://localhost");
-    const server = u.searchParams.get("server") ?? "default";
-    queueMicrotask(() => {
-      // bind onmessage-style listeners via addEventListener
-      const lis = this.listeners.get("board-changed");
-      if (lis) listenersByServer.set(server, lis);
-    });
   }
   addEventListener(type: string, listener: Listener) {
     this.listeners.set(type, listener);
@@ -49,6 +53,14 @@ class FakeEventSource {
 
 vi.stubGlobal("EventSource", FakeEventSource);
 
+function Wrapper({ children }: { children: ReactNode }) {
+  return (
+    <ChromeProvider>
+      <SessionProvider>{children}</SessionProvider>
+    </ChromeProvider>
+  );
+}
+
 describe("useBoards", () => {
   it("performs initial fetch on mount", async () => {
     let calls = 0;
@@ -59,7 +71,7 @@ describe("useBoards", () => {
         return HttpResponse.json([{ name: "main", pinCount: 1 }]);
       }),
     );
-    const { result } = renderHook(() => useBoards());
+    const { result } = renderHook(() => useBoards(), { wrapper: Wrapper });
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
     });
@@ -77,7 +89,7 @@ describe("useBoards", () => {
         return HttpResponse.json(payload);
       }),
     );
-    const { result } = renderHook(() => useBoards());
+    const { result } = renderHook(() => useBoards(), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(calls).toBe(1);
     expect(result.current.boards).toEqual([]);
@@ -106,7 +118,7 @@ describe("useBoards", () => {
         return HttpResponse.json([]);
       }),
     );
-    const { result } = renderHook(() => useBoards());
+    const { result } = renderHook(() => useBoards(), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(calls).toBe(1);
 
@@ -135,7 +147,7 @@ describe("useBoards", () => {
         return HttpResponse.json({ error: "boom" }, { status: 500 });
       }),
     );
-    const { result } = renderHook(() => useBoards());
+    const { result } = renderHook(() => useBoards(), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.boards).toHaveLength(1));
 
     await waitFor(() => expect(listenersByServer.get("default")).toBeDefined());
@@ -160,7 +172,7 @@ describe("useBoardEntries", () => {
         return HttpResponse.json(payload);
       }),
     );
-    const { result } = renderHook(() => useBoardEntries("main"));
+    const { result } = renderHook(() => useBoardEntries("main"), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(calls).toBe(1);
 

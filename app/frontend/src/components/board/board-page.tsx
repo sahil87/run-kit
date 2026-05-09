@@ -509,8 +509,32 @@ function DesktopRow({
   focusedIndex: number;
   onPaneClick: (idx: number) => void;
 }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // Translate horizontal wheel intent (trackpad two-finger pan, or shift+wheel
+  // which browsers deliver as deltaX) into row scroll. Vertical wheels bubble
+  // through to xterm so per-pane scrollback still works.
+  //
+  // Capture phase: xterm.js attaches a bubble-phase wheel listener on its
+  // viewport that scrolls scrollback and stops further handling, so a focused
+  // terminal swallows the event before it reaches the row in the bubble path.
+  // Capture runs ancestor-first, so we see the event before xterm and can
+  // preventDefault() on horizontal intent.
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaX;
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", onWheel, { capture: true });
+  }, []);
+
   return (
-    <div className="h-full w-full overflow-x-auto flex gap-1 p-1">
+    <div ref={rowRef} className="h-full w-full overflow-x-auto flex gap-1 p-1">
       {entries.map((entry, idx) => (
         <BoardPane
           key={`${entry.server}:${entry.windowId}`}

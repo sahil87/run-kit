@@ -473,7 +473,7 @@ export function TerminalClient({
         ref={terminalRef}
         role="application"
         aria-label={`Terminal: ${sessionName}/${windowIndex}`}
-        className={`flex-1 min-h-0 overflow-hidden touch-none transition-opacity ${
+        className={`flex-1 min-h-0 overflow-hidden coarse:touch-none transition-opacity ${
           composeOpen ? "opacity-50" : ""
         } ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
         onContextMenu={(e) => e.preventDefault()}

@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-09T13:35:47Z"}
+{"args":"Rotated shell layout — sidebar full-height spine, top bar/content right of sidebar; collapse to 0px with hamburger relocating to topbar.left; sidebar order Boards/Servers/Sessions; BottomBar identical across routes via FocusedTerminalContext; TopBar absorbs route-varying informational role; mobile uses overlay sidebar; CSS grid implementation","cmd":"fab-new","event":"command","ts":"2026-05-09T13:35:47Z"}
+{"delta":"+1.9","event":"confidence","score":1.9,"trigger":"calc-score","ts":"2026-05-09T13:39:31Z"}
+{"delta":"+0.0","event":"confidence","score":1.9,"trigger":"calc-score","ts":"2026-05-09T13:39:47Z"}
+{"delta":"+1.0","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-05-09T13:41:35Z"}
+{"delta":"+0.0","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-05-09T13:41:41Z"}

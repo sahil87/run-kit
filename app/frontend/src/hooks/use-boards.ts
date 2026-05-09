@@ -25,9 +25,10 @@ interface UseBoardEntriesResult {
 /**
  * Subscribe to the union of board-changed events across all running tmux
  * servers. Returns a function that dispatches the supplied callback when an
- * event arrives. Re-subscribes when the server list changes. Each connection
- * is its own EventSource — mirrors the per-server SSE pattern in
- * session-context.tsx (boards span servers, so we open multiple).
+ * event arrives. Re-subscribes when the server list changes. Reuses
+ * SessionProvider's EventSource pool via attachServer/subscribeBoardChange
+ * so we share the per-server SSE connections (boards span servers, so we
+ * attach all known servers) and stay under the 6-connection cap.
  */
 function useBoardChangedSubscription(onEvent: () => void): void {
   const onEventRef = useRef(onEvent);

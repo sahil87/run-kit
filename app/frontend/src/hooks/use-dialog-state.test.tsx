@@ -17,8 +17,8 @@ vi.mock("@/api/client", () => ({
 import { renameSession } from "@/api/client";
 
 // Bypass SessionProvider's SSE machinery by using StandaloneSessionContextProvider.
-// `currentServer` is the value that drives `useSessionContextForCurrentServer()`,
-// which is what useDialogState reads. Flipping `currentServer` between renders
+// `currentServer` is the value that useDialogState reads from useSessionContext
+// directly (no helper indirection). Flipping `currentServer` between renders
 // covers the "server-at-handler-time" regression.
 function Wrapper({ server, children }: { server: string; children: ReactNode }) {
   return (

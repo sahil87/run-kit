@@ -175,12 +175,19 @@ func TestRelay_EphemeralCleanupOnClose(t *testing.T) {
 	connA := dialRelay(t, ts, tmuxServer, real, 0)
 	connB := dialRelay(t, ts, tmuxServer, real, 1)
 
+	// Helper that uses a fresh per-call timeout so the surrounding polling
+	// loops never run past a shared parent deadline (which previously made
+	// this test flaky once the cleanup wait outlived the original 3s ctx).
+	listRelaySessions := func() ([]string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return tmux.ListRawSessionNames(ctx, tmuxServer)
+	}
+
 	// Wait briefly so the relay handlers finish creating their ephemerals.
-	listCtx, cancelList := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancelList()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		names, err := tmux.ListRawSessionNames(listCtx, tmuxServer)
+		names, err := listRelaySessions()
 		if err == nil {
 			n := 0
 			for _, name := range names {
@@ -205,7 +212,7 @@ func TestRelay_EphemeralCleanupOnClose(t *testing.T) {
 	cleanupDeadline := time.Now().Add(5 * time.Second)
 	var lastNames []string
 	for time.Now().Before(cleanupDeadline) {
-		names, err := tmux.ListRawSessionNames(listCtx, tmuxServer)
+		names, err := listRelaySessions()
 		if err != nil {
 			t.Fatalf("ListRawSessionNames: %v", err)
 		}

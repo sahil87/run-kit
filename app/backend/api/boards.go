@@ -49,11 +49,17 @@ func (s *Server) handleBoardGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := make([]BoardEntryResponse, 0, len(entries))
-	// Build a session->windowID->WindowInfo lookup per server lazily.
-	type sessionKey struct{ server, session string }
-	cache := make(map[sessionKey][]tmux.WindowInfo)
 
-	// First pass: fetch all sessions per server to resolve window->session.
+	// Build per-server windowID -> {session, WindowInfo} maps once so the
+	// per-entry join below is O(1) instead of O(sessions × windows).
+	type windowMatch struct {
+		session string
+		info    tmux.WindowInfo
+	}
+	byServer := make(map[string]map[string]windowMatch)
+
+	// First pass: fetch all sessions per server, populating the per-server
+	// windowID lookup as we go.
 	serversNeeded := make(map[string]struct{})
 	for _, e := range entries {
 		serversNeeded[e.Server] = struct{}{}
@@ -63,45 +69,42 @@ func (s *Server) handleBoardGet(w http.ResponseWriter, r *http.Request) {
 		if sErr != nil {
 			continue
 		}
+		serverIndex := make(map[string]windowMatch)
 		for _, sess := range sessions {
 			windows, wErr := s.tmux.ListWindows(r.Context(), sess.Name, srv)
 			if wErr != nil {
 				continue
 			}
-			cache[sessionKey{srv, sess.Name}] = windows
+			for _, win := range windows {
+				// First win wins — duplicate windowIDs across sessions on the
+				// same tmux server should not occur.
+				if _, exists := serverIndex[win.WindowID]; exists {
+					continue
+				}
+				serverIndex[win.WindowID] = windowMatch{session: sess.Name, info: win}
+			}
 		}
+		byServer[srv] = serverIndex
 	}
 
 	for _, e := range entries {
-		var match *tmux.WindowInfo
-		var matchSession string
-		for k, windows := range cache {
-			if k.server != e.Server {
-				continue
-			}
-			for i := range windows {
-				if windows[i].WindowID == e.WindowID {
-					match = &windows[i]
-					matchSession = k.session
-					break
-				}
-			}
-			if match != nil {
-				break
-			}
+		serverIndex, ok := byServer[e.Server]
+		if !ok {
+			continue
 		}
-		if match == nil {
+		match, ok := serverIndex[e.WindowID]
+		if !ok {
 			// Window vanished between GetBoard and the join — skip.
 			continue
 		}
 		out = append(out, BoardEntryResponse{
 			Server:      e.Server,
 			WindowID:    e.WindowID,
-			Session:     matchSession,
-			WindowIndex: match.Index,
-			WindowName:  match.Name,
+			Session:     match.session,
+			WindowIndex: match.info.Index,
+			WindowName:  match.info.Name,
 			OrderKey:    e.OrderKey,
-			Panes:       match.Panes,
+			Panes:       match.info.Panes,
 		})
 	}
 	// Stable sort by orderKey to preserve the GetBoard ordering after the join.

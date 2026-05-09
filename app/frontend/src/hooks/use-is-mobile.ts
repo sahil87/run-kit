@@ -11,15 +11,36 @@ export function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(() => evaluateIsMobile());
 
   useEffect(() => {
+    // Guard for non-browser environments (SSR, jsdom variants, older WebViews)
+    // where `window` or `window.matchMedia` may be missing — mirror the same
+    // check used in `evaluateIsMobile()` so the hook never throws on mount.
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     const widthMql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
     const pointerMql = window.matchMedia("(pointer: coarse)");
     const update = () => setIsMobile(widthMql.matches || pointerMql.matches);
-    widthMql.addEventListener("change", update);
-    pointerMql.addEventListener("change", update);
+    // `addEventListener` on MediaQueryList is the modern API. Older WebKit/IE
+    // implementations only have the deprecated `addListener`/`removeListener`
+    // — fall back to those when the modern method is missing.
+    const addListener = (mql: MediaQueryList, fn: () => void) => {
+      if (typeof mql.addEventListener === "function") {
+        mql.addEventListener("change", fn);
+      } else if (typeof (mql as MediaQueryList & { addListener?: (fn: () => void) => void }).addListener === "function") {
+        (mql as MediaQueryList & { addListener: (fn: () => void) => void }).addListener(fn);
+      }
+    };
+    const removeListener = (mql: MediaQueryList, fn: () => void) => {
+      if (typeof mql.removeEventListener === "function") {
+        mql.removeEventListener("change", fn);
+      } else if (typeof (mql as MediaQueryList & { removeListener?: (fn: () => void) => void }).removeListener === "function") {
+        (mql as MediaQueryList & { removeListener: (fn: () => void) => void }).removeListener(fn);
+      }
+    };
+    addListener(widthMql, update);
+    addListener(pointerMql, update);
     update();
     return () => {
-      widthMql.removeEventListener("change", update);
-      pointerMql.removeEventListener("change", update);
+      removeListener(widthMql, update);
+      removeListener(pointerMql, update);
     };
   }, []);
 

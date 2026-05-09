@@ -15,7 +15,7 @@ import { updateWindowUrl } from "@/api/client";
 
 function renderIframe(props: React.ComponentProps<typeof IframeWindow>, server = "runkit") {
   // Bypass SSE by using StandaloneSessionContextProvider; only `currentServer`
-  // matters for IframeWindow's `useSessionContextForCurrentServer()` lookup.
+  // matters — IframeWindow reads it directly from useSessionContext.
   return render(
     <StandaloneSessionContextProvider
       value={{

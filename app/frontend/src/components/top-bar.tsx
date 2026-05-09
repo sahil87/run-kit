@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
@@ -9,7 +10,17 @@ import { splitWindow, closePane } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
+export type TopBarMode = "terminal" | "board" | "root";
+
 type TopBarProps = {
+  /**
+   * Mode controls the breadcrumb / informational region. `terminal` renders
+   * session/window breadcrumbs (default — covers `/$server/$session/$window`).
+   * `root` renders the dashboard label (covers `/$server` with no session).
+   * `board` renders the board breadcrumb dropdown plus pane/server counts and
+   * the cycle hint (covers `/board/$name`).
+   */
+  mode?: TopBarMode;
   sessions: ProjectSession[];
   currentSession: ProjectSession | null;
   currentWindow: WindowInfo | null;
@@ -17,14 +28,18 @@ type TopBarProps = {
   windowName: string;
   isConnected: boolean;
   sidebarOpen: boolean;
-  drawerOpen: boolean;
   server: string;
   onNavigate: (session: string, windowIndex: number) => void;
   onToggleSidebar: () => void;
-  onToggleDrawer: () => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
   onOpenCompose: () => void;
+  /** Board-mode metadata. Required when `mode === "board"`. */
+  boardName?: string;
+  paneCount?: number;
+  serverCount?: number;
+  /** Board-mode list of all boards (for the board switcher dropdown). */
+  boards?: { name: string }[];
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
@@ -85,6 +100,7 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
 }
 
 export function TopBar({
+  mode = "terminal",
   sessions,
   currentSession,
   currentWindow,
@@ -92,14 +108,16 @@ export function TopBar({
   windowName,
   isConnected,
   sidebarOpen,
-  drawerOpen,
   server,
   onNavigate,
   onToggleSidebar,
-  onToggleDrawer,
   onCreateSession,
   onCreateWindow,
   onOpenCompose,
+  boardName,
+  paneCount,
+  serverCount,
+  boards,
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
@@ -130,31 +148,32 @@ export function TopBar({
     [onNavigate],
   );
 
-  // Match the click handler's breakpoint: desktop (>=768px) uses sidebar, mobile uses drawer.
-  // Using both ensures correctness even when the other state is stale after a viewport switch.
-  const isDesktop = typeof window !== "undefined" && window.innerWidth >= 768;
-  const hamburgerOpen = isDesktop ? sidebarOpen : drawerOpen;
+  // Hamburger animation is driven by `sidebarOpen` alone — both desktop
+  // (grid column) and mobile (overlay) collapse to the same boolean state.
+  const hamburgerOpen = sidebarOpen;
 
   return (
     <header className="px-3 border-b-2 border-border">
       <div className="flex items-center justify-between py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
-          {/* Hamburger icon — toggles sidebar (desktop) / drawer (mobile) */}
+          {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
+              desktop grid column and mobile overlay). */}
           <button
-            onClick={() => {
-              if (window.innerWidth >= 768) {
-                onToggleSidebar();
-              } else {
-                onToggleDrawer();
-              }
-            }}
+            onClick={onToggleSidebar}
             aria-label="Toggle navigation"
             className="text-text-primary transition-colors min-w-[24px] min-h-[24px] flex items-center justify-center"
           >
             <HamburgerIcon isOpen={hamburgerOpen} />
           </button>
 
-          {sessionName ? (
+          {mode === "board" && boardName ? (
+            <BoardModeBreadcrumb
+              boardName={boardName}
+              paneCount={paneCount ?? 0}
+              serverCount={serverCount ?? 0}
+              boards={boards ?? []}
+            />
+          ) : sessionName ? (
             <>
               <BreadcrumbDropdown
                 items={sessionItems}
@@ -216,21 +235,30 @@ export function TopBar({
                   windowIndex={currentWindow.index}
                 />
               </span>
-              <span className="hidden sm:flex">
-                <FixedWidthToggle />
-              </span>
             </>
           )}
 
-          {/* Connection dot */}
-          <span role="status" aria-live="polite" className="hidden sm:inline">
-            <span
-              className={`block w-2 h-2 rounded-full ${
-                isConnected ? "bg-accent-green" : "bg-text-secondary"
-              }`}
-              aria-label={isConnected ? "Connected" : "Disconnected"}
-            />
+          {/* FixedWidthToggle is route-agnostic — fixed-width applies to any
+              terminal-bearing surface, including board panes. Lift it out of
+              the `currentWindow` block so board mode (where `currentWindow`
+              is always `null`) still exposes the toggle. */}
+          <span className="hidden sm:flex">
+            <FixedWidthToggle />
           </span>
+
+          {/* Connection dot — terminal/root modes only (board mode hides it
+              because connection state is per-server and a board may span
+              servers). */}
+          {mode !== "board" && (
+            <span role="status" aria-live="polite" className="hidden sm:inline">
+              <span
+                className={`block w-2 h-2 rounded-full ${
+                  isConnected ? "bg-accent-green" : "bg-text-secondary"
+                }`}
+                aria-label={isConnected ? "Connected" : "Disconnected"}
+              />
+            </span>
+          )}
 
           {/* "Run Kit" + Logo — links to dashboard */}
           <a href="/" className="flex items-center gap-3 text-text-secondary hover:text-text-primary transition-colors">
@@ -253,6 +281,91 @@ export function TopBar({
         </div>
       </div>
     </header>
+  );
+}
+
+/**
+ * Board-mode breadcrumb: `Board ▸ {name} ▾   {n} pane(s) · {n} server(s) · ⌘[⌘] cycle`.
+ * The inline-info span is hidden on `< 640px` viewports via `hidden sm:inline`,
+ * matching the existing chrome mobile-hide pattern documented in
+ * `ui-patterns.md` § Chrome (Top Bar).
+ */
+function BoardModeBreadcrumb({
+  boardName,
+  paneCount,
+  serverCount,
+  boards,
+}: {
+  boardName: string;
+  paneCount: number;
+  serverCount: number;
+  boards: { name: string }[];
+}) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+
+  const paneNoun = paneCount === 1 ? "pane" : "panes";
+  const serverNoun = serverCount === 1 ? "server" : "servers";
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => navigate({ to: "/" })}
+        className="text-sm text-text-secondary hover:text-text-primary"
+      >
+        Board ▸
+      </button>
+      <span className="text-sm text-text-primary font-medium">{boardName}</span>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-sm text-text-secondary hover:text-text-primary px-1"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Switch board"
+        >
+          ▾
+        </button>
+        {open && (
+          <div className="absolute top-full left-0 mt-1 z-10 bg-bg-secondary border border-border rounded shadow-md py-1 min-w-[160px]">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); navigate({ to: "/" }); }}
+              className="w-full text-left px-3 py-1 text-sm hover:bg-bg-card"
+            >
+              ← Sessions
+            </button>
+            {boards.map((b) => {
+              const isCurrent = b.name === boardName;
+              return (
+                <button
+                  key={b.name}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    if (!isCurrent) navigate({ to: "/board/$name", params: { name: b.name } });
+                  }}
+                  className={`w-full text-left px-3 py-1 text-sm hover:bg-bg-card ${
+                    isCurrent ? "text-text-secondary cursor-default" : ""
+                  }`}
+                  aria-current={isCurrent ? "true" : undefined}
+                >
+                  {b.name}
+                  {isCurrent && (
+                    <span className="ml-1 text-xs text-text-secondary">(current)</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <span className="hidden sm:inline ml-2 text-xs text-text-secondary">
+        {paneCount} {paneNoun} · {serverCount} {serverNoun} · ⌘[⌘] cycle
+      </span>
+    </>
   );
 }
 

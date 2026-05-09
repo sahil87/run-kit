@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { BottomBar } from "./bottom-bar";
-
-function createWsRef(): React.RefObject<WebSocket | null> {
-  return { current: null };
-}
+import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 
 function renderBottomBar(overrides: Partial<React.ComponentProps<typeof BottomBar>> = {}) {
+  // Tests render the BottomBar with no focused terminal; the existing
+  // `wsRef.current?.readyState !== OPEN` guard ensures input handlers no-op.
   return render(
-    <BottomBar
-      wsRef={createWsRef()}
-      onFocusTerminal={vi.fn()}
-      onScrollLockChange={vi.fn()}
-      {...overrides}
-    />,
+    <FocusedTerminalProvider>
+      <BottomBar
+        onFocusTerminal={vi.fn()}
+        onScrollLockChange={vi.fn()}
+        {...overrides}
+      />
+    </FocusedTerminalProvider>,
   );
 }
 

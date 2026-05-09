@@ -4,32 +4,29 @@ import { useActiveBoardName } from "@/hooks/use-active-board";
 import { CollapsiblePanel } from "./collapsible-panel";
 
 /**
- * BoardsSection renders the cross-server boards list above the Sessions
- * tree. Visibility:
- *   - hidden when zero boards exist AND the user is not on a /board/<name> route
- *   - shown with the "Pin a window to start a board" hint when zero boards
- *     exist AND the user is on a /board/<name> route (the board they were
- *     viewing was just emptied)
- *   - otherwise: shown with one row per board
+ * BoardsSection renders the cross-server boards list at the top of the
+ * sidebar. Visibility:
+ *   - Always visible (regardless of route or board count). When zero boards
+ *     exist, the body shows a `Pin a window to start a board` hint instead
+ *     of board rows.
  *
  * Click a row → navigate to /board/<name>.
  *
  * Self-contained via hooks — no props needed; safe to render inside
  * SessionProvider since useBoards() fetches /api/boards directly (cross-server,
  * not server-scoped).
+ *
+ * The previous "hide entirely when zero boards exist AND not on a board route"
+ * rule from 4vuv §5 was replaced when the section moved to the top of the
+ * sidebar (17m3) — hide-when-empty would shift Servers into and out of the
+ * top slot whenever the first/last board materialised.
  */
 export function BoardsSection() {
   const { boards } = useBoards();
   const navigate = useNavigate();
   const activeBoardName = useActiveBoardName();
 
-  // Visibility rule: hide entirely when zero boards AND not on a board route.
-  if (boards.length === 0 && !activeBoardName) {
-    return null;
-  }
-
-  // Empty + on-board-route → show the hint instead of rows
-  const isHintMode = boards.length === 0 && !!activeBoardName;
+  const isHintMode = boards.length === 0;
 
   return (
     <CollapsiblePanel
@@ -74,4 +71,3 @@ export function BoardsSection() {
     </CollapsiblePanel>
   );
 }
-

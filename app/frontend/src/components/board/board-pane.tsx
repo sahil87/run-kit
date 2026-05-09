@@ -1,5 +1,6 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { TerminalClient } from "@/components/terminal-client";
+import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { BoardHeader } from "./board-header";
 import type { BoardEntry } from "@/api/boards";
 
@@ -24,6 +25,10 @@ interface BoardPaneProps {
   onUnpin: () => void;
   showResizeHandle: boolean;
   onResizeStart?: (clientX: number) => void;
+  /** When `true`, this pane's TerminalClient suppresses xterm focus on
+   * touchend (long-press scroll-lock). Forwarded from the BoardPage's
+   * shell-level scroll-lock state. */
+  scrollLocked?: boolean;
 }
 
 /**
@@ -36,18 +41,44 @@ interface BoardPaneProps {
  * Re-mounting on swipe-in re-establishes the connection.
  */
 export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function BoardPane(
-  { entry, width, paused = false, isFocused, onClick, onUnpin, showResizeHandle, onResizeStart },
+  { entry, width, paused = false, isFocused, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked },
   ref,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const focusFnRef = useRef<(() => void) | null>(null);
-  const [composeOpen, setComposeOpen] = useState(false);
+  // Compose state lives in `FocusedTerminalContext` so the shell-level
+  // `<BottomBar>` can open compose for the focused pane without owning the
+  // state. Each pane gates ComposeBuffer rendering on `isFocused &&
+  // composeOpen` so only the focused pane shows the buffer; cycling focus
+  // while compose is open does NOT retarget because (a) only one
+  // TerminalClient renders ComposeBuffer at a time and (b) ComposeBuffer
+  // snapshots its `wsRef` on mount (see `compose-buffer.tsx` line 34).
+  const { setFocused, composeOpen, setComposeOpen } = useFocusedTerminal();
+  const composeOpenForPane = isFocused && composeOpen;
 
   useImperativeHandle(ref, () => ({
     focus() {
       focusFnRef.current?.();
     },
   }));
+
+  // Register this pane as the BottomBar's focused input target whenever it
+  // is the focused pane (parent sets `isFocused={idx === focusedIndex}`).
+  // Click, cycle (Cmd+]/Cmd+[), and the initial pane on mount all flow
+  // through this effect. We do NOT clear on focus loss — the next pane to
+  // gain focus overwrites, which avoids a transient `null` state where the
+  // BottomBar would briefly be inert. TerminalClient inside this pane also
+  // registers itself, but its identifiers come from the same entry — the
+  // last-write-wins effect order is deterministic per render pass.
+  useEffect(() => {
+    if (!isFocused) return;
+    setFocused({
+      wsRef,
+      server: entry.server,
+      session: entry.session,
+      windowIndex: String(entry.windowIndex),
+    });
+  }, [isFocused, setFocused, entry.server, entry.session, entry.windowIndex]);
 
   return (
     <div
@@ -69,9 +100,11 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
             windowIndex={String(entry.windowIndex)}
             server={entry.server}
             wsRef={wsRef}
-            composeOpen={composeOpen}
+            composeOpen={composeOpenForPane}
             setComposeOpen={setComposeOpen}
             focusRef={focusFnRef}
+            registerFocus={false}
+            scrollLocked={scrollLocked}
           />
         )}
       </div>

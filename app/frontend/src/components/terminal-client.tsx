@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { useTheme } from "@/contexts/theme-context";
+import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { deriveXtermTheme } from "@/themes";
 import { ComposeBuffer } from "@/components/compose-buffer";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -29,10 +30,18 @@ type TerminalClientProps = {
   server: string;
   wsRef: React.MutableRefObject<WebSocket | null>;
   composeOpen: boolean;
-  setComposeOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  setComposeOpen: (open: boolean) => void;
   onSessionNotFound?: () => void;
   focusRef?: React.MutableRefObject<(() => void) | null>;
   scrollLocked?: boolean;
+  /**
+   * When `true` (default), this terminal registers itself as the focused
+   * terminal on mount so the shell-level BottomBar targets it. Set to
+   * `false` for board panes — BoardPane handles registration based on its
+   * own focused-pane state so multiple TerminalClients in a board don't
+   * fight over the focused-terminal slot.
+   */
+  registerFocus?: boolean;
 };
 
 export function TerminalClient({
@@ -45,6 +54,7 @@ export function TerminalClient({
   onSessionNotFound,
   focusRef,
   scrollLocked,
+  registerFocus = true,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
@@ -55,6 +65,22 @@ export function TerminalClient({
   const [composeFiles, setComposeFiles] = useState<UploadedFile[]>([]);
   const { uploadFiles, uploading } = useFileUpload(sessionName, windowIndex, server);
   const { theme: activeTheme } = useTheme();
+  const { setFocused } = useFocusedTerminal();
+
+  // Register this terminal as the BottomBar's focused input target. The
+  // single-terminal route trivially has only one terminal — this is the
+  // explicit form of the focus relationship that previously was implicit
+  // through prop drilling. On unmount we clear so a stale ref isn't read
+  // by a subsequent route's BottomBar before its own TerminalClient mounts.
+  // BoardPane passes `registerFocus={false}` and handles registration itself
+  // based on its focused-pane state.
+  useEffect(() => {
+    if (!registerFocus) return;
+    setFocused({ wsRef, server, session: sessionName, windowIndex });
+    return () => {
+      setFocused(null);
+    };
+  }, [registerFocus, setFocused, wsRef, server, sessionName, windowIndex]);
 
   const openComposeWithUploads = useCallback(
     (uploads: UploadedFile[]) => {

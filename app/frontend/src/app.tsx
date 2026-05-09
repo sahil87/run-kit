@@ -1,14 +1,16 @@
 import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
-import { ChromeProvider, useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
+import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
+import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
-import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { useDialogState } from "@/hooks/use-dialog-state";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TopBar } from "@/components/top-bar";
+import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
 import { IframeWindow } from "@/components/iframe-window";
@@ -36,27 +38,7 @@ const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m =>
 const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 
-const SIDEBAR_STORAGE_KEY = "runkit-sidebar-width";
-const SIDEBAR_DEFAULT_WIDTH = 220;
-const SIDEBAR_MIN_WIDTH = 160;
-const SIDEBAR_MAX_WIDTH = 400;
-
-function clampSidebarWidth(width: number): number {
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
-}
-
-function readSidebarWidth(): number {
-  try {
-    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-    if (stored) {
-      const parsed = Number(stored);
-      if (!isNaN(parsed)) return clampSidebarWidth(parsed);
-    }
-  } catch {
-    // localStorage unavailable
-  }
-  return SIDEBAR_DEFAULT_WIDTH;
-}
+const { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH } = SIDEBAR_WIDTH_BOUNDS;
 
 /**
  * Derive a session name from an optional working directory path, falling back
@@ -74,19 +56,27 @@ function deriveInstantSessionName(cwd: string | undefined, existingNames: string
   return `${base}-11`;
 }
 
-/** Root wrapper — provides theme, chrome, session, and optimistic contexts above
- *  ALL routes. Mounting `SessionProvider` here means the multi-server EventSource
- *  pool is shared across `/$server/...`, `/board/$name`, and `/`; navigating
- *  between routes only flips `currentServer`, never tearing down the provider. */
+/** Root wrapper — provides theme, chrome, session, focused-terminal, and
+ *  optimistic contexts above ALL routes. Mounting `SessionProvider` here
+ *  means the multi-server EventSource pool is shared across `/$server/...`,
+ *  `/board/$name`, and `/`; navigating between routes only flips
+ *  `currentServer`, never tearing down the provider.
+ *
+ *  `FocusedTerminalProvider` lives at the same level so the BottomBar
+ *  (rendered once per shell) can read the focused terminal regardless of
+ *  which route is active. AppShell's TerminalClient and BoardPage's
+ *  BoardPanes both register into this single provider instance. */
 export function RootWrapper() {
   return (
     <ThemeProvider>
       <ToastProvider>
         <ChromeProvider>
           <SessionProvider>
-            <OptimisticProvider>
-              <Outlet />
-            </OptimisticProvider>
+            <FocusedTerminalProvider>
+              <OptimisticProvider>
+                <Outlet />
+              </OptimisticProvider>
+            </FocusedTerminalProvider>
           </SessionProvider>
         </ChromeProvider>
       </ToastProvider>
@@ -120,8 +110,6 @@ function ServerNotFound({ serverName }: { serverName: string }) {
 }
 
 function AppShell() {
-  useVisualViewport();
-
   const ctx = useSessionContext();
   const matches = useMatches();
   const lastMatch = matches[matches.length - 1];
@@ -135,16 +123,24 @@ function AppShell() {
   const servers = ctx.servers;
   const refreshServers = ctx.refreshServers;
   const sessions = useMergedSessions(rawSessions, server);
-  const { sidebarOpen, drawerOpen, fixedWidth } = useChromeState();
-  const { setCurrentSession, setCurrentWindow, setDrawerOpen, setSidebarOpen, toggleFixedWidth } = useChromeDispatch();
+  const { sidebarOpen, sidebarWidth, fixedWidth } = useChromeState();
+  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth } = useChromeDispatch();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const wsRef = useRef<WebSocket | null>(null);
   const focusTerminalRef = useRef<(() => void) | null>(null);
 
   const sessionName = params.session;
   const windowIndex = params.window;
 
-  const [composeOpen, setComposeOpen] = useState(false);
+  // Compose buffer open state lives in `FocusedTerminalContext` so the
+  // shell-level `<BottomBar>` can open compose for the focused terminal
+  // without owning the state. The focused `TerminalClient` (or focused
+  // `BoardPane` on the board route) reads `composeOpen` and renders the
+  // `ComposeBuffer` itself — anchoring compose to a specific
+  // `TerminalClient` instance satisfies the spec's "compose target frozen
+  // at open time" scenario.
+  const { composeOpen, setComposeOpen } = useFocusedTerminal();
   const [scrollLocked, setScrollLocked] = useState(false);
   const [hostname, setHostname] = useState("");
   const [showCreateServerDialog, setShowCreateServerDialog] = useState(false);
@@ -199,9 +195,14 @@ function AppShell() {
 
   useBrowserTitle(sessionName, windowIndex, hostname);
 
-  // Sidebar drag-resize state (desktop only)
-  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  // Sidebar drag-resize handler (desktop only). Width state lives in
+  // `ChromeContext` (lifted from per-route local state) so AppShell and
+  // BoardPage observe the same width. During drag we call `setSidebarWidth`
+  // (in-memory only, ~60-100x/s on pointermove) and commit the final value
+  // to localStorage exactly once via `persistSidebarWidth` in the drag-end
+  // handler — preserving the pre-change behavior of one write per gesture.
   const isDraggingRef = useRef(false);
+  const dragLastWidthRef = useRef<number>(sidebarWidth);
 
   const handleDragStart = useCallback((startX: number) => {
     isDraggingRef.current = true;
@@ -211,6 +212,7 @@ function AppShell() {
     // this to `nwse-resize` after this write — that's intended (last write wins).
     document.body.style.cursor = "col-resize";
     const startWidth = sidebarWidth;
+    dragLastWidthRef.current = startWidth;
 
     // Pointer events (not mouse/touch): when the corner affordance initiates both
     // drags, CollapsiblePanel's horizontal handler calls preventDefault() on the
@@ -218,27 +220,27 @@ function AppShell() {
     // compatibility events (mousemove/mouseup). Listening for pointermove/pointerup
     // avoids that trap and keeps the same-pointer interaction working end-to-end.
     const handlePointerMove = (e: PointerEvent) => {
-      const newWidth = clampSidebarWidth(startWidth + (e.clientX - startX));
-      setSidebarWidth(newWidth);
+      const next = startWidth + (e.clientX - startX);
+      dragLastWidthRef.current = next;
+      setSidebarWidth(next);
     };
 
     const handleEnd = () => {
       isDraggingRef.current = false;
       document.body.style.cursor = "";
+      // Persist the final width once per drag gesture. The in-memory state is
+      // already at this value via the last `setSidebarWidth` call, but
+      // `persistSidebarWidth` writes through to localStorage (clamped).
+      persistSidebarWidth(dragLastWidthRef.current);
       document.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("pointerup", handleEnd);
       document.removeEventListener("pointercancel", handleEnd);
-      // Persist final width
-      setSidebarWidth((w) => {
-        try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(w)); } catch { /* noop */ }
-        return w;
-      });
     };
 
     document.addEventListener("pointermove", handlePointerMove);
     document.addEventListener("pointerup", handleEnd);
     document.addEventListener("pointercancel", handleEnd);
-  }, [sidebarWidth]);
+  }, [sidebarWidth, setSidebarWidth, persistSidebarWidth]);
 
   const handleDragHandlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -328,7 +330,8 @@ function AppShell() {
     }
   }, [activeWindow, sessionName, windowIndex, navigate, server]);
 
-  // Navigation callback for sidebar/breadcrumbs — syncs both UI route and tmux active window
+  // Navigation callback for sidebar/breadcrumbs — syncs both UI route and tmux active window.
+  // On mobile, we close the overlay sidebar after navigation (destination-tap auto-close).
   const navigateToWindow = useCallback(
     (session: string, windowIdx: number) => {
       userNavTimestampRef.current = Date.now();
@@ -336,11 +339,11 @@ function AppShell() {
         to: "/$server/$session/$window",
         params: { server, session, window: String(windowIdx) },
       });
-      setDrawerOpen(false);
+      if (isMobile) setSidebarOpen(false);
       // Fire-and-forget: tell tmux to select this window too
       selectWindow(server, session, windowIdx).catch(() => {});
     },
-    [navigate, setDrawerOpen, server],
+    [navigate, isMobile, setSidebarOpen, server],
   );
 
   // Dialog state management
@@ -916,11 +919,81 @@ function AppShell() {
     return <ServerNotFound serverName={server} />;
   }
 
+  // Sidebar element — shared between the desktop grid placement and the
+  // mobile overlay (the Shell component renders one or the other).
+  const sidebarElement = (
+    <Sidebar
+      currentServer={server || null}
+      currentSession={sessionName ?? null}
+      currentWindowIndex={windowIndex ?? null}
+      onSelectWindow={(srv, sess, idx) => {
+        if (srv === server) {
+          navigateToWindow(sess, idx);
+        } else {
+          navigate({
+            to: "/$server/$session/$window",
+            params: { server: srv, session: sess, window: String(idx) },
+          });
+          if (isMobile) setSidebarOpen(false);
+        }
+      }}
+      onCreateWindow={(srv, sess) => {
+        if (srv === server) {
+          handleCreateWindow(sess);
+        } else {
+          executeCreateWindow(srv, sess);
+        }
+      }}
+      onCreateSession={(srv) => {
+        if (srv === server) {
+          handleCreateSessionInstant();
+        } else {
+          // For non-current servers, create with a default name
+          // (no cwd source available).
+          const existingNames = (ctx.sessionsByServer.get(srv) ?? []).map((s) => s.name);
+          const name = deriveInstantSessionName(undefined, existingNames);
+          executeCreateSessionInstant(srv, name, undefined);
+        }
+      }}
+      onCreateServer={() => setShowCreateServerDialog(true)}
+      onKillServer={(name) => setKillServerTarget(name)}
+      onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
+    />
+  );
+
+  // Mode for TopBar — `terminal` when a session is active, `root` otherwise.
+  const topBarMode = sessionName ? "terminal" : "root";
+
   return (
-    <div className="app-shell flex flex-col" style={{ height: "var(--app-height, 100vh)" }}>
-      {/* Top Chrome */}
-      <div className="shrink-0">
+    <Shell sidebarChildren={sidebarElement}>
+      {/* Sidebar grid area (desktop only — Shell removes it on mobile). The
+          drag handle sits at the right edge so dragging it widens the
+          sidebar column. Hidden when collapsed (sidebarOpen === false). */}
+      {!isMobile && sidebarOpen && (
+        <aside
+          style={{ gridArea: "sidebar" }}
+          className="relative flex flex-row overflow-hidden"
+        >
+          <div className="flex-1 min-w-0 overflow-hidden">{sidebarElement}</div>
+          {/* Drag handle — hidden when collapsed (column is 0-width anyway). */}
+          <div
+            className="w-[5px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary transition-colors"
+            onPointerDown={handleDragHandlePointerDown}
+            style={{ touchAction: "none" }}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            aria-valuenow={sidebarWidth}
+            aria-valuemin={SIDEBAR_MIN_WIDTH}
+            aria-valuemax={SIDEBAR_MAX_WIDTH}
+          />
+        </aside>
+      )}
+
+      {/* Top bar grid area */}
+      <header style={{ gridArea: "topbar" }}>
         <TopBar
+          mode={topBarMode}
           sessions={sessions}
           currentSession={currentSession}
           currentWindow={currentWindow}
@@ -928,184 +1001,85 @@ function AppShell() {
           windowName={displayName}
           isConnected={isConnected}
           sidebarOpen={sidebarOpen}
-          drawerOpen={drawerOpen}
           server={server}
           onNavigate={navigateToWindow}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          onToggleDrawer={() => setDrawerOpen(!drawerOpen)}
           onCreateSession={handleCreateSessionInstant}
           onCreateWindow={handleCreateWindow}
-          onOpenCompose={() => setComposeOpen((v) => !v)}
+          onOpenCompose={() => setComposeOpen(!composeOpen)}
         />
-      </div>
+      </header>
 
-      {/* Main Area */}
-      <div className="flex-1 flex flex-row min-h-0 relative">
-        {/* Desktop sidebar */}
-        {sidebarOpen && (
-          <div
-            className="shrink-0 hidden md:flex flex-row"
-            style={{ width: sidebarWidth }}
-          >
-            <div className="flex-1 min-w-0 overflow-hidden">
-              <Sidebar
-                currentServer={server || null}
-                currentSession={sessionName ?? null}
-                currentWindowIndex={windowIndex ?? null}
-                onSelectWindow={(srv, sess, idx) => {
-                  if (srv === server) {
-                    navigateToWindow(sess, idx);
-                  } else {
-                    navigate({
-                      to: "/$server/$session/$window",
-                      params: { server: srv, session: sess, window: String(idx) },
-                    });
-                    setDrawerOpen(false);
-                  }
-                }}
-                onCreateWindow={(srv, sess) => {
-                  if (srv === server) {
-                    handleCreateWindow(sess);
-                  } else {
-                    executeCreateWindow(srv, sess);
-                  }
-                }}
-                onCreateSession={(srv) => {
-                  if (srv === server) {
-                    handleCreateSessionInstant();
-                  } else {
-                    // For non-current servers, create with a default name
-                    // (no cwd source available).
-                    const existingNames = (ctx.sessionsByServer.get(srv) ?? []).map((s) => s.name);
-                    const name = deriveInstantSessionName(undefined, existingNames);
-                    executeCreateSessionInstant(srv, name, undefined);
-                  }
-                }}
-                onCreateServer={() => setShowCreateServerDialog(true)}
-                onKillServer={(name) => setKillServerTarget(name)}
-                onSidebarResizeStart={(e) => handleDragStart(e.clientX)}
-              />
-            </div>
-            {/* Drag handle */}
-            <div
-              className="w-[5px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary transition-colors"
-              onPointerDown={handleDragHandlePointerDown}
-              style={{ touchAction: "none" }}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize sidebar"
-              aria-valuenow={sidebarWidth}
-              aria-valuemin={SIDEBAR_MIN_WIDTH}
-              aria-valuemax={SIDEBAR_MAX_WIDTH}
-            />
-          </div>
-        )}
-
-        {/* Terminal Column */}
-        <div className={`flex-1 min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-bg-inset" : ""}`}>
-          <div
-            className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
-            style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
-          >
-            {sessionName && windowIndex ? (
-              currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? (
-                <div className="flex-1 min-h-0 flex flex-col">
-                  <IframeWindow
+      {/* Content grid area */}
+      <main
+        style={{ gridArea: "content" }}
+        className={`min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-bg-inset" : ""}`}
+      >
+        <div
+          className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
+          style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
+        >
+          {sessionName && windowIndex ? (
+            currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? (
+              <div className="flex-1 min-h-0 flex flex-col">
+                <IframeWindow
+                  sessionName={sessionName}
+                  windowIndex={currentWindow.index}
+                  rkUrl={currentWindow.rkUrl}
+                />
+              </div>
+            ) : (
+              <>
+                {currentWindow?.rkUrl && (
+                  <div className="shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-bg-primary">
+                    <button
+                      onClick={() => sessionName && currentWindow && updateWindowType(server, sessionName, currentWindow.index, "iframe")}
+                      className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
+                      title="Switch to iframe view"
+                    >
+                      <span className="font-mono">&lt;/&gt;</span>
+                      <span className="truncate max-w-[300px]">{currentWindow.rkUrl}</span>
+                    </button>
+                  </div>
+                )}
+                <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
+                  <TerminalClient
                     sessionName={sessionName}
-                    windowIndex={currentWindow.index}
-                    rkUrl={currentWindow.rkUrl}
+                    windowIndex={windowIndex}
+                    server={server}
+                    wsRef={wsRef}
+                    composeOpen={composeOpen}
+                    setComposeOpen={setComposeOpen}
+                    onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+                    focusRef={focusTerminalRef}
+                    scrollLocked={scrollLocked}
                   />
                 </div>
-              ) : (
-                <>
-                  {currentWindow?.rkUrl && (
-                    <div className="shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-bg-primary">
-                      <button
-                        onClick={() => sessionName && currentWindow && updateWindowType(server, sessionName, currentWindow.index, "iframe")}
-                        className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
-                        title="Switch to iframe view"
-                      >
-                        <span className="font-mono">&lt;/&gt;</span>
-                        <span className="truncate max-w-[300px]">{currentWindow.rkUrl}</span>
-                      </button>
-                    </div>
-                  )}
-                  <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
-                    <TerminalClient
-                      sessionName={sessionName}
-                      windowIndex={windowIndex}
-                      server={server}
-                      wsRef={wsRef}
-                      composeOpen={composeOpen}
-                      setComposeOpen={setComposeOpen}
-                      onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
-                      focusRef={focusTerminalRef}
-                      scrollLocked={scrollLocked}
-                    />
-                  </div>
-                  {/* Bottom Bar — only on terminal pages */}
-                  <div className="shrink-0 border-t border-border px-1.5 h-[48px]">
-                    <BottomBar wsRef={wsRef} onOpenCompose={() => setComposeOpen((v) => !v)} onFocusTerminal={() => focusTerminalRef.current?.()} onScrollLockChange={setScrollLocked} />
-                  </div>
-                </>
-              )
-            ) : (
-              <Dashboard
-                sessions={sessions}
-                onNavigate={navigateToWindow}
-                onCreateSession={handleCreateSessionInstant}
-                onCreateWindow={handleCreateWindow}
-              />
-            )}
-          </div>
+              </>
+            )
+          ) : (
+            <Dashboard
+              sessions={sessions}
+              onNavigate={navigateToWindow}
+              onCreateSession={handleCreateSessionInstant}
+              onCreateWindow={handleCreateWindow}
+            />
+          )}
         </div>
+      </main>
 
-        {/* Mobile Drawer Overlay — inside main area so it sits below the top bar */}
-        {drawerOpen && (
-          <div className="absolute inset-0 z-40 md:hidden" onClick={() => setDrawerOpen(false)}>
-            <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
-            <div
-              className="absolute inset-y-0 left-0 w-[75vw] max-w-[300px] bg-bg-primary border-r border-border overflow-y-auto z-50"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Sidebar
-                currentServer={server || null}
-                currentSession={sessionName ?? null}
-                currentWindowIndex={windowIndex ?? null}
-                onSelectWindow={(srv, sess, idx) => {
-                  if (srv === server) {
-                    navigateToWindow(sess, idx);
-                  } else {
-                    navigate({
-                      to: "/$server/$session/$window",
-                      params: { server: srv, session: sess, window: String(idx) },
-                    });
-                    setDrawerOpen(false);
-                  }
-                }}
-                onCreateWindow={(srv, sess) => {
-                  if (srv === server) {
-                    handleCreateWindow(sess);
-                  } else {
-                    executeCreateWindow(srv, sess);
-                  }
-                }}
-                onCreateSession={(srv) => {
-                  if (srv === server) {
-                    handleCreateSessionInstant();
-                  } else {
-                    const existingNames = (ctx.sessionsByServer.get(srv) ?? []).map((s) => s.name);
-                    const name = deriveInstantSessionName(undefined, existingNames);
-                    executeCreateSessionInstant(srv, name, undefined);
-                  }
-                }}
-                onCreateServer={() => setShowCreateServerDialog(true)}
-                onKillServer={(name) => setKillServerTarget(name)}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Bottom bar grid area — shell-level. Reads focused terminal from
+          FocusedTerminalContext (TerminalClient registered itself on mount). */}
+      <footer
+        style={{ gridArea: "bottombar" }}
+        className="border-t border-border px-1.5 h-[48px]"
+      >
+        <BottomBar
+          onOpenCompose={() => setComposeOpen(!composeOpen)}
+          onFocusTerminal={() => focusTerminalRef.current?.()}
+          onScrollLockChange={setScrollLocked}
+        />
+      </footer>
 
       {/* Dialogs */}
       {showCreateSessionAtFolderDialog && (
@@ -1384,6 +1358,6 @@ function AppShell() {
       {showKeyboardShortcuts && (
         <KeyboardShortcuts onClose={() => setShowKeyboardShortcuts(false)} />
       )}
-    </div>
+    </Shell>
   );
 }

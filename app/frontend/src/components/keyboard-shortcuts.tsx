@@ -91,6 +91,7 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
           <h3 className="text-xs text-text-secondary font-medium mb-1">App</h3>
           <div className="space-y-1">
             <ShortcutRow label="Command palette" keys={["⌘K"]} />
+            <ShortcutRow label="Toggle sidebar" keys={["⌘\\"]} />
           </div>
         </div>
 

@@ -7,11 +7,15 @@ import { usePinActions } from "@/hooks/use-pin-actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useSessionContext } from "@/contexts/session-context";
+import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
+import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useToast } from "@/components/toast";
+import { BottomBar } from "@/components/bottom-bar";
+import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/top-bar";
 import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer } from "@/api/client";
 import { Dialog } from "@/components/dialog";
-import { deriveNameFromPath } from "@/components/create-session-dialog";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
 import { BoardPane, type BoardPaneHandle } from "./board-pane";
@@ -26,7 +30,13 @@ interface BoardPageRouteProps {
   // we read via the route's `useParams` hook below.
 }
 
-const SIDEBAR_WIDTH = 240;
+/**
+ * Default per-pane width seed used by the local pane-widths hook when a
+ * board has no persisted per-pane widths yet. Decoupled from the sidebar
+ * width (now lifted to ChromeContext); BoardPage no longer drives the
+ * sidebar's own column width.
+ */
+const PANE_WIDTH_SEED = 240;
 const SWIPE_THRESHOLD_PX = 40;
 
 export function BoardPage(_props: BoardPageRouteProps) {
@@ -53,7 +63,7 @@ function BoardPageContent({ name }: { name: string }) {
   const { boards } = useBoards();
   const { unpin } = usePinActions();
   const isMobile = useIsMobile();
-  const { getWidth, setWidth } = usePaneWidths(name, SIDEBAR_WIDTH);
+  const { getWidth, setWidth } = usePaneWidths(name, PANE_WIDTH_SEED);
 
   // Session/window/server creation handlers — match AppShell's wiring so the
   // unified Sidebar can fire the same optimistic flows on the board route.
@@ -286,53 +296,116 @@ function BoardPageContent({ name }: { name: string }) {
     return [...switchEntries, ...conditional];
   }, [boards, name, entries.length, navigate]);
 
-  return (
-    <div className="h-screen w-screen flex bg-bg-primary text-text-primary">
-      {/* Unified sidebar — same component as AppShell renders. Per-server
-          session groups + Boards section. `currentServer = null` since the
-          board route has no `$server` param; no group is marked current. */}
-      <aside
-        className="hidden md:flex flex-col shrink-0 border-r border-border w-[240px] overflow-hidden"
-        aria-label="board sidebar"
-      >
-        <Sidebar
-          currentServer={null}
-          currentSession={null}
-          currentWindowIndex={null}
-          onSelectWindow={(srv, sess, idx) => {
-            navigate({
-              to: "/$server/$session/$window",
-              params: { server: srv, session: sess, window: String(idx) },
-            });
-          }}
-          onCreateWindow={handleCreateWindow}
-          onCreateSession={handleCreateSession}
-          onCreateServer={() => setShowCreateServerDialog(true)}
-          onKillServer={(n) => setKillServerTarget(n)}
-        />
-      </aside>
+  // Pane-server count (distinct servers) used by TopBar board-mode info.
+  const serverCount = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) set.add(e.server);
+    return set.size;
+  }, [entries]);
 
-      <main className="flex-1 min-w-0 flex flex-col">
-        {/* Top bar */}
-        <header className="shrink-0 border-b border-border px-3 h-[40px] flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate({ to: "/" })}
-            className="text-sm text-text-secondary hover:text-text-primary"
+  // Derive sidebarOpen for the hamburger animation; setSidebarOpen for toggle
+  // and mobile destination-tap auto-close. Lifted to ChromeContext so AppShell
+  // and BoardPage share one toggle target.
+  const { sidebarOpen } = useChromeState();
+  const { setSidebarOpen } = useChromeDispatch();
+
+  // Compose / focus / scroll-lock plumbing for the shell-level BottomBar.
+  // BottomBar is byte-identical across routes per spec § Behavioral
+  // Correctness, so the board route MUST pass the same callback set as
+  // AppShell — otherwise the `>_` compose button is gated out (BottomBar
+  // renders compose iff `onOpenCompose` is truthy) and `ScrollLock` long-press
+  // never reaches a handler. Compose state is owned by `FocusedTerminalContext`
+  // so opening the buffer here surfaces it inside the focused `BoardPane`'s
+  // `TerminalClient` (the only one rendering ComposeBuffer when its
+  // `isFocused && composeOpen` gate matches).
+  const { setComposeOpen } = useFocusedTerminal();
+  const [scrollLocked, setScrollLocked] = useState(false);
+  const focusFocusedPaneRef = useRef<(() => void) | null>(null);
+  // Track the currently-focused pane's imperative focus method so BottomBar's
+  // "Show keyboard" handler can re-focus the right xterm. The focused pane
+  // updates this on each focusedIndex change.
+  useEffect(() => {
+    focusFocusedPaneRef.current = () => paneRefs.current[focusedIndex]?.focus();
+  }, [focusedIndex]);
+
+  // Sidebar element shared between desktop grid placement and mobile overlay.
+  // `currentServer = null` because the board route has no `$server` param —
+  // no group is marked current and all server groups follow persisted toggles.
+  const sidebarElement = (
+    <Sidebar
+      currentServer={null}
+      currentSession={null}
+      currentWindowIndex={null}
+      onSelectWindow={(srv, sess, idx) => {
+        navigate({
+          to: "/$server/$session/$window",
+          params: { server: srv, session: sess, window: String(idx) },
+        });
+        if (isMobile) setSidebarOpen(false);
+      }}
+      onCreateWindow={handleCreateWindow}
+      onCreateSession={handleCreateSession}
+      onCreateServer={() => setShowCreateServerDialog(true)}
+      onKillServer={(n) => setKillServerTarget(n)}
+    />
+  );
+
+  return (
+    <div className="bg-bg-primary text-text-primary">
+      <Shell sidebarChildren={sidebarElement}>
+        {/* Sidebar grid area (desktop only — Shell removes it on mobile). The
+            board route shares the unified Sidebar with AppShell; drag-resize
+            is intentionally omitted here for now (the column width still
+            comes from ChromeContext). */}
+        {!isMobile && sidebarOpen && (
+          <aside
+            style={{ gridArea: "sidebar" }}
+            className="overflow-hidden border-r border-border"
+            aria-label="board sidebar"
           >
-            Board ▸
-          </button>
-          <span className="text-sm text-text-primary font-medium">{name}</span>
-          <BoardSwitcherDropdown
-            currentBoard={name}
-            boards={boards.map((b) => b.name)}
-            onSwitchToBoard={(target) => navigate({ to: "/board/$name", params: { name: target } })}
-            onSwitchToSessions={() => navigate({ to: "/" })}
+            {sidebarElement}
+          </aside>
+        )}
+
+        {/* Top bar grid area — board mode renders the breadcrumb dropdown +
+            inline pane/server count + cycle hint inside `<TopBar>`. The
+            previous bespoke `<header>` (Board ▸ {name} ▾) is replaced by
+            this single TopBar invocation. Right-section chrome (split,
+            close-pane, fixed-width, theme toggle, ⌘K, compose) is hidden
+            implicitly by passing `currentWindow={null}` so SplitButton /
+            ClosePaneButton do not render — board panes carry their own
+            unpin/close affordances. */}
+        <header style={{ gridArea: "topbar" }}>
+          <TopBar
+            mode="board"
+            sessions={[]}
+            currentSession={null}
+            currentWindow={null}
+            sessionName=""
+            windowName=""
+            isConnected={false}
+            sidebarOpen={sidebarOpen}
+            server=""
+            onNavigate={() => {}}
+            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            onCreateSession={() => {}}
+            onCreateWindow={() => {}}
+            onOpenCompose={() => {}}
+            boardName={name}
+            paneCount={entries.length}
+            serverCount={serverCount}
+            boards={boards.map((b) => ({ name: b.name }))}
           />
         </header>
 
-        {/* Body */}
-        <div className="flex-1 min-h-0 overflow-hidden" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+        {/* Content grid area — horizontal-scroll body. Viewport begins
+            flush with sidebar.right (no left gutter). */}
+        <main
+          style={{ gridArea: "content" }}
+          className="min-w-0 overflow-hidden"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
           {error && entries.length === 0 ? (
             <div className="p-4 text-sm text-red-500">Error loading board: {error.message}</div>
           ) : showEmptyState ? (
@@ -352,6 +425,7 @@ function BoardPageContent({ name }: { name: string }) {
               paneRefs={paneRefs}
               focusedIndex={focusedIndex}
               onPaneClick={setFocusedIndex}
+              scrollLocked={scrollLocked}
             />
           ) : (
             <DesktopRow
@@ -362,10 +436,30 @@ function BoardPageContent({ name }: { name: string }) {
               paneRefs={paneRefs}
               focusedIndex={focusedIndex}
               onPaneClick={setFocusedIndex}
+              scrollLocked={scrollLocked}
             />
           )}
-        </div>
-      </main>
+        </main>
+
+        {/* Bottom bar grid area — shell-level. Reads focused terminal from
+            FocusedTerminalContext (BoardPane registers when its `isFocused`
+            prop becomes true). New on the board route in 17m3 — pre-change
+            board route had no BottomBar.
+            Callbacks mirror AppShell so the bar is byte-identical across
+            routes (spec § Behavioral Correctness, A-022) — without these
+            the `>_` compose button is gated out and the long-press
+            scroll-lock affordance is inert. */}
+        <footer
+          style={{ gridArea: "bottombar" }}
+          className="border-t border-border px-1.5 h-[48px]"
+        >
+          <BottomBar
+            onOpenCompose={() => setComposeOpen(true)}
+            onFocusTerminal={() => focusFocusedPaneRef.current?.()}
+            onScrollLockChange={setScrollLocked}
+          />
+        </footer>
+      </Shell>
 
       {/* Command palette — board-route mount. The board route does NOT render
           AppShell (DD-8), so AppShell's palette is unreachable here. Mounting
@@ -429,69 +523,6 @@ function BoardPageContent({ name }: { name: string }) {
   );
 }
 
-function BoardSwitcherDropdown({
-  currentBoard,
-  boards,
-  onSwitchToBoard,
-  onSwitchToSessions,
-}: {
-  currentBoard: string;
-  boards: string[];
-  onSwitchToBoard: (name: string) => void;
-  onSwitchToSessions: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="text-sm text-text-secondary hover:text-text-primary px-1"
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        ▾
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 z-10 bg-bg-secondary border border-border rounded shadow-md py-1 min-w-[160px]">
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onSwitchToSessions();
-            }}
-            className="w-full text-left px-3 py-1 text-sm hover:bg-bg-card"
-          >
-            ← Sessions
-          </button>
-          {boards.map((b) => {
-            const isCurrent = b === currentBoard;
-            return (
-              <button
-                key={b}
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  if (!isCurrent) onSwitchToBoard(b);
-                }}
-                className={`w-full text-left px-3 py-1 text-sm hover:bg-bg-card ${
-                  isCurrent ? "text-text-secondary cursor-default" : ""
-                }`}
-                aria-current={isCurrent ? "true" : undefined}
-              >
-                {b}
-                {isCurrent && (
-                  <span className="ml-1 text-xs text-text-secondary">(current)</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function DesktopRow({
   entries,
   getWidth,
@@ -500,6 +531,7 @@ function DesktopRow({
   paneRefs,
   focusedIndex,
   onPaneClick,
+  scrollLocked,
 }: {
   entries: ReturnType<typeof useBoardEntries>["entries"];
   getWidth: (windowId: string) => number;
@@ -508,6 +540,7 @@ function DesktopRow({
   paneRefs: React.MutableRefObject<Array<BoardPaneHandle | null>>;
   focusedIndex: number;
   onPaneClick: (idx: number) => void;
+  scrollLocked: boolean;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -549,6 +582,7 @@ function DesktopRow({
           onUnpin={() => onUnpin(entry)}
           showResizeHandle={true}
           onResizeStart={(clientX) => onResizeStart(entry.windowId, clientX)}
+          scrollLocked={scrollLocked}
         />
       ))}
     </div>
@@ -562,6 +596,7 @@ function MobileCarousel({
   paneRefs,
   focusedIndex,
   onPaneClick,
+  scrollLocked,
 }: {
   entries: ReturnType<typeof useBoardEntries>["entries"];
   carouselIndex: number;
@@ -569,6 +604,7 @@ function MobileCarousel({
   paneRefs: React.MutableRefObject<Array<BoardPaneHandle | null>>;
   focusedIndex: number;
   onPaneClick: (idx: number) => void;
+  scrollLocked: boolean;
 }) {
   return (
     <div className="h-full flex flex-col">
@@ -593,6 +629,7 @@ function MobileCarousel({
               onClick={() => onPaneClick(idx)}
               onUnpin={() => onUnpin(entry)}
               showResizeHandle={false}
+              scrollLocked={scrollLocked}
             />
           </div>
         ))}

@@ -26,6 +26,13 @@ export function ComposeBuffer({
   const blobUrlsRef = useRef<Map<File, string>>(new Map());
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
+  // Snapshot the wsRef at compose-open (i.e., this component's mount). Even
+  // if the caller's `wsRef` prop changes mid-composition (e.g., the user
+  // cycles focus to a different board pane while compose is open), we keep
+  // sending to the originally-focused terminal. Prevents accidental
+  // wrong-pane sends — an explicit user concern from intake §18 / DD-6.
+  const frozenWsRef = useRef<React.RefObject<WebSocket | null>>(wsRef);
+
   // Stable ref for onClose so keydown handler always calls the latest
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -106,11 +113,14 @@ export function ComposeBuffer({
 
   const send = useCallback(() => {
     const text = textareaRef.current?.value;
-    if (text && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(text);
+    // Use the snapshot captured at mount, not the (live) `wsRef` prop. This
+    // freezes the send target for the compose buffer's lifetime.
+    const target = frozenWsRef.current;
+    if (text && target.current?.readyState === WebSocket.OPEN) {
+      target.current.send(text);
     }
     onClose();
-  }, [wsRef, onClose]);
+  }, [onClose]);
 
   const handleRemoveFile = useCallback(
     (index: number) => {

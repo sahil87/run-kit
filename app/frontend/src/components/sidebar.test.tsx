@@ -528,6 +528,25 @@ describe("Sidebar", () => {
     expect(screen.queryByLabelText("external session")).not.toBeInTheDocument();
   });
 
+  describe("section order (17m3)", () => {
+    it("renders Boards above Server above Sessions", () => {
+      renderSidebar();
+      // Each section header carries a known label/text. Find each in the
+      // DOM and assert their relative document position.
+      const boardsHeader = screen.getByText("Boards");
+      const serverHeader = screen.getByText("Server", { selector: "span" });
+      const sessionsHeader = screen.getByText("Sessions", { selector: "span" });
+
+      const boardsIdx = Array.from(document.body.querySelectorAll("*")).indexOf(boardsHeader);
+      const serverIdx = Array.from(document.body.querySelectorAll("*")).indexOf(serverHeader);
+      const sessionsIdx = Array.from(document.body.querySelectorAll("*")).indexOf(sessionsHeader);
+
+      expect(boardsIdx).toBeGreaterThan(-1);
+      expect(serverIdx).toBeGreaterThan(boardsIdx);
+      expect(sessionsIdx).toBeGreaterThan(serverIdx);
+    });
+  });
+
   describe("drag-and-drop window reorder", () => {
     it("window items have draggable attribute", () => {
       renderSidebar();

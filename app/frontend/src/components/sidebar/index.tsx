@@ -698,8 +698,14 @@ export function Sidebar({
 
   return (
     <nav aria-label="Sessions" className="flex flex-col h-full">
+      {/* Boards — cross-server section, always visible at the top of the
+          sidebar (renders an empty-state hint when no boards exist). Boards
+          are curated workspaces; placing them above Servers reflects their
+          higher-affinity destination role. */}
+      <BoardsSection />
+
       {/* Server panel — collapsible. The set of servers is the same multi-server
-          list, so this stays at the top regardless of route. */}
+          list, so this stays below Boards regardless of route. */}
       <ServerPanel
         server={currentServer ?? ""}
         servers={servers}
@@ -722,10 +728,6 @@ export function Sidebar({
           );
         }}
       />
-
-      {/* Boards — cross-server section above Sessions; self-hides when no boards
-          exist (unless the user is on a now-empty board route) */}
-      <BoardsSection />
 
       {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}
       <div className="border-t border-border flex flex-col flex-1 min-h-0">

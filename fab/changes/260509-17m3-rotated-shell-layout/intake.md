@@ -472,9 +472,9 @@ A new component file appears: `app/frontend/src/components/shell/shell.tsx` cont
 | 22 | Confident | Drag handle is hidden when sidebar is collapsed; hamburger is the only re-open affordance | Open Question — default plan; matches "fully hidden" semantics; reversible | S:75 R:85 A:75 D:75 |
 | 23 | Confident | Sidebar-open state persists per-device in localStorage (`runkit-sidebar-open`) | Open Question — default plan; matches existing sidebar-width persistence pattern | S:80 R:85 A:80 D:80 |
 | 24 | Confident | Mobile breakpoint for overlay-mode is 640px width (not `coarse:` pointer) | Open Question — default plan; the overlay/structural distinction is about screen real estate not pointer type | S:75 R:80 A:75 D:75 |
-| 25 | Confident | Animation on collapse is a smooth CSS transition on `grid-template-columns` (~150ms ease-out) | Open Question — default plan; matches existing sidebar-resize feel; modern browsers support animating grid columns with caveats | S:70 R:80 A:75 D:70 |
+| 25 | Certain | Animation on collapse is a smooth CSS transition on `grid-template-columns` (~150ms ease-out) | Clarified — user confirmed; matches existing sidebar-resize feel; modern browsers support animating grid columns with caveats | S:95 R:80 A:75 D:75 |
 | 26 | Confident | Empty-state hint copy is "Pin a window to start a board" (verbatim from 4vuv §5) | Open Question — default plan; minimize copy churn | S:80 R:90 A:75 D:80 |
 | 27 | Confident | A keyboard shortcut to toggle the sidebar is added (e.g., `Cmd+\`); fits Constitution V (Keyboard-First) | Open Question — default plan; reversible | S:70 R:85 A:80 D:70 |
 | 28 | Certain | `sidebarOpen` and `sidebarWidth` state lives in `useChromeContext` (lifted from per-route local state) | Clarified — user confirmed; necessary for Shell to read uniformly across AppShell and BoardPage; prop-drilling is the only alternative and is worse | S:95 R:60 A:80 D:80 |
 
-28 assumptions (21 certain, 7 confident, 0 tentative, 0 unresolved).
+28 assumptions (22 certain, 6 confident, 0 tentative, 0 unresolved).

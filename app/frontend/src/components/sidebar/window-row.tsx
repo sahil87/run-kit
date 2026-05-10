@@ -242,7 +242,7 @@ export function WindowRow({
             }}
             className={`transition-opacity cursor-pointer ${
               isPinnedToAny
-                ? "opacity-100 text-accent"
+                ? "opacity-100 text-text-secondary hover:text-text-primary"
                 : "opacity-0 group-hover:opacity-100 coarse:opacity-100 text-text-secondary hover:text-text-primary"
             } px-0.5 min-h-[36px] flex items-center justify-center`}
           >
@@ -297,20 +297,40 @@ export function WindowRow({
   );
 }
 
-/** Small pin icon — outline (not pinned) vs filled (pinned to any board). */
+/** Small pin icon — outline (not pinned) vs filled (pinned to any board).
+ *  Lucide-style thumbtack viewed face-on: round-cornered cap, narrow neck
+ *  flaring into wide shoulders, centered needle. Native 16×16 viewBox so
+ *  strokes pixel-align symmetrically when rendered at 12px. */
 function PinIcon({ filled }: { filled: boolean }) {
   return (
     <svg
-      width="12"
-      height="12"
+      width={12}
+      height={12}
       viewBox="0 0 16 16"
-      fill={filled ? "currentColor" : "none"}
+      fill="none"
       stroke="currentColor"
-      strokeWidth="1.5"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      {/* Stylized pin: head triangle + stem */}
-      <path d="M8 1.5 L4.5 5 L4.5 8 L7 8 L7 14 L8 15.5 L9 14 L9 8 L11.5 8 L11.5 5 Z" />
+      {/* Bell silhouette: cap → neck → flared shoulders */}
+      <path
+        d="M6 2.5
+           Q6 2 6.5 2
+           H9.5
+           Q10 2 10 2.5
+           V5
+           L13 9
+           Q13 9.5 12.5 9.5
+           H3.5
+           Q3 9.5 3 9
+           L6 5
+           Z"
+        fill={filled ? "currentColor" : "none"}
+      />
+      {/* Needle — centered vertical from flange to tip */}
+      <path d="M8 9.5 V14" />
     </svg>
   );
 }

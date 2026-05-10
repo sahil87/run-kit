@@ -1046,40 +1046,37 @@ function ServerGroup(props: ServerGroupProps) {
   const naturalNames = orderedSessions.map((s) => s.name);
 
   return (
-    <div className="border-b border-border last:border-b-0">
-      {/* Group header — server name only; active-server affordance is handled
-          elsewhere (no row tint here, so the Sessions panel's top divider
-          reads at a clean 3px without a bleed-through tint underneath). */}
+    <section
+      className="border-b border-border last:border-b-0"
+      aria-labelledby={`server-header-${server}`}
+    >
+      {/* Server header — visually a thin section break, not a tree node. The
+          whole row is a toggle (no chevron). Active server gets brighter +
+          medium-weight text; inactive stays dim. */}
       <div
-        className={`flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary ${
-          isCurrent ? "" : "hover:bg-bg-card/30"
-        }`}
+        className="flex items-stretch w-full"
         aria-current={isCurrent ? "true" : undefined}
         data-current-server={isCurrent ? "true" : undefined}
         data-server={server}
       >
         <button
+          id={`server-header-${server}`}
           type="button"
           onClick={onToggleOpen}
           aria-expanded={isOpen}
           aria-label={isOpen ? `Collapse ${server} sessions` : `Expand ${server} sessions`}
-          className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-text-primary transition-colors min-h-[28px]"
+          className={`flex-1 min-w-0 flex items-center pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider min-h-[20px] coarse:min-h-[28px] transition-colors ${
+            isCurrent
+              ? "text-text-primary font-medium"
+              : "text-text-secondary hover:text-text-primary hover:bg-bg-card/30"
+          }`}
         >
-          <span
-            className="inline-block transition-transform duration-150"
-            style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
-            aria-hidden="true"
-          >
-            &#x25BC;
-          </span>
-          <span className={`truncate font-mono ${isCurrent ? "text-text-primary font-medium" : ""}`}>
-            {server}
-          </span>
+          <span className="truncate">{server}</span>
         </button>
         <button
           onClick={() => onCreateSession(server)}
           aria-label={`New session on ${server}`}
-          className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+          className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1.5 sm:pr-2 flex items-center justify-center"
         >
           +
         </button>
@@ -1088,15 +1085,12 @@ function ServerGroup(props: ServerGroupProps) {
       {isOpen && (
         <div className="pt-1 pb-1">
           {sessions.length === 0 ? (
-            <div className="text-text-secondary text-xs py-2 text-center flex flex-col items-center gap-2">
-              <span>No sessions</span>
-              <button
-                onClick={() => onCreateSession(server)}
-                className="text-sm px-3 py-1.5 border border-border rounded hover:border-text-secondary text-text-primary"
-              >
-                + New Session
-              </button>
-            </div>
+            <button
+              onClick={() => onCreateSession(server)}
+              className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card/30 transition-colors"
+            >
+              (no sessions — + new)
+            </button>
           ) : (
             orderedSessions.map((session) => {
               const isCollapsed = collapsed[`${server}:${session.name}`] ?? false;
@@ -1212,6 +1206,7 @@ function ServerGroup(props: ServerGroupProps) {
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }
+

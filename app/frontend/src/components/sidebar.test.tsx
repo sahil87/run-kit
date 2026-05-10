@@ -223,9 +223,9 @@ describe("Sidebar", () => {
     expect(applySpans.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("does not render + New Session button when sessions exist", () => {
+  it("does not render empty-state hint when sessions exist", () => {
     renderSidebar();
-    expect(screen.queryByText("+ New Session")).not.toBeInTheDocument();
+    expect(screen.queryByText(/no sessions/)).not.toBeInTheDocument();
   });
 
   it("shows kill button for each session", () => {
@@ -242,22 +242,19 @@ describe("Sidebar", () => {
     expect(screen.getByText(/3 window/)).toBeInTheDocument();
   });
 
-  it("shows empty state with + New Session button when no sessions", () => {
+  it("shows empty-state hint row when no sessions", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    expect(screen.getByText("No sessions")).toBeInTheDocument();
-    const btn = screen.getByText("+ New Session");
-    expect(btn).toBeInTheDocument();
-    fireEvent.click(btn);
+    const hint = screen.getByText("(no sessions — + new)");
+    expect(hint).toBeInTheDocument();
+    fireEvent.click(hint);
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
-  it("empty state + New Session button calls onCreateSession directly (no dialog)", () => {
+  it("empty-state hint click calls onCreateSession directly (no dialog)", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    const btn = screen.getByText("+ New Session");
-    fireEvent.click(btn);
-    // onCreateSession is called directly — no CreateSessionDialog should appear
+    fireEvent.click(screen.getByText("(no sessions — + new)"));
     expect(onCreateSession).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

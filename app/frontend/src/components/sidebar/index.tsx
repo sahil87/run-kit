@@ -259,7 +259,7 @@ export function Sidebar({
     },
     onAlwaysSettled: () => {
       const last = lastKillSessionRef.current;
-      if (last) clearSession(last.name);
+      if (last) clearSession(last.server, last.name);
       lastKillSessionRef.current = null;
     },
     onError: (err) => {
@@ -267,23 +267,21 @@ export function Sidebar({
     },
   });
 
-  // Ctrl+click kill window (optimistic) — captures (session, windowId) per call.
-  const lastKillWindowRef = useRef<{ session: string; windowId: string } | null>(null);
+  // Ctrl+click kill window (optimistic) — captures (server, session, windowId).
+  const lastKillWindowRef = useRef<{ server: string; session: string; windowId: string } | null>(null);
   const { execute: executeKillWindow } = useOptimisticAction<[string, string, string, number]>({
     action: (srv, session, _windowId, index) => killWindowApi(srv, session, index),
-    onOptimistic: (_srv, session, windowId) => {
-      lastKillWindowRef.current = { session, windowId };
-      killWindowStore(session, windowId);
+    onOptimistic: (srv, session, windowId) => {
+      lastKillWindowRef.current = { server: srv, session, windowId };
+      killWindowStore(srv, session, windowId);
     },
     onAlwaysRollback: () => {
-      if (lastKillWindowRef.current) {
-        restoreWindow(lastKillWindowRef.current.session, lastKillWindowRef.current.windowId);
-      }
+      const last = lastKillWindowRef.current;
+      if (last) restoreWindow(last.server, last.session, last.windowId);
     },
     onAlwaysSettled: () => {
-      if (lastKillWindowRef.current) {
-        restoreWindow(lastKillWindowRef.current.session, lastKillWindowRef.current.windowId);
-      }
+      const last = lastKillWindowRef.current;
+      if (last) restoreWindow(last.server, last.session, last.windowId);
       lastKillWindowRef.current = null;
     },
     onError: (err) => {
@@ -306,7 +304,7 @@ export function Sidebar({
     onOptimistic: (srv, target) => {
       killDialogServerRef.current = srv;
       if (target.type === "window" && target.windowId) {
-        killWindowStore(target.session, target.windowId);
+        killWindowStore(srv, target.session, target.windowId);
       } else {
         markKilled("session", srv, target.session);
       }
@@ -314,19 +312,21 @@ export function Sidebar({
     onAlwaysRollback: () => {
       const target = killTargetRef.current;
       if (!target) return;
+      const srv = killDialogServerRef.current;
       if (target.type === "window" && target.windowId) {
-        restoreWindow(target.session, target.windowId);
+        restoreWindow(srv, target.session, target.windowId);
       } else {
-        unmarkKilled("session", killDialogServerRef.current, target.session);
+        unmarkKilled("session", srv, target.session);
       }
     },
     onAlwaysSettled: () => {
       const target = killTargetRef.current;
       if (!target) return;
+      const srv = killDialogServerRef.current;
       if (target.type === "window" && target.windowId) {
-        restoreWindow(target.session, target.windowId);
+        restoreWindow(srv, target.session, target.windowId);
       } else {
-        clearSession(target.session);
+        clearSession(srv, target.session);
       }
     },
     onError: (err) => {
@@ -380,43 +380,43 @@ export function Sidebar({
   });
 
   // Inline rename window (optimistic) — finds windowId via editingWindow state
-  const lastRenameWindowRef = useRef<{ session: string; windowId: string } | null>(null);
+  const lastRenameWindowRef = useRef<{ server: string; session: string; windowId: string } | null>(null);
   const renameWindowStore = useWindowStore((state) => state.renameWindow);
   const clearRename = useWindowStore((state) => state.clearRename);
   const { execute: executeRenameWindow } = useOptimisticAction<[string, string, number, string, string]>({
     action: (srv, session, index, newName, _windowId) => renameWindow(srv, session, index, newName),
-    onOptimistic: (_srv, session, _index, newName, windowId) => {
-      lastRenameWindowRef.current = { session, windowId };
-      renameWindowStore(session, windowId, newName);
+    onOptimistic: (srv, session, _index, newName, windowId) => {
+      lastRenameWindowRef.current = { server: srv, session, windowId };
+      renameWindowStore(srv, session, windowId, newName);
     },
     onRollback: () => {
-      if (lastRenameWindowRef.current) {
-        clearRename(lastRenameWindowRef.current.session, lastRenameWindowRef.current.windowId);
-      }
+      const last = lastRenameWindowRef.current;
+      if (last) clearRename(last.server, last.session, last.windowId);
     },
     onError: (err) => {
       addToast(err.message || "Failed to rename window");
     },
     onSettled: () => {
-      if (lastRenameWindowRef.current) {
-        clearRename(lastRenameWindowRef.current.session, lastRenameWindowRef.current.windowId);
-      }
+      const last = lastRenameWindowRef.current;
+      if (last) clearRename(last.server, last.session, last.windowId);
       lastRenameWindowRef.current = null;
     },
   });
 
-  // Optimistic move for drag-drop window reorder (insert-before semantics)
-  const preMoveEntriesRef = useRef<Map<string, { session: string; index: number }> | null>(null);
+  // Optimistic move for drag-drop window reorder (insert-before semantics).
+  // Snapshot is keyed by the store's composite key (`${server}:${windowId}`)
+  // so the rollback restores the right per-server entries.
+  const preMoveEntriesRef = useRef<Map<string, { index: number }> | null>(null);
   const { execute: executeMoveWindow, isPending: isMovePending } = useOptimisticAction<[string, string, number, number]>({
     action: (srv, session, srcIndex, dstIndex) => moveWindow(srv, session, srcIndex, dstIndex),
-    onOptimistic: (_srv, session, srcIndex, dstIndex) => {
+    onOptimistic: (srv, session, srcIndex, dstIndex) => {
       const entries = useWindowStore.getState().entries;
-      const snapshot = new Map<string, { session: string; index: number }>();
-      for (const [id, e] of entries) {
-        if (e.session === session) snapshot.set(id, { session: e.session, index: e.index });
+      const snapshot = new Map<string, { index: number }>();
+      for (const [key, e] of entries) {
+        if (e.server === srv && e.session === session) snapshot.set(key, { index: e.index });
       }
       preMoveEntriesRef.current = snapshot;
-      moveWindowOrder(session, srcIndex, dstIndex);
+      moveWindowOrder(srv, session, srcIndex, dstIndex);
     },
     onAlwaysRollback: () => {
       if (preMoveEntriesRef.current) {
@@ -440,21 +440,23 @@ export function Sidebar({
     },
   });
 
-  // Optimistic cross-session window move
-  const lastMoveToSessionRef = useRef<{ srcSession: string; windowId: string; optimisticId: string } | null>(null);
+  // Optimistic cross-session window move. Cross-server moves are rejected
+  // upstream (DnD handler emits a toast) so srcServer == dstServer here.
+  const lastMoveToSessionRef = useRef<{ server: string; srcSession: string; windowId: string; optimisticId: string } | null>(null);
   const { execute: executeMoveToSession, isPending: isCrossMovePending } = useOptimisticAction<[string, string, number, string, string, string]>({
     action: (srv, srcSession, srcIndex, _windowId, _windowName, dstSession) =>
       moveWindowToSession(srv, srcSession, srcIndex, dstSession),
     onOptimistic: (srv, srcSession, _srcIndex, windowId, windowName, dstSession) => {
-      killWindowStore(srcSession, windowId);
-      const optimisticId = addGhostWindow(dstSession, windowName);
-      lastMoveToSessionRef.current = { srcSession, windowId, optimisticId };
+      killWindowStore(srv, srcSession, windowId);
+      const optimisticId = addGhostWindow(srv, dstSession, windowName);
+      lastMoveToSessionRef.current = { server: srv, srcSession, windowId, optimisticId };
       navigate({ to: "/$server", params: { server: srv } });
     },
     onAlwaysRollback: () => {
-      if (lastMoveToSessionRef.current) {
-        restoreWindow(lastMoveToSessionRef.current.srcSession, lastMoveToSessionRef.current.windowId);
-        removeGhost(lastMoveToSessionRef.current.optimisticId);
+      const last = lastMoveToSessionRef.current;
+      if (last) {
+        restoreWindow(last.server, last.srcSession, last.windowId);
+        removeGhost(last.optimisticId);
       }
     },
     onAlwaysSettled: () => {
@@ -1020,12 +1022,14 @@ function ServerGroup(props: ServerGroupProps) {
   // entries with ghost/rename overlays. Without this sync per-server,
   // non-current servers would render empty session rows. AppShell also
   // syncs the current server's sessions; the duplicate write is idempotent.
+  // Pass `server` so per-server entries are scoped correctly — windowIds
+  // from different servers must not collide in the global store.
   const setWindowsForSession = useWindowStore((s) => s.setWindowsForSession);
   useEffect(() => {
     for (const s of rawSessions) {
-      setWindowsForSession(s.name, s.windows);
+      setWindowsForSession(server, s.name, s.windows);
     }
-  }, [rawSessions, setWindowsForSession]);
+  }, [server, rawSessions, setWindowsForSession]);
 
   // Apply optimistic merging (ghosts/rename/kill markers) per server.
   const sessions = useMergedSessions(rawSessions, server);
@@ -1065,10 +1069,10 @@ function ServerGroup(props: ServerGroupProps) {
           onClick={onToggleOpen}
           aria-expanded={isOpen}
           aria-label={isOpen ? `Collapse ${server} sessions` : `Expand ${server} sessions`}
-          className={`flex-1 min-w-0 flex items-center pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider min-h-[20px] coarse:min-h-[28px] transition-colors ${
+          className={`flex-1 min-w-0 flex items-center pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider min-h-[20px] coarse:min-h-[28px] transition-colors hover:bg-bg-card/30 ${
             isCurrent
               ? "text-text-primary font-medium"
-              : "text-text-secondary hover:text-text-primary hover:bg-bg-card/30"
+              : "text-text-secondary hover:text-text-primary"
           }`}
         >
           <span className="truncate">{server}</span>

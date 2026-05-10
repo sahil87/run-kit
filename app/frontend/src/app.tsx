@@ -166,12 +166,14 @@ function AppShell() {
   const ghostServerIdRef = useRef<string | null>(null);
   const killedServerNameRef = useRef<string | null>(null);
 
-  // SSE sync: keep window store in sync with real session data
+  // SSE sync: keep window store in sync with real session data for the
+  // current server. windowIds are unique per server only — pass `server`
+  // through so cross-server entries don't clobber each other.
   useEffect(() => {
     for (const s of rawSessions) {
-      setWindowsForSession(s.name, s.windows);
+      setWindowsForSession(server, s.name, s.windows);
     }
-  }, [rawSessions, setWindowsForSession]);
+  }, [server, rawSessions, setWindowsForSession]);
 
   // Palette split/close actions (button loading not visible since palette closes, but we need error toasts)
   const { execute: executeSplit } = useOptimisticAction<[string, string, number, boolean, string | undefined]>({
@@ -383,8 +385,8 @@ function AppShell() {
       const activeWin = targetSession?.windows.find((w) => w.isActiveWindow);
       return createWindow(srv, session, "zsh", activeWin?.worktreePath);
     },
-    onOptimistic: (_srv, session) => {
-      ghostWindowIdRef.current = addGhostWindowStore(session, "zsh");
+    onOptimistic: (srv, session) => {
+      ghostWindowIdRef.current = addGhostWindowStore(srv, session, "zsh");
     },
     onRollback: () => {
       if (ghostWindowIdRef.current) {

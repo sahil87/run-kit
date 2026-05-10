@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useWindowStore } from "./window-store";
+import { useWindowStore, entryKey } from "./window-store";
 import type { WindowInfo } from "@/types";
+
+const SRV = "test";
 
 function makeWindow(overrides: Partial<WindowInfo> & { windowId: string; index: number }): WindowInfo {
   return {
@@ -21,6 +23,14 @@ function resetStore() {
   useWindowStore.setState({ entries: new Map(), ghosts: [] });
 }
 
+/** Read an entry by (server, windowId) — wraps the composite-key lookup. */
+function get(server: string, windowId: string) {
+  return useWindowStore.getState().entries.get(entryKey(server, windowId));
+}
+function has(server: string, windowId: string) {
+  return useWindowStore.getState().entries.has(entryKey(server, windowId));
+}
+
 describe("window-store", () => {
   beforeEach(() => {
     resetStore();
@@ -33,99 +43,168 @@ describe("window-store", () => {
         makeWindow({ windowId: "@0", index: 0, name: "main" }),
         makeWindow({ windowId: "@1", index: 1, name: "dev" }),
       ];
-      setWindowsForSession("alpha", windows);
+      setWindowsForSession(SRV, "alpha", windows);
 
       const entries = useWindowStore.getState().entries;
       expect(entries.size).toBe(2);
-      expect(entries.get("@0")?.name).toBe("main");
-      expect(entries.get("@1")?.name).toBe("dev");
-      expect(entries.get("@0")?.session).toBe("alpha");
+      expect(get(SRV, "@0")?.name).toBe("main");
+      expect(get(SRV, "@1")?.name).toBe("dev");
+      expect(get(SRV, "@0")?.session).toBe("alpha");
+      expect(get(SRV, "@0")?.server).toBe(SRV);
     });
 
     it("replaces windows when session is updated", () => {
       const { setWindowsForSession } = getStore();
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, name: "old" }),
       ]);
 
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@1", index: 0, name: "new" }),
       ]);
 
       const entries = useWindowStore.getState().entries;
       expect(entries.size).toBe(1);
-      expect(entries.has("@0")).toBe(false);
-      expect(entries.get("@1")?.name).toBe("new");
+      expect(has(SRV, "@0")).toBe(false);
+      expect(get(SRV, "@1")?.name).toBe("new");
     });
 
     it("preserves pendingName across updates", () => {
       const { setWindowsForSession, renameWindow } = getStore();
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
-      renameWindow("alpha", "@0", "renamed");
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
+      renameWindow(SRV, "alpha", "@0", "renamed");
 
       // Update from SSE — same window
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
 
-      const entry = useWindowStore.getState().entries.get("@0");
-      expect(entry?.pendingName).toBe("renamed");
+      expect(get(SRV, "@0")?.pendingName).toBe("renamed");
     });
 
     it("preserves killed state across updates", () => {
       const { setWindowsForSession, killWindow } = getStore();
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
-      killWindow("alpha", "@0");
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
+      killWindow(SRV, "alpha", "@0");
 
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
 
-      const entry = useWindowStore.getState().entries.get("@0");
-      expect(entry?.killed).toBe(true);
+      expect(get(SRV, "@0")?.killed).toBe(true);
     });
 
     it("does not affect windows from other sessions", () => {
       const { setWindowsForSession } = getStore();
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0 })]);
-      setWindowsForSession("beta", [makeWindow({ windowId: "@1", index: 0 })]);
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      setWindowsForSession(SRV, "beta", [makeWindow({ windowId: "@1", index: 0 })]);
 
       // Update only alpha
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@2", index: 0 })]);
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@2", index: 0 })]);
 
-      const entries = useWindowStore.getState().entries;
-      expect(entries.has("@1")).toBe(true); // beta window still there
-      expect(entries.has("@0")).toBe(false); // old alpha window removed
-      expect(entries.has("@2")).toBe(true); // new alpha window added
+      expect(has(SRV, "@1")).toBe(true); // beta window still there
+      expect(has(SRV, "@0")).toBe(false); // old alpha window removed
+      expect(has(SRV, "@2")).toBe(true); // new alpha window added
+    });
+  });
+
+  describe("multi-server isolation", () => {
+    // tmux windowIds (`@1`, `@2`, ...) are unique per server only. Two
+    // tmux servers can each have a window `@1` belonging to identically
+    // named sessions. The store MUST keep them separate.
+
+    it("does not let server B overwrite server A's identically-id'd window", () => {
+      const { setWindowsForSession } = getStore();
+      setWindowsForSession("a", "loom", [makeWindow({ windowId: "@1", index: 0, name: "wd-api" })]);
+      setWindowsForSession("b", "0", [makeWindow({ windowId: "@1", index: 0, name: "zsh" })]);
+
+      expect(get("a", "@1")?.name).toBe("wd-api");
+      expect(get("b", "@1")?.name).toBe("zsh");
+      expect(useWindowStore.getState().entries.size).toBe(2);
+    });
+
+    it("clearSession on one server does not touch the other", () => {
+      const { setWindowsForSession, clearSession } = getStore();
+      setWindowsForSession("a", "x", [makeWindow({ windowId: "@1", index: 0 })]);
+      setWindowsForSession("b", "x", [makeWindow({ windowId: "@1", index: 0 })]);
+
+      clearSession("a", "x");
+
+      expect(has("a", "@1")).toBe(false);
+      expect(has("b", "@1")).toBe(true);
+    });
+
+    it("killWindow for the wrong server is a no-op", () => {
+      const { setWindowsForSession, killWindow } = getStore();
+      setWindowsForSession("a", "x", [makeWindow({ windowId: "@1", index: 0 })]);
+
+      killWindow("b", "x", "@1"); // wrong server
+
+      expect(get("a", "@1")?.killed).toBe(false);
+    });
+
+    it("renameWindow for the wrong server is a no-op", () => {
+      const { setWindowsForSession, renameWindow } = getStore();
+      setWindowsForSession("a", "x", [makeWindow({ windowId: "@1", index: 0, name: "orig" })]);
+
+      renameWindow("b", "x", "@1", "wrong"); // wrong server
+
+      expect(get("a", "@1")?.pendingName).toBeUndefined();
+    });
+
+    it("setWindowsForSession on server A does not delete server B's same-name session entries", () => {
+      // The bug we just fixed: server B's SSE tick was clearing server A's
+      // entries because the prior-known sweep was scoped only by session name.
+      const { setWindowsForSession } = getStore();
+      setWindowsForSession("a", "0", [
+        makeWindow({ windowId: "@1", index: 0, name: "a-win" }),
+      ]);
+      setWindowsForSession("b", "0", [
+        makeWindow({ windowId: "@1", index: 0, name: "b-win" }),
+      ]);
+
+      // Re-tick server A — server B's "0" session must remain untouched.
+      setWindowsForSession("a", "0", [
+        makeWindow({ windowId: "@1", index: 0, name: "a-win" }),
+      ]);
+
+      expect(get("a", "@1")?.name).toBe("a-win");
+      expect(get("b", "@1")?.name).toBe("b-win");
     });
   });
 
   describe("addGhostWindow", () => {
     it("adds a ghost window for a session and returns optimisticId", () => {
       const { addGhostWindow } = getStore();
-      const id = addGhostWindow("alpha", "new-win");
+      const id = addGhostWindow(SRV, "alpha", "new-win");
 
       const ghosts = useWindowStore.getState().ghosts;
       expect(ghosts).toHaveLength(1);
       expect(ghosts[0].optimisticId).toBe(id);
+      expect(ghosts[0].server).toBe(SRV);
       expect(ghosts[0].session).toBe("alpha");
       expect(ghosts[0].name).toBe("new-win");
       expect(id).toMatch(/^ghost-win-/);
     });
 
-    it("snapshots current windowIds at ghost creation time", () => {
+    it("snapshots current windowIds at ghost creation time (server-scoped)", () => {
       const { setWindowsForSession, addGhostWindow } = getStore();
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0 }),
         makeWindow({ windowId: "@1", index: 1 }),
       ]);
+      // Same windowIds on a different server must NOT leak into the snapshot.
+      setWindowsForSession("other", "alpha", [
+        makeWindow({ windowId: "@5", index: 0 }),
+      ]);
 
-      addGhostWindow("alpha", "new-win");
+      addGhostWindow(SRV, "alpha", "new-win");
 
       const ghost = useWindowStore.getState().ghosts[0];
       expect(ghost.snapshotWindowIds.has("@0")).toBe(true);
       expect(ghost.snapshotWindowIds.has("@1")).toBe(true);
+      expect(ghost.snapshotWindowIds.has("@5")).toBe(false);
     });
 
     it("snapshot for empty session is empty set", () => {
       const { addGhostWindow } = getStore();
-      addGhostWindow("alpha", "new-win");
+      addGhostWindow(SRV, "alpha", "new-win");
 
       const ghost = useWindowStore.getState().ghosts[0];
       expect(ghost.snapshotWindowIds.size).toBe(0);
@@ -135,58 +214,58 @@ describe("window-store", () => {
   describe("killWindow / restoreWindow", () => {
     it("marks a window as killed", () => {
       const { setWindowsForSession, killWindow } = getStore();
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0 })]);
-      killWindow("alpha", "@0");
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      killWindow(SRV, "alpha", "@0");
 
-      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(true);
+      expect(get(SRV, "@0")?.killed).toBe(true);
     });
 
     it("restores a killed window", () => {
       const { setWindowsForSession, killWindow, restoreWindow } = getStore();
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0 })]);
-      killWindow("alpha", "@0");
-      restoreWindow("alpha", "@0");
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      killWindow(SRV, "alpha", "@0");
+      restoreWindow(SRV, "alpha", "@0");
 
-      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(false);
+      expect(get(SRV, "@0")?.killed).toBe(false);
     });
 
     it("no-op when window not found", () => {
       const { killWindow } = getStore();
-      expect(() => killWindow("alpha", "@999")).not.toThrow();
+      expect(() => killWindow(SRV, "alpha", "@999")).not.toThrow();
     });
 
     it("no-op when session mismatch", () => {
       const { setWindowsForSession, killWindow } = getStore();
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0 })]);
-      killWindow("beta", "@0"); // wrong session
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      killWindow(SRV, "beta", "@0"); // wrong session
 
-      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(false);
+      expect(get(SRV, "@0")?.killed).toBe(false);
     });
   });
 
   describe("renameWindow / clearRename", () => {
     it("applies a pending name", () => {
       const { setWindowsForSession, renameWindow } = getStore();
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
-      renameWindow("alpha", "@0", "editor");
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
+      renameWindow(SRV, "alpha", "@0", "editor");
 
-      expect(useWindowStore.getState().entries.get("@0")?.pendingName).toBe("editor");
+      expect(get(SRV, "@0")?.pendingName).toBe("editor");
     });
 
     it("clears pending name", () => {
       const { setWindowsForSession, renameWindow, clearRename } = getStore();
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
-      renameWindow("alpha", "@0", "editor");
-      clearRename("alpha", "@0");
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0, name: "main" })]);
+      renameWindow(SRV, "alpha", "@0", "editor");
+      clearRename(SRV, "alpha", "@0");
 
-      expect(useWindowStore.getState().entries.get("@0")?.pendingName).toBeUndefined();
+      expect(get(SRV, "@0")?.pendingName).toBeUndefined();
     });
   });
 
   describe("removeGhost", () => {
     it("removes ghost by optimisticId", () => {
       const { addGhostWindow, removeGhost } = getStore();
-      const id = addGhostWindow("alpha", "new");
+      const id = addGhostWindow(SRV, "alpha", "new");
       removeGhost(id);
 
       expect(useWindowStore.getState().ghosts).toHaveLength(0);
@@ -194,8 +273,8 @@ describe("window-store", () => {
 
     it("does not remove other ghosts", () => {
       const { addGhostWindow, removeGhost } = getStore();
-      const id1 = addGhostWindow("alpha", "win1");
-      addGhostWindow("alpha", "win2");
+      const id1 = addGhostWindow(SRV, "alpha", "win1");
+      addGhostWindow(SRV, "alpha", "win2");
       removeGhost(id1);
 
       const ghosts = useWindowStore.getState().ghosts;
@@ -205,22 +284,21 @@ describe("window-store", () => {
   });
 
   describe("clearSession", () => {
-    it("removes all entries and ghosts for a session", () => {
+    it("removes all entries and ghosts for a (server, session)", () => {
       const { setWindowsForSession, addGhostWindow, clearSession } = getStore();
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0 }),
         makeWindow({ windowId: "@1", index: 1 }),
       ]);
-      setWindowsForSession("beta", [makeWindow({ windowId: "@2", index: 0 })]);
-      addGhostWindow("alpha", "ghost");
+      setWindowsForSession(SRV, "beta", [makeWindow({ windowId: "@2", index: 0 })]);
+      addGhostWindow(SRV, "alpha", "ghost");
 
-      clearSession("alpha");
+      clearSession(SRV, "alpha");
 
-      const state = useWindowStore.getState();
-      expect(state.entries.has("@0")).toBe(false);
-      expect(state.entries.has("@1")).toBe(false);
-      expect(state.entries.has("@2")).toBe(true); // beta unaffected
-      expect(state.ghosts).toHaveLength(0);
+      expect(has(SRV, "@0")).toBe(false);
+      expect(has(SRV, "@1")).toBe(false);
+      expect(has(SRV, "@2")).toBe(true); // beta unaffected
+      expect(useWindowStore.getState().ghosts).toHaveLength(0);
     });
   });
 
@@ -228,15 +306,12 @@ describe("window-store", () => {
     it("claims a ghost when new window arrives (snapshot does not intersect newIds)", () => {
       const { setWindowsForSession, addGhostWindow } = getStore();
 
-      // Session starts with one window
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
 
-      // Add ghost (snapshot = {@0})
-      addGhostWindow("alpha", "new-win");
+      addGhostWindow(SRV, "alpha", "new-win");
       expect(useWindowStore.getState().ghosts).toHaveLength(1);
 
-      // New window @1 arrives — @1 not in snapshot, should claim ghost
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0 }),
         makeWindow({ windowId: "@1", index: 1 }),
       ]);
@@ -247,11 +322,10 @@ describe("window-store", () => {
     it("does not claim ghost when no new windows arrive", () => {
       const { setWindowsForSession, addGhostWindow } = getStore();
 
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0 })]);
-      addGhostWindow("alpha", "new-win");
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      addGhostWindow(SRV, "alpha", "new-win");
 
-      // Same windows — no new arrivals
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
 
       expect(useWindowStore.getState().ghosts).toHaveLength(1);
     });
@@ -259,15 +333,13 @@ describe("window-store", () => {
     it("claims only one ghost per new window (oldest first)", () => {
       const { setWindowsForSession, addGhostWindow } = getStore();
 
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
 
-      // Add two ghosts
-      addGhostWindow("alpha", "win1");
-      addGhostWindow("alpha", "win2");
+      addGhostWindow(SRV, "alpha", "win1");
+      addGhostWindow(SRV, "alpha", "win2");
       expect(useWindowStore.getState().ghosts).toHaveLength(2);
 
-      // Only one new window arrives — should claim only one ghost
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0 }),
         makeWindow({ windowId: "@1", index: 1 }),
       ]);
@@ -278,12 +350,11 @@ describe("window-store", () => {
     it("claims two ghosts when two new windows arrive", () => {
       const { setWindowsForSession, addGhostWindow } = getStore();
 
-      setWindowsForSession("alpha", [makeWindow({ windowId: "@0", index: 0 })]);
-      addGhostWindow("alpha", "win1");
-      addGhostWindow("alpha", "win2");
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      addGhostWindow(SRV, "alpha", "win1");
+      addGhostWindow(SRV, "alpha", "win2");
 
-      // Two new windows arrive
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0 }),
         makeWindow({ windowId: "@1", index: 1 }),
         makeWindow({ windowId: "@2", index: 2 }),
@@ -297,11 +368,11 @@ describe("window-store", () => {
     it("syncs panes from incoming WindowInfo", () => {
       const { setWindowsForSession } = getStore();
       const pane = { paneId: "%5", paneIndex: 0, cwd: "/home/user", command: "zsh", isActive: true };
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, panes: [pane] }),
       ]);
 
-      const entry = useWindowStore.getState().entries.get("@0");
+      const entry = get(SRV, "@0");
       expect(entry?.panes).toHaveLength(1);
       expect(entry?.panes[0].paneId).toBe("%5");
       expect(entry?.panes[0].cwd).toBe("/home/user");
@@ -310,29 +381,26 @@ describe("window-store", () => {
 
     it("defaults panes to [] when WindowInfo.panes is absent", () => {
       const { setWindowsForSession } = getStore();
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0 }), // no panes field
       ]);
 
-      const entry = useWindowStore.getState().entries.get("@0");
-      expect(entry?.panes).toEqual([]);
+      expect(get(SRV, "@0")?.panes).toEqual([]);
     });
 
     it("replaces panes on re-sync (no stale data)", () => {
       const { setWindowsForSession } = getStore();
       const pane1 = { paneId: "%5", paneIndex: 0, cwd: "/home/user", command: "zsh", isActive: true };
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, panes: [pane1] }),
       ]);
 
-      // Second SSE tick with updated CWD
       const pane2 = { paneId: "%5", paneIndex: 0, cwd: "/home/user/code", command: "zsh", isActive: true };
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, panes: [pane2] }),
       ]);
 
-      const entry = useWindowStore.getState().entries.get("@0");
-      expect(entry?.panes[0].cwd).toBe("/home/user/code");
+      expect(get(SRV, "@0")?.panes[0].cwd).toBe("/home/user/code");
     });
 
     it("stores multiple panes", () => {
@@ -341,11 +409,11 @@ describe("window-store", () => {
         { paneId: "%5", paneIndex: 0, cwd: "/home/user", command: "zsh", isActive: true },
         { paneId: "%6", paneIndex: 1, cwd: "/home/user/code", command: "vim", isActive: false },
       ];
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, panes }),
       ]);
 
-      const entry = useWindowStore.getState().entries.get("@0");
+      const entry = get(SRV, "@0");
       expect(entry?.panes).toHaveLength(2);
       expect(entry?.panes[1].paneId).toBe("%6");
     });
@@ -354,123 +422,109 @@ describe("window-store", () => {
   describe("moveWindowOrder", () => {
     it("moves window forward (insert before): [a b c d] move 0→2 gives [b a c d]", () => {
       const { setWindowsForSession, moveWindowOrder } = getStore();
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, name: "a" }),
         makeWindow({ windowId: "@1", index: 1, name: "b" }),
         makeWindow({ windowId: "@2", index: 2, name: "c" }),
         makeWindow({ windowId: "@3", index: 3, name: "d" }),
       ]);
 
-      moveWindowOrder("alpha", 0, 2);
+      moveWindowOrder(SRV, "alpha", 0, 2);
 
-      const entries = useWindowStore.getState().entries;
-      expect(entries.get("@1")?.index).toBe(0); // b shifted left
-      expect(entries.get("@0")?.index).toBe(1); // a inserted before c
-      expect(entries.get("@2")?.index).toBe(2); // c unchanged
-      expect(entries.get("@3")?.index).toBe(3); // d unchanged
+      expect(get(SRV, "@1")?.index).toBe(0); // b shifted left
+      expect(get(SRV, "@0")?.index).toBe(1); // a inserted before c
+      expect(get(SRV, "@2")?.index).toBe(2); // c unchanged
+      expect(get(SRV, "@3")?.index).toBe(3); // d unchanged
     });
 
     it("moves window backward: [a b c d] move 3→1 gives [a d b c]", () => {
       const { setWindowsForSession, moveWindowOrder } = getStore();
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, name: "a" }),
         makeWindow({ windowId: "@1", index: 1, name: "b" }),
         makeWindow({ windowId: "@2", index: 2, name: "c" }),
         makeWindow({ windowId: "@3", index: 3, name: "d" }),
       ]);
 
-      moveWindowOrder("alpha", 3, 1);
+      moveWindowOrder(SRV, "alpha", 3, 1);
 
-      const entries = useWindowStore.getState().entries;
-      expect(entries.get("@0")?.index).toBe(0); // a unchanged
-      expect(entries.get("@3")?.index).toBe(1); // d took b's slot
-      expect(entries.get("@1")?.index).toBe(2); // b shifted right
-      expect(entries.get("@2")?.index).toBe(3); // c shifted right
+      expect(get(SRV, "@0")?.index).toBe(0); // a unchanged
+      expect(get(SRV, "@3")?.index).toBe(1); // d took b's slot
+      expect(get(SRV, "@1")?.index).toBe(2); // b shifted right
+      expect(get(SRV, "@2")?.index).toBe(3); // c shifted right
     });
 
     it("no-op when source entry is missing", () => {
       const { setWindowsForSession, moveWindowOrder } = getStore();
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, name: "main" }),
       ]);
 
-      moveWindowOrder("alpha", 5, 0);
+      moveWindowOrder(SRV, "alpha", 5, 0);
 
-      const entries = useWindowStore.getState().entries;
-      expect(entries.get("@0")?.index).toBe(0);
+      expect(get(SRV, "@0")?.index).toBe(0);
     });
 
     it("no-op when destination entry is missing", () => {
       const { setWindowsForSession, moveWindowOrder } = getStore();
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, name: "main" }),
       ]);
 
-      moveWindowOrder("alpha", 0, 5);
+      moveWindowOrder(SRV, "alpha", 0, 5);
 
-      const entries = useWindowStore.getState().entries;
-      expect(entries.get("@0")?.index).toBe(0);
+      expect(get(SRV, "@0")?.index).toBe(0);
     });
 
     it("does not affect windows from other sessions", () => {
       const { setWindowsForSession, moveWindowOrder } = getStore();
-      setWindowsForSession("alpha", [
+      setWindowsForSession(SRV, "alpha", [
         makeWindow({ windowId: "@0", index: 0, name: "main" }),
         makeWindow({ windowId: "@1", index: 1, name: "dev" }),
       ]);
-      setWindowsForSession("beta", [
+      setWindowsForSession(SRV, "beta", [
         makeWindow({ windowId: "@2", index: 0, name: "other" }),
       ]);
 
-      moveWindowOrder("alpha", 0, 1);
+      moveWindowOrder(SRV, "alpha", 0, 1);
 
-      expect(useWindowStore.getState().entries.get("@2")?.index).toBe(0);
+      expect(get(SRV, "@2")?.index).toBe(0);
     });
   });
 
   describe("core regression: index renumbering after window deletion", () => {
     it("killing @2 does not suppress renumbered @3 that moves to index 1", () => {
-      // Regression: the old index-based key `session:1` would suppress the renumbered window
-      // at index 1 even though it's a completely different window (@3).
       const { setWindowsForSession, killWindow, restoreWindow } = getStore();
 
-      // Session "dev" starts with three windows
-      setWindowsForSession("dev", [
+      setWindowsForSession(SRV, "dev", [
         makeWindow({ windowId: "@1", index: 0, name: "zsh" }),
         makeWindow({ windowId: "@2", index: 1, name: "build" }),
         makeWindow({ windowId: "@3", index: 2, name: "logs" }),
       ]);
 
-      // User kills @2 — optimistic hide
-      killWindow("dev", "@2");
+      killWindow(SRV, "dev", "@2");
+      expect(get(SRV, "@2")?.killed).toBe(true);
 
-      // Verify @2 is hidden
-      const afterKill = useWindowStore.getState().entries;
-      expect(afterKill.get("@2")?.killed).toBe(true);
-
-      // Simulate API settling — restore marker (onAlwaysSettled)
-      restoreWindow("dev", "@2");
+      restoreWindow(SRV, "dev", "@2");
 
       // SSE confirms deletion: @2 is gone, @3 is now at index 1
-      setWindowsForSession("dev", [
+      setWindowsForSession(SRV, "dev", [
         makeWindow({ windowId: "@1", index: 0, name: "zsh" }),
         makeWindow({ windowId: "@3", index: 1, name: "logs" }),
       ]);
 
-      const state = useWindowStore.getState();
-
       // @2 must be fully gone (no lingering kill entry)
-      expect(state.entries.has("@2")).toBe(false);
+      expect(has(SRV, "@2")).toBe(false);
 
       // @3 must be visible with correct name — the critical assertion
-      const entry3 = state.entries.get("@3");
+      const entry3 = get(SRV, "@3");
       expect(entry3).toBeDefined();
       expect(entry3?.killed).toBe(false);
       expect(entry3?.name).toBe("logs");
       expect(entry3?.index).toBe(1);
 
       // @1 still present
-      expect(state.entries.get("@1")?.name).toBe("zsh");
+      expect(get(SRV, "@1")?.name).toBe("zsh");
     });
   });
 });

@@ -5,7 +5,7 @@ import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-
 import { MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
-import { useWindowStore } from "@/store/window-store";
+import { useWindowStore, entryKey } from "@/store/window-store";
 import type { ProjectSession } from "@/types";
 
 const mockNavigate = vi.fn();
@@ -688,11 +688,11 @@ describe("Sidebar", () => {
       mockNavigate.mockClear();
       // Seed the window store so killWindow/restoreWindow/addGhostWindow have entries
       useWindowStore.setState({ entries: new Map(), ghosts: [] });
-      useWindowStore.getState().setWindowsForSession("run-kit", [
+      useWindowStore.getState().setWindowsForSession("runkit", "run-kit", [
         { windowId: "@0", index: 0, name: "main", worktreePath: "~/code/run-kit", activity: "active", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 5 },
         { windowId: "@1", index: 1, name: "scratch", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 180 },
       ]);
-      useWindowStore.getState().setWindowsForSession("ao-server", [
+      useWindowStore.getState().setWindowsForSession("runkit", "ao-server", [
         { windowId: "@2", index: 0, name: "dev", worktreePath: "~/code/ao-server", activity: "idle", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 3600 },
       ]);
     });
@@ -722,7 +722,7 @@ describe("Sidebar", () => {
       });
 
       // Source window should be killed optimistically
-      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(true);
+      expect(useWindowStore.getState().entries.get(entryKey("runkit", "@0"))?.killed).toBe(true);
       // Ghost window should be added to target session
       expect(useWindowStore.getState().ghosts.some((g) => g.session === "ao-server" && g.name === "main")).toBe(true);
       // Navigate to server dashboard
@@ -776,14 +776,14 @@ describe("Sidebar", () => {
       fireEvent.dragStart(mainDraggable, { dataTransfer });
 
       // Before drop — source window is not killed
-      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(false);
+      expect(useWindowStore.getState().entries.get(entryKey("runkit", "@0"))?.killed).toBe(false);
 
       await act(async () => {
         fireEvent.drop(bravoHeader, { dataTransfer });
       });
 
       // After API rejection settles, window should be restored (not killed)
-      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(false);
+      expect(useWindowStore.getState().entries.get(entryKey("runkit", "@0"))?.killed).toBe(false);
       // Ghost should be removed
       expect(useWindowStore.getState().ghosts.some((g) => g.session === "ao-server" && g.name === "main")).toBe(false);
       // Error toast should be shown
@@ -904,7 +904,7 @@ describe("Sidebar", () => {
       // Seed the window store so moveWindowOrder has entries to operate on.
       // Need 3+ windows to test insert-before semantics (2-item forward move is a no-op).
       useWindowStore.setState({ entries: new Map(), ghosts: [] });
-      useWindowStore.getState().setWindowsForSession("run-kit", [
+      useWindowStore.getState().setWindowsForSession("runkit", "run-kit", [
         { windowId: "@0", index: 0, name: "main", worktreePath: "~/code/run-kit", activity: "active", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 5 },
         { windowId: "@1", index: 1, name: "scratch", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 180 },
         { windowId: "@2", index: 2, name: "logs", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 300 },
@@ -940,9 +940,9 @@ describe("Sidebar", () => {
 
       // Synchronous: store indices should reflect insert-before (before API resolves)
       const entries = useWindowStore.getState().entries;
-      expect(entries.get("@1")?.index).toBe(0); // scratch shifted left
-      expect(entries.get("@0")?.index).toBe(1); // main inserted before logs
-      expect(entries.get("@2")?.index).toBe(2); // logs unchanged
+      expect(entries.get(entryKey("runkit", "@1"))?.index).toBe(0); // scratch shifted left
+      expect(entries.get(entryKey("runkit", "@0"))?.index).toBe(1); // main inserted before logs
+      expect(entries.get(entryKey("runkit", "@2"))?.index).toBe(2); // logs unchanged
 
       // Reorder should not change selection
       expect(onSelectWindow).not.toHaveBeenCalled();
@@ -981,9 +981,9 @@ describe("Sidebar", () => {
 
       // After API rejection settles, indices should be restored
       const entries = useWindowStore.getState().entries;
-      expect(entries.get("@0")?.index).toBe(0);
-      expect(entries.get("@1")?.index).toBe(1);
-      expect(entries.get("@2")?.index).toBe(2);
+      expect(entries.get(entryKey("runkit", "@0"))?.index).toBe(0);
+      expect(entries.get(entryKey("runkit", "@1"))?.index).toBe(1);
+      expect(entries.get(entryKey("runkit", "@2"))?.index).toBe(2);
     });
   });
 

@@ -733,7 +733,7 @@ export function Sidebar({
 
       {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}
       <div className="border-t-[3px] border-border flex flex-col flex-1 min-h-0">
-        <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0">
+        <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
           <span className="font-bold uppercase tracking-wide">Sessions</span>
           {currentServer && currentSession && (
             <span className="ml-auto flex items-center gap-1 min-w-0 truncate">

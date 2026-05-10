@@ -41,7 +41,7 @@ export function BoardsSection() {
       }
     >
       {isHintMode ? (
-        <div className="px-3 py-2 text-xs text-text-secondary">
+        <div className="ml-3 px-2 py-2 text-xs text-text-secondary">
           Pin a window to start a board
         </div>
       ) : (
@@ -49,12 +49,12 @@ export function BoardsSection() {
           {boards.map((b) => {
             const isActive = b.name === activeBoardName;
             return (
-              <li key={b.name}>
+              <li key={b.name} className="ml-3">
                 <button
                   type="button"
                   onClick={() => navigate({ to: "/board/$name", params: { name: b.name } })}
                   aria-current={isActive ? "page" : undefined}
-                  className={`w-full flex items-center justify-between gap-2 px-3 py-1 text-sm text-left transition-colors min-h-[36px] ${
+                  className={`w-full flex items-center justify-between gap-2 pl-2 pr-2 py-1 text-sm text-left transition-colors min-h-[36px] ${
                     isActive
                       ? "bg-bg-card text-text-primary font-medium"
                       : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"

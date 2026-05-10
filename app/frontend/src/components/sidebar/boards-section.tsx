@@ -33,7 +33,7 @@ export function BoardsSection() {
       title="Boards"
       storageKey="runkit-panel-boards"
       defaultOpen={false}
-      contentClassName="py-1"
+      contentClassName=""
       headerRight={
         boards.length > 0 ? (
           <span className="text-xs text-text-secondary">{boards.length}</span>

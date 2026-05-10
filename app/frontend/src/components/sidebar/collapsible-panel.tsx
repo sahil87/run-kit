@@ -279,7 +279,7 @@ export function CollapsiblePanel({
   const headerHoverBg = headerTint && !tintOnlyWhenCollapsed ? headerTint.hover : null;
 
   return (
-    <div className="border-t-[3px] border-border">
+    <div className="border-t-[3px] border-border first:border-t-0">
       {/* Header — always visible */}
       <div
         className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0 transition-colors"

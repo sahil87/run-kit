@@ -42,6 +42,10 @@ type TopBarProps = {
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
+  // Notion-style sidebar pictogram: rounded-rect with an internal vertical
+  // divider ~30% from the left. The left column fills when the sidebar is
+  // open and empties when collapsed — same shape both states, only the fill
+  // flips, so the icon's identity ("this is a sidebar toggle") never changes.
   return (
     <svg
       width="18"
@@ -51,49 +55,27 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
       stroke="currentColor"
       strokeWidth="1.5"
       strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      {/* Top line → upper arm of chevron (<) */}
-      <line
-        x1="3"
-        y1="4.5"
-        x2="15"
-        y2="4.5"
-        style={{
-          transition: "transform 200ms ease",
-          transformOrigin: "9px 4.5px",
-          transform: isOpen
-            ? "translate(-1px, 2px) rotate(-40deg) scaleX(0.65)"
-            : "none",
-        }}
+      {/* Outer panel — rounded rectangle */}
+      <rect x="2.5" y="3.5" width="13" height="11" rx="2" />
+      {/* Sidebar slot fill — left column, filled when sidebar is open.
+          Uses fillOpacity to tone the fill down to a subtle wash rather
+          than matching the stroke at full intensity. */}
+      <rect
+        x="2.5"
+        y="3.5"
+        width="4"
+        height="11"
+        rx="2"
+        fill="currentColor"
+        fillOpacity={isOpen ? 0.5 : 0}
+        stroke="none"
+        style={{ transition: "fill-opacity 150ms ease" }}
       />
-      {/* Middle line: fades/scales out when open */}
-      <line
-        x1="3"
-        y1="9"
-        x2="15"
-        y2="9"
-        style={{
-          transition: "opacity 150ms ease, transform 150ms ease",
-          transformOrigin: "9px 9px",
-          opacity: isOpen ? 0 : 1,
-          transform: isOpen ? "scaleX(0)" : "scaleX(1)",
-        }}
-      />
-      {/* Bottom line → lower arm of chevron (<) */}
-      <line
-        x1="3"
-        y1="13.5"
-        x2="15"
-        y2="13.5"
-        style={{
-          transition: "transform 200ms ease",
-          transformOrigin: "9px 13.5px",
-          transform: isOpen
-            ? "translate(-1px, -2px) rotate(40deg) scaleX(0.65)"
-            : "none",
-        }}
-      />
+      {/* Internal divider — separates sidebar slot from content area */}
+      <line x1="6.5" y1="3.5" x2="6.5" y2="14.5" />
     </svg>
   );
 }

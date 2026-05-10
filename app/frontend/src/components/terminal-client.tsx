@@ -383,15 +383,25 @@ export function TerminalClient({
     xtermRef.current.options.theme = deriveXtermTheme(activeTheme.palette);
   }, [activeTheme]);
 
-  // Keep a ref to windowIndex so the WS effect can read it without
-  // depending on it. The relay uses `tmux attach-session` which follows
-  // window switches automatically — only session changes need a reconnect.
+  // Keep a ref to windowIndex so reconnect (after a transient WS drop) reads
+  // the latest value without needing to be torn down/rebuilt.
   const windowIndexRef = useRef(windowIndex);
   windowIndexRef.current = windowIndex;
 
-  // WebSocket connection — reconnects only when the session changes.
-  // Window switches within the same session are handled by the relay's
-  // tmux attach-session, which follows the active window automatically.
+  // WebSocket connection — reconnects when session or windowIndex changes.
+  //
+  // Pre-hdjr (260507-4vuv era), the relay called `tmux select-window` then
+  // `tmux attach-session -t <real-session>`, so all clients shared the
+  // session's "active window" state and a window switch within the same
+  // session needed no reconnect — the next select-window from any client
+  // moved everyone. Post-hdjr (260508-hdjr) each WebSocket runs against
+  // its own ephemeral grouped session with INDEPENDENT active-window
+  // state, by design. That fixed the board-pane cross-talk bug, but it
+  // also means a URL-only window switch no longer flips the relay's
+  // ephemeral. Reconnecting on windowIndex change is the simplest fix:
+  // the new connection creates a fresh ephemeral pointing at the new
+  // window. (A future protocol-level "select-window" message would
+  // avoid the reconnect flicker.)
   useEffect(() => {
     if (!terminalReady || !xtermRef.current) return;
 
@@ -491,7 +501,7 @@ export function TerminalClient({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalReady, sessionName, server, wsRef]);
+  }, [terminalReady, sessionName, windowIndex, server, wsRef]);
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">

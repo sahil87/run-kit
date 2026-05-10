@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { http, HttpResponse } from "msw";
@@ -10,6 +10,7 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 beforeAll(() => mswServer.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
   mswServer.resetHandlers();
+  vi.unstubAllGlobals();
 });
 afterAll(() => mswServer.close());
 
@@ -51,7 +52,10 @@ class FakeEventSource {
   }
 }
 
-vi.stubGlobal("EventSource", FakeEventSource);
+beforeEach(() => {
+  listenersByServer.clear();
+  vi.stubGlobal("EventSource", FakeEventSource);
+});
 
 function Wrapper({ children }: { children: ReactNode }) {
   return (

@@ -43,12 +43,13 @@ export function useWindowPins(): WindowPinsResult {
   const fetchAll = useCallback(async () => {
     try {
       const list = await listBoards();
-      setBoards(Array.isArray(list) ? list : []);
+      const safe = Array.isArray(list) ? list : [];
+      setBoards(safe);
       const newPerBoard = new Map<string, Set<string>>();
       const newPinned = new Set<string>();
       // Fetch all board entries in parallel for the union view.
       const results = await Promise.all(
-        list.map(async (b) => {
+        safe.map(async (b) => {
           try {
             const entries = await getBoard(b.name);
             return { name: b.name, entries };

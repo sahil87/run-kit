@@ -5,6 +5,8 @@ const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
 const TEST_SESSION = `e2e-board-mobile-${Date.now()}`;
 const BOARD_NAME = `mob${Date.now().toString().slice(-6)}`;
 
+const pinnedEntries: Array<{ server: string; windowId: string }> = [];
+
 test.describe("Boards: mobile carousel", () => {
   test.beforeAll(() => {
     try {
@@ -25,7 +27,21 @@ test.describe("Boards: mobile carousel", () => {
     }
   });
 
-  test.afterAll(() => {
+  test.afterAll(async ({ request }) => {
+    // Unpin while the tmux server is still alive — `@rk_board` is a server
+    // option that survives `kill-session`, so stale entries would otherwise
+    // pollute the persistent `rk-e2e` server across runs.
+    for (const entry of pinnedEntries) {
+      try {
+        await request.post(`/api/boards/${BOARD_NAME}/unpin`, {
+          data: entry,
+        });
+      } catch {
+        // Best-effort
+      }
+    }
+    pinnedEntries.length = 0;
+
     try {
       execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
         stdio: "ignore",
@@ -83,6 +99,7 @@ test.describe("Boards: mobile carousel", () => {
         data: { server: TMUX_SERVER, windowId: id },
       });
       expect(r.ok()).toBeTruthy();
+      if (id) pinnedEntries.push({ server: TMUX_SERVER, windowId: id });
     }
 
     await page.goto(`/board/${BOARD_NAME}`);

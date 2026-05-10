@@ -74,7 +74,9 @@ export function RootWrapper() {
           <SessionProvider>
             <FocusedTerminalProvider>
               <OptimisticProvider>
-                <Outlet />
+                <Suspense fallback={null}>
+                  <Outlet />
+                </Suspense>
               </OptimisticProvider>
             </FocusedTerminalProvider>
           </SessionProvider>

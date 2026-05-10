@@ -8,8 +8,12 @@ core cross-server requirement from the spec.
 - `beforeAll` creates a session on the primary tmux server (`rk-e2e`) plus a
   second tmux server (`rk-e2e-multi-<digits>`) with its own session, each
   with one named window (`srv-a-win`, `srv-b-win`).
-- `afterAll` kills the primary session and the secondary tmux server
-  entirely.
+- A module-scoped `pinnedEntries` array tracks every `(server, windowId)`
+  pinned during the test.
+- `afterAll` first POSTs `/api/boards/<name>/unpin` for each tracked entry
+  (best-effort) so the persistent `rk-e2e` server doesn't carry stale
+  `@rk_board` entries into later runs, then kills the primary session and
+  the secondary tmux server entirely.
 
 ## Tests
 
@@ -24,11 +28,12 @@ the UI render path.
 
 1. Read each server's window id via `tmux list-windows -F #{window_id}` so
    pin POSTs target real windows.
-2. Navigate to `/${TMUX_SERVER_A}` and wait for `Connected` (warms the SSE
-   connection, ensures backend is ready).
-3. POST `/api/boards/<name>/pin` for server A's window via `page.request`.
-4. POST `/api/boards/<name>/pin` for server B's window via `page.request`.
-5. GET `/api/boards/<name>` and assert the returned entries include both
+2. POST `/api/boards/<name>/pin` for server A's window via `page.request`,
+   and record the entry for cleanup.
+3. POST `/api/boards/<name>/pin` for server B's window via `page.request`,
+   and record the entry for cleanup.
+4. GET `/api/boards/<name>` and assert the returned entries include both
    server names — the API-level union holds.
-6. Navigate to `/board/<name>` and assert both `srv-a-win` and
+5. Navigate to `/board/<name>` (waitUntil `domcontentloaded` to skip waiting
+   for every xterm WebSocket to settle) and assert both `srv-a-win` and
    `srv-b-win` are visible — the UI render path also holds.

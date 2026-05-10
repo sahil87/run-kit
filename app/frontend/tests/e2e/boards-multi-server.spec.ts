@@ -9,6 +9,8 @@ const TEST_SESSION_A = `e2e-board-multi-a-${Date.now()}`;
 const TEST_SESSION_B = `e2e-board-multi-b-${Date.now()}`;
 const BOARD_NAME = `multi${Date.now().toString().slice(-6)}`;
 
+const pinnedEntries: Array<{ server: string; windowId: string }> = [];
+
 test.describe("Boards: multi-server union", () => {
   test.beforeAll(() => {
     try {
@@ -25,7 +27,21 @@ test.describe("Boards: multi-server union", () => {
     }
   });
 
-  test.afterAll(() => {
+  test.afterAll(async ({ request }) => {
+    // Unpin while servers are still alive — `@rk_board` lives on the tmux
+    // server and survives `kill-session`, so without this the persistent
+    // `rk-e2e` server would carry stale entries into later runs.
+    for (const entry of pinnedEntries) {
+      try {
+        await request.post(`/api/boards/${BOARD_NAME}/unpin`, {
+          data: entry,
+        });
+      } catch {
+        // Best-effort
+      }
+    }
+    pinnedEntries.length = 0;
+
     try {
       execSync(`tmux -L ${TMUX_SERVER_A} kill-session -t ${TEST_SESSION_A}`, {
         stdio: "ignore",
@@ -62,10 +78,12 @@ test.describe("Boards: multi-server union", () => {
       data: { server: TMUX_SERVER_A, windowId: winIdA },
     });
     expect(pinA.ok()).toBeTruthy();
+    pinnedEntries.push({ server: TMUX_SERVER_A, windowId: winIdA });
     const pinB = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
       data: { server: TMUX_SERVER_B, windowId: winIdB },
     });
     expect(pinB.ok()).toBeTruthy();
+    pinnedEntries.push({ server: TMUX_SERVER_B, windowId: winIdB });
 
     // Verify GET /api/boards/<name> returns entries from both servers.
     const get = await page.request.get(`/api/boards/${BOARD_NAME}`);

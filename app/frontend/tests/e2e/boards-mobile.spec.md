@@ -8,8 +8,13 @@ slot.
 
 - `beforeAll` creates an `e2e-board-mobile-<timestamp>` tmux session on
   `rk-e2e` with three named windows (`m-a`, `m-b`, `m-c`) so the carousel
-  has multiple slots to render. `afterAll` kills the session.
+  has multiple slots to render.
 - A unique board name (`mob<digits>`) is used per run.
+- A module-scoped `pinnedEntries` array tracks every `(server, windowId)`
+  pinned during the test.
+- `afterAll` first POSTs `/api/boards/<name>/unpin` for each tracked entry
+  (best-effort) so the persistent `rk-e2e` server doesn't carry stale
+  `@rk_board` entries into later runs, then kills the test session.
 
 ## Tests
 
@@ -23,12 +28,16 @@ time with a 3-dot pagination indicator, the first dot annotated as
 **Steps:**
 
 1. Set viewport to 375×812 (iPhone-class).
-2. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
-3. Read the three `window_id`s via `tmux list-windows -F #{window_id}`.
-4. POST `/api/boards/<name>/pin` for each of the three window ids.
-5. Navigate to `/board/<name>`.
-6. Locate the pagination strip (`[aria-label^='pane ']`) and assert it
+2. Reconcile windows: list `(name, id)` pairs via
+   `tmux list-windows -F "#{window_name}\t#{window_id}"` and create any of
+   `m-a`/`m-b`/`m-c` that are missing — re-runs must not accumulate
+   duplicates, otherwise pinning by name becomes non-deterministic.
+3. Re-list windows, build a `name → id` map, and POST
+   `/api/boards/<name>/pin` for each of `m-a`/`m-b`/`m-c` by *name* (not by
+   slicing the first three ids). Record each entry for cleanup.
+4. Navigate to `/board/<name>`.
+5. Locate the pagination strip (`[aria-label^='pane ']`) and assert it
    contains 3 dots. Assert the first dot's label includes `current`.
-7. Locate every `role=group` board-pane element and assert exactly 3 are
+6. Locate every `role=group` board-pane element and assert exactly 3 are
    rendered (matches the entry count) but only 1 is visible — the others
    are hidden via the carousel's slot-switching CSS.

@@ -1054,9 +1054,10 @@ function ServerGroup(props: ServerGroupProps) {
       className="border-b border-border last:border-b-0"
       aria-labelledby={`server-header-${server}`}
     >
-      {/* Server header — visually a thin section break, not a tree node. The
-          whole row is a toggle (no chevron). Active server gets brighter +
-          medium-weight text; inactive stays dim. */}
+      {/* Server header — thin section break with a chevron disclosure marker
+          to match the rest of the sidebar's collapse/expand convention.
+          Active server gets brighter + medium-weight text; inactive stays
+          dim. */}
       <div
         className="flex items-stretch w-full"
         aria-current={isCurrent ? "true" : undefined}
@@ -1069,12 +1070,19 @@ function ServerGroup(props: ServerGroupProps) {
           onClick={onToggleOpen}
           aria-expanded={isOpen}
           aria-label={isOpen ? `Collapse ${server} sessions` : `Expand ${server} sessions`}
-          className={`flex-1 min-w-0 flex items-center pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider min-h-[20px] coarse:min-h-[28px] transition-colors hover:bg-bg-card/30 ${
+          className={`flex-1 min-w-0 flex items-center gap-1.5 pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider min-h-[20px] coarse:min-h-[28px] transition-colors hover:bg-bg-card/30 ${
             isCurrent
               ? "text-text-primary font-medium"
               : "text-text-secondary hover:text-text-primary"
           }`}
         >
+          <span
+            className="inline-block transition-transform duration-150 shrink-0"
+            style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
+            aria-hidden="true"
+          >
+            &#x25BC;
+          </span>
           <span className="truncate">{server}</span>
         </button>
         <button

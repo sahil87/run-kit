@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
@@ -9,7 +10,17 @@ import { splitWindow, closePane } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
+export type TopBarMode = "terminal" | "board" | "root";
+
 type TopBarProps = {
+  /**
+   * Mode controls the breadcrumb / informational region. `terminal` renders
+   * session/window breadcrumbs (default — covers `/$server/$session/$window`).
+   * `root` renders the dashboard label (covers `/$server` with no session).
+   * `board` renders the board breadcrumb dropdown plus pane/server counts and
+   * the cycle hint (covers `/board/$name`).
+   */
+  mode?: TopBarMode;
   sessions: ProjectSession[];
   currentSession: ProjectSession | null;
   currentWindow: WindowInfo | null;
@@ -17,17 +28,24 @@ type TopBarProps = {
   windowName: string;
   isConnected: boolean;
   sidebarOpen: boolean;
-  drawerOpen: boolean;
   server: string;
   onNavigate: (session: string, windowIndex: number) => void;
   onToggleSidebar: () => void;
-  onToggleDrawer: () => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
-  onOpenCompose: () => void;
+  /** Board-mode metadata. Required when `mode === "board"`. */
+  boardName?: string;
+  paneCount?: number;
+  serverCount?: number;
+  /** Board-mode list of all boards (for the board switcher dropdown). */
+  boards?: { name: string }[];
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
+  // Notion-style sidebar pictogram: rounded-rect with an internal vertical
+  // divider ~30% from the left. The left column fills when the sidebar is
+  // open and empties when collapsed — same shape both states, only the fill
+  // flips, so the icon's identity ("this is a sidebar toggle") never changes.
   return (
     <svg
       width="18"
@@ -37,54 +55,33 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
       stroke="currentColor"
       strokeWidth="1.5"
       strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      {/* Top line → upper arm of chevron (<) */}
-      <line
-        x1="3"
-        y1="4.5"
-        x2="15"
-        y2="4.5"
-        style={{
-          transition: "transform 200ms ease",
-          transformOrigin: "9px 4.5px",
-          transform: isOpen
-            ? "translate(-1px, 2px) rotate(-40deg) scaleX(0.65)"
-            : "none",
-        }}
+      {/* Outer panel — rounded rectangle */}
+      <rect x="2.5" y="3.5" width="13" height="11" rx="2" />
+      {/* Sidebar slot fill — left column, filled when sidebar is open.
+          Uses fillOpacity to tone the fill down to a subtle wash rather
+          than matching the stroke at full intensity. */}
+      <rect
+        x="2.5"
+        y="3.5"
+        width="4"
+        height="11"
+        rx="2"
+        fill="currentColor"
+        fillOpacity={isOpen ? 0.5 : 0}
+        stroke="none"
+        style={{ transition: "fill-opacity 150ms ease" }}
       />
-      {/* Middle line: fades/scales out when open */}
-      <line
-        x1="3"
-        y1="9"
-        x2="15"
-        y2="9"
-        style={{
-          transition: "opacity 150ms ease, transform 150ms ease",
-          transformOrigin: "9px 9px",
-          opacity: isOpen ? 0 : 1,
-          transform: isOpen ? "scaleX(0)" : "scaleX(1)",
-        }}
-      />
-      {/* Bottom line → lower arm of chevron (<) */}
-      <line
-        x1="3"
-        y1="13.5"
-        x2="15"
-        y2="13.5"
-        style={{
-          transition: "transform 200ms ease",
-          transformOrigin: "9px 13.5px",
-          transform: isOpen
-            ? "translate(-1px, -2px) rotate(40deg) scaleX(0.65)"
-            : "none",
-        }}
-      />
+      {/* Internal divider — separates sidebar slot from content area */}
+      <line x1="6.5" y1="3.5" x2="6.5" y2="14.5" />
     </svg>
   );
 }
 
 export function TopBar({
+  mode = "terminal",
   sessions,
   currentSession,
   currentWindow,
@@ -92,14 +89,15 @@ export function TopBar({
   windowName,
   isConnected,
   sidebarOpen,
-  drawerOpen,
   server,
   onNavigate,
   onToggleSidebar,
-  onToggleDrawer,
   onCreateSession,
   onCreateWindow,
-  onOpenCompose,
+  boardName,
+  paneCount,
+  serverCount,
+  boards,
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
@@ -130,31 +128,32 @@ export function TopBar({
     [onNavigate],
   );
 
-  // Match the click handler's breakpoint: desktop (>=768px) uses sidebar, mobile uses drawer.
-  // Using both ensures correctness even when the other state is stale after a viewport switch.
-  const isDesktop = typeof window !== "undefined" && window.innerWidth >= 768;
-  const hamburgerOpen = isDesktop ? sidebarOpen : drawerOpen;
+  // Hamburger animation is driven by `sidebarOpen` alone — both desktop
+  // (grid column) and mobile (overlay) collapse to the same boolean state.
+  const hamburgerOpen = sidebarOpen;
 
   return (
     <header className="px-3 border-b-2 border-border">
       <div className="flex items-center justify-between py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
-          {/* Hamburger icon — toggles sidebar (desktop) / drawer (mobile) */}
+          {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
+              desktop grid column and mobile overlay). */}
           <button
-            onClick={() => {
-              if (window.innerWidth >= 768) {
-                onToggleSidebar();
-              } else {
-                onToggleDrawer();
-              }
-            }}
+            onClick={onToggleSidebar}
             aria-label="Toggle navigation"
             className="text-text-primary transition-colors min-w-[24px] min-h-[24px] flex items-center justify-center"
           >
             <HamburgerIcon isOpen={hamburgerOpen} />
           </button>
 
-          {sessionName ? (
+          {mode === "board" && boardName ? (
+            <BoardModeBreadcrumb
+              boardName={boardName}
+              paneCount={paneCount ?? 0}
+              serverCount={serverCount ?? 0}
+              boards={boards ?? []}
+            />
+          ) : sessionName ? (
             <>
               <BreadcrumbDropdown
                 items={sessionItems}
@@ -216,21 +215,30 @@ export function TopBar({
                   windowIndex={currentWindow.index}
                 />
               </span>
-              <span className="hidden sm:flex">
-                <FixedWidthToggle />
-              </span>
             </>
           )}
 
-          {/* Connection dot */}
-          <span role="status" aria-live="polite" className="hidden sm:inline">
-            <span
-              className={`block w-2 h-2 rounded-full ${
-                isConnected ? "bg-accent-green" : "bg-text-secondary"
-              }`}
-              aria-label={isConnected ? "Connected" : "Disconnected"}
-            />
+          {/* FixedWidthToggle is route-agnostic — fixed-width applies to any
+              terminal-bearing surface, including board panes. Lift it out of
+              the `currentWindow` block so board mode (where `currentWindow`
+              is always `null`) still exposes the toggle. */}
+          <span className="hidden sm:flex">
+            <FixedWidthToggle />
           </span>
+
+          {/* Connection dot — terminal/root modes only (board mode hides it
+              because connection state is per-server and a board may span
+              servers). */}
+          {mode !== "board" && (
+            <span role="status" aria-live="polite" className="hidden sm:inline">
+              <span
+                className={`block w-2 h-2 rounded-full ${
+                  isConnected ? "bg-accent-green" : "bg-text-secondary"
+                }`}
+                aria-label={isConnected ? "Connected" : "Disconnected"}
+              />
+            </span>
+          )}
 
           {/* "Run Kit" + Logo — links to dashboard */}
           <a href="/" className="flex items-center gap-3 text-text-secondary hover:text-text-primary transition-colors">
@@ -253,6 +261,76 @@ export function TopBar({
         </div>
       </div>
     </header>
+  );
+}
+
+/**
+ * Board-mode breadcrumb: `Board ▸ {name} ▾   {n} pane(s) · {n} server(s) · ⌘[⌘] cycle`.
+ * The inline-info span is hidden on `< 640px` viewports via `hidden sm:inline`,
+ * matching the existing chrome mobile-hide pattern documented in
+ * `ui-patterns.md` § Chrome (Top Bar).
+ *
+ * The board switcher uses the shared `<BreadcrumbDropdown>` so it inherits the
+ * same a11y semantics as the session/window switchers: `role="menu"`/`menuitem`,
+ * Escape to close, ArrowUp/ArrowDown navigation, and outside-click dismiss.
+ * The `← Sessions` shortcut is wired through the `action` slot — it lives above
+ * the items list and navigates back to the root sessions view.
+ */
+function BoardModeBreadcrumb({
+  boardName,
+  paneCount,
+  serverCount,
+  boards,
+}: {
+  boardName: string;
+  paneCount: number;
+  serverCount: number;
+  boards: { name: string }[];
+}) {
+  const navigate = useNavigate();
+
+  const paneNoun = paneCount === 1 ? "pane" : "panes";
+  const serverNoun = serverCount === 1 ? "server" : "servers";
+
+  const boardItems: BreadcrumbDropdownItem[] = boards.map((b) => ({
+    label: b.name,
+    href: `/board/${encodeURIComponent(b.name)}`,
+    current: b.name === boardName,
+  }));
+
+  const handleNavigate = useCallback(
+    (href: string) => {
+      // `href` is `/board/{encoded-name}` — decode and route via the typed
+      // navigator so route params are validated.
+      const match = href.match(/^\/board\/(.+)$/);
+      if (match) {
+        navigate({ to: "/board/$name", params: { name: decodeURIComponent(match[1]) } });
+      }
+    },
+    [navigate],
+  );
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => navigate({ to: "/" })}
+        className="text-sm text-text-secondary hover:text-text-primary"
+      >
+        Board ▸
+      </button>
+      <span className="text-sm text-text-primary font-medium">{boardName}</span>
+      <BreadcrumbDropdown
+        items={boardItems}
+        label="board"
+        onNavigate={handleNavigate}
+        action={{ label: "← Sessions", onAction: () => navigate({ to: "/" }) }}
+        triggerClassName="text-sm text-text-secondary hover:text-text-primary px-1"
+      />
+      <span className="hidden sm:inline ml-2 text-xs text-text-secondary">
+        {paneCount} {paneNoun} · {serverCount} {serverNoun} · ⌘[⌘] cycle
+      </span>
+    </>
   );
 }
 

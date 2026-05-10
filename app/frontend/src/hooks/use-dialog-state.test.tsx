@@ -2,8 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useDialogState } from "./use-dialog-state";
-import { SessionProvider } from "@/contexts/session-context";
-import { ChromeProvider } from "@/contexts/chrome-context";
+import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 
@@ -17,33 +16,36 @@ vi.mock("@/api/client", () => ({
 
 import { renameSession } from "@/api/client";
 
+// Bypass SessionProvider's SSE machinery by using StandaloneSessionContextProvider.
+// `currentServer` is the value that useDialogState reads from useSessionContext
+// directly (no helper indirection). Flipping `currentServer` between renders
+// covers the "server-at-handler-time" regression.
 function Wrapper({ server, children }: { server: string; children: ReactNode }) {
   return (
     <ToastProvider>
-      <ChromeProvider>
-        <SessionProvider server={server}>
-          <OptimisticProvider>{children}</OptimisticProvider>
-        </SessionProvider>
-      </ChromeProvider>
+      <StandaloneSessionContextProvider
+        value={{
+          sessionsByServer: new Map([[server, []]]),
+          sessionOrderByServer: new Map([[server, []]]),
+          isConnectedByServer: new Map([[server, false]]),
+          metricsByServer: new Map(),
+          currentServer: server,
+          servers: [{ name: server, sessionCount: 0 }],
+          refreshServers: vi.fn(),
+        }}
+      >
+        <OptimisticProvider>{children}</OptimisticProvider>
+      </StandaloneSessionContextProvider>
     </ToastProvider>
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Stub EventSource so SessionProvider's SSE connection doesn't throw.
-  class MockEventSource {
-    addEventListener = vi.fn();
-    close = vi.fn();
-    onerror: unknown = null;
-    onopen: unknown = null;
-  }
-  vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
 });
 
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
 });
 
 describe("useDialogState — server capture at handler time", () => {

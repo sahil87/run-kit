@@ -12,9 +12,24 @@ type UseFileUploadReturn = {
   uploading: boolean;
 };
 
-export function useFileUpload(session: string, windowIndex: string): UseFileUploadReturn {
+/**
+ * useFileUpload — when `serverOverride` is provided, that server is used
+ * directly (e.g., Boards mount TerminalClients with explicit per-entry
+ * servers). Otherwise it falls back to the provider's `currentServer`.
+ */
+export function useFileUpload(
+  session: string,
+  windowIndex: string,
+  serverOverride?: string,
+): UseFileUploadReturn {
   const [uploading, setUploading] = useState(false);
-  const { server } = useSessionContext();
+  const { currentServer } = useSessionContext();
+  const server = serverOverride ?? currentServer ?? "";
+  if (!server) {
+    throw new Error(
+      "useFileUpload requires either serverOverride or a current-server route context",
+    );
+  }
 
   const uploadFiles = useCallback(
     async (files: FileList): Promise<UploadedFile[]> => {

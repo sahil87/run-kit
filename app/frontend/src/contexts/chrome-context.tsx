@@ -9,6 +9,21 @@ export type BreadcrumbDropdownItem = {
 
 const FIXED_WIDTH_STORAGE_KEY = "runkit-fixed-width";
 const SIDEBAR_OPEN_STORAGE_KEY = "runkit-sidebar-open";
+const SIDEBAR_WIDTH_STORAGE_KEY = "runkit-sidebar-width";
+
+const SIDEBAR_DEFAULT_WIDTH = 220;
+const SIDEBAR_MIN_WIDTH = 160;
+const SIDEBAR_MAX_WIDTH = 400;
+
+export const SIDEBAR_WIDTH_BOUNDS = {
+  default: SIDEBAR_DEFAULT_WIDTH,
+  min: SIDEBAR_MIN_WIDTH,
+  max: SIDEBAR_MAX_WIDTH,
+} as const;
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+}
 
 function readFixedWidth(): boolean {
   try {
@@ -26,11 +41,22 @@ function readSidebarOpen(): boolean {
   return true;
 }
 
+function readSidebarWidth(): number {
+  try {
+    const stored = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (stored) {
+      const parsed = Number(stored);
+      if (!isNaN(parsed)) return clampSidebarWidth(parsed);
+    }
+  } catch { /* noop */ }
+  return SIDEBAR_DEFAULT_WIDTH;
+}
+
 type ChromeState = {
   currentSession: ProjectSession | null;
   currentWindow: WindowInfo | null;
   sidebarOpen: boolean;
-  drawerOpen: boolean;
+  sidebarWidth: number;
   isConnected: boolean;
   fixedWidth: boolean;
 };
@@ -39,7 +65,15 @@ type ChromeDispatch = {
   setCurrentSession: (session: ProjectSession | null) => void;
   setCurrentWindow: (win: WindowInfo | null) => void;
   setSidebarOpen: (open: boolean) => void;
-  setDrawerOpen: (open: boolean) => void;
+  /** In-memory only — does NOT touch localStorage. Use during drag for live
+   * resize updates; call `persistSidebarWidth` once the drag completes to
+   * commit the final value. Persisting on every pointermove (40-100/s)
+   * regresses the pre-change behavior where the value was only written at
+   * drag-end. */
+  setSidebarWidth: (width: number) => void;
+  /** Persist the current sidebar width to localStorage. Call from the
+   * drag-end handler so the value survives reload. */
+  persistSidebarWidth: (width: number) => void;
   setIsConnected: (connected: boolean) => void;
   toggleFixedWidth: () => void;
 };
@@ -51,12 +85,26 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   const [currentSession, setCurrentSession] = useState<ProjectSession | null>(null);
   const [currentWindow, setCurrentWindow] = useState<WindowInfo | null>(null);
   const [sidebarOpen, setSidebarOpenState] = useState(readSidebarOpen);
+  const [sidebarWidth, setSidebarWidthState] = useState(readSidebarWidth);
 
   const setSidebarOpen = useCallback((open: boolean) => {
     try { localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(open)); } catch { /* noop */ }
     setSidebarOpenState(open);
   }, []);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // In-memory only — see ChromeDispatch.setSidebarWidth doc above. Drag handlers
+  // call this on every pointermove for live width updates; the drag-end handler
+  // calls `persistSidebarWidth` once the gesture completes.
+  const setSidebarWidth = useCallback((width: number) => {
+    setSidebarWidthState(clampSidebarWidth(width));
+  }, []);
+
+  const persistSidebarWidth = useCallback((width: number) => {
+    const clamped = clampSidebarWidth(width);
+    try { localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clamped)); } catch { /* noop */ }
+    setSidebarWidthState(clamped);
+  }, []);
+
   const [isConnected, setIsConnected] = useState(false);
   const [fixedWidth, setFixedWidth] = useState(readFixedWidth);
 
@@ -69,8 +117,8 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const stateValue = useMemo<ChromeState>(
-    () => ({ currentSession, currentWindow, sidebarOpen, drawerOpen, isConnected, fixedWidth }),
-    [currentSession, currentWindow, sidebarOpen, drawerOpen, isConnected, fixedWidth],
+    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth }),
+    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth],
   );
 
   const dispatchRef = useRef<ChromeDispatch | null>(null);
@@ -79,7 +127,8 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       setCurrentSession,
       setCurrentWindow,
       setSidebarOpen,
-      setDrawerOpen,
+      setSidebarWidth,
+      persistSidebarWidth,
       setIsConnected,
       toggleFixedWidth,
     };

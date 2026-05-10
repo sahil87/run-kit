@@ -3,6 +3,7 @@ import type { PaneInfo, WindowInfo } from "@/types";
 
 /** A single window entry in the store. */
 export type WindowEntry = {
+  server: string;
   session: string;
   windowId: string;
   index: number;
@@ -22,6 +23,7 @@ export type MergedWindow = WindowInfo & {
 /** Ghost window state for tracking optimistic adds. */
 type GhostWindow = {
   optimisticId: string;
+  server: string;
   session: string;
   name: string;
   /** Snapshot of known windowIds at the time the ghost was created. */
@@ -30,7 +32,10 @@ type GhostWindow = {
 };
 
 type WindowStoreState = {
-  /** Read-only view of windowId -> WindowEntry for all known windows. */
+  /** Read-only view of `${server}:${windowId}` -> WindowEntry for all known
+   *  windows. tmux windowIds are unique only per server, so the composite
+   *  key is required to keep entries from different servers from clobbering
+   *  each other. */
   entries: ReadonlyMap<string, WindowEntry>;
   /** List of ghost (optimistic) windows. */
   ghosts: GhostWindow[];
@@ -38,57 +43,56 @@ type WindowStoreState = {
 
 type WindowStoreActions = {
   /**
-   * Sync real windows for a session from SSE data.
+   * Sync real windows for a (server, session) from SSE data.
    * Reconciles ghosts: if any ghost's snapshotWindowIds doesn't intersect
    * with the newly arrived windowIds, that ghost is "claimed" (removed).
    */
-  setWindowsForSession: (session: string, windows: WindowInfo[]) => void;
+  setWindowsForSession: (server: string, session: string, windows: WindowInfo[]) => void;
 
   /**
-   * Add a ghost (optimistic) window for a session.
+   * Add a ghost (optimistic) window for a (server, session).
    * If currentWindowIds is provided, uses that as the snapshot (authoritative, from caller).
    * Otherwise captures current windowIds from the store (fallback).
    * Returns the optimisticId.
    */
-  addGhostWindow: (session: string, name: string, currentWindowIds?: Iterable<string>) => string;
+  addGhostWindow: (
+    server: string,
+    session: string,
+    name: string,
+    currentWindowIds?: Iterable<string>,
+  ) => string;
 
-  /**
-   * Optimistically mark a window as killed by windowId.
-   */
-  killWindow: (session: string, windowId: string) => void;
+  /** Optimistically mark a window as killed. */
+  killWindow: (server: string, session: string, windowId: string) => void;
 
-  /**
-   * Restore a window (undo kill) by windowId.
-   */
-  restoreWindow: (session: string, windowId: string) => void;
+  /** Restore a window (undo kill). */
+  restoreWindow: (server: string, session: string, windowId: string) => void;
 
-  /**
-   * Apply a pending rename to a window by windowId.
-   */
-  renameWindow: (session: string, windowId: string, pendingName: string) => void;
+  /** Apply a pending rename to a window. */
+  renameWindow: (server: string, session: string, windowId: string, pendingName: string) => void;
 
-  /**
-   * Clear a pending rename from a window by windowId.
-   */
-  clearRename: (session: string, windowId: string) => void;
+  /** Clear a pending rename from a window. */
+  clearRename: (server: string, session: string, windowId: string) => void;
 
-  /**
-   * Remove a specific ghost window by its optimisticId.
-   */
+  /** Remove a specific ghost window by its optimisticId. */
   removeGhost: (optimisticId: string) => void;
 
   /**
-   * Move a window within the same session by taking the window at srcIndex
-   * and inserting it before dstIndex. If dstIndex is past the last window,
-   * the window is moved to the end. No-op if the source entry is missing.
+   * Move a window within the same (server, session) by taking the window at
+   * srcIndex and inserting it before dstIndex. If dstIndex is past the last
+   * window, the window is moved to the end. No-op if the source entry is
+   * missing.
    */
-  moveWindowOrder: (session: string, srcIndex: number, dstIndex: number) => void;
+  moveWindowOrder: (server: string, session: string, srcIndex: number, dstIndex: number) => void;
 
-  /**
-   * Clear all window entries and ghosts for a session (called after session kill).
-   */
-  clearSession: (session: string) => void;
+  /** Clear all window entries and ghosts for a (server, session). */
+  clearSession: (server: string, session: string) => void;
 };
+
+/** Compose the entries-map key. tmux windowIds are unique per server only. */
+export function entryKey(server: string, windowId: string): string {
+  return `${server}:${windowId}`;
+}
 
 let ghostIdCounter = 0;
 
@@ -96,69 +100,75 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
   entries: new Map(),
   ghosts: [],
 
-  setWindowsForSession: (session, windows) => {
+  setWindowsForSession: (server, session, windows) => {
     set((state) => {
       const newEntries = new Map(state.entries);
 
-      // Identify windowIds already in store for this session (prior known IDs)
-      const priorKnownIds = new Set<string>();
-      for (const [id, entry] of newEntries) {
-        if (entry.session === session) {
-          priorKnownIds.add(id);
+      // Identify keys already in store for this (server, session)
+      const priorKnownKeys = new Set<string>();
+      const priorKnownWindowIds = new Set<string>();
+      for (const [key, entry] of newEntries) {
+        if (entry.server === server && entry.session === session) {
+          priorKnownKeys.add(key);
+          priorKnownWindowIds.add(entry.windowId);
         }
       }
 
-      // Build incoming set
-      const incomingIds = new Set(windows.map((w) => w.windowId));
+      // Build incoming windowId set (server-scoped — windowIds are unique per
+      // server only, so no need to compose with server here).
+      const incomingWindowIds = new Set(windows.map((w) => w.windowId));
 
-      // New IDs = arrived but not previously known
-      const newIds = new Set<string>();
-      for (const id of incomingIds) {
-        if (!priorKnownIds.has(id)) {
-          newIds.add(id);
+      // New windowIds = arrived but not previously known for this (server, session)
+      const newWindowIds = new Set<string>();
+      for (const id of incomingWindowIds) {
+        if (!priorKnownWindowIds.has(id)) {
+          newWindowIds.add(id);
         }
       }
 
-      // Remove old entries for this session
-      for (const id of priorKnownIds) {
-        newEntries.delete(id);
+      // Remove old entries for this (server, session)
+      for (const key of priorKnownKeys) {
+        newEntries.delete(key);
       }
 
-      // Add/update entries for incoming windows (preserve killed/pendingName if entry exists)
+      // Add/update entries for incoming windows (preserve killed/pendingName
+      // if a prior entry existed under the same composite key).
       for (const w of windows) {
-        const existing = state.entries.get(w.windowId);
-        newEntries.set(w.windowId, {
+        const key = entryKey(server, w.windowId);
+        const existing = state.entries.get(key);
+        const existingMatches =
+          existing?.server === server && existing?.session === session;
+        newEntries.set(key, {
+          server,
           session,
           windowId: w.windowId,
           index: w.index,
           name: w.name,
-          pendingName: existing?.pendingName,
-          killed: existing?.session === session ? (existing.killed ?? false) : false,
-          createdAt: existing?.createdAt ?? Date.now(),
+          pendingName: existingMatches ? existing.pendingName : undefined,
+          killed: existingMatches ? (existing.killed ?? false) : false,
+          createdAt: existingMatches ? existing.createdAt : Date.now(),
           panes: w.panes ?? [],
         });
       }
 
-      // Reconcile ghosts for this session:
-      // For each ghost (oldest first), if none of its snapshotWindowIds intersect with newIds,
-      // remove the ghost (claim one newId)
+      // Reconcile ghosts for this (server, session): for each ghost (oldest
+      // first), if none of its snapshotWindowIds intersect with newWindowIds,
+      // remove the ghost (claim one newWindowId).
       const sessionGhosts = state.ghosts
-        .filter((g) => g.session === session)
+        .filter((g) => g.server === server && g.session === session)
         .sort((a, b) => a.createdAt - b.createdAt);
 
-      const claimedNewIds = new Set<string>();
+      const claimedNewWindowIds = new Set<string>();
       const ghostsToRemove = new Set<string>();
 
       for (const ghost of sessionGhosts) {
-        // Check if any of snapshot IDs are in newIds (already unclaimed)
         const snapshotIntersectsNew = [...ghost.snapshotWindowIds].some(
-          (id) => newIds.has(id) && !claimedNewIds.has(id),
+          (id) => newWindowIds.has(id) && !claimedNewWindowIds.has(id),
         );
-        if (!snapshotIntersectsNew && newIds.size > claimedNewIds.size) {
-          // Claim one new ID
-          for (const id of newIds) {
-            if (!claimedNewIds.has(id)) {
-              claimedNewIds.add(id);
+        if (!snapshotIntersectsNew && newWindowIds.size > claimedNewWindowIds.size) {
+          for (const id of newWindowIds) {
+            if (!claimedNewWindowIds.has(id)) {
+              claimedNewWindowIds.add(id);
               break;
             }
           }
@@ -167,28 +177,30 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
       }
 
       const newGhosts = state.ghosts.filter(
-        (g) => g.session !== session || !ghostsToRemove.has(g.optimisticId),
+        (g) =>
+          !(g.server === server && g.session === session) ||
+          !ghostsToRemove.has(g.optimisticId),
       );
 
       return { entries: newEntries, ghosts: newGhosts };
     });
   },
 
-  addGhostWindow: (session, name, currentWindowIds?) => {
+  addGhostWindow: (server, session, name, currentWindowIds?) => {
     const optimisticId = `ghost-win-${++ghostIdCounter}`;
     const now = Date.now();
 
     set((state) => {
       // Prefer the authoritative current windowIds passed by the caller.
-      // Fall back to the store snapshot for backward compatibility.
+      // Fall back to the store snapshot, scoped to (server, session).
       const snapshotWindowIds =
         currentWindowIds != null
           ? new Set<string>(currentWindowIds)
           : (() => {
               const ids = new Set<string>();
-              for (const [id, entry] of state.entries) {
-                if (entry.session === session) {
-                  ids.add(id);
+              for (const [, entry] of state.entries) {
+                if (entry.server === server && entry.session === session) {
+                  ids.add(entry.windowId);
                 }
               }
               return ids;
@@ -196,6 +208,7 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
 
       const ghost: GhostWindow = {
         optimisticId,
+        server,
         session,
         name,
         snapshotWindowIds,
@@ -208,42 +221,46 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
     return optimisticId;
   },
 
-  killWindow: (session, windowId) => {
+  killWindow: (server, session, windowId) => {
     set((state) => {
-      const entry = state.entries.get(windowId);
-      if (!entry || entry.session !== session) return state;
+      const key = entryKey(server, windowId);
+      const entry = state.entries.get(key);
+      if (!entry || entry.server !== server || entry.session !== session) return state;
       const newEntries = new Map(state.entries);
-      newEntries.set(windowId, { ...entry, killed: true });
+      newEntries.set(key, { ...entry, killed: true });
       return { entries: newEntries };
     });
   },
 
-  restoreWindow: (session, windowId) => {
+  restoreWindow: (server, session, windowId) => {
     set((state) => {
-      const entry = state.entries.get(windowId);
-      if (!entry || entry.session !== session) return state;
+      const key = entryKey(server, windowId);
+      const entry = state.entries.get(key);
+      if (!entry || entry.server !== server || entry.session !== session) return state;
       const newEntries = new Map(state.entries);
-      newEntries.set(windowId, { ...entry, killed: false });
+      newEntries.set(key, { ...entry, killed: false });
       return { entries: newEntries };
     });
   },
 
-  renameWindow: (session, windowId, pendingName) => {
+  renameWindow: (server, session, windowId, pendingName) => {
     set((state) => {
-      const entry = state.entries.get(windowId);
-      if (!entry || entry.session !== session) return state;
+      const key = entryKey(server, windowId);
+      const entry = state.entries.get(key);
+      if (!entry || entry.server !== server || entry.session !== session) return state;
       const newEntries = new Map(state.entries);
-      newEntries.set(windowId, { ...entry, pendingName });
+      newEntries.set(key, { ...entry, pendingName });
       return { entries: newEntries };
     });
   },
 
-  clearRename: (session, windowId) => {
+  clearRename: (server, session, windowId) => {
     set((state) => {
-      const entry = state.entries.get(windowId);
-      if (!entry || entry.session !== session) return state;
+      const key = entryKey(server, windowId);
+      const entry = state.entries.get(key);
+      if (!entry || entry.server !== server || entry.session !== session) return state;
       const newEntries = new Map(state.entries);
-      newEntries.set(windowId, { ...entry, pendingName: undefined });
+      newEntries.set(key, { ...entry, pendingName: undefined });
       return { entries: newEntries };
     });
   },
@@ -254,50 +271,47 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
     }));
   },
 
-  moveWindowOrder: (session, srcIndex, dstIndex) => {
+  moveWindowOrder: (server, session, srcIndex, dstIndex) => {
     set((state) => {
-      // Collect session windows sorted by index
+      // Collect (server, session) windows sorted by index
       const sorted: Array<[string, WindowEntry]> = [];
-      for (const [id, entry] of state.entries) {
-        if (entry.session === session) sorted.push([id, entry]);
+      for (const [key, entry] of state.entries) {
+        if (entry.server === server && entry.session === session) sorted.push([key, entry]);
       }
       sorted.sort((a, b) => a[1].index - b[1].index);
 
       const srcPos = sorted.findIndex(([, e]) => e.index === srcIndex);
       if (srcPos < 0) return state;
-      // Sentinel index (past last window) → move to end (full swap, not insert-before)
       let dstPos = sorted.findIndex(([, e]) => e.index === dstIndex);
       const sentinel = dstPos < 0;
       if (sentinel) dstPos = sorted.length - 1;
 
-      // Preserve the original sorted indices for reassignment
       const indices = sorted.map(([, e]) => e.index);
 
-      // "Insert before": source lands just before the target item.
-      // Sentinel override: source lands AT the end (full move, no -1 adjustment).
       const [removed] = sorted.splice(srcPos, 1);
       const insertPos = srcPos < dstPos && !sentinel ? dstPos - 1 : dstPos;
       sorted.splice(insertPos, 0, removed);
 
-      // Reassign the original indices to the new ordering
       const newEntries = new Map(state.entries);
       for (let i = 0; i < sorted.length; i++) {
-        const [id] = sorted[i];
-        newEntries.set(id, { ...newEntries.get(id)!, index: indices[i] });
+        const [key] = sorted[i];
+        newEntries.set(key, { ...newEntries.get(key)!, index: indices[i] });
       }
       return { entries: newEntries };
     });
   },
 
-  clearSession: (session) => {
+  clearSession: (server, session) => {
     set((state) => {
       const newEntries = new Map(state.entries);
-      for (const [id, entry] of newEntries) {
-        if (entry.session === session) {
-          newEntries.delete(id);
+      for (const [key, entry] of newEntries) {
+        if (entry.server === server && entry.session === session) {
+          newEntries.delete(key);
         }
       }
-      const newGhosts = state.ghosts.filter((g) => g.session !== session);
+      const newGhosts = state.ghosts.filter(
+        (g) => !(g.server === server && g.session === session),
+      );
       return { entries: newEntries, ghosts: newGhosts };
     });
   },

@@ -7,6 +7,7 @@
 | `/` | Server list | Standalone page (`ServerListPage`) — lists tmux servers with "+" creation button. No sidebar, no SSE. |
 | `/$server` | Session dashboard | `AppShell` layout with `Dashboard` content. SSE connected to the specified server. |
 | `/$server/$session/$window` | Terminal or Iframe | `AppShell` layout. Rendering branch: `rkType === "iframe"` renders `IframeWindow` (URL bar + iframe), otherwise `TerminalClient` + `BottomBar`. SSE connected. |
+| `/board/$name` | Pane board (cross-server) | `BoardPage` shares the `<Shell>` grid wrapper with AppShell — sidebar / `<TopBar mode="board">` / pane-row content / shared `<BottomBar>`. Retains its own `<CommandPalette>` mount for board-route-only entries. Peer to `/$server`, NOT under it — boards aggregate windows across multiple tmux servers. Invalid `name` (fails `^[A-Za-z0-9_-]{1,32}$`) renders `NotFoundPage`. See § Boards View. |
 
 Three-tier URL model with server always in path. URLs are fully shareable — copying a URL and opening it elsewhere on the same host opens the same server, session, and window. TanStack Router uses nested routes: `/$server` is a layout route whose component (`ServerShell`) wraps `SessionProvider` + `AppShell`. Child routes (dashboard index and terminal) are matched by the router but rendered conditionally by `AppShell` based on whether session/window params exist.
 
@@ -56,17 +57,121 @@ Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server li
 
 **Window creation**: "Window: New Iframe Window" command palette action (id `create-iframe-window`) opens a `Dialog` with two inputs: window name (autofocused, Enter focuses URL input) and URL (Enter creates window). Create button disabled until both fields non-empty. Calls `createWindow(server, session, name, undefined, "iframe", url)` — the extended API client function passes `rkType` and `rkUrl` in the POST body. Backend uses `CreateWindowWithOptions` for atomic `\;`-chained tmux command. Only shown when a session is active.
 
+## Boards View
+
+`/board/$name` renders a horizontal pane dashboard for windows pinned to a named board (see `tmux-sessions.md` § `@rk_board` for storage and `architecture.md` § Boards Feature for the route placement rationale). The board view does NOT mount AppShell, but it shares the same root-mounted multi-server `SessionProvider`, the same unified `<Sidebar>`, and as of `260509-17m3-rotated-shell-layout` the same `<Shell>` grid wrapper — the sidebar's per-server session groups stay populated across the route switch because the provider lives at the root.
+
+### BoardPage Layout (`app/frontend/src/components/board/board-page.tsx`)
+
+BoardPage uses the shared `<Shell>` wrapper with `grid-template-areas: "sidebar topbar" / "sidebar content" / "sidebar bottombar"` on desktop (collapses to single-column on `< 640px` with the sidebar overlay). Children are placed into named grid areas:
+
+- **Sidebar** (`gridArea: "sidebar"`) — the unified `<Sidebar currentServer={null}>` (same component as AppShell). No per-server group is marked current on board routes. Per-server session groups + Boards section + ServerPanel + bottom panels render as on AppShell. Mobile (`< 640px`) renders the sidebar as a Shell-level overlay positioned via `gridRow: "2/4"` (below the topbar) — same overlay implementation as AppShell
+- **TopBar** (`gridArea: "topbar"`) — `<TopBar mode="board" boardName={name} paneCount={entries.length} serverCount={uniqueServers}>`. Board mode renders `Board ▸ {name} ▾` (the existing `BoardSwitcherDropdown` dropdown listing `← Sessions` + other boards, with `(current)` on the active one — moved into TopBar from BoardPage's pre-rotation inline `<header>`) followed by inline-info `{N} pane[s] · {M} server[s] · ⌘[⌘] cycle` (singular/plural correct, `text-xs text-text-secondary`, `hidden sm:inline`). The right section's chrome (theme toggle, `FixedWidthToggle`, `⌘K`, compose `>_`) is byte-identical to terminal mode; `FixedWidthToggle` is now route-agnostic and renders even though `currentWindow` is null on the board route
+- **Content** (`gridArea: "content"`) — the existing `DesktopRow` (desktop) / `MobileCarousel` (mobile) horizontally-scrollable container of pane "cards" sorted by `orderKey`. Each card is a `BoardPane` with a `BoardHeader` (`<window-name> · <server>` + unpin button) and an embedded `TerminalClient` connected via WebSocket to `?server=<entry.server>` (one WS per pane). The horizontal-scroll viewport begins at the `content` grid area's left edge — flush with `sidebar.right` (or page.left when `sidebarOpen === false`); no left gutter for board-level chrome
+- **BottomBar** (`gridArea: "bottombar"`) — the shared `<BottomBar>` (NEW on this route — board route had no BottomBar pre-rotation). Byte-identical to AppShell's invocation: same three callbacks (`onOpenCompose`, `onFocusTerminal`, `onScrollLockChange`). `onOpenCompose` calls `setComposeOpen(true)` from `FocusedTerminalContext`; `onFocusTerminal` invokes a ref-tracked `focusFocusedPaneRef.current()` that re-focuses the currently-focused board pane via its `paneRefs[focusedIndex].focus()`; `onScrollLockChange` plumbs through `DesktopRow`/`MobileCarousel` → `BoardPane` → `TerminalClient.scrollLocked`. Input target is the focused pane's wsRef (read from `FocusedTerminalContext.focused?.wsRef`)
+- **Own `<CommandPalette>` mount** — BoardPage retains its own palette mount because board-route-only entries (Switch / Leave Board View / Cycle Pane Focus →/←) need a registration site, and the AppShell palette doesn't mount on `/board/<name>`. The mount is preserved through the rotation
+
+Empty / non-existent board (`name` exists in URL but `getBoard` returns `[]`): shows "No panes pinned to this board yet. Pin a window from the sidebar." with a back link.
+
+### Pane Cards (Desktop)
+
+- **Default width 480px**, drag-resizable between 280px (min) and viewport-minus-sidebar (max). Resize handle hidden on coarse-pointer devices
+- **Persisted per-board** in `localStorage["runkit:board-widths:<name>"]` as `Record<windowId, number>`. `usePaneWidths(boardName)` encapsulates read/write/clamp; missing entries fall back to 480px; malformed JSON is ignored silently. Pane widths are intentionally browser-local view state — they do NOT cross devices (pin state in tmux does)
+- **Click-to-focus** transfers focus to the pane's xterm via a `useImperativeHandle`-exposed `focus()` method on `BoardPaneHandle`. **Hover-to-focus is OFF in v1** (no hover handler attached)
+- **Visual focus indicator** — focused pane has a distinct border/glow; unfocused panes are de-emphasized
+- **Keyboard pane cycling** — `Cmd+]` / `Ctrl+]` next (wraps), `Cmd+[` / `Ctrl+[` previous (wraps). Bound via a `useEffect` keydown listener on the BoardPage component
+
+### Mobile Single-Pane Carousel
+
+Below the `min-width: 640px` breakpoint (matching the existing project mobile convention), the BoardPage renders a single-pane swipe carousel:
+
+- One pane fills the viewport width
+- Touch swipe left/right cycles in `orderKey` order; threshold 40px on `touchstart` → `touchend` `clientX` delta
+- **Off-screen panes pause** by unmounting their `TerminalClient` so the WebSocket closes; on swipe-in, the pane re-mounts and the terminal reattaches
+- A pagination dot strip indicates the current pane index (no wrap on edges in v1)
+
+### Sidebar Boards Section (`app/frontend/src/components/sidebar/boards-section.tsx`)
+
+Renders **at the very top of the sidebar** — the section order is **Boards → Servers → Sessions** (`260509-17m3-rotated-shell-layout` reordered this from the previous Servers → Boards → Sessions). Visible on every route that mounts `<Sidebar>` (`/$server/...` and `/board/$name`). The board route reuses the same `BoardsSection` component for board switching; there is no separate BoardPage listing.
+
+- **Always visible**, regardless of `boards.length` or current route
+- **Hint mode** — when `boards.length === 0`, the body shows a one-line hint `Pin a window to start a board` (`text-xs text-text-secondary`) verbatim from 4vuv's copy. Applies on every route, not only on `/board/<name>` — placing Boards at the top would cause a layout shift if the section hid/showed dynamically (Servers would jump up, then back down when the first board materializes)
+- **First board materializes** — hint replaced by a single board row in place; no other section's vertical position shifts
+- **Last board removed** — section reverts to hint mode; no layout shift to ServerPanel or Sessions
+
+Each row: board name (left, truncate with ellipsis), pin count (right, muted), highlighted background when current route matches `/board/<name>`. Clicking the row navigates to `/board/<name>`.
+
+### Sidebar Pin Icon on Window Rows
+
+`window-row.tsx` gains a pin icon button that follows the existing icon-on-hover pattern in the sidebar:
+
+- **Hover-revealed** (always visible on touch devices via `coarse:opacity-100`)
+- **Filled** when the window is pinned to ANY board; **outline** when not pinned (computed via `useWindowPins(server, windowId)` which watches every board)
+- **Click opens `PinPopover`** (`app/frontend/src/components/sidebar/pin-popover.tsx`) anchored to the icon: list of existing boards (each row pins or unpins on click), plus an inline "Pin to new board…" text input (Enter validates against the board-name regex and creates the board on first pin). Validation errors surface inline. Outside-click + Escape dismiss
+
+### Active-Board Highlight in Sessions Tree
+
+When the current route is `/board/<name>`, `WindowRow` applies an accent left-border to windows pinned to **that specific board only**. Pins to other boards do NOT trigger the highlight. The pin icon's filled state is independent (always reflects "pinned to ANY board"). On non-board routes, no highlight is applied.
+
+### Pin Entry Points
+
+| Entry point | Location | Notes |
+|-------------|----------|-------|
+| Sidebar pin icon | `WindowRow` (every server's window rows in the unified sidebar — server routes and board routes alike) | Hover-revealed; popover with board picker + inline input |
+| Command palette | `boardActions` block in `app.tsx` (AppShell mount) and BoardPage's own mount | See § Boards Command Palette |
+| Board pane header | `BoardHeader` (only on `/board/<name>`) | Per-pane unpin button — no confirmation (pin is cheap to restore) |
+
+Right-click context menu was deliberately NOT implemented in v1 — there is no existing context-menu pattern in the sidebar to extend, and the three entry points above cover all flows.
+
+### Boards Command Palette (`Board:` prefix)
+
+`boardActions: PaletteAction[]` is composed in a dedicated `useMemo` block in `app.tsx`, between `windowActions` and `viewActions`:
+
+```ts
+const paletteActions = useMemo(
+  () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
+  [...]
+);
+```
+
+| Entry | Visibility | Action |
+|-------|------------|--------|
+| `Board: Switch to <name>` (one per board, `(current)` on the active one) | Always | Navigate to `/board/<name>` |
+| `Board: Pin Current Window` | Only on `/$server/$session/$window` | Dispatches `pin-popover:open` to the matching `WindowRow` |
+| `Board: Unpin Current Window` | Only when current window is pinned to ≥1 board | Unpins from all boards the current window is pinned to (single-action — no per-board picker in v1) |
+| `Board: Leave Board View` | Only on `/board/<name>` | Navigate to last viewed window route, or `/` if none |
+| `Board: Cycle Pane Focus →` | Only on `/board/<name>` and ≥1 pane | Same as `Cmd+]` |
+| `Board: Cycle Pane Focus ←` | Only on `/board/<name>` and ≥1 pane | Same as `Cmd+[` |
+
+**v1 limits**: `Board: Reorder Pane` palette action is deferred to v1.1. The right-click context menu pin entry is not implemented (use sidebar pin icon, command palette, or board pane header). Hover-to-focus is disabled in v1.
+
+The AppShell palette mount carries `Switch to <name>` + `Pin Current Window` + `Unpin Current Window`. The BoardPage's own palette mount carries `Switch to <name>` + `Leave Board View` + `Cycle Pane Focus →/←` — board-route-only entries that AppShell's palette can't surface because the board route does not render AppShell.
+
+### Hooks (Frontend)
+
+| Hook | File | Returns |
+|------|------|---------|
+| `useBoards()` | `hooks/use-boards.ts` | `{ boards, isLoading, error }`. Initial `listBoards()` on mount; subscribes to `board-changed` SSE on every server returned by `listServers()`; 50ms debounce coalesces rapid events; preserves last good value on transient error |
+| `useBoardEntries(name)` | `hooks/use-boards.ts` | `{ entries, isLoading, error }`. Initial `getBoard(name)`; subscribes on all known servers (boards span servers); same debounce + error tolerance |
+| `usePinActions(board?)` | `hooks/use-pin-actions.ts` | `{ pin, unpin, reorder }` stable callbacks; toast on error; optimistic — SSE re-broadcast reconciles |
+| `usePaneWidths(boardName, sidebarWidth)` | `hooks/use-pane-widths.ts` | `{ getWidth, setWidth }`; reads/writes `localStorage["runkit:board-widths:<name>"]`; clamps to `[280, viewport - sidebar]`; default 480px |
+| `useIsMobile()` | `hooks/use-is-mobile.ts` | `boolean`; `matchMedia("(max-width: 640px)")` listener |
+| `useActiveBoardName()` | `hooks/use-active-board.ts` | active board name from `/board/<name>` route, else `null` |
+| `useWindowPins(server, windowId)` | `hooks/use-window-pins.ts` | list of boards the window is pinned to; drives the pin-icon filled state |
+
 ## Chrome (Top Bar)
 
-The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derives its content from the current session:window selection via `ChromeProvider` context. No slot injection — the chrome reads the selection and renders directly.
+The root layout (`app/frontend/src/app.tsx`) renders `TopBarChrome` which derives its content from the current session:window selection via `ChromeProvider` context. No slot injection — the chrome reads the selection and renders directly. Since `260509-17m3-rotated-shell-layout` `TopBar` accepts a `mode: "terminal" | "board" | "root"` prop (default `"terminal"`) that selects which left/center content to render; right-section chrome is unchanged across modes.
 
-**Line 1** (fixed height, `border-b border-border`): hamburger toggle + name breadcrumbs + branding + controls. Single-line top bar — no Line 2.
+**Line 1** (fixed height, `border-b border-border`): hamburger toggle + mode-specific breadcrumbs/info + branding + controls. Single-line top bar — no Line 2.
 
-**Dashboard route** (`/`): Hamburger toggle + "Dashboard" text label (`text-text-primary font-medium`). No session or window breadcrumb segments rendered (no session/window is selected). Connection indicator, FixedWidthToggle, and `⌘K`/`⋯` render as normal.
+**Dashboard route** (`/`, `mode="root"`): Hamburger toggle + "Dashboard" text label (`text-text-primary font-medium`). No session or window breadcrumb segments rendered (no session/window is selected). Connection indicator, FixedWidthToggle, and `⌘K`/`⋯` render as normal.
 
-**Terminal route** (`/:session/:window`): `☰ session / window` — hamburger icon (three SVG lines, animates to left-pointing chevron `<` via CSS transforms when sidebar/drawer is open) + session name (dropdown trigger, `max-w-[7ch] truncate`) + `/` plain text separator + window name (dropdown trigger). Syncs with tmux active window via SSE.
+**Terminal route** (`/:session/:window`, `mode="terminal"`): `☰ session / window` — hamburger icon (three SVG lines, animates to left-pointing chevron `<` via CSS transforms when `sidebarOpen` is true) + session name (dropdown trigger, `max-w-[7ch] truncate`) + `/` plain text separator + window name (dropdown trigger). Syncs with tmux active window via SSE.
 
-- Hamburger icon (`☰`) — replaces logo as sidebar/drawer toggle. Animates to back chevron (`<`) when `sidebarOpen` (desktop >= 768px) or `drawerOpen` (mobile < 768px) is true. Top and bottom lines rotate ±40deg and shorten to form chevron arms; middle line fades out. Always uses `text-text-primary` color
+**Board route** (`/board/$name`, `mode="board"`): `☰ Board ▸ {name} ▾    {N} pane[s] · {M} server[s] · ⌘[⌘] cycle` — hamburger + breadcrumb (the existing `BoardSwitcherDropdown`, now imported by TopBar in board mode and removed from BoardPage's inline header) + inline-info span (`text-xs text-text-secondary`, hidden on `< 640px` via `hidden sm:inline`). Counts derived from `useBoardEntries(name)`. Singular nouns when `paneCount === 1` / `serverCount === 1`.
+
+- Hamburger icon (`☰`) — sidebar toggle. Animates to back chevron (`<`) when `sidebarOpen` is true. Top and bottom lines rotate ±40deg and shorten to form chevron arms; middle line fades out. Always uses `text-text-primary` color. Driven by `sidebarOpen` alone (the previous `drawerOpen` was removed when `260509-17m3-rotated-shell-layout` collapsed desktop-vs-mobile state into a single boolean)
 - `/` — plain text separator between session and window names (replaces `❯` U+276F). Not a click target
 - Session name and window name text are the dropdown triggers (tappable to open respective dropdowns). Replaces the `❯` icon-based trigger pattern
 - Session name capped at ~7 characters with ellipsis overflow (`max-w-[7ch] truncate`)
@@ -128,7 +233,7 @@ Session and window name text are the dropdown triggers. Clicking/tapping the nam
 
 Connection indicator: green/gray dot only (no text label), driven by `isConnected` from ChromeProvider (set by each page from `useSessions`).
 
-**FixedWidthToggle** (in Line 1 right section): Renders between the connection dot and `⌘K`. Order: `[●] [⇔] [⌘K]`. Self-contained component using `useChrome()`/`useChromeDispatch()`. Touch target: `coarse:min-h-[36px] coarse:min-w-[28px]`. Hidden on mobile (< 640px).
+**FixedWidthToggle** (in Line 1 right section): Renders between the connection dot and `⌘K`. Order: `[●] [⇔] [⌘K]`. Self-contained component using `useChrome()`/`useChromeDispatch()`. Route-agnostic — renders unconditionally regardless of `currentWindow`, so the toggle is exposed on the board route too (`260509-17m3-rotated-shell-layout` lifted it out of the `currentWindow &&` block — fixed-width is a viewport preference, not a per-window setting). Touch target: `coarse:min-h-[36px] coarse:min-w-[28px]`. Hidden on mobile (< 640px).
 
 ### Sidebar Kill Controls
 
@@ -153,9 +258,9 @@ The Ctrl+Click force-kill pattern matches the established "modifier = power acti
 
 Consumers import `@/components/sidebar` as before — Vite resolves directory imports to `sidebar/index.tsx` automatically.
 
-**Desktop** (>= 768px): Drag-resizable panel, default 220px width. Width persisted to `localStorage` key `runkit-sidebar-width`. Constraints: min 160px, max 400px. Drag handle (4-6px) on right edge with `col-resize` cursor, driven by pointer events (unified mouse/touch/pen). Collapsible via logo button in top bar.
+**Desktop** (`>= 640px`): Sidebar occupies the `<Shell>` `sidebar` grid area (full-height, spanning topbar/content/bottombar rows). Drag-resizable panel, default 220px width. Width persisted to `localStorage` key `runkit-sidebar-width` via `persistSidebarWidth(width)` (called once at drag-end; `setSidebarWidth` updates in-memory state per-pointermove). Constraints: min 160px, max 400px. Drag handle (4-6px) on right edge with `col-resize` cursor, driven by pointer events (unified mouse/touch/pen). The drag handle is hidden when `sidebarOpen === false` — the only re-open affordance is the hamburger at TopBar.left. Collapse animation: `grid-template-columns 150ms ease-out` (zero-width column when closed; no 48px rail). Drag-handle wiring is AppShell-only — BoardPage doesn't render a drag handle (the dimension lives in `ChromeContext` and is shared across routes).
 
-**Mobile** (< 768px): Hidden by default. Logo button opens a drawer overlay from the left, dimming the terminal. Selecting a window closes the drawer. Drag-resize does not apply to mobile drawer.
+**Mobile** (`< 640px`, breakpoint changed from 768px in `260509-17m3-rotated-shell-layout` to match the existing project `sm:` Tailwind breakpoint and `useIsMobile()` hook): Sidebar renders as an overlay positioned via `gridRow: "2/4"` inside the `<Shell>` (NOT `fixed inset-0`) — backdrop and `<aside>` use `position: absolute` so the topbar stays visible during overlay open (matches the existing project convention recorded in `fab/project/context.md`). Backdrop classes include `absolute z-40 bg-black/50`; aside classes include `absolute left-0 z-50 w-[88%] max-w-[320px] bg-bg-primary shadow-2xl` plus `role="dialog" aria-modal="true"`. Open/close is driven by `sidebarOpen` (the previous separate `drawerOpen` was removed when the rotation collapsed mobile-vs-desktop into one boolean). Dismissal: tapping the backdrop, tapping a destination row (auto-closes after navigation), or the explicit close affordance at TopBar.left (the hamburger).
 
 **Resize separator cursor convention**: Horizontal separator (server↔session panel divider, inside `CollapsiblePanel`) uses `cursor-row-resize`; vertical separator (sidebar↔terminal, in `app.tsx`) uses `cursor-col-resize`. Both are the double-arrow-with-middle-bar vocabulary (not `ns-resize`/`ew-resize`). Hover highlight on both uses full-opacity `hover:bg-text-secondary`.
 
@@ -165,9 +270,19 @@ Consumers import `@/components/sidebar` as before — Vite resolves directory im
 
 **Padding**: `px-3 sm:px-6` (matches top bar and bottom bar chrome padding).
 
-**Sessions header**: The Sessions panel in `sidebar/index.tsx` is a plain always-open `<div>` (intentionally not a `CollapsiblePanel` — the session tree is a core always-visible nav surface). Its header row uses `text-text-secondary` as the baseline text color (matching `CollapsiblePanel`'s header baseline), with the "Sessions" label in `font-medium`. When `currentSession` is non-null, its name is rendered to the right of the label in `truncate text-text-primary font-mono` — exactly mirroring the ServerPanel `headerRight` pattern (`server-panel.tsx:81-86`). The `+` new-session button sits to the right of the name (and uses `ml-auto` only when `currentSession` is null, so the right-anchored layout holds in both cases). No background tint is applied — the Sessions panel is always open, so a tint would overlap the colored active `WindowRow` body tint.
+**Sessions header**: The Sessions panel in `sidebar/index.tsx` is a plain always-open `<div>` (intentionally not a `CollapsiblePanel` — the session tree is a core always-visible nav surface). Its header row uses `text-text-secondary` as the baseline text color, with the "Sessions" label in `font-medium`. When `currentSession` is non-null, its name is rendered to the right of the label in `truncate text-text-primary font-mono` — exactly mirroring the ServerPanel `headerRight` pattern (`server-panel.tsx:81-86`). No background tint on this header — per-server tints live on the `ServerGroup` headers below.
 
-**Session rows**: Chevron toggle (left, expands/collapses window list), session name (navigates to first window in session via `onSelectWindow(session, 0)`), + new window button (right), ✕ kill button (right, always visible). Click session name navigates to `/:session/0`; click chevron toggles expand/collapse. No server marker — all sessions belong to the active server. The session-level `+` button triggers instant session creation (calls `onCreateSession` → `executeCreateSessionInstant`), not a dialog. The window-level `+` button triggers instant window creation (existing `executeCreateWindow` behavior, passes `activeWin?.worktreePath` as CWD).
+**Per-server `ServerGroup`s**: Below the Sessions header, the sidebar renders one `ServerGroup` per server in `servers` (the list returned by `/api/servers`). Each group is a `CollapsiblePanel`-style collapsible whose header carries the server name and the `+` new-session affordance (creates against that section's server, regardless of `currentServer`); the body contains that server's session tree, fed by `sessionsByServer.get(server)` and ordered by `sessionOrderByServer.get(server)`. Per-server slice isolation is the rule — drag-and-drop, rename, kill, ghost reconciliation, and optimistic-action keys all carry the server they originated on so cross-server overlays do not leak.
+
+**Default collapse + persistence**: By default the `currentServer` group is open and all other groups are collapsed. User toggles persist per-server in `localStorage["runkit-panel-sessions-{server}"]`. On board routes (`currentServer === null`) no group is the implicit default — collapse follows persisted state, falling back to all-collapsed. The legacy single-server `runkit-panel-sessions` key is migrated best-effort into the current server's namespaced key on first read when `currentServer` is non-null; if the user first lands on a board route, the migration is skipped (acceptable per the spec's "best-effort, no error if missing" rule). Expanding a non-current server's group also calls `attachServer(name)` on the provider so its slice starts populating from SSE.
+
+**Current-server visual marker**: The `currentServer`'s group header carries the same selected-tile shade convention used by `ServerPanel` — `rowTints.get(serverColors.get(currentServer)).selected` when the server has a color assigned, with a neutral `UNCOLORED_SELECTED` fallback otherwise. No marker is drawn when `currentServer === null` (board routes / index). The marker tracks `currentServer` reactively, so server-route switches re-paint the marker without remounting the group.
+
+**Cross-server window navigation**: Clicking a session name or window row in a non-current server's group navigates to that server's route (`/$server/$session/$window`) via `navigate({ to: "/$server/...", params: { server: thatServer, ... } })`. The provider picks up the new `currentServer` via `useMatches()` on the next route match — no explicit `setCurrentServer` call. The previously-current server's group remains rendered (per default-collapse rules); its EventSource and slice persist so re-visiting is instant.
+
+**Cross-server drag-and-drop is rejected**: Dragging a window from one server's group and dropping it on another server's session/group fires a toast `"Moving windows across tmux servers isn't supported yet"` and skips any move API call. tmux's `move-window` does not span servers, so cross-server move is a separate problem. Within-server drag-and-drop (window reorder within a session, cross-session window move within the same server, session reorder within the same server) is preserved verbatim.
+
+**Session rows**: Chevron toggle (left, expands/collapses window list), session name (navigates to first window in session via `onSelectWindow(server, session, 0)`), + new window button (right), ✕ kill button (right, always visible). Click session name navigates to `/$server/$session/0`; click chevron toggles expand/collapse. The session-level `+` button triggers instant session creation against the parent group's server (calls `onCreateSession` → `executeCreateSessionInstant`), not a dialog. The window-level `+` button triggers instant window creation (existing `executeCreateWindow` behavior, passes `activeWin?.worktreePath` as CWD).
 
 **Window rows**: Single line with activity dot + window name (left), right-side info (fab stage, duration, info button). All rows have `border-l-2` (transparent when not selected to prevent layout shift). Currently selected window highlighted with `bg-accent/10` + `border-accent` + `font-medium` + `rounded-r`. Click navigates to `/:session/:window`.
 
@@ -228,7 +343,7 @@ The persisted order lives server-side in tmux user-option `@rk_session_order` (s
 
 `<SessionRow>` exposes optional drag props (`draggable`, `isDragSource`, `onDragStart`, `onDragEnd`) — present for the new feature, absent for any future caller that doesn't want session reorder. The row root passes them straight through to the underlying `<div>`.
 
-**Test ergonomics**: To avoid forcing every existing `Sidebar` test to wrap with the EventSource-opening `SessionProvider` (now required by `useSessionContext`), `session-context.tsx` exports a `StandaloneSessionContextProvider` test helper — counterpart to the existing `MetricsProvider` standalone — that supplies a static context value (`sessionOrder` defaults to `[]`) without opening any network connection. Tests requiring SSE-driven `sessionOrder` use the full `SessionProvider` with a stubbed `EventSource` (see `session-context.test.tsx` for the pattern).
+**Test ergonomics**: `session-context.tsx` exports a `StandaloneSessionContextProvider` test helper that accepts a partial multi-server shape (`sessionsByServer`, `sessionOrderByServer`, `isConnectedByServer`, `metricsByServer`, `currentServer`, etc.) and synthesizes the full context value without opening any network connection. Tests requiring SSE-driven behavior use the full `SessionProvider` with a stubbed `EventSource`; `MockEventSource` is keyed by URL so per-server streams can be driven independently (see `session-context.test.tsx` for the pattern).
 
 **Server selector footer** — pinned at the bottom of the sidebar below the scrollable session tree, separated by `border-t border-border`. Displays `Server: {name}` with a dropdown trigger. Clicking opens a dropdown listing all available tmux servers (from `GET /api/servers`); the current server is highlighted with `text-accent`. Selecting a different server calls `setServer(name)`, which updates localStorage (`runkit-server`), reconnects SSE, and navigates to `/`. The session tree area is `flex-1 min-h-0 overflow-y-auto` above the pinned footer.
 
@@ -361,9 +476,11 @@ Two secondary entry points open `CreateSessionDialog` for users who want to spec
 
 The `showCreateDialog` / `openCreateDialog` / `closeCreateDialog` API in `use-dialog-state.ts` has been removed. `CreateSessionDialog` is no longer opened by the sidebar `+` button or the primary "Session: Create" palette action. Use "Session: Create at Folder" in Cmd+K for folder-prompted session creation.
 
-## Bottom Bar (Terminal Pages Only, Inside Terminal Column)
+## Bottom Bar (Shell-level, Shared Across Routes)
 
-Single row of `<kbd>` styled buttons, rendered only on terminal pages (`/:session/:window`). Hidden on the Dashboard route (`/`) — there is no terminal to send keys to. Rendered inside the terminal column (not root-level), so its width tracks the terminal width, not the full viewport. Styled with `border-t border-border` and `py-1.5` padding. Layout: `Tab Ctrl Alt Fn▴ ArrowPad | >_ ⌘K ⌨`. Hostname removed from bottom bar — now shown exclusively in the sidebar Host panel. Escape moved to the Function key dropdown's extended-keys section. Compose button (`>_`) conditionally rendered when `onOpenCompose` is provided.
+Single row of `<kbd>` styled buttons, rendered at shell level via `<Shell>`'s `bottombar` grid area on every route that mounts `<Shell>` — single-terminal, board, and dashboard alike (`260509-17m3-rotated-shell-layout` lifted it from the terminal column up to shell level). Width tracks the right grid column (page width minus sidebar). Styled with `border-t border-border` and `py-1.5` padding. Layout: `Tab Ctrl Alt Fn▴ ArrowPad | >_ ⌘K ⌨`. Hostname removed from bottom bar — now shown exclusively in the sidebar Host panel. Escape moved to the Function key dropdown's extended-keys section. Compose button (`>_`) conditionally rendered when `onOpenCompose` is provided.
+
+`BottomBarProps` no longer contains `wsRef` — the prop was removed when BottomBar moved up the tree. Input handlers read `focused?.wsRef` from `FocusedTerminalContext` and send ANSI escape sequences through it. The component is byte-identical across single-terminal and board routes (same JSX, same callbacks: `onOpenCompose`, `onFocusTerminal`, `onScrollLockChange`) — board panes are terminals, so the input toolbar applies identically. When `focused === null` (Dashboard route, no active terminal), input handlers natural-no-op via the existing `wsRef.current?.readyState !== OPEN` guard — no error, no toast.
 
 **Modifier toggles** (Ctrl, Alt): Sticky armed state with visual indicator (`accent` bg). Click to arm, auto-clears after next key is sent. Click again while armed to disarm. Multiple modifiers can be armed simultaneously. Cmd (`⌘`) removed — on desktop users hold the real Cmd key; on mobile Cmd combos aren't used in terminal workflows.
 
@@ -423,7 +540,7 @@ The terminal container div has `touch-pan-y` (CSS `touch-action: pan-y`) — all
 
 ### Breakpoints & Container Width
 
-All zones use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. No `max-w-4xl` constraint — terminal, top bar, and bottom bar all span full width. Sidebar is drag-resizable (default 220px, min 160, max 400) on desktop; terminal fills remaining space. Terminal container has `py-0.5 px-1` padding for breathing room against border lines. Bottom bar uses `py-1.5` vertical padding.
+All zones use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. No `max-w-4xl` constraint — terminal, top bar, and bottom bar all span full width. The mobile/desktop breakpoint for the `<Shell>` topology is **640px** (matches the existing `sm:` Tailwind breakpoint and `useIsMobile()` hook): `>= 640px` uses the 2-column grid with sidebar full-height; `< 640px` uses the single-column grid with sidebar overlay. Sidebar is drag-resizable on desktop (default 220px, min 160, max 400); terminal fills remaining space via the right grid column. Terminal container has `py-0.5 px-1` padding for breathing room against border lines. Bottom bar uses `py-1.5` vertical padding.
 
 ### Touch Targets
 
@@ -432,7 +549,7 @@ A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-var
 - Sidebar session ✕ kill buttons + window rows
 - Breadcrumb name dropdown triggers
 - `⋯` command palette trigger
-- Hamburger icon (sidebar/drawer toggle)
+- Hamburger icon (sidebar toggle — single state covers desktop column collapse and mobile overlay since `260509-17m3-rotated-shell-layout`)
 
 Bottom bar buttons use `coarse:min-h-[44px] coarse:min-w-[36px]` on touch devices, `min-h-[36px] min-w-[36px]` on desktop.
 
@@ -908,3 +1025,5 @@ The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips 
 | 2026-04-18 | xterm Unicode 15 grapheme widths — added `@xterm/addon-unicode-graphemes` to the Terminal init chain (loads after WebLinks, before WebGL), set `allowProposedApi: true` on the Terminal constructor, and assigned `terminal.unicode.activeVersion = "15-graphemes"` after `loadAddon()`. Aligns xterm's cell-width measurements with tmux's wcwidth-based layout so emojis and other wide graphemes (ZWJ sequences, flag/skin-tone modifiers) render without ghost/overlap artifacts. The `unicodeVersion` constructor option remains a no-op past `"6"` without the addon. | `260418-xgl2-xterm-emoji-width` |
 | 2026-04-18 | Server-capture-at-trigger convention for optimistic actions — every `useOptimisticAction` instance for a server-scoped mutation now threads `server: string` as the first slot of its argument tuple (Shape B), with `server` read from `useSessionContext()` and listed in the calling handler's `useCallback` deps (Shape A). Async-bridge refs (`lastKillSessionRef`, `lastRenameSessionRef`, `killDialogServerRef`) snapshot `{ server, name }` together so rollback/settle target the originating server. `OptimisticContext` switched session-level `GhostEntry`/`KilledEntry`/`RenamedEntry` to discriminated unions carrying `server`; `markKilled`/`unmarkKilled` overloaded by `type` ("session" requires `server`, "server" is global); `useMergedSessions(real, currentServer)` now filters session-level overlays so cross-server overlays don't leak. Window-store keying unchanged — windows don't migrate across servers. Establishes the rule: ambient module-level state for request parameters is prohibited; request-scoping values travel in the call signature, captured at user-event time. Regression test in `use-dialog-state.test.tsx` flips `SessionProvider.server` between dialog open and submit. | `260418-yadg-fix-mutation-server-race` |
 | 2026-04-19 | Sidebar separator cursor polish + corner resize affordance — horizontal separator cursor changed from `cursor-ns-resize` to `cursor-row-resize` (matches vertical's `cursor-col-resize` double-arrow-with-bar vocabulary); vertical hover fixed from `/40` opacity to full `hover:bg-text-secondary`. Both drag handlers now write `document.body.style.cursor` on pointerdown/start and clear to `""` on pointerup/end — document-level override survives the pointer leaving the thin handle (solves implicit-pointer-capture hover loss after first drag). `CollapsiblePanel` unmount cleanup also clears body cursor. New optional corner affordance at separator intersection: `CollapsiblePanel` gains `onCornerPointerDown` prop; when supplied + `showDragHandle` is true, renders a `w-[7px] h-[3px] cursor-nwse-resize` corner flush against the handle's right edge. Corner pointerdown invokes horizontal then vertical handlers, then overrides cursor to `nwse-resize` (last-write-wins). Handlers coexist without coordination because they use independent document listeners (clientY-only vs clientX-only). Prop threaded `app.tsx` → `Sidebar` (`onSidebarResizeStart`) → `ServerPanel` → `CollapsiblePanel` (`onCornerPointerDown`); all optional, mobile drawer omits it. | `260419-9ufu-sidebar-separator-cursor-fixes` |
+| 2026-05-09 | **Rotated shell layout** — Shared `<Shell>` CSS Grid wrapper (`app/frontend/src/components/shell/shell.tsx`) used by AppShell and BoardPage; desktop topology `"sidebar topbar" / "sidebar content" / "sidebar bottombar"`, sidebar full-height. Sidebar collapses to 0px (no rail) with `grid-template-columns 150ms ease-out`; drag-resize handle hidden when collapsed. Hamburger statically at TopBar.left; visual relocation on collapse is a side effect of column collapse. `Cmd+\` / `Ctrl+\` toggles sidebar from any Shell-bearing route (registered in KeyboardShortcuts modal); chord suppressed on real text inputs but NOT on xterm helper textareas. Mobile (< 640px) collapses to single-column grid; sidebar renders as `position: absolute` overlay positioned via `gridRow: "2/4"` (below topbar, matches project convention) with `role="dialog" aria-modal="true"`. Sidebar section order is **Boards → Servers → Sessions** (was Servers → Boards → Sessions); BoardsSection is always visible with `Pin a window to start a board` hint when empty (was hidden when empty). New `FocusedTerminalContext` (`app/frontend/src/contexts/focused-terminal-context.tsx`) tracks focused terminal across routes; mounts in `RootWrapper`; producers are `TerminalClient` (registers via `registerFocus` prop) and `BoardPane` (registers on focus events, doesn't clear on focus loss). Compose state (`composeOpen`/`setComposeOpen`) lifted to the same context so the shell-level BottomBar can open compose for the focused pane on the board route; focused pane gates `<ComposeBuffer>` rendering on `isFocused && composeOpen`. BottomBar moves up to `<Shell>`'s `bottombar` grid area — rendered once per route by AppShell and BoardPage (board route gets a BottomBar for the first time). `BottomBar.wsRef` prop removed; reads `focused?.wsRef` from context. `TopBar` accepts `mode: "terminal" | "board" | "root"` prop; board mode renders breadcrumb + inline-info `{N} pane[s] · {M} server[s] · ⌘[⌘] cycle` (hidden on `< 640px`). FixedWidthToggle lifted out of the `currentWindow &&` block — now route-agnostic. `ChromeContext` shape: `sidebarOpen`/`sidebarWidth` lifted from per-route state; `drawerOpen`/`setDrawerOpen` removed. New `setSidebarWidth` (in-memory) + `persistSidebarWidth` (localStorage at drag-end) split. BoardPage's bespoke `h-screen w-screen flex` root and inline mini-header are gone; BoardSwitcherDropdown moves into TopBar board-mode rendering. Three pattern captures: shared chrome wrapper for related routes (`<Shell>`), lift focused-input target to context, two-setter pair for in-memory + persisted state. | `260509-17m3-rotated-shell-layout` |
+| 2026-05-07 | Pane boards UX — new § Boards View covers `/board/$name` self-contained mini-layout (own sidebar + topbar + main pane area + own `<CommandPalette>` mount; not under AppShell because boards span servers). Pane cards: 480px default, drag-resize 280px–viewport-minus-sidebar, widths persisted per-board to `localStorage["runkit:board-widths:<name>"]`. Click-to-focus + `Cmd+]/Cmd+[` cycle (hover-to-focus OFF in v1). Mobile (< 640px): single-pane swipe carousel with off-screen pause via `TerminalClient` unmount + pagination dots. Sidebar gains `BoardsSection` above Sessions (hidden when zero boards, hint mode when on a now-empty board route), pin icon + `PinPopover` on `WindowRow` (filled state when pinned to ANY board), and active-board accent border on rows pinned to the current board. New `boardActions` `PaletteAction[]` block in `app.tsx`: `Switch to <name>` (one per board, `(current)` on active), `Pin Current Window` (window-route-gated, dispatches `pin-popover:open`), `Unpin Current Window` (unpins from all boards), `Leave Board View`, `Cycle Pane Focus →/←` (board-route-gated). Reorder Pane palette action deferred to v1.1; right-click context menu not implemented (use sidebar pin icon, command palette, or board pane header). Hooks: `useBoards`, `useBoardEntries`, `usePinActions`, `usePaneWidths`, `useIsMobile`, `useActiveBoardName`, `useWindowPins`. | `260507-4vuv-pane-boards` |

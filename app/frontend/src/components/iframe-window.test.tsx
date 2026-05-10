@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 import { IframeWindow } from "./iframe-window";
-import { ChromeProvider } from "@/contexts/chrome-context";
-import { SessionProvider } from "@/contexts/session-context";
+import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 
 // Mock the API client — updateWindowType is referenced in the "switch to terminal"
 // button and must be stubbed to avoid throwing during render.
@@ -15,12 +14,22 @@ vi.mock("@/api/client", () => ({
 import { updateWindowUrl } from "@/api/client";
 
 function renderIframe(props: React.ComponentProps<typeof IframeWindow>, server = "runkit") {
+  // Bypass SSE by using StandaloneSessionContextProvider; only `currentServer`
+  // matters — IframeWindow reads it directly from useSessionContext.
   return render(
-    <ChromeProvider>
-      <SessionProvider server={server}>
-        <IframeWindow {...props} />
-      </SessionProvider>
-    </ChromeProvider>,
+    <StandaloneSessionContextProvider
+      value={{
+        sessionsByServer: new Map([[server, []]]),
+        sessionOrderByServer: new Map([[server, []]]),
+        isConnectedByServer: new Map([[server, false]]),
+        metricsByServer: new Map(),
+        currentServer: server,
+        servers: [{ name: server, sessionCount: 0 }],
+        refreshServers: vi.fn(),
+      }}
+    >
+      <IframeWindow {...props} />
+    </StandaloneSessionContextProvider>,
   );
 }
 
@@ -29,14 +38,6 @@ afterEach(cleanup);
 describe("IframeWindow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // EventSource stub for SessionProvider's SSE connection.
-    class MockEventSource {
-      addEventListener = vi.fn();
-      close = vi.fn();
-      onerror: unknown = null;
-      onopen: unknown = null;
-    }
-    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
   });
 
   it("renders iframe with proxied URL", () => {

@@ -5,12 +5,14 @@ import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-
 import { MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
-import { useWindowStore } from "@/store/window-store";
+import { useWindowStore, entryKey } from "@/store/window-store";
 import type { ProjectSession } from "@/types";
 
 const mockNavigate = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
+  useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
+    select({ location: { pathname: "/" } }),
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -100,28 +102,45 @@ const sessions: ProjectSession[] = [
   },
 ];
 
-function renderSidebar(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
-  const server = (overrides.server as string | undefined) ?? "runkit";
+type SidebarTestOverrides = Partial<React.ComponentProps<typeof Sidebar>> & {
+  /** Test convenience: override the per-server sessions Map fed to the
+   *  StandaloneSessionContextProvider. Defaults to `{ runkit: <sessions> }`. */
+  sessions?: ProjectSession[];
+  serverList?: { name: string; sessionCount: number }[];
+};
+
+function renderSidebar(overrides: SidebarTestOverrides = {}) {
+  const currentServer = overrides.currentServer ?? "runkit";
+  const sessionData = overrides.sessions ?? sessions;
+  const serverList = overrides.serverList ?? [{ name: "runkit", sessionCount: 0 }];
+  // Spread overrides minus the context-only fields onto Sidebar.
+  const { sessions: _omitSessions, serverList: _omitServerList, currentServer: _omitCurrentServer, ...sidebarOverrides } = overrides;
   return render(
     <ThemeProvider>
     <ToastProvider>
       <OptimisticProvider>
-        <StandaloneSessionContextProvider value={{ server }}>
+        <StandaloneSessionContextProvider
+          value={{
+            sessionsByServer: new Map(serverList.map((s) => [s.name, s.name === currentServer ? sessionData : []])),
+            sessionOrderByServer: new Map(serverList.map((s) => [s.name, []])),
+            isConnectedByServer: new Map(serverList.map((s) => [s.name, false])),
+            metricsByServer: new Map(),
+            currentServer,
+            servers: serverList,
+            refreshServers: vi.fn(),
+          }}
+        >
           <MetricsProvider value={null}>
             <Sidebar
-              sessions={sessions}
+              currentServer={currentServer}
               currentSession="run-kit"
               currentWindowIndex="0"
               onSelectWindow={vi.fn()}
               onCreateWindow={vi.fn()}
               onCreateSession={vi.fn()}
-              server="runkit"
-              servers={[{ name: "runkit", sessionCount: 0 }]}
-              onSwitchServer={vi.fn()}
               onCreateServer={vi.fn()}
               onKillServer={vi.fn()}
-              onRefreshServers={vi.fn()}
-              {...overrides}
+              {...sidebarOverrides}
             />
           </MetricsProvider>
         </StandaloneSessionContextProvider>
@@ -176,7 +195,7 @@ describe("Sidebar", () => {
 
     // Click the session name text
     fireEvent.click(screen.getByLabelText("Navigate to run-kit"));
-    expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 0);
+    expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 0);
 
     // Windows should still be visible (not collapsed)
     expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(1);
@@ -194,7 +213,7 @@ describe("Sidebar", () => {
     const onSelectWindow = vi.fn();
     renderSidebar({ onSelectWindow });
     fireEvent.click(screen.getByText("scratch"));
-    expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 1);
+    expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 1);
   });
 
   it("shows fab stage text on windows", () => {
@@ -204,9 +223,9 @@ describe("Sidebar", () => {
     expect(applySpans.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("does not render + New Session button when sessions exist", () => {
+  it("does not render empty-state hint when sessions exist", () => {
     renderSidebar();
-    expect(screen.queryByText("+ New Session")).not.toBeInTheDocument();
+    expect(screen.queryByText(/no sessions/)).not.toBeInTheDocument();
   });
 
   it("shows kill button for each session", () => {
@@ -223,22 +242,19 @@ describe("Sidebar", () => {
     expect(screen.getByText(/3 window/)).toBeInTheDocument();
   });
 
-  it("shows empty state with + New Session button when no sessions", () => {
+  it("shows empty-state hint row when no sessions", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    expect(screen.getByText("No sessions")).toBeInTheDocument();
-    const btn = screen.getByText("+ New Session");
-    expect(btn).toBeInTheDocument();
-    fireEvent.click(btn);
+    const hint = screen.getByText("(no sessions — + new)");
+    expect(hint).toBeInTheDocument();
+    fireEvent.click(hint);
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
-  it("empty state + New Session button calls onCreateSession directly (no dialog)", () => {
+  it("empty-state hint click calls onCreateSession directly (no dialog)", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    const btn = screen.getByText("+ New Session");
-    fireEvent.click(btn);
-    // onCreateSession is called directly — no CreateSessionDialog should appear
+    fireEvent.click(screen.getByText("(no sessions — + new)"));
     expect(onCreateSession).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -351,7 +367,7 @@ describe("Sidebar", () => {
       renderSidebar({ onSelectWindow });
       fireEvent.click(screen.getByText("scratch"));
 
-      expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 1);
+      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 1);
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
     });
   });
@@ -463,7 +479,7 @@ describe("Sidebar", () => {
       renderSidebar({ onSelectWindow });
       fireEvent.click(screen.getByLabelText("Navigate to run-kit"));
 
-      expect(onSelectWindow).toHaveBeenCalledWith("run-kit", 0);
+      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 0);
       expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
     });
   });
@@ -509,6 +525,26 @@ describe("Sidebar", () => {
     expect(screen.queryByLabelText("external session")).not.toBeInTheDocument();
   });
 
+  describe("section order (17m3)", () => {
+    it("renders Boards above Server above Sessions", () => {
+      renderSidebar();
+      // Each section header carries a known label/text. Use
+      // `compareDocumentPosition` to assert relative document order — this is
+      // stable against unrelated DOM structure (no whole-tree scan, no
+      // coupling to nested text-node layout) compared with indexing into
+      // `document.body.querySelectorAll("*")`.
+      const boardsHeader = screen.getByText("Boards");
+      const serverHeader = screen.getByText("Server", { selector: "span" });
+      const sessionsHeader = screen.getByText("Sessions", { selector: "span" });
+
+      // Node.DOCUMENT_POSITION_FOLLOWING (4): the argument node follows the
+      // reference node in document order.
+      const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+      expect(boardsHeader.compareDocumentPosition(serverHeader) & FOLLOWING).toBe(FOLLOWING);
+      expect(serverHeader.compareDocumentPosition(sessionsHeader) & FOLLOWING).toBe(FOLLOWING);
+    });
+  });
+
   describe("drag-and-drop window reorder", () => {
     it("window items have draggable attribute", () => {
       renderSidebar();
@@ -536,9 +572,10 @@ describe("Sidebar", () => {
 
       expect(dataTransfer.setData).toHaveBeenCalledWith(
         "application/json",
-        JSON.stringify({ session: "run-kit", index: 0, windowId: "@0", name: "main" }),
+        JSON.stringify({ server: "runkit", session: "run-kit", index: 0, windowId: "@0", name: "main" }),
       );
       const parsed = JSON.parse(transferredData);
+      expect(parsed.server).toBe("runkit");
       expect(parsed.session).toBe("run-kit");
       expect(parsed.index).toBe(0);
       expect(parsed.windowId).toBe("@0");
@@ -651,11 +688,11 @@ describe("Sidebar", () => {
       mockNavigate.mockClear();
       // Seed the window store so killWindow/restoreWindow/addGhostWindow have entries
       useWindowStore.setState({ entries: new Map(), ghosts: [] });
-      useWindowStore.getState().setWindowsForSession("run-kit", [
+      useWindowStore.getState().setWindowsForSession("runkit", "run-kit", [
         { windowId: "@0", index: 0, name: "main", worktreePath: "~/code/run-kit", activity: "active", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 5 },
         { windowId: "@1", index: 1, name: "scratch", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 180 },
       ]);
-      useWindowStore.getState().setWindowsForSession("ao-server", [
+      useWindowStore.getState().setWindowsForSession("runkit", "ao-server", [
         { windowId: "@2", index: 0, name: "dev", worktreePath: "~/code/ao-server", activity: "idle", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 3600 },
       ]);
     });
@@ -685,7 +722,7 @@ describe("Sidebar", () => {
       });
 
       // Source window should be killed optimistically
-      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(true);
+      expect(useWindowStore.getState().entries.get(entryKey("runkit", "@0"))?.killed).toBe(true);
       // Ghost window should be added to target session
       expect(useWindowStore.getState().ghosts.some((g) => g.session === "ao-server" && g.name === "main")).toBe(true);
       // Navigate to server dashboard
@@ -739,14 +776,14 @@ describe("Sidebar", () => {
       fireEvent.dragStart(mainDraggable, { dataTransfer });
 
       // Before drop — source window is not killed
-      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(false);
+      expect(useWindowStore.getState().entries.get(entryKey("runkit", "@0"))?.killed).toBe(false);
 
       await act(async () => {
         fireEvent.drop(bravoHeader, { dataTransfer });
       });
 
       // After API rejection settles, window should be restored (not killed)
-      expect(useWindowStore.getState().entries.get("@0")?.killed).toBe(false);
+      expect(useWindowStore.getState().entries.get(entryKey("runkit", "@0"))?.killed).toBe(false);
       // Ghost should be removed
       expect(useWindowStore.getState().ghosts.some((g) => g.session === "ao-server" && g.name === "main")).toBe(false);
       // Error toast should be shown
@@ -820,22 +857,28 @@ describe("Sidebar", () => {
         <ThemeProvider>
         <ToastProvider>
           <OptimisticProvider>
-            <StandaloneSessionContextProvider value={{ server: "runkit" }}>
+            <StandaloneSessionContextProvider
+              value={{
+                sessionsByServer: new Map([["runkit", sessions]]),
+                sessionOrderByServer: new Map([["runkit", []]]),
+                isConnectedByServer: new Map([["runkit", false]]),
+                metricsByServer: new Map(),
+                currentServer: "runkit",
+                servers: [{ name: "runkit", sessionCount: 0 }],
+                refreshServers: vi.fn(),
+              }}
+            >
               <MetricsProvider value={null}>
                 <KilledCountDisplay />
                 <Sidebar
-                  sessions={sessions}
+                  currentServer="runkit"
                   currentSession="run-kit"
                   currentWindowIndex="0"
                   onSelectWindow={vi.fn()}
                   onCreateWindow={vi.fn()}
                   onCreateSession={vi.fn()}
-                  server="runkit"
-                  servers={[{ name: "runkit", sessionCount: 0 }]}
-                  onSwitchServer={vi.fn()}
                   onCreateServer={vi.fn()}
                   onKillServer={vi.fn()}
-                  onRefreshServers={vi.fn()}
                 />
               </MetricsProvider>
             </StandaloneSessionContextProvider>
@@ -861,7 +904,7 @@ describe("Sidebar", () => {
       // Seed the window store so moveWindowOrder has entries to operate on.
       // Need 3+ windows to test insert-before semantics (2-item forward move is a no-op).
       useWindowStore.setState({ entries: new Map(), ghosts: [] });
-      useWindowStore.getState().setWindowsForSession("run-kit", [
+      useWindowStore.getState().setWindowsForSession("runkit", "run-kit", [
         { windowId: "@0", index: 0, name: "main", worktreePath: "~/code/run-kit", activity: "active", isActiveWindow: true, activityTimestamp: Math.floor(Date.now() / 1000) - 5 },
         { windowId: "@1", index: 1, name: "scratch", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 180 },
         { windowId: "@2", index: 2, name: "logs", worktreePath: "~/code/run-kit", activity: "idle", isActiveWindow: false, activityTimestamp: Math.floor(Date.now() / 1000) - 300 },
@@ -897,9 +940,9 @@ describe("Sidebar", () => {
 
       // Synchronous: store indices should reflect insert-before (before API resolves)
       const entries = useWindowStore.getState().entries;
-      expect(entries.get("@1")?.index).toBe(0); // scratch shifted left
-      expect(entries.get("@0")?.index).toBe(1); // main inserted before logs
-      expect(entries.get("@2")?.index).toBe(2); // logs unchanged
+      expect(entries.get(entryKey("runkit", "@1"))?.index).toBe(0); // scratch shifted left
+      expect(entries.get(entryKey("runkit", "@0"))?.index).toBe(1); // main inserted before logs
+      expect(entries.get(entryKey("runkit", "@2"))?.index).toBe(2); // logs unchanged
 
       // Reorder should not change selection
       expect(onSelectWindow).not.toHaveBeenCalled();
@@ -938,9 +981,9 @@ describe("Sidebar", () => {
 
       // After API rejection settles, indices should be restored
       const entries = useWindowStore.getState().entries;
-      expect(entries.get("@0")?.index).toBe(0);
-      expect(entries.get("@1")?.index).toBe(1);
-      expect(entries.get("@2")?.index).toBe(2);
+      expect(entries.get(entryKey("runkit", "@0"))?.index).toBe(0);
+      expect(entries.get(entryKey("runkit", "@1"))?.index).toBe(1);
+      expect(entries.get(entryKey("runkit", "@2"))?.index).toBe(2);
     });
   });
 

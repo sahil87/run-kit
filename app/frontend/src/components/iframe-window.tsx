@@ -10,7 +10,10 @@ interface IframeWindowProps {
 
 /** Renders an iframe with a URL bar for proxy windows. */
 export function IframeWindow({ sessionName, windowIndex, rkUrl }: IframeWindowProps) {
-  const { server } = useSessionContext();
+  // IframeWindow renders only from AppShell terminal routes where currentServer
+  // is set. Fall back to empty string when null (action no-ops with bad server).
+  const { currentServer } = useSessionContext();
+  const server = currentServer ?? "";
   const [inputUrl, setInputUrl] = useState(rkUrl);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const currentSrcRef = useRef(rkUrl);

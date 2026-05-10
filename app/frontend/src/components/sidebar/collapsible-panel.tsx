@@ -279,7 +279,7 @@ export function CollapsiblePanel({
   const headerHoverBg = headerTint && !tintOnlyWhenCollapsed ? headerTint.hover : null;
 
   return (
-    <div className="border-t border-border">
+    <div className="border-t-[3px] border-border first:border-t-0">
       {/* Header — always visible */}
       <div
         className="flex items-center gap-1.5 w-full px-1.5 sm:px-2 py-1 text-xs text-text-secondary shrink-0 transition-colors"
@@ -301,7 +301,7 @@ export function CollapsiblePanel({
           >
             &#x25BC;
           </span>
-          <span className="font-medium">{title}</span>
+          <span className="font-bold uppercase tracking-wide">{title}</span>
           {headerRight && (
             <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
               {headerRight}
@@ -322,7 +322,9 @@ export function CollapsiblePanel({
         </div>
       </div>
 
-      {/* Drag handle — resizable desktop only. 3px thick line, colored as the border.
+      {/* Drag handle — resizable desktop only. 3px tall, transparent by default
+          so the next panel's `border-t-[3px]` is the sole visible inter-panel
+          separator. Hovering surfaces the affordance via `bg-text-secondary`.
           When `onCornerPointerDown` is supplied, render as a flex row: the handle
           consumes the remaining width (`flex-1`) and a small fixed-width corner sits
           flush against its right edge. The corner initiates both horizontal and
@@ -335,7 +337,7 @@ export function CollapsiblePanel({
               aria-orientation="horizontal"
               aria-label={`Resize ${title} panel`}
               onPointerDown={onHandlePointerDown}
-              className="flex-1 h-[3px] bg-border hover:bg-text-secondary transition-colors cursor-row-resize select-none"
+              className="flex-1 h-[3px] bg-transparent hover:bg-text-secondary transition-colors cursor-row-resize select-none"
               style={{ touchAction: "none" }}
             />
             <div
@@ -348,7 +350,7 @@ export function CollapsiblePanel({
                 onCornerPointerDown(e);
                 document.body.style.cursor = "nwse-resize";
               }}
-              className="w-[7px] h-[3px] bg-border hover:bg-text-secondary transition-colors select-none cursor-nwse-resize"
+              className="w-[7px] h-[3px] bg-transparent hover:bg-text-secondary transition-colors select-none cursor-nwse-resize"
               style={{ touchAction: "none" }}
             />
           </div>
@@ -358,7 +360,7 @@ export function CollapsiblePanel({
             aria-orientation="horizontal"
             aria-label={`Resize ${title} panel`}
             onPointerDown={onHandlePointerDown}
-            className="relative z-10 h-[3px] bg-border hover:bg-text-secondary transition-colors cursor-row-resize select-none"
+            className="relative z-10 h-[3px] bg-transparent hover:bg-text-secondary transition-colors cursor-row-resize select-none"
             style={{ touchAction: "none" }}
           />
         )

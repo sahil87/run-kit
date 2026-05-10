@@ -213,11 +213,14 @@ export function useMergedSessions(realSessions: ProjectSession[], currentServer:
         const sessionNewName = renamedSessions.get(s.name);
         const displayName = sessionNewName ?? s.name;
 
-        // Build merged windows from window store entries for this session
+        // Build merged windows from window store entries for this (server, session).
+        // Filter by server first — windowIds are unique per server only, so a
+        // session named "0" on server A and "0" on server B share the global
+        // entries map but must not contaminate each other.
         const sessionEntries: MergedWindow[] = [];
         for (const [, entry] of windowEntries) {
+          if (entry.server !== currentServer) continue;
           if (entry.session !== s.name || entry.killed) continue;
-          // Find the matching real window to get full WindowInfo fields
           const realWin = s.windows.find((w) => w.windowId === entry.windowId);
           if (!realWin) continue;
           const name = entry.pendingName ?? entry.name;
@@ -226,9 +229,9 @@ export function useMergedSessions(realSessions: ProjectSession[], currentServer:
         // Sort by index ascending
         sessionEntries.sort((a, b) => a.index - b.index);
 
-        // Append ghost windows for this session
+        // Append ghost windows for this (server, session)
         const sessionWindowGhosts = windowGhosts
-          .filter((g) => g.session === s.name)
+          .filter((g) => g.server === currentServer && g.session === s.name)
           .sort((a, b) => a.createdAt - b.createdAt);
 
         for (const ghost of sessionWindowGhosts) {

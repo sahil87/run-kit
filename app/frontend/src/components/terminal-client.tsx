@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { useTheme } from "@/contexts/theme-context";
+import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { deriveXtermTheme } from "@/themes";
 import { ComposeBuffer } from "@/components/compose-buffer";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -29,10 +30,18 @@ type TerminalClientProps = {
   server: string;
   wsRef: React.MutableRefObject<WebSocket | null>;
   composeOpen: boolean;
-  setComposeOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  setComposeOpen: (open: boolean) => void;
   onSessionNotFound?: () => void;
   focusRef?: React.MutableRefObject<(() => void) | null>;
   scrollLocked?: boolean;
+  /**
+   * When `true` (default), this terminal registers itself as the focused
+   * terminal on mount so the shell-level BottomBar targets it. Set to
+   * `false` for board panes — BoardPane handles registration based on its
+   * own focused-pane state so multiple TerminalClients in a board don't
+   * fight over the focused-terminal slot.
+   */
+  registerFocus?: boolean;
 };
 
 export function TerminalClient({
@@ -45,6 +54,7 @@ export function TerminalClient({
   onSessionNotFound,
   focusRef,
   scrollLocked,
+  registerFocus = true,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
@@ -53,8 +63,24 @@ export function TerminalClient({
   const [dragOver, setDragOver] = useState(false);
   const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
   const [composeFiles, setComposeFiles] = useState<UploadedFile[]>([]);
-  const { uploadFiles, uploading } = useFileUpload(sessionName, windowIndex);
+  const { uploadFiles, uploading } = useFileUpload(sessionName, windowIndex, server);
   const { theme: activeTheme } = useTheme();
+  const { setFocused } = useFocusedTerminal();
+
+  // Register this terminal as the BottomBar's focused input target. The
+  // single-terminal route trivially has only one terminal — this is the
+  // explicit form of the focus relationship that previously was implicit
+  // through prop drilling. On unmount we clear so a stale ref isn't read
+  // by a subsequent route's BottomBar before its own TerminalClient mounts.
+  // BoardPane passes `registerFocus={false}` and handles registration itself
+  // based on its focused-pane state.
+  useEffect(() => {
+    if (!registerFocus) return;
+    setFocused({ wsRef, server, session: sessionName, windowIndex });
+    return () => {
+      setFocused(null);
+    };
+  }, [registerFocus, setFocused, wsRef, server, sessionName, windowIndex]);
 
   const openComposeWithUploads = useCallback(
     (uploads: UploadedFile[]) => {
@@ -357,15 +383,25 @@ export function TerminalClient({
     xtermRef.current.options.theme = deriveXtermTheme(activeTheme.palette);
   }, [activeTheme]);
 
-  // Keep a ref to windowIndex so the WS effect can read it without
-  // depending on it. The relay uses `tmux attach-session` which follows
-  // window switches automatically — only session changes need a reconnect.
+  // Keep a ref to windowIndex so reconnect (after a transient WS drop) reads
+  // the latest value without needing to be torn down/rebuilt.
   const windowIndexRef = useRef(windowIndex);
   windowIndexRef.current = windowIndex;
 
-  // WebSocket connection — reconnects only when the session changes.
-  // Window switches within the same session are handled by the relay's
-  // tmux attach-session, which follows the active window automatically.
+  // WebSocket connection — reconnects when session or windowIndex changes.
+  //
+  // Pre-hdjr (260507-4vuv era), the relay called `tmux select-window` then
+  // `tmux attach-session -t <real-session>`, so all clients shared the
+  // session's "active window" state and a window switch within the same
+  // session needed no reconnect — the next select-window from any client
+  // moved everyone. Post-hdjr (260508-hdjr) each WebSocket runs against
+  // its own ephemeral grouped session with INDEPENDENT active-window
+  // state, by design. That fixed the board-pane cross-talk bug, but it
+  // also means a URL-only window switch no longer flips the relay's
+  // ephemeral. Reconnecting on windowIndex change is the simplest fix:
+  // the new connection creates a fresh ephemeral pointing at the new
+  // window. (A future protocol-level "select-window" message would
+  // avoid the reconnect flicker.)
   useEffect(() => {
     if (!terminalReady || !xtermRef.current) return;
 
@@ -465,7 +501,7 @@ export function TerminalClient({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalReady, sessionName, server, wsRef]);
+  }, [terminalReady, sessionName, windowIndex, server, wsRef]);
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">
@@ -473,7 +509,7 @@ export function TerminalClient({
         ref={terminalRef}
         role="application"
         aria-label={`Terminal: ${sessionName}/${windowIndex}`}
-        className={`flex-1 min-h-0 overflow-hidden touch-none transition-opacity ${
+        className={`flex-1 min-h-0 overflow-hidden coarse:touch-none transition-opacity ${
           composeOpen ? "opacity-50" : ""
         } ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
         onContextMenu={(e) => e.preventDefault()}

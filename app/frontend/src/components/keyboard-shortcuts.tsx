@@ -63,9 +63,16 @@ function ShortcutRow({ label, keys }: GroupedBinding) {
 
 export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
   const [bindings, setBindings] = useState<Keybinding[] | null>(null);
-  const { server } = useSessionContext();
+  // KeyboardShortcuts opens from any route, but tmux-server-scoped bindings
+  // are only meaningful when a server is current. Skip the fetch when null.
+  const { currentServer } = useSessionContext();
+  const server = currentServer;
 
   useEffect(() => {
+    if (!server) {
+      setBindings([]);
+      return;
+    }
     getKeybindings(server)
       .then(setBindings)
       .catch(() => setBindings([]));
@@ -84,6 +91,7 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
           <h3 className="text-xs text-text-secondary font-medium mb-1">App</h3>
           <div className="space-y-1">
             <ShortcutRow label="Command palette" keys={["⌘K"]} />
+            <ShortcutRow label="Toggle sidebar" keys={["⌘\\"]} />
           </div>
         </div>
 

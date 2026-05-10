@@ -1,10 +1,12 @@
-import { useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import { getWindowDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
+import type { BoardSummary } from "@/api/boards";
 import { UNCOLORED_SELECTED_ANSI, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
+import { PinPopover } from "./pin-popover";
 
 type ProjectWindow = ProjectSession["windows"][number];
 type GhostWindow = MergedSession["windows"][number];
@@ -32,6 +34,22 @@ type WindowRowProps = {
   onDrop?: (e: React.DragEvent) => void;
   onDragEnd?: () => void;
   onColorChange?: (color: number | null) => void;
+  /** Tmux server name for the pin popover (server-routing contract). When
+   *  omitted the pin icon is hidden — used by tests that render WindowRow
+   *  without the boards system wired up. */
+  server?: string;
+  /** Aggregate pin state — if this window is pinned to ANY board, the icon
+   *  renders filled. */
+  isPinnedToAny?: boolean;
+  /** When true, the row is pinned to the *currently active board* (if any)
+   *  and gets a subtle accent highlight in the Sessions tree. Independent of
+   *  isPinnedToAny which controls the pin-icon fill. */
+  isPinnedToActiveBoard?: boolean;
+  /** All known boards (for the pin popover). */
+  boards?: BoardSummary[];
+  /** Predicate: is this window pinned to the given board? Used by the pin
+   *  popover to render checkmarks. */
+  isPinnedToBoard?: (board: string) => boolean;
 };
 
 export function WindowRow({
@@ -57,12 +75,37 @@ export function WindowRow({
   onDrop,
   onDragEnd,
   onColorChange,
+  server,
+  isPinnedToAny = false,
+  isPinnedToActiveBoard = false,
+  boards = [],
+  isPinnedToBoard,
 }: WindowRowProps) {
   const ghost = isGhostWindow(win);
   const duration = getWindowDuration(win, nowSeconds);
   const isEditing = editingWindow?.session === session && editingWindow.windowId === win.windowId;
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showPinPopover, setShowPinPopover] = useState(false);
   const colorBtnRef = useRef<HTMLButtonElement>(null);
+  const pinBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Listen for the imperative `pin-popover:open` event dispatched by the
+  // command palette's "Board: Pin Current Window" action. Only the row whose
+  // (server, windowId) matches the event detail opens its popover; other rows
+  // ignore the event. Mirrors the `palette:open` document-event pattern used
+  // elsewhere — see app.tsx command palette wiring.
+  useEffect(() => {
+    if (!server) return;
+    function handler(e: Event) {
+      const detail = (e as CustomEvent<{ server: string; windowId: string }>).detail;
+      if (!detail) return;
+      if (detail.server === server && detail.windowId === win.windowId) {
+        setShowPinPopover(true);
+      }
+    }
+    document.addEventListener("pin-popover:open", handler);
+    return () => document.removeEventListener("pin-popover:open", handler);
+  }, [server, win.windowId]);
 
   const tint = useMemo(() => {
     if (color == null || !rowTints) return null;
@@ -91,16 +134,26 @@ export function WindowRow({
     } else if (uncoloredSelectedTint) {
       style.backgroundColor = uncoloredSelectedTint.selected;
     }
-    // Always reserve left border space to prevent text shift between states.
-    style.borderLeft = isSelected
-      ? `8px solid ${borderColor ?? "var(--color-accent)"}`
-      : "8px solid transparent";
+    // Active-board highlight: when not selected (selection takes priority for
+    // border), tint the left border in accent color so the user sees which
+    // windows belong to the board they're viewing.
+    if (isSelected) {
+      style.borderLeft = `8px solid ${borderColor ?? "var(--color-accent)"}`;
+    } else if (isPinnedToActiveBoard) {
+      style.borderLeft = "8px solid var(--color-accent)";
+    } else {
+      // Always reserve left border space to prevent text shift between states.
+      style.borderLeft = "8px solid transparent";
+    }
     return Object.keys(style).length > 0 ? style : undefined;
-  }, [tint, uncoloredSelectedTint, isSelected, borderColor]);
+  }, [tint, uncoloredSelectedTint, isSelected, borderColor, isPinnedToActiveBoard]);
 
-  // Build className for the button
+  // Build className for the button — when the pin icon is wired up, reserve
+  // a few extra px on the right so labels don't run under the icon group.
+  const showPinIcon = !ghost && !!server;
   const buttonClass = useMemo(() => {
-    const base = "w-full text-left flex items-center justify-between gap-2 py-1 pl-2 pr-11 text-sm transition-colors min-h-[36px]";
+    const rightPad = showPinIcon ? "pr-[68px]" : "pr-11";
+    const base = `w-full text-left flex items-center justify-between gap-2 py-1 pl-2 ${rightPad} text-sm transition-colors min-h-[36px]`;
     if (isSelected) {
       // Colored selected uses tint.selected; uncolored selected borrows gray tint — both via buttonStyle.
       return `${base} text-text-primary font-medium`;
@@ -111,7 +164,7 @@ export function WindowRow({
     }
     // Uncolored non-selected
     return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50`;
-  }, [tint, isSelected]);
+  }, [tint, isSelected, showPinIcon]);
 
   return (
     <div
@@ -175,8 +228,27 @@ export function WindowRow({
           )}
         </span>
       </button>
-      {/* Hover-reveal buttons: color swatch + kill */}
+      {/* Hover-reveal buttons: pin + color swatch + kill */}
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
+        {showPinIcon && (
+          <button
+            ref={pinBtnRef}
+            type="button"
+            aria-label={`Pin ${win.name} to a board`}
+            aria-pressed={isPinnedToAny}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPinPopover((v) => !v);
+            }}
+            className={`transition-opacity cursor-pointer ${
+              isPinnedToAny
+                ? "opacity-100 text-text-secondary hover:text-text-primary"
+                : "opacity-0 group-hover:opacity-100 coarse:opacity-100 text-text-secondary hover:text-text-primary"
+            } px-0.5 min-h-[36px] flex items-center justify-center`}
+          >
+            <PinIcon filled={isPinnedToAny} />
+          </button>
+        )}
         {onColorChange && (
           <button
             ref={colorBtnRef}
@@ -200,6 +272,15 @@ export function WindowRow({
           {"\u2715"}
         </button>
       </div>
+      {showPinPopover && server && (
+        <PinPopover
+          server={server}
+          windowId={win.windowId}
+          boards={boards}
+          isPinnedTo={(b) => (isPinnedToBoard ? isPinnedToBoard(b) : false)}
+          onClose={() => setShowPinPopover(false)}
+        />
+      )}
       {showColorPicker && onColorChange && (
         <div className="absolute right-0 top-full z-50">
           <SwatchPopover
@@ -213,5 +294,43 @@ export function WindowRow({
         </div>
       )}
     </div>
+  );
+}
+
+/** Small pin icon — outline (not pinned) vs filled (pinned to any board).
+ *  Lucide-style thumbtack viewed face-on: round-cornered cap, narrow neck
+ *  flaring into wide shoulders, centered needle. Native 16×16 viewBox so
+ *  strokes pixel-align symmetrically when rendered at 12px. */
+function PinIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      width={12}
+      height={12}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* Bell silhouette: cap → neck → flared shoulders */}
+      <path
+        d="M6 2.5
+           Q6 2 6.5 2
+           H9.5
+           Q10 2 10 2.5
+           V5
+           L13 9
+           Q13 9.5 12.5 9.5
+           H3.5
+           Q3 9.5 3 9
+           L6 5
+           Z"
+        fill={filled ? "currentColor" : "none"}
+      />
+      {/* Needle — centered vertical from flange to tip */}
+      <path d="M8 9.5 V14" />
+    </svg>
   );
 }

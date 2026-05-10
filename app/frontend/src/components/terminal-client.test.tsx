@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, act, waitFor } from "@testing-library/react";
+import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { Terminal } from "@xterm/xterm";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -86,15 +87,17 @@ function createWsRef(): React.MutableRefObject<WebSocket | null> {
 
 function renderTerminalClient(scrollLocked = false) {
   return render(
-    <TerminalClient
-      sessionName="test-session"
-      windowIndex="0"
-      server="default"
-      wsRef={createWsRef()}
-      composeOpen={false}
-      setComposeOpen={vi.fn()}
-      scrollLocked={scrollLocked}
-    />,
+    <FocusedTerminalProvider>
+      <TerminalClient
+        sessionName="test-session"
+        windowIndex="0"
+        server="default"
+        wsRef={createWsRef()}
+        composeOpen={false}
+        setComposeOpen={vi.fn()}
+        scrollLocked={scrollLocked}
+      />
+    </FocusedTerminalProvider>,
   );
 }
 

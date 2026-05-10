@@ -22,7 +22,11 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
   const [renameName, setRenameName] = useState("");
   const [renameSessionName, setRenameSessionName] = useState("");
 
-  const { server } = useSessionContext();
+  // useDialogState is consumed only by AppShell where currentServer is set.
+  // When null (board route, defensive), handlers no-op via the empty-string
+  // guard at execute sites.
+  const { currentServer } = useSessionContext();
+  const server = currentServer ?? "";
   const { markRenamed, unmarkRenamed, markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
   const killWindowStore = useWindowStore((state) => state.killWindow);
@@ -34,9 +38,9 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
   // Refs to capture identifiers at execute time, avoiding stale closures on rollback.
   // Captures (server, identifier) so rollback / settle targets the exact originating server.
   const lastRenameSessionRef = useRef<{ server: string; name: string } | null>(null);
-  const lastRenameWindowRef = useRef<string | null>(null);
+  const lastRenameWindowRef = useRef<{ server: string; session: string; windowId: string } | null>(null);
   const lastKillSessionRef = useRef<{ server: string; name: string } | null>(null);
-  const lastKillWindowRef = useRef<string | null>(null);
+  const lastKillWindowRef = useRef<{ server: string; session: string; windowId: string } | null>(null);
 
   const openRenameDialog = useCallback(
     (currentName: string) => {
@@ -90,22 +94,20 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
 
   const { execute: executeRenameWindow } = useOptimisticAction<[string, string, string, number, string]>({
     action: (srv, session, _wid, index, newName) => renameWindow(srv, session, index, newName),
-    onOptimistic: (_srv, session, wid, _index, newName) => {
-      lastRenameWindowRef.current = wid;
-      renameWindowStore(session, wid, newName);
+    onOptimistic: (srv, session, wid, _index, newName) => {
+      lastRenameWindowRef.current = { server: srv, session, windowId: wid };
+      renameWindowStore(srv, session, wid, newName);
     },
     onRollback: () => {
-      if (lastRenameWindowRef.current && sessionName) {
-        clearRename(sessionName, lastRenameWindowRef.current);
-      }
+      const last = lastRenameWindowRef.current;
+      if (last) clearRename(last.server, last.session, last.windowId);
     },
     onError: (err) => {
       addToast(err.message || "Failed to rename window");
     },
     onSettled: () => {
-      if (lastRenameWindowRef.current && sessionName) {
-        clearRename(sessionName, lastRenameWindowRef.current);
-      }
+      const last = lastRenameWindowRef.current;
+      if (last) clearRename(last.server, last.session, last.windowId);
       lastRenameWindowRef.current = null;
     },
   });
@@ -131,7 +133,7 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
     },
     onAlwaysSettled: () => {
       const last = lastKillSessionRef.current;
-      if (last) clearSession(last.name);
+      if (last) clearSession(last.server, last.name);
       lastKillSessionRef.current = null;
     },
   });
@@ -145,18 +147,20 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
 
   const { execute: executeKillWindow } = useOptimisticAction<[string, string, string, number]>({
     action: (srv, session, _wid, index) => killWindow(srv, session, index),
-    onOptimistic: (_srv, session, wid) => {
-      lastKillWindowRef.current = wid;
-      killWindowStore(session, wid);
+    onOptimistic: (srv, session, wid) => {
+      lastKillWindowRef.current = { server: srv, session, windowId: wid };
+      killWindowStore(srv, session, wid);
     },
     onAlwaysRollback: () => {
-      if (lastKillWindowRef.current && sessionName) restoreWindow(sessionName, lastKillWindowRef.current);
+      const last = lastKillWindowRef.current;
+      if (last) restoreWindow(last.server, last.session, last.windowId);
     },
     onError: (err) => {
       addToast(err.message || "Failed to kill window");
     },
     onAlwaysSettled: () => {
-      if (lastKillWindowRef.current && sessionName) restoreWindow(sessionName, lastKillWindowRef.current);
+      const last = lastKillWindowRef.current;
+      if (last) restoreWindow(last.server, last.session, last.windowId);
       lastKillWindowRef.current = null;
     },
   });

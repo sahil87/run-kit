@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-state";
+import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { ArrowPad } from "@/components/arrow-pad";
 
 type BottomBarProps = {
-  wsRef: React.RefObject<WebSocket | null>;
   onOpenCompose?: () => void;
   onFocusTerminal?: () => void;
   onScrollLockChange?: (locked: boolean) => void;
@@ -62,7 +62,9 @@ const MODIFIER_LABELS: Record<string, string> = {
 /** Prevent mousedown from stealing focus away from the terminal. */
 const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
-export function BottomBar({ wsRef, onOpenCompose, onFocusTerminal, onScrollLockChange }: BottomBarProps) {
+export function BottomBar({ onOpenCompose, onFocusTerminal, onScrollLockChange }: BottomBarProps) {
+  const { focused } = useFocusedTerminal();
+  const wsRef = focused?.wsRef;
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
   const [scrollLocked, setScrollLocked] = useState(false);
@@ -115,7 +117,7 @@ export function BottomBar({ wsRef, onOpenCompose, onFocusTerminal, onScrollLockC
       if (seq) {
         e.preventDefault();
         e.stopPropagation();
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
+        if (wsRef?.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send(seq);
         }
       }
@@ -225,7 +227,7 @@ export function BottomBar({ wsRef, onOpenCompose, onFocusTerminal, onScrollLockC
 
   const send = useCallback(
     (data: string) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (wsRef?.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(data);
       }
     },

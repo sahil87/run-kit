@@ -81,8 +81,6 @@ export function ServerPanel({
     el.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [isMobile, server]);
 
-  const activeColor = serverColors[server];
-  const activeTint = activeColor != null && rowTints ? rowTints.get(activeColor) ?? null : null;
   const headerRight = (
     <>
       <span className="truncate text-text-primary font-mono">{server}</span>
@@ -119,8 +117,6 @@ export function ServerPanel({
           +
         </button>
       }
-      tint={activeTint}
-      tintOnlyWhenCollapsed
       resizable
       defaultHeight={56}
       minHeight={56}

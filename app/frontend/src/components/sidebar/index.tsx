@@ -6,7 +6,7 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import { useTheme } from "@/contexts/theme-context";
-import { computeRowTints, UNCOLORED_SELECTED_ANSI } from "@/themes";
+import { computeRowTints } from "@/themes";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
@@ -730,9 +730,9 @@ export function Sidebar({
       />
 
       {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}
-      <div className="border-t border-border flex flex-col flex-1 min-h-0">
-        <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
-          <span className="font-medium">Sessions</span>
+      <div className="border-t-[3px] border-border flex flex-col flex-1 min-h-0">
+        <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0">
+          <span className="font-bold uppercase tracking-wide">Sessions</span>
           {currentServer && currentSession && (
             <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
               <span className="truncate text-text-primary font-mono">{currentSession}</span>
@@ -1043,32 +1043,17 @@ function ServerGroup(props: ServerGroupProps) {
     });
   }, [sessions, sessionOrder, localOrder]);
 
-  // Header tint: borrow Server panel's selected-tile shade convention. Use
-  // the server's color tint when active; gray UNCOLORED_SELECTED when active
-  // and uncolored; nothing otherwise.
-  const headerTint = useMemo(() => {
-    if (!isCurrent) return null;
-    if (serverColor != null) return rowTints.get(serverColor) ?? null;
-    return rowTints.get(UNCOLORED_SELECTED_ANSI) ?? null;
-  }, [isCurrent, serverColor, rowTints]);
-
-  const headerStripeColor = useMemo(() => {
-    if (!isCurrent) return null;
-    if (serverColor != null) return ansiPalette[serverColor] ?? null;
-    return ansiPalette[UNCOLORED_SELECTED_ANSI] ?? null;
-  }, [isCurrent, serverColor, ansiPalette]);
-
   const naturalNames = orderedSessions.map((s) => s.name);
 
   return (
     <div className="border-b border-border last:border-b-0">
-      {/* Group header — uses the same row-tint convention as session rows so
-          the active server is visually distinguished. */}
+      {/* Group header — server name only; active-server affordance is handled
+          elsewhere (no row tint here, so the Sessions panel's top divider
+          reads at a clean 3px without a bleed-through tint underneath). */}
       <div
-        className={`flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary border-b border-border ${
+        className={`flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary ${
           isCurrent ? "" : "hover:bg-bg-card/30"
         }`}
-        style={headerTint ? { backgroundColor: headerTint.base } : undefined}
         aria-current={isCurrent ? "true" : undefined}
         data-current-server={isCurrent ? "true" : undefined}
         data-server={server}
@@ -1087,15 +1072,6 @@ function ServerGroup(props: ServerGroupProps) {
           >
             &#x25BC;
           </span>
-          {/* Active server stripe — small color block matching the Server panel's
-              top-stripe convention. */}
-          {headerStripeColor && (
-            <span
-              aria-hidden="true"
-              className="inline-block w-1.5 h-3 rounded-sm"
-              style={{ backgroundColor: headerStripeColor }}
-            />
-          )}
           <span className={`truncate font-mono ${isCurrent ? "text-text-primary font-medium" : ""}`}>
             {server}
           </span>

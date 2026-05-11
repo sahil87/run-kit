@@ -128,6 +128,19 @@ Some browser features (clipboard, secure context) require HTTPS. Accessing rk fr
 
 For custom hostnames, Funnel, and other options, see the [Tailscale guide](docs/wiki/tailscale.md).
 
+## Shell completion
+
+`rk shell-init <shell>` emits eval-safe tab-completion for your shell. Add this line to your rc file:
+
+```sh
+eval "$(rk shell-init zsh)"   # in ~/.zshrc
+eval "$(rk shell-init bash)"  # in ~/.bashrc
+```
+
+Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — rk has no shell function wrapper; every subcommand is reached via `rk <subcommand>`.
+
+> 💡 Have other sahil87 tools? [`shll shell-install`](https://github.com/sahil87/shll#shll-shell-install--wire-the-rc-file-recommended) handles all of their shell integrations and autocompletions at once.
+
 ## Command reference
 
 | Command | What it does |
@@ -139,7 +152,7 @@ For custom hostnames, Funnel, and other options, see the [Tailscale guide](docs/
 | `rk doctor` | Check runtime dependencies. Run this first when something breaks. |
 | `rk init-conf` | Scaffold default `tmux.conf` and `tmux.d/` drop-in directory to `~/.rk/`. Optional. |
 | `rk update` | Upgrade via Homebrew and restart the daemon. |
-| `rk completion` | Generate shell completion scripts. |
+| `rk completion` | Generate shell completion scripts (or use `rk shell-init` for eval-safe output). |
 | `rk help` | Help about any command. |
 
 Run `rk <command> --help` for full flag details.

@@ -39,6 +39,7 @@ func init() {
 	rootCmd.AddCommand(initConfCmd)
 	rootCmd.AddCommand(contextCmd)
 	rootCmd.AddCommand(riffCmd)
+	rootCmd.AddCommand(newShellInitCmd())
 }
 
 func execute() {

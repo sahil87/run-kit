@@ -751,15 +751,21 @@ export function Sidebar({
           )}
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {servers.length === 0 ? (
-            <div className="text-text-secondary text-xs py-4 text-center">No servers</div>
-          ) : serverPaneOpen && currentServer === null ? (
-            <div className="text-text-secondary text-xs py-4 text-center">Select a server above to see its sessions.</div>
-          ) : (
-            (serverPaneOpen
+          {(() => {
+            if (servers.length === 0) {
+              return <div className="text-text-secondary text-xs py-4 text-center">No servers</div>;
+            }
+            const visibleServers = serverPaneOpen
               ? servers.filter((s) => s.name === currentServer)
-              : servers
-            ).map((srvInfo) => (
+              : servers;
+            // When the Server Pane is open, show the hint both when no server is
+            // selected (board route) and when the selected server isn't present
+            // in the list (stale/deleted route param). Otherwise the filtered
+            // list would render an empty Sessions area with no explanation.
+            if (serverPaneOpen && visibleServers.length === 0) {
+              return <div className="text-text-secondary text-xs py-4 text-center">Select a server above to see its sessions.</div>;
+            }
+            return visibleServers.map((srvInfo) => (
               <ServerGroup
                 key={srvInfo.name}
                 server={srvInfo.name}
@@ -861,8 +867,8 @@ export function Sidebar({
                 onSessionReorderOver={handleSessionReorderOver}
                 onSessionReorderEnd={handleSessionReorderEnd}
               />
-            ))
-          )}
+            ));
+          })()}
         </div>
       </div>
 

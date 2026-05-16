@@ -204,13 +204,15 @@ describe("Sidebar — Server Pane / Sessions Pane coupling", () => {
     expect(screen.queryByText("Select a server above to see its sessions.")).not.toBeInTheDocument();
   });
 
-  it("uses the in-module pub/sub when a second subscriber writes the storage key", () => {
+  it("propagates Server Pane state via the in-module pub/sub to sibling subscribers", () => {
     renderSidebar({ currentServer: "primary" });
 
-    // Simulate a write from another component (e.g., ServerPanel's CollapsiblePanel
-    // toggle in production) via a direct localStorage write + a manual dispatch
-    // through the shared hook. The CollapsiblePanel test already covers user
-    // chevron clicks; this asserts the pub/sub itself synchronises siblings.
+    // The Server Pane header (ServerPanel's CollapsiblePanel chevron) and the
+    // Sessions Pane list are sibling subscribers to the same `runkit-panel-server`
+    // key via the shared hook's in-module pub/sub. Clicking the header writes
+    // through that hook; the Sessions Pane must observe the change and re-render.
+    // Asserting both the persisted value and the Sessions Pane DOM confirms the
+    // pub/sub fans the update out to a non-clicking subscriber in the same tick.
     const serverPaneToggle = screen.getByRole("button", { name: /^Server/ });
     fireEvent.click(serverPaneToggle);
 

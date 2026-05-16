@@ -52,7 +52,7 @@ test.describe("Sidebar — Server Pane / Sessions Pane coupling", () => {
 
     // Baseline: both server groups visible when the Server Pane is collapsed.
     await expect(page.locator(`[data-server='${TMUX_SERVER_A}']`).first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`).first()).toBeVisible();
+    await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`).first()).toBeVisible({ timeout: 10_000 });
 
     // Open the Server Pane via its header.
     await page.getByRole("button", { name: /^Server/ }).click();

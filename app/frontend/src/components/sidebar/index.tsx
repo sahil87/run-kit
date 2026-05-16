@@ -12,6 +12,7 @@ import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
 import { useWindowPins } from "@/hooks/use-window-pins";
+import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useMergedSessions } from "@/contexts/optimistic-context";
 import { BoardsSection } from "./boards-section";
@@ -64,6 +65,14 @@ export function Sidebar({
   const ansiPalette = theme.palette.ansi;
   const navigate = useNavigate();
   const { addToast } = useToast();
+
+  // Server Pane open state — read via the shared hook so the Sessions Pane
+  // re-renders in the same tab when the user toggles the panel. Default
+  // matches `ServerPanel`'s `defaultOpen={false}` (server-panel.tsx:107).
+  // When open AND a current server is resolved, the Sessions Pane filters
+  // to that server's group; when open AND `currentServer === null`, an
+  // empty-state hint replaces the group list.
+  const [serverPaneOpen] = useLocalStorageBoolean("runkit-panel-server", false);
 
   // Server colors from settings.yaml (all servers)
   const [serverColors, setServerColors] = useState<Record<string, number>>({});
@@ -744,8 +753,13 @@ export function Sidebar({
         <div className="flex-1 min-h-0 overflow-y-auto">
           {servers.length === 0 ? (
             <div className="text-text-secondary text-xs py-4 text-center">No servers</div>
+          ) : serverPaneOpen && currentServer === null ? (
+            <div className="text-text-secondary text-xs py-4 text-center">Select a server above to see its sessions.</div>
           ) : (
-            servers.map((srvInfo) => (
+            (serverPaneOpen
+              ? servers.filter((s) => s.name === currentServer)
+              : servers
+            ).map((srvInfo) => (
               <ServerGroup
                 key={srvInfo.name}
                 server={srvInfo.name}
@@ -753,7 +767,7 @@ export function Sidebar({
                 serverColor={serverColors[srvInfo.name]}
                 rowTints={rowTints}
                 ansiPalette={ansiPalette}
-                isOpen={readServerOpen(srvInfo.name)}
+                isOpen={serverPaneOpen ? true : readServerOpen(srvInfo.name)}
                 onToggleOpen={() => toggleServerSection(srvInfo.name)}
                 rawSessions={sessionsByServer.get(srvInfo.name) ?? []}
                 sessionOrder={ctx.sessionOrderByServer.get(srvInfo.name) ?? []}

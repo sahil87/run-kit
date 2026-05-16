@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -41,9 +43,12 @@ jobs:
       - name: Copy tmux config to backend embed directory
         run: cp configs/tmux/default.conf app/backend/build/tmux.conf
 
-      - name: Read version
+      - name: Extract version from tag
         id: version
-        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
       - name: Cross-compile
         run: |

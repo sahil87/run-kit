@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
 import type { RowTint } from "@/themes";
 
 type CollapsiblePanelProps = {
@@ -34,17 +35,6 @@ type CollapsiblePanelProps = {
   onCornerPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
   children: React.ReactNode;
 };
-
-function readPersistedState(key: string, defaultOpen: boolean): boolean {
-  try {
-    const stored = localStorage.getItem(key);
-    if (stored === "true") return true;
-    if (stored === "false") return false;
-  } catch {
-    // localStorage unavailable
-  }
-  return defaultOpen;
-}
 
 function readPersistedHeight(key: string): number | null {
   try {
@@ -113,7 +103,7 @@ export function CollapsiblePanel({
   onCornerPointerDown,
   children,
 }: CollapsiblePanelProps) {
-  const [isOpen, setIsOpen] = useState(() => readPersistedState(storageKey, defaultOpen));
+  const [isOpen, setIsOpen] = useLocalStorageBoolean(storageKey, defaultOpen);
   const contentRef = useRef<HTMLDivElement>(null);
 
   // Hide the drag handle + use fixed mobile height on coarse pointer or narrow viewport.
@@ -132,17 +122,10 @@ export function CollapsiblePanel({
   });
 
   const toggle = useCallback(() => {
-    setIsOpen((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(storageKey, String(next));
-      } catch {
-        // localStorage unavailable
-      }
-      onToggle?.(next);
-      return next;
-    });
-  }, [storageKey, onToggle]);
+    const next = !isOpen;
+    setIsOpen(next);
+    onToggle?.(next);
+  }, [isOpen, setIsOpen, onToggle]);
 
   // During transition, keep overflow hidden for smooth animation.
   // Only set transitioning=true on actual user toggles (not initial mount),

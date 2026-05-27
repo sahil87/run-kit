@@ -126,7 +126,7 @@ Some browser features (clipboard, secure context) require HTTPS. Accessing rk fr
 2. Run `tailscale serve --bg http://localhost:3000`.
 3. Open `https://<machine>.<tailnet>.ts.net` on your phone or another laptop.
 
-For custom hostnames, Funnel, and other options, see the [Tailscale guide](docs/wiki/tailscale.md).
+For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/wiki/tailscale.md).
 
 ## Shell completion
 

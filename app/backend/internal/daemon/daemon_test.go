@@ -1,6 +1,9 @@
 package daemon
 
 import (
+	"context"
+	"fmt"
+	"net"
 	"os/exec"
 	"strings"
 	"testing"
@@ -152,6 +155,13 @@ func TestStartWithBinary_InvalidPath(t *testing.T) {
 		t.Skip("skipping — production daemon is running")
 	}
 
+	// Pin RK_HOST/RK_PORT to a known-free port so the port-probe guard
+	// (added by the deterministic-daemon-lifecycle change) passes and we
+	// reach the symlink-resolution path this test is asserting against.
+	port := freeTCPPort(t)
+	t.Setenv("RK_HOST", "127.0.0.1")
+	t.Setenv("RK_PORT", fmt.Sprintf("%d", port))
+
 	// StartWithBinary should return an error for a nonexistent path.
 	err := StartWithBinary("/nonexistent/path/rk")
 	if err == nil {
@@ -167,6 +177,11 @@ func TestRestartWithBinary_InvalidPath(t *testing.T) {
 	if IsRunning() {
 		t.Skip("skipping — production daemon is running")
 	}
+
+	// Pin RK_HOST/RK_PORT to a known-free port (see TestStartWithBinary_InvalidPath).
+	port := freeTCPPort(t)
+	t.Setenv("RK_HOST", "127.0.0.1")
+	t.Setenv("RK_PORT", fmt.Sprintf("%d", port))
 
 	err := RestartWithBinary("/nonexistent/path/rk")
 	if err == nil {
@@ -230,6 +245,148 @@ func TestStop_LegacySessionName(t *testing.T) {
 	if IsRunning() {
 		t.Error("IsRunning() = true after Stop(); legacy session should be gone")
 	}
+}
+
+// TestProbeHost verifies loopback substitution for wildcard/empty/IPv6
+// unspecified hosts. A serve bound to those wildcards is reachable on
+// loopback, and dialing the wildcard itself is platform-inconsistent — so
+// the port-probe must rewrite to 127.0.0.1.
+func TestProbeHost(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"", "127.0.0.1"},
+		{"0.0.0.0", "127.0.0.1"},
+		{"::", "127.0.0.1"},
+		{"127.0.0.1", "127.0.0.1"},
+		{"10.0.0.1", "10.0.0.1"},
+		{"example.com", "example.com"},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("host=%q", tc.in), func(t *testing.T) {
+			if got := probeHost(tc.in); got != tc.want {
+				t.Errorf("probeHost(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// freeTCPPort grabs an ephemeral port, closes the listener, and returns the
+// port number. The window between Close and the next bind is racy in theory,
+// but in practice the kernel does not immediately re-issue the port — good
+// enough for a unit test asserting "port is free."
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatalf("listener Close: %v", err)
+	}
+	return port
+}
+
+// TestPortInUse_Free asserts the probe returns false when nothing is bound.
+func TestPortInUse_Free(t *testing.T) {
+	port := freeTCPPort(t)
+	if portInUse("127.0.0.1", port) {
+		t.Errorf("portInUse(127.0.0.1, %d) = true, want false (port should be free)", port)
+	}
+}
+
+// TestPortInUse_Held asserts the probe returns true when a listener is
+// accepting connections on the target.
+func TestPortInUse_Held(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	if !portInUse("127.0.0.1", port) {
+		t.Errorf("portInUse(127.0.0.1, %d) = false, want true (listener is bound)", port)
+	}
+}
+
+// TestPortInUse_LoopbackSubstitution verifies that probing host "0.0.0.0"
+// dials loopback — exercising the wildcard-substitution path against a real
+// listener bound to 127.0.0.1.
+func TestPortInUse_LoopbackSubstitution(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	if !portInUse("0.0.0.0", port) {
+		t.Errorf("portInUse(0.0.0.0, %d) = false; expected loopback substitution to detect 127.0.0.1 listener", port)
+	}
+}
+
+// TestStart_RefusesWhenPortInUse verifies the port-probe guard in Start():
+// when something is already listening on the configured port (foreground-serve
+// scenario), Start() must refuse with an error containing the spec-mandated
+// substrings, and must NOT create a tmux session on the daemon socket.
+func TestStart_RefusesWhenPortInUse(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if IsRunning() {
+		t.Skip("skipping — production daemon is running")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	t.Setenv("RK_HOST", "127.0.0.1")
+	t.Setenv("RK_PORT", fmt.Sprintf("%d", port))
+
+	err = Start()
+	if err == nil {
+		t.Fatal("Start() returned nil; expected port-in-use refusal")
+	}
+	msg := err.Error()
+	for _, want := range []string{"already serving on", "not under the rk-daemon", "RK_PORT"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("Start() error = %q; want it to contain %q", msg, want)
+		}
+	}
+	if isRunningOn(testSocket) {
+		t.Error("Start() created a daemon session despite port-in-use refusal")
+	}
+}
+
+// TestReapStaleDaemonSocket_NoOp asserts that reaping when no server is
+// running on the daemon socket does not panic, block, or otherwise misbehave.
+// `kill-server` returns "no server running on …" which the reap suppresses to
+// slog.Debug — the caller observes no signal at all.
+func TestReapStaleDaemonSocket_NoOp(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+
+	// Sanity: no server should be running on the test socket.
+	if isRunningOn(testSocket) {
+		t.Fatal("test socket unexpectedly has a running session")
+	}
+
+	// Should not panic or block.
+	reapStaleDaemonSocket(ctx)
 }
 
 func TestRestart_WhenRunning(t *testing.T) {

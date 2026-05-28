@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -96,6 +97,69 @@ func TestSupervisor_StartEnumerates(t *testing.T) {
 	got := reg.opened()
 	if len(got) != 3 {
 		t.Fatalf("expected 3 opens, got %d: %v", len(got), got)
+	}
+}
+
+// TestSupervisor_SkipsLockFiles verifies that tmux's `<socket>.lock` companion
+// files are not opened — neither during initial enumeration nor on subsequent
+// fsnotify Create events. Opening a `.lock` would cause tmux to create a fresh
+// server named `<socket>.lock`, recursively spawning `<socket>.lock.lock`, etc.
+func TestSupervisor_SkipsLockFiles(t *testing.T) {
+	resetLoggedUnknowns()
+	dir := t.TempDir()
+
+	// Pre-create a socket and its lock companion. Only the socket should
+	// be opened.
+	if err := os.WriteFile(filepath.Join(dir, "kits"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "kits.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := newTestOpenRegistry()
+	s := NewSupervisor(NoOpSink{})
+	s.watchDirOverride = dir
+	s.open = reg.openFn()
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = s.Stop(stopCtx)
+	})
+
+	if got := reg.opened(); len(got) != 1 || got[0] != "kits" {
+		t.Fatalf("initial enum: expected [kits], got %v", got)
+	}
+
+	// Runtime Create of a `.lock` file must also be ignored.
+	if err := os.WriteFile(filepath.Join(dir, "kits2.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Real socket alongside it should still trigger an open.
+	if err := os.WriteFile(filepath.Join(dir, "kits2"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got := reg.opened()
+		if len(got) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected 2 opens (kits, kits2), got %v", got)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	for _, name := range reg.opened() {
+		if strings.HasSuffix(name, ".lock") {
+			t.Fatalf("supervisor opened a .lock entry: %q", name)
+		}
 	}
 }
 

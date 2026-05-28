@@ -6,10 +6,27 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
 )
+
+// isTmuxSocketCandidate returns false for entries that are known to live in
+// $TMUX_TMPDIR but are not server sockets. tmux writes a `<socket>.lock`
+// advisory-lock file next to each server socket during startup; opening a
+// control-mode client against the `.lock` name would cause tmux to create a
+// fresh server with that name (which in turn births `<socket>.lock.lock`),
+// triggering unbounded recursion under fsnotify.
+func isTmuxSocketCandidate(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.HasSuffix(name, ".lock") {
+		return false
+	}
+	return true
+}
 
 // openFn is the function used by Supervisor to instantiate a Client for a
 // newly-observed socket. Production: Open. Tests inject a stub.
@@ -96,6 +113,9 @@ func (s *Supervisor) Start(ctx context.Context) error {
 			if e.IsDir() {
 				continue
 			}
+			if !isTmuxSocketCandidate(e.Name()) {
+				continue
+			}
 			s.openSocket(ctx, e.Name())
 		}
 	}
@@ -162,7 +182,7 @@ func (s *Supervisor) run() {
 				return
 			}
 			name := filepath.Base(ev.Name)
-			if name == "" || name == "." {
+			if !isTmuxSocketCandidate(name) {
 				continue
 			}
 			if ev.Op&fsnotify.Create != 0 {

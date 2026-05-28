@@ -1,0 +1,37 @@
+id: 5zvv
+name: 260528-5zvv-rk-daemon-cli-restructure
+created: 2026-05-28T10:34:17Z
+created_by: sahil87
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 10
+    confident: 9
+    tentative: 0
+    unresolved: 0
+    score: 2.3
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 81.3
+        reversibility: 77.9
+        competence: 84.2
+        disambiguation: 78.2
+stage_metrics:
+    intake: {started_at: "2026-05-28T10:34:17Z", driver: fab-new, iterations: 1}
+prs: []
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-05-28T10:37:35Z

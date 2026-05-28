@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-28T10:34:17Z"}
+{"args":"Restructure daemon lifecycle into a top-level rk daemon command tree (start/stop/restart/status with --force semantics), hard-removing the rk serve -d/--restart/--stop flags. Follow-up to PR #197 which fixed the underlying detection split-brain but kept the flag-on-serve shape.","cmd":"fab-new","event":"command","ts":"2026-05-28T10:34:17Z"}
+{"delta":"+2.3","event":"confidence","score":2.3,"trigger":"calc-score","ts":"2026-05-28T10:37:35Z"}

@@ -1164,10 +1164,23 @@ function ServerGroup(props: ServerGroupProps) {
                   {!isCollapsed && (
                     <div className="ml-3">
                       {session.windows.map((win) => {
+                        const ghost = isGhostWindow(win);
+                        // Selection follows tmux truth, not URL. The
+                        // `isActiveWindow` flag is set by the backend
+                        // snapshot on the session's currently-active
+                        // window — this makes the sidebar yank in
+                        // lockstep with `tmux select-window` (including
+                        // external switches and `rk riff`).
+                        //
+                        // The URL-based `currentWindowIndex` comparison
+                        // is preserved as a fallback for ghost windows
+                        // (mid-creation, before the SSE snapshot
+                        // includes them) and for the initial render
+                        // before the first SSE payload lands.
                         const isSelected =
                           currentSessionName === session.name &&
-                          currentWindowIndex === String(win.index);
-                        const ghost = isGhostWindow(win);
+                          ((!ghost && win.isActiveWindow) ||
+                            currentWindowIndex === String(win.index));
                         const isDragOver =
                           dropTarget?.server === server &&
                           dropTarget?.session === session.name &&

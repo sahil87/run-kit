@@ -8,13 +8,13 @@
 
 > Triggered by a recurring desync between the left sidebar's highlighted window
 > and tmux's actual active window — most visible immediately after running
-> `rk riff`, where tmux switches to the newly created riff window but the sidebar
-> remains highlighting the previously selected window (e.g., `zsh`) for up to a
-> few seconds, and sometimes indefinitely if the user happened to click in the UI
-> within the prior 3 seconds.
+> `rk riff`, where tmux switches to the newly created riff window but the
+> sidebar remains highlighting the previously selected window (e.g., `zsh`)
+> for up to a few seconds, and sometimes indefinitely if the user happened to
+> click in the UI within the prior 3 seconds.
 
-The session was conversational, beginning with a `/fab-discuss` orientation and
-proceeding through:
+The session was conversational, beginning with a `/fab-discuss` orientation
+and proceeding through:
 
 1. **Symptom replication.** User shared a screenshot showing the sidebar
    highlighting `zsh` while the tmux status bar at the bottom showed
@@ -40,43 +40,71 @@ proceeding through:
 3. **First-principles redesign.** Diagnosed the failure as a two-master
    topology — both the URL and tmux's `window_active` claim ownership of
    "current window," with a 3-second timer as the referee. Classic
-   last-writer-wins with no causality. The recurring bug is structural, not a
-   tuning issue.
+   last-writer-wins with no causality. The recurring bug is structural,
+   not a tuning issue.
 
 4. **Model selection.** User chose: **tmux is the live source of truth per
    server**; the URL is a *resumable bookmark* used on initial mount and
    reload, not consulted afterwards. All browser clients viewing the same
-   tmux server converge on the same window; different rk-managed tmux servers
-   stay independent. Yanking other tabs on the same server to follow tmux is
-   acceptable for a single-person tool.
+   tmux server converge on the same window; different rk-managed tmux
+   servers stay independent. Yanking other tabs on the same server to
+   follow tmux is acceptable for a single-person tool.
 
-5. **Hook viability verified empirically.** Installed test
+5. **Hook viability initially verified empirically.** Installed test
    `after-select-window` and `after-new-window` hooks on the live
    `-L kits` tmux server (`tmux 3.6a`). Measured hook fire latency at
    **~78 microseconds** from `tmux select-window` returning to the hook's
    `run-shell` body executing. Format variables `#{session_name}`,
-   `#{window_index}`, `#{window_name}`, `#{window_active}` resolve correctly
-   inside the hook's argument string.
+   `#{window_index}`, `#{window_name}`, `#{window_active}` resolve
+   correctly inside the hook's argument string.
 
-6. **Multi-rk wiring decided.** Hook calls a new `rk notify` CLI subcommand
-   that reads a per-socket lockfile (written by `rk serve` on startup),
-   then POSTs to the running server. Discovery happens inside `rk`, not in
-   the tmux config — survives port changes, scales to multiple rk instances
-   if needed.
+6. **First wiring proposal: `rk notify` CLI + per-socket lockfile.**
+   Initial design had the hook call a new `rk notify` CLI subcommand that
+   would read a per-socket lockfile written by `rk serve` on startup to
+   discover the running rk's port, then POST `/notify` to it.
 
-7. **Boards impact analyzed.** Boards are orthogonal: they persist in
-   `@rk_board` per-server tmux options keyed by stable `window_id` (`@42`),
-   and the `/board/$name` route is independent of
-   `/$server/$session/$window`. Two free wins identified (instant
-   board-cleanup, optional active-window badge on `BoardPane`); one
-   refactor identified (move the `prevIDs` vs `currentIDs` diff out of the
-   poll loop into the snapshot builder).
+7. **PR #197 landed during this session.** Commit `270c6fc` shipped
+   "fix(daemon): port-based liveness, stale-socket reap, startup logging"
+   — adding `internal/daemon/{portInUse,guardPortAvailable,probeHost}`
+   and explicitly listing **"PID files, lock files, or any persistent
+   liveness store"** as a Non-Goal, citing Constitution §II. This
+   directly invalidated the lockfile portion of the wiring proposal
+   above.
+
+8. **Multi-rk scenario surfaced.** User pointed out a real-world case
+   the lockfile design couldn't handle: multiple `rk serve` instances
+   on different ports (e.g., one installed binary on `:3000`, one
+   `just dev` instance on `:5000`) — both connecting to the same tmux
+   servers. The hook fires inside the tmux server; both rks have UIs
+   open and both need the update. This reframed the problem from
+   "discovery" to "**multi-subscriber notification**" — the tmux server
+   is the publisher, every live rk is a subscriber, and the set of
+   subscribers changes at runtime.
+
+9. **Pattern B (tmux control mode) chosen.** Each `rk serve` opens a
+   long-running `tmux -CC -L <socket>` connection per tmux server it
+   relays. tmux's control mode emits structured notifications
+   (`%session-window-changed`, `%window-add`, `%window-close`,
+   `%window-renamed`, `%sessions-changed`, `%layout-change`) over a
+   pipe to the connected rk. No hooks, no `rk notify`, no lockfile,
+   no `/notify` endpoint. Multi-rk works by construction — each rk
+   subscribes independently. Reconnect on tmux restart is standard
+   supervisor code.
+
+10. **Boards impact analyzed.** Boards are orthogonal: they persist in
+    `@rk_board` per-server tmux options keyed by stable `window_id`
+    (`@42`), and the `/board/$name` route is independent of
+    `/$server/$session/$window`. Two free wins identified (instant
+    board-cleanup, optional active-window badge on `BoardPane`); one
+    refactor identified (move the `prevIDs` vs `currentIDs` diff out
+    of the poll loop into the snapshot builder).
 
 ## Why
 
-The recurring sidebar desync has been "solved" multiple times before and keeps
-coming back. That track record is itself diagnostic — it tells us this is not
-a tuning bug (longer debounce, faster poll) but a structural one.
+The recurring sidebar desync has been "solved" multiple times before and
+keeps coming back. That track record is itself diagnostic — it tells us
+this is not a tuning bug (longer debounce, faster poll) but a structural
+one.
 
 **The actual problem.** Today the system has two state machines that each
 claim authority over "which window is current":
@@ -96,137 +124,172 @@ distributed-systems anti-pattern. Symptoms:
 
 - **Visible 2.5s lag** when switching windows inside tmux — the UI cannot
   know until the next poll tick.
-- **`rk riff` desyncs** because tmux changes outside the UI's awareness; if
-  the user happened to click in the sidebar within the prior 3s, the
+- **`rk riff` desyncs** because tmux changes outside the UI's awareness;
+  if the user happened to click in the sidebar within the prior 3s, the
   resulting poll snapshot is suppressed by the debounce timer and the UI
   stays on the old window — sometimes indefinitely if subsequent polls
   also fall inside the suppression window after further clicks.
-- **The URL fights its own writer.** The reconciliation effect rewrites the
-  URL whenever tmux's truth differs, and that rewritten URL is then read
-  back on the next render. The URL is simultaneously source and sink.
+- **The URL fights its own writer.** The reconciliation effect rewrites
+  the URL whenever tmux's truth differs, and that rewritten URL is then
+  read back on the next render. The URL is simultaneously source and
+  sink.
 
-**Consequence of not fixing.** Every workflow that changes tmux outside the
-UI's awareness (`rk riff` is the obvious one, but also manual `tmux
-select-window`, future CLI tools, scripted automation) will continue to
-desync. Each "fix" can only tune the debounce/poll constants; none can
-remove the underlying race, because the race is in the topology.
+**Consequence of not fixing.** Every workflow that changes tmux outside
+the UI's awareness (`rk riff` is the obvious one, but also manual
+`tmux select-window`, future CLI tools, scripted automation) will
+continue to desync. Each "fix" can only tune the debounce/poll
+constants; none can remove the underlying race, because the race is in
+the topology.
 
 **Why this approach over alternatives.** Two coherent topologies dissolve
 the race:
 
-- **Tmux-as-truth**: one writer, UI is a pure projection. All clients on the
-  same server converge. Multi-device users see all devices forced to the
-  same window.
-- **Client-as-truth**: URL owns selection per client. Tmux's `window_active`
-  is incidental. Different tabs can independently view different windows of
-  the same session. UI never follows tmux-side changes.
+- **Tmux-as-truth**: one writer, UI is a pure projection. All clients on
+  the same server converge. Multi-device users see all devices forced to
+  the same window.
+- **Client-as-truth**: URL owns selection per client. Tmux's
+  `window_active` is incidental. Different tabs can independently view
+  different windows of the same session. UI never follows tmux-side
+  changes.
 
-Pure client-as-truth was rejected because the user explicitly wants the open
-browser to follow when they switch windows inside tmux — that's the
+Pure client-as-truth was rejected because the user explicitly wants the
+open browser to follow when they switch windows inside tmux — that's the
 dashboard mental model. Tmux-as-truth matches that intent, removes the
-two-master race entirely (there is no second writer to fight), and produces
-a coherent multi-client convergence story per server. The URL retains a
-single legitimate role: bookmark-on-load for deep links and reload.
+two-master race entirely (there is no second writer to fight), and
+produces a coherent multi-client convergence story per server. The URL
+retains a single legitimate role: bookmark-on-load for deep links and
+reload.
 
-The hook-driven push (replacing the 2.5s poll) is independent of the truth
-model — it's a latency fix that makes the chosen model snappy enough to feel
-right. Both wins are needed; only their composition delivers a system that
-stops desyncing.
+**Why control mode over hooks for the push channel.** The hook design
+was initially attractive (~78µs measured latency) but broke down under
+the multi-rk scenario: a hook running inside tmux has no clean way to
+discover and fan-out to multiple live `rk serve` subscribers without
+reintroducing the lockfile pattern that PR #197 just rejected as a
+Constitution §II violation. Tmux control mode (`tmux -CC`) is the
+canonical multi-subscriber channel — each subscriber opens its own
+connection, tmux fans out internally, subscription = open connection,
+unsubscribe = close. No discovery, no fan-out, no filesystem state,
+no env-propagation concerns. It is to tmux what SSE is to the browser:
+the push channel of the layer. The latency claim is preserved on first
+principles (per tmux man page, control-mode notifications are
+implemented as the same internal hooks I measured at 78µs, but emit
+to a pipe instead of forking a `run-shell` — so faster, not slower).
 
 ## What Changes
 
-### A. Tmux hooks installed in canonical config
+### A. rk subscribes to tmux control mode per server
 
-Add hooks to `~/.rk/tmux.conf` (the canonical config — see
-`app/backend/build/tmux.conf`, copied at build time, embedded in the
-binary, written to `~/.rk/tmux.conf` on first run by `rk serve`). Hooks
-apply automatically to every rk-managed tmux server (`-L kits`, `-L t2`,
-`-L t3`, etc.) since they all share this config.
+Each `rk serve` opens a long-running control-mode connection
+(`tmux -CC -L <socket> attach-session -t <bootstrap-session>`) to every
+tmux server discovered on the machine. The discovery mechanism watches
+`$TMUX_TMPDIR` (falling back to `/tmp/tmux-$UID/` if unset) via
+`fsnotify`: every socket file present at startup, and every new socket
+created at runtime, triggers a `Client` open; every removed socket
+triggers a `Client` close. This is magical-by-design — a single-person
+tool benefits from "every tmux on the box just appears in the UI" over
+explicit per-server config (Constitution §VII, Convention over
+Configuration).
 
-```
-# Active-window edge events — pushed to rk for immediate snapshot refresh.
-# Hook latency measured at ~78µs. Format vars resolve at run-shell
-# expansion time. Failures inside rk notify are silently absorbed.
-set-hook -g after-select-window 'run-shell -b "rk notify window-active sess=#{session_name} idx=#{window_index} 2>/dev/null"'
-set-hook -g after-new-window    'run-shell -b "rk notify topology       sess=#{session_name} idx=#{window_index} 2>/dev/null"'
-set-hook -g after-kill-window   'run-shell -b "rk notify topology       sess=#{session_name} 2>/dev/null"'
-set-hook -g after-rename-window 'run-shell -b "rk notify topology       sess=#{session_name} idx=#{window_index} 2>/dev/null"'
-```
+The connection requires a PTY (tmux control mode fails with
+"tcgetattr failed" on a plain pipe), so the Go code uses `creack/pty`
+(already a project dependency per `context.md` — `gorilla/websocket —
+terminal relay to tmux panes via creack/pty`) to allocate a PTY and
+run `tmux -CC` against it.
 
-Existing rk-managed tmux servers must have these hooks installed
-retroactively — `rk serve` SHOULD detect missing hooks at startup and
-install them via `tmux -L <socket> set-hook -g ...` on every server it
-manages. The hook installation MUST be idempotent.
-
-### B. `rk notify` CLI subcommand
-
-New subcommand: `rk notify <kind> [k=v...]`. Reads a per-socket lockfile,
-POSTs the event to the running server, exits silently on any failure.
+A new package `app/backend/internal/tmuxctl/` owns this concern:
 
 ```
-rk notify window-active sess=<session> idx=<window-index>
-rk notify topology      sess=<session> [idx=<window-index>]
+internal/tmuxctl/
+  client.go        // Client per (socket); manages pty + reconnect
+  client_test.go   // Unit tests for parser + reconnect FSM
+  parser.go        // Line-oriented %notification parser
+  parser_test.go   // Golden-file fixtures of real tmux notification streams
+  supervisor.go    // Watches $TMUX_TMPDIR via fsnotify; opens/closes
+                   //   Clients in response to socket-file lifecycle.
+                   //   Owns map[socket]*Client and the merged
+                   //   generation channel.
+  supervisor_test.go
 ```
 
-Implementation outline:
+The relevant tmux notifications and how they map to the existing data
+model:
 
-1. Determine the relevant tmux socket name (from `$TMUX` env, parsed to
-   extract `-L <socket>` equivalent — tmux exposes this as the third
-   colon-field of `$TMUX`).
-2. Read `~/.run-kit/run/<socket>.json` (lockfile written by `rk serve`
-   on startup; contains `{port, pid, started_at}`). If missing or PID
-   no longer running, exit 0 silently.
-3. POST `http://127.0.0.1:<port>/notify` with a small JSON body:
-   `{kind, server, session, windowIndex}`.
-4. Hard cap on total time (e.g. 500ms) — hooks must not back up tmux's
-   event loop. Use a tight `context.WithTimeout` on the HTTP call.
-5. Exit 0 on success or any failure (silent — consistent with
-   `_preamble.md` §"All rk usage MUST fail silently if rk is not
-   installed").
+| Control-mode notification | Maps to | Triggers |
+|---|---|---|
+| `%session-window-changed session-id window-id` | per-session `window_active` change | snapshot refresh (sessions event) |
+| `%window-add window-id` | new window created | snapshot refresh + board bootstrap re-eval |
+| `%window-close window-id` | window killed | snapshot refresh + board cleanup |
+| `%window-renamed window-id name` | window name change | snapshot refresh |
+| `%sessions-changed` | session created/destroyed | session-order event |
+| `%layout-change window-id ...` | pane layout change | snapshot refresh (sufficient — pane positions are part of WindowInfo) |
+| `%unlinked-window-*` | window not currently in session — out of scope for v1; ignored | — |
 
-### C. `rk serve` writes a per-socket lockfile
+The Client maintains a generation counter per server (an `atomic.Int64`).
+Each handled notification increments the counter and signals an
+`atomic.Pointer[chan struct{}]` waiter slot, replacing it with a fresh
+chan via compare-and-swap to coalesce bursts. The SSE goroutine (see §B)
+selects on the waiter.
 
-On startup, after binding the listener:
+**Connection lifecycle.** The Client implements an FSM:
 
-1. Determine the tmux socket name `rk serve` is configured to relay against
-   (read from existing config — `rk serve` already knows this).
-2. Create `~/.run-kit/run/` if absent.
-3. Write `~/.run-kit/run/<socket>.json` atomically (write to
-   `<socket>.json.tmp`, then rename) containing:
-   ```json
-   {"port": 3000, "pid": 296756, "started_at": "2026-05-28T08:46:58Z", "socket": "kits"}
-   ```
-4. On shutdown (signal handler / defer), remove the lockfile.
-5. On startup, if a lockfile already exists for this socket and the
-   referenced PID is still alive, refuse to start with a clear error
-   (this is a desirable side-effect — prevents accidental double-serve
-   on the same socket).
+```
+disconnected → dialing → connected → disconnected (on read err / EOF)
+```
 
-### D. Backend `/notify` endpoint and generation-bumped SSE loop
+with exponential backoff on reconnect (250ms, 500ms, 1s, 2s, capped at
+5s, reset on a successful read). A reconnect that succeeds during the
+gap means at most ~5s of lost events; the safety-net poll (§B) heals
+the missed window.
 
-New endpoint: `POST /notify` (loopback-only — bind check
-`r.RemoteAddr` starts with `127.` or `::1`, otherwise 403). Body:
-`{kind: "window-active" | "topology", server, session, windowIndex?}`.
-Handler bumps an in-memory generation counter (atomic `int64`) for the
-relevant server.
+**Bootstrap session attachment.** `tmux -CC` requires attaching to *a*
+session to start emitting events for the server. The Client picks any
+existing session (`tmux -L <socket> list-sessions -F '#{session_name}'`,
+first result) or creates a hidden `_rk-ctl` session if none exist
+(detached, kept alive via `set-option @rk_ctl_keepalive 1`). The
+attached session is a *subscription anchor*, not a UI element — the
+existing SSE code that lists/renders sessions filters out
+`_rk-ctl` from results.
 
-The SSE loop in `app/backend/api/sse.go` is refactored:
+**Read-only attachment.** `tmux -CC attach -r` for read-only mode so
+this subscriber cannot accidentally affect tmux state — input from rk
+is limited to control commands needed for the subscription itself
+(none for v1).
 
-- **Before**: `time.Sleep(2500ms)` between snapshot builds.
-- **After**: `select` over (a) a `chan struct{}` fed when the generation
-  counter bumps, and (b) a `time.NewTicker(safetyPollInterval)` for the
-  backstop. `safetyPollInterval = 12 * time.Second` (chosen between 10–15s
-  per discussion). On any signal, invalidate the relevant server's
-  snapshot cache, build the next snapshot, broadcast.
+### B. SSE loop is event-driven; poll becomes safety-net
+
+`app/backend/api/sse.go` is refactored:
+
+- **Before**: `time.Sleep(2500ms)` between snapshot builds (poll-as-primary).
+- **After**: `select` over (a) the per-server generation-waiter chan
+  fed by `internal/tmuxctl/`, and (b) a `time.NewTicker(safetyPollInterval)`
+  backstop. `safetyPollInterval = 12 * time.Second`. On any signal,
+  invalidate the relevant server's snapshot cache, build the next
+  snapshot, broadcast.
 
 The existing `prevIDs` vs `currentIDs` diff used for board stale-entry
-cleanup (lines 428–455 in `sse.go`) is currently inside the poll loop. It
-must move into the snapshot builder so it runs on every hook-driven
+cleanup (lines 428–455 in `sse.go`) is currently inside the poll loop.
+It moves into the snapshot builder so it runs on every event-driven
 snapshot — otherwise board cleanup latency stays at the safety-net poll
-cadence. This is a small refactor: extract `detectKilledWindowIDs(prev,
-current)` and call it from the snapshot-build entry point.
+cadence. Small refactor: extract `detectKilledWindowIDs(prev, current)`
+and call it from the snapshot-build entry point.
 
-### E. Frontend: URL becomes write-only after mount
+### C. Per-rk subscription, multi-rk safe by construction
+
+There is no global state, no lockfile, no shared registry. Each
+`rk serve` instance:
+
+1. Owns its own `internal/tmuxctl/Client` per tmux server.
+2. Increments its own generation counter on each notification.
+3. Pushes its own SSE stream to its own connected browsers.
+
+Two `rk serve` instances on different ports (`:3000` and `:5000`) both
+relaying against `-L kits`: each opens its own `tmux -CC` connection,
+tmux fans out internally, both rks see all notifications, both push
+their respective SSE streams. The browsers connected to `:3000` and
+`:5000` each see their own UI update independently. **No coordination
+between rks needed, ever.**
+
+### D. Frontend: URL becomes write-only after mount
 
 `app/frontend/src/app.tsx`:
 
@@ -238,7 +301,8 @@ current)` and call it from the snapshot-build entry point.
    when the SSE-driven `isActiveWindow` change arrives.
 4. **Add** a one-shot mount-time reconciler: on the first
    `currentSession` value after mount, if the URL's `$window` exists in
-   the snapshot AND `currentSession.windows.find(w => w.isActiveWindow)?.index !== Number(urlWindow)`,
+   the snapshot AND
+   `currentSession.windows.find(w => w.isActiveWindow)?.index !== Number(urlWindow)`,
    fire one `selectWindow(server, session, Number(urlWindow))` to align
    tmux with the URL. This honors the resumable-bookmark semantics on
    reload/deep-link. Mark this with a `hasAlignedToUrlRef` boolean
@@ -248,41 +312,47 @@ current)` and call it from the snapshot-build entry point.
    Number(urlWindow)`, call `navigate({to, params, replace: true})`.
    No debounce, no conditional suppression. Truth wins, always.
 
-### F. Optimistic pending state on sidebar click (polish)
+### E. Optimistic pending state on sidebar click (polish)
 
-After E, sidebar clicks have a perceived gap between click and snapshot
-arrival. To bridge it, the sidebar maintains a transient `pendingWindow:
-{server, session, index} | null` cleared by the next snapshot whose
-active window matches it (confirmation) or differs from it (overridden
-— truth wins). The pending row renders with the existing selected
-styling. This is purely visual; the route still tracks server truth.
+After D, sidebar clicks have a perceived gap between click and SSE
+arrival. Tmux control-mode latency is sub-ms but cross-process pipe
+read + Go scheduling + SSE flush still has some end-to-end cost. To
+bridge it, the sidebar maintains a transient
+`pendingWindow: {server, session, index} | null` cleared by the next
+snapshot whose active window matches it (confirmation) or differs
+from it (overridden — truth wins). The pending row renders with the
+existing selected styling. Purely visual; the route still tracks
+server truth.
 
-### G. Boards: cleanup migration + optional active badge
+### F. Boards: cleanup migration + optional active badge
 
 Boards refactor item — extract the diff used by board cleanup so it
-operates on the snapshot-build event (hook-driven or safety-net), not
-the timer:
+operates on the snapshot-build event (control-mode-driven or
+safety-net), not the timer:
 
 ```go
 // Before: inline in poll loop
-// After: called by snapshot builder
+// After: called by snapshot builder on every snapshot bump
 func (s *Server) reconcileBoardEntries(server string, prev, current map[string]struct{}) {
     killed := windowIDsRemoved(prev, current)
     for id := range killed {
         s.tmux.RemoveAllByWindowID(server, id)
-        s.broadcastBoardChanged(server, boardChangedPayload{Change: "cleanup", WindowID: id})
+        s.broadcastBoardChanged(server, boardChangedPayload{
+            Change:   "cleanup",
+            WindowID: id,
+        })
     }
 }
 ```
 
 Optional UX win (low priority — can ship in a follow-up): add a small
-"tmux-active" visual indicator (subtle ring/dot) to `BoardPane` when its
-underlying window matches `currentSession.windows.find(w =>
-w.isActiveWindow)?.windowId`. Required data already flows through
-`BoardEntry` after a tiny backend addition (include `isActiveWindow` in
-`BoardEntry`).
+"tmux-active" visual indicator (subtle ring/dot) to `BoardPane` when
+its underlying window matches
+`currentSession.windows.find(w => w.isActiveWindow)?.windowId`.
+Required data already flows through `BoardEntry` after a tiny backend
+addition (include `isActiveWindow` in `BoardEntry`).
 
-### H. Multi-client convergence semantics (spec-level)
+### G. Multi-client convergence semantics (spec-level)
 
 Spec must record:
 
@@ -294,36 +364,45 @@ Spec must record:
   session-route-rendering layer reacts to `isActiveWindow`.
 - Clients viewing different rk-managed tmux servers do not affect each
   other — each server has its own snapshot stream and its own truth.
+- Two `rk serve` instances are fully independent — each one's UIs
+  converge with each other within that instance; the two instances do
+  not (and cannot) interact.
 
 ## Affected Memory
 
-- `run-kit/architecture`: (modify) document the tmux-hook → `rk notify`
-  → SSE-push pipeline; the demoted safety-net poll; the per-socket
-  lockfile under `~/.run-kit/run/`; multi-client convergence semantics.
-- `run-kit/tmux-sessions`: (modify) record the canonical hooks added to
-  `~/.rk/tmux.conf`, their format-variable usage, and the idempotent
-  install-on-startup behavior of `rk serve`.
+- `run-kit/architecture`: (modify) document the tmux control-mode
+  subscription model in `internal/tmuxctl/`; the demoted safety-net
+  poll; the per-server generation counter; multi-client convergence
+  semantics; how the model interacts with the PR #197 daemon-lifecycle
+  pattern (port-probe liveness, no lockfile).
+- `run-kit/tmux-sessions`: (modify) record the bootstrap-session
+  attachment pattern, the `_rk-ctl` hidden session if needed, and the
+  read-only attachment policy (`tmux -CC attach -r`).
 - `run-kit/ui-patterns`: (modify) URL is a resumable bookmark, not a
-  source of truth; sidebar clicks are pure mutations; the pending-state
-  pattern.
+  source of truth; sidebar clicks are pure mutations; the
+  pending-state pattern.
 
 ## Impact
 
 **Backend (Go)**
 
+- `app/backend/internal/tmuxctl/` (new package): control-mode client,
+  parser, reconnect FSM, generation counter management. Also owns the
+  `$TMUX_TMPDIR` watcher that drives auto-discovery — a `Supervisor`
+  struct holds `map[socket]*Client`, opens/closes Clients in response
+  to fsnotify events, and exposes the merged generation-bumped channel
+  to the SSE layer.
 - `app/backend/api/sse.go`: poll loop refactored to generation-counter +
   safety ticker; board-cleanup diff extracted from poll loop into
   snapshot builder. `ssePollInterval` removed; `safetyPollInterval`
   introduced.
-- `app/backend/api/router.go`: register `POST /notify` (loopback-only).
-- `app/backend/api/notify.go` (new): handler + generation counter
-  manager.
-- `app/backend/cmd/rk/notify.go` (new): `rk notify` subcommand.
-- `app/backend/cmd/rk/serve.go`: write/remove the per-socket lockfile;
-  install hooks idempotently on managed tmux servers at startup.
-- `app/backend/internal/tmux/` (or a new `internal/hooks/` package):
-  hook installation helper used by `serve`.
-- `app/backend/build/tmux.conf`: add the four `set-hook` lines.
+- `app/backend/cmd/rk/serve.go`: spin up `tmuxctl.Client` per configured
+  tmux server at startup; tear down on shutdown.
+- `app/backend/internal/sessions/`: filter `_rk-ctl` session out of
+  `FetchSessions` results (if the bootstrap-session-creation path
+  is taken).
+- `go.mod` / `go.sum`: add `github.com/fsnotify/fsnotify` (for the
+  `$TMUX_TMPDIR` watcher). `creack/pty` already present.
 
 **Frontend (TypeScript)**
 
@@ -333,63 +412,100 @@ Spec must record:
 - `app/frontend/src/components/sidebar/index.tsx` and
   `window-row.tsx`: add pending-state visual (optional polish).
 
+**Removed from the original wiring proposal**
+
+- No `rk notify` CLI subcommand (deleted from intake).
+- No per-socket lockfile under `~/.run-kit/run/` (deleted; Constitution
+  §II compliance).
+- No `POST /notify` endpoint (deleted; not needed without `rk notify`).
+- No `~/.rk/tmux.conf` hooks for active-window sync (deleted; control
+  mode replaces them).
+
 **Tests**
 
-- Backend: unit tests for `rk notify` lockfile discovery and failure
-  modes; integration test simulating a hook→notify→SSE-push roundtrip;
-  test that loopback-only enforcement rejects non-loopback requests.
+- Backend: unit tests for `tmuxctl.Client` parser (golden-file
+  fixtures of real `tmux -CC` notification streams);
+  reconnect-FSM tests (simulated EOF, simulated dial error,
+  backoff capping); integration test that spins up a temporary
+  tmux server (`-L rk-tmuxctl-test`), opens a `Client`, triggers
+  `select-window`, and asserts the generation counter increments
+  within a bounded latency (target: 50ms in CI).
 - Frontend: Vitest tests for the simplified reconciler (URL follows
   `isActiveWindow`, no debounce); test the mount-time URL alignment
   fires exactly once.
-- E2E: Playwright test — start session, run a backend mutation
-  equivalent to `rk riff` (or invoke the API), assert the sidebar
-  highlight moves within a bounded latency (e.g., 500ms).
+- E2E: Playwright test — start session via the API, trigger a backend
+  mutation equivalent to `rk riff` (or invoke
+  `POST .../select` directly), assert the sidebar highlight moves
+  within a bounded latency (e.g., 500ms).
 
 **Dependencies**
 
-- No new external dependencies. `rk notify` uses the standard library's
-  `net/http` for the localhost POST.
+- One new external dependency: `github.com/fsnotify/fsnotify`
+  (cross-platform filesystem watcher — `inotify` on Linux, `kqueue` on
+  macOS) for the `$TMUX_TMPDIR` watch driving auto-discovery. Widely
+  used (Kubernetes, Docker, etc.), stable, single small module.
+  Alternative considered: hand-rolling Linux-only `inotify` via
+  `golang.org/x/sys/unix` — rejected because the project supports both
+  Linux and macOS dev (per existing tooling), and cross-platform
+  hand-rolling doubles the surface for negligible benefit.
+- `creack/pty` already present (used for the WebSocket terminal
+  relay) — no change.
 
 **Migration / rollout**
 
-- Hooks must be installed retroactively on any rk-managed tmux server
-  already running when the new `rk serve` starts. This is automatic
-  (idempotent install on startup); no user action required.
-- Frontend behavior change is observable but non-breaking — clicks
-  still navigate, just via the snapshot path instead of local state.
+- Existing `rk serve` instances do not need any config changes — the
+  control-mode subscriber is purely additive on the backend side.
+- The frontend behavior change is observable but non-breaking — clicks
+  still navigate, just via the SSE path instead of local state.
+- The PR #196 `=`-anchored tmux targets (mentioned in
+  `docs/memory/run-kit/architecture.md`) apply to the control-mode
+  `attach-session -t` target as well — use `=<session>` for exact-match
+  to avoid prefix collisions.
 
 **Constitution alignment**
 
-- Principle I (Security First): `exec.CommandContext` with timeouts —
-  applies to the `set-hook` install calls; the loopback-only `/notify`
-  endpoint avoids exposing the bump primitive externally.
-- Principle II (No Database): the lockfile is a small JSON file under
-  `~/.run-kit/run/`, written atomically; no DB. The generation
-  counter is in-memory (rebuilt on `rk serve` restart, snapshot poll
-  catches up via the safety-net).
-- Principle III (Wrap, Don't Reinvent): hooks are pure tmux primitives
-  — declarative config, no reimplementation.
-- Principle IV (Minimal Surface Area): one new endpoint (`/notify`,
-  loopback-only), one new CLI subcommand (`rk notify`). No new routes.
-- Principle VI (Tmux Sessions Survive Server Restarts): preserved —
-  hooks live in tmux config, persist independently of `rk serve`.
+- **§I Security First**: `exec.CommandContext` with timeout for the
+  `tmux -CC` invocation; no shell-string construction; the control-mode
+  connection is local-only (no network surface added).
+- **§II No Database**: zero persistent state. No lockfile. Subscription
+  state lives in process memory and in the live tmux connection.
+- **§III Wrap, Don't Reinvent**: tmux control mode is a pure tmux
+  primitive — no reimplementation. `internal/tmuxctl/` is a wrapper
+  around it.
+- **§IV Minimal Surface Area**: zero new HTTP endpoints, zero new CLI
+  subcommands, one new internal package. Frontend gets simpler (debounce
+  + reconciliation logic shrinks).
+- **§VI Tmux Sessions Survive Server Restarts**: preserved — the
+  control-mode subscription is opened by `rk serve`, but tmux sessions
+  remain independent. If rk dies, the connection closes; tmux is
+  unaffected.
 
 ## Open Questions
 
-- **Unmanaged tmux servers.** What's the intended behavior for tmux
-  servers that `rk serve` doesn't manage (started by hand, no
-  `~/.rk/tmux.conf` loaded)? Today these would have no hooks; they
-  fall back to the 12s safety-net poll. Is that acceptable, or should
-  there be a UI affordance making the "this server is slow because no
-  hooks installed" state legible? (Initial position: acceptable for v1
-  — the safety-net poll keeps things eventually consistent, and the
-  primary `rk riff` workflow always uses an rk-managed tmux server.
-  But worth confirming explicitly.)
-- **Exact `safetyPollInterval` value.** Discussed range 10–15s; intake
-  proposes 12s. Spec stage should confirm.
-- **Lockfile location.** `~/.run-kit/run/<socket>.json` proposed —
-  parallel to `~/.run-kit/tmux.conf` which already exists. Confirm at
-  spec stage.
+- **Bootstrap session.** `tmux -CC` requires an attached session.
+  Options: (a) attach to whatever session exists first, (b) create a
+  hidden `_rk-ctl` session and filter it from UI results. Spec stage
+  should choose. Initial position: (b) — cleaner separation and
+  doesn't depend on user sessions existing.
+- **Exact `safetyPollInterval` value.** Discussed range 10–15s;
+  intake proposes 12s. Spec stage should confirm.
+- **Multiple tmux servers configuration.** Today's rk discovers tmux
+  servers via `RK_HOST`/`RK_PORT` + config. With control mode, rk needs
+  to open a connection *per* tmux server. How is the list of servers
+  to subscribe to determined? **Resolved** (see #19, #23 below): rk
+  watches `$TMUX_TMPDIR` (or `/tmp/tmux-$UID/` fallback) for socket
+  files and auto-subscribes to every one it sees — both the existing
+  set at startup and any newly-created sockets at runtime.
+- **Empty server case.** If a configured tmux server has zero sessions,
+  the bootstrap-session creation path needs to run. Confirm this path
+  doesn't accidentally surface `_rk-ctl` in the UI as the "only
+  session." (Initial position: the sessions filter at the API layer
+  handles this; empty UI is the expected state.)
+- **`tmuxctl.Client` PTY in headless contexts.** `creack/pty` requires
+  a kernel PTY device. In environments without `/dev/ptmx` (some
+  containers/CI), the client must degrade to the safety-net poll.
+  Initial position: detect at startup, log once at `slog.Warn`,
+  proceed with poll-only. Confirm at spec stage.
 
 ## Assumptions
 
@@ -397,22 +513,40 @@ Spec must record:
 |---|-------|----------|-----------|--------|
 | 1 | Certain | Tmux is the sole source of truth for "current window" per server; URL is a resumable bookmark used only on initial mount | Discussed at length — user explicitly chose tmux-as-truth over client-as-truth after both were laid out with tradeoffs | S:95 R:90 A:90 D:95 |
 | 2 | Certain | All clients viewing the same server converge on the same window ("yank" behavior); clients on different servers stay independent | Discussed — user confirmed yanking is OK for a single-person tool; per-server isolation falls out of the multi-tmux-server topology run-kit already has | S:95 R:85 A:90 D:95 |
-| 3 | Certain | Hooks installed in `~/.rk/tmux.conf` (canonical config, shared by every rk-managed tmux server) — no per-server install needed beyond startup-time enforcement | Verified empirically: `~/.rk/tmux.conf` is already used by `-L kits`, `-L t2`, `-L t3` per the running ps output | S:95 R:90 A:95 D:95 |
-| 4 | Certain | `rk notify` is a new CLI subcommand that reads a per-socket lockfile written by `rk serve` on startup — discovery happens inside `rk`, not in tmux config | Discussed — chosen over Unix sockets and tmux-config-side curl/jq for cleanest fit with existing rk patterns (e.g., `rk shell-init`, `rk context`) | S:90 R:80 A:90 D:90 |
+| 3 | Certain | The push channel from tmux to rk is **tmux control mode** (`tmux -CC`) opened by each `rk serve`, NOT shell hooks calling a `rk notify` CLI | Multi-rk scenario surfaced after initial hook design was specced; control mode dissolves all five concerns hooks introduced (discovery, fan-out, lockfile-vs-§II, env-propagation, install-on-every-server) | S:95 R:80 A:90 D:95 |
+| 4 | Certain | NO lockfile, NO `rk notify` CLI subcommand, NO `/notify` endpoint, NO `~/.rk/tmux.conf` hooks for active-window sync | Constitution §II compliance enforced by PR #197 (which landed during this session) — and the lockfile pattern was the only piece of the initial proposal motivating those endpoints/CLI | S:95 R:80 A:95 D:95 |
 | 5 | Certain | The 3-second `userNavTimestamp` debounce is deleted entirely (not tuned) — it exists only to arbitrate a race that the new topology removes | Discussed — root-cause analysis identified this as the structural problem; tuning it has been tried and failed multiple times | S:95 R:85 A:95 D:95 |
 | 6 | Certain | On initial mount, fire one `select-window` to align tmux with the URL — this is what makes reload/deep-link work | Discussed — user confirmed "the one I was looking at" is the desired reload behavior | S:95 R:90 A:90 D:95 |
-| 7 | Confident | The four hook events are `after-select-window`, `after-new-window`, `after-kill-window`, `after-rename-window` | After-select-window covers riff and manual switches; after-new-window covers window creation by any caller; after-kill-window drives the board cleanup; after-rename-window catches name edits visible in sidebar. Other hooks (e.g., session-window-changed) overlap with these and are omitted to keep the surface minimal | S:80 R:75 A:80 D:75 |
-| 8 | Confident | `safetyPollInterval = 12 * time.Second` (demoted from the current 2500ms primary cadence) | Discussed range 10–15s; 12s is the midpoint and gives unmanaged tmux servers eventual consistency without burning CPU on managed servers where hooks make polling redundant | S:70 R:80 A:75 D:65 |
-| 9 | Confident | Tmux hook latency is ~78µs end-to-end — the hook approach will deliver sub-100ms perceived UI updates | Measured empirically on tmux 3.6a running on this machine before authoring this intake | S:95 R:90 A:95 D:85 |
-| 10 | Confident | `POST /notify` is loopback-only (rejects non-127./::1 RemoteAddr with 403) | Defensive default — the notify endpoint only needs to be reachable from `rk notify` running on the same host. No reason to expose it on the LAN | S:85 R:80 A:90 D:85 |
-| 11 | Confident | Boards are orthogonal — board route `/board/$name` ignores `isActiveWindow` changes (no yank), but board cleanup gets faster as a free win | Analyzed via Explore agent — board state is per-server in `@rk_board`, keyed by stable window_id, route is independent of session/window route | S:85 R:85 A:90 D:85 |
-| 12 | Confident | The board-cleanup `prevIDs` vs `currentIDs` diff moves out of the poll loop into the snapshot builder | Required by the architecture: snapshots are now event-driven, so any logic that depends on snapshot transitions must live where snapshots are built, not where they used to be triggered | S:90 R:75 A:90 D:90 |
-| 13 | Confident | `rk serve` installs hooks idempotently on managed tmux servers at startup, in addition to the static `~/.rk/tmux.conf` entries | Belt-and-suspenders: handles the case where a tmux server was started before the new `rk serve` version (or where `~/.rk/tmux.conf` is overridden) | S:80 R:80 A:80 D:80 |
-| 14 | Confident | The lockfile path is `~/.run-kit/run/<socket>.json` — parallel to the existing `~/.run-kit/tmux.conf` | Follows existing convention; `~/.run-kit/` is already the rk state directory | S:80 R:80 A:85 D:80 |
-| 15 | Confident | Optimistic pending state on sidebar click is a polish item, not blocking — base architecture is correct without it | Discussed as a separate "free win"; the snapshot turnaround is fast enough (<100ms) that the perceptual gap may not need a pending indicator at all | S:75 R:85 A:80 D:75 |
-| 16 | Confident | "Tmux-active" badge on `BoardPane` is optional / follow-up — not required for the core fix | Discussed as a free win; nice-to-have, doesn't affect the desync resolution | S:80 R:90 A:85 D:80 |
-| 17 | Tentative | The hook body is `run-shell -b "rk notify ... 2>/dev/null"` (background, silent on failure) | `-b` runs the command in the background so it doesn't block tmux; `2>/dev/null` suppresses stderr if `rk` isn't on PATH or the lockfile is stale. Worth a spec-stage confirmation that `-b` is the right tmux flag (vs. omitting and trusting the rk-side timeout) | S:60 R:70 A:65 D:60 |
-| 18 | Tentative | Unit test strategy: lockfile-discovery happy/sad paths, loopback enforcement, hook-install idempotency. Integration test: trigger via API and assert SSE push latency. E2E: bounded-latency assertion in Playwright | Test scope is reasonable but exact assertions (latency bound, retry budget) need spec-stage refinement | S:65 R:75 A:65 D:60 |
-| 19 | Unresolved | Behavior on unmanaged tmux servers (started outside `rk serve`, no `~/.rk/tmux.conf`) — accept fallback to 12s safety-net poll, or surface a UI affordance? | Deferred — user flagged the question, initial position is "acceptable for v1" but should be confirmed at spec stage. Low blast radius (worst case is users connecting to hand-started tmux see slower updates), but a UI hint may be worth the modest cost | S:55 R:75 A:55 D:50 |
+| 7 | Certain | Multi-rk is supported by construction — each `rk serve` opens its own control-mode connection per tmux server; tmux fans out internally; no coordination between rks | Falls out of how `tmux -CC` works (per the man page) — each `attach-session` is an independent client | S:95 R:85 A:95 D:95 |
+| 8 | Certain | A new package `app/backend/internal/tmuxctl/` owns the control-mode client, parser, and reconnect FSM | Aligns with existing `internal/tmux/` boundary (single responsibility, mirror naming); keeps the SSE handler clean and testable | S:90 R:85 A:90 D:85 |
+| 9 | Certain | `creack/pty` (already a project dependency) is used to allocate a PTY for `tmux -CC` — control mode fails on plain pipes with "tcgetattr failed" | Verified empirically in this session (tmux 3.6a on this machine); creack/pty is already used for the WebSocket terminal relay per context.md | S:90 R:90 A:90 D:90 |
+| 10 | Certain | Relevant control-mode notifications: `%session-window-changed`, `%window-add`, `%window-close`, `%window-renamed`, `%sessions-changed`, `%layout-change` | Direct mapping from the tmux 3.6a man page CONTROL MODE section — these are the exact analogs of the hook events the initial design proposed | S:95 R:90 A:95 D:95 |
+| 11 | Certain | `safetyPollInterval = 12 * time.Second` (demoted from the current 2500ms primary cadence) | Clarified — user confirmed. Discussed range 10–15s; 12s is the midpoint; the safety-net's job is to heal missed events during reconnect gaps, not be the primary latency story | S:95 R:80 A:75 D:65 |
+| 12 | Certain | Reconnect FSM: exponential backoff (250ms → 500ms → 1s → 2s → cap 5s), reset on successful read | Clarified — user confirmed. Standard supervisor pattern; bounded ~5s worst-case gap is comfortably below the safety-net interval so events lost during reconnect are healed by the next poll | S:95 R:80 A:80 D:75 |
+| 13 | Certain | Control-mode notification latency is sub-millisecond once connected — faster than the ~78µs hook measurement because there is no fork+exec of `run-shell` | Clarified — user confirmed. Per tmux man page: control-mode notifications are implemented as the same internal hooks but emit to a stdout pipe instead of forking. Pipe write + Go reader scheduling is single-digit µs to low-tens-of-µs typical | S:95 R:90 A:85 D:80 |
+| 14 | Certain | The bootstrap session for `tmux -CC` is a hidden `_rk-ctl` session created by rk if none exist; the existing sessions filter at the API layer excludes it from UI results | Clarified — user confirmed. Cleaner separation than attaching to an arbitrary user session (which couples control-mode lifecycle to that session's lifetime); naming follows the `_`-prefix internal convention | S:95 R:80 A:85 D:75 |
+| 15 | Certain | Boards are orthogonal — board route `/board/$name` ignores `isActiveWindow` changes (no yank), but board cleanup gets faster as a free win | Clarified — user confirmed. Analyzed via Explore agent — board state is per-server in `@rk_board`, keyed by stable window_id, route is independent of session/window route | S:95 R:85 A:90 D:85 |
+| 16 | Certain | The board-cleanup `prevIDs` vs `currentIDs` diff moves out of the poll loop into the snapshot builder | Clarified — user confirmed. Required by the architecture: snapshots are now event-driven, so any logic that depends on snapshot transitions must live where snapshots are built, not where they used to be triggered | S:95 R:75 A:90 D:90 |
+| 17 | Certain | Optimistic pending state on sidebar click is a polish item, not blocking — base architecture is correct without it | Clarified — user confirmed. Control-mode turnaround is fast enough that the perceptual gap may not need a pending indicator; defer to follow-up if needed | S:95 R:85 A:80 D:75 |
+| 18 | Certain | "Tmux-active" badge on `BoardPane` is optional / follow-up — not required for the core fix | Clarified — user confirmed. Discussed as a free win; nice-to-have, doesn't affect the desync resolution | S:95 R:90 A:85 D:80 |
+| 19 | Certain | rk auto-discovers tmux servers by watching `$TMUX_TMPDIR` (or `/tmp/tmux-$UID/` fallback) for socket files — both at startup and at runtime via filesystem watch (`inotify` on Linux, `kqueue` on macOS via `fsnotify`); opens a control-mode connection to every socket it sees | Clarified — user chose auto-discover-and-subscribe over explicit config or prefix opt-in. Magical "just works" semantics for a single-person tool. Matches the spirit of "convention over configuration" (Constitution §VII) | S:95 R:75 A:80 D:75 |
+| 20 | Certain | `tmux -CC` is invoked with `attach -r` (read-only mode) so the subscriber cannot accidentally affect tmux state — `-r` restricts input only; all notifications still emit to the client regardless | Clarified — user confirmed after explanation. Re-checked tmux man page: `-r` is an input-restriction flag, not an output filter, so read-only doesn't degrade subscription coverage. Defensive default with zero downside | S:95 R:80 A:65 D:60 |
+| 21 | Certain | If `/dev/ptmx` is unavailable (some containers/CI), each affected `Client` logs once at `slog.Warn`, falls back to safety-net poll only — no error, no startup abort | Clarified — user confirmed. Matches the graceful-degradation pattern PR #197 established for daemon log open failures (single `slog.Warn`, never block startup) | S:95 R:80 A:65 D:55 |
+| 22 | Certain | Test strategy: (1) parser golden-file fixtures covering six notifications + framing markers, captured from real tmux 3.6a output; (2) pure-unit reconnect FSM tests with stubbed I/O asserting the 250ms→500ms→1s→2s→5s backoff sequence and reset-on-read; (3) integration test against a temporary `-L rk-tmuxctl-test` tmux server with a 200ms latency bound on generation-counter increment; (4) Vitest tests for the simplified reconciler + one-shot mount alignment; (5) Playwright e2e asserting sidebar highlight moves within 500ms of `POST .../select` | Clarified — user confirmed. Specific assertions (200ms integration bound, 500ms e2e bound, fixture set scoped to the six notifications mapped in §A) committed at intake; spec stage can refine numbers if CI flakes but the shape is locked | S:95 R:75 A:65 D:60 |
+| 23 | Certain | Auto-discovery of new tmux sockets uses a filesystem watch on `$TMUX_TMPDIR`, with idempotent connection management (deduplicate on socket path; existing connections survive across snapshot rebuilds; closed connections trigger removal from the active subscriber map) | Clarified — user chose auto-discover. The implementation detail (idempotent + dedup) is the obvious follow-on so transient socket events (close → reopen on the same name) don't leak connections or miss notifications | S:95 R:75 A:80 D:75 |
 
-19 assumptions (6 certain, 10 confident, 2 tentative, 1 unresolved). Run /fab-clarify to review.
+23 assumptions (23 certain, 0 confident, 0 tentative, 0 unresolved).
+
+## Clarifications
+
+### Session 2026-05-28
+
+| # | Action | Detail |
+|---|--------|--------|
+| 19 | Upgraded | Confident → Certain. Decision: rk auto-discovers tmux servers via filesystem watch on `$TMUX_TMPDIR`, no explicit config — user chose auto-discover-and-subscribe over explicit-config or prefix opt-in |
+| 23 | Resolved | Unresolved → Certain. The mechanism is `fsnotify` (or stdlib equivalent) on `$TMUX_TMPDIR`; idempotent connection management; closed-socket events remove from active subscriber map |
+| 20 | Confirmed | Tentative → Certain. `tmux -CC attach -r`: read-only flag restricts input only; notifications still emit to the client regardless. Defensive default with zero downside |
+| 21 | Confirmed | Tentative → Certain. PTY-unavailable fallback: per-Client `slog.Warn`, fall back to safety-net poll, never block startup — matches PR #197's graceful-degradation pattern for daemon log open failures |
+| 22 | Confirmed | Tentative → Certain. Test strategy locked: parser golden-file fixtures + pure-unit reconnect FSM tests + integration test with 200ms generation-counter latency bound + Vitest reconciler tests + Playwright 500ms e2e bound |
+| 11-18 | Confirmed (bulk) | All 8 remaining Confident → Certain. `safetyPollInterval=12s`, reconnect-FSM backoff sequence, sub-ms control-mode latency claim, `_rk-ctl` bootstrap session, boards orthogonality, board-cleanup diff relocation, optimistic-pending polish status, and `BoardPane` active-badge follow-up. User vetted all together via "All agreed" |
+

@@ -254,10 +254,28 @@ function AppShell() {
     [handleDragStart],
   );
 
-  // Track user-initiated navigation to suppress activeWindow sync temporarily.
-  // Also suppress while any dialog is open to prevent focus-stealing re-renders.
-  const userNavTimestampRef = useRef(0);
+  // tmux is the source of truth for "current window". The URL is a
+  // resumable bookmark used only on initial mount to align tmux with a
+  // deep-linked window; after that the URL is treated as derived state and
+  // re-written whenever the SSE-driven `isActiveWindow` changes. The 3s
+  // `userNavTimestampRef` debounce was removed in this change — there is
+  // no client-side window state worth protecting from server overrides.
+  //
+  // We retain `dialogOpenRef` so that the URL-write effect can skip
+  // navigation while a dialog is open (preventing focus-stealing re-renders
+  // mid-dialog). The dialog-open suppression applies to the URL writeback
+  // only, not to the underlying SSE-derived selection state.
   const dialogOpenRef = useRef(false);
+  // hasAlignedToUrlRef gates mount-time alignment of tmux to the URL. On
+  // the first `currentSession` value received after the route mounts, if
+  // the URL's `$window` differs from tmux's current `isActiveWindow`, fire
+  // exactly one `selectWindow` to align tmux to the URL. Subsequent
+  // route changes within the same mount do NOT re-fire alignment — the
+  // sidebar-click path (a pure mutation) is the only post-mount writer.
+  const hasAlignedToUrlRef = useRef(false);
+  // Reset alignment guard whenever the route's session changes (this is
+  // effectively a fresh "mount" for the alignment contract).
+  const lastAlignedSessionRef = useRef<string | null>(null);
 
   // Sync currentSession/currentWindow from route params + SSE data
   const currentSession = useMemo(
@@ -313,41 +331,67 @@ function AppShell() {
     }
   }, [sessionName, windowIndex, sessions, currentSession, currentWindow, isConnected, navigate, server]);
 
-  // Active window sync: when SSE says isActiveWindow changed, update URL
+  // Active window sync (truth = tmux). The SSE-derived `activeWindow`
+  // drives the sidebar selection (see `WindowRow.isSelected`) and the URL
+  // writeback below. There is no client-side window selection state.
   const activeWindow = useMemo(() => {
     if (!currentSession) return null;
     return currentSession.windows.find((w) => w.isActiveWindow) ?? null;
   }, [currentSession]);
 
+  // Mount-time alignment: if a deep-linked URL points at a window that is
+  // not the current tmux-active window for the session, fire exactly one
+  // `selectWindow` to align tmux to the URL. Guarded by
+  // `hasAlignedToUrlRef` per-session-mount so subsequent navigations within
+  // the same session don't replay the alignment (which would clobber
+  // user clicks).
+  useEffect(() => {
+    if (!sessionName || !windowIndex || !currentSession) return;
+    const sessionKey = `${server}|${sessionName}`;
+    if (lastAlignedSessionRef.current !== sessionKey) {
+      // Fresh session route — re-arm the guard.
+      hasAlignedToUrlRef.current = false;
+      lastAlignedSessionRef.current = sessionKey;
+    }
+    if (hasAlignedToUrlRef.current) return;
+    // Wait for the first SSE-populated session payload (with a real
+    // active window) before deciding whether to align.
+    const activeIdx = activeWindow ? String(activeWindow.index) : null;
+    if (activeIdx === null) return;
+    hasAlignedToUrlRef.current = true;
+    if (activeIdx !== windowIndex) {
+      selectWindow(server, sessionName, Number(windowIndex)).catch(() => {});
+    }
+  }, [server, sessionName, windowIndex, currentSession, activeWindow]);
+
+  // URL writeback: whenever the SSE snapshot says a different window is
+  // active than what the URL reflects, write the URL via `replace`. No
+  // debounce — tmux truth wins always. Dialogs suppress the writeback to
+  // keep focus-stealing re-renders from interrupting user input.
   useEffect(() => {
     if (!activeWindow || !sessionName) return;
-    if (String(activeWindow.index) !== windowIndex) {
-      // Skip if user recently navigated (e.g. clicked sidebar) or a dialog is open
-      if (dialogOpenRef.current) return;
-      const elapsed = Date.now() - userNavTimestampRef.current;
-      if (elapsed < 3000) return;
-      navigate({
-        to: "/$server/$session/$window",
-        params: { server, session: sessionName, window: String(activeWindow.index) },
-        replace: true,
-      });
-    }
+    if (dialogOpenRef.current) return;
+    if (String(activeWindow.index) === windowIndex) return;
+    navigate({
+      to: "/$server/$session/$window",
+      params: { server, session: sessionName, window: String(activeWindow.index) },
+      replace: true,
+    });
   }, [activeWindow, sessionName, windowIndex, navigate, server]);
 
-  // Navigation callback for sidebar/breadcrumbs — syncs both UI route and tmux active window.
-  // On mobile, we close the overlay sidebar after navigation (destination-tap auto-close).
+  // Navigation callback for sidebar/breadcrumbs — a pure mutation. We tell
+  // tmux to select the target window; the SSE snapshot then drives the URL
+  // and sidebar selection on its next tick (typically <500ms with the
+  // tmuxctl control-mode subscription). No direct `navigate` here so the
+  // URL never gets ahead of (or behind) tmux truth.
+  //
+  // On mobile, close the overlay sidebar after a destination tap.
   const navigateToWindow = useCallback(
     (session: string, windowIdx: number) => {
-      userNavTimestampRef.current = Date.now();
-      navigate({
-        to: "/$server/$session/$window",
-        params: { server, session, window: String(windowIdx) },
-      });
-      if (isMobile) setSidebarOpen(false);
-      // Fire-and-forget: tell tmux to select this window too
       selectWindow(server, session, windowIdx).catch(() => {});
+      if (isMobile) setSidebarOpen(false);
     },
-    [navigate, isMobile, setSidebarOpen, server],
+    [server, isMobile, setSidebarOpen],
   );
 
   // Dialog state management

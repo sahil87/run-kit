@@ -112,7 +112,7 @@ func TestSSEHubDeduplication(t *testing.T) {
 	case <-client.ch:
 		// Got initial snapshot (may be empty or from first poll)
 	case <-time.After(4 * time.Second):
-		// First poll may take up to ssePollInterval
+		// First poll may take up to legacyPollInterval
 	}
 
 	// Drain any pending events from the first poll cycle
@@ -127,7 +127,7 @@ drainLoop:
 	}
 
 	// Wait for another poll cycle — since data hasn't changed, no event should be sent
-	time.Sleep(ssePollInterval + 500*time.Millisecond)
+	time.Sleep(legacyPollInterval + 500*time.Millisecond)
 
 	select {
 	case <-client.ch:
@@ -160,7 +160,7 @@ func TestSSEHubStopsPollingWhenNoClients(t *testing.T) {
 	hub.removeClient(client)
 
 	// Wait for poll loop to detect no clients
-	time.Sleep(ssePollInterval + 500*time.Millisecond)
+	time.Sleep(legacyPollInterval + 500*time.Millisecond)
 
 	hub.mu.RLock()
 	isPolling = hub.polling
@@ -195,7 +195,7 @@ func TestSSEHubDropLogging(t *testing.T) {
 	defer hub.removeClient(client)
 
 	// Wait for at least two poll cycles to fill the tiny buffer and trigger drops
-	time.Sleep(ssePollInterval*3 + 500*time.Millisecond)
+	time.Sleep(legacyPollInterval*3 + 500*time.Millisecond)
 
 	hub.mu.RLock()
 	dropped := client.dropped
@@ -211,7 +211,7 @@ func TestSSEHubDropLogging(t *testing.T) {
 	}
 
 	// Wait for another poll cycle — successful send should reset dropped
-	time.Sleep(ssePollInterval + 500*time.Millisecond)
+	time.Sleep(legacyPollInterval + 500*time.Millisecond)
 
 	hub.mu.RLock()
 	dropped = client.dropped
@@ -252,7 +252,7 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 	defer hub.removeClient(dfClient)
 
 	// Wait for at least one poll cycle
-	time.Sleep(ssePollInterval + 500*time.Millisecond)
+	time.Sleep(legacyPollInterval + 500*time.Millisecond)
 
 	// Drain both channels and check content
 	var rkEvents, dfEvents []string
@@ -446,7 +446,7 @@ func TestSSEHubConcurrentAddRemove(t *testing.T) {
 	hub.removeClient(seed)
 
 	// Wait for polling to stop
-	time.Sleep(ssePollInterval + 500*time.Millisecond)
+	time.Sleep(legacyPollInterval + 500*time.Millisecond)
 
 	hub.mu.RLock()
 	totalClients := 0
@@ -634,7 +634,7 @@ func TestSSE_BoardBootstrapReadsTmuxOnFirstPoll(t *testing.T) {
 	hub.addClient(c)
 	defer hub.removeClient(c)
 
-	deadline := time.After(ssePollInterval + 1*time.Second)
+	deadline := time.After(legacyPollInterval + 1*time.Second)
 	got := false
 	for !got {
 		select {
@@ -705,7 +705,7 @@ func TestSSE_WindowKillEmitsBoardCleanup(t *testing.T) {
 	hub.addClient(c)
 	defer hub.removeClient(c)
 
-	deadline := time.After(ssePollInterval*3 + 2*time.Second)
+	deadline := time.After(legacyPollInterval*3 + 2*time.Second)
 	got := false
 	for !got {
 		select {
@@ -740,8 +740,8 @@ func TestSSE_HubBootstrapReadsOrderOnFirstPoll(t *testing.T) {
 	defer hub.removeClient(c)
 
 	// Poll loop should bootstrap the order on first iteration. Wait up to
-	// ssePollInterval + slack for the broadcast to land.
-	deadline := time.After(ssePollInterval + 1*time.Second)
+	// legacyPollInterval + slack for the broadcast to land.
+	deadline := time.After(legacyPollInterval + 1*time.Second)
 	gotOrder := false
 	for !gotOrder {
 		select {

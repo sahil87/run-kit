@@ -1,0 +1,47 @@
+id: 901h
+name: 260527-901h-deterministic-daemon-lifecycle
+created: 2026-05-27T16:03:57Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 32
+    acceptance_completed: 32
+confidence:
+    certain: 15
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 89.2
+        reversibility: 75.0
+        competence: 81.4
+        disambiguation: 74.4
+stage_metrics:
+    intake: {started_at: "2026-05-27T16:03:57Z", driver: fab-new, iterations: 1, completed_at: "2026-05-28T04:29:22Z"}
+    spec: {started_at: "2026-05-28T04:29:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T04:40:55Z"}
+    apply: {started_at: "2026-05-28T04:40:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T04:41:00Z"}
+    review: {started_at: "2026-05-28T04:41:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T04:47:06Z"}
+    hydrate: {started_at: "2026-05-28T04:47:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T04:49:14Z"}
+    ship: {started_at: "2026-05-28T04:49:14Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    computed_at: "2026-05-28T04:49:14Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-05-28T04:49:14Z

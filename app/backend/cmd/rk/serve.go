@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +20,44 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+const (
+	// daemonLogDirMode is the permission used for `os.MkdirAll` on the daemon
+	// log's parent directory.
+	daemonLogDirMode = 0o755
+	// daemonLogFileMode is the permission used when creating the daemon log file.
+	daemonLogFileMode = 0o644
+)
+
+// setupSlog constructs the default slog logger. When RK_DAEMON_LOG (from env)
+// is set and the file can be opened for append, slog output is teed to both
+// os.Stderr and the log file via io.MultiWriter. On any error (UserCacheDir
+// failure upstream, mkdir failure, open failure) we fall back to stderr-only
+// and emit a single slog.Warn so the operator can see the failure mode but
+// HTTP serving still proceeds — diagnostic logging MUST NOT block startup.
+func setupSlog(level slog.Level) *slog.Logger {
+	var out io.Writer = os.Stderr
+	logPath := os.Getenv(daemon.LogEnvVar)
+	var openErr error
+	if logPath != "" {
+		if err := os.MkdirAll(filepath.Dir(logPath), daemonLogDirMode); err != nil {
+			openErr = err
+		} else {
+			f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, daemonLogFileMode)
+			if err != nil {
+				openErr = err
+			} else {
+				out = io.MultiWriter(os.Stderr, f)
+			}
+		}
+	}
+
+	logger := slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: level}))
+	if openErr != nil {
+		logger.Warn("daemon log unavailable", "path", logPath, "err", openErr)
+	}
+	return logger
+}
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -111,7 +151,7 @@ Examples:
 		if strings.EqualFold(os.Getenv("LOG_LEVEL"), "debug") {
 			logLevel = slog.LevelDebug
 		}
-		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
+		logger := setupSlog(logLevel)
 		slog.SetDefault(logger)
 
 		// Graceful shutdown via SIGINT/SIGTERM

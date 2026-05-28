@@ -1,0 +1,24 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-27T16:03:57Z"}
+{"args":"Make rk serve daemon lifecycle deterministic: port-based liveness detection, stale-socket reaping, and daemon startup logging. Fixes split-brain where foreground rk serve and rk serve -d daemon both contend for the same port but neither detects the other; an orphaned rk-daemon socket is left when the inner serve hits address-already-in-use and os.Exit(1)s.","cmd":"fab-new","event":"command","ts":"2026-05-27T16:03:57Z"}
+{"delta":"+1.2","event":"confidence","score":1.2,"trigger":"calc-score","ts":"2026-05-27T16:05:32Z"}
+{"delta":"+0.0","event":"confidence","score":1.2,"trigger":"calc-score","ts":"2026-05-27T16:05:36Z"}
+{"delta":"+0.0","event":"confidence","score":1.2,"trigger":"calc-score","ts":"2026-05-27T16:05:40Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-05-27T16:09:43Z"}
+{"delta":"+0.0","event":"confidence","score":1.2,"trigger":"calc-score","ts":"2026-05-28T03:18:47Z"}
+{"delta":"+0.0","event":"confidence","score":1.2,"trigger":"calc-score","ts":"2026-05-28T03:18:56Z"}
+{"delta":"+0.0","event":"confidence","score":1.2,"trigger":"calc-score","ts":"2026-05-28T03:19:06Z"}
+{"delta":"+0.0","event":"confidence","score":1.2,"trigger":"calc-score","ts":"2026-05-28T03:19:18Z"}
+{"delta":"+0.3","event":"confidence","score":1.5,"trigger":"calc-score","ts":"2026-05-28T03:19:25Z"}
+{"delta":"+2.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-05-28T03:19:37Z"}
+{"delta":"+1.2","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-05-28T04:26:09Z"}
+{"delta":"+0.3","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-28T04:26:16Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-28T04:26:26Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-28T04:26:31Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-05-28T04:26:54Z"}
+{"delta":"-0.9","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-05-28T04:29:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-05-28T04:29:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-05-28T04:40:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-05-28T04:41:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-05-28T04:47:06Z"}
+{"event":"review","result":"passed","ts":"2026-05-28T04:47:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-05-28T04:49:14Z"}

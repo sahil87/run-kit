@@ -155,6 +155,12 @@ const (
 	// ephemeral grouped sessions. Sessions matching this prefix are filtered out
 	// of user-facing session lists and reaped at server start.
 	RelaySessionPrefix = "rk-relay-"
+	// ControlAnchorSessionName is the literal name of the hidden anchor session
+	// created by the tmuxctl package on tmux servers that have zero user
+	// sessions (a `tmux -CC attach` requires an attached session). It is
+	// filtered from user-facing session lists in parseSessions and is NEVER
+	// touched by the relay sweep — it's owned by tmuxctl, not the relay.
+	ControlAnchorSessionName = "_rk-ctl"
 )
 
 // PaneInfo describes a single tmux pane within a window.
@@ -265,6 +271,13 @@ func parseSessions(lines []string) []SessionInfo {
 		// through ListSessions/parseSessions, so a single early-skip here
 		// guarantees no ephemeral leaks into the UI.
 		if strings.HasPrefix(parts[0], RelaySessionPrefix) {
+			continue
+		}
+		// Filter the tmuxctl control-mode anchor session — owned by the
+		// tmuxctl package, not user-visible. Single chokepoint mirrors the
+		// rk-relay-* skip above so every consumer (REST, SSE, board
+		// derivation, server-aggregate) excludes it automatically.
+		if parts[0] == ControlAnchorSessionName {
 			continue
 		}
 		e := rawEntry{name: parts[0], grouped: parts[1] == "1"}

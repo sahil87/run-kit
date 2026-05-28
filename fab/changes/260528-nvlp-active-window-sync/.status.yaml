@@ -1,0 +1,49 @@
+id: nvlp
+name: 260528-nvlp-active-window-sync
+created: 2026-05-28T08:46:58Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 22
+    acceptance_count: 31
+    acceptance_completed: 0
+confidence:
+    certain: 30
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 94.0
+        reversibility: 83.7
+        competence: 85.3
+        disambiguation: 82.2
+stage_metrics:
+    intake: {started_at: "2026-05-28T08:46:58Z", driver: fab-new, iterations: 1, completed_at: "2026-05-28T12:33:22Z"}
+    spec: {started_at: "2026-05-28T12:33:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T13:05:19Z"}
+    apply: {started_at: "2026-05-28T13:10:36Z", driver: fab-fff, iterations: 2, completed_at: "2026-05-28T13:16:20Z"}
+    review: {started_at: "2026-05-28T13:16:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T13:21:50Z"}
+    hydrate: {started_at: "2026-05-28T13:21:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T13:29:57Z"}
+    ship: {started_at: "2026-05-28T13:29:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T13:33:40Z"}
+    review-pr: {started_at: "2026-05-28T13:33:40Z", driver: fab-fff, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/198
+true_impact:
+    added: 459
+    deleted: 0
+    net: 459
+    computed_at: "2026-05-28T13:29:57Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-05-28T13:33:40Z

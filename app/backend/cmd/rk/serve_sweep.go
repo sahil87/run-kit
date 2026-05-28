@@ -38,6 +38,13 @@ func sweepOrphanedRelaySessions(ctx context.Context) error {
 			if !strings.HasPrefix(name, tmux.RelaySessionPrefix) {
 				continue
 			}
+			// Defense-in-depth: the tmuxctl anchor `_rk-ctl` is not prefixed
+			// with `rk-relay-`, so the check above already excludes it. The
+			// explicit guard below documents that the anchor is owned by
+			// tmuxctl and must NEVER be reaped here even if naming changes.
+			if name == tmux.ControlAnchorSessionName {
+				continue
+			}
 			if err := tmux.KillSessionCtx(ctx, server, name); err != nil {
 				slog.Warn("relay sweep: kill failed", "server", server, "session", name, "err", err)
 				perServerErrs = append(perServerErrs, fmt.Sprintf("%s/%s: %v", server, name, err))

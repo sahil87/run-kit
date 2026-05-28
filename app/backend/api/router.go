@@ -271,9 +271,17 @@ func (neighbourNotFoundError) Error() string { return "neighbour window not foun
 // Uses production dependencies (live tmux, real session fetcher).
 // The ctx controls the lifecycle of background goroutines (e.g., metrics collector).
 func NewRouter(ctx context.Context, logger *slog.Logger) chi.Router {
+	router, _ := NewRouterAndServer(ctx, logger)
+	return router
+}
+
+// NewRouterAndServer is the variant of NewRouter that also returns the
+// underlying *Server, so callers (`rk serve`) can wire in additional hooks
+// such as the tmuxctl WindowChangeSubscriber once their Supervisor is up.
+func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *Server) {
 	hostname, _ := os.Hostname()
 
-	mc := metrics.NewCollector(ssePollInterval)
+	mc := metrics.NewCollector(metricsPollInterval)
 	mc.Start(ctx)
 
 	s := &Server{
@@ -283,7 +291,7 @@ func NewRouter(ctx context.Context, logger *slog.Logger) chi.Router {
 		hostname: hostname,
 		metrics:  mc,
 	}
-	return s.buildRouter()
+	return s.buildRouter(), s
 }
 
 // NewTestRouter creates a chi router with injectable dependencies for testing.

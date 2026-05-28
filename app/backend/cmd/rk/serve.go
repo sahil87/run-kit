@@ -17,6 +17,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/daemon"
 	"rk/internal/tmux"
+	"rk/internal/tmuxctl"
 
 	"github.com/spf13/cobra"
 )
@@ -158,7 +159,23 @@ Examples:
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 
-		router := api.NewRouter(ctx, logger)
+		router, apiServer := api.NewRouterAndServer(ctx, logger)
+
+		// Start the tmuxctl supervisor AFTER tmux.EnsureConfig() and
+		// sweepOrphanedRelaySessions (both above) and BEFORE the HTTP
+		// listen. The sweep must run first so it does not observe the
+		// `_rk-ctl` anchor as an orphan; the supervisor must run before
+		// listen so the SSE hub never races an empty Client map for
+		// sockets that already exist on disk.
+		//
+		// Per-socket Open failures (PTY unavailable, etc.) are logged
+		// inside the Supervisor and never block startup.
+		supervisor := tmuxctl.NewSupervisor(api.NewHubSink())
+		if err := supervisor.Start(ctx); err != nil {
+			slog.Warn("tmuxctl supervisor failed to start; falling back to safety-net poll", "err", err)
+		} else {
+			apiServer.SetWindowChangeSubscriber(api.NewSupervisorSubscriber(supervisor))
+		}
 
 		addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 		server := &http.Server{
@@ -176,6 +193,16 @@ Examples:
 
 		<-ctx.Done()
 		slog.Info("shutting down...")
+
+		// Stop the supervisor first (bounded 5s) so all control-mode
+		// connections close cleanly before the HTTP server shuts down.
+		// Stop errors are logged but do not block shutdown — matches the
+		// daemon-log graceful-degradation pattern from PR #197.
+		supCtx, supCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := supervisor.Stop(supCtx); err != nil {
+			slog.Warn("tmuxctl supervisor stop error", "err", err)
+		}
+		supCancel()
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

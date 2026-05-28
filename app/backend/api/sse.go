@@ -67,11 +67,45 @@ type boardBootstrapPayload struct {
 }
 
 const (
-	ssePollInterval    = 2500 * time.Millisecond
+	// safetyPollInterval is the safety-net cadence for snapshot rebuilds
+	// when no control-mode subscriber is available (PTY-unavailable
+	// container, tmux predating control-mode notifications, brief
+	// reconnect gap). The primary driver is the per-server tmuxctl Client;
+	// see WindowChangeSubscriber.
+	safetyPollInterval = 12 * time.Second
+	// legacyPollInterval is the pre-tmuxctl poll cadence. It remains in
+	// effect when no WindowChangeSubscriber is wired (PTY-unavailable
+	// host, or unit tests that exercise the hub without a control-mode
+	// driver) — under those conditions the snapshot-rebuild cadence is
+	// the only freshness guarantee.
+	legacyPollInterval = 2500 * time.Millisecond
+	// metricsPollInterval is the cadence at which metrics.Collector polls
+	// host CPU/memory. Kept separate from the SSE intervals so the
+	// metrics sampling frequency is not coupled to the SSE event/safety
+	// cadences — both have independent freshness requirements.
+	metricsPollInterval = 2500 * time.Millisecond
+	// sseHeartbeatPeriod is the time after which a connection without
+	// data writes a `: heartbeat` comment to keep the connection alive
+	// through intermediate proxies and detect dead connections. With the
+	// new event-driven loop, heartbeat is time-based (not tick-based) so
+	// the slower safety cadence doesn't starve heartbeats.
+	sseHeartbeatPeriod = 15 * time.Second
 	sseCacheTTL        = 500 * time.Millisecond
-	sseHeartbeatTicks  = 6 // send heartbeat every 6 ticks (~15s)
 	maxLifetime        = 30 * time.Minute
 )
+
+// WindowChangeSubscriber is the interface the SSE hub uses to receive
+// notifications that a server's tmux state has changed. Production
+// implementations bridge into internal/tmuxctl.Client via the Supervisor;
+// tests can implement it directly with a channel.
+//
+// Generation semantics mirror tmuxctl.Client: every observed notification
+// increments the counter. Wait(after) returns a channel that closes once
+// generation > after.
+type WindowChangeSubscriber interface {
+	Generation(server string) int64
+	Wait(server string, after int64) <-chan struct{}
+}
 
 // cachedResult holds a cached FetchSessions result with a timestamp.
 type cachedResult struct {
@@ -108,6 +142,46 @@ type sseHub struct {
 	boardFetcher             BoardEntriesFetcher
 	metrics                  *metrics.Collector
 	cachedMetricsJSON        string // latest metrics JSON for new clients
+
+	// subscriber, when non-nil, provides per-server Wait(after) channels
+	// driven by tmux control-mode notifications. When nil, the loop runs
+	// on the safety-net ticker only — preserves correctness for tests and
+	// for the PTY-unavailable startup case.
+	subscriber WindowChangeSubscriber
+
+	// safetyInterval overrides safetyPollInterval per-hub. Zero falls back
+	// to the package constant. Tests set this to a short duration so
+	// existing time-based assertions remain valid; production callers
+	// leave it zero.
+	safetyInterval time.Duration
+}
+
+// safetyIntervalEffective returns the per-hub safety interval. When a control-
+// mode subscriber is wired, the long 12s safety-net interval applies (control
+// mode is the primary driver). When no subscriber is wired (tests,
+// PTY-unavailable startup), the loop falls back to the legacy 2.5s cadence so
+// existing time-based assertions and PTY-disabled hosts behave identically.
+func (h *sseHub) safetyIntervalEffective() time.Duration {
+	if h.safetyInterval > 0 {
+		return h.safetyInterval
+	}
+	if h.subscriber != nil {
+		return safetyPollInterval
+	}
+	return legacyPollInterval
+}
+
+// detectKilledWindowIDs is a pure function: it returns the set of window ids
+// present in prev but absent in current. Used by the snapshot builder to fan
+// out one `board-changed { cleanup }` event per killed window.
+func detectKilledWindowIDs(prev, current map[string]bool) []string {
+	var killed []string
+	for id := range prev {
+		if !current[id] {
+			killed = append(killed, id)
+		}
+	}
+	return killed
 }
 
 func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector) *sseHub {
@@ -305,7 +379,15 @@ func windowIDSetFromSessions(sess []sessions.ProjectSession) map[string]bool {
 }
 
 func (h *sseHub) poll() {
-	ticksSinceHeartbeat := 0
+	// Track per-server generation observed on the prior pass. The
+	// event-driven wait fires when generation advances past this.
+	perServerGen := map[string]int64{}
+	// eventDrivenServers records which servers had their wait channel
+	// fire on the most recent waitForNext call. The next iteration
+	// invalidates each of those servers' fetch caches so the loop
+	// observes the post-mutation tmux state immediately.
+	eventDrivenServers := map[string]bool{}
+	lastDataAt := time.Now()
 
 	for {
 		// Read-only check: count clients and collect server keys
@@ -340,7 +422,14 @@ func (h *sseHub) poll() {
 		// Poll each server and broadcast to its clients
 		dataChanged := false
 		for _, server := range servers {
-			// Check session fetch cache (500ms TTL)
+			// Check session fetch cache (500ms TTL). If the prior
+			// waitForNext call observed a control-mode notification
+			// for this server, invalidate the cache so we observe the
+			// post-mutation tmux state immediately.
+			if eventDrivenServers[server] {
+				delete(h.cache, server)
+				delete(eventDrivenServers, server)
+			}
 			var result []sessions.ProjectSession
 			if cached, ok := h.cache[server]; ok && time.Since(cached.fetchedAt) < sseCacheTTL {
 				result = cached.data
@@ -426,16 +515,17 @@ func (h *sseHub) poll() {
 			}
 
 			// Window-kill detection for eager board cleanup. Compute the
-			// current window-id set from the freshly fetched session list.
+			// current window-id set from the freshly fetched session list,
+			// diff against the prior snapshot via the pure
+			// detectKilledWindowIDs helper, and fan out one
+			// board-changed { cleanup } event per affected board.
 			currentIDs := windowIDSetFromSessions(result)
 			h.mu.RLock()
 			prevIDs, hasPrev := h.previousWindowIDs[server]
 			h.mu.RUnlock()
 			if hasPrev && h.boardFetcher != nil {
-				for prevID := range prevIDs {
-					if currentIDs[prevID] {
-						continue
-					}
+				killed := detectKilledWindowIDs(prevIDs, currentIDs)
+				for _, prevID := range killed {
 					cleanCtx, cancelClean := context.WithTimeout(context.Background(), 2*time.Second)
 					boards, cerr := h.boardFetcher.RemoveAllByWindowID(cleanCtx, server, prevID)
 					cancelClean()
@@ -482,12 +572,14 @@ func (h *sseHub) poll() {
 		}
 
 		// Send heartbeat to all clients periodically to keep connections
-		// alive through proxies and detect dead connections early.
-		ticksSinceHeartbeat++
+		// alive through proxies and detect dead connections early. With
+		// the event-driven main loop, heartbeat is wall-clock-based —
+		// if no data has been broadcast for sseHeartbeatPeriod, send a
+		// heartbeat comment.
 		if dataChanged {
-			ticksSinceHeartbeat = 0
-		} else if ticksSinceHeartbeat >= sseHeartbeatTicks {
-			ticksSinceHeartbeat = 0
+			lastDataAt = time.Now()
+		} else if time.Since(lastDataAt) >= sseHeartbeatPeriod {
+			lastDataAt = time.Now()
 			heartbeat := []byte(": heartbeat\n\n")
 			h.mu.RLock()
 			for _, cs := range h.clients {
@@ -501,7 +593,104 @@ func (h *sseHub) poll() {
 			h.mu.RUnlock()
 		}
 
-		time.Sleep(ssePollInterval)
+		// Wait for either:
+		//   (a) a tmux control-mode notification for any subscribed server
+		//       (subscriber.Wait channel closes — typically sub-ms after a
+		//       tmux mutation), OR
+		//   (b) the safety-net ticker — guarantees correctness even when
+		//       no subscriber is registered (PTY-unavailable case) or when
+		//       control-mode is reconnecting.
+		h.waitForNext(servers, perServerGen, eventDrivenServers)
+	}
+}
+
+// waitForNext blocks until either a control-mode notification fires for any
+// of the supplied servers OR the safety-net timer elapses. Updates
+// perServerGen with each server's current generation so the next pass can
+// detect change.
+func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, eventDrivenServers map[string]bool) {
+	timer := time.NewTimer(h.safetyIntervalEffective())
+	defer timer.Stop()
+
+	if h.subscriber == nil {
+		// No control-mode driver — ticker-only.
+		<-timer.C
+		return
+	}
+
+	// Build one wait channel per server, anchored at the generation we
+	// last observed.
+	cases := make([]waitCase, 0, len(servers))
+	for _, server := range servers {
+		after := perServerGen[server]
+		ch := h.subscriber.Wait(server, after)
+		cases = append(cases, waitCase{server: server, ch: ch})
+	}
+
+	winner := selectFirst(cases, timer)
+	if winner != "" {
+		// A subscriber fired — update its observed generation and mark
+		// the server as event-driven so the next iteration invalidates
+		// its fetch cache.
+		perServerGen[winner] = h.subscriber.Generation(winner)
+		eventDrivenServers[winner] = true
+	}
+	// Even when a subscriber fires, refresh observed generations for the
+	// other servers so we don't replay their backlog on the next pass.
+	for _, c := range cases {
+		if c.server == winner {
+			continue
+		}
+		// Non-blocking peek: only update perServerGen if the wait already
+		// closed (i.e., generation advanced during our select).
+		select {
+		case <-c.ch:
+			perServerGen[c.server] = h.subscriber.Generation(c.server)
+			eventDrivenServers[c.server] = true
+		default:
+		}
+	}
+}
+
+// waitCase is a small (server, channel) pair used by selectFirst to
+// determine which server's wait fired first. We avoid reflect.Select by
+// fan-in: each channel sends its server name to a unifying channel.
+type waitCase struct {
+	server string
+	ch     <-chan struct{}
+}
+
+// selectFirst blocks until either one of the wait channels closes OR the
+// safety-net timer fires. Returns the server name whose channel fired (or
+// the empty string when the timer wins). Reading timer.C directly in the
+// outer select avoids the goroutine leak that occurs when a subscriber
+// wins the race and the timer goroutine would otherwise block forever on
+// timer.C (Stop does not deliver on C).
+func selectFirst(cases []waitCase, timer *time.Timer) string {
+	if len(cases) == 0 {
+		<-timer.C
+		return ""
+	}
+	out := make(chan string, len(cases))
+	stop := make(chan struct{})
+	defer close(stop)
+	for _, c := range cases {
+		go func(c waitCase) {
+			select {
+			case <-c.ch:
+				select {
+				case out <- c.server:
+				case <-stop:
+				}
+			case <-stop:
+			}
+		}(c)
+	}
+	select {
+	case s := <-out:
+		return s
+	case <-timer.C:
+		return ""
 	}
 }
 

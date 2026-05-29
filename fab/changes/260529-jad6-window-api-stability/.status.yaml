@@ -1,0 +1,37 @@
+id: jad6
+name: 260529-jad6-window-api-stability
+created: 2026-05-29T06:50:28Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: ready
+    spec: pending
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 7
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    indicative: true
+    fuzzy: true
+    dimensions:
+        signal: 90.5
+        reversibility: 65.0
+        competence: 86.8
+        disambiguation: 86.8
+stage_metrics:
+    intake: {started_at: "2026-05-29T06:50:28Z", driver: fab-new, iterations: 1}
+prs: []
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-05-29T07:16:11Z

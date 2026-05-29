@@ -59,7 +59,12 @@ func findPortOwnerImpl(ctx context.Context, host string, port int) (*PortOwner, 
 	return nil, fmt.Errorf("port-owner lookup failed: lsof: %v; ss: %v", lsofErr, ssErr)
 }
 
-// findPortOwnerLsof runs `lsof -ti:<port>` and returns the first PID listed.
+// findPortOwnerLsof runs `lsof -ti:<port> -sTCP:LISTEN` and returns the first
+// PID listed. The `-sTCP:LISTEN` filter restricts the result to the process
+// owning the listen socket — without it, lsof also matches established client
+// connections whose remote port happens to equal `port`, which would let the
+// --force paths target an unrelated client instead of the listener.
+//
 // Returns (nil, nil) when lsof prints no PIDs (nobody listening).
 // Returns (nil, error) when lsof is missing, errors with no useful output, or
 // stdout cannot be parsed as a PID.
@@ -71,7 +76,7 @@ func findPortOwnerLsof(ctx context.Context, port int) (*PortOwner, error) {
 	cctx, cancel := context.WithTimeout(ctx, portOwnerCmdTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cctx, "lsof", "-ti:"+strconv.Itoa(port))
+	cmd := exec.CommandContext(cctx, "lsof", "-ti:"+strconv.Itoa(port), "-sTCP:LISTEN")
 	out, err := cmd.Output()
 	// lsof exits non-zero with empty stdout when nothing matches — treat that
 	// as "no holder" rather than an error.
@@ -104,9 +109,21 @@ func findPortOwnerLsof(ctx context.Context, port int) (*PortOwner, error) {
 // ssUsersPattern extracts pid=N from the ss -tlnp "users:(...,pid=12345,...)" field.
 var ssUsersPattern = regexp.MustCompile(`pid=(\d+)`)
 
+// ssListenerRowPattern matches a data row in `ss -tlnp` output: the LISTEN
+// state token in column 1. ss prints a header line first (`State Recv-Q ...`);
+// any line starting with "LISTEN" is a real listener row.
+var ssListenerRowPattern = regexp.MustCompile(`(?m)^LISTEN\b`)
+
 // findPortOwnerSS runs `ss -tlnp '( sport = :<port> )'` and parses the
-// `users:(...,pid=N,...)` field from stdout. Returns (nil, nil) when no row
-// matches; (nil, error) when ss is missing or stdout cannot be parsed.
+// `users:(...,pid=N,...)` field from stdout.
+//
+// Returns:
+//   - (owner, nil) when a LISTEN row exists and a PID is parseable
+//   - (nil, nil) when no LISTEN row matches the filter (nobody listening)
+//   - (nil, error) when ss is missing, errors out, or a LISTEN row exists but
+//     the PID field is absent/unparseable (e.g., the caller lacks permission to
+//     see another user's process details — the port is occupied but unknown to
+//     us, which is a hard lookup failure rather than a "free port")
 func findPortOwnerSS(ctx context.Context, port int) (*PortOwner, error) {
 	if _, err := exec.LookPath("ss"); err != nil {
 		return nil, fmt.Errorf("ss not on PATH: %w", err)
@@ -122,9 +139,17 @@ func findPortOwnerSS(ctx context.Context, port int) (*PortOwner, error) {
 		return nil, fmt.Errorf("ss failed: %w", err)
 	}
 
+	// Distinguish "no listener row" from "listener present but pid= missing".
+	// Without this, a permission-redacted users:(...) field would be treated
+	// the same as a free port — which would make --force a no-op against a
+	// real holder we just can't see.
+	if !ssListenerRowPattern.Match(out) {
+		return nil, nil
+	}
+
 	matches := ssUsersPattern.FindSubmatch(out)
 	if matches == nil {
-		return nil, nil
+		return nil, fmt.Errorf("ss reported a listener on port %d but no pid= field (insufficient permissions?)", port)
 	}
 	pid, err := strconv.Atoi(string(matches[1]))
 	if err != nil {

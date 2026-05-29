@@ -34,7 +34,14 @@ the rk daemon itself (defensive — should not happen after a successful Stop).`
 
 		if force {
 			cfg := config.Load()
-			owner, _ := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
+			// Surface lookup errors instead of falling through to daemon.Start():
+			// if both lsof and ss are unavailable we don't actually know whether
+			// the port is free, and silently proceeding would leave --force
+			// failing with an opaque bind error instead of the real cause.
+			owner, lookupErr := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
+			if lookupErr != nil {
+				return fmt.Errorf("port-owner lookup failed during --force: %w", lookupErr)
+			}
 			if owner != nil && !ownerIsDaemon(owner) {
 				if err := terminateOwner(cmd.Context(), owner); err != nil {
 					return fmt.Errorf("--force kill of port owner failed: %w", err)

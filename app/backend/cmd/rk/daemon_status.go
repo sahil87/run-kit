@@ -15,6 +15,11 @@ const (
 	portStateFree         = "free"
 	portStateHeldByDaemon = "held-by-daemon"
 	portStateHeldByOther  = "held-by-other"
+	// portStateUnknown signals that the port-owner lookup itself failed
+	// (e.g., neither lsof nor ss are available, or both errored). Surfaced
+	// rather than collapsed into "free" so scripts consuming --json never
+	// see an occupied port reported as available.
+	portStateUnknown = "unknown"
 )
 
 // statusReport is the structured form emitted by `rk daemon status --json`.
@@ -38,6 +43,7 @@ type statusPort struct {
 	State         string `json:"state"`
 	HolderPID     int    `json:"holder_pid,omitempty"`
 	HolderCommand string `json:"holder_command,omitempty"`
+	LookupError   string `json:"lookup_error,omitempty"`
 }
 
 var daemonStatusCmd = &cobra.Command{
@@ -63,10 +69,15 @@ Not to be confused with 'rk status' (top-level tmux session summary).`,
 		}
 
 		cfg := config.Load()
-		owner, _ := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
+		owner, lookupErr := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
 
+		// Distinguish "no holder" from "we couldn't tell" — the latter must
+		// not be reported as "free" because scripts (especially --json
+		// consumers) would treat an occupied-but-opaque port as available.
 		state := portStateFree
-		if owner != nil {
+		if lookupErr != nil {
+			state = portStateUnknown
+		} else if owner != nil {
 			if innerPID > 0 && owner.PID == innerPID {
 				state = portStateHeldByDaemon
 			} else {
@@ -75,9 +86,9 @@ Not to be confused with 'rk status' (top-level tmux session summary).`,
 		}
 
 		if jsonOut {
-			return writeStatusJSON(cmd, running, innerPID, cfg.Host, cfg.Port, state, owner)
+			return writeStatusJSON(cmd, running, innerPID, cfg.Host, cfg.Port, state, owner, lookupErr)
 		}
-		writeStatusText(cmd, running, innerPID, cfg.Host, cfg.Port, state, owner)
+		writeStatusText(cmd, running, innerPID, cfg.Host, cfg.Port, state, owner, lookupErr)
 		return nil
 	},
 }
@@ -86,7 +97,7 @@ func init() {
 	daemonStatusCmd.Flags().Bool("json", false, "Emit a machine-readable JSON object")
 }
 
-func writeStatusJSON(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *PortOwner) error {
+func writeStatusJSON(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *PortOwner, lookupErr error) error {
 	report := statusReport{
 		Daemon: statusDaemon{Running: running},
 		Port:   statusPort{Host: host, Port: port, State: state},
@@ -104,6 +115,9 @@ func writeStatusJSON(cmd *cobra.Command, running bool, innerPID int, host string
 		report.Port.HolderPID = owner.PID
 		report.Port.HolderCommand = owner.Command
 	}
+	if lookupErr != nil {
+		report.Port.LookupError = lookupErr.Error()
+	}
 
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
@@ -113,7 +127,7 @@ func writeStatusJSON(cmd *cobra.Command, running bool, innerPID int, host string
 	return nil
 }
 
-func writeStatusText(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *PortOwner) {
+func writeStatusText(cmd *cobra.Command, running bool, innerPID int, host string, port int, state string, owner *PortOwner, lookupErr error) {
 	out := cmd.OutOrStdout()
 	if running {
 		fmt.Fprintln(out, "Daemon:    running")
@@ -138,5 +152,10 @@ func writeStatusText(cmd *cobra.Command, running bool, innerPID int, host string
 		}
 		fmt.Fprintf(out, "Port:      %s:%d — held by PID %d (%s, foreground)\n", host, port, owner.PID, cmdName)
 		fmt.Fprintf(out, "           To reclaim: `rk daemon stop --force` or `kill %d`\n", owner.PID)
+	case portStateUnknown:
+		fmt.Fprintf(out, "Port:      %s:%d — unknown (lookup failed)\n", host, port)
+		if lookupErr != nil {
+			fmt.Fprintf(out, "           %s\n", lookupErr.Error())
+		}
 	}
 }

@@ -40,7 +40,14 @@ Useful for reclaiming a port held by a foreground 'rk serve' or stale process.`,
 		}
 
 		cfg := config.Load()
-		owner, _ := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
+		// --force's contract is "ensure the port is free at exit", so a lookup
+		// failure must be surfaced rather than treated as "no holder" — silently
+		// declaring success when we couldn't actually check would defeat the
+		// purpose of the flag.
+		owner, lookupErr := findPortOwner(cmd.Context(), cfg.Host, cfg.Port)
+		if lookupErr != nil {
+			return fmt.Errorf("port-owner lookup failed during --force: %w", lookupErr)
+		}
 		if owner == nil {
 			return nil
 		}

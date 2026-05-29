@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-29T06:50:28Z"}
+{"args":"Backend window-state API stability remediation — consolidate actionables from the v2.0.3+ stability audit (select disambiguation, decodeWindowID helper, xao8 root cause + MoveWindow race, delete dead KillPane, consolidate @-option setters)","cmd":"fab-new","event":"command","ts":"2026-05-29T06:50:28Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-05-29T06:51:47Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-05-29T06:51:53Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-05-29T07:13:25Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-05-29T07:13:38Z"}
+{"delta":"+3.8","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-29T07:13:55Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-29T07:14:15Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-29T07:14:30Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-29T07:14:35Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-05-29T07:16:11Z"}

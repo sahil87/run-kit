@@ -233,6 +233,11 @@ func (s *Supervisor) openSocket(ctx context.Context, name string) {
 	s.mu.Lock()
 	s.clients[name] = c
 	s.mu.Unlock()
+	// Socket lifecycle is logged at INFO so the daemon log reconstructs the
+	// timeline of when a tmux server's socket appeared/disappeared — essential
+	// context when correlating an unexpected server teardown with the
+	// `audit=kill` lines emitted by internal/tmux.
+	slog.Info("tmuxctl: socket opened", "socket", name)
 }
 
 // closeSocket closes the Client for a socket (if any) and removes it from the
@@ -245,6 +250,11 @@ func (s *Supervisor) closeSocket(name string) {
 	}
 	s.mu.Unlock()
 	if ok {
+		// A socket removal means the tmux server exited (socket files are
+		// removed by tmux on server shutdown). Logged at WARN so a server
+		// vanishing is visible at the default level and timestamps line up
+		// with the `audit=kill` teardown lines that caused it.
+		slog.Warn("tmuxctl: socket removed (tmux server exited)", "socket", name)
 		_ = c.Close()
 	}
 }

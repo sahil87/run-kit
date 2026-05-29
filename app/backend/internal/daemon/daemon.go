@@ -194,6 +194,7 @@ func guardPortAvailable() error {
 // also logged at Debug and never block startup; if anything is genuinely
 // broken, the subsequent startSession call will surface it.
 func reapStaleDaemonSocket(ctx context.Context) {
+	slog.Warn("tmux teardown", "audit", "kill", "op", "kill-server", "server", serverSocket, "target", serverSocket, "callers", "daemon.reapStaleDaemonSocket")
 	if err := runTmux(ctx, "kill-server"); err != nil {
 		slog.Debug("daemon socket reap finished with error", "err", err)
 	}
@@ -320,6 +321,7 @@ func Stop() error {
 			// Timeout — kill forcefully with a fresh short context.
 			killCtx, killCancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer killCancel()
+			slog.Warn("tmux teardown", "audit", "kill", "op", "kill-session", "server", serverSocket, "target", session, "callers", "daemon.Stop(timeout)")
 			if err := runTmux(killCtx, "kill-session", "-t", "="+session); err != nil {
 				return fmt.Errorf("killing daemon session after timeout: %w", err)
 			}

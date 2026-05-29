@@ -26,6 +26,9 @@ run-kit SHOULD derive values from conventions rather than requiring explicit con
 ### VIII. Thin Justfile
 Justfile recipes MUST be one-liners that delegate to `scripts/`. Logic, loops, and conditionals belong in shell scripts — the justfile is an index, not an implementation.
 
+### IX. Uniform HTTP Verb
+All mutating API endpoints MUST use `POST`. `PUT`, `PATCH`, and `DELETE` SHALL NOT be used — read operations are `GET`, everything else is `POST`. Fewer verb shapes means fewer ways for a client call to be wrong, and the operation's intent belongs in the URL path and request body, not the HTTP method. The CORS `AllowedMethods` allowlist MUST be `[GET, POST, OPTIONS]`. Endpoint semantics that would conventionally map to other verbs (e.g. partial updates) are expressed via the path and a documented body contract (e.g. partial-merge: present keys set, `null` unsets).
+
 ## Additional Constraints
 
 ### Test Integrity
@@ -42,4 +45,4 @@ The restart mechanism uses tmux-based kill-and-restart: `run-kit serve --restart
 
 ## Governance
 
-**Version**: 1.2.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-04-17
+**Version**: 1.3.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-05-29

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -616,6 +618,52 @@ func CreateWindow(session, name, cwd string, server string) error {
 	return err
 }
 
+// killAudit emits a loud, durable WARN line before any tmux teardown so that
+// post-mortem analysis can answer "who killed this server/session?". It is
+// deliberately WARN (not Debug) because the failures it diagnoses — a real
+// user session or whole server vanishing unexpectedly — are rare and we want
+// the evidence to survive the default log level and the daemon log tee
+// (RK_DAEMON_LOG). The `audit=kill` field makes every teardown greppable:
+//
+//	grep 'audit=kill' ~/Library/Caches/rk/daemon.log
+//
+// `callers` captures the immediate call chain (skipping killAudit + the kill
+// wrapper itself) so an unexpected `kit` teardown points straight at the
+// responsible code path (HTTP handler, relay cleanup, sweep, daemon reap).
+func killAudit(op, server, target string) {
+	slog.Warn("tmux teardown",
+		"audit", "kill",
+		"op", op,
+		"server", server,
+		"target", target,
+		"callers", callerChain(2, 4),
+	)
+}
+
+// callerChain returns a "file:line<-file:line<-…" string of up to `depth`
+// frames starting `skip` levels above callerChain itself. Used only for audit
+// logging — kept allocation-light and never on a hot path.
+func callerChain(skip, depth int) string {
+	pcs := make([]uintptr, depth)
+	n := runtime.Callers(skip+1, pcs)
+	if n == 0 {
+		return "unknown"
+	}
+	frames := runtime.CallersFrames(pcs[:n])
+	var b strings.Builder
+	for i := 0; ; i++ {
+		frame, more := frames.Next()
+		if i > 0 {
+			b.WriteString("<-")
+		}
+		b.WriteString(fmt.Sprintf("%s:%d", filepath.Base(frame.File), frame.Line))
+		if !more {
+			break
+		}
+	}
+	return b.String()
+}
+
 // KillSession kills an entire tmux session on the specified server. Uses the
 // default tmux timeout via context.Background — see KillSessionCtx for callers
 // that need to supply their own context (e.g., relay handler cleanup that runs
@@ -632,6 +680,7 @@ func KillSessionCtx(ctx context.Context, server, session string) error {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
+	killAudit("kill-session", server, session)
 	_, err := tmuxExecServer(ctx, server, "kill-session", "-t", session)
 	return err
 }
@@ -1109,6 +1158,7 @@ func KillServer(server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
+	killAudit("kill-server", server, server)
 	_, err := tmuxExecServer(ctx, server, "kill-server")
 	if err != nil && strings.Contains(err.Error(), "No such file or directory") {
 		return nil

@@ -5,33 +5,45 @@ created_by: sahil87
 change_type: refactor
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 14
+    acceptance_count: 36
+    acceptance_completed: 36
 confidence:
-    certain: 10
-    confident: 9
+    certain: 22
+    confident: 0
     tentative: 0
     unresolved: 0
-    score: 2.3
-    indicative: true
+    score: 5.0
     fuzzy: true
     dimensions:
-        signal: 81.3
-        reversibility: 77.9
-        competence: 84.2
-        disambiguation: 78.2
+        signal: 91.1
+        reversibility: 78.2
+        competence: 85.0
+        disambiguation: 78.4
 stage_metrics:
-    intake: {started_at: "2026-05-28T10:34:17Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-05-28T10:34:17Z", driver: fab-new, iterations: 1, completed_at: "2026-05-28T14:14:27Z"}
+    spec: {started_at: "2026-05-28T14:14:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T14:18:40Z"}
+    apply: {started_at: "2026-05-28T14:18:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T14:28:39Z"}
+    review: {started_at: "2026-05-28T14:28:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T14:34:27Z"}
+    hydrate: {started_at: "2026-05-28T14:34:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-28T14:38:27Z"}
+    ship: {started_at: "2026-05-28T14:38:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-29T03:00:26Z"}
+    review-pr: {started_at: "2026-05-29T03:00:26Z", driver: git-pr, iterations: 1, completed_at: "2026-05-29T03:11:07Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/203
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    computed_at: "2026-05-28T14:38:27Z"
+    computed_at_stage: hydrate
 # true_impact: lazily created on first apply-finish (no placeholder here).
-last_updated: 2026-05-28T10:37:35Z
+last_updated: 2026-05-29T03:11:07Z

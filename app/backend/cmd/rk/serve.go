@@ -62,8 +62,8 @@ func setupSlog(level slog.Level) *slog.Logger {
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Start the HTTP server",
-	Long: `Start the HTTP server.
+	Short: "Start the HTTP server (foreground)",
+	Long: `Start the HTTP server in the foreground.
 
 Environment variables:
   RK_HOST    Host to bind (default "127.0.0.1")
@@ -72,64 +72,10 @@ Environment variables:
 Examples:
   rk serve                              # foreground on 127.0.0.1:3000
   RK_HOST=0.0.0.0 RK_PORT=8080 rk serve # bind all interfaces, port 8080
-  rk serve -d                           # run as background daemon`,
+
+To run rk as a background daemon, see 'rk daemon start' (and the rest of the
+'rk daemon' subcommand tree).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		daemonFlag, _ := cmd.Flags().GetBool("daemon")
-		restartFlag, _ := cmd.Flags().GetBool("restart")
-		stopFlag, _ := cmd.Flags().GetBool("stop")
-
-		// Mutual exclusivity check.
-		flagCount := 0
-		if daemonFlag {
-			flagCount++
-		}
-		if restartFlag {
-			flagCount++
-		}
-		if stopFlag {
-			flagCount++
-		}
-		if flagCount > 1 {
-			return fmt.Errorf("flags -d/--daemon, --restart, and --stop are mutually exclusive")
-		}
-
-		switch {
-		case daemonFlag:
-			if daemon.IsRunning() {
-				return fmt.Errorf("rk daemon already running (%s/%s/%s)",
-					daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
-			}
-			if err := daemon.Start(); err != nil {
-				return fmt.Errorf("starting daemon: %w", err)
-			}
-			fmt.Printf("rk daemon started (%s/%s/%s)\n",
-				daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
-			return nil
-
-		case restartFlag:
-			if daemon.IsRunning() {
-				fmt.Println("Restarting rk daemon...")
-			}
-			if err := daemon.Restart(); err != nil {
-				return fmt.Errorf("restarting daemon: %w", err)
-			}
-			fmt.Printf("rk daemon started (%s/%s/%s)\n",
-				daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
-			return nil
-
-		case stopFlag:
-			if !daemon.IsRunning() {
-				fmt.Println("rk daemon not running")
-				return nil
-			}
-			if err := daemon.Stop(); err != nil {
-				return fmt.Errorf("stopping daemon: %w", err)
-			}
-			fmt.Println("rk daemon stopped")
-			return nil
-		}
-
-		// Default: foreground serve (existing behavior).
 		cfg := config.Load()
 
 		// Ensure tmux config exists before starting (write embedded default if missing).
@@ -213,10 +159,4 @@ Examples:
 
 		return nil
 	},
-}
-
-func init() {
-	serveCmd.Flags().BoolP("daemon", "d", false, "Start as a background daemon in a tmux session")
-	serveCmd.Flags().Bool("restart", false, "Restart the background daemon")
-	serveCmd.Flags().Bool("stop", false, "Stop the background daemon")
 }

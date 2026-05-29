@@ -389,6 +389,49 @@ func TestReapStaleDaemonSocket_NoOp(t *testing.T) {
 	reapStaleDaemonSocket(ctx)
 }
 
+// TestInnerServePID_NoSession verifies that the helper errors out cleanly when
+// no daemon session exists.
+func TestInnerServePID_NoSession(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+
+	pid, err := InnerServePID()
+	if err == nil {
+		t.Errorf("InnerServePID() = (%d, nil); expected error when no daemon session exists", pid)
+	}
+	if pid != 0 {
+		t.Errorf("InnerServePID() pid = %d; expected 0 on error", pid)
+	}
+}
+
+// TestInnerServePID_Running verifies the helper returns a positive PID for a
+// live daemon session on the test socket.
+func TestInnerServePID_Running(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+
+	if err := startOn(testSocket, SessionName); err != nil {
+		t.Fatalf("startOn() error: %v", err)
+	}
+
+	pid, err := InnerServePID()
+	if err != nil {
+		t.Fatalf("InnerServePID() error: %v", err)
+	}
+	if pid <= 0 {
+		t.Errorf("InnerServePID() = %d; expected positive PID", pid)
+	}
+}
+
 func TestRestart_WhenRunning(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not in PATH")

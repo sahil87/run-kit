@@ -85,6 +85,24 @@ func runTmux(ctx context.Context, args ...string) error {
 	return nil
 }
 
+// runTmuxOutput executes a tmux command on the daemon server, returning stdout
+// on success and capturing stderr for diagnostics on failure. Mirrors runTmux's
+// exec.CommandContext + stderr-in-error convention.
+func runTmuxOutput(ctx context.Context, args ...string) ([]byte, error) {
+	fullArgs := append([]string{"-L", serverSocket}, args...)
+	cmd := exec.CommandContext(ctx, "tmux", fullArgs...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if stderr.Len() > 0 {
+			return nil, fmt.Errorf("%w: %s", err, bytes.TrimSpace(stderr.Bytes()))
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
 // sessionExistsCtx returns true if a session with the exact given name exists
 // on the daemon socket. The `=` prefix forces exact-match lookup so a prefix
 // like "rk" cannot accidentally match "rk-relay-*" or "rk-daemon".
@@ -334,4 +352,29 @@ func RestartWithBinary(binPath string) error {
 		}
 	}
 	return StartWithBinary(binPath)
+}
+
+// InnerServePID returns the PID of the `rk serve` process running inside the
+// daemon tmux pane, derived from tmux's `pane_pid` format spec. Used by the
+// `rk daemon` CLI surface to recognize the daemon as the port owner (so
+// `--force` paths refuse to SIGTERM the daemon itself).
+//
+// Returns (0, error) when the daemon session is absent or the tmux query fails.
+func InnerServePID() (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+
+	out, err := runTmuxOutput(ctx, "list-panes", "-t", target(), "-F", "#{pane_pid}")
+	if err != nil {
+		return 0, fmt.Errorf("querying daemon pane pid: %w", err)
+	}
+	s := string(bytes.TrimSpace(out))
+	if s == "" {
+		return 0, fmt.Errorf("no pane_pid returned for daemon target %s", target())
+	}
+	pid, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("parsing pane_pid %q: %w", s, err)
+	}
+	return pid, nil
 }

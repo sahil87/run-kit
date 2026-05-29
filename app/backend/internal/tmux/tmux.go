@@ -912,6 +912,21 @@ func SelectWindow(windowID string, server string) error {
 	return err
 }
 
+// SelectWindowInSession selects a window scoped to a specific session, targeting
+// "<session>:<windowID>". A bare window-id target (`select-window -t @N`) is
+// ambiguous inside a tmux session group — group members share window membership
+// but keep independent active-window state, so tmux may set the active window on
+// the wrong member. The relay needs the active window set on its per-WebSocket
+// ephemeral specifically, so it qualifies the target with the ephemeral session.
+func SelectWindowInSession(session, windowID, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	target := fmt.Sprintf("%s:%s", session, windowID)
+	_, err := tmuxExecServer(ctx, server, "select-window", "-t", target)
+	return err
+}
+
 // SplitWindow splits a window to create an independent pane on the specified server. Returns the new pane ID.
 // If horizontal is true, the pane is split left/right (-h flag); otherwise top/bottom.
 // If cwd is non-empty, the new pane starts in that directory (-c flag).

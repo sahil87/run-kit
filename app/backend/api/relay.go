@@ -124,10 +124,13 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Select the window on the ephemeral by its window ID. Window IDs are shared
-	// across grouped sessions, so targeting by @id selects the right window on the
-	// ephemeral without disturbing other clients' active-window state.
-	if err := s.tmux.SelectWindow(windowID, server); err != nil {
+	// Select the window on the ephemeral, scoped to the ephemeral session. A bare
+	// window-id target (`select-window -t @N`) is ambiguous inside a session group
+	// — members share window membership but keep independent active-window state,
+	// so tmux could set the active window on the real session or another group
+	// member. Qualifying the target as "<ephemeral>:@N" pins the active window to
+	// THIS WebSocket's ephemeral, preserving multi-client isolation.
+	if err := s.tmux.SelectWindowInSession(ephemeral, windowID, server); err != nil {
 		slog.Error("select-window failed", "err", err, "ephemeral", ephemeral, "windowID", windowID)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4004, "Window not found"))

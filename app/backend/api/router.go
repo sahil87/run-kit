@@ -37,6 +37,7 @@ type TmuxOps interface {
 	RenameWindow(windowID, name, server string) error
 	SendKeys(windowID, keys, server string) error
 	SelectWindow(windowID, server string) error
+	SelectWindowInSession(session, windowID, server string) error
 	ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error)
 	ResolveWindowSession(ctx context.Context, server, windowID string) (string, error)
 	SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error)
@@ -139,6 +140,9 @@ func (p *prodTmuxOps) SendKeys(windowID, keys, server string) error {
 }
 func (p *prodTmuxOps) SelectWindow(windowID, server string) error {
 	return tmux.SelectWindow(windowID, server)
+}
+func (p *prodTmuxOps) SelectWindowInSession(session, windowID, server string) error {
+	return tmux.SelectWindowInSession(session, windowID, server)
 }
 func (p *prodTmuxOps) ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error) {
 	return tmux.ListWindows(ctx, session, server)

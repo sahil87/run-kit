@@ -51,11 +51,11 @@ export function computeKillRedirect(params: {
   // Session gone entirely
   if (!currentSessionWindows) return { to: "dashboard" };
 
-  // Window gone — navigate to a surviving neighbor by its list position. The
-  // killed window's stable ID is no longer present, and reorder/kill make the
-  // numeric index unreliable for distance math, so we pick the first surviving
-  // window in list order (a deterministic adjacent neighbor) and target it by
-  // its stable windowId.
+  // Window gone — navigate to a surviving window by its list position. The
+  // killed window is already absent from currentSessionWindows and its prior
+  // position is not passed in, so there is no anchor from which to compute a
+  // truly "adjacent" neighbor. We deterministically pick the first surviving
+  // window in list order and target it by its stable windowId.
   if (windowId && !currentWindowExists) {
     if (currentSessionWindows.length > 0) {
       const target = currentSessionWindows[0];

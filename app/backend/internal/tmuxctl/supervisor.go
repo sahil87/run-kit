@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
+
+	"rk/internal/tmux"
 )
 
 // isTmuxSocketCandidate returns false for entries that are known to live in
@@ -18,11 +20,21 @@ import (
 // control-mode client against the `.lock` name would cause tmux to create a
 // fresh server with that name (which in turn births `<socket>.lock.lock`),
 // triggering unbounded recursion under fsnotify.
+//
+// Go-test scaffolding sockets (rk-test-*, rk-relay-test-*, …) are also
+// skipped: tmuxctl's resolveBootstrap calls `tmux new-session -d -s _rk-ctl`
+// when no session exists, which would RESURRECT every orphan test socket on
+// each rk startup and keep the tmux server alive via the control-mode attach.
+// Playwright e2e servers (rk-e2e-*) are NOT skipped — those need live
+// control-mode for the tests to observe window-change events.
 func isTmuxSocketCandidate(name string) bool {
 	if name == "" || name == "." || name == ".." {
 		return false
 	}
 	if strings.HasSuffix(name, ".lock") {
+		return false
+	}
+	if tmux.IsGoTestServerName(name) {
 		return false
 	}
 	return true

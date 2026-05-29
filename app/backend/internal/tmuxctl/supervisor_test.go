@@ -163,6 +163,62 @@ func TestSupervisor_SkipsLockFiles(t *testing.T) {
 	}
 }
 
+// Regression: Go-test scaffolding tmux sockets (rk-test-*, rk-relay-test-*,
+// rk-verify-*, rk-tmuxctl-test, rk-daemon-test) accumulate in $TMUX_TMPDIR
+// after test runs. Without this filter, every rk startup would call
+// resolveBootstrap → createAnchor → `tmux new-session -d -s _rk-ctl` against
+// each orphan socket, resurrecting the tmux server and pinning it open via
+// the control-mode attach. Playwright e2e sockets (rk-e2e-*) MUST still be
+// opened — those tests rely on live tmuxctl events.
+func TestSupervisor_SkipsGoTestSockets(t *testing.T) {
+	resetLoggedUnknowns()
+	dir := t.TempDir()
+
+	cases := map[string]bool{
+		// Skipped (Go test scaffolding)
+		"rk-test-12345-67890":         false,
+		"rk-relay-test-12345-67890":   false,
+		"rk-verify-1234":              false,
+		"rk-tmuxctl-test":             false,
+		"rk-daemon-test":              false,
+		// Opened
+		"default":                     true,
+		"Some":                        true,
+		"rk-e2e":                      true,
+		"rk-e2e-coupling-654321":      true,
+		"rk-e2e-multi-654321":         true,
+	}
+	for name := range cases {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	reg := newTestOpenRegistry()
+	s := NewSupervisor(NoOpSink{})
+	s.watchDirOverride = dir
+	s.open = reg.openFn()
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = s.Stop(stopCtx)
+	})
+
+	opened := make(map[string]bool)
+	for _, name := range reg.opened() {
+		opened[name] = true
+	}
+	for name, shouldOpen := range cases {
+		if got := opened[name]; got != shouldOpen {
+			t.Errorf("opened[%q] = %v, want %v", name, got, shouldOpen)
+		}
+	}
+}
+
 // TestSupervisor_CreateEvent verifies fsnotify-driven Open at runtime.
 func TestSupervisor_CreateEvent(t *testing.T) {
 	resetLoggedUnknowns()

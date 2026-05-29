@@ -36,6 +36,7 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(initConfCmd)
 	rootCmd.AddCommand(contextCmd)
 	rootCmd.AddCommand(riffCmd)

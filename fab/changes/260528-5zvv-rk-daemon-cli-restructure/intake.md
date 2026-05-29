@@ -70,7 +70,8 @@ app/backend/cmd/rk/
   daemon_test.go         # CLI-surface integration tests
 ```
 
-> [NEEDS CLARIFICATION: single-file `daemon.go` containing all four subcommands, or four files? The serve.go precedent is one-file-per-subcommand; this is the project's first multi-child subcommand, so it's a fresh precedent either way. Recommend four files for testability and to keep each focused — but a single file is defensible given the small surface area.]
+<!-- clarified: four files — one-per-subcommand for parity with `cmd/rk/` precedent (serve.go, doctor.go, status.go each own one subcommand). User confirmed during autoresolve. -->
+
 
 `daemonCmd` registration (in `daemon.go`):
 
@@ -248,13 +249,13 @@ Daemon:    not running
 Port:      127.0.0.1:3000 — free
 ```
 
-Implementation: combine `daemon.IsRunning()` (already exists) with `findPortOwner(host, port)`. The "is this PID our daemon" check requires walking up from the PID to see if its session/tty matches the rk-daemon tmux server — see Open Questions #1. A simpler heuristic: compare the holder's PID against the PID of `tmux -L rk-daemon display-message -p '#{pid}'`-equivalent (the inner serve's PID, queryable via tmux's `pane_pid` format spec).
+Implementation: combine `daemon.IsRunning()` (already exists) with `findPortOwner(host, port)`. The "is this PID our daemon" check uses tmux's `pane_pid` format spec via a new small `daemon.InnerServePID() (int, error)` helper — single deterministic tmux query, stays inside the `internal/tmux/`-rooted abstraction.
 
-> [NEEDS CLARIFICATION: exact "is this PID our daemon" check. Options: (a) `tmux -L rk-daemon list-panes -t =rk-daemon:=serve -F '#{pane_pid}'` and compare; (b) walk `/proc/<pid>/status` to find Pgrp/Sid and match against tmux; (c) skip the check and just label the holder by command name. Recommend (a) — single tmux query, deterministic, already inside our abstraction.]
+<!-- clarified: holder-identity check uses option (a) — `tmux -L rk-daemon list-panes -t =rk-daemon:=serve -F '#{pane_pid}'` via `daemon.InnerServePID()`. User confirmed during autoresolve. -->
 
-JSON output: `rk daemon status --json` emits a structured form for scripting. This is a small addition and earns its keep immediately (CI scripts, monitoring).
+JSON output: `rk daemon status --json` emits a structured form for scripting. This is a small addition and earns its keep immediately (CI scripts, monitoring). Included in the initial scope.
 
-> [NEEDS CLARIFICATION: include `--json` in the initial scope, or defer? Recommend include — adds <30 lines and removes a future round-trip.]
+<!-- clarified: --json is in scope for the initial change — small (~30 lines), removes future round-trip. User confirmed during autoresolve. -->
 
 ### 6. Removal of `rk serve -d`/`--restart`/`--stop`
 
@@ -306,7 +307,7 @@ func findPortOwner(ctx context.Context, host string, port int) (*PortOwner, erro
 
 All exec calls go through `exec.CommandContext` with a 5s timeout (Constitution §I). No shell-string construction. Input is fully internal (the port number we already validated and the holder's PID returned by the tool itself) — no user-controlled args flow through.
 
-> [NEEDS CLARIFICATION: should the host argument influence the lookup? `lsof -ti:3000` returns *any* TCP listener on port 3000 regardless of bind interface. For `RK_HOST=127.0.0.1` this is correct (the loopback listener is the one we'd collide with); for `RK_HOST=0.0.0.0` this is also correct (same listener). The host arg is only used for the diagnostic display string — recommend pass-through to display, ignore for lookup.]
+<!-- clarified: host argument is pass-through to display only; lookup uses port only (`lsof -ti:<port>` and `ss -tlnp '( sport = :<port> )'` both correctly cover loopback and wildcard binds). User confirmed during autoresolve. -->
 
 ### 8. Refactor: `daemon.IsRunning()` and friends are sufficient — no daemon-package changes expected
 
@@ -361,6 +362,24 @@ The Go API in `internal/daemon` already exposes everything needed: `IsRunning()`
 - **`rk daemon start --force`**: should it ALWAYS first probe the port and kill any holder, or only when `daemon.Start()` returns the port-in-use error? Recommend on-error — keeps the happy path identical to non-forced.
 - **Help-text mention of `rk status`**: should `rk daemon status --help` actively warn "not to be confused with `rk status` (session summary)"? Recommend yes — one-line note in the Long description.
 
+## Clarifications
+
+### Session 2026-05-28 (bulk confirm)
+
+| # | Action | Detail |
+|---|--------|--------|
+| 11 | Confirmed | — |
+| 12 | Confirmed | — |
+| 13 | Confirmed | — |
+| 14 | Confirmed | — |
+| 15 | Confirmed | — |
+| 16 | Confirmed | — |
+| 17 | Confirmed | — |
+| 18 | Confirmed | — |
+| 19 | Confirmed | — |
+
+Three inline `[NEEDS CLARIFICATION]` blocks also resolved per their recommendations: file layout (four files), holder-identity check (tmux `pane_pid` via `daemon.InnerServePID()`), `--json` scope (included).
+
 ## Assumptions
 
 | # | Grade | Decision | Rationale | Scores |
@@ -375,14 +394,14 @@ The Go API in `internal/daemon` already exposes everything needed: `IsRunning()`
 | 8 | Certain | Existing `rk status` subcommand stays — naming collision is documented but not resolved | The collision is mild (sibling-namespaced); resolving it (e.g., renaming `rk status` → `rk sessions status`) is a separate change | S:85 R:75 A:80 D:80 |
 | 9 | Certain | No changes to `internal/daemon`'s public API except possibly one small helper (`InnerServePID()` for holder-identity check) | Existing `Start`/`Stop`/`Restart`/`IsRunning` cleanly map to subcommands; the helper is the only new thing | S:80 R:80 A:80 D:75 |
 | 10 | Certain | `upgrade.go` flow (brew-upgrade auto-restart via `RestartWithBinary`) is unaffected — operates at the Go API layer, not the CLI | Verified by reading `upgrade.go:99-104`; no CLI dispatch involved | S:90 R:90 A:95 D:90 |
-| 11 | Confident | Sub-command tests use cobra's `RootCmd.SetArgs()` + stdout/stderr capture pattern, with the port-owner lookup function injected via a package-level var override (test pattern already used in `daemon_test.go` for `serverSocket`) | Mirrors existing test patterns in `internal/daemon/daemon_test.go` (the `serverSocket` override) and is standard cobra-testing practice | S:75 R:80 A:80 D:75 |
-| 12 | Confident | Four separate files (`daemon.go`, `daemon_start.go`, `daemon_stop.go`, `daemon_restart.go`, `daemon_status.go`, plus `daemon_portowner.go` helper) — parity with one-file-per-subcommand convention in the rest of `cmd/rk/` | Existing pattern in `cmd/rk/`: `serve.go`, `doctor.go`, `status.go`, `initconf.go`, etc. are each one subcommand per file | S:70 R:85 A:80 D:70 |
-| 13 | Confident | `--json` output for `rk daemon status` is included in initial scope (not deferred) | Small additional cost (~30 lines), removes future round-trip | S:70 R:85 A:75 D:65 |
-| 14 | Confident | Holder-identity check uses tmux's `pane_pid` format spec via a small `daemon.InnerServePID()` helper (option (a) from open questions) | Stays inside the `internal/tmux/`-rooted abstraction (code-quality rule); single deterministic tmux query | S:70 R:75 A:80 D:70 |
-| 15 | Confident | Port-owner lookup ignores the host argument (uses port only) — host is diagnostic in display, not part of the query | A held port is held regardless of bind interface; `lsof -ti:3000` and `ss -tlnp '( sport = :3000 )'` both correctly cover loopback + wildcard binds | S:75 R:80 A:80 D:75 |
-| 16 | Confident | `rk daemon start --force` only kicks in when the non-forced path returns the port-in-use error (lazy / on-error) — not a proactive port-clear on every `--force` invocation | Keeps happy path identical; avoids the "I forced when I didn't need to" surprise | S:70 R:80 A:75 D:70 |
-| 17 | Confident | `rk daemon status --help` includes a one-line note distinguishing it from `rk status` (session summary) | Mitigates the naming collision flagged in this intake | S:75 R:90 A:85 D:80 |
-| 18 | Confident | Constitution §I-VIII review: this change touches only §I (subprocess hygiene for lsof/ss/kill — all `exec.CommandContext`-bounded), §III (re-uses existing daemon helpers), and §IV (consolidates flags into subcommands — net surface reduction at the flag level) | Reasoned through each principle inline above; none violated | S:80 R:75 A:90 D:80 |
-| 19 | Confident | Out-of-scope items: `rk daemon logs` (tail of daemon log), Windows-platform port-owner lookup, replacing `rk status` itself, JSON output for mutating commands | All deferred deliberately; each warrants its own intake | S:75 R:75 A:80 D:70 |
+| 11 | Certain | Sub-command tests use cobra's `RootCmd.SetArgs()` + stdout/stderr capture pattern, with the port-owner lookup function injected via a package-level var override (test pattern already used in `daemon_test.go` for `serverSocket`) | Clarified — user confirmed (autoresolve) | S:95 R:80 A:80 D:75 |
+| 12 | Certain | Four separate files (`daemon.go`, `daemon_start.go`, `daemon_stop.go`, `daemon_restart.go`, `daemon_status.go`, plus `daemon_portowner.go` helper) — parity with one-file-per-subcommand convention in the rest of `cmd/rk/` | Clarified — user confirmed (autoresolve) | S:95 R:85 A:80 D:70 |
+| 13 | Certain | `--json` output for `rk daemon status` is included in initial scope (not deferred) | Clarified — user confirmed (autoresolve) | S:95 R:85 A:75 D:65 |
+| 14 | Certain | Holder-identity check uses tmux's `pane_pid` format spec via a small `daemon.InnerServePID()` helper (option (a) from open questions) | Clarified — user confirmed (autoresolve) | S:95 R:75 A:80 D:70 |
+| 15 | Certain | Port-owner lookup ignores the host argument (uses port only) — host is diagnostic in display, not part of the query | Clarified — user confirmed (autoresolve) | S:95 R:80 A:80 D:75 |
+| 16 | Certain | `rk daemon start --force` only kicks in when the non-forced path returns the port-in-use error (lazy / on-error) — not a proactive port-clear on every `--force` invocation | Clarified — user confirmed (autoresolve) | S:95 R:80 A:75 D:70 |
+| 17 | Certain | `rk daemon status --help` includes a one-line note distinguishing it from `rk status` (session summary) | Clarified — user confirmed (autoresolve) | S:95 R:90 A:85 D:80 |
+| 18 | Certain | Constitution §I-VIII review: this change touches only §I (subprocess hygiene for lsof/ss/kill — all `exec.CommandContext`-bounded), §III (re-uses existing daemon helpers), and §IV (consolidates flags into subcommands — net surface reduction at the flag level) | Clarified — user confirmed (autoresolve) | S:95 R:75 A:90 D:80 |
+| 19 | Certain | Out-of-scope items: `rk daemon logs` (tail of daemon log), Windows-platform port-owner lookup, replacing `rk status` itself, JSON output for mutating commands | Clarified — user confirmed (autoresolve) | S:95 R:75 A:80 D:70 |
 
-19 assumptions (10 certain, 9 confident, 0 tentative, 0 unresolved).
+19 assumptions (19 certain, 0 confident, 0 tentative, 0 unresolved).

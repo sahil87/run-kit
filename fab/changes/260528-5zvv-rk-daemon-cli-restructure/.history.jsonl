@@ -1,3 +1,21 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-28T10:34:17Z"}
 {"args":"Restructure daemon lifecycle into a top-level rk daemon command tree (start/stop/restart/status with --force semantics), hard-removing the rk serve -d/--restart/--stop flags. Follow-up to PR #197 which fixed the underlying detection split-brain but kept the flag-on-serve shape.","cmd":"fab-new","event":"command","ts":"2026-05-28T10:34:17Z"}
 {"delta":"+2.3","event":"confidence","score":2.3,"trigger":"calc-score","ts":"2026-05-28T10:37:35Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-05-28T12:29:23Z"}
+{"delta":"+0.0","event":"confidence","score":2.3,"trigger":"calc-score","ts":"2026-05-28T14:08:23Z"}
+{"delta":"+0.0","event":"confidence","score":2.3,"trigger":"calc-score","ts":"2026-05-28T14:08:36Z"}
+{"delta":"+0.0","event":"confidence","score":2.3,"trigger":"calc-score","ts":"2026-05-28T14:08:45Z"}
+{"delta":"+2.7","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-28T14:09:10Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-28T14:09:19Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-28T14:09:22Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-05-28T14:09:36Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-05-28T14:11:13Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-28T14:14:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-05-28T14:14:27Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-05-28T14:14:29Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-05-28T14:16:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-05-28T14:18:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-05-28T14:28:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-05-28T14:34:27Z"}
+{"event":"review","result":"passed","ts":"2026-05-28T14:34:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-05-28T14:38:27Z"}

@@ -1165,22 +1165,30 @@ function ServerGroup(props: ServerGroupProps) {
                     <div className="ml-3">
                       {session.windows.map((win) => {
                         const ghost = isGhostWindow(win);
-                        // Selection follows tmux truth, not URL. The
-                        // `isActiveWindow` flag is set by the backend
-                        // snapshot on the session's currently-active
-                        // window — this makes the sidebar yank in
-                        // lockstep with `tmux select-window` (including
-                        // external switches and `rk riff`).
+                        // Exactly ONE row per session may look selected, so
+                        // selection keys on a SINGLE source of truth — never
+                        // an OR of two, which lights up two rows whenever the
+                        // sources momentarily disagree.
                         //
-                        // The URL-based `currentWindowIndex` comparison
-                        // is preserved as a fallback for ghost windows
-                        // (mid-creation, before the SSE snapshot
-                        // includes them) and for the initial render
-                        // before the first SSE payload lands.
+                        // The URL is that source: a click navigates the URL
+                        // optimistically (user intent leads), and an external
+                        // `tmux select-window` / `rk riff` flips
+                        // `isActiveWindow`, which the app's writeback effect
+                        // then mirrors into the URL. So the URL converges to
+                        // tmux truth within a render either way, and keying on
+                        // it gives a single, unambiguous selection.
+                        //
+                        // `isActiveWindow` is the fallback ONLY before the URL
+                        // has a window segment (just landed on the session,
+                        // pre-writeback) — and even then only for the one
+                        // tmux-active row. Ghost rows (mid-creation, not yet
+                        // in the URL or snapshot) fall back to index match.
+                        const hasUrlWindow = currentWindowIndex != null;
                         const isSelected =
                           currentSessionName === session.name &&
-                          ((!ghost && win.isActiveWindow) ||
-                            currentWindowIndex === String(win.index));
+                          (hasUrlWindow
+                            ? currentWindowIndex === String(win.index)
+                            : (!ghost && win.isActiveWindow));
                         const isDragOver =
                           dropTarget?.server === server &&
                           dropTarget?.session === session.name &&

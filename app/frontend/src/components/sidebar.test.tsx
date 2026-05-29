@@ -209,6 +209,36 @@ describe("Sidebar", () => {
     expect(mainBtn?.className).toContain("font-medium");
   });
 
+  it("highlights exactly one window when the URL window differs from the tmux-active window", () => {
+    // Regression: an optimistic click navigates the URL ahead of tmux, so the
+    // URL window (scratch, index 1) and the still-stale tmux-active window
+    // (main, index 0) momentarily disagree. Selection must follow the URL
+    // alone — never light up BOTH rows (the prior OR-of-two-sources bug).
+    renderSidebar({ currentWindowIndex: "1" });
+
+    const mainBtn = screen.getAllByText("main")[0].closest("button");
+    const scratchBtn = screen.getAllByText("scratch")[0].closest("button");
+
+    // URL points at scratch → only scratch is selected.
+    expect(scratchBtn?.getAttribute("aria-current")).toBe("page");
+    // main is tmux-active but NOT in the URL → must not look selected.
+    expect(mainBtn?.getAttribute("aria-current")).not.toBe("page");
+
+    // Belt-and-suspenders: exactly one selected row in this session's tree.
+    const tree = screen.getByRole("navigation", { name: "Sessions" });
+    const selected = within(tree).getAllByRole("button", { current: "page" });
+    expect(selected).toHaveLength(1);
+  });
+
+  it("falls back to the tmux-active window when the URL has no window segment", () => {
+    // Before the URL gains a window (e.g. just landed on the session, or
+    // pre-writeback), selection follows isActiveWindow so the active row is
+    // still indicated.
+    renderSidebar({ currentWindowIndex: null });
+    const mainBtn = screen.getAllByText("main")[0].closest("button");
+    expect(mainBtn?.getAttribute("aria-current")).toBe("page");
+  });
+
   it("calls onSelectWindow when clicking a window", () => {
     const onSelectWindow = vi.fn();
     renderSidebar({ onSelectWindow });

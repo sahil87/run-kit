@@ -1,7 +1,8 @@
 # sidebar-window-sync.spec.ts
 
 Validates that the sidebar stays in sync with tmux state for external
-mutations (create, rename, kill-then-create) without page reloads.
+mutations (create, rename, kill-then-create) without page reloads, and that
+clicking a window in the UI renders its terminal (the user-driven direction).
 
 ## Shared setup
 
@@ -9,6 +10,11 @@ mutations (create, rename, kill-then-create) without page reloads.
   isolated session; `afterAll` kills it.
 - Tests within this file run sequentially (`fullyParallel: false`), so
   windows created in one test won't race another.
+- `resolveWindow(page, name)` polls `GET /api/sessions` until a window with
+  the given name appears, returning its stable tmux window id (`@N`) and
+  index. Tests select rows by `data-window-id="@N"` rather than the display
+  name — `@N` is unique for the window's lifetime, whereas names collide and
+  indices are reused. The index is used only to assert the router URL segment.
 
 ## Tests
 
@@ -38,6 +44,46 @@ sidebar — the new name appears and the old name disappears.
 5. Assert `rename-dst-<ts>` appears within 5s.
 6. Assert `rename-src-<ts>` is no longer visible within 5s — by this point
    SSE has replaced the old entry.
+
+### `clicking a window from the dashboard selects it and updates the URL`
+
+**What it proves:** Clicking a window in the sidebar while on the server
+dashboard (no session/window in the URL) puts that session+window into the URL
+and marks the row selected — so the terminal route mounts at all. This is the
+regression guard for PR #198, which made clicks pure `selectWindow` mutations
+whose URL writeback could only re-point the window *within the URL's existing
+session* — so a first click from the dashboard left the dashboard showing
+forever. The assertion targets the URL + selection (the direct fix signal),
+not the xterm canvas, whose lazy init + WebSocket connect is a separate,
+slower concern.
+
+**Steps:**
+1. Create a second window `click-win-<ts>` via `execSync`.
+2. Navigate to `/${TMUX_SERVER}` (dashboard — no window segment) and wait for
+   `Connected`.
+3. `resolveWindow` the created window to get its `@id` and index.
+4. Assert the row (`data-window-id="@id"`) button is visible and the URL does
+   not yet contain `/${TEST_SESSION}/`.
+5. Click the window button.
+6. Assert the URL now matches `/${TEST_SESSION}/<index>` and the clicked
+   button has `aria-current="page"`.
+
+### `clicking a different window switches selection without bounce-back`
+
+**What it proves:** After selecting window A, clicking window B switches to B
+and *stays* on B — the optimistic navigate plus the `pendingClickRef` intent
+guard prevent a stale SSE snapshot (still reporting A active) from bouncing
+the selection back to A before tmux confirms the switch.
+
+**Steps:**
+1. Create two windows `switch-a-<ts>` and `switch-b-<ts>` via `execSync`.
+2. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
+3. `resolveWindow` both to get their `@id`s; locate rows by `data-window-id`.
+4. Click A; assert A's button is `aria-current="page"`.
+5. Click B; assert B's button is `aria-current="page"`.
+6. Wait 1.5s (a window in which a stale-snapshot bounce would manifest), then
+   re-assert B is still current, A is not, and the URL still carries a window
+   segment.
 
 ### `kill-then-create at same index does not suppress new window`
 

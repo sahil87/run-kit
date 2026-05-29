@@ -114,7 +114,7 @@ describe("Dashboard", () => {
 
     fireEvent.click(screen.getByLabelText("Expand run-kit"));
     fireEvent.click(screen.getByTestId("window-card-run-kit-0"));
-    expect(onNavigate).toHaveBeenCalledWith("run-kit", 0);
+    expect(onNavigate).toHaveBeenCalledWith("run-kit", "@0");
   });
 
   it("shows paneCommand on window cards", () => {

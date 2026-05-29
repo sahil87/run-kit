@@ -3,17 +3,17 @@ import { computeKillRedirect } from "./navigation";
 
 describe("computeKillRedirect", () => {
   const windows = [
-    { index: 0 },
-    { index: 1 },
-    { index: 2 },
-    { index: 3 },
+    { index: 0, windowId: "@0" },
+    { index: 1, windowId: "@1" },
+    { index: 2, windowId: "@2" },
+    { index: 3, windowId: "@3" },
   ];
 
   it("returns null when not connected", () => {
     expect(
       computeKillRedirect({
         sessionName: "sess",
-        windowIndex: "1",
+        windowId: "@1",
         currentSessionWindows: windows,
         currentWindowExists: false,
         isConnected: false,
@@ -25,7 +25,7 @@ describe("computeKillRedirect", () => {
     expect(
       computeKillRedirect({
         sessionName: undefined,
-        windowIndex: "1",
+        windowId: "@1",
         currentSessionWindows: windows,
         currentWindowExists: false,
         isConnected: true,
@@ -37,7 +37,7 @@ describe("computeKillRedirect", () => {
     expect(
       computeKillRedirect({
         sessionName: "sess",
-        windowIndex: "1",
+        windowId: "@1",
         currentSessionWindows: windows,
         currentWindowExists: true,
         isConnected: true,
@@ -49,7 +49,7 @@ describe("computeKillRedirect", () => {
     expect(
       computeKillRedirect({
         sessionName: "sess",
-        windowIndex: "1",
+        windowId: "@1",
         currentSessionWindows: null,
         currentWindowExists: false,
         isConnected: true,
@@ -61,7 +61,7 @@ describe("computeKillRedirect", () => {
     expect(
       computeKillRedirect({
         sessionName: "sess",
-        windowIndex: "0",
+        windowId: "@0",
         currentSessionWindows: [],
         currentWindowExists: false,
         isConnected: true,
@@ -69,41 +69,38 @@ describe("computeKillRedirect", () => {
     ).toEqual({ to: "dashboard" });
   });
 
-  it("navigates to nearest sibling when middle window killed", () => {
-    // Kill window 2 — siblings [0, 1, 3], nearest is 1 or 3 (both distance 1)
-    const siblings = [{ index: 0 }, { index: 1 }, { index: 3 }];
+  it("navigates to a surviving neighbor by windowId when a window is killed", () => {
+    // Kill window @2 — surviving siblings (list order) [@0, @1, @3]; the
+    // redirect targets the first surviving window by its stable windowId.
+    const siblings = [
+      { index: 0, windowId: "@0" },
+      { index: 1, windowId: "@1" },
+      { index: 3, windowId: "@3" },
+    ];
     const result = computeKillRedirect({
       sessionName: "sess",
-      windowIndex: "2",
+      windowId: "@2",
       currentSessionWindows: siblings,
       currentWindowExists: false,
       isConnected: true,
     });
-    expect(result).toEqual({ to: "window", session: "sess", windowIndex: 1 });
+    expect(result).toEqual({ to: "window", session: "sess", windowId: "@0" });
   });
 
-  it("navigates to next window when first window killed", () => {
-    const siblings = [{ index: 1 }, { index: 2 }, { index: 3 }];
+  it("navigates to the first surviving window when the first window is killed", () => {
+    const siblings = [
+      { index: 1, windowId: "@1" },
+      { index: 2, windowId: "@2" },
+      { index: 3, windowId: "@3" },
+    ];
     const result = computeKillRedirect({
       sessionName: "sess",
-      windowIndex: "0",
+      windowId: "@0",
       currentSessionWindows: siblings,
       currentWindowExists: false,
       isConnected: true,
     });
-    expect(result).toEqual({ to: "window", session: "sess", windowIndex: 1 });
-  });
-
-  it("navigates to previous window when last window killed", () => {
-    const siblings = [{ index: 0 }, { index: 1 }, { index: 2 }];
-    const result = computeKillRedirect({
-      sessionName: "sess",
-      windowIndex: "3",
-      currentSessionWindows: siblings,
-      currentWindowExists: false,
-      isConnected: true,
-    });
-    expect(result).toEqual({ to: "window", session: "sess", windowIndex: 2 });
+    expect(result).toEqual({ to: "window", session: "sess", windowId: "@1" });
   });
 
   it("does not redirect when URL (session, window) was never observed (stale SSE)", () => {
@@ -113,7 +110,7 @@ describe("computeKillRedirect", () => {
     expect(
       computeKillRedirect({
         sessionName: "fresh-session",
-        windowIndex: "0",
+        windowId: "@0",
         currentSessionWindows: null,
         currentWindowExists: false,
         isConnected: true,
@@ -129,7 +126,7 @@ describe("computeKillRedirect", () => {
     expect(
       computeKillRedirect({
         sessionName: "fresh-session",
-        windowIndex: "0",
+        windowId: "@0",
         currentSessionWindows: [],
         currentWindowExists: false,
         isConnected: true,
@@ -143,7 +140,7 @@ describe("computeKillRedirect", () => {
     expect(
       computeKillRedirect({
         sessionName: "killed-session",
-        windowIndex: "0",
+        windowId: "@0",
         currentSessionWindows: null,
         currentWindowExists: false,
         isConnected: true,
@@ -152,15 +149,15 @@ describe("computeKillRedirect", () => {
     ).toEqual({ to: "dashboard" });
   });
 
-  it("navigates to only remaining sibling", () => {
-    const siblings = [{ index: 5 }];
+  it("navigates to the only remaining sibling by windowId", () => {
+    const siblings = [{ index: 5, windowId: "@5" }];
     const result = computeKillRedirect({
       sessionName: "my-session",
-      windowIndex: "0",
+      windowId: "@0",
       currentSessionWindows: siblings,
       currentWindowExists: false,
       isConnected: true,
     });
-    expect(result).toEqual({ to: "window", session: "my-session", windowIndex: 5 });
+    expect(result).toEqual({ to: "window", session: "my-session", windowId: "@5" });
   });
 });

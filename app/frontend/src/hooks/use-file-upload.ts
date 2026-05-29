@@ -19,7 +19,7 @@ type UseFileUploadReturn = {
  */
 export function useFileUpload(
   session: string,
-  windowIndex: string,
+  windowId: string,
   serverOverride?: string,
 ): UseFileUploadReturn {
   const [uploading, setUploading] = useState(false);
@@ -40,7 +40,7 @@ export function useFileUpload(
       try {
         for (const file of Array.from(files)) {
           try {
-            const result = await uploadFile(server, session, file, windowIndex);
+            const result = await uploadFile(server, session, file, windowId);
             if (result.ok && result.path) {
               results.push({ path: result.path, file });
             }
@@ -54,7 +54,7 @@ export function useFileUpload(
 
       return results;
     },
-    [server, session, windowIndex],
+    [server, session, windowId],
   );
 
   return { uploadFiles, uploading };

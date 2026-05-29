@@ -68,6 +68,47 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
+func TestValidateWindowID(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		label    string
+		wantErr  bool
+		contains string
+	}{
+		{"valid single digit", "@5", "Window ID", false, ""},
+		{"valid multi digit", "@123", "Window ID", false, ""},
+		{"valid zero", "@0", "Window ID", false, ""},
+		{"empty string", "", "Window ID", true, "cannot be empty"},
+		{"missing at sign", "5", "Window ID", true, "@N"},
+		{"at sign only", "@", "Window ID", true, "@N"},
+		{"injection attempt", "@5;rm", "Window ID", true, "@N"},
+		{"non-numeric suffix", "window-5", "Window ID", true, "@N"},
+		{"trailing space", "@5 ", "Window ID", true, "@N"},
+		{"label in error", "bogus", "Window ID", true, "Window ID"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateWindowID(tt.input, tt.label)
+			if tt.wantErr && result == "" {
+				t.Error("expected error but got none")
+			}
+			if !tt.wantErr && result != "" {
+				t.Errorf("expected no error but got: %s", result)
+			}
+			if tt.contains != "" && result == "" {
+				t.Errorf("expected error containing %q but got none", tt.contains)
+			}
+			if tt.contains != "" && result != "" {
+				if !contains(result, tt.contains) {
+					t.Errorf("expected error containing %q but got: %s", tt.contains, result)
+				}
+			}
+		})
+	}
+}
+
 func TestValidatePath(t *testing.T) {
 	tests := []struct {
 		name     string

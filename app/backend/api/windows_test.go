@@ -18,7 +18,7 @@ func TestWindowColorSet(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"color":4}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/2/color", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/color", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -29,11 +29,8 @@ func TestWindowColorSet(t *testing.T) {
 	if !ops.setWindowColorCalled {
 		t.Error("SetWindowColor was not called")
 	}
-	if ops.setWindowColorSession != "run-kit" {
-		t.Errorf("session = %q, want %q", ops.setWindowColorSession, "run-kit")
-	}
-	if ops.setWindowColorIndex != 2 {
-		t.Errorf("index = %d, want %d", ops.setWindowColorIndex, 2)
+	if ops.setWindowColorWindowID != "@2" {
+		t.Errorf("windowID = %q, want %q", ops.setWindowColorWindowID, "@2")
 	}
 	if ops.setWindowColorColor != 4 {
 		t.Errorf("color = %d, want %d", ops.setWindowColorColor, 4)
@@ -45,7 +42,7 @@ func TestWindowColorClear(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"color":null}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/2/color", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/color", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -56,11 +53,8 @@ func TestWindowColorClear(t *testing.T) {
 	if !ops.unsetWindowColorCalled {
 		t.Error("UnsetWindowColor was not called")
 	}
-	if ops.unsetWindowColorSession != "run-kit" {
-		t.Errorf("session = %q, want %q", ops.unsetWindowColorSession, "run-kit")
-	}
-	if ops.unsetWindowColorIndex != 2 {
-		t.Errorf("index = %d, want %d", ops.unsetWindowColorIndex, 2)
+	if ops.unsetWindowColorWindowID != "@2" {
+		t.Errorf("windowID = %q, want %q", ops.unsetWindowColorWindowID, "@2")
 	}
 }
 
@@ -68,7 +62,7 @@ func TestWindowColorInvalidValue(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"color":20}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/color", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/color", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -78,25 +72,11 @@ func TestWindowColorInvalidValue(t *testing.T) {
 	}
 }
 
-func TestWindowColorInvalidSession(t *testing.T) {
+func TestWindowColorInvalidWindowID(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"color":4}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;session/windows/0/color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestWindowColorInvalidIndex(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"color":4}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/abc/color", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/color", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -186,7 +166,7 @@ func TestWindowKill(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/1/kill", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@1/kill", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -197,18 +177,15 @@ func TestWindowKill(t *testing.T) {
 	if !ops.killWindowCalled {
 		t.Error("KillWindow was not called")
 	}
-	if ops.killWindowSession != "run-kit" {
-		t.Errorf("session = %q, want %q", ops.killWindowSession, "run-kit")
-	}
-	if ops.killWindowIndex != 1 {
-		t.Errorf("index = %d, want %d", ops.killWindowIndex, 1)
+	if ops.killWindowID != "@1" {
+		t.Errorf("windowID = %q, want %q", ops.killWindowID, "@1")
 	}
 }
 
-func TestWindowKillInvalidIndex(t *testing.T) {
+func TestWindowKillInvalidWindowID(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/abc/kill", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/kill", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -220,15 +197,16 @@ func TestWindowKillInvalidIndex(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if result["error"] != "Invalid window index" {
-		t.Errorf("error = %q, want %q", result["error"], "Invalid window index")
+	if result["error"] != "Invalid window ID" {
+		t.Errorf("error = %q, want %q", result["error"], "Invalid window ID")
 	}
 }
 
-func TestWindowKillNegativeIndex(t *testing.T) {
+func TestWindowKillBareNumberRejected(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/-1/kill", nil)
+	// A bare numeric segment (the old index form) is no longer a valid window ID.
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/1/kill", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -242,7 +220,7 @@ func TestWindowRename(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"name":"new-name"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/1/rename", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@1/rename", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -254,11 +232,8 @@ func TestWindowRename(t *testing.T) {
 	if !ops.renameWindowCalled {
 		t.Error("RenameWindow was not called")
 	}
-	if ops.renameWindowSession != "run-kit" {
-		t.Errorf("session = %q, want %q", ops.renameWindowSession, "run-kit")
-	}
-	if ops.renameWindowIndex != 1 {
-		t.Errorf("index = %d, want %d", ops.renameWindowIndex, 1)
+	if ops.renameWindowWindowID != "@1" {
+		t.Errorf("windowID = %q, want %q", ops.renameWindowWindowID, "@1")
 	}
 	if ops.renameWindowName != "new-name" {
 		t.Errorf("name = %q, want %q", ops.renameWindowName, "new-name")
@@ -269,7 +244,7 @@ func TestWindowRenameEmptyName(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"name":""}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/rename", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/rename", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -284,7 +259,7 @@ func TestWindowKeys(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"keys":"echo hello"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/keys", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -296,11 +271,8 @@ func TestWindowKeys(t *testing.T) {
 	if !ops.sendKeysCalled {
 		t.Error("SendKeys was not called")
 	}
-	if ops.sendKeysSession != "run-kit" {
-		t.Errorf("session = %q, want %q", ops.sendKeysSession, "run-kit")
-	}
-	if ops.sendKeysWindow != 0 {
-		t.Errorf("window = %d, want %d", ops.sendKeysWindow, 0)
+	if ops.sendKeysWindowID != "@0" {
+		t.Errorf("windowID = %q, want %q", ops.sendKeysWindowID, "@0")
 	}
 	if ops.sendKeysKeys != "echo hello" {
 		t.Errorf("keys = %q, want %q", ops.sendKeysKeys, "echo hello")
@@ -311,7 +283,7 @@ func TestWindowKeysEmpty(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"keys":"  "}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/keys", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/keys", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -334,7 +306,7 @@ func TestWindowSplit(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"horizontal":true}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/split", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/split", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -346,11 +318,8 @@ func TestWindowSplit(t *testing.T) {
 	if !ops.splitWindowCalled {
 		t.Error("SplitWindow was not called")
 	}
-	if ops.splitWindowSession != "run-kit" {
-		t.Errorf("session = %q, want %q", ops.splitWindowSession, "run-kit")
-	}
-	if ops.splitWindowIndex != 0 {
-		t.Errorf("window = %d, want %d", ops.splitWindowIndex, 0)
+	if ops.splitWindowID != "@0" {
+		t.Errorf("windowID = %q, want %q", ops.splitWindowID, "@0")
 	}
 	if !ops.splitWindowHorizontal {
 		t.Error("horizontal = false, want true")
@@ -365,11 +334,11 @@ func TestWindowSplit(t *testing.T) {
 	}
 }
 
-func TestWindowSplitInvalidSession(t *testing.T) {
+func TestWindowSplitInvalidWindowID(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"horizontal":false}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;name/windows/0/split", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/bad;name/split", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -384,7 +353,7 @@ func TestWindowMoveSuccess(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"targetIndex":2}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@5/move", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -396,11 +365,8 @@ func TestWindowMoveSuccess(t *testing.T) {
 	if !ops.swapWindowCalled {
 		t.Error("MoveWindow was not called")
 	}
-	if ops.swapWindowSession != "run-kit" {
-		t.Errorf("session = %q, want %q", ops.swapWindowSession, "run-kit")
-	}
-	if ops.swapWindowSrcIndex != 0 {
-		t.Errorf("srcIndex = %d, want %d", ops.swapWindowSrcIndex, 0)
+	if ops.swapWindowID != "@5" {
+		t.Errorf("windowID = %q, want %q", ops.swapWindowID, "@5")
 	}
 	if ops.swapWindowDstIndex != 2 {
 		t.Errorf("dstIndex = %d, want %d", ops.swapWindowDstIndex, 2)
@@ -418,7 +384,7 @@ func TestWindowMoveSuccess(t *testing.T) {
 func TestWindowMoveInvalidBody(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader("not json"))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/move", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -440,7 +406,7 @@ func TestWindowMoveNegativeTargetIndex(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"targetIndex":-1}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/move", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -458,11 +424,11 @@ func TestWindowMoveNegativeTargetIndex(t *testing.T) {
 	}
 }
 
-func TestWindowMoveInvalidIndex(t *testing.T) {
+func TestWindowMoveInvalidWindowID(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"targetIndex":2}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/abc/move", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/move", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -475,22 +441,8 @@ func TestWindowMoveInvalidIndex(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if result["error"] != "Invalid window index" {
-		t.Errorf("error = %q, want %q", result["error"], "Invalid window index")
-	}
-}
-
-func TestWindowMoveInvalidSession(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"targetIndex":2}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;session/windows/0/move", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	if result["error"] != "Invalid window ID" {
+		t.Errorf("error = %q, want %q", result["error"], "Invalid window ID")
 	}
 }
 
@@ -499,7 +451,7 @@ func TestWindowMoveTmuxError(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"targetIndex":5}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/move", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -513,7 +465,7 @@ func TestWindowMoveMissingTargetIndex(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/move", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/move", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -526,7 +478,7 @@ func TestWindowMoveMissingTargetIndex(t *testing.T) {
 func TestWindowSplitInvalidJSON(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows/0/split", strings.NewReader("not json"))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/split", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -543,7 +495,7 @@ func TestWindowMoveToSessionSuccess(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"targetSession":"bravo"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/1/move-to-session", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@1/move-to-session", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -555,11 +507,8 @@ func TestWindowMoveToSessionSuccess(t *testing.T) {
 	if !ops.moveWindowToSessionCalled {
 		t.Error("MoveWindowToSession was not called")
 	}
-	if ops.moveWindowToSessionSrcSession != "alpha" {
-		t.Errorf("srcSession = %q, want %q", ops.moveWindowToSessionSrcSession, "alpha")
-	}
-	if ops.moveWindowToSessionSrcIndex != 1 {
-		t.Errorf("srcIndex = %d, want %d", ops.moveWindowToSessionSrcIndex, 1)
+	if ops.moveWindowToSessionWindowID != "@1" {
+		t.Errorf("windowID = %q, want %q", ops.moveWindowToSessionWindowID, "@1")
 	}
 	if ops.moveWindowToSessionDstSession != "bravo" {
 		t.Errorf("dstSession = %q, want %q", ops.moveWindowToSessionDstSession, "bravo")
@@ -574,33 +523,11 @@ func TestWindowMoveToSessionSuccess(t *testing.T) {
 	}
 }
 
-func TestWindowMoveToSessionSameSession(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"targetSession":"alpha"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/0/move-to-session", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if result["error"] != "targetSession must differ from source session" {
-		t.Errorf("error = %q, want %q", result["error"], "targetSession must differ from source session")
-	}
-}
-
 func TestWindowMoveToSessionMissingTarget(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/0/move-to-session", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/move-to-session", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -622,7 +549,7 @@ func TestWindowMoveToSessionInvalidTargetName(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"targetSession":"bad;name"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/0/move-to-session", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/move-to-session", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -640,11 +567,11 @@ func TestWindowMoveToSessionInvalidTargetName(t *testing.T) {
 	}
 }
 
-func TestWindowMoveToSessionInvalidSession(t *testing.T) {
+func TestWindowMoveToSessionInvalidWindowID(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"targetSession":"bravo"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/bad;session/windows/0/move-to-session", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/bad;session/move-to-session", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -657,7 +584,7 @@ func TestWindowMoveToSessionInvalidSession(t *testing.T) {
 func TestWindowMoveToSessionInvalidJSON(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/0/move-to-session", strings.NewReader("not json"))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/move-to-session", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -680,7 +607,7 @@ func TestWindowMoveToSessionTmuxError(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"targetSession":"bravo"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/alpha/windows/99/move-to-session", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@99/move-to-session", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -697,7 +624,7 @@ func TestWindowUrlUpdateSuccess(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"url":"http://localhost:8080/new-path"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/2/url", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/windows/@2/url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -709,11 +636,8 @@ func TestWindowUrlUpdateSuccess(t *testing.T) {
 	if !ops.setWindowOptionCalled {
 		t.Error("SetWindowOption was not called")
 	}
-	if ops.setWindowOptionSession != "dev" {
-		t.Errorf("session = %q, want %q", ops.setWindowOptionSession, "dev")
-	}
-	if ops.setWindowOptionIndex != 2 {
-		t.Errorf("index = %d, want %d", ops.setWindowOptionIndex, 2)
+	if ops.setWindowOptionWindowID != "@2" {
+		t.Errorf("windowID = %q, want %q", ops.setWindowOptionWindowID, "@2")
 	}
 	if ops.setWindowOptionOption != "@rk_url" {
 		t.Errorf("option = %q, want %q", ops.setWindowOptionOption, "@rk_url")
@@ -727,7 +651,7 @@ func TestWindowUrlUpdateEmptyUrl(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"url":""}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/0/url", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/windows/@0/url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -745,25 +669,11 @@ func TestWindowUrlUpdateEmptyUrl(t *testing.T) {
 	}
 }
 
-func TestWindowUrlUpdateInvalidIndex(t *testing.T) {
+func TestWindowUrlUpdateInvalidWindowID(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
 	body := `{"url":"http://localhost:8080"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/abc/url", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestWindowUrlUpdateInvalidSession(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"url":"http://localhost:8080"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/bad;session/windows/0/url", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/windows/abc/url", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -780,7 +690,7 @@ func TestWindowTypeUpdateSetIframe(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"rkType":"iframe"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/2/type", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/windows/@2/type", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -805,7 +715,7 @@ func TestWindowTypeUpdateUnset(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"rkType":""}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/dev/windows/2/type", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/windows/@2/type", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -820,11 +730,8 @@ func TestWindowTypeUpdateUnset(t *testing.T) {
 	if ops.unsetWindowOptionOption != "@rk_type" {
 		t.Errorf("option = %q, want %q", ops.unsetWindowOptionOption, "@rk_type")
 	}
-	if ops.unsetWindowOptionSession != "dev" {
-		t.Errorf("session = %q, want %q", ops.unsetWindowOptionSession, "dev")
-	}
-	if ops.unsetWindowOptionIndex != 2 {
-		t.Errorf("index = %d, want %d", ops.unsetWindowOptionIndex, 2)
+	if ops.unsetWindowOptionWindowID != "@2" {
+		t.Errorf("windowID = %q, want %q", ops.unsetWindowOptionWindowID, "@2")
 	}
 }
 

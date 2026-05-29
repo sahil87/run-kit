@@ -62,7 +62,6 @@ describe("useDialogState — server capture at handler time", () => {
         () =>
           useDialogState({
             sessionName: "foo",
-            windowIndex: 0,
             windowId: "@0",
           }),
         { wrapper: DynamicWrapper },

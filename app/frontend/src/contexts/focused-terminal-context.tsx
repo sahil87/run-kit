@@ -30,7 +30,7 @@ export type FocusedTerminal = {
   wsRef: React.RefObject<WebSocket | null>;
   server: string;
   session: string;
-  windowIndex: string;
+  windowId: string;
 } | null;
 
 type FocusedTerminalContextValue = {

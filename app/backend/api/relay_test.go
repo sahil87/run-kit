@@ -23,8 +23,9 @@ import (
 // withRelayTmux starts an isolated tmux server with a single real session
 // containing two windows whose payloads are deterministic (echo + sleep) so a
 // relay client can identify which window it is attached to from the PTY bytes.
-// Skips the test if tmux is not on PATH.
-func withRelayTmux(t *testing.T) (server, real string) {
+// Skips the test if tmux is not on PATH. Returns the live window IDs (@N) for
+// the two windows in list-order so callers can address them by stable ID.
+func withRelayTmux(t *testing.T) (server, real, win0ID, win1ID string) {
 	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available — skipping integration test")
@@ -57,7 +58,27 @@ func withRelayTmux(t *testing.T) (server, real string) {
 		defer cancelKill()
 		_ = exec.CommandContext(killCtx, "tmux", "-L", server, "kill-server").Run()
 	})
-	return server, real
+
+	// Resolve the live window IDs (@N) by index so tests can address windows by
+	// their stable ID rather than a mutable index.
+	listCtx, cancelList := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelList()
+	windows, err := tmux.ListWindows(listCtx, real, server)
+	if err != nil {
+		t.Fatalf("list windows: %v", err)
+	}
+	for _, win := range windows {
+		switch win.Index {
+		case 0:
+			win0ID = win.WindowID
+		case 1:
+			win1ID = win.WindowID
+		}
+	}
+	if win0ID == "" || win1ID == "" {
+		t.Fatalf("could not resolve window IDs (got win0=%q win1=%q) from %+v", win0ID, win1ID, windows)
+	}
+	return server, real, win0ID, win1ID
 }
 
 // relayServerWithProdTmux returns an httptest.Server whose router is wired
@@ -70,8 +91,9 @@ func relayServerWithProdTmux(t *testing.T) *httptest.Server {
 }
 
 // dialRelay opens a WebSocket relay connection to the given server's
-// /relay/{session}/{window}?server={tmuxServer} URL.
-func dialRelay(t *testing.T, ts *httptest.Server, tmuxServer, session string, window int) *websocket.Conn {
+// /relay/{windowId}?server={tmuxServer} URL. The window's owning session is
+// resolved server-side from the window ID.
+func dialRelay(t *testing.T, ts *httptest.Server, tmuxServer, windowID string) *websocket.Conn {
 	t.Helper()
 	httpURL, err := url.Parse(ts.URL)
 	if err != nil {
@@ -80,7 +102,7 @@ func dialRelay(t *testing.T, ts *httptest.Server, tmuxServer, session string, wi
 	wsURL := url.URL{
 		Scheme:   "ws",
 		Host:     httpURL.Host,
-		Path:     fmt.Sprintf("/relay/%s/%d", session, window),
+		Path:     fmt.Sprintf("/relay/%s", windowID),
 		RawQuery: fmt.Sprintf("server=%s", tmuxServer),
 	}
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
@@ -138,12 +160,12 @@ func readUntilContains(t *testing.T, conn *websocket.Conn, needle string, deadli
 }
 
 func TestRelay_TwoWindowsTwoRelaysDistinctOutput(t *testing.T) {
-	tmuxServer, real := withRelayTmux(t)
+	tmuxServer, _, win0ID, win1ID := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
 	defer ts.Close()
 
-	connA := dialRelay(t, ts, tmuxServer, real, 0)
-	connB := dialRelay(t, ts, tmuxServer, real, 1)
+	connA := dialRelay(t, ts, tmuxServer, win0ID)
+	connB := dialRelay(t, ts, tmuxServer, win1ID)
 	defer connA.Close()
 	defer connB.Close()
 
@@ -168,12 +190,12 @@ func TestRelay_TwoWindowsTwoRelaysDistinctOutput(t *testing.T) {
 }
 
 func TestRelay_EphemeralCleanupOnClose(t *testing.T) {
-	tmuxServer, real := withRelayTmux(t)
+	tmuxServer, _, win0ID, win1ID := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
 	defer ts.Close()
 
-	connA := dialRelay(t, ts, tmuxServer, real, 0)
-	connB := dialRelay(t, ts, tmuxServer, real, 1)
+	connA := dialRelay(t, ts, tmuxServer, win0ID)
+	connB := dialRelay(t, ts, tmuxServer, win1ID)
 
 	// Helper that uses a fresh per-call timeout so the surrounding polling
 	// loops never run past a shared parent deadline (which previously made
@@ -232,11 +254,12 @@ func TestRelay_EphemeralCleanupOnClose(t *testing.T) {
 	t.Fatalf("rk-relay-* sessions persisted after WebSocket close: %v", lastNames)
 }
 
-// TestRelay_MissingSessionClose4004 exercises the error path: opening a relay
-// to a non-existent real session should close the WebSocket with code 4004
-// and not leak any ephemeral on the tmux server.
-func TestRelay_MissingSessionClose4004(t *testing.T) {
-	tmuxServer, _ := withRelayTmux(t)
+// TestRelay_MissingWindowClose4004 exercises the error path: opening a relay
+// to a well-formed but non-existent window ID should close the WebSocket with
+// code 4004 (session resolution fails) and not leak any ephemeral on the tmux
+// server.
+func TestRelay_MissingWindowClose4004(t *testing.T) {
+	tmuxServer, _, _, _ := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
 	defer ts.Close()
 
@@ -247,7 +270,7 @@ func TestRelay_MissingSessionClose4004(t *testing.T) {
 	wsURL := url.URL{
 		Scheme:   "ws",
 		Host:     httpURL.Host,
-		Path:     "/relay/ghost/0",
+		Path:     "/relay/@9999",
 		RawQuery: fmt.Sprintf("server=%s", tmuxServer),
 	}
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
@@ -256,8 +279,8 @@ func TestRelay_MissingSessionClose4004(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Read the close frame; the handler closes with 4004 when the session is
-	// missing (either via ListWindows or NewGroupedSession).
+	// Read the close frame; the handler closes with 4004 when the window's
+	// owning session cannot be resolved.
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	_, _, readErr := conn.ReadMessage()
 	if readErr == nil {

@@ -32,6 +32,26 @@ func ValidateName(name, label string) string {
 	return ""
 }
 
+// windowIDPattern matches a tmux window ID: an '@' followed by one or more digits
+// (e.g. "@5"). Window IDs originate from tmux's #{window_id} and are never
+// user-typed, but they flow into subprocess args, so they are validated against
+// this strict shape (constitution §I — Security First). This is intentionally
+// stricter than ValidateName, which permits '@' but does not constrain the value
+// to the @N form.
+var windowIDPattern = regexp.MustCompile(`^@[0-9]+$`)
+
+// ValidateWindowID validates a tmux window ID (the canonical window identity).
+// Returns empty string if valid, error message if invalid.
+func ValidateWindowID(id, label string) string {
+	if id == "" {
+		return fmt.Sprintf("%s cannot be empty", label)
+	}
+	if !windowIDPattern.MatchString(id) {
+		return fmt.Sprintf("%s must be a tmux window ID of the form @N", label)
+	}
+	return ""
+}
+
 // serverNamePattern matches valid server names: alphanumeric, hyphens, underscores.
 var serverNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 

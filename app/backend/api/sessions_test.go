@@ -48,42 +48,45 @@ type mockTmuxOps struct {
 	createWindowName    string
 	createWindowCwd     string
 	killWindowCalled    bool
-	killWindowSession   string
-	killWindowIndex     int
+	killWindowID        string
 	swapWindowCalled    bool
-	swapWindowSession   string
-	swapWindowSrcIndex  int
+	swapWindowID        string
 	swapWindowDstIndex  int
 	swapWindowErr       error
 	moveWindowToSessionCalled     bool
-	moveWindowToSessionSrcSession string
-	moveWindowToSessionSrcIndex   int
+	moveWindowToSessionWindowID   string
 	moveWindowToSessionDstSession string
 	moveWindowToSessionErr        error
-	renameWindowCalled  bool
-	renameWindowSession string
-	renameWindowIndex   int
-	renameWindowName    string
-	sendKeysCalled      bool
-	sendKeysSession     string
-	sendKeysWindow      int
-	sendKeysKeys        string
+	renameWindowCalled   bool
+	renameWindowWindowID string
+	renameWindowName     string
+	sendKeysCalled       bool
+	sendKeysWindowID     string
+	sendKeysKeys         string
+	selectWindowCalled   bool
+	selectWindowWindowID string
+
+	selectWindowInSessionCalled   bool
+	selectWindowInSessionSession  string
+	selectWindowInSessionWindowID string
 
 	listWindowsResult  []tmux.WindowInfo
 	listWindowsErr     error
 	listSessionsResult []tmux.SessionInfo
 	listServersResult  []string
 
+	resolveWindowSessionResult string
+	resolveWindowSessionErr    error
+	resolveWindowSessionID     string
+
 	splitWindowCalled     bool
-	splitWindowSession    string
-	splitWindowIndex      int
+	splitWindowID         string
 	splitWindowHorizontal bool
 	splitWindowResult     string
 	splitWindowErr        error
 
-	killActivePaneCalled  bool
-	killActivePaneSession string
-	killActivePaneIndex   int
+	killActivePaneCalled   bool
+	killActivePaneWindowID string
 
 	setSessionColorCalled  bool
 	setSessionColorSession string
@@ -94,25 +97,21 @@ type mockTmuxOps struct {
 	unsetSessionColorErr     error
 
 	setWindowColorCalled   bool
-	setWindowColorSession  string
-	setWindowColorIndex    int
+	setWindowColorWindowID string
 	setWindowColorColor    int
 	setWindowColorErr      error
-	unsetWindowColorCalled  bool
-	unsetWindowColorSession string
-	unsetWindowColorIndex   int
-	unsetWindowColorErr     error
+	unsetWindowColorCalled   bool
+	unsetWindowColorWindowID string
+	unsetWindowColorErr      error
 
-	setWindowOptionCalled  bool
-	setWindowOptionSession string
-	setWindowOptionIndex   int
-	setWindowOptionOption  string
-	setWindowOptionValue   string
+	setWindowOptionCalled   bool
+	setWindowOptionWindowID string
+	setWindowOptionOption   string
+	setWindowOptionValue    string
 
-	unsetWindowOptionCalled  bool
-	unsetWindowOptionSession string
-	unsetWindowOptionIndex   int
-	unsetWindowOptionOption  string
+	unsetWindowOptionCalled   bool
+	unsetWindowOptionWindowID string
+	unsetWindowOptionOption   string
 
 	createWindowWithOptionsCalled  bool
 	createWindowWithOptionsSession string
@@ -200,66 +199,74 @@ func (m *mockTmuxOps) CreateWindow(session, name, cwd, server string) error {
 	m.createWindowCwd = cwd
 	return m.err
 }
-func (m *mockTmuxOps) KillWindow(session string, index int, server string) error {
+func (m *mockTmuxOps) KillWindow(windowID, server string) error {
 	m.killWindowCalled = true
-	m.killWindowSession = session
-	m.killWindowIndex = index
+	m.killWindowID = windowID
 	return m.err
 }
-func (m *mockTmuxOps) MoveWindow(session string, srcIndex int, dstIndex int, server string) error {
+func (m *mockTmuxOps) MoveWindow(windowID string, targetIndex int, server string) error {
 	m.swapWindowCalled = true
-	m.swapWindowSession = session
-	m.swapWindowSrcIndex = srcIndex
-	m.swapWindowDstIndex = dstIndex
+	m.swapWindowID = windowID
+	m.swapWindowDstIndex = targetIndex
 	if m.swapWindowErr != nil {
 		return m.swapWindowErr
 	}
 	return m.err
 }
-func (m *mockTmuxOps) MoveWindowToSession(srcSession string, srcIndex int, dstSession string, server string) error {
+func (m *mockTmuxOps) MoveWindowToSession(windowID, dstSession, server string) error {
 	m.moveWindowToSessionCalled = true
-	m.moveWindowToSessionSrcSession = srcSession
-	m.moveWindowToSessionSrcIndex = srcIndex
+	m.moveWindowToSessionWindowID = windowID
 	m.moveWindowToSessionDstSession = dstSession
 	if m.moveWindowToSessionErr != nil {
 		return m.moveWindowToSessionErr
 	}
 	return m.err
 }
-func (m *mockTmuxOps) RenameWindow(session string, index int, name, server string) error {
+func (m *mockTmuxOps) RenameWindow(windowID, name, server string) error {
 	m.renameWindowCalled = true
-	m.renameWindowSession = session
-	m.renameWindowIndex = index
+	m.renameWindowWindowID = windowID
 	m.renameWindowName = name
 	return m.err
 }
-func (m *mockTmuxOps) SendKeys(session string, window int, keys, server string) error {
+func (m *mockTmuxOps) SendKeys(windowID, keys, server string) error {
 	m.sendKeysCalled = true
-	m.sendKeysSession = session
-	m.sendKeysWindow = window
+	m.sendKeysWindowID = windowID
 	m.sendKeysKeys = keys
 	return m.err
 }
 func (m *mockTmuxOps) ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error) {
 	return m.listWindowsResult, m.listWindowsErr
 }
-func (m *mockTmuxOps) SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error) {
+func (m *mockTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
+	m.resolveWindowSessionID = windowID
+	if m.resolveWindowSessionErr != nil {
+		return "", m.resolveWindowSessionErr
+	}
+	return m.resolveWindowSessionResult, nil
+}
+func (m *mockTmuxOps) SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error) {
 	m.splitWindowCalled = true
-	m.splitWindowSession = session
-	m.splitWindowIndex = window
+	m.splitWindowID = windowID
 	m.splitWindowHorizontal = horizontal
 	return m.splitWindowResult, m.splitWindowErr
 }
-func (m *mockTmuxOps) SelectWindow(session string, index int, server string) error {
-	return nil
+func (m *mockTmuxOps) SelectWindow(windowID, server string) error {
+	m.selectWindowCalled = true
+	m.selectWindowWindowID = windowID
+	return m.err
+}
+func (m *mockTmuxOps) SelectWindowInSession(session, windowID, server string) error {
+	m.selectWindowInSessionCalled = true
+	m.selectWindowInSessionSession = session
+	m.selectWindowInSessionWindowID = windowID
+	return m.err
 }
 func (m *mockTmuxOps) KillPane(paneID, server string) error {
 	return nil
 }
-func (m *mockTmuxOps) KillActivePane(session string, window int, server string) error {
+func (m *mockTmuxOps) KillActivePane(windowID, server string) error {
 	m.killActivePaneCalled = true
-	m.killActivePaneSession = session
-	m.killActivePaneIndex = window
+	m.killActivePaneWindowID = windowID
 	return m.err
 }
 func (m *mockTmuxOps) SetSessionColor(session string, color int, server string) error {
@@ -279,20 +286,18 @@ func (m *mockTmuxOps) UnsetSessionColor(session string, server string) error {
 	}
 	return m.err
 }
-func (m *mockTmuxOps) SetWindowColor(session string, index int, color int, server string) error {
+func (m *mockTmuxOps) SetWindowColor(windowID string, color int, server string) error {
 	m.setWindowColorCalled = true
-	m.setWindowColorSession = session
-	m.setWindowColorIndex = index
+	m.setWindowColorWindowID = windowID
 	m.setWindowColorColor = color
 	if m.setWindowColorErr != nil {
 		return m.setWindowColorErr
 	}
 	return m.err
 }
-func (m *mockTmuxOps) UnsetWindowColor(session string, index int, server string) error {
+func (m *mockTmuxOps) UnsetWindowColor(windowID, server string) error {
 	m.unsetWindowColorCalled = true
-	m.unsetWindowColorSession = session
-	m.unsetWindowColorIndex = index
+	m.unsetWindowColorWindowID = windowID
 	if m.unsetWindowColorErr != nil {
 		return m.unsetWindowColorErr
 	}
@@ -313,18 +318,16 @@ func (m *mockTmuxOps) KillServer(server string) error {
 func (m *mockTmuxOps) ListKeys(server string) ([]string, error) {
 	return nil, nil
 }
-func (m *mockTmuxOps) SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error {
+func (m *mockTmuxOps) SetWindowOption(ctx context.Context, windowID, server, option, value string) error {
 	m.setWindowOptionCalled = true
-	m.setWindowOptionSession = session
-	m.setWindowOptionIndex = index
+	m.setWindowOptionWindowID = windowID
 	m.setWindowOptionOption = option
 	m.setWindowOptionValue = value
 	return m.err
 }
-func (m *mockTmuxOps) UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error {
+func (m *mockTmuxOps) UnsetWindowOption(ctx context.Context, windowID, server, option string) error {
 	m.unsetWindowOptionCalled = true
-	m.unsetWindowOptionSession = session
-	m.unsetWindowOptionIndex = index
+	m.unsetWindowOptionWindowID = windowID
 	m.unsetWindowOptionOption = option
 	return m.err
 }
@@ -574,7 +577,7 @@ func TestClosePaneSuccess(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/main/windows/0/close-pane", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@3/close-pane", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -585,11 +588,8 @@ func TestClosePaneSuccess(t *testing.T) {
 	if !ops.killActivePaneCalled {
 		t.Error("KillActivePane was not called")
 	}
-	if ops.killActivePaneSession != "main" {
-		t.Errorf("killActivePaneSession = %q, want %q", ops.killActivePaneSession, "main")
-	}
-	if ops.killActivePaneIndex != 0 {
-		t.Errorf("killActivePaneIndex = %d, want %d", ops.killActivePaneIndex, 0)
+	if ops.killActivePaneWindowID != "@3" {
+		t.Errorf("killActivePaneWindowID = %q, want %q", ops.killActivePaneWindowID, "@3")
 	}
 
 	var result map[string]bool
@@ -601,10 +601,10 @@ func TestClosePaneSuccess(t *testing.T) {
 	}
 }
 
-func TestClosePaneInvalidSession(t *testing.T) {
+func TestClosePaneInvalidWindowID(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/test;rm/windows/0/close-pane", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/close-pane", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -616,28 +616,8 @@ func TestClosePaneInvalidSession(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if !strings.Contains(result["error"], "forbidden characters") {
-		t.Errorf("error = %q, want containing %q", result["error"], "forbidden characters")
-	}
-}
-
-func TestClosePaneInvalidIndex(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/main/windows/abc/close-pane", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if !strings.Contains(result["error"], "Invalid window index") {
-		t.Errorf("error = %q, want containing %q", result["error"], "Invalid window index")
+	if !strings.Contains(result["error"], "Invalid window ID") {
+		t.Errorf("error = %q, want containing %q", result["error"], "Invalid window ID")
 	}
 }
 

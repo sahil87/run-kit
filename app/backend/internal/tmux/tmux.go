@@ -664,17 +664,69 @@ func NewGroupedSession(ctx context.Context, server, realSession, ephemeral strin
 	return err
 }
 
-// MoveWindow moves a window from srcIndex to before dstIndex within the same session,
-// shifting intermediate windows via adjacent swaps. This gives "insert before" semantics
-// (e.g., moving index 0 to index 2 in [a b c d] produces [b a c d]).
-func MoveWindow(session string, srcIndex int, dstIndex int, server string) error {
+// ResolveWindowSession returns the name of the session that owns the window
+// identified by windowID on the given server. It runs a single targeted
+// display-message lookup (O(1)) rather than enumerating windows. Returns an error
+// when the window ID does not exist or the lookup yields an empty session name —
+// callers (e.g. the relay) treat that as "window not found".
+func ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
+	lines, err := tmuxExecServer(ctx, server, "display-message", "-t", windowID, "-p", "#{session_name}")
+	if err != nil {
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("window %q not found", windowID)
+	}
+	session := strings.TrimSpace(lines[0])
+	if session == "" {
+		return "", fmt.Errorf("window %q has no owning session", windowID)
+	}
+	return session, nil
+}
+
+// resolveWindowSessionIndex resolves both the owning session name and the current
+// window index for the window identified by windowID. Used by positional
+// operations (MoveWindow) that must translate a stable ID into a mutable index.
+func resolveWindowSessionIndex(ctx context.Context, server, windowID string) (string, int, error) {
+	lines, err := tmuxExecServer(ctx, server, "display-message", "-t", windowID, "-p", "#{session_name}\t#{window_index}")
+	if err != nil {
+		return "", 0, err
+	}
+	if len(lines) == 0 {
+		return "", 0, fmt.Errorf("window %q not found", windowID)
+	}
+	parts := strings.SplitN(strings.TrimSpace(lines[0]), "\t", 2)
+	if len(parts) != 2 || parts[0] == "" {
+		return "", 0, fmt.Errorf("window %q: unexpected display-message output %q", windowID, lines[0])
+	}
+	idx, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return "", 0, fmt.Errorf("window %q: parse window index %q: %w", windowID, parts[1], err)
+	}
+	return parts[0], idx, nil
+}
+
+// MoveWindow reorders the window identified by windowID to before dstIndex within
+// its own session, shifting intermediate windows via adjacent swaps. This gives
+// "insert before" semantics (e.g., moving index 0 to index 2 in [a b c d] produces
+// [b a c d]). The source is addressed by its stable window ID; reorder is inherently
+// positional, so the destination remains a numeric index. The window's ID is
+// preserved by the swaps (tmux move-window/swap-window contract).
+func MoveWindow(windowID string, dstIndex int, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	// Resolve the owning session and the source window's current index from its
+	// stable window ID. Index is needed because the reorder is positional.
+	session, srcIndex, err := resolveWindowSessionIndex(ctx, server, windowID)
+	if err != nil {
+		return err
+	}
 	if srcIndex == dstIndex {
 		return nil
 	}
 
 	// Get sorted window indices so we can bubble via adjacent swaps
-	ctx, cancel := withTimeout()
-	defer cancel()
 	out, err := tmuxExecServer(ctx, server, "list-windows", "-t", session, "-F", "#{window_index}")
 	if err != nil {
 		return fmt.Errorf("list windows: %w", err)
@@ -735,28 +787,28 @@ func MoveWindow(session string, srcIndex int, dstIndex int, server string) error
 	return nil
 }
 
-// MoveWindowToSession moves a window from one session to another on the specified server.
-func MoveWindowToSession(srcSession string, srcIndex int, dstSession string, server string) error {
+// MoveWindowToSession moves the window identified by windowID to another session
+// on the specified server. The source is a self-contained window ID; the
+// destination is a session name. move-window preserves the window's ID in its new
+// session (tmux contract).
+func MoveWindowToSession(windowID string, dstSession string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	src := fmt.Sprintf("%s:%d", srcSession, srcIndex)
 	dst := fmt.Sprintf("%s:", dstSession)
-	_, err := tmuxExecServer(ctx, server, "move-window", "-s", src, "-t", dst)
+	_, err := tmuxExecServer(ctx, server, "move-window", "-s", windowID, "-t", dst)
 	return err
 }
 
 // SetWindowOption sets a user-defined window option on the specified server.
-func SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error {
-	target := fmt.Sprintf("%s:%d", session, index)
-	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", target, option, value)
+func SetWindowOption(ctx context.Context, windowID string, server, option, value string) error {
+	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", windowID, option, value)
 	return err
 }
 
 // UnsetWindowOption removes a user-defined window option on the specified server.
-func UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error {
-	target := fmt.Sprintf("%s:%d", session, index)
-	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", target, option)
+func UnsetWindowOption(ctx context.Context, windowID string, server, option string) error {
+	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", windowID, option)
 	return err
 }
 
@@ -778,13 +830,12 @@ func CreateWindowWithOptions(session, name, cwd, server string, options map[stri
 	return err
 }
 
-// KillWindow kills a window by session and index on the specified server.
-func KillWindow(session string, index int, server string) error {
+// KillWindow kills a window by its window ID on the specified server.
+func KillWindow(windowID string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	target := fmt.Sprintf("%s:%d", session, index)
-	_, err := tmuxExecServer(ctx, server, "kill-window", "-t", target)
+	_, err := tmuxExecServer(ctx, server, "kill-window", "-t", windowID)
 	return err
 }
 
@@ -797,23 +848,21 @@ func RenameSession(session, name string, server string) error {
 	return err
 }
 
-// RenameWindow renames a window by session and index on the specified server.
-func RenameWindow(session string, index int, name string, server string) error {
+// RenameWindow renames a window by its window ID on the specified server.
+func RenameWindow(windowID string, name string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	target := fmt.Sprintf("%s:%d", session, index)
-	_, err := tmuxExecServer(ctx, server, "rename-window", "-t", target, name)
+	_, err := tmuxExecServer(ctx, server, "rename-window", "-t", windowID, name)
 	return err
 }
 
-// SendKeys sends keystrokes to a tmux window on the specified server.
-func SendKeys(session string, window int, keys string, server string) error {
+// SendKeys sends keystrokes to a tmux window by its window ID on the specified server.
+func SendKeys(windowID string, keys string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	target := fmt.Sprintf("%s:%d", session, window)
-	_, err := tmuxExecServer(ctx, server, "send-keys", "-t", target, keys, "Enter")
+	_, err := tmuxExecServer(ctx, server, "send-keys", "-t", windowID, keys, "Enter")
 	return err
 }
 
@@ -836,32 +885,44 @@ func UnsetSessionColor(session string, server string) error {
 	return err
 }
 
-// SetWindowColor sets the @color user option on a window.
-func SetWindowColor(session string, index int, color int, server string) error {
+// SetWindowColor sets the @color user option on a window by its window ID.
+func SetWindowColor(windowID string, color int, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	target := fmt.Sprintf("%s:%d", session, index)
-	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", target, "@color", strconv.Itoa(color))
+	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", windowID, "@color", strconv.Itoa(color))
 	return err
 }
 
-// UnsetWindowColor removes the @color user option from a window.
-func UnsetWindowColor(session string, index int, server string) error {
+// UnsetWindowColor removes the @color user option from a window by its window ID.
+func UnsetWindowColor(windowID string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	target := fmt.Sprintf("%s:%d", session, index)
-	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", target, "@color")
+	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", windowID, "@color")
 	return err
 }
 
-// SelectWindow selects (focuses) a window by session and index on the specified server.
-func SelectWindow(session string, index int, server string) error {
+// SelectWindow selects (focuses) a window by its window ID on the specified server.
+func SelectWindow(windowID string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	target := fmt.Sprintf("%s:%d", session, index)
+	_, err := tmuxExecServer(ctx, server, "select-window", "-t", windowID)
+	return err
+}
+
+// SelectWindowInSession selects a window scoped to a specific session, targeting
+// "<session>:<windowID>". A bare window-id target (`select-window -t @N`) is
+// ambiguous inside a tmux session group — group members share window membership
+// but keep independent active-window state, so tmux may set the active window on
+// the wrong member. The relay needs the active window set on its per-WebSocket
+// ephemeral specifically, so it qualifies the target with the ephemeral session.
+func SelectWindowInSession(session, windowID, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	target := fmt.Sprintf("%s:%s", session, windowID)
 	_, err := tmuxExecServer(ctx, server, "select-window", "-t", target)
 	return err
 }
@@ -869,11 +930,10 @@ func SelectWindow(session string, index int, server string) error {
 // SplitWindow splits a window to create an independent pane on the specified server. Returns the new pane ID.
 // If horizontal is true, the pane is split left/right (-h flag); otherwise top/bottom.
 // If cwd is non-empty, the new pane starts in that directory (-c flag).
-func SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error) {
+func SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	target := fmt.Sprintf("%s:%d", session, window)
 	args := []string{"split-window"}
 	if horizontal {
 		args = append(args, "-h")
@@ -881,7 +941,7 @@ func SplitWindow(session string, window int, horizontal bool, cwd string, server
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}
-	args = append(args, "-t", target, "-d", "-P", "-F", "#{pane_id}")
+	args = append(args, "-t", windowID, "-d", "-P", "-F", "#{pane_id}")
 	lines, err := tmuxExecServer(ctx, server, args...)
 	if err != nil {
 		return "", err
@@ -892,14 +952,15 @@ func SplitWindow(session string, window int, horizontal bool, cwd string, server
 	return lines[0], nil
 }
 
-// KillActivePane kills the active pane of the specified window on the given server.
-// Errors are silently ignored (pane may already be dead), matching KillPane pattern.
-func KillActivePane(session string, window int, server string) error {
+// KillActivePane kills the active pane of the window identified by windowID on
+// the given server. Targeting a window ID with kill-pane kills that window's
+// active pane. Errors are silently ignored (pane may already be dead), matching
+// the KillPane pattern.
+func KillActivePane(windowID string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	target := fmt.Sprintf("%s:%d", session, window)
-	_, err := tmuxExecServer(ctx, server, "kill-pane", "-t", target)
+	_, err := tmuxExecServer(ctx, server, "kill-pane", "-t", windowID)
 	// Pane may already be dead — ignore errors
 	_ = err
 	return nil

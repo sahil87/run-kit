@@ -8,13 +8,12 @@ import { useWindowStore } from "@/store/window-store";
 
 type UseDialogStateOptions = {
   sessionName: string | undefined;
-  windowIndex: number | undefined;
   windowId: string | undefined;
   onKillComplete?: () => void;
   onSessionRenamed?: (newName: string) => void;
 };
 
-export function useDialogState({ sessionName, windowIndex, windowId, onKillComplete, onSessionRenamed }: UseDialogStateOptions) {
+export function useDialogState({ sessionName, windowId, onKillComplete, onSessionRenamed }: UseDialogStateOptions) {
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [showRenameSessionDialog, setShowRenameSessionDialog] = useState(false);
   const [showKillConfirm, setShowKillConfirm] = useState(false);
@@ -92,9 +91,9 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
     setShowRenameSessionDialog(false);
   }, [renameSessionName, sessionName, server, onSessionRenamed, executeRenameSession]);
 
-  const { execute: executeRenameWindow } = useOptimisticAction<[string, string, string, number, string]>({
-    action: (srv, session, _wid, index, newName) => renameWindow(srv, session, index, newName),
-    onOptimistic: (srv, session, wid, _index, newName) => {
+  const { execute: executeRenameWindow } = useOptimisticAction<[string, string, string, string]>({
+    action: (srv, _session, wid, newName) => renameWindow(srv, wid, newName),
+    onOptimistic: (srv, session, wid, newName) => {
       lastRenameWindowRef.current = { server: srv, session, windowId: wid };
       renameWindowStore(srv, session, wid, newName);
     },
@@ -113,10 +112,10 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
   });
 
   const handleRename = useCallback(() => {
-    if (!renameName.trim() || !sessionName || windowIndex == null || !windowId) return;
-    executeRenameWindow(server, sessionName, windowId, windowIndex, renameName.trim());
+    if (!renameName.trim() || !sessionName || !windowId) return;
+    executeRenameWindow(server, sessionName, windowId, renameName.trim());
     setShowRenameDialog(false);
-  }, [renameName, sessionName, windowIndex, windowId, server, executeRenameWindow]);
+  }, [renameName, sessionName, windowId, server, executeRenameWindow]);
 
   const { execute: executeKillSession } = useOptimisticAction<[string, string]>({
     action: (srv, name) => killSession(srv, name),
@@ -145,8 +144,8 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
     setShowKillSessionConfirm(false);
   }, [sessionName, server, onKillComplete, executeKillSession]);
 
-  const { execute: executeKillWindow } = useOptimisticAction<[string, string, string, number]>({
-    action: (srv, session, _wid, index) => killWindow(srv, session, index),
+  const { execute: executeKillWindow } = useOptimisticAction<[string, string, string]>({
+    action: (srv, _session, wid) => killWindow(srv, wid),
     onOptimistic: (srv, session, wid) => {
       lastKillWindowRef.current = { server: srv, session, windowId: wid };
       killWindowStore(srv, session, wid);
@@ -166,11 +165,11 @@ export function useDialogState({ sessionName, windowIndex, windowId, onKillCompl
   });
 
   const handleKillWindow = useCallback(() => {
-    if (!sessionName || windowIndex == null || !windowId) return;
-    executeKillWindow(server, sessionName, windowId, windowIndex);
+    if (!sessionName || !windowId) return;
+    executeKillWindow(server, sessionName, windowId);
     onKillComplete?.();
     setShowKillConfirm(false);
-  }, [sessionName, windowIndex, windowId, server, onKillComplete, executeKillWindow]);
+  }, [sessionName, windowId, server, onKillComplete, executeKillWindow]);
 
   return useMemo(() => ({
     showRenameDialog,

@@ -90,7 +90,7 @@ function renderTerminalClient(scrollLocked = false) {
     <FocusedTerminalProvider>
       <TerminalClient
         sessionName="test-session"
-        windowIndex="0"
+        windowId="@0"
         server="default"
         wsRef={createWsRef()}
         composeOpen={false}

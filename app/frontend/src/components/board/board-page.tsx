@@ -335,11 +335,11 @@ function BoardPageContent({ name }: { name: string }) {
     <Sidebar
       currentServer={null}
       currentSession={null}
-      currentWindowIndex={null}
-      onSelectWindow={(srv, sess, idx) => {
+      currentWindowId={null}
+      onSelectWindow={(srv, sess, windowId) => {
         navigate({
           to: "/$server/$session/$window",
-          params: { server: srv, session: sess, window: String(idx) },
+          params: { server: srv, session: sess, window: windowId },
         });
         if (isMobile) setSidebarOpen(false);
       }}

@@ -42,8 +42,7 @@ describe("IframeWindow", () => {
 
   it("renders iframe with proxied URL", () => {
     renderIframe({
-      sessionName: "dev",
-      windowIndex: 0,
+      windowId: "@2",
       rkUrl: "http://localhost:8080/docs",
     });
 
@@ -54,8 +53,7 @@ describe("IframeWindow", () => {
 
   it("displays current URL in the URL bar", () => {
     renderIframe({
-      sessionName: "dev",
-      windowIndex: 0,
+      windowId: "@2",
       rkUrl: "http://localhost:8080/docs",
     });
 
@@ -66,8 +64,7 @@ describe("IframeWindow", () => {
   it("calls updateWindowUrl on Enter with server as first arg", () => {
     renderIframe(
       {
-        sessionName: "dev",
-        windowIndex: 2,
+        windowId: "@2",
         rkUrl: "http://localhost:8080/docs",
       },
       "server-B",
@@ -77,13 +74,12 @@ describe("IframeWindow", () => {
     fireEvent.change(input, { target: { value: "http://localhost:8080/api" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(updateWindowUrl).toHaveBeenCalledWith("server-B", "dev", 2, "http://localhost:8080/api");
+    expect(updateWindowUrl).toHaveBeenCalledWith("server-B", "@2", "http://localhost:8080/api");
   });
 
   it("renders refresh button", () => {
     renderIframe({
-      sessionName: "dev",
-      windowIndex: 0,
+      windowId: "@2",
       rkUrl: "http://localhost:8080/docs",
     });
 
@@ -93,8 +89,7 @@ describe("IframeWindow", () => {
 
   it("passes through non-localhost URLs unchanged", () => {
     renderIframe({
-      sessionName: "dev",
-      windowIndex: 0,
+      windowId: "@2",
       rkUrl: "https://example.com/docs",
     });
 

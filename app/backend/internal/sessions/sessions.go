@@ -73,8 +73,12 @@ func fetchPaneMap(server, repoRoot string) (map[string]paneMapEntry, error) {
 	return dedupEntries(entries), nil
 }
 
-// dedupEntries collapses pane-map entries sharing a (session, window_index) key,
+// dedupEntries collapses pane-map entries that belong to the same window,
 // preferring richer fab state. Priority: Change > AgentState > first-seen.
+// The collision key is the window each pane belongs to. The external
+// `fab pane map` tool identifies a window only by (session, window_index), so
+// that pair is the window-grouping key here; FetchSessions then re-keys the
+// result by the window's stable WindowID before joining (see FetchSessions).
 func dedupEntries(entries []paneMapEntry) map[string]paneMapEntry {
 	m := make(map[string]paneMapEntry, len(entries))
 	for _, e := range entries {
@@ -373,12 +377,28 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 	}
 	gitBranches := resolveGitBranches(ctx, allCwds)
 
+	// Re-key the pane-map enrichment by stable window ID. The external
+	// `fab pane map` tool (wrapped, not reimplemented — constitution §III) emits
+	// only (session, window_index), so we translate each entry to the window ID of
+	// the live window currently at that (session, index) within this same snapshot.
+	// Joining windows by their stable WindowID (rather than by the mutable index)
+	// means a reorder can never misattribute one window's fab/agent state to
+	// another.
+	enrichByWindowID := make(map[string]paneMapEntry, len(paneMap))
+	for _, sd := range data {
+		for j := range sd.windows {
+			indexKey := fmt.Sprintf("%s:%d", sd.info.Name, sd.windows[j].Index)
+			if entry, ok := paneMap[indexKey]; ok {
+				enrichByWindowID[sd.windows[j].WindowID] = entry
+			}
+		}
+	}
+
 	// Build result with per-window fab enrichment from pane-map and git branches.
 	result := make([]ProjectSession, len(data))
 	for i, sd := range data {
 		for j := range sd.windows {
-			key := fmt.Sprintf("%s:%d", sd.info.Name, sd.windows[j].Index)
-			if entry, ok := paneMap[key]; ok {
+			if entry, ok := enrichByWindowID[sd.windows[j].WindowID]; ok {
 				sd.windows[j].FabChange = derefStr(entry.Change)
 				sd.windows[j].FabStage = derefStr(entry.Stage)
 				sd.windows[j].AgentState = derefStr(entry.AgentState)
@@ -397,8 +417,16 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 	return result, nil
 }
 
-// ProjectRoot derives the project root from a session's target window.
-func ProjectRoot(ctx context.Context, session string, windowIndex int, server string) (string, error) {
+// ProjectRoot derives the project root from the target window identified by its
+// stable window ID. It resolves the owning session from the window ID, then
+// returns that window's worktree path. Falls back to the session's first window
+// when the ID is not found among the enumerated windows.
+func ProjectRoot(ctx context.Context, windowID, server string) (string, error) {
+	session, err := tmux.ResolveWindowSession(ctx, server, windowID)
+	if err != nil {
+		return "", err
+	}
+
 	windows, err := tmux.ListWindows(ctx, session, server)
 	if err != nil {
 		return "", err
@@ -408,7 +436,7 @@ func ProjectRoot(ctx context.Context, session string, windowIndex int, server st
 	}
 
 	for _, w := range windows {
-		if w.Index == windowIndex {
+		if w.WindowID == windowID {
 			return w.WorktreePath, nil
 		}
 	}

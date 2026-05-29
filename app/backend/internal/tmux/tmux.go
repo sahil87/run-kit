@@ -664,24 +664,38 @@ func NewGroupedSession(ctx context.Context, server, realSession, ephemeral strin
 	return err
 }
 
-// ResolveWindowSession returns the name of the session that owns the window
-// identified by windowID on the given server. It runs a single targeted
-// display-message lookup (O(1)) rather than enumerating windows. Returns an error
-// when the window ID does not exist or the lookup yields an empty session name —
-// callers (e.g. the relay) treat that as "window not found".
+// ResolveWindowSession returns the name of the user-facing session that owns
+// the window identified by windowID on the given server. Ephemeral relay
+// sessions (RelaySessionPrefix) are filtered out — a window in a session group
+// appears under every group member, and `display-message -t @N` may pick the
+// ephemeral over the real session, which would make a fresh relay group itself
+// against a dying ephemeral. Returns an error when the window ID does not exist
+// in any non-ephemeral session — callers (e.g. the relay) treat that as
+// "window not found".
 func ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
-	lines, err := tmuxExecServer(ctx, server, "display-message", "-t", windowID, "-p", "#{session_name}")
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", "#{session_name}"+listDelim+"#{window_id}")
 	if err != nil {
 		return "", err
 	}
-	if len(lines) == 0 {
-		return "", fmt.Errorf("window %q not found", windowID)
+	for _, line := range lines {
+		parts := strings.SplitN(line, listDelim, 2)
+		if len(parts) != 2 {
+			continue
+		}
+		session := strings.TrimSpace(parts[0])
+		id := strings.TrimSpace(parts[1])
+		if id != windowID {
+			continue
+		}
+		if strings.HasPrefix(session, RelaySessionPrefix) {
+			continue
+		}
+		if session == "" {
+			continue
+		}
+		return session, nil
 	}
-	session := strings.TrimSpace(lines[0])
-	if session == "" {
-		return "", fmt.Errorf("window %q has no owning session", windowID)
-	}
-	return session, nil
+	return "", fmt.Errorf("window %q not found", windowID)
 }
 
 // resolveWindowSessionIndex resolves both the owning session name and the current
@@ -984,6 +998,35 @@ func CapturePane(paneID string, lines int, server string) (string, error) {
 
 	start := -lines
 	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", paneID, "-p", "-S", strconv.Itoa(start))
+}
+
+// IsGoTestServerName reports whether name matches a known Go-test
+// scaffolding server prefix. Go test sockets leak readily (cleanup races
+// with control-mode clients, daemonized servers reparent to init) so the
+// user-facing /api/servers handler hides them to avoid the dev UI churning
+// over hundreds of orphaned sockets after a crash or hard test interrupt.
+//
+// Playwright e2e servers (rk-e2e-*) are NOT filtered — those tests exercise
+// the multi-server flow through the HTTP API and need their servers to
+// appear in /api/servers.
+//
+// This is intentionally NOT applied in ListServers itself — internal
+// consumers (board.go in particular) iterate every real tmux server,
+// including the Go-test sockets that test fixtures create.
+func IsGoTestServerName(name string) bool {
+	prefixes := []string{
+		"rk-test-",
+		"rk-relay-test-",
+		"rk-verify-",
+		"rk-tmuxctl-test",
+		"rk-daemon-test",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // ListServers discovers available tmux servers by scanning the tmux socket directory

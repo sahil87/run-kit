@@ -1094,6 +1094,37 @@ func TestNewGroupedSession_success(t *testing.T) {
 	}
 }
 
+// Regression: when a relay's ephemeral session is grouped with the real
+// session, every window appears under both sessions. ResolveWindowSession
+// must return the real (user-facing) session, not the ephemeral — otherwise
+// a fresh relay groups itself against a dying ephemeral and tears down with
+// it.
+func TestResolveWindowSession_skipsEphemeralGroupMember(t *testing.T) {
+	server, real := withGroupedSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ephemeral := "rk-relay-resolve-test"
+	if err := NewGroupedSession(ctx, server, real, ephemeral); err != nil {
+		t.Fatalf("NewGroupedSession: %v", err)
+	}
+
+	// Pick a window ID that exists in both group members.
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", real, "-F", "#{window_id}")
+	if err != nil || len(lines) == 0 {
+		t.Fatalf("list-windows on real session: lines=%v err=%v", lines, err)
+	}
+	id := strings.TrimSpace(lines[0])
+
+	got, err := ResolveWindowSession(ctx, server, id)
+	if err != nil {
+		t.Fatalf("ResolveWindowSession: %v", err)
+	}
+	if got != real {
+		t.Errorf("ResolveWindowSession(%q) = %q, want %q (ephemeral group member must be skipped)", id, got, real)
+	}
+}
+
 func TestNewGroupedSession_missingRealSessionFails(t *testing.T) {
 	server, _ := withGroupedSessionTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1199,4 +1230,34 @@ func sessionInfoSliceEqual(a, b []SessionInfo) bool {
 		}
 	}
 	return true
+}
+
+func TestIsGoTestServerName(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		// Go-test scaffolding — must be filtered
+		{"rk-test-29701-1780032043508597000", true},
+		{"rk-relay-test-20089-1780031796792405000", true},
+		{"rk-verify-89115", true},
+		{"rk-tmuxctl-test", true},
+		{"rk-daemon-test", true},
+
+		// Playwright e2e — must NOT be filtered (tests assert these appear via /api/servers)
+		{"rk-e2e-coupling-654810", false},
+		{"rk-e2e-multi-632360", false},
+		{"rk-e2e", false},
+
+		// User-facing servers — must NOT be filtered
+		{"default", false},
+		{"Some", false},
+		{"rk-daemon", false},
+		{"production", false},
+	}
+	for _, tc := range cases {
+		if got := IsGoTestServerName(tc.name); got != tc.want {
+			t.Errorf("IsGoTestServerName(%q) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
 }

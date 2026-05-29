@@ -254,6 +254,32 @@ func TestRelay_EphemeralCleanupOnClose(t *testing.T) {
 	t.Fatalf("rk-relay-* sessions persisted after WebSocket close: %v", lastNames)
 }
 
+// TestRelay_PercentEncodedAtNot400 is a regression: clients URL-encode '@'
+// as '%40' via encodeURIComponent in path segments, and chi v5 preserves the
+// encoded form in URLParam. The handler must percent-decode before validating,
+// or every relay attempt 400s before the WebSocket upgrade.
+//
+// A plain HTTP GET (no Upgrade header) is sufficient — the validation gate
+// runs before upgrader.Upgrade and would 400 the encoded form. After the fix
+// the request reaches upgrader.Upgrade, which 400s with "Bad Request"
+// (different body) because there is no Upgrade header. We assert the body
+// does NOT match the validation error.
+func TestRelay_PercentEncodedAtNot400(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	router := NewTestRouter(logger, &mockSessionFetcher{}, &mockTmuxOps{}, "test-host")
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	req := httptest.NewRequest("GET", "/relay/%4018?server=default", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if strings.Contains(body, "Window ID must be a tmux window ID") {
+		t.Errorf("validation rejected percent-encoded '@'; body=%q", body)
+	}
+}
+
 // TestRelay_MissingWindowClose4004 exercises the error path: opening a relay
 // to a well-formed but non-existent window ID should close the WebSocket with
 // code 4004 (session resolution fails) and not leak any ephemeral on the tmux

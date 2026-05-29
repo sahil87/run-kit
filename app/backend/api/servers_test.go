@@ -136,6 +136,52 @@ func TestHandleServersList_MultipleWithOneFailure(t *testing.T) {
 	}
 }
 
+// Regression: Go-test scaffolding tmux sockets (rk-test-*, rk-relay-test-*,
+// etc.) leak readily and accumulate in /tmp/tmux-{uid}/. The user-facing
+// /api/servers handler hides them so the frontend doesn't open SSE streams
+// to dozens of orphans. Playwright e2e servers (rk-e2e-*) are NOT filtered.
+func TestHandleServersList_HidesGoTestServers(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers: []string{
+			"default",
+			"Some",
+			"rk-test-12345-67890",                    // hidden
+			"rk-relay-test-12345-67890",              // hidden
+			"rk-verify-1234",                         // hidden
+			"rk-tmuxctl-test",                        // hidden
+			"rk-daemon-test",                         // hidden
+			"rk-e2e",                                 // shown (persistent harness)
+			"rk-e2e-coupling-654321",                 // shown (Playwright test)
+			"rk-e2e-multi-654321",                    // shown (Playwright test)
+		},
+		sessions: map[string][]tmux.SessionInfo{},
+	}
+	router := NewTestRouter(logger, nil, mock, "test-host")
+
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	gotNames := make([]string, len(got))
+	for i, e := range got {
+		gotNames[i] = e.Name
+	}
+	want := []string{"Some", "default", "rk-e2e", "rk-e2e-coupling-654321", "rk-e2e-multi-654321"}
+	if len(gotNames) != len(want) {
+		t.Fatalf("got %v, want %v", gotNames, want)
+	}
+	for i, name := range want {
+		if gotNames[i] != name {
+			t.Errorf("got[%d] = %q, want %q (full: %v)", i, gotNames[i], name, gotNames)
+		}
+	}
+}
+
 func TestHandleServersList_SortedAlphabetically(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mock := &serversTmuxMock{

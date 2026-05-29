@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"rk/internal/tmux"
 	"rk/internal/validate"
 )
 
@@ -17,11 +18,24 @@ type serverInfo struct {
 }
 
 func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
-	names, err := s.tmux.ListServers(r.Context())
+	rawNames, err := s.tmux.ListServers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Hide Go-test scaffolding sockets from the user-facing list. They leak
+	// readily (cleanup races with control-mode clients, daemonized servers
+	// reparent to init), and the frontend would otherwise open SSE streams
+	// against dozens of orphans after every dev/test session.
+	names := make([]string, 0, len(rawNames))
+	for _, n := range rawNames {
+		if tmux.IsGoTestServerName(n) {
+			continue
+		}
+		names = append(names, n)
+	}
+
 	if len(names) == 0 {
 		writeJSON(w, http.StatusOK, []serverInfo{})
 		return

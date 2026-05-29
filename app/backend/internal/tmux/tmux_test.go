@@ -1231,3 +1231,33 @@ func sessionInfoSliceEqual(a, b []SessionInfo) bool {
 	}
 	return true
 }
+
+func TestIsGoTestServerName(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		// Go-test scaffolding — must be filtered
+		{"rk-test-29701-1780032043508597000", true},
+		{"rk-relay-test-20089-1780031796792405000", true},
+		{"rk-verify-89115", true},
+		{"rk-tmuxctl-test", true},
+		{"rk-daemon-test", true},
+
+		// Playwright e2e — must NOT be filtered (tests assert these appear via /api/servers)
+		{"rk-e2e-coupling-654810", false},
+		{"rk-e2e-multi-632360", false},
+		{"rk-e2e", false},
+
+		// User-facing servers — must NOT be filtered
+		{"default", false},
+		{"Some", false},
+		{"rk-daemon", false},
+		{"production", false},
+	}
+	for _, tc := range cases {
+		if got := IsGoTestServerName(tc.name); got != tc.want {
+			t.Errorf("IsGoTestServerName(%q) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

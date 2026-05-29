@@ -1000,6 +1000,35 @@ func CapturePane(paneID string, lines int, server string) (string, error) {
 	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", paneID, "-p", "-S", strconv.Itoa(start))
 }
 
+// IsGoTestServerName reports whether name matches a known Go-test
+// scaffolding server prefix. Go test sockets leak readily (cleanup races
+// with control-mode clients, daemonized servers reparent to init) so the
+// user-facing /api/servers handler hides them to avoid the dev UI churning
+// over hundreds of orphaned sockets after a crash or hard test interrupt.
+//
+// Playwright e2e servers (rk-e2e-*) are NOT filtered — those tests exercise
+// the multi-server flow through the HTTP API and need their servers to
+// appear in /api/servers.
+//
+// This is intentionally NOT applied in ListServers itself — internal
+// consumers (board.go in particular) iterate every real tmux server,
+// including the Go-test sockets that test fixtures create.
+func IsGoTestServerName(name string) bool {
+	prefixes := []string{
+		"rk-test-",
+		"rk-relay-test-",
+		"rk-verify-",
+		"rk-tmuxctl-test",
+		"rk-daemon-test",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // ListServers discovers available tmux servers by scanning the tmux socket directory
 // at /tmp/tmux-{uid}/. Probes each socket to confirm the server is alive.
 // Returns sorted server names.

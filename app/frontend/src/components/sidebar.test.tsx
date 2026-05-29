@@ -134,7 +134,7 @@ function renderSidebar(overrides: SidebarTestOverrides = {}) {
             <Sidebar
               currentServer={currentServer}
               currentSession="run-kit"
-              currentWindowIndex="0"
+              currentWindowId="@0"
               onSelectWindow={vi.fn()}
               onCreateWindow={vi.fn()}
               onCreateSession={vi.fn()}
@@ -195,7 +195,7 @@ describe("Sidebar", () => {
 
     // Click the session name text
     fireEvent.click(screen.getByLabelText("Navigate to run-kit"));
-    expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 0);
+    expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", "@0");
 
     // Windows should still be visible (not collapsed)
     expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(1);
@@ -214,7 +214,7 @@ describe("Sidebar", () => {
     // URL window (scratch, index 1) and the still-stale tmux-active window
     // (main, index 0) momentarily disagree. Selection must follow the URL
     // alone — never light up BOTH rows (the prior OR-of-two-sources bug).
-    renderSidebar({ currentWindowIndex: "1" });
+    renderSidebar({ currentWindowId: "@1" });
 
     const mainBtn = screen.getAllByText("main")[0].closest("button");
     const scratchBtn = screen.getAllByText("scratch")[0].closest("button");
@@ -234,7 +234,7 @@ describe("Sidebar", () => {
     // Before the URL gains a window (e.g. just landed on the session, or
     // pre-writeback), selection follows isActiveWindow so the active row is
     // still indicated.
-    renderSidebar({ currentWindowIndex: null });
+    renderSidebar({ currentWindowId: null });
     const mainBtn = screen.getAllByText("main")[0].closest("button");
     expect(mainBtn?.getAttribute("aria-current")).toBe("page");
   });
@@ -243,7 +243,7 @@ describe("Sidebar", () => {
     const onSelectWindow = vi.fn();
     renderSidebar({ onSelectWindow });
     fireEvent.click(screen.getByText("scratch"));
-    expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 1);
+    expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", "@1");
   });
 
   it("shows fab stage text on windows", () => {
@@ -313,7 +313,7 @@ describe("Sidebar", () => {
       });
 
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
-      expect(renameWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 1, "new-name");
+      expect(renameWindowMock).toHaveBeenCalledWith("runkit", "@1", "new-name");
     });
 
     it("Escape cancels without calling renameWindow", async () => {
@@ -343,7 +343,7 @@ describe("Sidebar", () => {
       });
 
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
-      expect(renameWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 1, "blur-name");
+      expect(renameWindowMock).toHaveBeenCalledWith("runkit", "@1", "blur-name");
     });
 
     it("empty input cancels without API call", async () => {
@@ -397,7 +397,7 @@ describe("Sidebar", () => {
       renderSidebar({ onSelectWindow });
       fireEvent.click(screen.getByText("scratch"));
 
-      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 1);
+      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", "@1");
       expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
     });
   });
@@ -509,7 +509,7 @@ describe("Sidebar", () => {
       renderSidebar({ onSelectWindow });
       fireEvent.click(screen.getByLabelText("Navigate to run-kit"));
 
-      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", 0);
+      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", "@0");
       expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
     });
   });
@@ -649,19 +649,21 @@ describe("Sidebar", () => {
 
       const dataTransfer = {
         setData: vi.fn(),
-        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0 })),
+        getData: vi.fn().mockReturnValue(JSON.stringify({ session: "run-kit", index: 0, windowId: "@0" })),
         effectAllowed: "",
         dropEffect: "",
       };
 
-      // Drag from main (index 0) to scratch (index 1)
+      // Drag from main (index 0, @0) to scratch (index 1). The move API
+      // addresses the source by its stable windowId; the target stays a
+      // numeric index.
       fireEvent.dragStart(mainDraggable, { dataTransfer });
       fireEvent.dragOver(scratchDraggable, { dataTransfer });
       await act(async () => {
         fireEvent.drop(scratchDraggable, { dataTransfer });
       });
 
-      expect(moveWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 0, 1);
+      expect(moveWindowMock).toHaveBeenCalledWith("runkit", "@0", 1);
     });
 
     it("drop on window in different session does not call moveWindow", async () => {
@@ -757,8 +759,8 @@ describe("Sidebar", () => {
       expect(useWindowStore.getState().ghosts.some((g) => g.session === "ao-server" && g.name === "main")).toBe(true);
       // Navigate to server dashboard
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "runkit" } });
-      // API was called
-      expect(moveWindowToSessionMock).toHaveBeenCalledWith("runkit", "run-kit", 0, "ao-server");
+      // API was called — source addressed by windowId, destination by session name
+      expect(moveWindowToSessionMock).toHaveBeenCalledWith("runkit", "@0", "ao-server");
     });
 
     it("drop on same session header is no-op", async () => {
@@ -866,7 +868,7 @@ describe("Sidebar", () => {
         fireEvent.drop(scratchDraggable, { dataTransfer });
       });
 
-      expect(moveWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 0, 1);
+      expect(moveWindowMock).toHaveBeenCalledWith("runkit", "@0", 1);
     });
   });
 
@@ -903,7 +905,7 @@ describe("Sidebar", () => {
                 <Sidebar
                   currentServer="runkit"
                   currentSession="run-kit"
-                  currentWindowIndex="0"
+                  currentWindowId="@0"
                   onSelectWindow={vi.fn()}
                   onCreateWindow={vi.fn()}
                   onCreateSession={vi.fn()}
@@ -922,8 +924,8 @@ describe("Sidebar", () => {
         fireEvent.click(screen.getByLabelText("Kill window scratch"), { ctrlKey: true });
       });
 
-      // API was called
-      expect(killWindowMock).toHaveBeenCalledWith("runkit", "run-kit", 1);
+      // API was called — window addressed by its stable windowId
+      expect(killWindowMock).toHaveBeenCalledWith("runkit", "@1");
       // After the API call resolves, the killed entry must be removed (unmarkKilled called)
       expect(killedCount).toBe(0);
     });

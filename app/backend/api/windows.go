@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -89,30 +88,25 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
 }
 
-// parseWindowIndex extracts and validates the window index from the URL.
-func parseWindowIndex(r *http.Request) (int, bool) {
-	indexStr := chi.URLParam(r, "index")
-	index, err := strconv.Atoi(indexStr)
-	if err != nil || index < 0 {
-		return 0, false
+// parseWindowID extracts and validates the tmux window ID from the URL.
+// Returns (id, true) on success, ("", false) when the {windowId} path parameter
+// is missing or malformed (handlers respond 400 in that case).
+func parseWindowID(r *http.Request) (string, bool) {
+	id := chi.URLParam(r, "windowId")
+	if validate.ValidateWindowID(id, "Window ID") != "" {
+		return "", false
 	}
-	return index, true
+	return id, true
 }
 
 func (s *Server) handleWindowKill(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
-	if err := s.tmux.KillWindow(session, index, serverFromRequest(r)); err != nil {
+	if err := s.tmux.KillWindow(windowID, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -121,15 +115,9 @@ func (s *Server) handleWindowKill(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWindowRename(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
@@ -146,7 +134,7 @@ func (s *Server) handleWindowRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.RenameWindow(session, index, body.Name, serverFromRequest(r)); err != nil {
+	if err := s.tmux.RenameWindow(windowID, body.Name, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -155,19 +143,13 @@ func (s *Server) handleWindowRename(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWindowSelect(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
-	if err := s.tmux.SelectWindow(session, index, serverFromRequest(r)); err != nil {
+	if err := s.tmux.SelectWindow(windowID, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -176,15 +158,9 @@ func (s *Server) handleWindowSelect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWindowSplit(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
@@ -211,7 +187,7 @@ func (s *Server) handleWindowSplit(w http.ResponseWriter, r *http.Request) {
 		resolvedCwd = expanded
 	}
 
-	paneID, err := s.tmux.SplitWindow(session, index, body.Horizontal, resolvedCwd, serverFromRequest(r))
+	paneID, err := s.tmux.SplitWindow(windowID, body.Horizontal, resolvedCwd, serverFromRequest(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -221,19 +197,13 @@ func (s *Server) handleWindowSplit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleClosePaneKill(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
-	if err := s.tmux.KillActivePane(session, index, serverFromRequest(r)); err != nil {
+	if err := s.tmux.KillActivePane(windowID, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -242,15 +212,9 @@ func (s *Server) handleClosePaneKill(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWindowMove(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
@@ -271,7 +235,7 @@ func (s *Server) handleWindowMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.MoveWindow(session, index, *body.TargetIndex, serverFromRequest(r)); err != nil {
+	if err := s.tmux.MoveWindow(windowID, *body.TargetIndex, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -280,15 +244,9 @@ func (s *Server) handleWindowMove(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWindowMoveToSession(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
@@ -310,12 +268,7 @@ func (s *Server) handleWindowMoveToSession(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if body.TargetSession == session {
-		writeError(w, http.StatusBadRequest, "targetSession must differ from source session")
-		return
-	}
-
-	if err := s.tmux.MoveWindowToSession(session, index, body.TargetSession, serverFromRequest(r)); err != nil {
+	if err := s.tmux.MoveWindowToSession(windowID, body.TargetSession, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -324,15 +277,9 @@ func (s *Server) handleWindowMoveToSession(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleWindowColor(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
@@ -348,7 +295,7 @@ func (s *Server) handleWindowColor(w http.ResponseWriter, r *http.Request) {
 
 	if body.Color == nil {
 		// Clear color
-		if err := s.tmux.UnsetWindowColor(session, index, server); err != nil {
+		if err := s.tmux.UnsetWindowColor(windowID, server); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -358,7 +305,7 @@ func (s *Server) handleWindowColor(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Color must be between 0 and 15")
 			return
 		}
-		if err := s.tmux.SetWindowColor(session, index, *body.Color, server); err != nil {
+		if err := s.tmux.SetWindowColor(windowID, *body.Color, server); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -368,15 +315,9 @@ func (s *Server) handleWindowColor(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWindowUrlUpdate(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
@@ -397,7 +338,7 @@ func (s *Server) handleWindowUrlUpdate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := s.tmux.SetWindowOption(ctx, session, index, server, "@rk_url", body.URL); err != nil {
+	if err := s.tmux.SetWindowOption(ctx, windowID, server, "@rk_url", body.URL); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -406,15 +347,9 @@ func (s *Server) handleWindowUrlUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWindowTypeUpdate(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
@@ -432,12 +367,12 @@ func (s *Server) handleWindowTypeUpdate(w http.ResponseWriter, r *http.Request) 
 
 	if body.RkType == "" {
 		// Unset @rk_type to revert to terminal mode
-		if err := s.tmux.UnsetWindowOption(ctx, session, index, server, "@rk_type"); err != nil {
+		if err := s.tmux.UnsetWindowOption(ctx, windowID, server, "@rk_type"); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	} else {
-		if err := s.tmux.SetWindowOption(ctx, session, index, server, "@rk_type", body.RkType); err != nil {
+		if err := s.tmux.SetWindowOption(ctx, windowID, server, "@rk_type", body.RkType); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -447,15 +382,9 @@ func (s *Server) handleWindowTypeUpdate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
-	}
-
-	index, ok := parseWindowIndex(r)
+	windowID, ok := parseWindowID(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "Invalid window index")
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
 
@@ -472,7 +401,7 @@ func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.tmux.SendKeys(session, index, body.Keys, serverFromRequest(r)); err != nil {
+	if err := s.tmux.SendKeys(windowID, body.Keys, serverFromRequest(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

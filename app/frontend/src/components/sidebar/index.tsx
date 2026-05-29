@@ -29,10 +29,11 @@ export type SidebarProps = {
    *  groups follow persisted toggles (defaulting to collapsed). */
   currentServer: string | null;
   currentSession: string | null;
-  currentWindowIndex: string | null;
+  currentWindowId: string | null;
   /** Session/window navigation. The `server` argument carries the source
-   *  server so callers can route across servers. */
-  onSelectWindow: (server: string, session: string, windowIndex: number) => void;
+   *  server so callers can route across servers. The window is addressed by
+   *  its stable tmux window ID (@N). */
+  onSelectWindow: (server: string, session: string, windowId: string) => void;
   /** Create a new window inside a session on a specific server. */
   onCreateWindow: (server: string, session: string) => void;
   /** Create a new session against a specific server (per-group "+" button). */
@@ -49,7 +50,7 @@ export type SidebarProps = {
 export function Sidebar({
   currentServer,
   currentSession,
-  currentWindowIndex,
+  currentWindowId,
   onSelectWindow,
   onCreateWindow,
   onCreateSession,
@@ -177,7 +178,6 @@ export function Sidebar({
     server: string;
     session: string;
     windowId?: string;
-    windowIndex?: number;
     windowCount: number;
   } | null>(null);
 
@@ -278,8 +278,8 @@ export function Sidebar({
 
   // Ctrl+click kill window (optimistic) — captures (server, session, windowId).
   const lastKillWindowRef = useRef<{ server: string; session: string; windowId: string } | null>(null);
-  const { execute: executeKillWindow } = useOptimisticAction<[string, string, string, number]>({
-    action: (srv, session, _windowId, index) => killWindowApi(srv, session, index),
+  const { execute: executeKillWindow } = useOptimisticAction<[string, string, string]>({
+    action: (srv, _session, windowId) => killWindowApi(srv, windowId),
     onOptimistic: (srv, session, windowId) => {
       lastKillWindowRef.current = { server: srv, session, windowId };
       killWindowStore(srv, session, windowId);
@@ -303,10 +303,10 @@ export function Sidebar({
   killTargetRef.current = killTarget;
   const killDialogServerRef = useRef<string>("");
 
-  const { execute: executeKillFromDialog } = useOptimisticAction<[string, { type: "session" | "window"; session: string; windowId?: string; windowIndex?: number }]>({
+  const { execute: executeKillFromDialog } = useOptimisticAction<[string, { type: "session" | "window"; session: string; windowId?: string }]>({
     action: (srv, target) => {
-      if (target.type === "window" && target.windowIndex != null) {
-        return killWindowApi(srv, target.session, target.windowIndex);
+      if (target.type === "window" && target.windowId) {
+        return killWindowApi(srv, target.windowId);
       }
       return killSessionApi(srv, target.session);
     },
@@ -354,11 +354,11 @@ export function Sidebar({
       if (
         currentServer === srv &&
         currentSession === oldName &&
-        currentWindowIndex
+        currentWindowId
       ) {
         navigate({
           to: "/$server/$session/$window",
-          params: { server: srv, session: newName, window: currentWindowIndex },
+          params: { server: srv, session: newName, window: currentWindowId },
           replace: true,
         });
       }
@@ -370,11 +370,11 @@ export function Sidebar({
         if (
           currentServer === last.server &&
           currentSession === last.newName &&
-          currentWindowIndex
+          currentWindowId
         ) {
           navigate({
             to: "/$server/$session/$window",
-            params: { server: last.server, session: last.oldName, window: currentWindowIndex },
+            params: { server: last.server, session: last.oldName, window: currentWindowId },
             replace: true,
           });
         }
@@ -392,9 +392,9 @@ export function Sidebar({
   const lastRenameWindowRef = useRef<{ server: string; session: string; windowId: string } | null>(null);
   const renameWindowStore = useWindowStore((state) => state.renameWindow);
   const clearRename = useWindowStore((state) => state.clearRename);
-  const { execute: executeRenameWindow } = useOptimisticAction<[string, string, number, string, string]>({
-    action: (srv, session, index, newName, _windowId) => renameWindow(srv, session, index, newName),
-    onOptimistic: (srv, session, _index, newName, windowId) => {
+  const { execute: executeRenameWindow } = useOptimisticAction<[string, string, string, string]>({
+    action: (srv, _session, windowId, newName) => renameWindow(srv, windowId, newName),
+    onOptimistic: (srv, session, windowId, newName) => {
       lastRenameWindowRef.current = { server: srv, session, windowId };
       renameWindowStore(srv, session, windowId, newName);
     },
@@ -415,10 +415,13 @@ export function Sidebar({
   // Optimistic move for drag-drop window reorder (insert-before semantics).
   // Snapshot is keyed by the store's composite key (`${server}:${windowId}`)
   // so the rollback restores the right per-server entries.
+  // Tuple: (server, session, srcWindowId, srcIndex, dstIndex). The move API
+  // addresses the source by its stable windowId; the optimistic store reorder
+  // is inherently positional so it still uses srcIndex/dstIndex.
   const preMoveEntriesRef = useRef<Map<string, { index: number }> | null>(null);
-  const { execute: executeMoveWindow, isPending: isMovePending } = useOptimisticAction<[string, string, number, number]>({
-    action: (srv, session, srcIndex, dstIndex) => moveWindow(srv, session, srcIndex, dstIndex),
-    onOptimistic: (srv, session, srcIndex, dstIndex) => {
+  const { execute: executeMoveWindow, isPending: isMovePending } = useOptimisticAction<[string, string, string, number, number]>({
+    action: (srv, _session, srcWindowId, _srcIndex, dstIndex) => moveWindow(srv, srcWindowId, dstIndex),
+    onOptimistic: (srv, session, _srcWindowId, srcIndex, dstIndex) => {
       const entries = useWindowStore.getState().entries;
       const snapshot = new Map<string, { index: number }>();
       for (const [key, e] of entries) {
@@ -453,8 +456,8 @@ export function Sidebar({
   // upstream (DnD handler emits a toast) so srcServer == dstServer here.
   const lastMoveToSessionRef = useRef<{ server: string; srcSession: string; windowId: string; optimisticId: string } | null>(null);
   const { execute: executeMoveToSession, isPending: isCrossMovePending } = useOptimisticAction<[string, string, number, string, string, string]>({
-    action: (srv, srcSession, srcIndex, _windowId, _windowName, dstSession) =>
-      moveWindowToSession(srv, srcSession, srcIndex, dstSession),
+    action: (srv, _srcSession, _srcIndex, windowId, _windowName, dstSession) =>
+      moveWindowToSession(srv, windowId, dstSession),
     onOptimistic: (srv, srcSession, _srcIndex, windowId, windowName, dstSession) => {
       killWindowStore(srv, srcSession, windowId);
       const optimisticId = addGhostWindow(srv, dstSession, windowName);
@@ -541,19 +544,14 @@ export function Sidebar({
     cancelledRef.current = false;
   }
 
-  function handleRenameCommit(serverSessionsMap: Map<string, ProjectSession[]>) {
+  function handleRenameCommit() {
     if (!editingWindow) return;
     const trimmed = editingName.trim();
     const originalName = originalNameRef.current;
     const { server: srv, session, windowId } = editingWindow;
     setEditingWindow(null);
     if (trimmed && trimmed !== originalName) {
-      const winIndex = (serverSessionsMap.get(srv) ?? [])
-        .find((s) => s.name === session)
-        ?.windows.find((w) => w.windowId === windowId)?.index;
-      if (winIndex != null) {
-        executeRenameWindow(srv, session, winIndex, trimmed, windowId);
-      }
+      executeRenameWindow(srv, session, windowId, trimmed);
     }
   }
 
@@ -604,7 +602,7 @@ export function Sidebar({
     if (data.session !== sessionName || data.index === windowIndex) return;
     if (isMovePending) return;
 
-    executeMoveWindow(server, data.session, data.index, windowIndex);
+    executeMoveWindow(server, data.session, data.windowId, data.index, windowIndex);
   }
 
   function handleDragEnd() {
@@ -780,7 +778,7 @@ export function Sidebar({
                 localOrder={localOrderByServer[srvInfo.name] ?? null}
                 isConnected={isConnectedByServer.get(srvInfo.name) ?? false}
                 currentSessionName={srvInfo.name === currentServer ? currentSession : null}
-                currentWindowIndex={srvInfo.name === currentServer ? currentWindowIndex : null}
+                currentWindowId={srvInfo.name === currentServer ? currentWindowId : null}
                 editingWindow={editingWindow?.server === srvInfo.name ? editingWindow : null}
                 editingName={editingName}
                 inputRef={inputRef}
@@ -813,9 +811,9 @@ export function Sidebar({
                     windowCount: count,
                   });
                 }}
-                onWindowRowKill={(session, windowId, index, ctrl) => {
+                onWindowRowKill={(session, windowId, ctrl) => {
                   if (ctrl) {
-                    executeKillWindow(srvInfo.name, session, windowId, index);
+                    executeKillWindow(srvInfo.name, session, windowId);
                     return;
                   }
                   setKillTarget({
@@ -823,7 +821,6 @@ export function Sidebar({
                     server: srvInfo.name,
                     session,
                     windowId,
-                    windowIndex: index,
                     windowCount: 1,
                   });
                 }}
@@ -836,7 +833,7 @@ export function Sidebar({
                 onWindowRenameKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    handleRenameCommit(sessionsByServer);
+                    handleRenameCommit();
                   } else if (e.key === "Escape") {
                     e.preventDefault();
                     handleRenameCancel();
@@ -844,15 +841,15 @@ export function Sidebar({
                 }}
                 onWindowRenameBlur={() => {
                   if (cancelledRef.current) return;
-                  handleRenameCommit(sessionsByServer);
+                  handleRenameCommit();
                 }}
                 onSessionColorChange={(name, c) => {
                   setSessionColorApi(srvInfo.name, name, c).catch((err) =>
                     addToast(err.message || "Failed to set session color"),
                   );
                 }}
-                onWindowColorChange={(session, index, c) => {
-                  setWindowColorApi(srvInfo.name, session, index, c).catch((err) =>
+                onWindowColorChange={(_session, windowId, c) => {
+                  setWindowColorApi(srvInfo.name, windowId, c).catch((err) =>
                     addToast(err.message || "Failed to set window color"),
                   );
                 }}
@@ -874,7 +871,7 @@ export function Sidebar({
 
       {/* Status panels — pinned at bottom. Show metrics + selected window
           status only when there's a current server. */}
-      <BottomPanels currentServer={currentServer} currentSessionName={currentSession} currentWindowIndex={currentWindowIndex} />
+      <BottomPanels currentServer={currentServer} currentSessionName={currentSession} currentWindowId={currentWindowId} />
 
       {/* Kill confirmation */}
       {killTarget && (
@@ -893,19 +890,19 @@ export function Sidebar({
 function BottomPanels({
   currentServer,
   currentSessionName,
-  currentWindowIndex,
+  currentWindowId,
 }: {
   currentServer: string | null;
   currentSessionName: string | null;
-  currentWindowIndex: string | null;
+  currentWindowId: string | null;
 }) {
   const ctx = useSessionContext();
   const nowSeconds = Math.floor(Date.now() / 1000);
   const sessions = currentServer ? ctx.sessionsByServer.get(currentServer) ?? [] : [];
   const isConnected = currentServer ? ctx.isConnectedByServer.get(currentServer) ?? false : false;
-  const selectedWindow = currentSessionName && currentWindowIndex != null
+  const selectedWindow = currentSessionName && currentWindowId != null
     ? sessions.find((s) => s.name === currentSessionName)
-        ?.windows.find((w) => String(w.index) === currentWindowIndex) ?? null
+        ?.windows.find((w) => w.windowId === currentWindowId) ?? null
     : null;
   return (
     <>
@@ -931,7 +928,7 @@ type ServerGroupProps = {
   localOrder: string[] | null;
   isConnected: boolean;
   currentSessionName: string | null;
-  currentWindowIndex: string | null;
+  currentWindowId: string | null;
 
   editingWindow: { server: string; session: string; windowId: string } | null;
   editingName: string;
@@ -952,11 +949,11 @@ type ServerGroupProps = {
   nowSeconds: number;
 
   onToggleSession: (name: string) => void;
-  onSelectWindow: (server: string, session: string, windowIndex: number) => void;
+  onSelectWindow: (server: string, session: string, windowId: string) => void;
   onCreateWindow: (server: string, session: string) => void;
   onCreateSession: (server: string) => void;
   onSessionRowKill: (name: string, windowCount: number, ctrl: boolean) => void;
-  onWindowRowKill: (session: string, windowId: string, index: number, ctrl: boolean) => void;
+  onWindowRowKill: (session: string, windowId: string, ctrl: boolean) => void;
   onSessionStartEditing: (name: string) => void;
   onSessionRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onSessionRenameBlur: () => void;
@@ -966,7 +963,7 @@ type ServerGroupProps = {
   onWindowRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onWindowRenameBlur: () => void;
   onSessionColorChange: (name: string, color: number | null) => void;
-  onWindowColorChange: (session: string, index: number, color: number | null) => void;
+  onWindowColorChange: (session: string, windowId: string, color: number | null) => void;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -992,7 +989,7 @@ function ServerGroup(props: ServerGroupProps) {
     sessionOrder,
     localOrder,
     currentSessionName,
-    currentWindowIndex,
+    currentWindowId,
     editingWindow,
     editingName,
     inputRef,
@@ -1143,7 +1140,7 @@ function ServerGroup(props: ServerGroupProps) {
                     onDragStart={isGhostSession ? undefined : (e) => onSessionReorderStart(e, server, session.name, naturalNames)}
                     onDragEnd={isGhostSession ? undefined : onSessionReorderEnd}
                     onToggleCollapse={() => onToggleSession(session.name)}
-                    onSelectFirstWindow={() => onSelectWindow(server, session.name, session.windows[0]?.index ?? 0)}
+                    onSelectFirstWindow={() => onSelectWindow(server, session.name, session.windows[0]?.windowId ?? "")}
                     onCreateWindow={() => onCreateWindow(server, session.name)}
                     onKillClick={(e) => {
                       onSessionRowKill(session.name, session.windows.length, e.ctrlKey || e.metaKey);
@@ -1182,12 +1179,14 @@ function ServerGroup(props: ServerGroupProps) {
                         // has a window segment (just landed on the session,
                         // pre-writeback) — and even then only for the one
                         // tmux-active row. Ghost rows (mid-creation, not yet
-                        // in the URL or snapshot) fall back to index match.
-                        const hasUrlWindow = currentWindowIndex != null;
+                        // in the URL or snapshot) fall back to active match.
+                        // The URL fallback compares the stable window ID (@N),
+                        // not the mutable index.
+                        const hasUrlWindow = currentWindowId != null;
                         const isSelected =
                           currentSessionName === session.name &&
                           (hasUrlWindow
-                            ? currentWindowIndex === String(win.index)
+                            ? currentWindowId === win.windowId
                             : (!ghost && win.isActiveWindow));
                         const isDragOver =
                           dropTarget?.server === server &&
@@ -1214,20 +1213,20 @@ function ServerGroup(props: ServerGroupProps) {
                             isPinnedToAny={!ghost && pinnedSet.has(`${server}:${win.windowId}`)}
                             isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
                             isPinnedToBoard={(b) => pinnedToBoard(b, server, win.windowId)}
-                            onSelectWindow={() => onSelectWindow(server, session.name, win.index)}
+                            onSelectWindow={() => onSelectWindow(server, session.name, win.windowId)}
                             onDoubleClickName={() => onWindowStartEditing(session.name, win.windowId, win.name)}
                             onWindowNameChange={onWindowNameChange}
                             onRenameKeyDown={onWindowRenameKeyDown}
                             onRenameBlur={onWindowRenameBlur}
                             onKillClick={(e) => {
                               e.stopPropagation();
-                              if (!ghost) onWindowRowKill(session.name, win.windowId, win.index, e.ctrlKey || e.metaKey);
+                              if (!ghost) onWindowRowKill(session.name, win.windowId, e.ctrlKey || e.metaKey);
                             }}
                             onDragStart={ghost ? undefined : (e) => onWindowDragStart(e, server, session.name, win.index, win.windowId, win.name)}
                             onDragOver={ghost ? undefined : (e) => onWindowDragOver(e, server, session.name, win.index)}
                             onDrop={ghost ? undefined : (e) => onWindowDrop(e, server, session.name, win.index)}
                             onDragEnd={ghost ? undefined : onWindowDragEnd}
-                            onColorChange={ghost ? undefined : (c) => onWindowColorChange(session.name, win.index, c)}
+                            onColorChange={ghost ? undefined : (c) => onWindowColorChange(session.name, win.windowId, c)}
                           />
                         );
                       })}

@@ -26,7 +26,7 @@ export const clipboardProvider = {
 
 type TerminalClientProps = {
   sessionName: string;
-  windowIndex: string;
+  windowId: string;
   server: string;
   wsRef: React.MutableRefObject<WebSocket | null>;
   composeOpen: boolean;
@@ -46,7 +46,7 @@ type TerminalClientProps = {
 
 export function TerminalClient({
   sessionName,
-  windowIndex,
+  windowId,
   server,
   wsRef,
   composeOpen,
@@ -63,7 +63,7 @@ export function TerminalClient({
   const [dragOver, setDragOver] = useState(false);
   const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
   const [composeFiles, setComposeFiles] = useState<UploadedFile[]>([]);
-  const { uploadFiles, uploading } = useFileUpload(sessionName, windowIndex, server);
+  const { uploadFiles, uploading } = useFileUpload(sessionName, windowId, server);
   const { theme: activeTheme } = useTheme();
   const { setFocused } = useFocusedTerminal();
 
@@ -76,11 +76,11 @@ export function TerminalClient({
   // based on its focused-pane state.
   useEffect(() => {
     if (!registerFocus) return;
-    setFocused({ wsRef, server, session: sessionName, windowIndex });
+    setFocused({ wsRef, server, session: sessionName, windowId });
     return () => {
       setFocused(null);
     };
-  }, [registerFocus, setFocused, wsRef, server, sessionName, windowIndex]);
+  }, [registerFocus, setFocused, wsRef, server, sessionName, windowId]);
 
   const openComposeWithUploads = useCallback(
     (uploads: UploadedFile[]) => {
@@ -383,12 +383,12 @@ export function TerminalClient({
     xtermRef.current.options.theme = deriveXtermTheme(activeTheme.palette);
   }, [activeTheme]);
 
-  // Keep a ref to windowIndex so reconnect (after a transient WS drop) reads
+  // Keep a ref to windowId so reconnect (after a transient WS drop) reads
   // the latest value without needing to be torn down/rebuilt.
-  const windowIndexRef = useRef(windowIndex);
-  windowIndexRef.current = windowIndex;
+  const windowIdRef = useRef(windowId);
+  windowIdRef.current = windowId;
 
-  // WebSocket connection — reconnects when session or windowIndex changes.
+  // WebSocket connection — reconnects when session or windowId changes.
   //
   // Pre-hdjr (260507-4vuv era), the relay called `tmux select-window` then
   // `tmux attach-session -t <real-session>`, so all clients shared the
@@ -398,7 +398,7 @@ export function TerminalClient({
   // its own ephemeral grouped session with INDEPENDENT active-window
   // state, by design. That fixed the board-pane cross-talk bug, but it
   // also means a URL-only window switch no longer flips the relay's
-  // ephemeral. Reconnecting on windowIndex change is the simplest fix:
+  // ephemeral. Reconnecting on windowId change is the simplest fix:
   // the new connection creates a fresh ephemeral pointing at the new
   // window. (A future protocol-level "select-window" message would
   // avoid the reconnect flicker.)
@@ -433,7 +433,7 @@ export function TerminalClient({
 
     function connect() {
       if (cancelled) return;
-      const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(sessionName)}/${windowIndexRef.current}?server=${server}`;
+      const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(windowIdRef.current)}?server=${server}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.binaryType = "arraybuffer";
@@ -501,14 +501,14 @@ export function TerminalClient({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalReady, sessionName, windowIndex, server, wsRef]);
+  }, [terminalReady, sessionName, windowId, server, wsRef]);
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">
       <div
         ref={terminalRef}
         role="application"
-        aria-label={`Terminal: ${sessionName}/${windowIndex}`}
+        aria-label={`Terminal: ${sessionName}/${windowId}`}
         className={`flex-1 min-h-0 overflow-hidden coarse:touch-none transition-opacity ${
           composeOpen ? "opacity-50" : ""
         } ${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}

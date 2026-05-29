@@ -142,44 +142,44 @@ describe("API client", () => {
     expect(capturedBody.cwd).toBeUndefined();
   });
 
-  it("killWindow sends POST /api/sessions/:session/windows/:index/kill with server query", async () => {
+  it("killWindow sends POST /api/windows/:windowId/kill with server query", async () => {
     let capturedUrl = "";
     mswServer.use(
-      http.post("/api/sessions/:session/windows/:index/kill", ({ request }) => {
+      http.post("/api/windows/:windowId/kill", ({ request }) => {
         capturedUrl = request.url;
         return HttpResponse.json({ ok: true });
       }),
     );
-    const result = await killWindow("server-B", "foo", 3);
+    const result = await killWindow("server-B", "@3");
     expect(result.ok).toBe(true);
-    expect(capturedUrl).toMatch(/\/api\/sessions\/foo\/windows\/3\/kill\?server=server-B$/);
+    expect(capturedUrl).toMatch(/\/api\/windows\/%403\/kill\?server=server-B$/);
   });
 
-  it("renameWindow sends POST /api/sessions/:session/windows/:index/rename with server query", async () => {
+  it("renameWindow sends POST /api/windows/:windowId/rename with server query", async () => {
     let capturedUrl = "";
     let capturedBody: Record<string, string> = {};
     mswServer.use(
-      http.post("/api/sessions/:session/windows/:index/rename", async ({ request }) => {
+      http.post("/api/windows/:windowId/rename", async ({ request }) => {
         capturedUrl = request.url;
         capturedBody = (await request.json()) as Record<string, string>;
         return HttpResponse.json({ ok: true });
       }),
     );
-    const result = await renameWindow("runkit", "run-kit", 0, "renamed");
+    const result = await renameWindow("runkit", "@0", "renamed");
     expect(result.ok).toBe(true);
-    expect(capturedUrl).toMatch(/\/api\/sessions\/run-kit\/windows\/0\/rename\?server=runkit$/);
+    expect(capturedUrl).toMatch(/\/api\/windows\/%400\/rename\?server=runkit$/);
     expect(capturedBody.name).toBe("renamed");
   });
 
-  it("sendKeys sends POST /api/sessions/:session/windows/:index/keys with server query", async () => {
+  it("sendKeys sends POST /api/windows/:windowId/keys with server query", async () => {
     let capturedUrl = "";
     mswServer.use(
-      http.post("/api/sessions/:session/windows/:index/keys", async ({ request }) => {
+      http.post("/api/windows/:windowId/keys", async ({ request }) => {
         capturedUrl = request.url;
         return HttpResponse.json({ ok: true });
       }),
     );
-    const result = await sendKeys("runkit", "run-kit", 0, "echo hello");
+    const result = await sendKeys("runkit", "@0", "echo hello");
     expect(result.ok).toBe(true);
     expect(capturedUrl).toContain("?server=runkit");
   });

@@ -89,7 +89,7 @@ function renderSidebar(opts: RenderOpts = {}) {
               <Sidebar
                 currentServer={currentServer}
                 currentSession={currentServer ? "main" : null}
-                currentWindowIndex={currentServer ? "0" : null}
+                currentWindowId={currentServer ? "@0" : null}
                 onSelectWindow={vi.fn()}
                 onCreateWindow={vi.fn()}
                 onCreateSession={vi.fn()}

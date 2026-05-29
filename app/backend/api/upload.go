@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -51,15 +50,15 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse optional window index
-	windowIndex := 0
+	// Parse the optional target window ID. When present it must be a valid tmux
+	// window ID (@N); the target window's worktree determines the upload root.
+	windowID := ""
 	if wf := r.FormValue("window"); wf != "" {
-		parsed, err := strconv.Atoi(wf)
-		if err != nil || parsed < 0 {
-			writeError(w, http.StatusBadRequest, "Invalid window index")
+		if errMsg := validate.ValidateWindowID(wf, "Window ID"); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
 			return
 		}
-		windowIndex = parsed
+		windowID = wf
 	}
 
 	// Get project root via tmux windows
@@ -71,11 +70,13 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	var targetWindow tmux.WindowInfo
 	found := false
-	for _, win := range windows {
-		if win.Index == windowIndex {
-			targetWindow = win
-			found = true
-			break
+	if windowID != "" {
+		for _, win := range windows {
+			if win.WindowID == windowID {
+				targetWindow = win
+				found = true
+				break
+			}
 		}
 	}
 	if !found {

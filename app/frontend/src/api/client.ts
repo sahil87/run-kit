@@ -127,11 +127,10 @@ export async function createWindow(
 
 export async function killWindow(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/kill`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/kill`, server),
     { method: "POST" },
   );
   if (!res.ok) await throwOnError(res);
@@ -140,12 +139,11 @@ export async function killWindow(
 
 export async function moveWindow(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
   targetIndex: number,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/move`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/move`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -158,12 +156,11 @@ export async function moveWindow(
 
 export async function moveWindowToSession(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
   targetSession: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/move-to-session`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/move-to-session`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -176,12 +173,11 @@ export async function moveWindowToSession(
 
 export async function renameWindow(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
   name: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/rename`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/rename`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -194,12 +190,11 @@ export async function renameWindow(
 
 export async function sendKeys(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
   keys: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/keys`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/keys`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -212,15 +207,14 @@ export async function sendKeys(
 
 export async function splitWindow(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
   horizontal: boolean,
   cwd?: string,
 ): Promise<{ ok: boolean; pane_id: string }> {
   const body: Record<string, unknown> = { horizontal };
   if (cwd) body.cwd = cwd;
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/split`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/split`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -233,11 +227,10 @@ export async function splitWindow(
 
 export async function closePane(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/close-pane`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/close-pane`, server),
     { method: "POST" },
   );
   if (!res.ok) await throwOnError(res);
@@ -246,12 +239,11 @@ export async function closePane(
 
 export async function updateWindowUrl(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
   url: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/url`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/url`, server),
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -264,12 +256,11 @@ export async function updateWindowUrl(
 
 export async function updateWindowType(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
   rkType: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/type`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/type`, server),
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -282,11 +273,10 @@ export async function updateWindowType(
 
 export async function selectWindow(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/select`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/select`, server),
     { method: "POST" },
   );
   if (!res.ok) await throwOnError(res);
@@ -342,12 +332,11 @@ export async function uploadFile(
 
 export async function setWindowColor(
   server: string,
-  session: string,
-  index: number,
+  windowId: string,
   color: number | null,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
-    withServer(`/api/sessions/${encodeURIComponent(session)}/windows/${index}/color`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/color`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

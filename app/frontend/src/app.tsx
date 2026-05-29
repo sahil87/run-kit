@@ -133,7 +133,8 @@ function AppShell() {
   const focusTerminalRef = useRef<(() => void) | null>(null);
 
   const sessionName = params.session;
-  const windowIndex = params.window;
+  // The URL's third segment is the tmux window ID (@N), a stable identifier.
+  const windowParam = params.window;
 
   // Compose buffer open state lives in `FocusedTerminalContext` so the
   // shell-level `<BottomBar>` can open compose for the focused terminal
@@ -178,12 +179,12 @@ function AppShell() {
   }, [server, rawSessions, setWindowsForSession]);
 
   // Palette split/close actions (button loading not visible since palette closes, but we need error toasts)
-  const { execute: executeSplit } = useOptimisticAction<[string, string, number, boolean, string | undefined]>({
-    action: (srv, session, index, horizontal, cwd) => splitWindow(srv, session, index, horizontal, cwd),
+  const { execute: executeSplit } = useOptimisticAction<[string, string, boolean, string | undefined]>({
+    action: (srv, windowId, horizontal, cwd) => splitWindow(srv, windowId, horizontal, cwd),
     onError: (err) => addToast(err.message || "Failed to split pane"),
   });
-  const { execute: executeClosePane } = useOptimisticAction<[string, string, number]>({
-    action: (srv, session, index) => closePane(srv, session, index),
+  const { execute: executeClosePane } = useOptimisticAction<[string, string]>({
+    action: (srv, windowId) => closePane(srv, windowId),
     onError: (err) => addToast(err.message || "Failed to close pane"),
   });
 
@@ -197,7 +198,7 @@ function AppShell() {
       .catch(() => {});
   }, []);
 
-  useBrowserTitle(sessionName, windowIndex, hostname);
+  useBrowserTitle(sessionName, windowParam, hostname);
 
   // Sidebar drag-resize handler (desktop only). Width state lives in
   // `ChromeContext` (lifted from per-route local state) so AppShell and
@@ -284,7 +285,7 @@ function AppShell() {
   // We record the intent here and suppress the writeback while the URL still
   // matches it; the intent clears the instant SSE confirms it (event-driven,
   // not a timer — this is NOT the removed 3s wall-clock debounce).
-  const pendingClickRef = useRef<{ session: string; window: number } | null>(null);
+  const pendingClickRef = useRef<{ session: string; windowId: string } | null>(null);
 
   // Sync currentSession/currentWindow from route params + SSE data
   const currentSession = useMemo(
@@ -292,9 +293,9 @@ function AppShell() {
     [sessions, sessionName],
   );
   const currentWindow = useMemo(() => {
-    if (!currentSession || !windowIndex) return null;
-    return currentSession.windows.find((w) => String(w.index) === windowIndex) ?? null;
-  }, [currentSession, windowIndex]);
+    if (!currentSession || !windowParam) return null;
+    return currentSession.windows.find((w) => w.windowId === windowParam) ?? null;
+  }, [currentSession, windowParam]);
 
   useEffect(() => {
     setCurrentSession(currentSession);
@@ -310,19 +311,19 @@ function AppShell() {
   const currentWindowEverSeenRef = useRef(false);
   const lastObservedUrlKeyRef = useRef<string>("");
   useEffect(() => {
-    const key = `${server}|${sessionName ?? ""}|${windowIndex ?? ""}`;
+    const key = `${server}|${sessionName ?? ""}|${windowParam ?? ""}`;
     if (lastObservedUrlKeyRef.current !== key) {
       lastObservedUrlKeyRef.current = key;
       currentWindowEverSeenRef.current = false;
     }
     if (currentWindow) currentWindowEverSeenRef.current = true;
-  }, [server, sessionName, windowIndex, currentWindow]);
+  }, [server, sessionName, windowParam, currentWindow]);
 
   // Redirect when the current session/window no longer exists (e.g. window/session killed)
   useEffect(() => {
     const target = computeKillRedirect({
       sessionName,
-      windowIndex,
+      windowId: windowParam,
       currentSessionWindows: currentSession?.windows ?? null,
       currentWindowExists: !!currentWindow,
       isConnected,
@@ -332,13 +333,13 @@ function AppShell() {
     if (target.to === "window") {
       navigate({
         to: "/$server/$session/$window",
-        params: { server, session: target.session, window: String(target.windowIndex) },
+        params: { server, session: target.session, window: target.windowId },
         replace: true,
       });
     } else {
       navigate({ to: "/$server", params: { server }, replace: true });
     }
-  }, [sessionName, windowIndex, sessions, currentSession, currentWindow, isConnected, navigate, server]);
+  }, [sessionName, windowParam, sessions, currentSession, currentWindow, isConnected, navigate, server]);
 
   // Active window sync (truth = tmux). The SSE-derived `activeWindow`
   // drives the sidebar selection (see `WindowRow.isSelected`) and the URL
@@ -355,7 +356,7 @@ function AppShell() {
   // the same session don't replay the alignment (which would clobber
   // user clicks).
   useEffect(() => {
-    if (!sessionName || !windowIndex || !currentSession) return;
+    if (!sessionName || !windowParam || !currentSession) return;
     const sessionKey = `${server}|${sessionName}`;
     if (lastAlignedSessionRef.current !== sessionKey) {
       // Fresh session route — re-arm the guard.
@@ -365,13 +366,13 @@ function AppShell() {
     if (hasAlignedToUrlRef.current) return;
     // Wait for the first SSE-populated session payload (with a real
     // active window) before deciding whether to align.
-    const activeIdx = activeWindow ? String(activeWindow.index) : null;
-    if (activeIdx === null) return;
+    const activeId = activeWindow ? activeWindow.windowId : null;
+    if (activeId === null) return;
     hasAlignedToUrlRef.current = true;
-    if (activeIdx !== windowIndex) {
-      selectWindow(server, sessionName, Number(windowIndex)).catch(() => {});
+    if (activeId !== windowParam) {
+      selectWindow(server, windowParam).catch(() => {});
     }
-  }, [server, sessionName, windowIndex, currentSession, activeWindow]);
+  }, [server, sessionName, windowParam, currentSession, activeWindow]);
 
   // URL writeback: whenever the SSE snapshot says a different window is
   // active than what the URL reflects, write the URL via `replace`. No
@@ -388,21 +389,21 @@ function AppShell() {
     const pending = pendingClickRef.current;
     if (pending) {
       const urlMatchesPending =
-        pending.session === sessionName && String(pending.window) === windowIndex;
-      const sseConfirmed = activeWindow.index === pending.window;
+        pending.session === sessionName && pending.windowId === windowParam;
+      const sseConfirmed = activeWindow.windowId === pending.windowId;
       if (sseConfirmed || !urlMatchesPending) {
         pendingClickRef.current = null;
       } else {
         return; // intent outstanding — let the URL stand
       }
     }
-    if (String(activeWindow.index) === windowIndex) return;
+    if (activeWindow.windowId === windowParam) return;
     navigate({
       to: "/$server/$session/$window",
-      params: { server, session: sessionName, window: String(activeWindow.index) },
+      params: { server, session: sessionName, window: activeWindow.windowId },
       replace: true,
     });
-  }, [activeWindow, sessionName, windowIndex, navigate, server]);
+  }, [activeWindow, sessionName, windowParam, navigate, server]);
 
   // Navigation callback for sidebar/breadcrumbs. tmux is the source of truth,
   // but a click is explicit user intent: we navigate the URL optimistically
@@ -413,14 +414,14 @@ function AppShell() {
   //
   // On mobile, close the overlay sidebar after a destination tap.
   const navigateToWindow = useCallback(
-    (session: string, windowIdx: number) => {
-      pendingClickRef.current = { session, window: windowIdx };
+    (session: string, windowId: string) => {
+      pendingClickRef.current = { session, windowId };
       navigate({
         to: "/$server/$session/$window",
-        params: { server, session, window: String(windowIdx) },
+        params: { server, session, window: windowId },
         replace: true,
       });
-      selectWindow(server, session, windowIdx).catch(() => {});
+      selectWindow(server, windowId).catch(() => {});
       if (isMobile) setSidebarOpen(false);
     },
     [server, navigate, isMobile, setSidebarOpen],
@@ -429,14 +430,13 @@ function AppShell() {
   // Dialog state management
   const dialogs = useDialogState({
     sessionName,
-    windowIndex: currentWindow?.index,
     windowId: currentWindow?.windowId,
     onKillComplete: () => navigate({ to: "/$server", params: { server }, replace: true }),
     onSessionRenamed: (newName) => {
-      if (windowIndex) {
+      if (windowParam) {
         navigate({
           to: "/$server/$session/$window",
-          params: { server, session: newName, window: windowIndex },
+          params: { server, session: newName, window: windowParam },
           replace: true,
         });
       } else {
@@ -718,7 +718,7 @@ function AppShell() {
                     onSelect: () => {
                       if (sessionName) {
                         const newType = currentWindow.rkType === "iframe" ? "" : "iframe";
-                        updateWindowType(server, sessionName, currentWindow.index, newType).catch((err) =>
+                        updateWindowType(server, currentWindow.windowId, newType).catch((err) =>
                           addToast(err.message || "Failed to toggle window type"),
                         );
                       }
@@ -734,11 +734,13 @@ function AppShell() {
                     onSelect: () => {
                       if (sessionName) {
                         const targetIndex = currentWindow.index - 1;
-                        moveWindow(server, sessionName, currentWindow.index, targetIndex)
+                        // The move preserves the window's stable ID — only its
+                        // index changes — so navigate to the same windowId.
+                        moveWindow(server, currentWindow.windowId, targetIndex)
                           .then(() => {
                             navigate({
                               to: "/$server/$session/$window",
-                              params: { server, session: sessionName, window: String(targetIndex) },
+                              params: { server, session: sessionName, window: currentWindow.windowId },
                             });
                           })
                           .catch((err) => {
@@ -757,11 +759,13 @@ function AppShell() {
                     onSelect: () => {
                       if (sessionName) {
                         const targetIndex = currentWindow.index + 1;
-                        moveWindow(server, sessionName, currentWindow.index, targetIndex)
+                        // The move preserves the window's stable ID — only its
+                        // index changes — so navigate to the same windowId.
+                        moveWindow(server, currentWindow.windowId, targetIndex)
                           .then(() => {
                             navigate({
                               to: "/$server/$session/$window",
-                              params: { server, session: sessionName, window: String(targetIndex) },
+                              params: { server, session: sessionName, window: currentWindow.windowId },
                             });
                           })
                           .catch((err) => {
@@ -780,7 +784,7 @@ function AppShell() {
                     label: `Window: Move to ${s.name}`,
                     onSelect: () => {
                       if (sessionName) {
-                        moveWindowToSession(server, sessionName, currentWindow.index, s.name)
+                        moveWindowToSession(server, currentWindow.windowId, s.name)
                           .then(() => {
                             navigate({ to: "/$server", params: { server } });
                           })
@@ -809,21 +813,21 @@ function AppShell() {
               id: "split-vertical",
               label: "Window: Split Vertical",
               onSelect: () => {
-                if (sessionName) executeSplit(server, sessionName, currentWindow.index, true, currentWindow.worktreePath);
+                if (sessionName) executeSplit(server, currentWindow.windowId, true, currentWindow.worktreePath);
               },
             },
             {
               id: "split-horizontal",
               label: "Window: Split Horizontal",
               onSelect: () => {
-                if (sessionName) executeSplit(server, sessionName, currentWindow.index, false, currentWindow.worktreePath);
+                if (sessionName) executeSplit(server, currentWindow.windowId, false, currentWindow.worktreePath);
               },
             },
             {
               id: "close-pane",
               label: "Pane: Close",
               onSelect: () => {
-                if (sessionName) executeClosePane(server, sessionName, currentWindow.index);
+                if (sessionName) executeClosePane(server, currentWindow.windowId);
               },
             },
             {
@@ -979,9 +983,9 @@ function AppShell() {
 
   const terminalActions: PaletteAction[] = useMemo(
     () => flatWindows.map((fw) => ({
-      id: `terminal-${fw.session}-${fw.window.index}`,
+      id: `terminal-${fw.session}-${fw.window.windowId}`,
       label: `Terminal: ${fw.session}/${fw.window.name}`,
-      onSelect: () => navigateToWindow(fw.session, fw.window.index),
+      onSelect: () => navigateToWindow(fw.session, fw.window.windowId),
     })),
     [flatWindows, navigateToWindow],
   );
@@ -991,7 +995,7 @@ function AppShell() {
     [sessionActions, windowActions, boardActions, viewActions, themeActions, configActions, serverActions, terminalActions],
   );
 
-  const displayName = currentWindow?.name ?? windowIndex ?? "";
+  const displayName = currentWindow?.name ?? windowParam ?? "";
   const displaySession = sessionName ?? "";
 
   // Server not found check — once server list loads, verify server exists
@@ -1005,14 +1009,14 @@ function AppShell() {
     <Sidebar
       currentServer={server || null}
       currentSession={sessionName ?? null}
-      currentWindowIndex={windowIndex ?? null}
-      onSelectWindow={(srv, sess, idx) => {
+      currentWindowId={windowParam ?? null}
+      onSelectWindow={(srv, sess, windowId) => {
         if (srv === server) {
-          navigateToWindow(sess, idx);
+          navigateToWindow(sess, windowId);
         } else {
           navigate({
             to: "/$server/$session/$window",
-            params: { server: srv, session: sess, window: String(idx) },
+            params: { server: srv, session: sess, window: windowId },
           });
           if (isMobile) setSidebarOpen(false);
         }
@@ -1098,12 +1102,11 @@ function AppShell() {
           className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
           style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
         >
-          {sessionName && windowIndex ? (
+          {sessionName && windowParam ? (
             currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? (
               <div className="flex-1 min-h-0 flex flex-col">
                 <IframeWindow
-                  sessionName={sessionName}
-                  windowIndex={currentWindow.index}
+                  windowId={currentWindow.windowId}
                   rkUrl={currentWindow.rkUrl}
                 />
               </div>
@@ -1112,7 +1115,7 @@ function AppShell() {
                 {currentWindow?.rkUrl && (
                   <div className="shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-bg-primary">
                     <button
-                      onClick={() => sessionName && currentWindow && updateWindowType(server, sessionName, currentWindow.index, "iframe")}
+                      onClick={() => sessionName && currentWindow && updateWindowType(server, currentWindow.windowId, "iframe")}
                       className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
                       title="Switch to iframe view"
                     >
@@ -1124,7 +1127,7 @@ function AppShell() {
                 <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
                   <TerminalClient
                     sessionName={sessionName}
-                    windowIndex={windowIndex}
+                    windowId={windowParam}
                     server={server}
                     wsRef={wsRef}
                     composeOpen={composeOpen}
@@ -1361,7 +1364,7 @@ function AppShell() {
         <TmuxCommandsDialog
           server={server}
           session={sessionName}
-          window={String(currentWindow.index)}
+          windowId={currentWindow.windowId}
           onClose={() => setShowTmuxCommands(false)}
         />
       )}
@@ -1386,7 +1389,7 @@ function AppShell() {
                       addToast(err.message || "Failed to set session color"),
                     );
                   } else if (showColorPicker === "window" && sessionName && currentWindow) {
-                    setWindowColorApi(server, sessionName, currentWindow.index, c).catch((err) =>
+                    setWindowColorApi(server, currentWindow.windowId, c).catch((err) =>
                       addToast(err.message || "Failed to set window color"),
                     );
                   }

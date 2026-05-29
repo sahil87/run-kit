@@ -29,7 +29,7 @@ type TopBarProps = {
   isConnected: boolean;
   sidebarOpen: boolean;
   server: string;
-  onNavigate: (session: string, windowIndex: number) => void;
+  onNavigate: (session: string, windowId: string) => void;
   onToggleSidebar: () => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
@@ -101,27 +101,28 @@ export function TopBar({
 }: TopBarProps) {
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
-    href: `/${encodeURIComponent(server)}/${encodeURIComponent(s.name)}/${s.windows[0]?.index ?? 0}`,
+    href: `/${encodeURIComponent(server)}/${encodeURIComponent(s.name)}/${encodeURIComponent(s.windows[0]?.windowId ?? "")}`,
     current: s.name === sessionName,
   }));
 
   const windowItems: BreadcrumbDropdownItem[] = (currentSession?.windows ?? []).map(
     (w) => ({
       label: w.name,
-      href: `/${encodeURIComponent(server)}/${encodeURIComponent(sessionName)}/${w.index}`,
-      current: currentWindow ? w.index === currentWindow.index : false,
+      href: `/${encodeURIComponent(server)}/${encodeURIComponent(sessionName)}/${encodeURIComponent(w.windowId)}`,
+      current: currentWindow ? w.windowId === currentWindow.windowId : false,
     }),
   );
 
   const handleDropdownNavigate = useCallback(
     (href: string) => {
-      // Parse href like "/server/sessionName/windowIndex"
+      // Parse href like "/server/sessionName/windowId" — the window segment is
+      // the tmux window ID (@N), a string (no numeric coercion).
       const parts = href.replace(/^\//, "").split("/");
       if (parts.length >= 3) {
         const session = decodeURIComponent(parts[1]);
-        const windowIdx = Number(parts[2]);
-        if (!isNaN(windowIdx)) {
-          onNavigate(session, windowIdx);
+        const windowId = decodeURIComponent(parts[2]);
+        if (windowId) {
+          onNavigate(session, windowId);
         }
       }
     },
@@ -194,8 +195,7 @@ export function TopBar({
               <span className="hidden sm:flex">
                 <SplitButton
                   server={server}
-                  session={sessionName}
-                  windowIndex={currentWindow.index}
+                  windowId={currentWindow.windowId}
                   cwd={currentWindow.worktreePath}
                 />
               </span>
@@ -203,16 +203,14 @@ export function TopBar({
                 <SplitButton
                   horizontal
                   server={server}
-                  session={sessionName}
-                  windowIndex={currentWindow.index}
+                  windowId={currentWindow.windowId}
                   cwd={currentWindow.worktreePath}
                 />
               </span>
               <span className="hidden sm:flex">
                 <ClosePaneButton
                   server={server}
-                  session={sessionName}
-                  windowIndex={currentWindow.index}
+                  windowId={currentWindow.windowId}
                 />
               </span>
             </>
@@ -401,21 +399,19 @@ function ThemeToggle() {
 function SplitButton({
   horizontal,
   server,
-  session,
-  windowIndex,
+  windowId,
   cwd,
 }: {
   horizontal?: boolean;
   server: string;
-  session: string;
-  windowIndex: number;
+  windowId: string;
   cwd?: string;
 }) {
   const label = horizontal ? "Split horizontally" : "Split vertically";
   const { addToast } = useToast();
 
   const { execute, isPending } = useOptimisticAction<[]>({
-    action: () => splitWindow(server, session, windowIndex, !!horizontal, cwd),
+    action: () => splitWindow(server, windowId, !!horizontal, cwd),
     onError: (err) => {
       addToast(err.message || "Failed to split pane");
     },
@@ -467,17 +463,15 @@ function SplitButton({
 
 function ClosePaneButton({
   server,
-  session,
-  windowIndex,
+  windowId,
 }: {
   server: string;
-  session: string;
-  windowIndex: number;
+  windowId: string;
 }) {
   const { addToast } = useToast();
 
   const { execute, isPending } = useOptimisticAction<[]>({
-    action: () => closePane(server, session, windowIndex),
+    action: () => closePane(server, windowId),
     onError: (err) => {
       addToast(err.message || "Failed to close pane");
     },

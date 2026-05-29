@@ -4,7 +4,7 @@ import { Dialog } from "@/components/dialog";
 type TmuxCommandsDialogProps = {
   server: string;
   session: string;
-  window: string;
+  windowId: string;
   onClose: () => void;
 };
 
@@ -13,11 +13,13 @@ type CommandRow = {
   command: string;
 };
 
-function buildCommands(server: string, session: string, window: string): CommandRow[] {
+function buildCommands(server: string, session: string, windowId: string): CommandRow[] {
   const prefix = server === "default" ? "tmux" : `tmux -L ${server}`;
+  // A tmux window ID (@N) is a server-global, self-contained target — it is
+  // not prefixed with the session name (unlike a positional session:index).
   return [
-    { label: "Attach", command: `${prefix} attach-session -t ${session}:${window}` },
-    { label: "Send keys", command: `${prefix} send-keys -t ${session}:${window} "..." Enter` },
+    { label: "Attach", command: `${prefix} attach-session -t ${session} \\; select-window -t ${windowId}` },
+    { label: "Send keys", command: `${prefix} send-keys -t ${windowId} "..." Enter` },
   ];
 }
 
@@ -38,8 +40,8 @@ function CheckIcon() {
   );
 }
 
-export function TmuxCommandsDialog({ server, session, window, onClose }: TmuxCommandsDialogProps) {
-  const commands = buildCommands(server, session, window);
+export function TmuxCommandsDialog({ server, session, windowId, onClose }: TmuxCommandsDialogProps) {
+  const commands = buildCommands(server, session, windowId);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

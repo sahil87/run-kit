@@ -14,6 +14,10 @@ navigation.
   tmux PTY is large enough to receive typed input; `afterAll` kills it.
 - Each test sets a 375×812 viewport and calls `mockTouchDevice(page)` before
   navigating.
+- The terminal route is keyed by the tmux window id (`@N`), not the index, so
+  each test first calls `resolveFirstWindowId(page)` — which polls
+  `GET /api/sessions` for TEST_SESSION's first window id — and deep-links to
+  `/${TMUX_SERVER}/${TEST_SESSION}/<@id>` (id URL-encoded).
 - Touch events are dispatched via CDP (`Input.dispatchTouchEvent`) rather
   than `page.touchscreen` — the raw CDP path mirrors iOS input most closely.
 
@@ -26,8 +30,9 @@ mouse-scroll escape sequences (`\x1b[<64;col;rowM`) sent to the tmux PTY
 via the WebSocket relay.
 
 **Steps:**
-1. Navigate to `/${TMUX_SERVER}/${TEST_SESSION}/0` and wait for
-   `.xterm-screen` (xterm mount complete) plus a 2s settle.
+1. Resolve the first window id and navigate to
+   `/${TMUX_SERVER}/${TEST_SESSION}/<@id>`; wait for `.xterm-screen` (xterm
+   mount complete) plus a 2s settle.
 2. Type `seq 1 200\n` into the terminal to guarantee scrollback content.
 3. Monkey-patch `WebSocket.prototype.send` to append any data containing
    `\x1b[<6` into `window.__scrollSeqs`.

@@ -3,13 +3,12 @@ import { updateWindowUrl, updateWindowType } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 
 interface IframeWindowProps {
-  sessionName: string;
-  windowIndex: number;
+  windowId: string;
   rkUrl: string;
 }
 
 /** Renders an iframe with a URL bar for proxy windows. */
-export function IframeWindow({ sessionName, windowIndex, rkUrl }: IframeWindowProps) {
+export function IframeWindow({ windowId, rkUrl }: IframeWindowProps) {
   // IframeWindow renders only from AppShell terminal routes where currentServer
   // is set. Fall back to empty string when null (action no-ops with bad server).
   const { currentServer } = useSessionContext();
@@ -47,11 +46,11 @@ export function IframeWindow({ sessionName, windowIndex, rkUrl }: IframeWindowPr
   const handleSubmit = useCallback(() => {
     const trimmed = inputUrl.trim();
     if (!trimmed) return;
-    updateWindowUrl(server, sessionName, windowIndex, trimmed).catch(() => {
+    updateWindowUrl(server, windowId, trimmed).catch(() => {
       // Revert input on failure
       setInputUrl(rkUrl);
     });
-  }, [inputUrl, server, sessionName, windowIndex, rkUrl]);
+  }, [inputUrl, server, windowId, rkUrl]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -88,7 +87,7 @@ export function IframeWindow({ sessionName, windowIndex, rkUrl }: IframeWindowPr
           &#x23ce;
         </span>
         <button
-          onClick={() => updateWindowType(server, sessionName, windowIndex, "")}
+          onClick={() => updateWindowType(server, windowId, "")}
           className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
           aria-label="Switch to terminal"
           title="Switch to terminal"

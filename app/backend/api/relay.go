@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -65,20 +64,17 @@ func forceTERM(env []string) []string {
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
-	session := chi.URLParam(r, "session")
-	windowIndex := chi.URLParam(r, "window")
+	windowID := chi.URLParam(r, "windowId")
 
-	// Validate inputs
-	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
+	// Validate the window ID before any tmux interaction or WS upgrade
+	// (constitution §I — Security First). A malformed ID is a 400 before upgrade.
+	if errMsg := validate.ValidateWindowID(windowID, "Window ID"); errMsg != "" {
 		http.Error(w, errMsg, http.StatusBadRequest)
 		return
 	}
-	// Window index must be a non-negative integer
-	winIdx, err := strconv.Atoi(windowIndex)
-	if err != nil || winIdx < 0 {
-		http.Error(w, "Window index must be a non-negative integer", http.StatusBadRequest)
-		return
-	}
+
+	// Determine which tmux server this window lives on
+	server := serverFromRequest(r)
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -87,16 +83,17 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Determine which tmux server this session lives on
-	server := serverFromRequest(r)
-
-	// Verify the real session exists and has the requested window. ListWindows
-	// returns nil for a missing session — preserve the existing 4004 close code.
-	windows, err := s.tmux.ListWindows(r.Context(), session, server)
-	if err != nil || windows == nil {
-		slog.Warn("session not found", "session", session)
+	// Resolve the owning session from the window ID. The per-WebSocket ephemeral
+	// grouped-session mechanism keys off the *real session name*, so we derive it
+	// from the window ID via a targeted display-message lookup. A missing window
+	// (resolution fails or returns empty) preserves the existing 4004 close code.
+	resolveCtx, resolveCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	session, err := s.tmux.ResolveWindowSession(resolveCtx, server, windowID)
+	resolveCancel()
+	if err != nil || session == "" {
+		slog.Warn("window not found", "windowID", windowID, "err", err)
 		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4004, "Session not found"))
+			websocket.FormatCloseMessage(4004, "Window not found"))
 		return
 	}
 
@@ -127,8 +124,11 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	if err := s.tmux.SelectWindow(ephemeral, winIdx, server); err != nil {
-		slog.Error("select-window failed", "err", err, "ephemeral", ephemeral, "window", windowIndex)
+	// Select the window on the ephemeral by its window ID. Window IDs are shared
+	// across grouped sessions, so targeting by @id selects the right window on the
+	// ephemeral without disturbing other clients' active-window state.
+	if err := s.tmux.SelectWindow(windowID, server); err != nil {
+		slog.Error("select-window failed", "err", err, "ephemeral", ephemeral, "windowID", windowID)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4004, "Window not found"))
 		return
@@ -176,7 +176,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	ptmx, err := pty.StartWithSize(cmd, &initialSize)
 	if err != nil {
 		cancel()
-		slog.Error("pty start failed", "err", err, "session", session, "window", windowIndex)
+		slog.Error("pty start failed", "err", err, "session", session, "windowID", windowID)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4001, "Failed to attach to tmux session"))
 		return
@@ -193,7 +193,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 			// Set a short read deadline to unblock the main goroutine's
 			// conn.ReadMessage() when the PTY dies while the client is idle.
 			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			slog.Debug("relay cleanup", "session", session, "window", windowIndex)
+			slog.Debug("relay cleanup", "session", session, "windowID", windowID)
 		})
 	}
 	defer cleanup()

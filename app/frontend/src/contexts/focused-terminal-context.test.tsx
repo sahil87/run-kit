@@ -7,7 +7,7 @@ function FocusedView() {
   const { focused } = useFocusedTerminal();
   return (
     <span data-testid="focused">
-      {focused ? `${focused.server}/${focused.session}/${focused.windowIndex}` : "null"}
+      {focused ? `${focused.server}/${focused.session}/${focused.windowId}` : "null"}
     </span>
   );
 }
@@ -15,18 +15,18 @@ function FocusedView() {
 function Producer({
   server,
   session,
-  windowIndex,
+  windowId,
 }: {
   server: string;
   session: string;
-  windowIndex: string;
+  windowId: string;
 }) {
   const wsRef = useRef<WebSocket | null>(null);
   const { setFocused } = useFocusedTerminal();
   useEffect(() => {
-    setFocused({ wsRef, server, session, windowIndex });
+    setFocused({ wsRef, server, session, windowId });
     return () => setFocused(null);
-  }, [setFocused, server, session, windowIndex]);
+  }, [setFocused, server, session, windowId]);
   return null;
 }
 
@@ -45,7 +45,7 @@ describe("FocusedTerminalContext", () => {
   it("setFocused updates the consumed value", () => {
     render(
       <FocusedTerminalProvider>
-        <Producer server="rk" session="dev" windowIndex="0" />
+        <Producer server="rk" session="dev" windowId="0" />
         <FocusedView />
       </FocusedTerminalProvider>,
     );
@@ -64,7 +64,7 @@ describe("FocusedTerminalContext", () => {
   it("unmount of producer clears the focused state via setFocused(null)", () => {
     const { rerender } = render(
       <FocusedTerminalProvider>
-        <Producer server="rk" session="dev" windowIndex="0" />
+        <Producer server="rk" session="dev" windowId="0" />
         <FocusedView />
       </FocusedTerminalProvider>,
     );

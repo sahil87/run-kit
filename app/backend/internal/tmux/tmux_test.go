@@ -781,65 +781,92 @@ func TestEnsureDropInDirNoHomeDir(t *testing.T) {
 	ensureDropInDir()
 }
 
-func TestSwapWindowArgs(t *testing.T) {
-	// SwapWindow constructs target strings as "{session}:{index}".
-	// We can verify the format by checking the function exists and
-	// the target format is correct (unit-level, no live tmux needed).
-	// Since SwapWindow calls tmuxExecServer which requires a live tmux,
-	// we test the argument construction indirectly by verifying the
-	// function signature compiles and the target format logic.
-
-	// Verify target format construction matches expected pattern.
-	session := "work"
-	srcIndex := 0
-	dstIndex := 1
-	expectedSrc := fmt.Sprintf("%s:%d", session, srcIndex)
-	expectedDst := fmt.Sprintf("%s:%d", session, dstIndex)
-
-	if expectedSrc != "work:0" {
-		t.Errorf("src target = %q, want %q", expectedSrc, "work:0")
+// windowID reads the stable tmux window id (@N) for session:index on the
+// isolated test server. Fails the test if it cannot be resolved.
+func windowID(t *testing.T, server, target string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "-L", server, "display-message", "-t", target, "-p", "#{window_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("resolve window id for %q: %v\n%s", target, err, string(out))
 	}
-	if expectedDst != "work:1" {
-		t.Errorf("dst target = %q, want %q", expectedDst, "work:1")
+	id := strings.TrimSpace(string(out))
+	if id == "" {
+		t.Fatalf("empty window id for %q", target)
+	}
+	return id
+}
+
+func TestMoveWindow_reordersAndPreservesID(t *testing.T) {
+	server := withSessionOrderTmux(t)
+
+	// boot session exists with window 0; add two more so we have 0,1,2.
+	for _, name := range []string{"one", "two"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "tmux", "-L", server, "new-window", "-t", "boot", "-n", name).CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Fatalf("new-window %q: %v\n%s", name, err, string(out))
+		}
 	}
 
-	// Verify non-adjacent indices
-	expectedSrc2 := fmt.Sprintf("%s:%d", "dev", 0)
-	expectedDst2 := fmt.Sprintf("%s:%d", "dev", 5)
-	if expectedSrc2 != "dev:0" {
-		t.Errorf("src target = %q, want %q", expectedSrc2, "dev:0")
+	// Capture the stable id of the window currently at index 2, then move it to
+	// index 0. The reorder is positional (bubble-swap), but tmux preserves the
+	// window id across the move — the contract this migration relies on.
+	id := windowID(t, server, "boot:2")
+
+	if err := MoveWindow(id, 0, server); err != nil {
+		t.Fatalf("MoveWindow(%q -> 0): %v", id, err)
 	}
-	if expectedDst2 != "dev:5" {
-		t.Errorf("dst target = %q, want %q", expectedDst2, "dev:5")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	gotSession, gotIndex, err := resolveWindowSessionIndex(ctx, server, id)
+	if err != nil {
+		t.Fatalf("resolve after move: %v", err)
+	}
+	if gotIndex != 0 {
+		t.Errorf("after MoveWindow: index = %d, want 0", gotIndex)
+	}
+	if gotSession != "boot" {
+		t.Errorf("after MoveWindow: session = %q, want %q", gotSession, "boot")
 	}
 }
 
-func TestMoveWindowToSessionArgs(t *testing.T) {
-	// MoveWindowToSession constructs target strings as "{srcSession}:{srcIndex}" and "{dstSession}:".
-	// We verify the argument format without a live tmux server.
+func TestMoveWindowToSession_movesAndPreservesID(t *testing.T) {
+	server := withSessionOrderTmux(t)
 
-	srcSession := "alpha"
-	srcIndex := 2
-	dstSession := "bravo"
-
-	expectedSrc := fmt.Sprintf("%s:%d", srcSession, srcIndex)
-	expectedDst := fmt.Sprintf("%s:", dstSession)
-
-	if expectedSrc != "alpha:2" {
-		t.Errorf("src target = %q, want %q", expectedSrc, "alpha:2")
+	// Create the destination session and a source window in the boot session.
+	for _, args := range [][]string{
+		{"new-session", "-d", "-s", "dst"},
+		{"new-window", "-t", "boot", "-n", "mover"},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		full := append([]string{"-L", server}, args...)
+		out, err := exec.CommandContext(ctx, "tmux", full...).CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Fatalf("setup %v: %v\n%s", args, err, string(out))
+		}
 	}
-	if expectedDst != "bravo:" {
-		t.Errorf("dst target = %q, want %q", expectedDst, "bravo:")
+
+	id := windowID(t, server, "boot:mover")
+
+	if err := MoveWindowToSession(id, "dst", server); err != nil {
+		t.Fatalf("MoveWindowToSession(%q -> dst): %v", id, err)
 	}
 
-	// Verify different session/index combinations
-	expectedSrc2 := fmt.Sprintf("%s:%d", "dev", 0)
-	expectedDst2 := fmt.Sprintf("%s:", "staging")
-	if expectedSrc2 != "dev:0" {
-		t.Errorf("src target = %q, want %q", expectedSrc2, "dev:0")
+	// tmux's move-window preserves the window id; only its owning session
+	// changes. Verify the same id now resolves to the dst session.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	gotSession, err := ResolveWindowSession(ctx, server, id)
+	if err != nil {
+		t.Fatalf("resolve after move-to-session: %v", err)
 	}
-	if expectedDst2 != "staging:" {
-		t.Errorf("dst target = %q, want %q", expectedDst2, "staging:")
+	if gotSession != "dst" {
+		t.Errorf("after MoveWindowToSession: session = %q, want %q", gotSession, "dst")
 	}
 }
 

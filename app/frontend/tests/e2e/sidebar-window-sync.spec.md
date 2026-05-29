@@ -14,7 +14,11 @@ clicking a window in the UI renders its terminal (the user-driven direction).
   the given name appears, returning its stable tmux window id (`@N`) and
   index. Tests select rows by `data-window-id="@N"` rather than the display
   name — `@N` is unique for the window's lifetime, whereas names collide and
-  indices are reused. The index is used only to assert the router URL segment.
+  indices are reused. The window id is now ALSO the router URL segment
+  (`/$server/$session/$windowId`). The router percent-encodes the `@` in the
+  path segment (`@2` → `%402`), so URL assertions match
+  `encodeURIComponent(windowId)` (then regex-escaped via `escapeRegExp`); the
+  index is retained only for diagnostics.
 
 ## Tests
 
@@ -65,8 +69,8 @@ slower concern.
 4. Assert the row (`data-window-id="@id"`) button is visible and the URL does
    not yet contain `/${TEST_SESSION}/`.
 5. Click the window button.
-6. Assert the URL now matches `/${TEST_SESSION}/<index>` and the clicked
-   button has `aria-current="page"`.
+6. Assert the URL now matches `/${TEST_SESSION}/<@id>` (the stable window id,
+   regex-escaped) and the clicked button has `aria-current="page"`.
 
 ### `clicking a different window switches selection without bounce-back`
 

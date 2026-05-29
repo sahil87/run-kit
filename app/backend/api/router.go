@@ -31,26 +31,27 @@ type TmuxOps interface {
 	NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error
 	RenameSession(session, name, server string) error
 	CreateWindow(session, name, cwd, server string) error
-	KillWindow(session string, index int, server string) error
-	MoveWindow(session string, srcIndex int, dstIndex int, server string) error
-	MoveWindowToSession(srcSession string, srcIndex int, dstSession string, server string) error
-	RenameWindow(session string, index int, name, server string) error
-	SendKeys(session string, window int, keys, server string) error
-	SelectWindow(session string, index int, server string) error
+	KillWindow(windowID, server string) error
+	MoveWindow(windowID string, targetIndex int, server string) error
+	MoveWindowToSession(windowID, dstSession, server string) error
+	RenameWindow(windowID, name, server string) error
+	SendKeys(windowID, keys, server string) error
+	SelectWindow(windowID, server string) error
 	ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error)
-	SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error)
+	ResolveWindowSession(ctx context.Context, server, windowID string) (string, error)
+	SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error)
 	KillPane(paneID, server string) error
-	KillActivePane(session string, window int, server string) error
+	KillActivePane(windowID, server string) error
 	SetSessionColor(session string, color int, server string) error
 	UnsetSessionColor(session string, server string) error
-	SetWindowColor(session string, index int, color int, server string) error
-	UnsetWindowColor(session string, index int, server string) error
+	SetWindowColor(windowID string, color int, server string) error
+	UnsetWindowColor(windowID, server string) error
 	ListServers(ctx context.Context) ([]string, error)
 	ListSessions(ctx context.Context, server string) ([]tmux.SessionInfo, error)
 	KillServer(server string) error
 	ListKeys(server string) ([]string, error)
-	SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error
-	UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error
+	SetWindowOption(ctx context.Context, windowID, server, option, value string) error
+	UnsetWindowOption(ctx context.Context, windowID, server, option string) error
 	CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error
 	GetSessionOrder(ctx context.Context, server string) ([]string, error)
 	SetSessionOrder(ctx context.Context, server string, order []string) error
@@ -121,35 +122,38 @@ func (p *prodTmuxOps) RenameSession(session, name, server string) error {
 func (p *prodTmuxOps) CreateWindow(session, name, cwd, server string) error {
 	return tmux.CreateWindow(session, name, cwd, server)
 }
-func (p *prodTmuxOps) KillWindow(session string, index int, server string) error {
-	return tmux.KillWindow(session, index, server)
+func (p *prodTmuxOps) KillWindow(windowID, server string) error {
+	return tmux.KillWindow(windowID, server)
 }
-func (p *prodTmuxOps) MoveWindow(session string, srcIndex int, dstIndex int, server string) error {
-	return tmux.MoveWindow(session, srcIndex, dstIndex, server)
+func (p *prodTmuxOps) MoveWindow(windowID string, targetIndex int, server string) error {
+	return tmux.MoveWindow(windowID, targetIndex, server)
 }
-func (p *prodTmuxOps) MoveWindowToSession(srcSession string, srcIndex int, dstSession string, server string) error {
-	return tmux.MoveWindowToSession(srcSession, srcIndex, dstSession, server)
+func (p *prodTmuxOps) MoveWindowToSession(windowID, dstSession, server string) error {
+	return tmux.MoveWindowToSession(windowID, dstSession, server)
 }
-func (p *prodTmuxOps) RenameWindow(session string, index int, name, server string) error {
-	return tmux.RenameWindow(session, index, name, server)
+func (p *prodTmuxOps) RenameWindow(windowID, name, server string) error {
+	return tmux.RenameWindow(windowID, name, server)
 }
-func (p *prodTmuxOps) SendKeys(session string, window int, keys, server string) error {
-	return tmux.SendKeys(session, window, keys, server)
+func (p *prodTmuxOps) SendKeys(windowID, keys, server string) error {
+	return tmux.SendKeys(windowID, keys, server)
 }
-func (p *prodTmuxOps) SelectWindow(session string, index int, server string) error {
-	return tmux.SelectWindow(session, index, server)
+func (p *prodTmuxOps) SelectWindow(windowID, server string) error {
+	return tmux.SelectWindow(windowID, server)
 }
 func (p *prodTmuxOps) ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error) {
 	return tmux.ListWindows(ctx, session, server)
 }
-func (p *prodTmuxOps) SplitWindow(session string, window int, horizontal bool, cwd string, server string) (string, error) {
-	return tmux.SplitWindow(session, window, horizontal, cwd, server)
+func (p *prodTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
+	return tmux.ResolveWindowSession(ctx, server, windowID)
+}
+func (p *prodTmuxOps) SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error) {
+	return tmux.SplitWindow(windowID, horizontal, cwd, server)
 }
 func (p *prodTmuxOps) KillPane(paneID, server string) error {
 	return tmux.KillPane(paneID, server)
 }
-func (p *prodTmuxOps) KillActivePane(session string, window int, server string) error {
-	return tmux.KillActivePane(session, window, server)
+func (p *prodTmuxOps) KillActivePane(windowID, server string) error {
+	return tmux.KillActivePane(windowID, server)
 }
 func (p *prodTmuxOps) SetSessionColor(session string, color int, server string) error {
 	return tmux.SetSessionColor(session, color, server)
@@ -157,11 +161,11 @@ func (p *prodTmuxOps) SetSessionColor(session string, color int, server string) 
 func (p *prodTmuxOps) UnsetSessionColor(session string, server string) error {
 	return tmux.UnsetSessionColor(session, server)
 }
-func (p *prodTmuxOps) SetWindowColor(session string, index int, color int, server string) error {
-	return tmux.SetWindowColor(session, index, color, server)
+func (p *prodTmuxOps) SetWindowColor(windowID string, color int, server string) error {
+	return tmux.SetWindowColor(windowID, color, server)
 }
-func (p *prodTmuxOps) UnsetWindowColor(session string, index int, server string) error {
-	return tmux.UnsetWindowColor(session, index, server)
+func (p *prodTmuxOps) UnsetWindowColor(windowID, server string) error {
+	return tmux.UnsetWindowColor(windowID, server)
 }
 func (p *prodTmuxOps) ListServers(ctx context.Context) ([]string, error) {
 	return tmux.ListServers(ctx)
@@ -175,11 +179,11 @@ func (p *prodTmuxOps) KillServer(server string) error {
 func (p *prodTmuxOps) ListKeys(server string) ([]string, error) {
 	return tmux.ListKeys(server)
 }
-func (p *prodTmuxOps) SetWindowOption(ctx context.Context, session string, index int, server, option, value string) error {
-	return tmux.SetWindowOption(ctx, session, index, server, option, value)
+func (p *prodTmuxOps) SetWindowOption(ctx context.Context, windowID, server, option, value string) error {
+	return tmux.SetWindowOption(ctx, windowID, server, option, value)
 }
-func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, session string, index int, server, option string) error {
-	return tmux.UnsetWindowOption(ctx, session, index, server, option)
+func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, windowID, server, option string) error {
+	return tmux.UnsetWindowOption(ctx, windowID, server, option)
 }
 func (p *prodTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
 	return tmux.CreateWindowWithOptions(session, name, cwd, server, options)
@@ -334,17 +338,17 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)
 	r.Post("/api/sessions/{session}/rename", s.handleSessionRename)
 	r.Post("/api/sessions/{session}/windows", s.handleWindowCreate)
-	r.Post("/api/sessions/{session}/windows/{index}/kill", s.handleWindowKill)
-	r.Post("/api/sessions/{session}/windows/{index}/move", s.handleWindowMove)
-	r.Post("/api/sessions/{session}/windows/{index}/move-to-session", s.handleWindowMoveToSession)
-	r.Post("/api/sessions/{session}/windows/{index}/rename", s.handleWindowRename)
-	r.Post("/api/sessions/{session}/windows/{index}/color", s.handleWindowColor)
-	r.Put("/api/sessions/{session}/windows/{index}/url", s.handleWindowUrlUpdate)
-	r.Put("/api/sessions/{session}/windows/{index}/type", s.handleWindowTypeUpdate)
-	r.Post("/api/sessions/{session}/windows/{index}/keys", s.handleWindowKeys)
-	r.Post("/api/sessions/{session}/windows/{index}/select", s.handleWindowSelect)
-	r.Post("/api/sessions/{session}/windows/{index}/split", s.handleWindowSplit)
-	r.Post("/api/sessions/{session}/windows/{index}/close-pane", s.handleClosePaneKill)
+	r.Post("/api/windows/{windowId}/kill", s.handleWindowKill)
+	r.Post("/api/windows/{windowId}/move", s.handleWindowMove)
+	r.Post("/api/windows/{windowId}/move-to-session", s.handleWindowMoveToSession)
+	r.Post("/api/windows/{windowId}/rename", s.handleWindowRename)
+	r.Post("/api/windows/{windowId}/color", s.handleWindowColor)
+	r.Put("/api/windows/{windowId}/url", s.handleWindowUrlUpdate)
+	r.Put("/api/windows/{windowId}/type", s.handleWindowTypeUpdate)
+	r.Post("/api/windows/{windowId}/keys", s.handleWindowKeys)
+	r.Post("/api/windows/{windowId}/select", s.handleWindowSelect)
+	r.Post("/api/windows/{windowId}/split", s.handleWindowSplit)
+	r.Post("/api/windows/{windowId}/close-pane", s.handleClosePaneKill)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)
@@ -370,7 +374,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.HandleFunc("/proxy/{port}", s.handleProxy)
 
 	// WebSocket relay
-	r.Get("/relay/{session}/{window}", s.handleRelay)
+	r.Get("/relay/{windowId}", s.handleRelay)
 
 	// SPA static serving — catch-all, must be last
 	s.mountSPA(r)

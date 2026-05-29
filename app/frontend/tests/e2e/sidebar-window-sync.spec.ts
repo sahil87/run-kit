@@ -6,13 +6,18 @@ const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
 // Tests within this file share the session and execute in order (fullyParallel: false).
 const TEST_SESSION = `e2e-sync-${Date.now()}`;
 
+/** Escape a string for safe interpolation into a RegExp source. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Resolve a window's stable identifiers from the backend snapshot by its
  * (transient) display name. Returns the tmux window id (`@N`, unique for the
- * window's lifetime — the right handle for DOM selection) and the tmux window
- * index (the segment the router carries in `/$server/$session/$window`).
- * Polls because the window is created via the tmux CLI and surfaces in the
- * snapshot asynchronously.
+ * window's lifetime — both the handle for DOM selection AND the segment the
+ * router now carries in `/$server/$session/$window`) and the tmux window index
+ * (retained for diagnostics; addressing is by id). Polls because the window is
+ * created via the tmux CLI and surfaces in the snapshot asynchronously.
  */
 async function resolveWindow(
   page: Page,
@@ -168,11 +173,16 @@ test.describe("Sidebar Window Sync", () => {
 
     await windowButton.click();
 
-    // The URL must now carry the clicked session + window index — this is the
+    // The URL must now carry the clicked session + window ID (@N) — this is the
     // core of the fix: the optimistic navigate introduces the session that the
-    // SSE writeback alone could not, so the terminal route mounts at all.
+    // SSE writeback alone could not, so the terminal route mounts at all. The
+    // window segment is the stable tmux window id, not the mutable index. The
+    // router percent-encodes the `@` in the path segment (`@2` → `%402`), so the
+    // assertion matches the encoded form that appears in the address bar.
     await expect(page).toHaveURL(
-      new RegExp(`/${TEST_SESSION}/${target.index}(?:$|[/?#])`),
+      new RegExp(
+        `/${TEST_SESSION}/${escapeRegExp(encodeURIComponent(target.windowId))}(?:$|[/?#])`,
+      ),
       { timeout: 5_000 },
     );
     // And the clicked row becomes the selected one.

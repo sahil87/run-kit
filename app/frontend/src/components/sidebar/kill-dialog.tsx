@@ -5,7 +5,6 @@ type KillDialogProps = {
     type: "session" | "window";
     session: string;
     windowId?: string;
-    windowIndex?: number;
     windowCount: number;
   };
   onConfirm: () => void;

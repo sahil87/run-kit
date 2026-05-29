@@ -182,6 +182,58 @@ func TestUploadSessionFromURL(t *testing.T) {
 	}
 }
 
+func TestUploadTargetsWindowByID(t *testing.T) {
+	// The optional `window` form value is a tmux window ID (@N). When supplied,
+	// the upload root is the matching window's worktree, not the first window's.
+	firstDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	ops := &mockTmuxOps{
+		listWindowsResult: []tmux.WindowInfo{
+			{Index: 0, WindowID: "@3", Name: "main", WorktreePath: firstDir},
+			{Index: 1, WindowID: "@7", Name: "feature", WorktreePath: targetDir},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := createMultipartRequest(t, "/api/sessions/run-kit/upload",
+		map[string]string{"window": "@7"}, "shot.png", "data")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	path, _ := result["path"].(string)
+	if !strings.HasPrefix(path, filepath.Join(targetDir, ".uploads")) {
+		t.Errorf("upload path = %q, want under %q (the @7 window worktree)", path, targetDir)
+	}
+}
+
+func TestUploadInvalidWindowID(t *testing.T) {
+	// A malformed `window` form value is rejected before any filesystem work.
+	ops := &mockTmuxOps{
+		listWindowsResult: []tmux.WindowInfo{
+			{Index: 0, WindowID: "@3", Name: "main", WorktreePath: t.TempDir()},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := createMultipartRequest(t, "/api/sessions/run-kit/upload",
+		map[string]string{"window": "7"}, "shot.png", "data")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
 func TestUploadGitignoreNotDuplicated(t *testing.T) {
 	projectDir := t.TempDir()
 

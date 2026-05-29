@@ -236,7 +236,7 @@ describe("TopBar", () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Close pane"));
     });
-    expect(closePane).toHaveBeenCalledWith("runkit", "run-kit", 0);
+    expect(closePane).toHaveBeenCalledWith("runkit", "@0");
   });
 
   it("renders SplitButton (vertical and horizontal) when window is selected", () => {
@@ -257,7 +257,7 @@ describe("TopBar", () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Split vertically"));
     });
-    expect(splitWindow).toHaveBeenCalledWith("runkit", "run-kit", 0, false, "~/code/run-kit");
+    expect(splitWindow).toHaveBeenCalledWith("runkit", "@0", false, "~/code/run-kit");
   });
 
   it("shows spinner and disables SplitButton while pending", async () => {

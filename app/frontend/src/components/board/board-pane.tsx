@@ -77,9 +77,9 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       wsRef,
       server: entry.server,
       session: entry.session,
-      windowIndex: String(entry.windowIndex),
+      windowId: entry.windowId,
     });
-  }, [isFocused, setFocused, entry.server, entry.session, entry.windowIndex]);
+  }, [isFocused, setFocused, entry.server, entry.session, entry.windowId]);
 
   return (
     <div
@@ -98,7 +98,7 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
         {!paused && (
           <TerminalClient
             sessionName={entry.session}
-            windowIndex={String(entry.windowIndex)}
+            windowId={entry.windowId}
             server={entry.server}
             wsRef={wsRef}
             composeOpen={composeOpenForPane}

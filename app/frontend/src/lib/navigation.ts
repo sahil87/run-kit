@@ -4,12 +4,18 @@
  */
 export type RedirectTarget =
   | { to: "dashboard" }
-  | { to: "window"; session: string; windowIndex: number };
+  | { to: "window"; session: string; windowId: string };
 
 export function computeKillRedirect(params: {
   sessionName: string | undefined;
-  windowIndex: string | undefined;
-  currentSessionWindows: { index: number }[] | null;
+  /** The URL's window segment — the tmux window ID (@N) of the viewed window. */
+  windowId: string | undefined;
+  /**
+   * Surviving windows for the current session, in list (index) order. The
+   * killed window is already absent here (the SSE snapshot that triggered the
+   * redirect removed it).
+   */
+  currentSessionWindows: { index: number; windowId: string }[] | null;
   currentWindowExists: boolean;
   isConnected: boolean;
   /**
@@ -19,7 +25,7 @@ export function computeKillRedirect(params: {
    * user to a sibling or the dashboard before fresh data confirms the URL target
    * is truly missing.
    *
-   * Valid = session is present AND its windows list contains our windowIndex.
+   * Valid = session is present AND its windows list contains our windowId.
    * Defaults to `true` to preserve prior behavior for callers that don't track it
    * (e.g. legacy unit tests).
    */
@@ -27,7 +33,7 @@ export function computeKillRedirect(params: {
 }): RedirectTarget | null {
   const {
     sessionName,
-    windowIndex,
+    windowId,
     currentSessionWindows,
     currentWindowExists,
     isConnected,
@@ -45,14 +51,15 @@ export function computeKillRedirect(params: {
   // Session gone entirely
   if (!currentSessionWindows) return { to: "dashboard" };
 
-  // Window gone — find nearest sibling
-  if (windowIndex && !currentWindowExists) {
+  // Window gone — navigate to a surviving neighbor by its list position. The
+  // killed window's stable ID is no longer present, and reorder/kill make the
+  // numeric index unreliable for distance math, so we pick the first surviving
+  // window in list order (a deterministic adjacent neighbor) and target it by
+  // its stable windowId.
+  if (windowId && !currentWindowExists) {
     if (currentSessionWindows.length > 0) {
-      const killedIdx = Number(windowIndex);
-      const target = currentSessionWindows.reduce((best, w) =>
-        Math.abs(w.index - killedIdx) < Math.abs(best.index - killedIdx) ? w : best,
-      );
-      return { to: "window", session: sessionName, windowIndex: target.index };
+      const target = currentSessionWindows[0];
+      return { to: "window", session: sessionName, windowId: target.windowId };
     }
     return { to: "dashboard" };
   }

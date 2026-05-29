@@ -6,6 +6,39 @@ const TEST_SESSION = `e2e-scroll-${Date.now()}`;
 const port = Number(process.env.RK_PORT ?? "3333");
 const BASE = `http://localhost:${port}`;
 
+/**
+ * Resolve the first window's stable tmux id (`@N`) for TEST_SESSION from the
+ * backend snapshot. The terminal route is keyed by window id, not index, so a
+ * deep-link must carry `@N`. Polls because the session is created via the tmux
+ * CLI and surfaces in the snapshot asynchronously.
+ */
+async function resolveFirstWindowId(
+  page: import("@playwright/test").Page,
+): Promise<string> {
+  const deadline = Date.now() + 5_000;
+  let id: string | null = null;
+  while (Date.now() < deadline) {
+    const res = await page.request.get(
+      `${BASE}/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
+    );
+    if (res.ok()) {
+      const sessions = (await res.json()) as Array<{
+        name: string;
+        windows: Array<{ windowId: string }>;
+      }>;
+      const wid = sessions.find((s) => s.name === TEST_SESSION)?.windows[0]
+        ?.windowId;
+      if (wid) {
+        id = wid;
+        break;
+      }
+    }
+    await page.waitForTimeout(200);
+  }
+  expect(id, `first window for ${TEST_SESSION} not found`).not.toBeNull();
+  return id!;
+}
+
 // Mock pointer:coarse so the touch scroll handler activates in desktop Chromium
 function mockTouchDevice(page: import("@playwright/test").Page) {
   return page.addInitScript(() => {
@@ -52,7 +85,8 @@ test.describe("Mobile touch scroll", () => {
     await page.setViewportSize({ width: 375, height: 812 });
     await mockTouchDevice(page);
 
-    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/0`);
+    const windowId = await resolveFirstWindowId(page);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/${encodeURIComponent(windowId)}`);
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(2000);
 
@@ -114,7 +148,8 @@ test.describe("Mobile touch scroll", () => {
     await page.setViewportSize({ width: 375, height: 812 });
     await mockTouchDevice(page);
 
-    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/0`);
+    const windowId = await resolveFirstWindowId(page);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/${encodeURIComponent(windowId)}`);
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
 
     // Wrapper must stay mounted and measurable — a selector-count assertion
@@ -132,7 +167,8 @@ test.describe("Mobile touch scroll", () => {
     await page.setViewportSize({ width: 375, height: 812 });
     await mockTouchDevice(page);
 
-    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/0`);
+    const windowId = await resolveFirstWindowId(page);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/${encodeURIComponent(windowId)}`);
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(2000);
 

@@ -27,42 +27,41 @@ tailscale serve off
 
 ## Advanced: Custom hostname
 
-Use a Tailscale service to serve run-kit under a dedicated hostname like `runner1.<tailnet>.ts.net` instead of the machine name. The URL stays stable even if you move run-kit to a different host.
+Serve run-kit under a stable hostname like `runner1.<tailnet>.ts.net` instead of the machine name — the URL survives moving rk to another host.
 
-```sh
-tailscale serve --bg --service=svc:runner1 http://localhost:3000
-```
+Services need a tagged node. Do these in order:
 
-**Setup:** Services require a tagged node and ACL configuration. In your [Tailscale ACL policy](https://login.tailscale.com/admin/acls):
+1. **Define the `tag:server` tag.** In [Access controls](https://login.tailscale.com/admin/acls), Visual editor → **Tags** → add a tag named `server`. Owners can be left empty.
 
-1. Define a tag, grant yourself ownership, and auto-approve service advertisements:
-
-   ```jsonc
-   "tagOwners": {
-     "tag:server": ["your-email@example.com"]
-   },
-   "autoApprovers": {
-     "services": {
-       "svc:runner1": ["tag:server"]
-     }
-   }
-   ```
-
-2. Re-register the node with the tag and allow your user to manage Tailscale without sudo:
+2. **Re-register the node with the tag** (`--operator` lets you manage Tailscale without sudo afterward):
 
    ```sh
    sudo tailscale up --advertise-tags=tag:server --operator=$USER
    ```
 
-3. In the [admin console](https://login.tailscale.com/admin/machines), find the `svc:runner1` service and add `tcp:443` as an endpoint. Without this, you'll see "required ports are missing" even though the service is advertising.
+3. **Add the HTTPS endpoint.** In the [machines console](https://login.tailscale.com/admin/machines), open the `svc:runner1` service and add `tcp:443`. Skip this and you'll get "required ports are missing" even while the service advertises.
 
-4. Now the service command works:
+4. **Serve:**
 
    ```sh
    tailscale serve --bg --service=svc:runner1 http://localhost:3000
    ```
 
-> **Note:** Tagging a node removes the association with your user identity — ACL rules that grant access by user won't apply. Make sure your ACLs grant the tag access to what it needs.
+5. **Approve the service.** Open the [Services](https://login.tailscale.com/admin/services) page, find the pending `svc:runner1` advertisement under **Service hosts**, and click **Approve**. The service is inactive until you do.
+
+run-kit is now at `https://runner1.<tailnet>.ts.net`.
+
+> **Note:** Tagging a node drops its user-identity association — user-based ACL grants stop applying. Make sure your ACLs grant the tag what it needs.
+
+> **Tip:** If you advertise services often, you can skip the manual approval in step 5. In the [Access controls](https://login.tailscale.com/admin/acls) **JSON editor**, add an `autoApprovers` block as a top-level key (there's no Visual editor control for service approval), then save — leave the existing `grants` block untouched:
+>
+> ```jsonc
+> "autoApprovers": {
+>   "services": {
+>     "svc:runner1": ["tag:server"]
+>   }
+> },
+> ```
 
 ## Advanced: Public access (Funnel)
 

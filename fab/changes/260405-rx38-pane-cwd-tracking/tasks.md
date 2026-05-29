@@ -52,3 +52,5 @@
 | # | Item | Action | Detail |
 |---|------|--------|--------|
 | T003 | parsePanes signature vs spec | Resolved | Spec defines `[]PaneInfo` return; tasks extend to `([]PaneInfo, map[int][]PaneInfo)` for single-pass efficiency in ListWindows. Both are consistent — the map is an implementation convenience, not a contract change. |
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

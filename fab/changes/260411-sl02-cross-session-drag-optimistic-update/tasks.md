@@ -26,3 +26,5 @@
 - T003 is parallel with T002 (imports can be wired alongside hook logic)
 - T004 depends on T002+T003 (remove prop only after sidebar handles move internally)
 - T005 depends on T002+T003+T004 (tests validate final wiring)
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

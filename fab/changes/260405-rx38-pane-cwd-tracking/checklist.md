@@ -50,3 +50,5 @@
 ## Security
 
 - [x] CHK-029 No injection surface: `list-panes -s -t <session>` call passes `session` as an explicit argument to `tmuxExecServer` (arg slice), not via shell string interpolation
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

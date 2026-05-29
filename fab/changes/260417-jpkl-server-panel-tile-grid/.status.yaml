@@ -7,17 +7,16 @@ issues: []
 progress:
     intake: done
     spec: done
-    tasks: done
     apply: done
     review: done
     hydrate: done
     ship: done
     review-pr: done
-checklist:
+plan:
     generated: true
-    path: checklist.md
-    completed: 35
-    total: 35
+    task_count: 20
+    acceptance_count: 35
+    acceptance_completed: 35
 confidence:
     certain: 15
     confident: 5
@@ -33,7 +32,6 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-04-17T17:28:59Z", driver: fab-new, iterations: 1, completed_at: "2026-04-17T17:35:47Z"}
     spec: {started_at: "2026-04-17T17:35:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T17:42:37Z"}
-    tasks: {started_at: "2026-04-17T17:42:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T17:42:37Z"}
     apply: {started_at: "2026-04-17T17:42:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T18:27:04Z"}
     review: {started_at: "2026-04-17T18:27:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T18:29:43Z"}
     hydrate: {started_at: "2026-04-17T18:29:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-04-17T18:31:30Z"}
@@ -41,4 +39,4 @@ stage_metrics:
     review-pr: {started_at: "2026-04-17T18:32:52Z", driver: git-pr, iterations: 1, completed_at: "2026-04-17T18:42:29Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/159
-last_updated: 2026-04-17T18:42:29Z
+last_updated: 2026-05-29T01:30:57Z

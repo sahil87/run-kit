@@ -51,3 +51,5 @@
 - T015 after T011, T010 (needs SwatchPopover and API client)
 - T016 after T013, T014 (needs updated row components)
 - T017-T020 after their respective implementation tasks
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

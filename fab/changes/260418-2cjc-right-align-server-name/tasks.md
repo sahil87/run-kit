@@ -88,3 +88,5 @@ _(none)_
 - T005 is the final quality gate — run after T001-T004 all pass.
 - No tasks are parallelizable — the change is small and strictly sequential by file dependency.
 - Rework cycle 1: T006 and T007 MUST be completed together (constitution §35 — companion doc in same commit as spec). T008 is independent. T009 is the re-validation gate after all three.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

@@ -57,3 +57,5 @@
 - Phase 4: T026 + T027 are doc-only, parallelizable. T028 is independent. T029 (build + test) must run last; T030 is manual smoke after T029 passes.
 
 **Critical path**: T003 → T006 → T011 → T012 → T015 → T029.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

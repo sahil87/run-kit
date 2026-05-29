@@ -20,3 +20,5 @@
 
 - T001 blocks T002
 - T003 and T004 can run after T002
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

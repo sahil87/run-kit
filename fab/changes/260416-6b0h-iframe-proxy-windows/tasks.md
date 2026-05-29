@@ -46,3 +46,5 @@
 - T012 depends on T009, T011 (needs rendering branch and extended createWindow)
 - T013, T014 depend on T008, T010 (need IframeWindow and updateWindowUrl)
 - T015–T020 are parallel test tasks, depend on their respective implementation tasks
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

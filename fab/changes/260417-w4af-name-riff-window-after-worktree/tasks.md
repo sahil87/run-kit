@@ -62,3 +62,5 @@
 - T003 is independent of T001/T002 (doc comment edit); can run in parallel with T002
 - T004 depends on T001, T002, T003
 - T005 depends on T004 (smoke-test the built binary only after unit tests pass)
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

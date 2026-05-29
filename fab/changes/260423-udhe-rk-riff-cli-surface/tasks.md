@@ -41,3 +41,5 @@
 - T007 runs last (after all code and test updates).
 
 All tasks serialize in ID order because they all touch one of two files (`riff.go` / `riff_test.go`). No `[P]` markers.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

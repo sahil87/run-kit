@@ -81,3 +81,5 @@ Parallelizable groups (after T001, T002, T003):
 - T004 → T005 (fab-kit side)
 - T006 (run-kit verification)
 - T008 (memory update)
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

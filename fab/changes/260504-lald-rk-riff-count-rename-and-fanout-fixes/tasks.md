@@ -80,3 +80,5 @@
 - **T011 is a gate** — runs after all Phase 3 edits and before Phase 4 to catch regressions while context is fresh.
 - **T012 depends on T004** — the doc updates reference the post-rename flag names. Independent of test tasks T005–T010 — can run in parallel with them after T004.
 - **T013 is the final gate** — runs after T011 and T012; closes out the change.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

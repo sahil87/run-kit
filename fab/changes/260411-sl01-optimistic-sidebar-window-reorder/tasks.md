@@ -20,3 +20,4 @@
 
 - T001 blocks T002 (store action must exist before sidebar wires it)
 - T003 and T004 are independent of each other, can run in parallel after T001-T002
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

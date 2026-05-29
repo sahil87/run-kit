@@ -17,3 +17,5 @@
 ## Execution Order
 
 - T001 before T002 (tests validate the implementation)
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

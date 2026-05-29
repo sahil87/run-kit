@@ -61,3 +61,5 @@
 - T024, T025 depend on T023.
 
 Critical path: T001 → T002 → T004 → (T006 | T018) → T023 → T025.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

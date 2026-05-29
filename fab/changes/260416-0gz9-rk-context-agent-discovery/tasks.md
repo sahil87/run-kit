@@ -32,3 +32,5 @@
 - T003 blocks T004 (output rendering uses environment detection results)
 - T005, T006, T007 can run after T004 (edge case handling)
 - T008 runs last (tests verify all behavior)
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

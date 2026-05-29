@@ -54,3 +54,5 @@ All Phase 2 tasks (T001-T005) are independent and MAY execute in parallel — ea
 | T005 | `docs/memory/run-kit/rk-riff.md:30` | Sentence rewrite | 1 line |
 
 Total: ~10-15 lines of diff across 4 files. Zero behavior change. Zero new tests. Zero deleted tests.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

@@ -61,3 +61,5 @@
 - T013 is manual and can run last, independent of T011/T012.
 
 [P] tasks (T002, T004, T008, T012) can run in parallel with their Phase-mates once their dependencies are satisfied.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

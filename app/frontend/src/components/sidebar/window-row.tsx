@@ -169,6 +169,11 @@ export function WindowRow({
   return (
     <div
       key={ghost ? `ghost-${win.optimisticId}` : win.windowId}
+      // Stable, unique handle for tests/automation. tmux window ids (@N) are
+      // unique for a window's lifetime and survive rename/move/index reuse —
+      // unlike the window name or session+index, which are ambiguous or
+      // transient. Ghost rows expose their optimistic id until confirmed.
+      data-window-id={ghost ? `ghost-${win.optimisticId}` : win.windowId}
       className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}`}
       draggable={!ghost}
       onDragStart={onDragStart}

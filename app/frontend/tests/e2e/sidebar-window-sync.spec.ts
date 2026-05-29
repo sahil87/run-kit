@@ -1,10 +1,47 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
 
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
 // Each test file uses its own session to avoid cross-test interference.
 // Tests within this file share the session and execute in order (fullyParallel: false).
 const TEST_SESSION = `e2e-sync-${Date.now()}`;
+
+/**
+ * Resolve a window's stable identifiers from the backend snapshot by its
+ * (transient) display name. Returns the tmux window id (`@N`, unique for the
+ * window's lifetime — the right handle for DOM selection) and the tmux window
+ * index (the segment the router carries in `/$server/$session/$window`).
+ * Polls because the window is created via the tmux CLI and surfaces in the
+ * snapshot asynchronously.
+ */
+async function resolveWindow(
+  page: Page,
+  windowName: string,
+): Promise<{ windowId: string; index: number }> {
+  const deadline = Date.now() + 5_000;
+  let last: { windowId: string; index: number } | null = null;
+  while (Date.now() < deadline) {
+    const res = await page.request.get(
+      `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
+    );
+    if (res.ok()) {
+      const sessions = (await res.json()) as Array<{
+        name: string;
+        windows: Array<{ windowId: string; index: number; name: string }>;
+      }>;
+      const win = sessions
+        .find((s) => s.name === TEST_SESSION)
+        ?.windows.find((w) => w.name === windowName);
+      if (win) {
+        last = { windowId: win.windowId, index: win.index };
+        break;
+      }
+    }
+    await page.waitForTimeout(200);
+  }
+  expect(last, `window "${windowName}" not found in snapshot`).not.toBeNull();
+  return last!;
+}
 
 test.describe("Sidebar Window Sync", () => {
   test.beforeAll(() => {
@@ -91,6 +128,110 @@ test.describe("Sidebar Window Sync", () => {
     await expect(
       sidebar.locator(`text=${srcName}`),
     ).not.toBeVisible({ timeout: 5_000 });
+  });
+
+  test("clicking a window from the dashboard selects it and updates the URL", async ({
+    page,
+  }) => {
+    const ts = Date.now();
+    const winName = `click-win-${ts}`;
+
+    // A second window so the click target is unambiguous and distinct from
+    // the session's initial active window.
+    execSync(
+      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winName}"`,
+      { stdio: "ignore" },
+    );
+
+    // Land on the server root (the dashboard) — no session/window in the URL.
+    await page.goto(`/${TMUX_SERVER}`);
+
+    await expect(
+      page.locator("[aria-label='Connected']"),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const sidebar = page.locator("nav[aria-label='Sessions']");
+    // Resolve the window's stable identifiers (tmux @id + index) from the API
+    // snapshot rather than matching on the display name, which is neither
+    // unique nor stable. We select by data-window-id and assert the URL by
+    // index (the segment the router actually carries).
+    const target = await resolveWindow(page, winName);
+    const row = sidebar.locator(`[data-window-id="${target.windowId}"]`);
+    const windowButton = row.getByRole("button").first();
+    await expect(windowButton).toBeVisible({ timeout: 5_000 });
+
+    // Before the click we are on the dashboard: URL has no window segment.
+    // (Regression guard for #198, where clicks were pure tmux mutations and
+    // the URL writeback could not introduce a session, leaving the dashboard
+    // up forever.)
+    expect(page.url()).not.toContain(`/${TEST_SESSION}/`);
+
+    await windowButton.click();
+
+    // The URL must now carry the clicked session + window index — this is the
+    // core of the fix: the optimistic navigate introduces the session that the
+    // SSE writeback alone could not, so the terminal route mounts at all.
+    await expect(page).toHaveURL(
+      new RegExp(`/${TEST_SESSION}/${target.index}(?:$|[/?#])`),
+      { timeout: 5_000 },
+    );
+    // And the clicked row becomes the selected one.
+    await expect(windowButton).toHaveAttribute("aria-current", "page", {
+      timeout: 5_000,
+    });
+  });
+
+  test("clicking a different window switches selection without bounce-back", async ({
+    page,
+  }) => {
+    const ts = Date.now();
+    const winA = `switch-a-${ts}`;
+    const winB = `switch-b-${ts}`;
+
+    execSync(
+      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winA}"`,
+      { stdio: "ignore" },
+    );
+    execSync(
+      `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${winB}"`,
+      { stdio: "ignore" },
+    );
+
+    await page.goto(`/${TMUX_SERVER}`);
+    await expect(
+      page.locator("[aria-label='Connected']"),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const targetA = await resolveWindow(page, winA);
+    const targetB = await resolveWindow(page, winB);
+    const buttonA = sidebar
+      .locator(`[data-window-id="${targetA.windowId}"]`)
+      .getByRole("button")
+      .first();
+    const buttonB = sidebar
+      .locator(`[data-window-id="${targetB.windowId}"]`)
+      .getByRole("button")
+      .first();
+
+    await buttonA.click();
+    await expect(buttonA).toHaveAttribute("aria-current", "page", {
+      timeout: 5_000,
+    });
+
+    // Switch to B. The optimistic navigate selects B immediately; the
+    // pending-intent guard must keep B selected and NOT let a stale SSE
+    // snapshot bounce the selection back to A.
+    await buttonB.click();
+    await expect(buttonB).toHaveAttribute("aria-current", "page", {
+      timeout: 5_000,
+    });
+
+    // Give a stale-snapshot bounce a chance to manifest, then assert B held.
+    await page.waitForTimeout(1_500);
+    await expect(buttonB).toHaveAttribute("aria-current", "page");
+    await expect(buttonA).not.toHaveAttribute("aria-current", "page");
+    await expect(page).toHaveURL(new RegExp(`/${TEST_SESSION}/`));
   });
 
   test("kill-then-create at same index does not suppress new window", async ({

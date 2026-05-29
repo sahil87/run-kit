@@ -276,6 +276,15 @@ function AppShell() {
   // Reset alignment guard whenever the route's session changes (this is
   // effectively a fresh "mount" for the alignment contract).
   const lastAlignedSessionRef = useRef<string | null>(null);
+  // Pending click intent. A sidebar/palette click optimistically navigates
+  // the URL to the clicked (session, window) AND fires `selectWindow`. Until
+  // the SSE snapshot confirms tmux switched (the clicked window reports
+  // `isActiveWindow`), the writeback below would see the still-stale
+  // `activeWindow` and bounce the URL back to the previously-active window.
+  // We record the intent here and suppress the writeback while the URL still
+  // matches it; the intent clears the instant SSE confirms it (event-driven,
+  // not a timer — this is NOT the removed 3s wall-clock debounce).
+  const pendingClickRef = useRef<{ session: string; window: number } | null>(null);
 
   // Sync currentSession/currentWindow from route params + SSE data
   const currentSession = useMemo(
@@ -371,6 +380,22 @@ function AppShell() {
   useEffect(() => {
     if (!activeWindow || !sessionName) return;
     if (dialogOpenRef.current) return;
+    // Honor a pending click: while the URL still points at the optimistically
+    // navigated window the user just clicked, suppress the writeback so a
+    // stale snapshot can't bounce us back to the previously-active window.
+    // Clear the intent the moment SSE confirms it (active matches the click)
+    // or the URL has moved on (a newer navigation superseded it).
+    const pending = pendingClickRef.current;
+    if (pending) {
+      const urlMatchesPending =
+        pending.session === sessionName && String(pending.window) === windowIndex;
+      const sseConfirmed = activeWindow.index === pending.window;
+      if (sseConfirmed || !urlMatchesPending) {
+        pendingClickRef.current = null;
+      } else {
+        return; // intent outstanding — let the URL stand
+      }
+    }
     if (String(activeWindow.index) === windowIndex) return;
     navigate({
       to: "/$server/$session/$window",
@@ -379,19 +404,26 @@ function AppShell() {
     });
   }, [activeWindow, sessionName, windowIndex, navigate, server]);
 
-  // Navigation callback for sidebar/breadcrumbs — a pure mutation. We tell
-  // tmux to select the target window; the SSE snapshot then drives the URL
-  // and sidebar selection on its next tick (typically <500ms with the
-  // tmuxctl control-mode subscription). No direct `navigate` here so the
-  // URL never gets ahead of (or behind) tmux truth.
+  // Navigation callback for sidebar/breadcrumbs. tmux is the source of truth,
+  // but a click is explicit user intent: we navigate the URL optimistically
+  // (so the terminal renders immediately, including the first click from the
+  // Dashboard and cross-session clicks the SSE writeback alone can't express)
+  // AND fire `selectWindow` to bring tmux into agreement. `pendingClickRef`
+  // suppresses the writeback's bounce-back until SSE confirms the switch.
   //
   // On mobile, close the overlay sidebar after a destination tap.
   const navigateToWindow = useCallback(
     (session: string, windowIdx: number) => {
+      pendingClickRef.current = { session, window: windowIdx };
+      navigate({
+        to: "/$server/$session/$window",
+        params: { server, session, window: String(windowIdx) },
+        replace: true,
+      });
       selectWindow(server, session, windowIdx).catch(() => {});
       if (isMobile) setSidebarOpen(false);
     },
-    [server, isMobile, setSidebarOpen],
+    [server, navigate, isMobile, setSidebarOpen],
   );
 
   // Dialog state management

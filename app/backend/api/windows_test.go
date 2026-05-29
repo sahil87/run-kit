@@ -182,6 +182,25 @@ func TestWindowKill(t *testing.T) {
 	}
 }
 
+// Regression: clients URL-encode '@' as '%40' in path segments via
+// encodeURIComponent. chi v5 preserves the encoded form in URLParam, so the
+// handler must percent-decode before validating the window ID.
+func TestWindowKillPercentEncodedAt(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/%4018/kill", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (body: %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if ops.killWindowID != "@18" {
+		t.Errorf("windowID = %q, want %q", ops.killWindowID, "@18")
+	}
+}
+
 func TestWindowKillInvalidWindowID(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 

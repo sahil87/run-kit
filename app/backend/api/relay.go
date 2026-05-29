@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -64,7 +65,14 @@ func forceTERM(env []string) []string {
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
-	windowID := chi.URLParam(r, "windowId")
+	// Percent-decode the path param: window IDs contain '@', which clients
+	// URL-encode to '%40', and chi v5 preserves the encoded form in URLParam
+	// when RawPath is set.
+	windowID, err := url.PathUnescape(chi.URLParam(r, "windowId"))
+	if err != nil {
+		http.Error(w, "Invalid window ID encoding", http.StatusBadRequest)
+		return
+	}
 
 	// Validate the window ID before any tmux interaction or WS upgrade
 	// (constitution §I — Security First). A malformed ID is a 400 before upgrade.

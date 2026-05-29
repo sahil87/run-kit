@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -91,8 +92,16 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 // parseWindowID extracts and validates the tmux window ID from the URL.
 // Returns (id, true) on success, ("", false) when the {windowId} path parameter
 // is missing or malformed (handlers respond 400 in that case).
+//
+// The raw chi path param is percent-decoded before validation: window IDs
+// contain '@', which clients URL-encode to '%40', and chi v5 preserves the
+// encoded form in URLParam when RawPath is set.
 func parseWindowID(r *http.Request) (string, bool) {
-	id := chi.URLParam(r, "windowId")
+	raw := chi.URLParam(r, "windowId")
+	id, err := url.PathUnescape(raw)
+	if err != nil {
+		return "", false
+	}
 	if validate.ValidateWindowID(id, "Window ID") != "" {
 		return "", false
 	}

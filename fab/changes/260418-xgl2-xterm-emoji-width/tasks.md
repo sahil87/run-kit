@@ -40,3 +40,5 @@
 - T005 / T006 / T007 are independent test gates once code is in place and can be verified in any order.
 - T008 (manual smoke) runs after T005–T007 pass.
 - T009 (memory) can run in parallel with T004–T008; no code dependency.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

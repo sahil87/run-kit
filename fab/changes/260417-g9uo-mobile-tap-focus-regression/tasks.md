@@ -50,3 +50,5 @@
 - **T007-T008 are conditional** — execute only if T006 cannot pass with code-only changes. Skip entirely if Phase 2 succeeds.
 - T009, T010 depend on T006 passing (or T008 if fallback taken)
 - T011, T012 can run in parallel with T009-T010 (independent verification paths)
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

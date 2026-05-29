@@ -42,3 +42,5 @@
 - T010 (tests) depends on T003-T009 (needs the component behavior to test)
 - T010, T011, T012 [P] — test groups are independent
 - T013 runs last — final build validation
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

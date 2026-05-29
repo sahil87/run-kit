@@ -56,3 +56,5 @@
 - All items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] CHK-### **N/A**: {reason}`
 - Path-(a) vs path-(b) items: CHK-001 is satisfied by exactly one path; document which in tasks.md.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

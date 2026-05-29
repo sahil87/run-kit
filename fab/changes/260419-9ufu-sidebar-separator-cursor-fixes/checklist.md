@@ -88,3 +88,5 @@
 - All items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] CHK-### **N/A**: {reason}`
 - Security category omitted — no authentication, authorization, exec, WebSocket, or SSE surface touched by this change (frontend presentation polish only).
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

@@ -45,3 +45,5 @@
 - T012 depends on T003
 - T013 depends on T005, T006
 - T014 depends on T002
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

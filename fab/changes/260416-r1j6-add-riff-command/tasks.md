@@ -51,3 +51,5 @@
 - T003 → T004 → T005 → T006 → T007 are sequential — each extends the `RunE` implementation on top of the previous task's work.
 - T008 can run in parallel with T003–T007 once T002 lands. The pure helpers it tests (`parseWorktreePath`, `escapeSingleQuotes`) may be sketched early and refined as T005/T006 finalize their shape.
 - T009 and T010 run after all implementation tasks complete. T009 is a manual smoke; T010 is the automated test run.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

@@ -53,3 +53,5 @@
 - T013–T016 can run after T003 and T007 (they depend on the new `ServerInfo` type and the rewritten panel)
 - T017–T019 parallel [P] after T011 and T016
 - T020 last — runs the gates
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

@@ -64,3 +64,5 @@ _(none)_
 - **Phase 4**:
   - T008 and T009 are both test tasks and parallelizable (different concerns), though they run against the same file; do T008 first to confirm baseline, then T009 to add the new assertion if warranted.
   - T010 is a manual/automated Playwright sweep — runs last, after all code changes land.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

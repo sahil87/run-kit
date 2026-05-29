@@ -43,3 +43,5 @@
 | `app/frontend/src/components/sidebar/collapsible-panel.tsx` | T001 | Header tint branch uses `.selected` + flat hover when `tintOnlyWhenCollapsed` is true |
 | `app/frontend/src/components/sidebar/index.tsx` | T002 | Sessions header shows `currentSession` + normalizes text-color |
 | `app/frontend/src/components/sidebar/collapsible-panel.test.tsx` | T003 | Three new tests for tint shade selection |
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

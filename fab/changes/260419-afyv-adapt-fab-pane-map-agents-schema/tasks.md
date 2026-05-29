@@ -37,3 +37,5 @@ _(none)_
 - T004 is independent of T001-T003 — the frontend rendering change is zero-code per spec, but the verification MUST happen on a build that includes T001's backend fix, so T004 SHOULD run after T001 has been merged into the working tree.
 
 T001 → T002 → T003 → T004.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

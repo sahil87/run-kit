@@ -89,3 +89,5 @@
 - [ ] CHK-035 Belt-and-suspenders: `cd app/backend && go test ./internal/fabconfig/...` passes. (Not strictly required — this package isn't touched — but confirms nothing downstream broke.)
 
 - [ ] CHK-036 `just test` — full backend + frontend + e2e sweep. Optional for doc-only change but recommended for merge-ready confidence. Expect 0 regressions attributable to this change. N/A if the change has zero Go or frontend diff (only .md fixes) — but here we do have two .go files modified, so full sweep is warranted.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

@@ -7,17 +7,16 @@ issues: []
 progress:
     intake: done
     spec: done
-    tasks: done
     apply: done
     review: done
     hydrate: done
     ship: done
     review-pr: done
-checklist:
+plan:
     generated: true
-    path: checklist.md
-    completed: 0
-    total: 14
+    task_count: 4
+    acceptance_count: 14
+    acceptance_completed: 0
 confidence:
     certain: 4
     confident: 1

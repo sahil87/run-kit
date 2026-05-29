@@ -7,17 +7,16 @@ issues: []
 progress:
     intake: active
     spec: pending
-    tasks: pending
     apply: pending
     review: pending
     hydrate: pending
     ship: pending
     review-pr: pending
-checklist:
-    generated: false
-    path: checklist.md
-    completed: 0
-    total: 0
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 0
+    acceptance_completed: 0
 confidence:
     certain: 5
     confident: 1

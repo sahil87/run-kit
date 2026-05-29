@@ -88,3 +88,5 @@
 - Check items as you review: `- [x]`
 - All items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] CHK-xxx **N/A**: {reason}`
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

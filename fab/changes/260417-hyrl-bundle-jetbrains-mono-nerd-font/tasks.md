@@ -71,3 +71,5 @@
 
 - **Path decision record**: T001 SHALL write the chosen path (a or b) inline in this file as a `<!-- font-source-decision: ... -->` comment so review / hydrate can audit the choice without re-running the registry query.
 - **Rework gate**: If any of T009–T013 fails AND the failure is a legitimate regression (not a stale test), uncheck the relevant Phase 2 / 3 task(s) with `<!-- rework: reason -->` and re-run from the unchecked task forward.
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

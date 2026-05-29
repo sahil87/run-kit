@@ -47,3 +47,5 @@ _(no tasks)_
 |---|--------|--------|
 | T002 | Scope expanded | Added explicit instruction to refresh stale `fab-go pane-map` / `fab/.kit/bin/fab-go` comments elsewhere in `sessions.go` (L24, L78, L316-318). Ensures the file is self-consistent post-apply; prevents reviewer pushback on mixed old/new terminology. |
 | T004 | Test setup clarified | Specified that the integration test must source `fab_version` by walking up from the test binary's CWD (package dir) using `findRepoRoot`, rather than assuming a direct read of `fab/project/config.yaml`. Go tests run with the package directory as CWD, so a direct read would fail. |
+
+<!-- Migrated to plan.md on 2026-05-29 — safe to delete. -->

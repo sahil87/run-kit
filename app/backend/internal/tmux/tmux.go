@@ -18,6 +18,13 @@ import (
 // JSON-encoded sidebar session order.
 const SessionOrderOption = "@rk_session_order"
 
+// OwnerPIDOption is the session-scoped user option stamped on each relay
+// ephemeral with the PID of the owning `rk serve` process. The startup sweep
+// reads it to distinguish a live sibling's relays (spare) from a crashed
+// predecessor's orphans (reap). Session-scoped so it dies with the ephemeral
+// and never bleeds onto the real session through the session group.
+const OwnerPIDOption = "@rk_owner_pid"
+
 // OriginalTMUX captures the TMUX env var before init() strips it.
 // Package-level var init runs before init(), so this sees the original value.
 // Used by cmd/rk/context.go to restore TMUX in child process environments
@@ -897,6 +904,44 @@ func UnsetSessionColor(session string, server string) error {
 
 	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", session, "@session_color")
 	return err
+}
+
+// SetSessionOwnerPID stamps the @rk_owner_pid user option on a relay ephemeral
+// session with the owning `rk serve` process PID. Session-scoped (mirrors
+// SetSessionColor's `set-option -t <session>` pattern) so ownership lives on the
+// ephemeral itself and is never inherited by the real session through the
+// session group. The startup sweep reads this to spare a live sibling's relays.
+func SetSessionOwnerPID(ctx context.Context, server, session string, pid int) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "set-option", "-t", session, OwnerPIDOption, strconv.Itoa(pid))
+	return err
+}
+
+// GetSessionOwnerPID reads the @rk_owner_pid user option from a session and
+// returns its raw string value, or "" when the option is unset or the server is
+// unreachable. Mirrors GetSessionOrder's tolerance: tmux reports an unset
+// user-option as "invalid option"/"unknown option" and an absent socket as
+// "no server running"/"failed to connect" — both are normal states that the
+// sweep MUST treat as "no owner" (→ orphan) rather than a hard error. Other
+// subprocess failures propagate so the caller can log + accumulate per server.
+func GetSessionOwnerPID(ctx context.Context, server, session string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-options", "-v", "-t", session, OwnerPIDOption)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid option") ||
+			strings.Contains(errMsg, "unknown option") ||
+			strings.Contains(errMsg, "no server running") ||
+			strings.Contains(errMsg, "failed to connect") {
+			return "", nil
+		}
+		return "", fmt.Errorf("read %s on %s: %w", OwnerPIDOption, session, err)
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // SetWindowColor sets the @color user option on a window by its window ID.

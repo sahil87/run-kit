@@ -7,8 +7,14 @@ E2E_TMUX_SERVER="rk-e2e"
 cleanup() {
   # Kill dev server process group
   kill 0 2>/dev/null || true
-  # Kill the e2e tmux server
-  tmux -L "$E2E_TMUX_SERVER" kill-server 2>/dev/null || true
+  # Kill the primary e2e tmux server AND any secondary rk-e2e-* servers tests
+  # spun up (rk-e2e-multi-*, rk-e2e-coupling-*). The trap fires on EXIT
+  # regardless of cause (normal completion, set -e error, SIGINT/SIGTERM from
+  # Ctrl-C), so this reaps secondaries even when a spec's afterAll never ran.
+  # Best-effort: a socket may already be gone.
+  for sock in "/tmp/tmux-$(id -u)/${E2E_TMUX_SERVER}"*; do
+    [ -S "$sock" ] && tmux -L "$(basename "$sock")" kill-server 2>/dev/null || true
+  done
 }
 trap cleanup EXIT
 

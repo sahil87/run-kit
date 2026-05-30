@@ -127,6 +127,11 @@ type mockTmuxOps struct {
 	setSessionOrderOrder  []string
 	setSessionOrderErr    error
 
+	setSessionOwnerPIDCalled  bool
+	setSessionOwnerPIDSession string
+	setSessionOwnerPIDPID     int
+	setSessionOwnerPIDErr     error
+
 	// Boards
 	listBoardsCalled         bool
 	listBoardsResult         []tmux.BoardSummary
@@ -354,6 +359,15 @@ func (m *mockTmuxOps) SetSessionOrder(ctx context.Context, server string, order 
 	m.setSessionOrderOrder = order
 	if m.setSessionOrderErr != nil {
 		return m.setSessionOrderErr
+	}
+	return m.err
+}
+func (m *mockTmuxOps) SetSessionOwnerPID(ctx context.Context, server, session string, pid int) error {
+	m.setSessionOwnerPIDCalled = true
+	m.setSessionOwnerPIDSession = session
+	m.setSessionOwnerPIDPID = pid
+	if m.setSessionOwnerPIDErr != nil {
+		return m.setSessionOwnerPIDErr
 	}
 	return m.err
 }

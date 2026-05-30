@@ -132,6 +132,25 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Stamp the ephemeral with this rk serve process's PID BEFORE it becomes
+	// attachable (before SelectWindowInSession). A sibling startup sweep reaps
+	// any rk-relay-* whose @rk_owner_pid is empty, so an attachable-but-unstamped
+	// relay is indistinguishable from an orphan and would be wrongly killed.
+	// Stamping first guarantees the only unstamped relays a sweep can see are
+	// genuine orphans (owner already exited), never this live instance's relay.
+	//
+	// On stamp failure the relay is unprotectable — keeping it open is a false
+	// promise (the next sweep would reap owner=="" and drop the terminal). So we
+	// abort cleanly: log, close the WebSocket with the relay-allocation close
+	// code, and return — the deferred KillSessionCtx above reaps the half-owned
+	// ephemeral. This mirrors every other setup-step failure in handleRelay.
+	if err := s.tmux.SetSessionOwnerPID(r.Context(), server, ephemeral, os.Getpid()); err != nil {
+		slog.Warn("relay owner-pid stamp failed", "err", err, "ephemeral", ephemeral)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4001, "Failed to allocate relay session"))
+		return
+	}
+
 	// Select the window on the ephemeral, scoped to the ephemeral session. A bare
 	// window-id target (`select-window -t @N`) is ambiguous inside a session group
 	// — members share window membership but keep independent active-window state,

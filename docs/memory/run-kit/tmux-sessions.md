@@ -93,6 +93,8 @@ Per-server failures (list, owner-read, or kill) are logged and accumulated into 
 
 **Relay resolves the owning session from the window ID** (since `260529-chgz-window-id-routing`): the WebSocket URL is now `/relay/{windowId}?server={server}` (was `/relay/{session}/{window}`). Because the grouped ephemeral keys off the *real session name*, the relay calls `ResolveWindowSession(ctx, server, windowID)` (a targeted `display-message -t <windowId> -p '#{session_name}'`, 5s timeout) before `NewGroupedSession`. A malformed window ID is rejected with `400` before the WS upgrade; an unknown ID closes the socket with `4004`. The `select-window` on the ephemeral now targets the window ID directly (`@N` is shared across grouped sessions). Ephemeral names remain purely backend-internal — the frontend never sees an `rk-relay-*` name in URLs, request bodies, response payloads, or SSE frames.
 
+**Active-window highlight is event-derived per group** (since `260530-v6hm-active-window-event-derivation`): the independent per-member active-window pointer that makes ephemerals the right isolation unit is also why the sidebar/URL highlight used to lag — when a relay ephemeral (or `rk riff`, or an external `new-window`) moved the active window, the *base* session's `#{window_active}` pointer that the read path consumed stayed stale. The highlight is now derived from tmux control-mode `%session-window-changed` events tracked per session group (two-tier: event-tracked `@wid` authoritative, base `#{window_active}` only as a cold-start/reconnect fallback), so the correct window highlights regardless of which group member moved it. The fix lives entirely in the tmuxctl→SSE derivation path — this relay/ephemeral model is unchanged. The `$sid`→group resolution that backs it relies on `rk-relay-*` ephemerals and the `_rk-ctl` anchor sharing their base session's `#{session_group}`, so `tmux.ListSessionGroups` deliberately does NOT filter them. Design in `architecture.md` § Active-Window Event Derivation.
+
 ## `_rk-ctl` Anchor Session (tmuxctl control mode)
 
 `app/backend/internal/tmuxctl/` opens a long-running `tmux -CC` control-mode connection per tmux server (one Client per socket; see `architecture.md` § tmux Control-Mode Subscription for the package-level design). `tmux -CC` requires an attached session to emit notifications, so on tmux servers with zero pre-existing sessions the Client creates a hidden anchor session named `_rk-ctl`.
@@ -285,6 +287,8 @@ Mechanics:
 - **Signals** — SIGINT/SIGTERM once, at the top of `runRiff` via `signal.NotifyContext`; propagates to all goroutines and their subprocess calls.
 
 The new windows never appear on the managed `runkit`/`default` servers unless the user's current `$TMUX` happens to point there. See `rk-riff.md` for flag surface (`--skill`, `--cmd`, `--layout`, `--count`/`-N`, `--preset`, `--list-presets`), exit codes, and preset schema.
+
+`rk riff`'s bare `new-window` is intentionally left unchanged by `260530-v6hm-active-window-event-derivation`: when it lands on a server run-kit observes, the resulting `%session-window-changed` is now what drives the sidebar/URL to follow the new window (event-derived highlight — see § Per-WebSocket Ephemeral Grouped Sessions > Active-window highlight). The fix is creator-agnostic in the derivation path, so `rk riff`, `wt open`, and raw external `new-window` all update the highlight correctly without any creator-local change.
 
 ## Unified Test-Socket Naming — `rk-test-<role>-<pid>-<ns>`
 

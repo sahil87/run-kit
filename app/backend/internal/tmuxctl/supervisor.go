@@ -45,6 +45,14 @@ func isTmuxSocketCandidate(name string) bool {
 // newly-observed socket. Production: Open. Tests inject a stub.
 type openFn func(ctx context.Context, socket string, sink EventSink) (*Client, error)
 
+// SinkFactory builds the per-socket EventSink the Supervisor wires into each
+// Client. It receives the socket (server) name and the per-socket
+// ActiveWindowTracker the Supervisor allocated for it, so the returned sink can
+// record active-window state into that Client's own tracker. The factory is
+// the seam that binds one tracker per Client (the read-loop goroutine owns the
+// writes). Tests may pass a factory that ignores the tracker.
+type SinkFactory func(server string, tracker *ActiveWindowTracker) EventSink
+
 // Supervisor owns a per-tmux-socket map of Clients, automatically opening a
 // Client when a new socket appears in the watch directory and closing one
 // when its socket is removed.
@@ -54,11 +62,12 @@ type openFn func(ctx context.Context, socket string, sink EventSink) (*Client, e
 // mode 0o700 (matching tmux's own convention) and fsnotify watches the now-
 // existing directory for subsequent socket creates.
 type Supervisor struct {
-	sink     EventSink
-	watchDir string
+	sinkFactory SinkFactory
+	watchDir    string
 
-	mu      sync.Mutex
-	clients map[string]*Client
+	mu       sync.Mutex
+	clients  map[string]*Client
+	trackers map[string]*ActiveWindowTracker
 
 	watcher *fsnotify.Watcher
 	ctx     context.Context
@@ -74,17 +83,21 @@ type Supervisor struct {
 	watchDirOverride string
 }
 
-// NewSupervisor constructs a Supervisor that will route Client events into the
-// supplied sink. The watch directory is resolved at Start time, not here.
-func NewSupervisor(sink EventSink) *Supervisor {
-	if sink == nil {
-		sink = NoOpSink{}
+// NewSupervisor constructs a Supervisor that builds one EventSink per socket via
+// the supplied factory, each bound to that socket's own ActiveWindowTracker. A
+// nil factory degrades every Client to a NoOpSink (control-mode observed only
+// via the generation counter, no active-window tracking). The watch directory
+// is resolved at Start time, not here.
+func NewSupervisor(factory SinkFactory) *Supervisor {
+	if factory == nil {
+		factory = func(string, *ActiveWindowTracker) EventSink { return NoOpSink{} }
 	}
 	return &Supervisor{
-		sink:    sink,
-		clients: map[string]*Client{},
-		done:    make(chan struct{}),
-		open:    Open,
+		sinkFactory: factory,
+		clients:     map[string]*Client{},
+		trackers:    map[string]*ActiveWindowTracker{},
+		done:        make(chan struct{}),
+		open:        Open,
 	}
 }
 
@@ -157,6 +170,7 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 		clients = append(clients, c)
 	}
 	s.clients = map[string]*Client{}
+	s.trackers = map[string]*ActiveWindowTracker{}
 	s.mu.Unlock()
 
 	var wg sync.WaitGroup
@@ -225,7 +239,14 @@ func (s *Supervisor) openSocket(ctx context.Context, name string) {
 		_ = prev.Close()
 	}
 
-	c, err := s.open(ctx, name, s.sink)
+	// Allocate a fresh per-socket tracker and bind the sink to it. A
+	// close-then-reopen of the same socket gets a new tracker so stale state
+	// from the prior Client never leaks across the gap; the new Client's
+	// OnConnectionEstablished re-seeds it from live tmux state.
+	tracker := NewActiveWindowTracker()
+	sink := s.sinkFactory(name, tracker)
+
+	c, err := s.open(ctx, name, sink)
 	if err != nil {
 		slog.Warn("tmuxctl: PTY unavailable, control-mode disabled", "socket", name, "err", err)
 		return
@@ -233,6 +254,7 @@ func (s *Supervisor) openSocket(ctx context.Context, name string) {
 
 	s.mu.Lock()
 	s.clients[name] = c
+	s.trackers[name] = tracker
 	s.mu.Unlock()
 	// Socket lifecycle is logged at INFO so the daemon log reconstructs the
 	// timeline of when a tmux server's socket appeared/disappeared — essential
@@ -249,6 +271,7 @@ func (s *Supervisor) closeSocket(name string) {
 	if ok {
 		delete(s.clients, name)
 	}
+	delete(s.trackers, name)
 	s.mu.Unlock()
 	if ok {
 		// A socket removal means the tmux server exited (socket files are
@@ -266,6 +289,23 @@ func (s *Supervisor) Get(socket string) *Client {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.clients[socket]
+}
+
+// ActiveWindow returns the tracked active `@wid` for the given session group on
+// the named server, and whether a tracked entry exists. The read path
+// (sessions.FetchSessions) consumes this as the Tier-1 active-window signal. A
+// server with no Client (control-mode unavailable) or a group with no tracked
+// entry returns ("", false), so the caller falls back to the base-pointer
+// (Tier 2) derivation. This is the server-keyed read accessor the
+// ActiveWindowProvider seam adapts.
+func (s *Supervisor) ActiveWindow(server, group string) (string, bool) {
+	s.mu.Lock()
+	tracker := s.trackers[server]
+	s.mu.Unlock()
+	if tracker == nil {
+		return "", false
+	}
+	return tracker.Get(group)
 }
 
 // resolveWatchDir returns $TMUX_TMPDIR if set, else `/tmp/tmux-<euid>/`.

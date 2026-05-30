@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-30T09:38:28Z"}
+{"args":"Fix sidebar highlighting the wrong window after rk riff / external new-window: derive active window from %session-window-changed events (per-session) instead of the stale base-session pointer","cmd":"fab-new","event":"command","ts":"2026-05-30T09:38:28Z"}
+{"delta":"+1.1","event":"confidence","score":1.1,"trigger":"calc-score","ts":"2026-05-30T09:39:43Z"}
+{"delta":"+0.0","event":"confidence","score":1.1,"trigger":"calc-score","ts":"2026-05-30T09:39:48Z"}
+{"delta":"+0.0","event":"confidence","score":1.1,"trigger":"calc-score","ts":"2026-05-30T09:39:59Z"}
+{"delta":"+3.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-05-30T09:54:11Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-05-30T09:54:23Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-05-30T09:54:37Z"}
+{"delta":"+0.3","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-05-30T09:58:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-05-30T09:58:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-05-30T10:20:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-05-30T10:20:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-05-30T10:28:02Z"}
+{"event":"review","result":"passed","ts":"2026-05-30T10:28:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-05-30T10:33:16Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-05-30T10:36:26Z"}
+{"event":"review","result":"passed","ts":"2026-05-30T10:48:02Z"}

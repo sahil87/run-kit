@@ -116,11 +116,15 @@ To run rk as a background daemon, see 'rk daemon start' (and the rest of the
 		//
 		// Per-socket Open failures (PTY unavailable, etc.) are logged
 		// inside the Supervisor and never block startup.
-		supervisor := tmuxctl.NewSupervisor(api.NewHubSink())
+		supervisor := tmuxctl.NewSupervisor(api.NewHubSinkFactory())
 		if err := supervisor.Start(ctx); err != nil {
 			slog.Warn("tmuxctl supervisor failed to start; falling back to safety-net poll", "err", err)
 		} else {
 			apiServer.SetWindowChangeSubscriber(api.NewSupervisorSubscriber(supervisor))
+			// Thread the per-socket active-window trackers into the fetch path
+			// so FetchSessions derives isActiveWindow from control-mode events
+			// (Tier 1), falling back to the base pointer (Tier 2) per group.
+			apiServer.SetActiveWindowProvider(supervisor)
 		}
 
 		addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

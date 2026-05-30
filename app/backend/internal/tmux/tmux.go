@@ -46,7 +46,6 @@ func init() {
 	// instead of the default socket without this.
 	os.Unsetenv("TMUX")
 
-
 	home, err := os.UserHomeDir()
 	if err == nil {
 		DefaultConfigPath = filepath.Join(home, ".rk", "tmux.conf")
@@ -480,8 +479,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			PaneCommand:       paneCmd,
 			ActivityTimestamp: activityTs,
 			Color:             color,
-			RkType:           rkType,
-			RkUrl:            rkUrl,
+			RkType:            rkType,
+			RkUrl:             rkUrl,
 		})
 	}
 	return windows
@@ -538,6 +537,154 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 	}
 
 	return windows, nil
+}
+
+// parseSessionGroups parses `list-sessions` output of the form
+// `#{session_id}<delim>#{session_name}<delim>#{session_group}` into a
+// `$sid`→group map. tmux reports an EMPTY `#{session_group}` for ungrouped
+// sessions; in that case the session's own name is used as the group key so a
+// single-session (ungrouped) server still tracks under a stable key. The
+// rk-relay-* ephemerals and the _rk-ctl anchor are NOT filtered here — they
+// share their base session's group, so their `$sid` must resolve to that same
+// group for an active-window event fired against an ephemeral member to update
+// the correct (user-facing) group. Lines with fewer than 3 fields are skipped.
+// Exported (same-package) for testing.
+func parseSessionGroups(lines []string) map[string]string {
+	out := make(map[string]string, len(lines))
+	for _, line := range lines {
+		parts := strings.Split(line, listDelim)
+		if len(parts) < 3 {
+			continue
+		}
+		sid := strings.TrimSpace(parts[0])
+		name := strings.TrimSpace(parts[1])
+		group := strings.TrimSpace(parts[2])
+		if sid == "" {
+			continue
+		}
+		if group == "" {
+			group = name
+		}
+		if group == "" {
+			continue
+		}
+		out[sid] = group
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// ListSessionGroups returns a `$sid`→session-group map for the server, used by
+// the active-window tracker to resolve the `$sid` carried by
+// `%session-window-changed` to a group in O(1). Ungrouped sessions fall back to
+// their own name as the group key (see parseSessionGroups). Returns nil (no
+// error) when the server is not running. Read-only — never mutates sessions
+// (Constitution §VI).
+func ListSessionGroups(ctx context.Context, server string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	format := strings.Join([]string{
+		"#{session_id}",
+		"#{session_name}",
+		"#{session_group}",
+	}, listDelim)
+
+	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no server running") || strings.Contains(errMsg, "failed to connect") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return parseSessionGroups(lines), nil
+}
+
+// parseActiveWindowsByGroup parses `list-windows -a` output of the form
+// `#{session_group}<delim>#{session_name}<delim>#{window_id}<delim>#{window_active}`
+// into a group→active-`@wid` map for use as the Tier-1 re-seed.
+//
+// In a session group, EACH member carries its own active-window pointer, so
+// `list-windows -a` emits one `window_active=1` row per member. The seed MUST
+// reflect the BASE (leader) session's pointer — the same signal Tier 2 reads —
+// so only the leader row (where `session_name == session_group`) is honored for
+// grouped sessions. Ungrouped sessions report an empty group; their own name is
+// the group key and their sole `window_active=1` row is taken. A leaderless
+// group (renamed leader, no name==group row) records the first active row seen
+// as a best-effort representative. Lines with fewer than 4 fields are skipped.
+// Exported (same-package) for testing.
+func parseActiveWindowsByGroup(lines []string) map[string]string {
+	out := make(map[string]string)
+	leaderSeen := make(map[string]bool)
+	for _, line := range lines {
+		parts := strings.Split(line, listDelim)
+		if len(parts) < 4 {
+			continue
+		}
+		group := strings.TrimSpace(parts[0])
+		name := strings.TrimSpace(parts[1])
+		wid := strings.TrimSpace(parts[2])
+		active := strings.TrimSpace(parts[3]) == "1"
+		if !active || wid == "" {
+			continue
+		}
+		if group == "" {
+			group = name
+		}
+		if group == "" {
+			continue
+		}
+		isLeader := name == group
+		if isLeader {
+			// Leader pointer is authoritative for the group's seed.
+			out[group] = wid
+			leaderSeen[group] = true
+			continue
+		}
+		// Non-leader (ephemeral) row — only used as a fallback if the group
+		// never produces a leader row in this listing.
+		if !leaderSeen[group] {
+			if _, ok := out[group]; !ok {
+				out[group] = wid
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// ListActiveWindowsByGroup returns a group→active-`@wid` map snapshotting the
+// current active window per session group, used to re-seed the active-window
+// tracker on control-client (re)connect. tmux does NOT replay
+// `%session-window-changed` on a fresh `-CC` attach, so without this seed the
+// tracker would be empty (cold start) or stale (reconnect). Returns nil (no
+// error) when the server is not running. Read-only — never mutates sessions
+// (Constitution §VI).
+func ListActiveWindowsByGroup(ctx context.Context, server string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	format := strings.Join([]string{
+		"#{session_group}",
+		"#{session_name}",
+		"#{window_id}",
+		"#{window_active}",
+	}, listDelim)
+
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", format)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no server running") || strings.Contains(errMsg, "failed to connect") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return parseActiveWindowsByGroup(lines), nil
 }
 
 // CreateSession creates a new detached tmux session on the specified server,

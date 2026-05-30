@@ -384,14 +384,29 @@ func TestRelay_OwnerStampFailureAbortsClean(t *testing.T) {
 
 	// The stamp must have been attempted, and the ephemeral reaped by the
 	// deferred KillSessionCtx so no unstamped relay survives.
+	//
+	// The reap runs in handleRelay's deferred cleanup on the SERVER goroutine,
+	// which is not synchronized with the client seeing the 4001 close above.
+	// Reading the kill state immediately therefore races the server's defer and
+	// flakes under load (observed in CI). Poll the mutex-guarded accessor with a
+	// short deadline instead of asserting once on the bare fields.
 	if !ops.setSessionOwnerPIDCalled {
 		t.Error("SetSessionOwnerPID was not called — stamp path not exercised")
 	}
-	if !ops.killSessionCalled {
+	var killed bool
+	var killedName string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if killed, killedName = ops.KillSessionWasCalled(); killed {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !killed {
 		t.Error("ephemeral was not reaped after stamp failure (deferred KillSessionCtx not invoked)")
 	}
-	if ops.killSessionName != ops.newGroupedSessionEphemeral {
+	if killedName != ops.newGroupedSessionEphemeral {
 		t.Errorf("reaped session = %q, want the created ephemeral %q",
-			ops.killSessionName, ops.newGroupedSessionEphemeral)
+			killedName, ops.newGroupedSessionEphemeral)
 	}
 }

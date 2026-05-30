@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -17,11 +16,9 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
 	"rk/internal/tmux"
-	"rk/internal/validate"
 )
 
 // newEphemeralRelayName returns a unique ephemeral session name of the form
@@ -65,19 +62,14 @@ func forceTERM(env []string) []string {
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
-	// Percent-decode the path param: window IDs contain '@', which clients
-	// URL-encode to '%40', and chi v5 preserves the encoded form in URLParam
-	// when RawPath is set.
-	windowID, err := url.PathUnescape(chi.URLParam(r, "windowId"))
-	if err != nil {
-		http.Error(w, "Invalid window ID encoding", http.StatusBadRequest)
-		return
-	}
-
-	// Validate the window ID before any tmux interaction or WS upgrade
-	// (constitution §I — Security First). A malformed ID is a 400 before upgrade.
-	if errMsg := validate.ValidateWindowID(windowID, "Window ID"); errMsg != "" {
-		http.Error(w, errMsg, http.StatusBadRequest)
+	// Percent-decode + validate the window ID through the single shared helper
+	// (the same one parseWindowID uses) so the REST and relay entry points
+	// cannot drift (the drift that caused bug #205). A malformed/non-decodable
+	// ID is a 400 before any tmux interaction or WS upgrade (constitution §I —
+	// Security First).
+	windowID, ok := decodeWindowID(r)
+	if !ok {
+		http.Error(w, "Invalid window ID", http.StatusBadRequest)
 		return
 	}
 

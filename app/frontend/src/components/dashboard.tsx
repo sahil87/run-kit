@@ -6,7 +6,7 @@ import type { MergedSession } from "@/contexts/optimistic-context";
 
 type DashboardProps = {
   sessions: (ProjectSession | MergedSession)[];
-  onNavigate: (session: string, windowId: string) => void;
+  onNavigate: (windowId: string) => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
 };
@@ -96,7 +96,7 @@ export function Dashboard({
                     return (
                       <button
                         key={ghost ? `ghost-${win.optimisticId}` : win.windowId}
-                        onClick={() => onNavigate(session.name, win.windowId)}
+                        onClick={() => onNavigate(win.windowId)}
                         className={`w-full text-left p-2 rounded bg-bg-primary border border-border hover:border-text-secondary transition-colors min-h-[36px]${ghost ? " opacity-50 animate-pulse" : ""}`}
                         data-testid={`window-card-${session.name}-${win.index}`}
                       >

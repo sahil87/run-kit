@@ -2,36 +2,52 @@ id: jad6
 name: 260529-jad6-window-api-stability
 created: 2026-05-29T06:50:28Z
 created_by: sahil-noon
-change_type: fix
+change_type: refactor
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 33
+    acceptance_count: 57
+    acceptance_completed: 57
 confidence:
-    certain: 7
-    confident: 4
+    certain: 9
+    confident: 5
     tentative: 0
     unresolved: 0
-    score: 3.8
-    indicative: true
+    score: 3.5
     fuzzy: true
     dimensions:
-        signal: 90.5
-        reversibility: 65.0
-        competence: 86.8
-        disambiguation: 86.8
+        signal: 90.4
+        reversibility: 67.3
+        competence: 88.8
+        disambiguation: 87.3
 stage_metrics:
-    intake: {started_at: "2026-05-29T06:50:28Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-05-29T06:50:28Z", driver: fab-new, iterations: 1, completed_at: "2026-05-29T08:24:51Z"}
+    spec: {started_at: "2026-05-29T08:24:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-29T08:28:15Z"}
+    apply: {started_at: "2026-05-29T08:28:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-29T19:45:20Z"}
+    review: {started_at: "2026-05-29T19:45:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-29T19:53:27Z"}
+    hydrate: {started_at: "2026-05-29T19:53:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-29T20:05:11Z"}
+    ship: {started_at: "2026-05-29T20:05:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-30T01:25:29Z"}
+    review-pr: {started_at: "2026-05-30T01:25:29Z", driver: git-pr, iterations: 1, completed_at: "2026-05-30T01:37:58Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/207
+true_impact:
+    added: 276
+    deleted: 1
+    net: 275
+    excluding:
+        added: 62
+        deleted: 0
+        net: 62
+    computed_at: "2026-05-29T20:05:11Z"
+    computed_at_stage: hydrate
 # true_impact: lazily created on first apply-finish (no placeholder here).
-last_updated: 2026-05-29T07:16:11Z
+last_updated: 2026-05-30T01:37:58Z

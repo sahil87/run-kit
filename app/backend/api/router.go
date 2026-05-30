@@ -41,7 +41,6 @@ type TmuxOps interface {
 	ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error)
 	ResolveWindowSession(ctx context.Context, server, windowID string) (string, error)
 	SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error)
-	KillPane(paneID, server string) error
 	KillActivePane(windowID, server string) error
 	SetSessionColor(session string, color int, server string) error
 	UnsetSessionColor(session string, server string) error
@@ -53,7 +52,8 @@ type TmuxOps interface {
 	ListKeys(server string) ([]string, error)
 	SetWindowOption(ctx context.Context, windowID, server, option, value string) error
 	UnsetWindowOption(ctx context.Context, windowID, server, option string) error
-	CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error
+	SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
+	CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error
 	GetSessionOrder(ctx context.Context, server string) ([]string, error)
 	SetSessionOrder(ctx context.Context, server string, order []string) error
 	ListBoards(ctx context.Context) ([]tmux.BoardSummary, error)
@@ -153,9 +153,6 @@ func (p *prodTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID
 func (p *prodTmuxOps) SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error) {
 	return tmux.SplitWindow(windowID, horizontal, cwd, server)
 }
-func (p *prodTmuxOps) KillPane(paneID, server string) error {
-	return tmux.KillPane(paneID, server)
-}
 func (p *prodTmuxOps) KillActivePane(windowID, server string) error {
 	return tmux.KillActivePane(windowID, server)
 }
@@ -189,8 +186,11 @@ func (p *prodTmuxOps) SetWindowOption(ctx context.Context, windowID, server, opt
 func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, windowID, server, option string) error {
 	return tmux.UnsetWindowOption(ctx, windowID, server, option)
 }
-func (p *prodTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
-	return tmux.CreateWindowWithOptions(session, name, cwd, server, options)
+func (p *prodTmuxOps) SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
+	return tmux.SetWindowOptions(ctx, windowID, server, ops)
+}
+func (p *prodTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
+	return tmux.CreateWindowWithOptions(session, name, cwd, server, ops)
 }
 func (p *prodTmuxOps) GetSessionOrder(ctx context.Context, server string) ([]string, error) {
 	return tmux.GetSessionOrder(ctx, server)
@@ -319,7 +319,7 @@ func (s *Server) buildRouter() chi.Router {
 	// Middleware stack
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: false,
 		MaxAge:           300,
@@ -332,7 +332,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/sessions", s.handleSessionsList)
 	r.Post("/api/sessions", s.handleSessionCreate)
 	r.Get("/api/sessions/order", s.handleSessionOrderGet)
-	r.Put("/api/sessions/order", s.handleSessionOrderPut)
+	r.Post("/api/sessions/order", s.handleSessionOrderPost)
 	r.Get("/api/boards", s.handleBoardsList)
 	r.Get("/api/boards/{name}", s.handleBoardGet)
 	r.Post("/api/boards/{name}/pin", s.handleBoardPin)
@@ -346,9 +346,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/move", s.handleWindowMove)
 	r.Post("/api/windows/{windowId}/move-to-session", s.handleWindowMoveToSession)
 	r.Post("/api/windows/{windowId}/rename", s.handleWindowRename)
-	r.Post("/api/windows/{windowId}/color", s.handleWindowColor)
-	r.Put("/api/windows/{windowId}/url", s.handleWindowUrlUpdate)
-	r.Put("/api/windows/{windowId}/type", s.handleWindowTypeUpdate)
+	r.Post("/api/windows/{windowId}/options", s.handleWindowOptions)
 	r.Post("/api/windows/{windowId}/keys", s.handleWindowKeys)
 	r.Post("/api/windows/{windowId}/select", s.handleWindowSelect)
 	r.Post("/api/windows/{windowId}/split", s.handleWindowSplit)
@@ -369,9 +367,9 @@ func (s *Server) buildRouter() chi.Router {
 
 	// Settings (global, not per-server)
 	r.Get("/api/settings/theme", s.handleGetTheme)
-	r.Put("/api/settings/theme", s.handlePutTheme)
+	r.Post("/api/settings/theme", s.handleSetTheme)
 	r.Get("/api/settings/server-color", s.handleGetServerColor)
-	r.Put("/api/settings/server-color", s.handlePutServerColor)
+	r.Post("/api/settings/server-color", s.handleSetServerColor)
 
 	// Reverse proxy for iframe windows
 	r.HandleFunc("/proxy/{port}/*", s.handleProxy)

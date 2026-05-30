@@ -350,34 +350,14 @@ export function Sidebar({
     onOptimistic: (srv, oldName, newName) => {
       lastRenameSessionRef.current = { server: srv, oldName, newName };
       markRenamed("session", srv, oldName, newName);
-      // Navigate immediately if the renamed session is the user's current one.
-      if (
-        currentServer === srv &&
-        currentSession === oldName &&
-        currentWindowId
-      ) {
-        navigate({
-          to: "/$server/$session/$window",
-          params: { server: srv, session: newName, window: currentWindowId },
-          replace: true,
-        });
-      }
+      // No navigation on rename: the route is /$server/$window (no session
+      // segment), so the URL is unaffected by a session rename — the breadcrumb
+      // re-derives the new session name from the next SSE snapshot.
     },
     onRollback: () => {
       const last = lastRenameSessionRef.current;
       if (last) {
         unmarkRenamed(last.server, last.oldName);
-        if (
-          currentServer === last.server &&
-          currentSession === last.newName &&
-          currentWindowId
-        ) {
-          navigate({
-            to: "/$server/$session/$window",
-            params: { server: last.server, session: last.oldName, window: currentWindowId },
-            replace: true,
-          });
-        }
       }
     },
     onError: (err) => {

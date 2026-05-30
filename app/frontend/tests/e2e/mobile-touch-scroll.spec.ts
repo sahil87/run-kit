@@ -86,7 +86,7 @@ test.describe("Mobile touch scroll", () => {
     await mockTouchDevice(page);
 
     const windowId = await resolveFirstWindowId(page);
-    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/${encodeURIComponent(windowId)}`);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(2000);
 
@@ -149,7 +149,7 @@ test.describe("Mobile touch scroll", () => {
     await mockTouchDevice(page);
 
     const windowId = await resolveFirstWindowId(page);
-    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/${encodeURIComponent(windowId)}`);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
 
     // Wrapper must stay mounted and measurable — a selector-count assertion
@@ -168,7 +168,7 @@ test.describe("Mobile touch scroll", () => {
     await mockTouchDevice(page);
 
     const windowId = await resolveFirstWindowId(page);
-    await page.goto(`${BASE}/${TMUX_SERVER}/${TEST_SESSION}/${encodeURIComponent(windowId)}`);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
     await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(2000);
 

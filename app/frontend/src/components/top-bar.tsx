@@ -15,8 +15,8 @@ export type TopBarMode = "terminal" | "board" | "root";
 type TopBarProps = {
   /**
    * Mode controls the breadcrumb / informational region. `terminal` renders
-   * session/window breadcrumbs (default — covers `/$server/$session/$window`).
-   * `root` renders the dashboard label (covers `/$server` with no session).
+   * session/window breadcrumbs (default — covers `/$server/$window`).
+   * `root` renders the dashboard label (covers `/$server` with no window).
    * `board` renders the board breadcrumb dropdown plus pane/server counts and
    * the cycle hint (covers `/board/$name`).
    */
@@ -29,7 +29,7 @@ type TopBarProps = {
   isConnected: boolean;
   sidebarOpen: boolean;
   server: string;
-  onNavigate: (session: string, windowId: string) => void;
+  onNavigate: (windowId: string) => void;
   onToggleSidebar: () => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
@@ -99,30 +99,32 @@ export function TopBar({
   serverCount,
   boards,
 }: TopBarProps) {
+  // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
+  // window id (@N) is the only identity in the URL. Selecting a session jumps
+  // to its first window; the owning session is derived from the snapshot.
   const sessionItems: BreadcrumbDropdownItem[] = sessions.map((s) => ({
     label: s.name,
-    href: `/${encodeURIComponent(server)}/${encodeURIComponent(s.name)}/${encodeURIComponent(s.windows[0]?.windowId ?? "")}`,
+    href: `/${encodeURIComponent(server)}/${encodeURIComponent(s.windows[0]?.windowId ?? "")}`,
     current: s.name === sessionName,
   }));
 
   const windowItems: BreadcrumbDropdownItem[] = (currentSession?.windows ?? []).map(
     (w) => ({
       label: w.name,
-      href: `/${encodeURIComponent(server)}/${encodeURIComponent(sessionName)}/${encodeURIComponent(w.windowId)}`,
+      href: `/${encodeURIComponent(server)}/${encodeURIComponent(w.windowId)}`,
       current: currentWindow ? w.windowId === currentWindow.windowId : false,
     }),
   );
 
   const handleDropdownNavigate = useCallback(
     (href: string) => {
-      // Parse href like "/server/sessionName/windowId" — the window segment is
-      // the tmux window ID (@N), a string (no numeric coercion).
+      // Parse href "/server/windowId" — the window segment is the tmux window
+      // ID (@N), a string (no numeric coercion). Identity is window-id only.
       const parts = href.replace(/^\//, "").split("/");
-      if (parts.length >= 3) {
-        const session = decodeURIComponent(parts[1]);
-        const windowId = decodeURIComponent(parts[2]);
+      if (parts.length >= 2) {
+        const windowId = decodeURIComponent(parts[1]);
         if (windowId) {
-          onNavigate(session, windowId);
+          onNavigate(windowId);
         }
       }
     },

@@ -46,9 +46,11 @@ const serverIndexRoute = createRoute({
 
 const terminalRoute = createRoute({
   getParentRoute: () => serverLayoutRoute,
-  path: "/$session/$window",
+  // Route is /$server/$window — the window id (@N) is the only identity in the
+  // URL. The owning session is derived from the SSE snapshot, not the URL. Old
+  // 3-segment /$server/$session/$window URLs are a hard break (no redirect shim).
+  path: "/$window",
   parseParams: (params) => ({
-    session: params.session,
     window: params.window,
   }),
 });

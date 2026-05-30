@@ -113,11 +113,15 @@ type mockTmuxOps struct {
 	unsetWindowOptionWindowID string
 	unsetWindowOptionOption   string
 
+	setWindowOptionsCalled   bool
+	setWindowOptionsWindowID string
+	setWindowOptionsOps      []tmux.WindowOptionOp
+
 	createWindowWithOptionsCalled  bool
 	createWindowWithOptionsSession string
 	createWindowWithOptionsName    string
 	createWindowWithOptionsCwd     string
-	createWindowWithOptionsOpts    map[string]string
+	createWindowWithOptionsOps     []tmux.WindowOptionOp
 
 	getSessionOrderCalled bool
 	getSessionOrderResult []string
@@ -261,9 +265,6 @@ func (m *mockTmuxOps) SelectWindowInSession(session, windowID, server string) er
 	m.selectWindowInSessionWindowID = windowID
 	return m.err
 }
-func (m *mockTmuxOps) KillPane(paneID, server string) error {
-	return nil
-}
 func (m *mockTmuxOps) KillActivePane(windowID, server string) error {
 	m.killActivePaneCalled = true
 	m.killActivePaneWindowID = windowID
@@ -331,12 +332,18 @@ func (m *mockTmuxOps) UnsetWindowOption(ctx context.Context, windowID, server, o
 	m.unsetWindowOptionOption = option
 	return m.err
 }
-func (m *mockTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
+func (m *mockTmuxOps) SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
+	m.setWindowOptionsCalled = true
+	m.setWindowOptionsWindowID = windowID
+	m.setWindowOptionsOps = ops
+	return m.err
+}
+func (m *mockTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
 	m.createWindowWithOptionsCalled = true
 	m.createWindowWithOptionsSession = session
 	m.createWindowWithOptionsName = name
 	m.createWindowWithOptionsCwd = cwd
-	m.createWindowWithOptionsOpts = options
+	m.createWindowWithOptionsOps = ops
 	return m.err
 }
 func (m *mockTmuxOps) GetSessionOrder(ctx context.Context, server string) ([]string, error) {
@@ -794,12 +801,12 @@ func TestSessionOrder_GET_tmuxError(t *testing.T) {
 	}
 }
 
-func TestSessionOrder_PUT_roundTrip(t *testing.T) {
+func TestSessionOrder_POST_roundTrip(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"order":["main","dev","scratch"]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/order?server=default", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -823,12 +830,12 @@ func TestSessionOrder_PUT_roundTrip(t *testing.T) {
 	}
 }
 
-func TestSessionOrder_PUT_invalidBody_notArray(t *testing.T) {
+func TestSessionOrder_POST_invalidBody_notArray(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"order":"main"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/order?server=default", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -841,11 +848,11 @@ func TestSessionOrder_PUT_invalidBody_notArray(t *testing.T) {
 	}
 }
 
-func TestSessionOrder_PUT_invalidBody_malformedJSON(t *testing.T) {
+func TestSessionOrder_POST_invalidBody_malformedJSON(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader("not json"))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/order?server=default", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -858,13 +865,13 @@ func TestSessionOrder_PUT_invalidBody_malformedJSON(t *testing.T) {
 	}
 }
 
-func TestSessionOrder_PUT_invalidName(t *testing.T) {
+func TestSessionOrder_POST_invalidName(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	// "bad;name" contains a forbidden shell metacharacter — validate.ValidateName rejects.
 	body := `{"order":["main","bad;name"]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/order?server=default", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -882,12 +889,12 @@ func TestSessionOrder_PUT_invalidName(t *testing.T) {
 	}
 }
 
-func TestSessionOrder_PUT_emptyArray(t *testing.T) {
+func TestSessionOrder_POST_emptyArray(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"order":[]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/order?server=default", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -903,14 +910,14 @@ func TestSessionOrder_PUT_emptyArray(t *testing.T) {
 	}
 }
 
-func TestSessionOrder_PUT_staleNameAccepted(t *testing.T) {
+func TestSessionOrder_POST_staleNameAccepted(t *testing.T) {
 	// Names that pass validate.ValidateName but don't match a current session
 	// MUST be accepted — the frontend's render layer handles stale names.
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"order":["main","deleted-yesterday"]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/order?server=default", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -920,12 +927,12 @@ func TestSessionOrder_PUT_staleNameAccepted(t *testing.T) {
 	}
 }
 
-func TestSessionOrder_PUT_tmuxError(t *testing.T) {
+func TestSessionOrder_POST_tmuxError(t *testing.T) {
 	ops := &mockTmuxOps{setSessionOrderErr: fmt.Errorf("tmux failed")}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	body := `{"order":["main"]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/order?server=default", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -935,10 +942,10 @@ func TestSessionOrder_PUT_tmuxError(t *testing.T) {
 	}
 }
 
-// TestSessionOrder_PUT_triggersBroadcast verifies the end-to-end wiring from
-// the PUT handler through the SSE hub: a successful PUT must result in a
+// TestSessionOrder_POST_triggersBroadcast verifies the end-to-end wiring from
+// the POST handler through the SSE hub: a successful POST must result in a
 // connected client receiving a session-order event for that server.
-func TestSessionOrder_PUT_triggersBroadcast(t *testing.T) {
+func TestSessionOrder_POST_triggersBroadcast(t *testing.T) {
 	ops := &mockTmuxOps{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	server := &Server{
@@ -968,13 +975,13 @@ draining:
 
 	router := server.buildRouter()
 	body := `{"order":["main","dev"]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/sessions/order?server=default", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/order?server=default", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("PUT status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("POST status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 
 	// The client must receive a session-order event within ~100ms (broadcast

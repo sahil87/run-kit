@@ -11,78 +11,303 @@ import (
 	"rk/internal/tmux"
 )
 
-// --- Window Color endpoint tests ---
+// --- Window Options endpoint tests (POST /api/windows/{id}/options) ---
+//
+// findOp returns the recorded WindowOptionOp for key, or (zero, false). The
+// /options handler iterates a map, so op order is non-deterministic — tests
+// assert by key, not by slice position.
+func findOp(ops []tmux.WindowOptionOp, key string) (tmux.WindowOptionOp, bool) {
+	for _, op := range ops {
+		if op.Key == key {
+			return op, true
+		}
+	}
+	return tmux.WindowOptionOp{}, false
+}
 
-func TestWindowColorSet(t *testing.T) {
+func postOptions(t *testing.T, ops *mockTmuxOps, windowID, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/"+windowID+"/options", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+// Set color only — the merge issues one SetWindowOptions call with just @color;
+// @rk_url/@rk_type are left untouched (absent from the op list).
+func TestWindowOptionsSetColorOnly(t *testing.T) {
 	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@color":"5"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.setWindowOptionsCalled {
+		t.Fatal("SetWindowOptions was not called")
+	}
+	if ops.setWindowOptionsWindowID != "@2" {
+		t.Errorf("windowID = %q, want %q", ops.setWindowOptionsWindowID, "@2")
+	}
+	if len(ops.setWindowOptionsOps) != 1 {
+		t.Fatalf("ops = %v, want exactly 1 (@color)", ops.setWindowOptionsOps)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@color")
+	if !ok || op.Value == nil || *op.Value != "5" {
+		t.Errorf("@color op = %+v, want value \"5\"", op)
+	}
+}
+
+// Explicit null unsets — a nil Value op is recorded for @color.
+func TestWindowOptionsNullUnsets(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@color":null}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@color")
+	if !ok {
+		t.Fatal("expected @color op")
+	}
+	if op.Value != nil {
+		t.Errorf("@color value = %q, want nil (unset)", *op.Value)
+	}
+}
+
+// Multi-key merge is a single SetWindowOptions invocation carrying both keys.
+func TestWindowOptionsMultiKeyOneCall(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_url":"https://x","@rk_type":"iframe"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if len(ops.setWindowOptionsOps) != 2 {
+		t.Fatalf("ops = %v, want 2 (one invocation, both keys)", ops.setWindowOptionsOps)
+	}
+	urlOp, ok := findOp(ops.setWindowOptionsOps, "@rk_url")
+	if !ok || urlOp.Value == nil || *urlOp.Value != "https://x" {
+		t.Errorf("@rk_url op = %+v, want value \"https://x\"", urlOp)
+	}
+	typeOp, ok := findOp(ops.setWindowOptionsOps, "@rk_type")
+	if !ok || typeOp.Value == nil || *typeOp.Value != "iframe" {
+		t.Errorf("@rk_type op = %+v, want value \"iframe\"", typeOp)
+	}
+}
+
+// Out-of-range @color → 400 and zero tmux calls (validate-all-then-execute).
+func TestWindowOptionsColorOutOfRange(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@color":"99"}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called for invalid color")
+	}
+}
+
+// Non-numeric @color → 400 and zero tmux calls.
+func TestWindowOptionsColorNonNumeric(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@color":"red"}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called for non-numeric color")
+	}
+}
+
+// Empty @rk_url → 400 and zero tmux calls.
+func TestWindowOptionsEmptyUrl(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_url":""}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called for empty url")
+	}
+}
+
+// Unknown key → 400; the key is never forwarded to tmux. A mixed body (one
+// valid + one invalid key) must also abort with zero tmux calls (atomic).
+func TestWindowOptionsUnknownKeyRejected(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@color":"5","@evil":"x"}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called when an unknown key is present")
+	}
+}
+
+// @rk_type empty string unsets (nil Value op); non-empty sets verbatim.
+func TestWindowOptionsRkTypeEmptyUnsets(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_type":""}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_type")
+	if !ok {
+		t.Fatal("expected @rk_type op")
+	}
+	if op.Value != nil {
+		t.Errorf("@rk_type value = %q, want nil (empty string unsets)", *op.Value)
+	}
+}
+
+func TestWindowOptionsRkTypeNullUnsets(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_type":null}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_type")
+	if !ok || op.Value != nil {
+		t.Errorf("@rk_type op = %+v, want nil value (null unsets)", op)
+	}
+}
+
+func TestWindowOptionsRkTypeSetVerbatim(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_type":"iframe"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_type")
+	if !ok || op.Value == nil || *op.Value != "iframe" {
+		t.Errorf("@rk_type op = %+v, want value \"iframe\"", op)
+	}
+}
+
+func TestWindowOptionsInvalidWindowID(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "abc", `{"options":{"@color":"5"}}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called for invalid window ID")
+	}
+}
+
+// --- /select re-route tests (POST /api/windows/{id}/select) ---
+//
+// The handler must resolve the owning session and issue SelectWindowInSession
+// (scoped), never a bare SelectWindow.
+func TestWindowSelectResolvesSession(t *testing.T) {
+	ops := &mockTmuxOps{resolveWindowSessionResult: "real-session"}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
-	body := `{"color":4}`
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/select", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if !ops.setWindowColorCalled {
-		t.Error("SetWindowColor was not called")
+	if ops.resolveWindowSessionID != "@2" {
+		t.Errorf("ResolveWindowSession id = %q, want %q", ops.resolveWindowSessionID, "@2")
 	}
-	if ops.setWindowColorWindowID != "@2" {
-		t.Errorf("windowID = %q, want %q", ops.setWindowColorWindowID, "@2")
+	if !ops.selectWindowInSessionCalled {
+		t.Fatal("SelectWindowInSession was not called")
 	}
-	if ops.setWindowColorColor != 4 {
-		t.Errorf("color = %d, want %d", ops.setWindowColorColor, 4)
+	if ops.selectWindowInSessionSession != "real-session" {
+		t.Errorf("scoped session = %q, want %q", ops.selectWindowInSessionSession, "real-session")
+	}
+	if ops.selectWindowInSessionWindowID != "@2" {
+		t.Errorf("scoped windowID = %q, want %q", ops.selectWindowInSessionWindowID, "@2")
+	}
+	if ops.selectWindowCalled {
+		t.Error("bare SelectWindow must NOT be called")
 	}
 }
 
-func TestWindowColorClear(t *testing.T) {
-	ops := &mockTmuxOps{}
+// A resolve failure (stale @N) surfaces a non-2xx error and issues no select.
+func TestWindowSelectResolveFailure(t *testing.T) {
+	ops := &mockTmuxOps{resolveWindowSessionErr: fmt.Errorf("window @99 not found")}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
-	body := `{"color":null}`
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@99/select", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code < 400 {
+		t.Errorf("status = %d, want non-2xx", rec.Code)
 	}
-	if !ops.unsetWindowColorCalled {
-		t.Error("UnsetWindowColor was not called")
+	if ops.selectWindowInSessionCalled {
+		t.Error("SelectWindowInSession must NOT be called on resolve failure")
 	}
-	if ops.unsetWindowColorWindowID != "@2" {
-		t.Errorf("windowID = %q, want %q", ops.unsetWindowColorWindowID, "@2")
+	if ops.selectWindowCalled {
+		t.Error("bare SelectWindow must NOT be called on resolve failure")
 	}
 }
 
-func TestWindowColorInvalidValue(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+func TestWindowSelectInvalidWindowID(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
 
-	body := `{"color":20}`
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/select", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
+	if ops.selectWindowInSessionCalled || ops.selectWindowCalled {
+		t.Error("no select must be issued for an invalid window ID")
+	}
 }
 
-func TestWindowColorInvalidWindowID(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+// --- decodeWindowID coverage ---
+//
+// decodeWindowID is exercised through the window handlers (it backs
+// parseWindowID). %402 → @2 succeeds; a bare number and a non-@ id are rejected
+// with 400 before any tmux call.
+func TestDecodeWindowID(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      string // raw path segment (already percent-encoded as a client would send)
+		wantCode int
+		wantID   string // expected windowID passed to tmux on success
+	}{
+		{"percent-encoded at", "%402", http.StatusOK, "@2"},
+		{"bare number rejected", "2", http.StatusBadRequest, ""},
+		{"non-window id rejected", "abc", http.StatusBadRequest, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := &mockTmuxOps{}
+			router := newTestRouter(&mockSessionFetcher{}, ops)
+			req := httptest.NewRequest(http.MethodPost, "/api/windows/"+tc.raw+"/kill", nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
 
-	body := `{"color":4}`
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			if rec.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantCode)
+			}
+			if tc.wantCode == http.StatusOK {
+				if ops.killWindowID != tc.wantID {
+					t.Errorf("decoded windowID = %q, want %q", ops.killWindowID, tc.wantID)
+				}
+			} else if ops.killWindowCalled {
+				t.Error("tmux KillWindow must NOT be called when decode/validate fails")
+			}
+		})
 	}
 }
 
@@ -636,124 +861,6 @@ func TestWindowMoveToSessionTmuxError(t *testing.T) {
 	}
 }
 
-// --- URL Update endpoint tests ---
-
-func TestWindowUrlUpdateSuccess(t *testing.T) {
-	ops := &mockTmuxOps{}
-	router := newTestRouter(&mockSessionFetcher{}, ops)
-
-	body := `{"url":"http://localhost:8080/new-path"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/windows/@2/url", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-
-	if !ops.setWindowOptionCalled {
-		t.Error("SetWindowOption was not called")
-	}
-	if ops.setWindowOptionWindowID != "@2" {
-		t.Errorf("windowID = %q, want %q", ops.setWindowOptionWindowID, "@2")
-	}
-	if ops.setWindowOptionOption != "@rk_url" {
-		t.Errorf("option = %q, want %q", ops.setWindowOptionOption, "@rk_url")
-	}
-	if ops.setWindowOptionValue != "http://localhost:8080/new-path" {
-		t.Errorf("value = %q, want %q", ops.setWindowOptionValue, "http://localhost:8080/new-path")
-	}
-}
-
-func TestWindowUrlUpdateEmptyUrl(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"url":""}`
-	req := httptest.NewRequest(http.MethodPut, "/api/windows/@0/url", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if result["error"] != "URL cannot be empty" {
-		t.Errorf("error = %q, want %q", result["error"], "URL cannot be empty")
-	}
-}
-
-func TestWindowUrlUpdateInvalidWindowID(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"url":"http://localhost:8080"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/windows/abc/url", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-// --- Type Update endpoint tests ---
-
-func TestWindowTypeUpdateSetIframe(t *testing.T) {
-	ops := &mockTmuxOps{}
-	router := newTestRouter(&mockSessionFetcher{}, ops)
-
-	body := `{"rkType":"iframe"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/windows/@2/type", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-
-	if !ops.setWindowOptionCalled {
-		t.Error("SetWindowOption was not called")
-	}
-	if ops.setWindowOptionOption != "@rk_type" {
-		t.Errorf("option = %q, want %q", ops.setWindowOptionOption, "@rk_type")
-	}
-	if ops.setWindowOptionValue != "iframe" {
-		t.Errorf("value = %q, want %q", ops.setWindowOptionValue, "iframe")
-	}
-}
-
-func TestWindowTypeUpdateUnset(t *testing.T) {
-	ops := &mockTmuxOps{}
-	router := newTestRouter(&mockSessionFetcher{}, ops)
-
-	body := `{"rkType":""}`
-	req := httptest.NewRequest(http.MethodPut, "/api/windows/@2/type", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-
-	if !ops.unsetWindowOptionCalled {
-		t.Error("UnsetWindowOption was not called")
-	}
-	if ops.unsetWindowOptionOption != "@rk_type" {
-		t.Errorf("option = %q, want %q", ops.unsetWindowOptionOption, "@rk_type")
-	}
-	if ops.unsetWindowOptionWindowID != "@2" {
-		t.Errorf("windowID = %q, want %q", ops.unsetWindowOptionWindowID, "@2")
-	}
-}
-
 // --- Extended Window Creation tests ---
 
 func TestWindowCreateWithIframeType(t *testing.T) {
@@ -779,11 +886,13 @@ func TestWindowCreateWithIframeType(t *testing.T) {
 	if ops.createWindowWithOptionsName != "docs" {
 		t.Errorf("name = %q, want %q", ops.createWindowWithOptionsName, "docs")
 	}
-	if ops.createWindowWithOptionsOpts["@rk_type"] != "iframe" {
-		t.Errorf("@rk_type = %q, want %q", ops.createWindowWithOptionsOpts["@rk_type"], "iframe")
+	typeOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_type")
+	if !ok || typeOp.Value == nil || *typeOp.Value != "iframe" {
+		t.Errorf("@rk_type op = %+v, want value \"iframe\"", typeOp)
 	}
-	if ops.createWindowWithOptionsOpts["@rk_url"] != "http://localhost:8080/docs" {
-		t.Errorf("@rk_url = %q, want %q", ops.createWindowWithOptionsOpts["@rk_url"], "http://localhost:8080/docs")
+	urlOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_url")
+	if !ok || urlOp.Value == nil || *urlOp.Value != "http://localhost:8080/docs" {
+		t.Errorf("@rk_url op = %+v, want value \"http://localhost:8080/docs\"", urlOp)
 	}
 }
 

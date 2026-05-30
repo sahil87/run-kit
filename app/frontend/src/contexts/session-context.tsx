@@ -76,7 +76,7 @@ const EMPTY_SLICE: ServerSlice = {
 function useCurrentServerFromRoute(): string | null {
   const matches = useMatches();
   // Walk matches from deepest first looking for a `server` param. This is
-  // resilient to the route-tree shape — `/$server/$session/$window` puts
+  // resilient to the route-tree shape — `/$server/$window` puts
   // `server` on the layout match while child matches inherit it.
   for (let i = matches.length - 1; i >= 0; i--) {
     const params = (matches[i]?.params ?? {}) as Record<string, string | undefined>;

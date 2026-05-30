@@ -294,6 +294,20 @@ func TestFetchPaneMapFabNotOnPath(t *testing.T) {
 	}
 }
 
+// tmuxSocketDir returns the directory tmux places named server sockets in,
+// matching tmux's own rule: ${TMUX_TMPDIR:-/tmp}/tmux-<euid>/. Honoring
+// TMUX_TMPDIR (not hard-coding /tmp) and using the EFFECTIVE uid matters so the
+// socket-file cleanup targets the real path when tests run with TMUX_TMPDIR set
+// — otherwise the rk-test-* socket leaks despite the cleanup. (Verified
+// empirically: with TMUX_TMPDIR=DIR the socket lands at DIR/tmux-<euid>/<name>.)
+func tmuxSocketDir() string {
+	base := os.Getenv("TMUX_TMPDIR")
+	if base == "" {
+		base = "/tmp"
+	}
+	return filepath.Join(base, fmt.Sprintf("tmux-%d", os.Geteuid()))
+}
+
 // TestFetchPaneMapIntegration exercises the real subprocess invocation path.
 // Skips when `fab` or `tmux` is not on PATH (CI without them installed).
 //
@@ -377,7 +391,7 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 		// kill-server stops the server but leaves the socket file behind. This
 		// package has no TestMain post-sweep (unlike internal/tmux), so remove
 		// the stale socket ourselves to avoid leaking rk-test-* residue.
-		_ = os.Remove(filepath.Join("/tmp", fmt.Sprintf("tmux-%d", os.Getuid()), server))
+		_ = os.Remove(filepath.Join(tmuxSocketDir(), server))
 	})
 
 	// The subprocess call SHALL succeed against the live isolated server, and

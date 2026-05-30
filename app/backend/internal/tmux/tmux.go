@@ -539,16 +539,44 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 	return windows, nil
 }
 
+// baseGroupName returns the user-facing base session name for a session group,
+// given the session's own name and its `#{session_group_list}` value (a
+// comma-separated list of MEMBER NAMES). The base is the member that is neither
+// an rk-relay-* ephemeral nor the _rk-ctl anchor — i.e. the real, user-facing
+// session that the dashboard keys on. When the list is empty (ungrouped
+// session) or yields no qualifying member, the session's own name is returned.
+//
+// This MUST NOT key on `#{session_group}`: tmux 3.6a reports that field as an
+// opaque NUMERIC group id (e.g. "0"), not the leader's name — so `name ==
+// session_group` is never true for real grouped sessions. The group-list is the
+// reliable cross-reference to the base session name. The returned name is the
+// same value `parseSessions` keeps as `SessionInfo.Name`, so the active-window
+// tracker keys (event + re-seed) align with the derivation lookup in
+// internal/sessions.
+func baseGroupName(name, groupList string) string {
+	for _, member := range strings.Split(groupList, ",") {
+		m := strings.TrimSpace(member)
+		if m == "" {
+			continue
+		}
+		if strings.HasPrefix(m, RelaySessionPrefix) || m == ControlAnchorSessionName {
+			continue
+		}
+		return m
+	}
+	return name
+}
+
 // parseSessionGroups parses `list-sessions` output of the form
-// `#{session_id}<delim>#{session_name}<delim>#{session_group}` into a
-// `$sid`→group map. tmux reports an EMPTY `#{session_group}` for ungrouped
-// sessions; in that case the session's own name is used as the group key so a
-// single-session (ungrouped) server still tracks under a stable key. The
-// rk-relay-* ephemerals and the _rk-ctl anchor are NOT filtered here — they
-// share their base session's group, so their `$sid` must resolve to that same
-// group for an active-window event fired against an ephemeral member to update
-// the correct (user-facing) group. Lines with fewer than 3 fields are skipped.
-// Exported (same-package) for testing.
+// `#{session_id}<delim>#{session_name}<delim>#{session_group_list}` into a
+// `$sid`→base-session-name map. The rk-relay-* ephemerals and the _rk-ctl
+// anchor are NOT filtered here — they share their base session's group, so their
+// `$sid` must resolve to the SAME base name for an active-window event fired
+// against an ephemeral member to update the correct (user-facing) group. The
+// group key is the base session name (via baseGroupName), NOT tmux's numeric
+// `#{session_group}` id, so it matches the `SessionInfo.Name` the derivation
+// path looks up. Lines with fewer than 3 fields are skipped. Exported
+// (same-package) for testing.
 func parseSessionGroups(lines []string) map[string]string {
 	out := make(map[string]string, len(lines))
 	for _, line := range lines {
@@ -558,13 +586,11 @@ func parseSessionGroups(lines []string) map[string]string {
 		}
 		sid := strings.TrimSpace(parts[0])
 		name := strings.TrimSpace(parts[1])
-		group := strings.TrimSpace(parts[2])
+		groupList := strings.TrimSpace(parts[2])
 		if sid == "" {
 			continue
 		}
-		if group == "" {
-			group = name
-		}
+		group := baseGroupName(name, groupList)
 		if group == "" {
 			continue
 		}
@@ -589,7 +615,7 @@ func ListSessionGroups(ctx context.Context, server string) (map[string]string, e
 	format := strings.Join([]string{
 		"#{session_id}",
 		"#{session_name}",
-		"#{session_group}",
+		"#{session_group_list}",
 	}, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
@@ -604,51 +630,52 @@ func ListSessionGroups(ctx context.Context, server string) (map[string]string, e
 }
 
 // parseActiveWindowsByGroup parses `list-windows -a` output of the form
-// `#{session_group}<delim>#{session_name}<delim>#{window_id}<delim>#{window_active}`
-// into a group→active-`@wid` map for use as the Tier-1 re-seed.
+// `#{session_group_list}<delim>#{session_name}<delim>#{window_id}<delim>#{window_active}`
+// into a base-session-name→active-`@wid` map for use as the Tier-1 re-seed.
 //
 // In a session group, EACH member carries its own active-window pointer, so
 // `list-windows -a` emits one `window_active=1` row per member. The seed MUST
-// reflect the BASE (leader) session's pointer — the same signal Tier 2 reads —
-// so only the leader row (where `session_name == session_group`) is honored for
-// grouped sessions. Ungrouped sessions report an empty group; their own name is
-// the group key and their sole `window_active=1` row is taken. A leaderless
-// group (renamed leader, no name==group row) records the first active row seen
-// as a best-effort representative. Lines with fewer than 4 fields are skipped.
+// reflect the BASE (user-facing) session's pointer — the same signal Tier 2
+// reads — so only the row whose `#{session_name}` IS the base name (derived from
+// `#{session_group_list}` via baseGroupName, never tmux's numeric
+// `#{session_group}`) is honored. The map is keyed by that base name so it
+// aligns with both parseSessionGroups and the derivation lookup
+// (SessionInfo.Name). Ungrouped sessions have an empty group-list, so the base
+// is their own name and their sole `window_active=1` row is taken. As a
+// best-effort fallback, if a group never produces a base-member row in this
+// listing (e.g. the base session is momentarily absent), the first active row
+// for that base name is recorded. Lines with fewer than 4 fields are skipped.
 // Exported (same-package) for testing.
 func parseActiveWindowsByGroup(lines []string) map[string]string {
 	out := make(map[string]string)
-	leaderSeen := make(map[string]bool)
+	baseSeen := make(map[string]bool)
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
 		if len(parts) < 4 {
 			continue
 		}
-		group := strings.TrimSpace(parts[0])
+		groupList := strings.TrimSpace(parts[0])
 		name := strings.TrimSpace(parts[1])
 		wid := strings.TrimSpace(parts[2])
 		active := strings.TrimSpace(parts[3]) == "1"
 		if !active || wid == "" {
 			continue
 		}
-		if group == "" {
-			group = name
-		}
-		if group == "" {
+		base := baseGroupName(name, groupList)
+		if base == "" {
 			continue
 		}
-		isLeader := name == group
-		if isLeader {
-			// Leader pointer is authoritative for the group's seed.
-			out[group] = wid
-			leaderSeen[group] = true
+		if name == base {
+			// The base session's own pointer is authoritative for the seed.
+			out[base] = wid
+			baseSeen[base] = true
 			continue
 		}
-		// Non-leader (ephemeral) row — only used as a fallback if the group
-		// never produces a leader row in this listing.
-		if !leaderSeen[group] {
-			if _, ok := out[group]; !ok {
-				out[group] = wid
+		// Non-base (ephemeral/anchor) row — only used as a fallback if the
+		// group never produces a base-member row in this listing.
+		if !baseSeen[base] {
+			if _, ok := out[base]; !ok {
+				out[base] = wid
 			}
 		}
 	}
@@ -670,7 +697,7 @@ func ListActiveWindowsByGroup(ctx context.Context, server string) (map[string]st
 	defer cancel()
 
 	format := strings.Join([]string{
-		"#{session_group}",
+		"#{session_group_list}",
 		"#{session_name}",
 		"#{window_id}",
 		"#{window_active}",

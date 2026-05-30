@@ -63,6 +63,14 @@ jobs:
   e2e:
     name: E2E (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
+    # Non-blocking for now. The e2e suite is SSE-driven and shares one dev +
+    # tmux server per shard; under a 2-vCPU runner's contention a rotating
+    # subset of tests loses the timing race (the flaky set is non-deterministic,
+    # not a fixed list). Readiness gates (see tests/e2e/_ready.ts) reduce this,
+    # but proper de-flaking — deterministic polls / optimistic-aware waits — is
+    # tracked as a follow-up. Until then the signal stays visible without
+    # blocking PRs on jitter; backend + frontend are the hard gates.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:

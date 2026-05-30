@@ -9,6 +9,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { READY_TIMEOUT } from "./_ready";
 
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const SESSION_A = `e2e-lat-a-${Date.now()}`;
@@ -36,15 +37,28 @@ function tmux(cmd: string) {
   execSync(`tmux -L ${TMUX_SERVER} ${cmd}`, { stdio: "ignore" });
 }
 
-/** Navigate to the tmux server dashboard and wait for SSE connection. */
+/**
+ * Navigate to the tmux server dashboard and wait until the sidebar is usable.
+ * `Connected` (SSE socket open) is necessary but not sufficient: the first
+ * session payload lands a beat later, so a test that acts the instant
+ * `Connected` shows would hit an empty sidebar. Gate on the seed session
+ * (SESSION_A) being rendered so every test starts from a populated sidebar
+ * regardless of runner speed.
+ */
 async function setup(page: import("@playwright/test").Page) {
   await page.goto(`/${TMUX_SERVER}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
-  return page.locator("nav[aria-label='Sessions']");
+  await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
+  const sidebar = page.locator("nav[aria-label='Sessions']");
+  await expect(sidebar.locator(`button[aria-label='Navigate to ${SESSION_A}']`)).toBeVisible({
+    timeout: READY_TIMEOUT,
+  });
+  return sidebar;
 }
 
 test.describe("Sync Latency Audit", () => {
-  test.setTimeout(20_000);
+  // Each test pays a readiness gate (up to READY_TIMEOUT) before its measured
+  // action; give CI headroom so the gate can't exhaust the per-test budget.
+  test.setTimeout(process.env.CI ? 45_000 : 20_000);
 
   test.beforeAll(() => {
     try { tmux(`new-session -d -s ${SESSION_A} -x 80 -y 24`); } catch { /* ok */ }

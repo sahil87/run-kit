@@ -57,6 +57,22 @@ func classifyReap(name string, probeAlive bool) ReapAction {
 	return ReapActionSkip
 }
 
+// needsProbe reports whether classifyReap will actually consult the probe
+// result for this name. classifyReap only branches on probeAlive in the
+// IsGoTestServerName case (live → kill vs. dead → remove); .lock files, the
+// control anchor, and non-test names are decided by name alone. Keeping this
+// in lock-step with classifyReap lets reapCandidates skip the (subprocess-
+// spawning) probe for names whose action does not depend on it.
+func needsProbe(name string) bool {
+	if strings.HasSuffix(name, ".lock") {
+		return false
+	}
+	if name == ControlAnchorSessionName {
+		return false
+	}
+	return IsGoTestServerName(name)
+}
+
 // ReapPlanEntry pairs a candidate name with the action the reaper would take.
 // Used to populate ReapResult.DryRunPlan so the command can print a preview.
 type ReapPlanEntry struct {
@@ -112,7 +128,19 @@ func reapCandidates(
 	var errs []string
 
 	for _, name := range candidates {
-		action := classifyReap(name, probe(ctx, name))
+		// Only Go-test server names need a liveness probe to distinguish kill
+		// (live orphan) from remove (dead socket). .lock files, the control
+		// anchor, and any non-test name are classified by name alone, so we
+		// skip the probe for them — each probe spawns a `tmux -L <name>
+		// list-sessions` subprocess (up to a 2s timeout), and a noisy socket
+		// dir full of live non-test servers would otherwise pay that cost for
+		// every entry. The pure classifyReap ignores probeAlive in those
+		// branches anyway, so passing false is safe.
+		var probeAlive bool
+		if needsProbe(name) {
+			probeAlive = probe(ctx, name)
+		}
+		action := classifyReap(name, probeAlive)
 		if action == ReapActionSkip {
 			continue
 		}

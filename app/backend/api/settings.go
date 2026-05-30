@@ -19,9 +19,9 @@ func (s *Server) handleGetTheme(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handlePutTheme saves theme preferences (partial update).
-// PUT /api/settings/theme ← {"theme": "...", "theme_dark": "...", "theme_light": "..."} → {"status": "ok"}
-func (s *Server) handlePutTheme(w http.ResponseWriter, r *http.Request) {
+// handleSetTheme saves theme preferences (partial update).
+// POST /api/settings/theme ← {"theme": "...", "theme_dark": "...", "theme_light": "..."} → {"status": "ok"}
+func (s *Server) handleSetTheme(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Theme      *string `json:"theme"`
 		ThemeDark  *string `json:"theme_dark"`
@@ -99,9 +99,9 @@ func (s *Server) handleGetServerColor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"color": color})
 }
 
-// handlePutServerColor sets or clears the color for a server.
-// PUT /api/settings/server-color ← {"server": "...", "color": 4} or {"server": "...", "color": null}
-func (s *Server) handlePutServerColor(w http.ResponseWriter, r *http.Request) {
+// handleSetServerColor sets or clears the color for a server.
+// POST /api/settings/server-color ← {"server": "...", "color": 4} or {"server": "...", "color": null}
+func (s *Server) handleSetServerColor(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Server string `json:"server"`
 		Color  *int   `json:"color"`

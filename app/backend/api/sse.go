@@ -123,7 +123,7 @@ type sseClient struct {
 // @rk_session_order from tmux when previous reads errored. Limits the blast
 // radius of a hung or misbehaving tmux while still recovering from transient
 // failures. After the cap is hit the bootstrap stops attempting; a successful
-// PUT (which populates previousOrderJSON via broadcast) re-establishes the
+// POST (which populates previousOrderJSON via broadcast) re-establishes the
 // cache without needing the bootstrap.
 const orderBootstrapMaxAttempts = 3
 
@@ -131,7 +131,7 @@ type sseHub struct {
 	mu                       sync.RWMutex
 	clients                  map[string][]*sseClient
 	previousJSON             map[string]string        // per-server sessions JSON dedup cache
-	previousOrderJSON        map[string]string        // per-server session-order event payload cache (only present when populated by a successful read or a PUT broadcast)
+	previousOrderJSON        map[string]string        // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
 	orderBootstrapAttempts   map[string]int           // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
 	previousBoardJSON        map[string]string        // per-server board bootstrap snapshot payload cache
 	previousWindowIDs        map[string]map[string]bool // per-server prior-tick live window ids for kill-detection
@@ -471,7 +471,7 @@ func (h *sseHub) poll() {
 
 			// Bootstrap: on first poll per server, seed the order cache from
 			// tmux. Closes the gap when rk-go restarts but tmux survives —
-			// connecting clients otherwise see no order until the next PUT.
+			// connecting clients otherwise see no order until the next POST.
 			// Runs after the sessions broadcast so first-poll event order is
 			// sessions → session-order → metrics.
 			//
@@ -479,7 +479,7 @@ func (h *sseHub) poll() {
 			// up — transient tmux failures (e.g., a momentary timeout) can
 			// recover, but a persistent failure won't poll-spam every tick.
 			// Bootstrap state is tracked separately from previousOrderJSON so
-			// a successful PUT (which populates previousOrderJSON via
+			// a successful POST (which populates previousOrderJSON via
 			// broadcastSessionOrder) cleanly satisfies the "seeded" gate.
 			h.mu.RLock()
 			_, orderSeeded := h.previousOrderJSON[server]

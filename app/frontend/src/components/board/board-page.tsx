@@ -336,10 +336,11 @@ function BoardPageContent({ name }: { name: string }) {
       currentServer={null}
       currentSession={null}
       currentWindowId={null}
-      onSelectWindow={(srv, sess, windowId) => {
+      onSelectWindow={(srv, _sess, windowId) => {
+        // Identity is window-id only on the 2-segment route.
         navigate({
-          to: "/$server/$session/$window",
-          params: { server: srv, session: sess, window: windowId },
+          to: "/$server/$window",
+          params: { server: srv, window: windowId },
         });
         if (isMobile) setSidebarOpen(false);
       }}

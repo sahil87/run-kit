@@ -837,15 +837,21 @@ func MoveWindow(windowID string, dstIndex int, server string) error {
 	if srcPos > endPos {
 		step = -1
 	}
+	// Emit all adjacent swaps as one \;-chained tmux invocation so no other
+	// mutation can interleave mid-reorder (a concurrent kill/move observes only
+	// the pre- or post-reorder layout). This mirrors the CreateWindowWithOptions
+	// chaining pattern. The source index was resolved exactly once above.
+	var args []string
 	for pos := srcPos; pos != endPos; pos += step {
+		if len(args) > 0 {
+			args = append(args, ";")
+		}
 		src := fmt.Sprintf("%s:%d", session, indices[pos])
 		dst := fmt.Sprintf("%s:%d", session, indices[pos+step])
-		ctx2, cancel2 := withTimeout()
-		_, err := tmuxExecServer(ctx2, server, "swap-window", "-s", src, "-t", dst)
-		cancel2()
-		if err != nil {
-			return fmt.Errorf("swap %d↔%d: %w", indices[pos], indices[pos+step], err)
-		}
+		args = append(args, "swap-window", "-s", src, "-t", dst)
+	}
+	if _, err := tmuxExecServer(ctx, server, args...); err != nil {
+		return fmt.Errorf("swap-window chain: %w", err)
 	}
 	return nil
 }
@@ -875,10 +881,67 @@ func UnsetWindowOption(ctx context.Context, windowID string, server, option stri
 	return err
 }
 
+// WindowOptionOp is a single set-or-unset operation on a window option, consumed
+// by SetWindowOptions. A non-nil Value sets the option to that value; a nil Value
+// unsets it (set-option -w -u). This pointer convention mirrors the JSON
+// string|null shape the /options endpoint decodes.
+type WindowOptionOp struct {
+	Key   string
+	Value *string
+}
+
+// appendOptionOps appends the `set-option` argv for each op to args, prefixing a
+// "\;" chain separator before all but the first appended op when args is already
+// non-empty. A non-nil op.Value emits `set-option -w -t <target> <key> <value>`;
+// a nil Value emits `set-option -w -u -t <target> <key>`. When target is empty,
+// the `-t <target>` qualifier is omitted (used by CreateWindowWithOptions, where
+// the preceding new-window already scopes the chained set-options to the new
+// window). All values are passed as argv elements — no shell strings (§I).
+func appendOptionOps(args []string, target string, ops []WindowOptionOp) []string {
+	for _, op := range ops {
+		if len(args) > 0 {
+			args = append(args, ";")
+		}
+		args = append(args, "set-option", "-w")
+		if op.Value == nil {
+			args = append(args, "-u")
+		}
+		if target != "" {
+			args = append(args, "-t", target)
+		}
+		args = append(args, op.Key)
+		if op.Value != nil {
+			args = append(args, *op.Value)
+		}
+	}
+	return args
+}
+
+// SetWindowOptions applies a batch of window-option set/unset operations to the
+// window identified by windowID as a single \;-chained tmux invocation. Chaining
+// makes the whole merge atomic — the SSE poll never observes a half-applied
+// state — and reuses the same pattern CreateWindowWithOptions uses. A non-nil
+// op.Value sets via `set-option -w -t <windowID> <key> <value>`; a nil Value
+// unsets via `set-option -w -u -t <windowID> <key>`. All arguments are passed as
+// an argv slice — no shell strings (constitution §I). A no-op (empty ops) issues
+// no tmux call.
+func SetWindowOptions(ctx context.Context, windowID, server string, ops []WindowOptionOp) error {
+	if len(ops) == 0 {
+		return nil
+	}
+	args := appendOptionOps(nil, windowID, ops)
+	_, err := tmuxExecServer(ctx, server, args...)
+	return err
+}
+
 // CreateWindowWithOptions creates a new window and atomically sets user-defined
 // options using a single \;-chained tmux command. This prevents SSE from seeing
-// the window before its metadata is set.
-func CreateWindowWithOptions(session, name, cwd, server string, options map[string]string) error {
+// the window before its metadata is set. The post-create option-setting reuses
+// the same WindowOptionOp chaining primitive (appendOptionOps) the
+// SetWindowOptions primitive uses; window creation and option-set stay in one
+// invocation so they are atomic at creation. The new-window scopes the chained
+// set-options to itself, so the ops are emitted without a `-t` target.
+func CreateWindowWithOptions(session, name, cwd, server string, ops []WindowOptionOp) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
@@ -886,9 +949,7 @@ func CreateWindowWithOptions(session, name, cwd, server string, options map[stri
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}
-	for opt, val := range options {
-		args = append(args, ";", "set-option", "-w", opt, val)
-	}
+	args = appendOptionOps(args, "", ops)
 	_, err := tmuxExecServer(ctx, server, args...)
 	return err
 }
@@ -1017,24 +1078,18 @@ func SplitWindow(windowID string, horizontal bool, cwd string, server string) (s
 
 // KillActivePane kills the active pane of the window identified by windowID on
 // the given server. Targeting a window ID with kill-pane kills that window's
-// active pane. Errors are silently ignored (pane may already be dead), matching
-// the KillPane pattern.
+// active pane.
+//
+// Silent-success contract (canonical pane-kill behavior): any tmux error is
+// swallowed and nil is returned, because the pane may already be dead by the
+// time this runs (e.g. the process exited, or a concurrent close-pane already
+// killed it). Callers treat "close the pane" as best-effort idempotent — a
+// missing pane is success, not failure.
 func KillActivePane(windowID string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	_, err := tmuxExecServer(ctx, server, "kill-pane", "-t", windowID)
-	// Pane may already be dead — ignore errors
-	_ = err
-	return nil
-}
-
-// KillPane kills a specific pane by ID on the specified server.
-func KillPane(paneID string, server string) error {
-	ctx, cancel := withTimeout()
-	defer cancel()
-
-	_, err := tmuxExecServer(ctx, server, "kill-pane", "-t", paneID)
 	// Pane may already be dead — ignore errors
 	_ = err
 	return nil

@@ -15,7 +15,7 @@ function escapeRegExp(s: string): string {
  * Resolve a window's stable identifiers from the backend snapshot by its
  * (transient) display name. Returns the tmux window id (`@N`, unique for the
  * window's lifetime — both the handle for DOM selection AND the segment the
- * router now carries in `/$server/$session/$window`) and the tmux window index
+ * router now carries in `/$server/$window`) and the tmux window index
  * (retained for diagnostics; addressing is by id). Polls because the window is
  * created via the tmux CLI and surfaces in the snapshot asynchronously.
  */
@@ -167,21 +167,23 @@ test.describe("Sidebar Window Sync", () => {
 
     // Before the click we are on the dashboard: URL has no window segment.
     // (Regression guard for #198, where clicks were pure tmux mutations and
-    // the URL writeback could not introduce a session, leaving the dashboard
+    // the URL writeback could not introduce a window, leaving the dashboard
     // up forever.)
-    expect(page.url()).not.toContain(`/${TEST_SESSION}/`);
+    expect(page.url()).not.toContain(
+      `/${encodeURIComponent(target.windowId)}`,
+    );
 
     await windowButton.click();
 
-    // The URL must now carry the clicked session + window ID (@N) — this is the
-    // core of the fix: the optimistic navigate introduces the session that the
-    // SSE writeback alone could not, so the terminal route mounts at all. The
-    // window segment is the stable tmux window id, not the mutable index. The
-    // router percent-encodes the `@` in the path segment (`@2` → `%402`), so the
+    // The URL must now carry the clicked window ID (@N) on the 2-segment route
+    // /$server/$window — this is the core of the fix: the optimistic navigate
+    // introduces the window so the terminal route mounts at all. The session is
+    // no longer in the URL (derived from the SSE snapshot). The router
+    // percent-encodes the `@` in the path segment (`@2` → `%402`), so the
     // assertion matches the encoded form that appears in the address bar.
     await expect(page).toHaveURL(
       new RegExp(
-        `/${TEST_SESSION}/${escapeRegExp(encodeURIComponent(target.windowId))}(?:$|[/?#])`,
+        `/${TMUX_SERVER}/${escapeRegExp(encodeURIComponent(target.windowId))}(?:$|[/?#])`,
       ),
       { timeout: 5_000 },
     );
@@ -241,7 +243,12 @@ test.describe("Sidebar Window Sync", () => {
     await page.waitForTimeout(1_500);
     await expect(buttonB).toHaveAttribute("aria-current", "page");
     await expect(buttonA).not.toHaveAttribute("aria-current", "page");
-    await expect(page).toHaveURL(new RegExp(`/${TEST_SESSION}/`));
+    // The 2-segment URL must carry B's window id (@N), not the session.
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/${TMUX_SERVER}/${escapeRegExp(encodeURIComponent(targetB.windowId))}(?:$|[/?#])`,
+      ),
+    );
   });
 
   test("kill-then-create at same index does not suppress new window", async ({

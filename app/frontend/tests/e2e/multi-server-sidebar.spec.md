@@ -35,7 +35,8 @@ current server visually marked. Aligns with spec requirements
 ### `clicking a session in the second server's group navigates to /$secondServer/...`
 
 **What it proves:** Cross-server navigation works — a click on a session in
-a non-current server's tree routes to `/{otherServer}/{session}/...`,
+a non-current server's tree routes to `/{otherServer}/{windowId}` on the
+2-segment route (the session is derived from the SSE snapshot, not the URL),
 flipping the URL and (via the route-driven dispatch) `currentServer`.
 Aligns with spec requirement "Cross-server window navigation".
 
@@ -46,5 +47,6 @@ Aligns with spec requirement "Cross-server window navigation".
    (default-collapsed for non-current servers).
 3. Locate the session row by its accessible name `Navigate to
    ${TEST_SESSION_B}` and click it.
-4. Assert the URL matches `/${TMUX_SERVER_B}/${TEST_SESSION_B}/...`
-   (Playwright `toHaveURL` regex).
+4. Assert the URL matches `/${TMUX_SERVER_B}/%40<N>` — server B plus the
+   session's first window id (`@N`, percent-encoded; no session segment),
+   via Playwright `toHaveURL` regex.

@@ -17,7 +17,9 @@ navigation.
 - The terminal route is keyed by the tmux window id (`@N`), not the index, so
   each test first calls `resolveFirstWindowId(page)` — which polls
   `GET /api/sessions` for TEST_SESSION's first window id — and deep-links to
-  `/${TMUX_SERVER}/${TEST_SESSION}/<@id>` (id URL-encoded).
+  the 2-segment route `/${TMUX_SERVER}/<@id>` (id URL-encoded). The session is
+  still created in tmux for setup, but it is no longer part of the URL — the
+  owning session is derived server-side from the SSE snapshot.
 - Touch events are dispatched via CDP (`Input.dispatchTouchEvent`) rather
   than `page.touchscreen` — the raw CDP path mirrors iOS input most closely.
 
@@ -31,7 +33,7 @@ via the WebSocket relay.
 
 **Steps:**
 1. Resolve the first window id and navigate to
-   `/${TMUX_SERVER}/${TEST_SESSION}/<@id>`; wait for `.xterm-screen` (xterm
+   `/${TMUX_SERVER}/<@id>` (2-segment route); wait for `.xterm-screen` (xterm
    mount complete) plus a 2s settle.
 2. Type `seq 1 200\n` into the terminal to guarantee scrollback content.
 3. Monkey-patch `WebSocket.prototype.send` to append any data containing

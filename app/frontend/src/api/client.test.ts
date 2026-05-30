@@ -18,6 +18,10 @@ import {
   uploadFile,
   killServer,
   setThemePreference,
+  setServerColor,
+  setWindowColor,
+  updateWindowUrl,
+  updateWindowType,
 } from "./client";
 
 beforeAll(() => mswServer.listen({ onUnhandledRequest: "error" }));
@@ -330,10 +334,10 @@ describe("API request deduplication", () => {
     expect(b.hostname).toBe("clone-test");
   });
 
-  it("does not deduplicate PUT requests", async () => {
+  it("does not deduplicate non-GET (POST) requests", async () => {
     let callCount = 0;
     mswServer.use(
-      http.put("/api/settings/theme", async () => {
+      http.post("/api/settings/theme", async () => {
         callCount++;
         return HttpResponse.json({ status: "ok" });
       }),
@@ -388,13 +392,13 @@ describe("API request deduplication", () => {
     await expect(getSessionOrder("default")).rejects.toThrow("boom");
   });
 
-  it("setSessionOrder sends PUT /api/sessions/order with JSON body and server query", async () => {
+  it("setSessionOrder sends POST /api/sessions/order with JSON body and server query", async () => {
     let capturedUrl = "";
     let capturedMethod = "";
     let capturedBody: { order?: string[] } = {};
     let capturedContentType = "";
     mswServer.use(
-      http.put("/api/sessions/order", async ({ request }) => {
+      http.post("/api/sessions/order", async ({ request }) => {
         capturedUrl = request.url;
         capturedMethod = request.method;
         capturedContentType = request.headers.get("content-type") ?? "";
@@ -403,7 +407,7 @@ describe("API request deduplication", () => {
       }),
     );
     await setSessionOrder("default", ["main", "dev"]);
-    expect(capturedMethod).toBe("PUT");
+    expect(capturedMethod).toBe("POST");
     expect(capturedUrl).toContain("?server=default");
     expect(capturedContentType).toContain("application/json");
     expect(capturedBody.order).toEqual(["main", "dev"]);
@@ -411,10 +415,97 @@ describe("API request deduplication", () => {
 
   it("setSessionOrder throws on non-2xx response", async () => {
     mswServer.use(
-      http.put("/api/sessions/order", () =>
+      http.post("/api/sessions/order", () =>
         HttpResponse.json({ error: "bad" }, { status: 400 }),
       ),
     );
     await expect(setSessionOrder("default", ["main"])).rejects.toThrow("bad");
+  });
+});
+
+// --- Verb migration + unified /options contract (this change) ---
+
+describe("POST verb migration + /options contract", () => {
+  it("setWindowColor POSTs /options with @color as a string", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: { options?: Record<string, string | null> } = {};
+    mswServer.use(
+      http.post("/api/windows/:windowId/options", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as typeof capturedBody;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await setWindowColor("default", "@2", 5);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/windows\/%402\/options\?server=default$/);
+    expect(capturedBody.options).toEqual({ "@color": "5" });
+  });
+
+  it("setWindowColor sends @color: null to clear", async () => {
+    let capturedBody: { options?: Record<string, string | null> } = {};
+    mswServer.use(
+      http.post("/api/windows/:windowId/options", async ({ request }) => {
+        capturedBody = (await request.json()) as typeof capturedBody;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await setWindowColor("default", "@2", null);
+    expect(capturedBody.options).toEqual({ "@color": null });
+  });
+
+  it("updateWindowUrl POSTs /options with @rk_url", async () => {
+    let capturedBody: { options?: Record<string, string | null> } = {};
+    mswServer.use(
+      http.post("/api/windows/:windowId/options", async ({ request }) => {
+        capturedBody = (await request.json()) as typeof capturedBody;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await updateWindowUrl("default", "@2", "https://x");
+    expect(capturedBody.options).toEqual({ "@rk_url": "https://x" });
+  });
+
+  it("updateWindowType POSTs /options with @rk_type; empty string maps to null (unset)", async () => {
+    const bodies: Array<{ options?: Record<string, string | null> }> = [];
+    mswServer.use(
+      http.post("/api/windows/:windowId/options", async ({ request }) => {
+        bodies.push((await request.json()) as { options?: Record<string, string | null> });
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await updateWindowType("default", "@2", "iframe");
+    await updateWindowType("default", "@2", "");
+    expect(bodies[0].options).toEqual({ "@rk_type": "iframe" });
+    expect(bodies[1].options).toEqual({ "@rk_type": null });
+  });
+
+  it("setThemePreference issues POST (not PUT)", async () => {
+    let capturedMethod = "";
+    mswServer.use(
+      http.post("/api/settings/theme", async ({ request }) => {
+        capturedMethod = request.method;
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+    await setThemePreference({ theme: "dark" });
+    expect(capturedMethod).toBe("POST");
+  });
+
+  it("setServerColor issues POST (not PUT)", async () => {
+    let capturedMethod = "";
+    let capturedBody: { server?: string; color?: number | null } = {};
+    mswServer.use(
+      http.post("/api/settings/server-color", async ({ request }) => {
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as typeof capturedBody;
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+    await setServerColor("default", 7);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedBody).toEqual({ server: "default", color: 7 });
   });
 });

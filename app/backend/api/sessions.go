@@ -135,9 +135,9 @@ func (s *Server) handleSessionOrderGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]string{"order": order})
 }
 
-// handleSessionOrderPut persists the session order and broadcasts it to SSE clients.
-// PUT /api/sessions/order?server=<name> ← {"order": [...]} → 200 {"ok": true}
-func (s *Server) handleSessionOrderPut(w http.ResponseWriter, r *http.Request) {
+// handleSessionOrderPost persists the session order and broadcasts it to SSE clients.
+// POST /api/sessions/order?server=<name> ← {"order": [...]} → 200 {"ok": true}
+func (s *Server) handleSessionOrderPost(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Order []string `json:"order"`
 	}

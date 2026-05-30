@@ -56,7 +56,7 @@ export async function getSessionOrder(server: string): Promise<string[]> {
 
 export async function setSessionOrder(server: string, order: string[]): Promise<void> {
   const res = await fetch(withServer("/api/sessions/order", server), {
-    method: "PUT",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ order }),
   });
@@ -237,21 +237,35 @@ export async function closePane(
   return res.json();
 }
 
+/**
+ * Partial-merge window options via the unified POST /options endpoint. Each
+ * value is a string (set) or null (unset); absent keys are left untouched. Only
+ * the allowlisted keys `@color`/`@rk_url`/`@rk_type` are accepted server-side.
+ * The whole merge is applied as one atomic chained tmux invocation.
+ */
+export async function setWindowOptions(
+  server: string,
+  windowId: string,
+  options: Record<string, string | null>,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/options`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ options }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function updateWindowUrl(
   server: string,
   windowId: string,
   url: string,
 ): Promise<{ ok: boolean }> {
-  const res = await fetch(
-    withServer(`/api/windows/${encodeURIComponent(windowId)}/url`, server),
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    },
-  );
-  if (!res.ok) await throwOnError(res);
-  return res.json();
+  return setWindowOptions(server, windowId, { "@rk_url": url });
 }
 
 export async function updateWindowType(
@@ -259,16 +273,9 @@ export async function updateWindowType(
   windowId: string,
   rkType: string,
 ): Promise<{ ok: boolean }> {
-  const res = await fetch(
-    withServer(`/api/windows/${encodeURIComponent(windowId)}/type`, server),
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rkType }),
-    },
-  );
-  if (!res.ok) await throwOnError(res);
-  return res.json();
+  // An empty string means "switch back to terminal" — the server unsets
+  // @rk_type for "" or null. Pass the string through verbatim; "" maps to unset.
+  return setWindowOptions(server, windowId, { "@rk_type": rkType === "" ? null : rkType });
 }
 
 export async function selectWindow(
@@ -335,16 +342,11 @@ export async function setWindowColor(
   windowId: string,
   color: number | null,
 ): Promise<{ ok: boolean }> {
-  const res = await fetch(
-    withServer(`/api/windows/${encodeURIComponent(windowId)}/color`, server),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ color }),
-    },
-  );
-  if (!res.ok) await throwOnError(res);
-  return res.json();
+  // @color is carried as a string on the unified /options contract (one map
+  // can't mix native int + string values); null clears it.
+  return setWindowOptions(server, windowId, {
+    "@color": color === null ? null : String(color),
+  });
 }
 
 export async function setSessionColor(
@@ -438,7 +440,7 @@ export async function setThemePreference(prefs: {
   if (prefs.themeLight !== undefined) body.theme_light = prefs.themeLight;
   if (Object.keys(body).length === 0) return;
   const res = await fetch("/api/settings/theme", {
-    method: "PUT",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -463,7 +465,7 @@ export async function getAllServerColors(): Promise<Record<string, number>> {
 
 export async function setServerColor(server: string, color: number | null): Promise<void> {
   const res = await fetch("/api/settings/server-color", {
-    method: "PUT",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ server, color }),
   });

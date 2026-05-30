@@ -14,9 +14,10 @@ clicking a window in the UI renders its terminal (the user-driven direction).
   the given name appears, returning its stable tmux window id (`@N`) and
   index. Tests select rows by `data-window-id="@N"` rather than the display
   name — `@N` is unique for the window's lifetime, whereas names collide and
-  indices are reused. The window id is now ALSO the router URL segment
-  (`/$server/$session/$windowId`). The router percent-encodes the `@` in the
-  path segment (`@2` → `%402`), so URL assertions match
+  indices are reused. The window id is the router's terminal URL segment on
+  the 2-segment route `/$server/$window` (the session is no longer in the URL —
+  it is derived from the SSE snapshot). The router percent-encodes the `@` in
+  the path segment (`@2` → `%402`), so URL assertions match
   `encodeURIComponent(windowId)` (then regex-escaped via `escapeRegExp`); the
   index is retained only for diagnostics.
 
@@ -52,7 +53,7 @@ sidebar — the new name appears and the old name disappears.
 ### `clicking a window from the dashboard selects it and updates the URL`
 
 **What it proves:** Clicking a window in the sidebar while on the server
-dashboard (no session/window in the URL) puts that session+window into the URL
+dashboard (no window in the URL) puts that window id into the URL
 and marks the row selected — so the terminal route mounts at all. This is the
 regression guard for PR #198, which made clicks pure `selectWindow` mutations
 whose URL writeback could only re-point the window *within the URL's existing
@@ -67,10 +68,11 @@ slower concern.
    `Connected`.
 3. `resolveWindow` the created window to get its `@id` and index.
 4. Assert the row (`data-window-id="@id"`) button is visible and the URL does
-   not yet contain `/${TEST_SESSION}/`.
+   not yet contain the window's `encodeURIComponent(@id)` segment.
 5. Click the window button.
-6. Assert the URL now matches `/${TEST_SESSION}/<@id>` (the stable window id,
-   regex-escaped) and the clicked button has `aria-current="page"`.
+6. Assert the URL now matches `/${TMUX_SERVER}/<@id>` (the 2-segment route; the
+   stable window id, regex-escaped) and the clicked button has
+   `aria-current="page"`.
 
 ### `clicking a different window switches selection without bounce-back`
 
@@ -86,8 +88,8 @@ the selection back to A before tmux confirms the switch.
 4. Click A; assert A's button is `aria-current="page"`.
 5. Click B; assert B's button is `aria-current="page"`.
 6. Wait 1.5s (a window in which a stale-snapshot bounce would manifest), then
-   re-assert B is still current, A is not, and the URL still carries a window
-   segment.
+   re-assert B is still current, A is not, and the 2-segment URL still carries
+   B's window id (`/${TMUX_SERVER}/<@id-B>`).
 
 ### `kill-then-create at same index does not suppress new window`
 

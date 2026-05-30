@@ -115,7 +115,7 @@ function AppShell() {
   const ctx = useSessionContext();
   const matches = useMatches();
   const lastMatch = matches[matches.length - 1];
-  const params = (lastMatch?.params ?? {}) as { server?: string; session?: string; window?: string };
+  const params = (lastMatch?.params ?? {}) as { server?: string; window?: string };
   // AppShell only mounts under `/$server/...`, so `currentServer` is non-null
   // here in practice. Fall back to URL params during the brief window between
   // navigation and the provider's next render with `currentServer` set.
@@ -132,9 +132,26 @@ function AppShell() {
   const wsRef = useRef<WebSocket | null>(null);
   const focusTerminalRef = useRef<(() => void) | null>(null);
 
-  const sessionName = params.session;
-  // The URL's third segment is the tmux window ID (@N), a stable identifier.
+  // The URL's second segment is the tmux window ID (@N), a stable identifier.
+  // The route no longer carries a session segment — the owning session is
+  // derived from the SSE snapshot below (see `currentSession`).
   const windowParam = params.window;
+
+  // Derive the owning session + window from the SSE snapshot by locating the
+  // URL's window id (@N) within `sessions[].windows[]`. The snapshot carries
+  // session names per window, so we no longer need a `$session` URL segment.
+  // `@N` is globally unique on a server, so the first match is authoritative.
+  const currentSession = useMemo(() => {
+    if (!windowParam) return null;
+    return sessions.find((s) => s.windows.some((w) => w.windowId === windowParam)) ?? null;
+  }, [sessions, windowParam]);
+  const currentWindow = useMemo(() => {
+    if (!currentSession || !windowParam) return null;
+    return currentSession.windows.find((w) => w.windowId === windowParam) ?? null;
+  }, [currentSession, windowParam]);
+  // The session name shown in breadcrumbs/title/dropdowns, derived from the
+  // snapshot (not the URL). Undefined until the snapshot resolves the window.
+  const sessionName = currentSession?.name;
 
   // Compose buffer open state lives in `FocusedTerminalContext` so the
   // shell-level `<BottomBar>` can open compose for the focused terminal
@@ -278,24 +295,16 @@ function AppShell() {
   // effectively a fresh "mount" for the alignment contract).
   const lastAlignedSessionRef = useRef<string | null>(null);
   // Pending click intent. A sidebar/palette click optimistically navigates
-  // the URL to the clicked (session, window) AND fires `selectWindow`. Until
+  // the URL to the clicked window id (@N) AND fires `selectWindow`. Until
   // the SSE snapshot confirms tmux switched (the clicked window reports
   // `isActiveWindow`), the writeback below would see the still-stale
   // `activeWindow` and bounce the URL back to the previously-active window.
-  // We record the intent here and suppress the writeback while the URL still
-  // matches it; the intent clears the instant SSE confirms it (event-driven,
-  // not a timer — this is NOT the removed 3s wall-clock debounce).
-  const pendingClickRef = useRef<{ session: string; windowId: string } | null>(null);
-
-  // Sync currentSession/currentWindow from route params + SSE data
-  const currentSession = useMemo(
-    () => sessions.find((s) => s.name === sessionName) ?? null,
-    [sessions, sessionName],
-  );
-  const currentWindow = useMemo(() => {
-    if (!currentSession || !windowParam) return null;
-    return currentSession.windows.find((w) => w.windowId === windowParam) ?? null;
-  }, [currentSession, windowParam]);
+  // We record the intent here (keyed on the window id ALONE — never the
+  // session name, so a rename/cross-session move with `@N` preserved keeps the
+  // intent alive) and suppress the writeback while the URL still matches it;
+  // the intent clears the instant SSE confirms it (event-driven, not a timer —
+  // this is NOT the removed 3s wall-clock debounce).
+  const pendingClickRef = useRef<{ windowId: string } | null>(null);
 
   useEffect(() => {
     setCurrentSession(currentSession);
@@ -332,8 +341,8 @@ function AppShell() {
     if (!target) return;
     if (target.to === "window") {
       navigate({
-        to: "/$server/$session/$window",
-        params: { server, session: target.session, window: target.windowId },
+        to: "/$server/$window",
+        params: { server, window: target.windowId },
         replace: true,
       });
     } else {
@@ -350,18 +359,19 @@ function AppShell() {
   }, [currentSession]);
 
   // Mount-time alignment: if a deep-linked URL points at a window that is
-  // not the current tmux-active window for the session, fire exactly one
-  // `selectWindow` to align tmux to the URL. Guarded by
-  // `hasAlignedToUrlRef` per-session-mount so subsequent navigations within
-  // the same session don't replay the alignment (which would clobber
-  // user clicks).
+  // not the current tmux-active window for its (derived) session, fire exactly
+  // one `selectWindow` to align tmux to the URL. The comparison is window-id
+  // only, so a deep link to `/$server/@N` aligns to `@N` regardless of which
+  // session the snapshot reports it under. Guarded by `hasAlignedToUrlRef`,
+  // re-armed per window-route so subsequent navigations within the same window
+  // don't replay the alignment (which would clobber user clicks).
   useEffect(() => {
-    if (!sessionName || !windowParam || !currentSession) return;
-    const sessionKey = `${server}|${sessionName}`;
-    if (lastAlignedSessionRef.current !== sessionKey) {
-      // Fresh session route — re-arm the guard.
+    if (!windowParam || !currentSession) return;
+    const windowKey = `${server}|${windowParam}`;
+    if (lastAlignedSessionRef.current !== windowKey) {
+      // Fresh window route — re-arm the guard.
       hasAlignedToUrlRef.current = false;
-      lastAlignedSessionRef.current = sessionKey;
+      lastAlignedSessionRef.current = windowKey;
     }
     if (hasAlignedToUrlRef.current) return;
     // Wait for the first SSE-populated session payload (with a real
@@ -370,9 +380,16 @@ function AppShell() {
     if (activeId === null) return;
     hasAlignedToUrlRef.current = true;
     if (activeId !== windowParam) {
+      // Deep-link to a window that is NOT tmux's current active window: record
+      // a pending intent on `@N` (same mechanism as a sidebar click) so the URL
+      // writeback below does NOT bounce us back to the currently-active window
+      // before tmux confirms the alignment. Without this, a cold deep-link to
+      // `/$server/@N` would flicker to the active window and unmount the
+      // terminal. The intent clears the instant SSE reports `@N` active.
+      pendingClickRef.current = { windowId: windowParam };
       selectWindow(server, windowParam).catch(() => {});
     }
-  }, [server, sessionName, windowParam, currentSession, activeWindow]);
+  }, [server, windowParam, currentSession, activeWindow]);
 
   // URL writeback: whenever the SSE snapshot says a different window is
   // active than what the URL reflects, write the URL via `replace`. No
@@ -388,8 +405,10 @@ function AppShell() {
     // or the URL has moved on (a newer navigation superseded it).
     const pending = pendingClickRef.current;
     if (pending) {
-      const urlMatchesPending =
-        pending.session === sessionName && pending.windowId === windowParam;
+      // Match on the window id ALONE. A session rename or cross-session move
+      // that preserves `@N` must NOT release the suppression early (the bug
+      // this change fixes) — the session name is no longer part of identity.
+      const urlMatchesPending = pending.windowId === windowParam;
       const sseConfirmed = activeWindow.windowId === pending.windowId;
       if (sseConfirmed || !urlMatchesPending) {
         pendingClickRef.current = null;
@@ -399,8 +418,8 @@ function AppShell() {
     }
     if (activeWindow.windowId === windowParam) return;
     navigate({
-      to: "/$server/$session/$window",
-      params: { server, session: sessionName, window: activeWindow.windowId },
+      to: "/$server/$window",
+      params: { server, window: activeWindow.windowId },
       replace: true,
     });
   }, [activeWindow, sessionName, windowParam, navigate, server]);
@@ -414,11 +433,11 @@ function AppShell() {
   //
   // On mobile, close the overlay sidebar after a destination tap.
   const navigateToWindow = useCallback(
-    (session: string, windowId: string) => {
-      pendingClickRef.current = { session, windowId };
+    (windowId: string) => {
+      pendingClickRef.current = { windowId };
       navigate({
-        to: "/$server/$session/$window",
-        params: { server, session, window: windowId },
+        to: "/$server/$window",
+        params: { server, window: windowId },
         replace: true,
       });
       selectWindow(server, windowId).catch(() => {});
@@ -432,14 +451,12 @@ function AppShell() {
     sessionName,
     windowId: currentWindow?.windowId,
     onKillComplete: () => navigate({ to: "/$server", params: { server }, replace: true }),
-    onSessionRenamed: (newName) => {
-      if (windowParam) {
-        navigate({
-          to: "/$server/$session/$window",
-          params: { server, session: newName, window: windowParam },
-          replace: true,
-        });
-      } else {
+    onSessionRenamed: () => {
+      // The route no longer carries a session segment, so a rename needs no
+      // navigation when a window is in view — the breadcrumb re-derives the new
+      // session name from the next SSE snapshot. Only redirect to the dashboard
+      // when no window is selected (nothing to keep us anchored).
+      if (!windowParam) {
         navigate({ to: "/$server", params: { server }, replace: true });
       }
     },
@@ -739,8 +756,8 @@ function AppShell() {
                         moveWindow(server, currentWindow.windowId, targetIndex)
                           .then(() => {
                             navigate({
-                              to: "/$server/$session/$window",
-                              params: { server, session: sessionName, window: currentWindow.windowId },
+                              to: "/$server/$window",
+                              params: { server, window: currentWindow.windowId },
                             });
                           })
                           .catch((err) => {
@@ -764,8 +781,8 @@ function AppShell() {
                         moveWindow(server, currentWindow.windowId, targetIndex)
                           .then(() => {
                             navigate({
-                              to: "/$server/$session/$window",
-                              params: { server, session: sessionName, window: currentWindow.windowId },
+                              to: "/$server/$window",
+                              params: { server, window: currentWindow.windowId },
                             });
                           })
                           .catch((err) => {
@@ -985,7 +1002,7 @@ function AppShell() {
     () => flatWindows.map((fw) => ({
       id: `terminal-${fw.session}-${fw.window.windowId}`,
       label: `Terminal: ${fw.session}/${fw.window.name}`,
-      onSelect: () => navigateToWindow(fw.session, fw.window.windowId),
+      onSelect: () => navigateToWindow(fw.window.windowId),
     })),
     [flatWindows, navigateToWindow],
   );
@@ -1010,13 +1027,14 @@ function AppShell() {
       currentServer={server || null}
       currentSession={sessionName ?? null}
       currentWindowId={windowParam ?? null}
-      onSelectWindow={(srv, sess, windowId) => {
+      onSelectWindow={(srv, _sess, windowId) => {
         if (srv === server) {
-          navigateToWindow(sess, windowId);
+          navigateToWindow(windowId);
         } else {
+          // Cross-server: identity is window-id only on the 2-segment route.
           navigate({
-            to: "/$server/$session/$window",
-            params: { server: srv, session: sess, window: windowId },
+            to: "/$server/$window",
+            params: { server: srv, window: windowId },
           });
           if (isMobile) setSidebarOpen(false);
         }
@@ -1046,7 +1064,9 @@ function AppShell() {
   );
 
   // Mode for TopBar — `terminal` when a session is active, `root` otherwise.
-  const topBarMode = sessionName ? "terminal" : "root";
+  // Terminal mode whenever a window is in the URL — keyed on `windowParam` (not
+  // the SSE-derived session) so the cold-deep-link top bar doesn't flash "root".
+  const topBarMode = windowParam ? "terminal" : "root";
 
   return (
     <Shell sidebarChildren={sidebarElement}>
@@ -1102,7 +1122,13 @@ function AppShell() {
           className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
           style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
         >
-          {sessionName && windowParam ? (
+          {/* Render gate keys on `windowParam` (the URL's @N) ALONE, not the
+              SSE-derived `sessionName`. The session name is only needed for the
+              breadcrumb/title and resolves a beat after the first snapshot; the
+              terminal itself connects by window id, so gating on the derived
+              session would needlessly delay the mount on a cold deep-link (and
+              briefly flash the Dashboard). */}
+          {windowParam ? (
             currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? (
               <div className="flex-1 min-h-0 flex flex-col">
                 <IframeWindow
@@ -1126,7 +1152,7 @@ function AppShell() {
                 )}
                 <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
                   <TerminalClient
-                    sessionName={sessionName}
+                    sessionName={sessionName ?? ""}
                     windowId={windowParam}
                     server={server}
                     wsRef={wsRef}

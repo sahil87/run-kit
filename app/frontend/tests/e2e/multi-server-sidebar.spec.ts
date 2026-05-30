@@ -85,6 +85,9 @@ test.describe("Multi-server sidebar", () => {
     await expect(sessionLink.first()).toBeVisible({ timeout: 10_000 });
     await sessionLink.first().click();
 
-    await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER_B}/${TEST_SESSION_B}/`));
+    // 2-segment route /$server/$window: the URL carries server B and the
+    // session's first window id (@N, percent-encoded as %40N) — no session
+    // segment (the session is derived from the SSE snapshot).
+    await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER_B}/%40\\d+(?:$|[/?#])`));
   });
 });

@@ -834,6 +834,97 @@ func TestMoveWindow_reordersAndPreservesID(t *testing.T) {
 	}
 }
 
+// windowOption reads a user-defined window option for target via show-options,
+// returning ("", false) when the option is unset.
+func windowOption(t *testing.T, server, target, option string) (string, bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "-L", server, "show-options", "-wqv", "-t", target, option).CombinedOutput()
+	if err != nil {
+		t.Fatalf("show-options %q for %q: %v\n%s", option, target, err, string(out))
+	}
+	v := strings.TrimSpace(string(out))
+	return v, v != ""
+}
+
+// TestMoveWindow_multiStepReorder exercises a reorder that needs ≥2 swaps
+// (window at index 4 → index 1 across 6 windows) and asserts the final layout
+// plus preserved @N after the single chained invocation.
+func TestMoveWindow_multiStepReorder(t *testing.T) {
+	server := withSessionOrderTmux(t)
+
+	// boot has window 0; add five more so indices are 0..5.
+	for _, name := range []string{"one", "two", "three", "four", "five"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "tmux", "-L", server, "new-window", "-t", "boot", "-n", name).CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Fatalf("new-window %q: %v\n%s", name, err, string(out))
+		}
+	}
+
+	// Move the window at index 4 to index 1 (insert-before). Requires 3 swaps
+	// (4↔3, 3↔2, 2↔1) emitted as one chained invocation.
+	id := windowID(t, server, "boot:4")
+	if err := MoveWindow(id, 1, server); err != nil {
+		t.Fatalf("MoveWindow(%q -> 1): %v", id, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	gotSession, gotIndex, err := resolveWindowSessionIndex(ctx, server, id)
+	if err != nil {
+		t.Fatalf("resolve after multi-step move: %v", err)
+	}
+	if gotSession != "boot" {
+		t.Errorf("session = %q, want %q", gotSession, "boot")
+	}
+	// Insert-before semantics: moving index 4 to before index 1 lands it at index 1.
+	if gotIndex != 1 {
+		t.Errorf("after multi-step MoveWindow: index = %d, want 1", gotIndex)
+	}
+}
+
+// TestSetWindowOptions_chainedSetAndUnset verifies the chained set-option
+// primitive applies a mixed set+unset batch in one invocation against a real
+// tmux server.
+func TestSetWindowOptions_chainedSetAndUnset(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+
+	// Pre-set @rk_type so the batch can unset it while setting @color/@rk_url.
+	setupCtx, setupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if out, err := exec.CommandContext(setupCtx, "tmux", "-L", server, "set-option", "-w", "-t", id, "@rk_type", "iframe").CombinedOutput(); err != nil {
+		setupCancel()
+		t.Fatalf("pre-set @rk_type: %v\n%s", err, string(out))
+	}
+	setupCancel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	color := "5"
+	url := "https://example.test"
+	ops := []WindowOptionOp{
+		{Key: "@color", Value: &color},
+		{Key: "@rk_url", Value: &url},
+		{Key: "@rk_type", Value: nil}, // unset
+	}
+	if err := SetWindowOptions(ctx, id, server, ops); err != nil {
+		t.Fatalf("SetWindowOptions: %v", err)
+	}
+
+	if v, ok := windowOption(t, server, id, "@color"); !ok || v != "5" {
+		t.Errorf("@color = %q (set=%v), want \"5\"", v, ok)
+	}
+	if v, ok := windowOption(t, server, id, "@rk_url"); !ok || v != url {
+		t.Errorf("@rk_url = %q (set=%v), want %q", v, ok, url)
+	}
+	if v, ok := windowOption(t, server, id, "@rk_type"); ok {
+		t.Errorf("@rk_type = %q, want unset", v)
+	}
+}
+
 func TestMoveWindowToSession_movesAndPreservesID(t *testing.T) {
 	server := withSessionOrderTmux(t)
 

@@ -28,9 +28,12 @@ here, since it can be too fast to assert reliably).
 ### `creating a server shows the provisioning state, never a Server not found screen`
 
 **What it proves:** Creating a new server via the command palette while a
-pre-existing server is present navigates to the new server's route and renders
-the brief `ServerWaiting` provisioning state ("Creating…") rather than the
-`ServerNotFound` error screen — the exact regression this change fixes.
+pre-existing server is present navigates to the new server's route and converges
+on the new server's connected view, and never leaves the user on the
+`ServerNotFound` error screen — the exact regression this change fixes. The test
+asserts the *stable end state* rather than the transient `ServerWaiting`
+("Creating…") frame, because with the eager pre-create refresh removed a fast
+backend can reconcile the list before the locator is evaluated.
 
 **Steps:**
 1. Set desktop viewport and navigate to `/${PRE_EXISTING_SERVER}`.
@@ -44,20 +47,25 @@ the brief `ServerWaiting` provisioning state ("Creating…") rather than the
    create dialog.
 5. Fill the `Server name` input with the new server name and press Enter.
 6. Assert the page URL now matches `/${NEW_SERVER}` (immediate navigation).
-7. Assert the `Creating…` provisioning text is visible (`ServerWaiting`, not
-   `ServerNotFound`).
+7. Assert the new server's Dashboard renders its always-present `+ New Session`
+   card — proof the flow landed on the working server view, not on an error
+   screen or a stuck `ServerWaiting` spinner. (Keys on the Dashboard rather than
+   the SSE `Connected` dot, which is not a reliable end-state signal for a
+   freshly-created empty server with no sessions.)
 8. Assert the text `Server not found` has count `0` (never the terminal state).
 
 ## Notes
 
 - Port 3020, isolated tmux server, best-effort teardown — same harness contract
   as the other multi-server e2e specs.
-- The test asserts the provisioning frame (`Creating…`) rather than the
-  waiting→view swap. The swap depends on the refreshed `/api/servers` list
-  including the new server, whose timing is environment-dependent; the brief
-  waiting state itself is the deterministic, robust signal that the not-found
-  flash is gone. The deterministic waiting→view swap and the pending-clear
-  lifecycle are covered by the unit / route-guard tests
+- The test asserts the stable end state (new route `Connected`, no not-found
+  screen) rather than the transient `Creating…` frame. The eager pre-create
+  refresh was removed (it could collide with `deduplicatedFetch`'s in-flight GET
+  coalescing — see the comment in `handleCreateServer`), so the post-create
+  refresh is `onAlwaysSettled` alone; a fast backend may swap waiting→view
+  before the locator is evaluated, making the provisioning frame unobservable
+  without indicating a regression. The deterministic waiting→view swap and the
+  pending-clear lifecycle are covered by the unit / route-guard tests
   (`session-context.test.tsx`, `server-guard.test.tsx`).
 - The palette is opened via the `palette:open` event (not `Cmd/Ctrl+K`) because
   the headless-browser modifier mapping is unreliable, and via the event rather

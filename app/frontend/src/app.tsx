@@ -671,16 +671,19 @@ function AppShell() {
     const trimmed = createServerName.trim();
     if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
     executeCreateServer(trimmed);
-    // Mark the server provisioning and kick off an immediate refresh so the
-    // three-way guard shows ServerWaiting (not ServerNotFound) the instant we
-    // navigate. The authoritative refresh on create success rides on
-    // onAlwaysSettled (AppShell unmounts on navigate).
+    // Mark the server provisioning so the three-way guard shows ServerWaiting
+    // (not ServerNotFound) the instant we navigate. Do NOT refresh the list
+    // here: useOptimisticAction defers `createServer` through a microtask, so
+    // an eager refreshServers() would fire a GET /api/servers *before* the
+    // POST. deduplicatedFetch coalesces in-flight GETs, so onAlwaysSettled's
+    // refresh could reuse that stale pre-create response and never observe the
+    // new server (ServerWaiting would spin until a manual refresh). The
+    // authoritative post-create refresh is onAlwaysSettled alone.
     markServerPending(trimmed);
-    refreshServers();
     navigate({ to: "/$server", params: { server: trimmed } });
     setShowCreateServerDialog(false);
     setCreateServerName("");
-  }, [createServerName, navigate, executeCreateServer, markServerPending, refreshServers]);
+  }, [createServerName, navigate, executeCreateServer, markServerPending]);
 
   const { execute: executeKillServer } = useOptimisticAction<[string]>({
     action: (name) => killServerApi(name),

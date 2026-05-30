@@ -63,13 +63,24 @@ test.describe("Server create — waiting state, never a not-found flash", () => 
     await expect(page).toHaveURL(new RegExp(`/${NEW_SERVER}`), { timeout: 10_000 });
 
     // Headline guarantee (the bug this change fixes): the just-created server
-    // renders the brief ServerWaiting provisioning state ("Creating…"), NOT the
-    // ServerNotFound error screen. Asserting the provisioning frame here is
-    // reliable because the waiting state persists until the refreshed list
-    // includes the server (no artificial timer). The deterministic
+    // converges on its working Dashboard view and NEVER shows the ServerNotFound
+    // error screen. We assert the *stable end state* rather than the transient
+    // "Creating…" frame — with the eager pre-create refresh removed, a fast
+    // backend can reconcile the server list before Playwright evaluates the
+    // locator, so the provisioning frame is not reliably observable (and a
+    // missed frame does not mean the bug regressed). The deterministic
     // waiting→view swap and pending-clear lifecycle are covered by the unit /
     // route-guard tests (`server-guard.test.tsx`).
-    await expect(page.getByText(/Creating/i)).toBeVisible({ timeout: 10_000 });
+    //
+    // The new server's Dashboard renders its always-present "+ New Session"
+    // card — proof we landed on the working server view, not an error screen or
+    // a stuck ServerWaiting spinner. (We key on the Dashboard, NOT the SSE
+    // "Connected" dot: a freshly-created empty server has no sessions, and the
+    // connection indicator is not a reliable end-state signal for it.)
+    await expect(page.getByText("+ New Session")).toBeVisible({
+      timeout: 15_000,
+    });
+    // The not-found screen must never be the terminal state for a created server.
     await expect(page.getByText("Server not found")).toHaveCount(0);
   });
 });

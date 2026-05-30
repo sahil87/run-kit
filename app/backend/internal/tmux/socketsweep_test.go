@@ -92,29 +92,66 @@ func startSocketServer(t *testing.T, name string) {
 	})
 }
 
-// TestSweepDeadTestSockets_sparesLivePIDReapsDead proves the PID-scoped
-// post-sweep spares a socket owned by a LIVE PID (a concurrent test process)
-// while reaping a same-prefix socket owned by a DEAD PID — the concurrent-
-// sparing invariant from the spec (Domain C). Both servers live in the real
-// /tmp/tmux-<uid>/ dir that sweepDeadTestSockets scans.
-func TestSweepDeadTestSockets_sparesLivePIDReapsDead(t *testing.T) {
+// startOtherLivePID spawns a throwaway child process and returns its PID,
+// registering cleanup to kill it. It stands in for a CONCURRENT test process
+// (a different `go test ./...` package): a live PID that is NOT this process's
+// own os.Getpid(). The post-sweep must spare sockets owned by such a PID.
+func startOtherLivePID(t *testing.T) int {
+	t.Helper()
+	// `sleep` lives long enough to stay alive across the sweep; killed on cleanup.
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not spawn a stand-in concurrent process: %v", err)
+	}
+	pid := cmd.Process.Pid
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+	if pid == os.Getpid() {
+		t.Fatalf("stand-in pid %d collided with self — cannot test the other-live-PID branch", pid)
+	}
+	return pid
+}
+
+// TestSweepDeadTestSockets_reapsOwnAndDeadSparesOtherLive proves the post-sweep's
+// three-way invariant (spec Domain C), the one Copilot flagged the original test
+// did not exercise:
+//
+//   - OWN-PID socket (os.Getpid()) → REAPED. The post-sweep runs at TestMain
+//     exit; this run's own rk-test-* sockets are residue even though our pid is
+//     still "alive". (The original test wrongly expected own-pid to be spared.)
+//   - OTHER-live-PID socket (a concurrent test process) → SPARED.
+//   - DEAD-PID socket → REAPED.
+//
+// All three servers live in the real /tmp/tmux-<uid>/ dir sweepDeadTestSockets
+// scans.
+func TestSweepDeadTestSockets_reapsOwnAndDeadSparesOtherLive(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available — skipping integration test")
 	}
 
 	ns := strconv.FormatInt(time.Now().UnixNano(), 10)
-	// Live: embeds this live test process's PID → testPIDAlive == true → spared.
-	live := fmt.Sprintf("rk-test-sweepspare-%d-%s", os.Getpid(), ns)
-	// Dead: embeds a PID above pid_max → ESRCH → reaped.
+	otherPID := startOtherLivePID(t)
+
+	// Own: this run's pid → reaped (we are exiting).
+	own := fmt.Sprintf("rk-test-sweepspare-%d-%s", os.Getpid(), ns)
+	// Other-live: a different live process → spared (concurrent package).
+	otherLive := fmt.Sprintf("rk-test-sweepspare-%d-%s", otherPID, ns)
+	// Dead: a PID above pid_max → ESRCH → reaped.
 	dead := fmt.Sprintf("rk-test-sweepspare-%d-%s", deadPID, ns)
 
-	startSocketServer(t, live)
+	startSocketServer(t, own)
+	startSocketServer(t, otherLive)
 	startSocketServer(t, dead)
 
 	sweepDeadTestSockets()
 
-	if !tmuxSocketLive(t, live) {
-		t.Errorf("live-PID socket %q was reaped — the post-sweep must spare it (concurrent process)", live)
+	if tmuxSocketLive(t, own) {
+		t.Errorf("own-PID socket %q survived — the post-sweep must reap this run's own residue at exit", own)
+	}
+	if !tmuxSocketLive(t, otherLive) {
+		t.Errorf("other-live-PID socket %q was reaped — the post-sweep must spare a concurrent process's socket", otherLive)
 	}
 	if tmuxSocketLive(t, dead) {
 		t.Errorf("dead-PID socket %q survived — the post-sweep must reap it", dead)

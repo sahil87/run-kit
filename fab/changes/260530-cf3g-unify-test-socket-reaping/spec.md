@@ -129,15 +129,16 @@ func TestMain(m *testing.M) {
 - **WHEN** the file is inspected
 - **THEN** there MUST be no `sweepDeadTestSockets()` call before `m.Run()`
 
-### Requirement: Sweep stays PID-scoped to dead owners — never a blanket wipe
-`sweepDeadTestSockets` MUST reap only sockets whose embedded PID parses (`parseTestSocketPID`) AND is dead (`testPIDAlive` reports `ESRCH`). It MUST NOT perform a blanket `rk-test-*` wipe. Live-PID sockets (belonging to a concurrent `go test ./...` package running as a separate process) MUST be spared, and sockets without a parseable PID MUST be left untouched.
+### Requirement: Sweep reaps own + dead owners, spares OTHER live owners — never a blanket wipe
+`sweepDeadTestSockets` MUST reap a parseable-PID (`parseTestSocketPID`) socket when EITHER its embedded PID is dead (`testPIDAlive` reports `ESRCH`) OR the PID is this process's own `os.Getpid()`. The own-PID case is essential: the sweep runs at `TestMain` exit, so this run's own `rk-test-*` sockets are residue even though `os.Getpid()` is still "alive" during the sweep — reaping only strictly-dead PIDs would make the post-sweep a no-op for exactly the residue it exists to clean (the single-package and last-package-in-`go test ./...` cases). A socket owned by a DIFFERENT still-live process (a concurrent `go test ./...` package running as a separate process) MUST be spared, and sockets without a parseable PID MUST be left untouched. It MUST NOT perform a blanket `rk-test-*` wipe. <!-- clarified: Copilot review on PR #210 caught that reaping only ESRCH-dead PIDs skips the run's own residue (own PID is live during its own teardown); fix reaps os.Getpid() + dead, spares other-live -->
 
-#### Scenario: Concurrent live socket spared, dead orphan reaped
-- **GIVEN** the sweep runs with two `rk-test-*` sockets present — one owned by a live PID (simulating a concurrent test process) and one owned by a dead PID
-- **WHEN** `sweepDeadTestSockets()` executes
-- **THEN** the dead-PID socket MUST be reaped (`tmux kill-server` via `exec.CommandContext` with a 5s timeout)
-- **AND** the live-PID socket MUST survive
-- **AND** a new test MUST assert exactly this sparing/reaping behavior
+#### Scenario: Own residue and dead orphan reaped, concurrent live socket spared
+- **GIVEN** the sweep runs with three `rk-test-*` sockets present — one owned by this process's own PID, one owned by a DIFFERENT live process (a concurrent test package), and one owned by a dead PID
+- **WHEN** `sweepDeadTestSockets()` executes at `TestMain` exit
+- **THEN** the own-PID socket MUST be reaped (`tmux kill-server` via `exec.CommandContext` with a 5s timeout) — this run's residue is cleaned
+- **AND** the dead-PID socket MUST be reaped
+- **AND** the other-live-PID socket MUST survive (a concurrent process still owns it)
+- **AND** a new test MUST assert exactly this three-way behavior using a real, distinct live process PID (not a fabricated dead PID) for the spare case
 
 #### Scenario: Per-test cleanup unchanged
 - **GIVEN** a test that registers `t.Cleanup(kill-server)` for its socket

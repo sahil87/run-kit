@@ -29,3 +29,5 @@
 {"event":"review","result":"passed","ts":"2026-05-30T05:22:51Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-05-30T05:28:32Z"}
 {"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-05-30T05:31:04Z"}
+{"event":"review","result":"passed","ts":"2026-05-30T05:42:58Z"}
+{"delta":"+0.0","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-05-30T06:51:44Z"}

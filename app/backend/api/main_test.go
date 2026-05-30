@@ -78,9 +78,14 @@ func testPIDAlive(pid int) bool {
 }
 
 // sweepDeadTestSockets enumerates /tmp/tmux-<uid>/ and kill-servers every
-// rk-test-* socket whose embedded PID is parseable AND dead. PID-scoped, never
-// a blanket rk-test-* wipe. Best-effort: enumeration or kill failures ignored.
+// rk-test-* socket this run should reap at TestMain exit: sockets embedding OUR
+// OWN pid (os.Getpid() — we are exiting, so they are residue, even though our
+// pid is still "alive" during the post-sweep) and sockets embedding a DEAD pid.
+// A socket owned by a DIFFERENT live process (a concurrent `go test ./...`
+// package) is spared. PID-scoped, never a blanket rk-test-* wipe. Best-effort:
+// enumeration or kill failures ignored.
 func sweepDeadTestSockets() {
+	self := os.Getpid()
 	socketDir := "/tmp/tmux-" + strconv.Itoa(os.Getuid())
 	entries, err := os.ReadDir(socketDir)
 	if err != nil {
@@ -89,7 +94,11 @@ func sweepDeadTestSockets() {
 	for _, e := range entries {
 		name := e.Name()
 		pid, ok := parseTestSocketPID(name)
-		if !ok || testPIDAlive(pid) {
+		if !ok {
+			continue
+		}
+		// Spare only OTHER live processes' sockets; reap our own (we are exiting).
+		if pid != self && testPIDAlive(pid) {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

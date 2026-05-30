@@ -85,12 +85,27 @@ func testPIDAlive(pid int) bool {
 }
 
 // sweepDeadTestSockets enumerates /tmp/tmux-<uid>/ and kill-servers every
-// rk-test-* socket whose embedded PID is parseable AND dead. PID-scoped, never
-// a blanket rk-test-* wipe — live-PID sockets (a concurrent test process) and
-// names without a parseable PID are left untouched. Best-effort: enumeration or
+// rk-test-* socket that this run should reap at TestMain exit:
+//
+//   - sockets embedding OUR OWN pid (os.Getpid()) — this run is exiting, so its
+//     own rk-test-* sockets are now residue. They must be reaped even though our
+//     pid is still "alive" while the post-sweep executes; otherwise the
+//     post-sweep is a no-op for the very residue it exists to clean (the common
+//     single-package / last-package-in-`go test ./...` case).
+//   - sockets embedding a DEAD pid — leaked by an earlier crashed run.
+//
+// A socket whose embedded pid belongs to a DIFFERENT, still-live process (a
+// concurrent `go test ./...` package running as its own process) is spared.
+// Names without a parseable pid are left untouched. Best-effort: enumeration or
 // kill failures are ignored — a leaked socket is harmless residue, and never
 // blocking tests is the priority.
+//
+// Edge: once we exit, our pid may be recycled by a later concurrent run. That
+// run's own post-sweep reaps its own residue the same way, so any of ours it
+// did not catch is reaped by the manual `rk reaper` (the documented
+// last-resort for un-catchable residue).
 func sweepDeadTestSockets() {
+	self := os.Getpid()
 	socketDir := "/tmp/tmux-" + strconv.Itoa(os.Getuid())
 	entries, err := os.ReadDir(socketDir)
 	if err != nil {
@@ -99,7 +114,12 @@ func sweepDeadTestSockets() {
 	for _, e := range entries {
 		name := e.Name()
 		pid, ok := parseTestSocketPID(name)
-		if !ok || testPIDAlive(pid) {
+		if !ok {
+			continue
+		}
+		// Spare only OTHER live processes' sockets. Our own pid is "alive" now
+		// but we are exiting, so our sockets are reapable residue.
+		if pid != self && testPIDAlive(pid) {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

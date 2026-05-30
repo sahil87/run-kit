@@ -47,8 +47,26 @@ setsid bash -c "RK_PORT=$E2E_PORT exec just dev" &
 DEV_PID=$!
 DEV_PGID=$DEV_PID
 
-# Wait for server to be ready
-for i in $(seq 1 30); do curl -s "http://localhost:$E2E_PORT" >/dev/null 2>&1 && break; sleep 1; done
+# Wait for BOTH servers to be ready. The frontend (Vite, E2E_PORT) comes up
+# almost instantly, but the Go backend (E2E_PORT+1) is built from scratch by
+# air on a cold runner — a 15s+ compile in CI. Waiting only on Vite (the old
+# behavior) let Playwright start while every /api call still got ECONNREFUSED,
+# so sessions never rendered and tests timed out. Gate on the backend's
+# /api/health endpoint, which only answers once the compiled binary is live.
+BACKEND_PORT=$(( E2E_PORT + 1 ))
+echo "waiting for frontend (:$E2E_PORT) and backend (:$BACKEND_PORT/api/health)..."
+for i in $(seq 1 90); do
+  if curl -sf "http://localhost:$E2E_PORT" >/dev/null 2>&1 \
+    && curl -sf "http://localhost:$BACKEND_PORT/api/health" >/dev/null 2>&1; then
+    echo "both servers ready after ${i}s"
+    break
+  fi
+  if [ "$i" -eq 90 ]; then
+    echo "ERROR: servers not ready after 90s (frontend and/or backend never came up)" >&2
+    exit 1
+  fi
+  sleep 1
+done
 
 # Run tests — pass server name so specs can target the right tmux server.
 # Forward any extra args ("$@") to playwright so callers can scope the run

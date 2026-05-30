@@ -1,0 +1,18 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-29T07:11:56Z"}
+{"args":"fix: isolate relay sweep to owner PID + glob-kill all rk-e2e* sockets in e2e teardown + TestMain pre-sweep of dead-PID test sockets — stop e2e/air-rebuild rk serve from killing live dashboard relays, and stop secondary rk-e2e-* tmux servers leaking on crash/Ctrl-C","cmd":"fab-new","event":"command","ts":"2026-05-29T07:11:56Z"}
+{"delta":"+3.1","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-05-29T07:13:21Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-05-29T07:34:36Z"}
+{"delta":"+0.3","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-05-29T07:37:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"spec","ts":"2026-05-29T07:37:33Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-05-29T07:39:19Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-05-29T07:39:33Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-05-29T07:39:46Z"}
+{"delta":"+1.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-05-29T07:39:57Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-05-29T07:40:28Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-05-29T08:20:36Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-05-29T08:20:36Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-05-29T08:32:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-05-30T01:31:35Z"}
+{"event":"review","result":"passed","ts":"2026-05-30T01:31:35Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"ship","ts":"2026-05-30T01:36:03Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-05-30T01:39:27Z"}

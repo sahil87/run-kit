@@ -335,3 +335,63 @@ func TestRelay_MissingWindowClose4004(t *testing.T) {
 	}
 }
 
+// TestRelay_OwnerStampFailureAbortsClean exercises the abort-clean path: when
+// the @rk_owner_pid stamp fails after the ephemeral grouped session is created,
+// handleRelay MUST close the WebSocket with the relay-allocation code (4001) and
+// reap the half-owned ephemeral via the deferred KillSessionCtx — so no live
+// but unstamped relay survives (which the next sweep would wrongly reap as an
+// owner=="" orphan). Uses mockTmuxOps to inject the stamp failure deterministically
+// after a successful session resolution and NewGroupedSession.
+func TestRelay_OwnerStampFailureAbortsClean(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	ops := &mockTmuxOps{
+		resolveWindowSessionResult: "real-session",
+		setSessionOwnerPIDErr:      fmt.Errorf("stamp failed: tmux unreachable"),
+	}
+	router := NewTestRouter(logger, &mockSessionFetcher{}, ops, "test-host")
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	httpURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	wsURL := url.URL{
+		Scheme:   "ws",
+		Host:     httpURL.Host,
+		Path:     "/relay/@1",
+		RawQuery: "server=default",
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
+	if err != nil {
+		t.Fatalf("dial relay: %v", err)
+	}
+	defer conn.Close()
+
+	// The handler must close with 4001 once the owner-pid stamp fails.
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, _, readErr := conn.ReadMessage()
+	if readErr == nil {
+		t.Fatal("expected close from server, got message")
+	}
+	if closeErr, ok := readErr.(*websocket.CloseError); ok {
+		if closeErr.Code != 4001 {
+			t.Errorf("close code = %d, want 4001", closeErr.Code)
+		}
+	} else {
+		t.Logf("read returned non-close error (acceptable): %v", readErr)
+	}
+
+	// The stamp must have been attempted, and the ephemeral reaped by the
+	// deferred KillSessionCtx so no unstamped relay survives.
+	if !ops.setSessionOwnerPIDCalled {
+		t.Error("SetSessionOwnerPID was not called — stamp path not exercised")
+	}
+	if !ops.killSessionCalled {
+		t.Error("ephemeral was not reaped after stamp failure (deferred KillSessionCtx not invoked)")
+	}
+	if ops.killSessionName != ops.newGroupedSessionEphemeral {
+		t.Errorf("reaped session = %q, want the created ephemeral %q",
+			ops.killSessionName, ops.newGroupedSessionEphemeral)
+	}
+}

@@ -1,0 +1,53 @@
+id: wtg4
+name: 260529-wtg4-isolate-relay-sweep-test-leaks
+created: 2026-05-29T07:11:56Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 26
+    acceptance_completed: 26
+confidence:
+    certain: 7
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 89.8
+        reversibility: 79.9
+        competence: 87.0
+        disambiguation: 89.0
+stage_metrics:
+    intake: {started_at: "2026-05-29T07:11:56Z", driver: fab-new, iterations: 1, completed_at: "2026-05-29T07:37:33Z"}
+    spec: {started_at: "2026-05-29T07:37:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-29T08:20:36Z"}
+    apply: {started_at: "2026-05-29T08:20:36Z", driver: fab-continue, iterations: 1, completed_at: "2026-05-29T08:32:36Z"}
+    review: {started_at: "2026-05-29T08:32:36Z", driver: fab-continue, iterations: 1, completed_at: "2026-05-30T01:31:35Z"}
+    hydrate: {started_at: "2026-05-30T01:31:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-30T01:36:03Z"}
+    ship: {started_at: "2026-05-30T01:36:03Z", driver: fab-continue, iterations: 1, completed_at: "2026-05-30T01:39:27Z"}
+    review-pr: {started_at: "2026-05-30T01:39:27Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/208
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-05-30T01:36:03Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-05-30T01:39:27Z

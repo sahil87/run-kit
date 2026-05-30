@@ -56,6 +56,7 @@ type TmuxOps interface {
 	CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error
 	GetSessionOrder(ctx context.Context, server string) ([]string, error)
 	SetSessionOrder(ctx context.Context, server string, order []string) error
+	SetSessionOwnerPID(ctx context.Context, server, session string, pid int) error
 	ListBoards(ctx context.Context) ([]tmux.BoardSummary, error)
 	GetBoard(ctx context.Context, name string) ([]tmux.BoardEntry, error)
 	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
@@ -197,6 +198,9 @@ func (p *prodTmuxOps) GetSessionOrder(ctx context.Context, server string) ([]str
 }
 func (p *prodTmuxOps) SetSessionOrder(ctx context.Context, server string, order []string) error {
 	return tmux.SetSessionOrder(ctx, server, order)
+}
+func (p *prodTmuxOps) SetSessionOwnerPID(ctx context.Context, server, session string, pid int) error {
+	return tmux.SetSessionOwnerPID(ctx, server, session, pid)
 }
 func (p *prodTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	return tmux.ListBoards(ctx)

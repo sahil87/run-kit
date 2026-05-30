@@ -155,20 +155,24 @@ describe("TopBar", () => {
     expect(toggleBtn.querySelector("img")).toBeNull();
   });
 
-  it("shows chevron transforms when sidebar is open on desktop", () => {
-    // Simulate desktop viewport
-    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1024);
+  it("fills the sidebar-slot pictogram when the sidebar is open", () => {
+    // The nav toggle is a Notion-style panel pictogram: a rounded-rect outline
+    // plus a left-column "slot" rect whose fill-opacity tracks sidebarOpen.
+    // The slot is the only rect carrying an explicit fill — the outer panel
+    // inherits the svg's fill="none".
+    const slotFillOpacity = () =>
+      screen
+        .getByLabelText("Toggle navigation")
+        .querySelector("svg rect[fill='currentColor']")!
+        .getAttribute("fill-opacity");
+
     renderTopBar({ sidebarOpen: true });
-    const toggleBtn = screen.getByLabelText("Toggle navigation");
-    const svg = toggleBtn.querySelector("svg")!;
-    const lines = svg.querySelectorAll("line");
-    expect(lines).toHaveLength(3);
-    // Top line has chevron rotation
-    expect(lines[0].style.transform).toContain("rotate(-40deg)");
-    // Middle line is hidden
-    expect(lines[1].style.opacity).toBe("0");
-    // Bottom line has chevron rotation
-    expect(lines[2].style.transform).toContain("rotate(40deg)");
+    expect(slotFillOpacity()).toBe("0.5");
+
+    cleanup();
+
+    renderTopBar({ sidebarOpen: false });
+    expect(slotFillOpacity()).toBe("0");
   });
 
   it("renders 'Run Kit' branding text", () => {

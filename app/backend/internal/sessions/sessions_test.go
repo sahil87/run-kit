@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+	"time"
 
 	"rk/internal/tmux"
 )
@@ -292,16 +294,41 @@ func TestFetchPaneMapFabNotOnPath(t *testing.T) {
 	}
 }
 
+// tmuxSocketDir returns the directory tmux places named server sockets in,
+// matching tmux's own rule: ${TMUX_TMPDIR:-/tmp}/tmux-<euid>/. Honoring
+// TMUX_TMPDIR (not hard-coding /tmp) and using the EFFECTIVE uid matters so the
+// socket-file cleanup targets the real path when tests run with TMUX_TMPDIR set
+// — otherwise the rk-test-* socket leaks despite the cleanup. (Verified
+// empirically: with TMUX_TMPDIR=DIR the socket lands at DIR/tmux-<euid>/<name>.)
+func tmuxSocketDir() string {
+	base := os.Getenv("TMUX_TMPDIR")
+	if base == "" {
+		base = "/tmp"
+	}
+	return filepath.Join(base, fmt.Sprintf("tmux-%d", os.Geteuid()))
+}
+
 // TestFetchPaneMapIntegration exercises the real subprocess invocation path.
-// Skips when `fab` is not on PATH (CI without fab-kit installed).
+// Skips when `fab` or `tmux` is not on PATH (CI without them installed).
 //
 // Go test binaries run with CWD = package directory, so to find the running
 // repo's fab/project/config.yaml we walk up from os.Getwd() using findRepoRoot.
 // We then reuse the running repo's fab_version in a freshly-written config.yaml
 // inside a t.TempDir(), so the router can resolve a version it knows how to run.
+//
+// The test targets a freshly-booted, isolated rk-test-* tmux server rather than
+// the ambient default socket: `fab pane map --all-sessions` runs
+// `tmux list-sessions`, which exits non-zero when the resolved socket has no
+// live server. Relying on whatever server happens to be running (or not) under
+// the test process made this flaky — green inside a tmux pane, red under a bare
+// `go test`. Booting our own server makes the real parse+dedup path
+// deterministic and lets us assert it actually returned the session we created.
 func TestFetchPaneMapIntegration(t *testing.T) {
 	if _, err := exec.LookPath("fab"); err != nil {
 		t.Skip("fab router not available on PATH")
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available on PATH")
 	}
 
 	// Locate the running repo's fab/project/config.yaml by walking up from the
@@ -344,10 +371,46 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 		t.Fatalf("findRepoRoot(%q) = %q, want %q", tempDir, got, tempDir)
 	}
 
-	// The subprocess call SHALL succeed. The returned map MAY be empty —
-	// we assert absence of error, not specific contents.
-	if _, err := fetchPaneMap("", tempDir); err != nil {
-		t.Errorf("fetchPaneMap(%q) error: %v", tempDir, err)
+	// Boot an isolated tmux server with one known session so the subprocess
+	// path has a live socket to list. The rk-test- prefix opts the socket into
+	// the unified reaper sweep (`rk reaper`) if t.Cleanup never fires (SIGKILL
+	// / panic). The embedded pid + nanosecond suffix keep it unique per run.
+	server := fmt.Sprintf("rk-test-sessions-%d-%d", os.Getpid(), time.Now().UnixNano())
+	const bootSession = "panemap-boot"
+	bootCtx, cancelBoot := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelBoot()
+	boot := exec.CommandContext(bootCtx, "tmux", "-L", server,
+		"new-session", "-d", "-s", bootSession, "-x", "80", "-y", "24")
+	if out, err := boot.CombinedOutput(); err != nil {
+		t.Skipf("could not start isolated tmux server %q: %v\n%s", server, err, out)
+	}
+	t.Cleanup(func() {
+		killCtx, cancelKill := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelKill()
+		_ = exec.CommandContext(killCtx, "tmux", "-L", server, "kill-server").Run()
+		// kill-server stops the server but leaves the socket file behind. This
+		// package has no TestMain post-sweep (unlike internal/tmux), so remove
+		// the stale socket ourselves to avoid leaking rk-test-* residue.
+		_ = os.Remove(filepath.Join(tmuxSocketDir(), server))
+	})
+
+	// The subprocess call SHALL succeed against the live isolated server, and
+	// the booted session SHALL appear — proving the real parse+dedup path ran,
+	// not merely that "empty is tolerated".
+	paneMap, err := fetchPaneMap(server, tempDir)
+	if err != nil {
+		t.Fatalf("fetchPaneMap(%q, %q) error: %v", server, tempDir, err)
+	}
+	found := false
+	for _, e := range paneMap {
+		if e.Session == bootSession {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("fetchPaneMap did not return booted session %q; got %d entries: %+v",
+			bootSession, len(paneMap), paneMap)
 	}
 }
 

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
+import { MOBILE_BREAKPOINT_PX } from "@/hooks/use-is-mobile";
 
 export type BreadcrumbDropdownItem = {
   label: string;
@@ -33,12 +34,27 @@ function readFixedWidth(): boolean {
   }
 }
 
+/** Whether the current viewport should be treated as mobile for layout
+ * defaults. Mirrors `useIsMobile`'s rule (narrow width OR coarse pointer) but
+ * runs once at state init, where hooks can't. Guarded for non-browser envs. */
+function isMobileViewport(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return (
+    window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`).matches ||
+    window.matchMedia("(pointer: coarse)").matches
+  );
+}
+
 function readSidebarOpen(): boolean {
   try {
     const stored = localStorage.getItem(SIDEBAR_OPEN_STORAGE_KEY);
+    if (stored === "true") return true;
     if (stored === "false") return false;
   } catch { /* noop */ }
-  return true;
+  // No explicit preference: the drawer covers most of a phone screen, so it
+  // starts collapsed on mobile and expanded on desktop. An explicit stored
+  // choice (above) always wins, so a user who opened it on mobile keeps it.
+  return !isMobileViewport();
 }
 
 function readSidebarWidth(): number {

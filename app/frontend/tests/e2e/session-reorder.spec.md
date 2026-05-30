@@ -19,7 +19,7 @@ the server has, the sidebar shows," not the drag mechanics themselves.
 
 ### server-persisted order survives a page reload via SSE
 
-**What it proves**: An order persisted via `PUT /api/sessions/order` is
+**What it proves**: An order persisted via `POST /api/sessions/order` is
 delivered to the sidebar via the eager SSE `session-order` broadcast and
 survives a page reload (re-delivered on connect via the cached snapshot).
 This exercises the full production path — the same one the drag UI uses.
@@ -27,7 +27,7 @@ This exercises the full production path — the same one the drag UI uses.
 **Steps**:
 
 1. Build the desired custom order: `[charlie, alpha, bravo]`.
-2. Send `PUT /api/sessions/order?server={TMUX_SERVER}` with body
+2. Send `POST /api/sessions/order?server={TMUX_SERVER}` with body
    `{"order": [charlie, alpha, bravo]}`. Assert the response is OK.
 3. Navigate to `/{TMUX_SERVER}` and wait for "Connected".
 4. Wait for all three test sessions to render in the sidebar.

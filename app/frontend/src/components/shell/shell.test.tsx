@@ -21,13 +21,12 @@ function mockMatchMedia(matches: (query: string) => boolean) {
 
 function renderShell(opts: { open?: boolean; mobile?: boolean } = {}) {
   const { open = true, mobile = false } = opts;
-  // ChromeProvider initialises sidebarOpen from localStorage; seed it so
-  // the desktop-collapsed scenario can be exercised without a click.
-  if (open === false) {
-    localStorage.setItem("runkit-sidebar-open", "false");
-  } else {
-    localStorage.removeItem("runkit-sidebar-open");
-  }
+  // ChromeProvider initialises sidebarOpen from localStorage. Seed an EXPLICIT
+  // preference for both states: with no stored value the default is
+  // viewport-dependent (collapsed on mobile), so relying on "absent ⇒ open"
+  // would make the mobile-open scenario unreachable. An explicit value pins the
+  // state regardless of the mocked viewport.
+  localStorage.setItem("runkit-sidebar-open", open ? "true" : "false");
   mockMatchMedia((q) =>
     mobile
       ? q.includes("max-width") // mobile width matches

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,10 +28,17 @@ func (m *mockSessionFetcher) FetchSessions(ctx context.Context, server string) (
 }
 
 // mockTmuxOps records calls for verification.
+//
+// Most fields are written and read within a single goroutine (synchronous
+// handler tests), so they need no locking. The kill-session fields are the
+// exception: the relay abort-clean path reaps the ephemeral from a deferred
+// cleanup on the SERVER goroutine while the test goroutine observes it, so
+// those two are guarded by killMu and accessed via KillSessionWasCalled.
 type mockTmuxOps struct {
 	createSessionCalled bool
 	createSessionName   string
 	createSessionCwd    string
+	killMu                 sync.Mutex
 	killSessionCalled      bool
 	killSessionName        string
 	renameSessionCalled    bool
@@ -176,14 +184,27 @@ func (m *mockTmuxOps) CreateSession(name, cwd, server string) error {
 	return m.err
 }
 func (m *mockTmuxOps) KillSession(session, server string) error {
+	m.killMu.Lock()
 	m.killSessionCalled = true
 	m.killSessionName = session
+	m.killMu.Unlock()
 	return m.err
 }
 func (m *mockTmuxOps) KillSessionCtx(ctx context.Context, server, session string) error {
+	m.killMu.Lock()
 	m.killSessionCalled = true
 	m.killSessionName = session
+	m.killMu.Unlock()
 	return m.err
+}
+
+// KillSessionWasCalled returns the recorded kill state under killMu. Use this
+// (not the bare fields) when the kill may run on a different goroutine than the
+// assertion — e.g. the relay abort-clean deferred reap.
+func (m *mockTmuxOps) KillSessionWasCalled() (bool, string) {
+	m.killMu.Lock()
+	defer m.killMu.Unlock()
+	return m.killSessionCalled, m.killSessionName
 }
 func (m *mockTmuxOps) NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error {
 	m.newGroupedSessionCalled = true
@@ -586,11 +607,12 @@ func TestSessionKill(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	if !ops.killSessionCalled {
+	killed, killedName := ops.KillSessionWasCalled()
+	if !killed {
 		t.Error("KillSession was not called")
 	}
-	if ops.killSessionName != "test-session" {
-		t.Errorf("killSessionName = %q, want %q", ops.killSessionName, "test-session")
+	if killedName != "test-session" {
+		t.Errorf("killSessionName = %q, want %q", killedName, "test-session")
 	}
 }
 

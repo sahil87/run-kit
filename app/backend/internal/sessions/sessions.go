@@ -21,6 +21,49 @@ type ProjectSession struct {
 	Windows      []tmux.WindowInfo `json:"windows"`
 }
 
+// ActiveWindowProvider supplies the event-tracked active window (`@wid`) for a
+// (server, group) pair — the authoritative Tier-1 signal derived from tmux
+// control-mode `%session-window-changed` events. It is the seam between the
+// tmuxctl layer (which owns the tracker) and the fetch path. A nil provider, or
+// a (server, group) miss, signals "no tracked value" so FetchSessions falls
+// back to the base-session `#{window_active}` pointer (Tier 2) — preserving
+// today's behavior when control-mode is unavailable.
+type ActiveWindowProvider interface {
+	ActiveWindow(server, group string) (wid string, ok bool)
+}
+
+// applyActiveWindow enforces the two-tier active-window derivation on one
+// session's windows in place. When trackedWid is non-empty (Tier 1) AND a live
+// window matches it, exactly that window is marked active and all others are
+// cleared — overriding the base-pointer flag parsed by parseWindows. If
+// trackedWid is empty (no tracked entry) OR matches no live window (stale —
+// e.g. the window closed between the event and this fetch), the base-pointer
+// flags are left untouched (Tier 2 fallback). This guarantees the sidebar's
+// single-highlight invariant: at most one window is active per session.
+//
+// Pure function (no I/O) so the derivation is unit-testable directly, mirroring
+// the parseWindows/parsePanes split.
+func applyActiveWindow(windows []tmux.WindowInfo, trackedWid string) {
+	if trackedWid == "" {
+		return // Tier 2: keep base-pointer flags.
+	}
+	matchIdx := -1
+	for i := range windows {
+		if windows[i].WindowID == trackedWid {
+			matchIdx = i
+			break
+		}
+	}
+	if matchIdx < 0 {
+		// Stale tracked @wid (window gone) — fall back to Tier 2 for this
+		// session rather than marking none active.
+		return
+	}
+	for i := range windows {
+		windows[i].IsActiveWindow = i == matchIdx
+	}
+}
+
 // paneMapEntry matches the JSON output of `fab pane map --json`.
 type paneMapEntry struct {
 	Session           string  `json:"session"`
@@ -309,8 +352,13 @@ func derefStr(s *string) string {
 	return *s
 }
 
-// FetchSessions fetches all sessions from the specified server, derives project roots from tmux, and enriches with fab state.
-func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error) {
+// FetchSessions fetches all sessions from the specified server, derives project
+// roots from tmux, enriches with fab state, and applies the two-tier
+// active-window derivation. The provider supplies the event-tracked active
+// window per group (Tier 1); when it is nil or has no entry for a session's
+// group, the base-session `#{window_active}` pointer parsed from tmux (Tier 2)
+// stands. A nil provider therefore degrades to exactly today's behavior.
+func FetchSessions(ctx context.Context, server string, provider ActiveWindowProvider) ([]ProjectSession, error) {
 	sessionInfos, err := tmux.ListSessions(ctx, server)
 	if err != nil {
 		return nil, err
@@ -408,6 +456,19 @@ func FetchSessions(ctx context.Context, server string) ([]ProjectSession, error)
 				if branch, ok := gitBranches[sd.windows[j].Panes[k].Cwd]; ok {
 					sd.windows[j].Panes[k].GitBranch = branch
 				}
+			}
+		}
+
+		// Two-tier active-window derivation. The user-facing session name IS
+		// the session-group key (parseSessions keeps the leader whose name ==
+		// #{session_group}, or an ungrouped session keyed by its own name —
+		// matching parseSessionGroups/parseActiveWindowsByGroup). Tier 1: if
+		// the provider reports a tracked @wid for this group, it overrides the
+		// base-pointer flag (authoritative). Tier 2: otherwise the parsed
+		// #{window_active} flag stands. A nil provider is a no-op (Tier 2).
+		if provider != nil {
+			if trackedWid, ok := provider.ActiveWindow(server, sd.info.Name); ok {
+				applyActiveWindow(sd.windows, trackedWid)
 			}
 		}
 

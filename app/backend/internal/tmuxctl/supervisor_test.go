@@ -81,7 +81,7 @@ func TestSupervisor_StartEnumerates(t *testing.T) {
 	}
 
 	reg := newTestOpenRegistry()
-	s := NewSupervisor(NoOpSink{})
+	s := NewSupervisor(nil)
 	s.watchDirOverride = dir
 	s.open = reg.openFn()
 
@@ -118,7 +118,7 @@ func TestSupervisor_SkipsLockFiles(t *testing.T) {
 	}
 
 	reg := newTestOpenRegistry()
-	s := NewSupervisor(NoOpSink{})
+	s := NewSupervisor(nil)
 	s.watchDirOverride = dir
 	s.open = reg.openFn()
 
@@ -196,7 +196,7 @@ func TestSupervisor_SkipsGoTestSockets(t *testing.T) {
 	}
 
 	reg := newTestOpenRegistry()
-	s := NewSupervisor(NoOpSink{})
+	s := NewSupervisor(nil)
 	s.watchDirOverride = dir
 	s.open = reg.openFn()
 
@@ -226,7 +226,7 @@ func TestSupervisor_CreateEvent(t *testing.T) {
 	dir := t.TempDir()
 
 	reg := newTestOpenRegistry()
-	s := NewSupervisor(NoOpSink{})
+	s := NewSupervisor(nil)
 	s.watchDirOverride = dir
 	s.open = reg.openFn()
 
@@ -271,7 +271,7 @@ func TestSupervisor_RemoveEvent(t *testing.T) {
 	}
 
 	reg := newTestOpenRegistry()
-	s := NewSupervisor(NoOpSink{})
+	s := NewSupervisor(nil)
 	s.watchDirOverride = dir
 	s.open = reg.openFn()
 
@@ -314,7 +314,7 @@ func TestSupervisor_WatchDirMissing(t *testing.T) {
 	target := filepath.Join(base, "tmux-1001")
 
 	reg := newTestOpenRegistry()
-	s := NewSupervisor(NoOpSink{})
+	s := NewSupervisor(nil)
 	s.watchDirOverride = target
 	s.open = reg.openFn()
 
@@ -352,7 +352,7 @@ func TestSupervisor_StopClosesAllClients(t *testing.T) {
 	}
 
 	reg := newTestOpenRegistry()
-	s := NewSupervisor(NoOpSink{})
+	s := NewSupervisor(nil)
 	s.watchDirOverride = dir
 	s.open = reg.openFn()
 

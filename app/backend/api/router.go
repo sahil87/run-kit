@@ -96,11 +96,16 @@ func serverFromRequest(r *http.Request) string {
 	return s
 }
 
-// prodSessionFetcher wraps the sessions package for production use.
-type prodSessionFetcher struct{}
+// prodSessionFetcher wraps the sessions package for production use. The
+// provider, when set (after the tmuxctl Supervisor is up — see
+// SetActiveWindowProvider), supplies the Tier-1 event-tracked active window. A
+// nil provider degrades FetchSessions to Tier-2-only (base-pointer) behavior.
+type prodSessionFetcher struct {
+	provider sessions.ActiveWindowProvider
+}
 
 func (p *prodSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
-	return sessions.FetchSessions(ctx, server)
+	return sessions.FetchSessions(ctx, server, p.provider)
 }
 
 // prodTmuxOps wraps the tmux package for production use.

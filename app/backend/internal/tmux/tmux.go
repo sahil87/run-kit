@@ -1178,22 +1178,51 @@ func IsGoTestServerName(name string) bool {
 	return false
 }
 
-// ListServers discovers available tmux servers by scanning the tmux socket directory
-// at /tmp/tmux-{uid}/. Probes each socket to confirm the server is alive.
-// Returns sorted server names.
-func ListServers(ctx context.Context) ([]string, error) {
-	uid := os.Getuid()
-	socketDir := fmt.Sprintf("/tmp/tmux-%d", uid)
+// socketDirPath returns the tmux socket directory for the current uid
+// (/tmp/tmux-{uid}). This is the single definition of the socket-dir
+// convention — both ScanSocketDir and the reaper consume it.
+func socketDirPath() string {
+	return fmt.Sprintf("/tmp/tmux-%d", os.Getuid())
+}
 
-	entries, err := os.ReadDir(socketDir)
+// LockSocketSuffix is the filename suffix tmux uses for its per-socket lock
+// files in the socket directory. Unlike the sockets themselves these are
+// REGULAR files, not unix sockets, so the socket-mode filter alone would never
+// surface them. The reaper sweeps stale `*.lock` files (PR #199 orphan class);
+// ListServers ignores them. Single source of truth for the suffix.
+const LockSocketSuffix = ".lock"
+
+// ScanSocketDir returns the raw candidate names in the tmux socket directory
+// (/tmp/tmux-{uid}) that the reaper may act on: every unix-socket file PLUS
+// every `*.lock` regular file. It does NOT probe for liveness, so dead sockets
+// ARE included. Returns nil (no error) when the directory does not exist or
+// cannot be read (no servers running). This is the single source for the
+// socket-dir candidate-collection convention, shared by ListServers (which
+// skips the `.lock` entries — see ListServers) and the reaper.
+func ScanSocketDir(ctx context.Context) ([]string, error) {
+	entries, err := os.ReadDir(socketDirPath())
 	if err != nil {
 		// Directory doesn't exist or can't be read — no servers running
 		return nil, nil
 	}
+	return filterSocketEntries(entries), nil
+}
 
+// filterSocketEntries keeps the reapable candidates from a socket-dir listing:
+// unix-socket files (live or dead tmux servers) AND `*.lock` regular files
+// (tmux's per-socket lock artifacts, which are NOT sockets and so must be
+// matched by name). Directories and all other regular files are dropped.
+// Extracted so the filter is testable against a temp directory without
+// depending on the hardcoded /tmp/tmux-{uid} path.
+func filterSocketEntries(entries []os.DirEntry) []string {
 	var candidates []string
 	for _, e := range entries {
 		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), LockSocketSuffix) {
+			// tmux lock files are regular files, not sockets — match by name.
+			candidates = append(candidates, e.Name())
 			continue
 		}
 		info, err := e.Info()
@@ -1205,6 +1234,28 @@ func ListServers(ctx context.Context) ([]string, error) {
 		}
 		candidates = append(candidates, e.Name())
 	}
+	return candidates
+}
+
+// probeServerAlive reports whether a tmux server is reachable on the named
+// socket by running `tmux -L <name> list-sessions` with a short timeout.
+// Used by ListServers (to keep only live servers) and the reaper (to
+// distinguish live orphan test servers from dead sockets).
+func probeServerAlive(ctx context.Context, name string) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(probeCtx, "tmux", "-L", name, "list-sessions")
+	return cmd.Run() == nil
+}
+
+// ListServers discovers available tmux servers by scanning the tmux socket directory
+// at /tmp/tmux-{uid}/. Probes each socket to confirm the server is alive.
+// Returns sorted server names.
+func ListServers(ctx context.Context) ([]string, error) {
+	candidates, err := ScanSocketDir(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// Probe each socket concurrently — bounded goroutine pool.
 	sem := make(chan struct{}, 10)
@@ -1213,15 +1264,18 @@ func ListServers(ctx context.Context) ([]string, error) {
 	var servers []string
 
 	for _, name := range candidates {
+		// `.lock` files are not servers — ScanSocketDir surfaces them for the
+		// reaper, but ListServers only enumerates real tmux servers, so skip
+		// them rather than spend a doomed probe subprocess on each.
+		if strings.HasSuffix(name, LockSocketSuffix) {
+			continue
+		}
 		wg.Add(1)
 		sem <- struct{}{} // acquire semaphore slot
 		go func(name string) {
 			defer wg.Done()
 			defer func() { <-sem }() // release
-			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			cmd := exec.CommandContext(probeCtx, "tmux", "-L", name, "list-sessions")
-			if cmd.Run() == nil {
+			if probeServerAlive(ctx, name) {
 				mu.Lock()
 				servers = append(servers, name)
 				mu.Unlock()

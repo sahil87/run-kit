@@ -40,6 +40,7 @@ func init() {
 	rootCmd.AddCommand(initConfCmd)
 	rootCmd.AddCommand(contextCmd)
 	rootCmd.AddCommand(riffCmd)
+	rootCmd.AddCommand(reaperCmd)
 	rootCmd.AddCommand(newShellInitCmd())
 }
 

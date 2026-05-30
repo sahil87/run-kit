@@ -57,8 +57,14 @@ func parseTestSocketPID(name string) (int, bool) {
 
 // testPIDAlive mirrors cmd/rk/serve_sweep.go:pidAlive — biased toward "alive" on
 // any non-ESRCH ambiguity so the pre-sweep leaks rather than reaps a socket
-// whose owner may still be running.
+// whose owner may still be running. A non-positive pid is treated as dead: a
+// real socket embeds os.Getpid() (≥ 1), and syscall.Kill(0, 0) / negative pids
+// target a process group (not a single process) and would otherwise be misread
+// as a live owner.
 func testPIDAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
 	err := syscall.Kill(pid, 0)
 	if err == nil {
 		return true

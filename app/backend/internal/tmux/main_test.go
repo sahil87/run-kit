@@ -57,7 +57,13 @@ func parseTestSocketPID(name string) (int, bool) {
 // any non-ESRCH ambiguity (EPERM, etc.) so the pre-sweep leaks rather than
 // reaps a socket whose owner may still be running. Duplicated here (small,
 // test-only) rather than exporting test-scoped logic from production code.
+// A non-positive pid is treated as dead: a real socket embeds os.Getpid()
+// (≥ 1), and syscall.Kill(0, 0) / negative pids target a process group (not a
+// single process) and would otherwise be misread as a live owner.
 func testPIDAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
 	err := syscall.Kill(pid, 0)
 	if err == nil {
 		return true

@@ -20,6 +20,12 @@ import (
 //   - EPERM → process exists but owned by another user → alive (spare)
 //   - other → ambiguous → alive (spare)
 //
+// A non-positive pid is treated as dead (reap): a real owner is always a
+// concrete os.Getpid() (≥ 1), so 0 or negative is a malformed/invalid stamp.
+// This guard is also necessary for correctness — syscall.Kill(0, 0) and
+// negative pids target a process group, not a single process, and would
+// otherwise return nil and be misread as a live owner that is spared forever.
+//
 // This deliberately differs from daemon_portowner.go:processAlive (which treats
 // EPERM as dead): that predicate guards a forceful SIGTERM/SIGKILL where erring
 // toward "dead" is safe, whereas here erring toward "alive" avoids reaping a
@@ -27,6 +33,9 @@ import (
 // /tmp/tmux-<uid>/) means EPERM is not an expected owner state; sparing it is
 // the benign-leak direction (see spec Requirement: pidAlive ownership semantics).
 func pidAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
 	err := syscall.Kill(pid, 0)
 	if err == nil {
 		return true

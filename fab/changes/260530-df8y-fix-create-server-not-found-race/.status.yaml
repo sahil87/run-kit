@@ -1,0 +1,51 @@
+id: df8y
+name: 260530-df8y-fix-create-server-not-found-race
+created: 2026-05-30T09:49:25Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 7
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 90.5
+        reversibility: 74.0
+        competence: 84.5
+        disambiguation: 83.0
+stage_metrics:
+    intake: {started_at: "2026-05-30T09:49:25Z", driver: fab-new, iterations: 1, completed_at: "2026-05-30T09:59:41Z"}
+    spec: {started_at: "2026-05-30T09:59:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-30T10:30:09Z"}
+    apply: {started_at: "2026-05-30T10:30:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-30T10:30:09Z"}
+    review: {started_at: "2026-05-30T10:30:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-30T10:33:20Z"}
+    hydrate: {started_at: "2026-05-30T10:33:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-30T10:36:27Z"}
+    ship: {started_at: "2026-05-30T10:36:27Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-05-30T10:36:27Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-05-30T10:36:27Z

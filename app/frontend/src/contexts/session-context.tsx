@@ -34,6 +34,17 @@ export type SessionContextType = {
   currentServer: string | null;
   servers: ServerInfo[];
   refreshServers: () => void;
+  /** `true` once the first `fetchServers()` settles (success, empty list, or
+   *  the silent error path). Never reverts to `false`. The route guard uses
+   *  this — not `servers.length > 0` — to tell "list still loading" apart from
+   *  "server genuinely absent". */
+  serversLoaded: boolean;
+  /** Name of a server the user just created and navigated to, not yet
+   *  reflected in `servers` (`null` when none is provisioning). */
+  pendingServer: string | null;
+  /** Set the pending server (pass a name to mark provisioning, `null` to clear
+   *  — used by the appearance-based clear and the create-failure rollback). */
+  markServerPending: (name: string | null) => void;
   /** Mark a server as "attached" so the provider opens its EventSource. Idempotent.
    *  The current server is auto-attached; this is for non-current servers
    *  (sidebar groups expanded by the user). */
@@ -92,6 +103,13 @@ export function SessionProvider({ children }: SessionProviderProps) {
     () => new Map(),
   );
   const [servers, setServers] = useState<ServerInfo[]>([]);
+  // `serversLoaded` flips `true` once the first `fetchServers()` settles (incl.
+  // empty list and the silent error path) and never reverts — the root-cause
+  // fix for the route guard mistaking a stale-but-non-empty list for "loaded".
+  const [serversLoaded, setServersLoaded] = useState(false);
+  // `pendingServer` marks a just-created server the user navigated to before
+  // it appears in `servers`; cleared on appearance or on create failure.
+  const [pendingServer, setPendingServer] = useState<string | null>(null);
   // Lazy-attach set: which servers should have an EventSource open. The
   // current server is automatically included; non-current servers must opt
   // in (typically when their sidebar group is expanded). See the
@@ -108,6 +126,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
       next.add(name);
       return next;
     });
+  }, []);
+
+  const markServerPending = useCallback((name: string | null) => {
+    setPendingServer(name);
   }, []);
 
   // Board-changed event subscribers. Stored in a ref so the SSE listener
@@ -160,7 +182,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
       const data = await listServers();
       setServers(Array.isArray(data) ? data : []);
     } catch {
-      // ignore
+      // ignore — keep the catch silent (preserves prior behavior)
+    } finally {
+      // Flag the first fetch as settled regardless of outcome (success, empty
+      // list, or reject). Idempotent setter, so it never reverts to false.
+      setServersLoaded(true);
     }
   }, []);
 
@@ -370,6 +396,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
       currentServer,
       servers,
       refreshServers: fetchServers,
+      serversLoaded,
+      pendingServer,
+      markServerPending,
       attachServer,
       subscribeBoardChange,
     }),
@@ -381,6 +410,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
       currentServer,
       servers,
       fetchServers,
+      serversLoaded,
+      pendingServer,
+      markServerPending,
       attachServer,
       subscribeBoardChange,
     ],
@@ -443,6 +475,9 @@ export function StandaloneSessionContextProvider({
     currentServer: value.currentServer ?? null,
     servers: value.servers ?? [],
     refreshServers: value.refreshServers ?? (() => {}),
+    serversLoaded: value.serversLoaded ?? false,
+    pendingServer: value.pendingServer ?? null,
+    markServerPending: value.markServerPending ?? (() => {}),
     attachServer: value.attachServer ?? (() => {}),
     subscribeBoardChange: value.subscribeBoardChange ?? (() => () => {}),
   };

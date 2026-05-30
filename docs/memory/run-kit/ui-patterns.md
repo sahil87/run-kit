@@ -17,6 +17,24 @@ Server not found: if the `$server` segment doesn't match any known tmux server, 
 
 Kill/not-found redirects go to `/$server` (server dashboard), not `/` (server list). The user stays in their server context.
 
+### Server Route Guard (loading / provisioning / not-found)
+
+The `$server` route guard is **three-way**, decided by the pure `resolveServerGuard({ server, servers, serversLoaded, pendingServer })` helper exported from `app.tsx` (the single unit-tested source of truth; `AppShell` calls it and renders on its `"render" | "waiting" | "notfound"` outcome — see `app/frontend/src/server-guard.test.tsx`). When the `server` param is not present in `servers`:
+
+1. **`!serversLoaded`** → `"render"` (fall through to the normal loading/dashboard path — the guard MUST NOT condemn a server before the first fetch settles).
+2. **`serversLoaded && server === pendingServer`** → `"waiting"` → renders `ServerWaiting` (the just-created server is still provisioning).
+3. **`serversLoaded && server !== pendingServer`** → `"notfound"` → renders `ServerNotFound` immediately (a typo'd or deleted URL fails fast — no artificial delay).
+
+The guard gates on the explicit `serversLoaded` boolean, **not** the former `servers.length > 0` proxy (`260530-df8y`). That proxy conflated "the list has loaded" with "the list is non-empty", so a user who already had ≥1 server tripped `ServerNotFound` instantly for a just-created server before any post-create refresh landed — the verified root cause of the transient flash. `serversLoaded` lives in `SessionContext`, flips `false → true` after the **first** `fetchServers()` settles (success, empty list, or the silent reject path — set in a `finally` block in `session-context.tsx`), and never reverts.
+
+`ServerWaiting` (`app.tsx`, sibling to `ServerNotFound`) renders a brief "Creating… / waiting for `<name>`" provisioning state, reusing `ServerNotFound`'s centered full-screen idiom (`flex flex-col items-center justify-center h-screen gap-4 bg-bg-primary`) and `LogoSpinner` (the same spinner `ServerPanel` uses for its refreshing state — see § Sidebar / ServerPanel). It takes the server name as a prop; no new layout primitive, no timer.
+
+**`pendingServer` marker** (`SessionContext`): `pendingServer: string | null` (init `null`) plus `markServerPending(name | null)` mark a just-created server the user navigated to before it appears in `servers`. It is cleared (set `null`) on **either** appearance (a timer-free, idempotent `useEffect` keyed on `servers` + `pendingServer`: when the refreshed `servers` includes `pendingServer`, clear it — this auto-swaps `ServerWaiting` → the live view) **or** create failure. Clearing on appearance is what prevents a *later* genuine deletion of that same server from showing `ServerWaiting` forever instead of `ServerNotFound`.
+
+**Create flow wiring** (`260530-df8y`): `handleCreateServer` calls `executeCreateServer(trimmed)`, then `markServerPending(trimmed)` and an immediate `refreshServers()`, then `navigate(...)`, then closes the dialog and clears the input (the `^[a-zA-Z0-9_-]+$` validation guard runs first — an invalid name produces no side effect). The **authoritative** post-success refresh and the pending-clear-on-failure ride on `useOptimisticAction`'s `onAlwaysSettled: () => refreshServers()` and `onAlwaysRollback: () => markServerPending(null)` (`app/frontend/src/hooks/use-optimistic-action.ts`) — **because `AppShell` unmounts on navigate**, the mount-guarded `onSettled`/`onRollback` would not fire. This is a reusable pattern: for an optimistic action whose owning component unmounts as part of the action (e.g. navigate-on-create), reconcile at the context level via the `onAlways*` hooks, not the mount-guarded ones.
+
+**Server-list fetch lifecycle**: `servers` is a **one-time fetch** (`listServers()` on `SessionProvider` mount via an empty-dep `useEffect`) plus explicit `refreshServers()` (alias of `fetchServers`); it is **NOT** part of the per-server SSE stream, which carries sessions only. `serversLoaded` is the settle signal for that first fetch. There is **no bounded-fallback timer** in v1 (`260530-df8y`): the backend `POST /api/servers` → `CreateSession` is synchronous, so `ServerWaiting` simply persists until the refreshed list contains the server — a `setTimeout`/polling fallback was intentionally omitted to respect the no-client-polling rule (a polling loop would be an anti-pattern; if real latency ever appears it MAY be a single `setTimeout` guard, never a poll).
+
 ### URL as Resumable Bookmark
 
 **tmux is the sole source of truth for "current window" per server.** The URL is a **resumable bookmark** — consulted on initial mount (and reload), then treated as derived state that follows tmux. Two contracts:

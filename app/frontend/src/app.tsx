@@ -20,8 +20,9 @@ import { Dialog } from "@/components/dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
+import { LogoSpinner } from "@/components/logo-spinner";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType, type ServerInfo } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -93,8 +94,50 @@ export function ServerShell() {
   return <AppShell />;
 }
 
+/** Outcome of the three-way server route guard.
+ *  - `"render"`   → server is present (or list not yet settled): fall through
+ *                   to the normal render path; do NOT short-circuit.
+ *  - `"waiting"`  → the server the user just created is still provisioning.
+ *  - `"notfound"` → the server is genuinely absent (typo'd or deleted URL). */
+export type ServerGuardOutcome = "render" | "waiting" | "notfound";
+
+/** Pure three-way route-guard decision, extracted so it can be unit-tested as
+ *  the single source of truth. Gated on `serversLoaded` (NOT `servers.length > 0`,
+ *  which conflated "loaded" with "non-empty" and misfired for a just-created
+ *  server when others already existed). */
+export function resolveServerGuard(args: {
+  server: string;
+  servers: ServerInfo[];
+  serversLoaded: boolean;
+  pendingServer: string | null;
+}): ServerGuardOutcome {
+  const { server, servers, serversLoaded, pendingServer } = args;
+  if (servers.some((s) => s.name === server)) return "render";
+  // Server not in the list:
+  if (!serversLoaded) return "render"; // list not settled — never condemn yet
+  if (server === pendingServer) return "waiting"; // the one we just created
+  return "notfound"; // genuinely absent
+}
+
+/** Server provisioning UI — shown briefly after the user creates a server and
+ *  navigates to it, while it has not yet appeared in the refreshed server list.
+ *  Swaps to the normal server view automatically once the list includes it
+ *  (the pending marker is cleared on appearance — see the clear-on-appearance
+ *  effect). No timer/polling: the waiting state persists until the refresh lands. */
+export function ServerWaiting({ serverName }: { serverName: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg-primary">
+      <LogoSpinner size={32} />
+      <h1 className="text-xl text-text-primary">Creating…</h1>
+      <p className="text-text-secondary">
+        waiting for <strong>{serverName}</strong>
+      </p>
+    </div>
+  );
+}
+
 /** Server not found UI — shown when server param doesn't match any known server. */
-function ServerNotFound({ serverName }: { serverName: string }) {
+export function ServerNotFound({ serverName }: { serverName: string }) {
   return (
     <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg-primary">
       <h1 className="text-xl text-text-primary">Server not found</h1>
@@ -124,6 +167,9 @@ function AppShell() {
   const isConnected = ctx.isConnectedByServer.get(server) ?? false;
   const servers = ctx.servers;
   const refreshServers = ctx.refreshServers;
+  const serversLoaded = ctx.serversLoaded;
+  const pendingServer = ctx.pendingServer;
+  const markServerPending = ctx.markServerPending;
   const sessions = useMergedSessions(rawSessions, server);
   const { sidebarOpen, sidebarWidth, fixedWidth } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth } = useChromeDispatch();
@@ -194,6 +240,17 @@ function AppShell() {
       setWindowsForSession(server, s.name, s.windows);
     }
   }, [server, rawSessions, setWindowsForSession]);
+
+  // Clear the pending marker once the just-created server appears in the
+  // refreshed list — this swaps ServerWaiting → the live view automatically.
+  // Idempotent and timer-free; clearing on appearance (not a timeout) also
+  // ensures a *later* deletion of that same server correctly shows
+  // ServerNotFound rather than spinning on a stale pending marker.
+  useEffect(() => {
+    if (pendingServer && servers.some((s) => s.name === pendingServer)) {
+      markServerPending(null);
+    }
+  }, [servers, pendingServer, markServerPending]);
 
   // Palette split/close actions (button loading not visible since palette closes, but we need error toasts)
   const { execute: executeSplit } = useOptimisticAction<[string, string, boolean, string | undefined]>({
@@ -601,16 +658,29 @@ function AppShell() {
     onSettled: () => {
       ghostServerIdRef.current = null;
     },
+    // Authoritative post-success refresh. Runs even after AppShell unmounts on
+    // navigate (mount-guarded onSettled would not fire), so the server list
+    // reflects the just-created server once tmux finishes.
+    onAlwaysSettled: () => refreshServers(),
+    // Clear the dangling pending marker on failure, also unmount-safe — without
+    // this a failed create would leave ServerWaiting spinning forever.
+    onAlwaysRollback: () => markServerPending(null),
   });
 
   const handleCreateServer = useCallback(() => {
     const trimmed = createServerName.trim();
     if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
     executeCreateServer(trimmed);
+    // Mark the server provisioning and kick off an immediate refresh so the
+    // three-way guard shows ServerWaiting (not ServerNotFound) the instant we
+    // navigate. The authoritative refresh on create success rides on
+    // onAlwaysSettled (AppShell unmounts on navigate).
+    markServerPending(trimmed);
+    refreshServers();
     navigate({ to: "/$server", params: { server: trimmed } });
     setShowCreateServerDialog(false);
     setCreateServerName("");
-  }, [createServerName, navigate, executeCreateServer]);
+  }, [createServerName, navigate, executeCreateServer, markServerPending, refreshServers]);
 
   const { execute: executeKillServer } = useOptimisticAction<[string]>({
     action: (name) => killServerApi(name),
@@ -1015,10 +1085,13 @@ function AppShell() {
   const displayName = currentWindow?.name ?? windowParam ?? "";
   const displaySession = sessionName ?? "";
 
-  // Server not found check — once server list loads, verify server exists
-  if (servers.length > 0 && !servers.some((s) => s.name === server)) {
-    return <ServerNotFound serverName={server} />;
-  }
+  // Three-way guard (see `resolveServerGuard`): "render" falls through to the
+  // normal path (server present, OR list not yet settled — never condemn early);
+  // "waiting" shows ServerWaiting for the server we just created; "notfound"
+  // shows ServerNotFound immediately for a typo'd/deleted URL.
+  const serverGuard = resolveServerGuard({ server, servers, serversLoaded, pendingServer });
+  if (serverGuard === "waiting") return <ServerWaiting serverName={server} />;
+  if (serverGuard === "notfound") return <ServerNotFound serverName={server} />;
 
   // Sidebar element — shared between the desktop grid placement and the
   // mobile overlay (the Shell component renders one or the other).

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { SessionProvider, useSessionContext } from "./session-context";
+import {
+  SessionProvider,
+  StandaloneSessionContextProvider,
+  useSessionContext,
+} from "./session-context";
 import { ChromeProvider } from "./chrome-context";
 
 vi.mock("@/api/client", () => ({
@@ -194,5 +198,99 @@ describe("SessionProvider — currentServer follows route", () => {
     setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
     expect(result.current.currentServer).toBe(null);
+  });
+});
+
+describe("SessionProvider — provisioning state (serversLoaded / pendingServer)", () => {
+  it("flips serversLoaded false → true after the first fetch resolves with servers", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+
+    // Before the first fetch settles the flag is false.
+    expect(result.current.serversLoaded).toBe(false);
+
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.serversLoaded).toBe(true);
+    expect(result.current.servers.map((s) => s.name)).toEqual(["runkit"]);
+  });
+
+  it("sets serversLoaded true when the first fetch resolves empty", async () => {
+    vi.mocked(listServers).mockResolvedValue([]);
+    setMockMatches([]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+
+    expect(result.current.serversLoaded).toBe(false);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.serversLoaded).toBe(true);
+    expect(result.current.servers).toEqual([]);
+  });
+
+  it("sets serversLoaded true even when the first fetch rejects (silent catch)", async () => {
+    vi.mocked(listServers).mockRejectedValue(new Error("network down"));
+    setMockMatches([]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+
+    expect(result.current.serversLoaded).toBe(false);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // The fetch settled (rejected) — the guard must not hang in a loading state.
+    expect(result.current.serversLoaded).toBe(true);
+    expect(result.current.servers).toEqual([]);
+  });
+
+  it("never reverts serversLoaded to false on a subsequent refresh", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(result.current.serversLoaded).toBe(true);
+
+    await act(async () => {
+      result.current.refreshServers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.serversLoaded).toBe(true);
+  });
+
+  it("markServerPending sets and clears pendingServer (observable via context)", async () => {
+    setMockMatches([]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.pendingServer).toBe(null);
+
+    act(() => { result.current.markServerPending("test2"); });
+    expect(result.current.pendingServer).toBe("test2");
+
+    act(() => { result.current.markServerPending(null); });
+    expect(result.current.pendingServer).toBe(null);
+  });
+});
+
+describe("StandaloneSessionContextProvider — provisioning fallbacks", () => {
+  function StandaloneWrapper({ children }: { children: ReactNode }) {
+    // Partial value intentionally omits serversLoaded / pendingServer /
+    // markServerPending to exercise the safe defaults.
+    return (
+      <StandaloneSessionContextProvider value={{ servers: [] }}>
+        {children}
+      </StandaloneSessionContextProvider>
+    );
+  }
+
+  it("supplies safe defaults and a no-op markServerPending when omitted", () => {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: StandaloneWrapper });
+
+    expect(result.current.serversLoaded).toBe(false);
+    expect(result.current.pendingServer).toBe(null);
+    // Calling the fallback must not throw and must leave pendingServer null
+    // (no backing state in the standalone provider).
+    expect(() => act(() => { result.current.markServerPending("anything"); })).not.toThrow();
+    expect(result.current.pendingServer).toBe(null);
   });
 });

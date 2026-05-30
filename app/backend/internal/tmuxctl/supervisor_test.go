@@ -163,30 +163,31 @@ func TestSupervisor_SkipsLockFiles(t *testing.T) {
 	}
 }
 
-// Regression: Go-test scaffolding tmux sockets (rk-test-*, rk-relay-test-*,
-// rk-verify-*, rk-tmuxctl-test, rk-daemon-test) accumulate in $TMUX_TMPDIR
-// after test runs. Without this filter, every rk startup would call
-// resolveBootstrap → createAnchor → `tmux new-session -d -s _rk-ctl` against
-// each orphan socket, resurrecting the tmux server and pinning it open via
-// the control-mode attach. Playwright e2e sockets (rk-e2e-*) MUST still be
-// opened — those tests rely on live tmuxctl events.
+// Regression: test-scaffolding tmux sockets (the unified rk-test-* umbrella,
+// which now includes Playwright e2e servers named rk-test-e2e-*) accumulate in
+// $TMUX_TMPDIR after test runs. Without this filter, every rk startup would
+// call resolveBootstrap → createAnchor → `tmux new-session -d -s _rk-ctl`
+// against each orphan socket, resurrecting the tmux server and pinning it open
+// via the control-mode attach. The filter is a correctness guard (no
+// resurrection), so under unification ALL rk-test-* sockets — e2e included —
+// are skipped.
 func TestSupervisor_SkipsGoTestSockets(t *testing.T) {
 	resetLoggedUnknowns()
 	dir := t.TempDir()
 
 	cases := map[string]bool{
-		// Skipped (Go test scaffolding)
-		"rk-test-12345-67890":         false,
-		"rk-relay-test-12345-67890":   false,
-		"rk-verify-1234":              false,
-		"rk-tmuxctl-test":             false,
-		"rk-daemon-test":              false,
-		// Opened
-		"default":                     true,
-		"Some":                        true,
-		"rk-e2e":                      true,
-		"rk-e2e-coupling-654321":      true,
-		"rk-e2e-multi-654321":         true,
+		// Skipped (unified rk-test-* umbrella, all roles including e2e)
+		"rk-test-unit-12345-67890":          false,
+		"rk-test-relay-12345-67890":         false,
+		"rk-test-tmuxctl-12345-67890":       false,
+		"rk-test-daemon-12345-67890":        false,
+		"rk-test-e2e":                       false,
+		"rk-test-e2e-coupling-12345-67890":  false,
+		"rk-test-e2e-multi-12345-67890":     false,
+		// Opened (non-test servers)
+		"default":   true,
+		"Some":      true,
+		"rk-daemon": true,
 	}
 	for name := range cases {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {

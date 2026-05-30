@@ -1,0 +1,51 @@
+id: cf3g
+name: 260530-cf3g-unify-test-socket-reaping
+created: 2026-05-30T03:38:15Z
+created_by: sahil87
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 19
+    acceptance_count: 33
+    acceptance_completed: 33
+confidence:
+    certain: 9
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 3.2
+    fuzzy: true
+    dimensions:
+        signal: 87.3
+        reversibility: 63.0
+        competence: 79.2
+        disambiguation: 75.0
+stage_metrics:
+    intake: {started_at: "2026-05-30T03:38:15Z", driver: fab-new, iterations: 1, completed_at: "2026-05-30T04:09:02Z"}
+    spec: {started_at: "2026-05-30T04:09:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-30T04:11:28Z"}
+    apply: {started_at: "2026-05-30T05:18:55Z", driver: fab-fff, iterations: 2, completed_at: "2026-05-30T05:20:49Z"}
+    review: {started_at: "2026-05-30T05:20:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-30T05:22:51Z"}
+    hydrate: {started_at: "2026-05-30T05:22:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-30T05:28:32Z"}
+    ship: {started_at: "2026-05-30T05:28:32Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-05-30T05:28:32Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-05-30T05:28:32Z

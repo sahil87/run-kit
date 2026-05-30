@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
+const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-test-${Date.now()}`;
 
 test.describe("API Integration", () => {
@@ -31,7 +31,7 @@ test.describe("API Integration", () => {
     page,
   }) => {
     // Unique session name per run avoids collisions with other tests or
-    // leftover state on the shared rk-e2e tmux server.
+    // leftover state on the shared rk-test-e2e tmux server.
     const sessionName = `e2e-api-victim-${Date.now()}`;
     execSync(
       `tmux -L ${TMUX_SERVER} new-session -d -s ${sessionName} -x 80 -y 24`,

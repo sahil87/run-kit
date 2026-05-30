@@ -15,7 +15,7 @@ only its targeted window's PTY output.
 ## Shared setup
 
 - `beforeAll` creates an `e2e-board-same-<timestamp>` tmux session on the
-  `rk-e2e` server with two named windows (`win-a`, `win-b`). Each window's
+  `rk-test-e2e` server with two named windows (`win-a`, `win-b`). Each window's
   initial command prints a unique marker (`PANE_ALPHA_OK`, `PANE_BRAVO_OK`)
   then sleeps so the marker stays available for the relay to capture.
 - A unique board name (`mp<digits>`) is used per run so reruns don't collide.

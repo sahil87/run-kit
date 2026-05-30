@@ -5,7 +5,7 @@ be killed through the sidebar's confirm-dialog flow end-to-end.
 
 ## Shared setup
 
-- Each run picks the tmux server named by `E2E_TMUX_SERVER` (default `rk-e2e`).
+- Each run picks the tmux server named by `E2E_TMUX_SERVER` (default `rk-test-e2e`).
 - `beforeAll` creates a long-lived session `e2e-test-<timestamp>` so the
   dashboard never renders the empty state mid-test; `afterAll` kills it.
 

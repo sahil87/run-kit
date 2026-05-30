@@ -13,7 +13,7 @@ backend and frontend agree on.
 ## Shared setup
 
 - `beforeAll` creates an `e2e-board-pin-<timestamp>` tmux session on
-  `rk-e2e` with two named windows (`win-a`, `win-b`); `afterAll` kills it.
+  `rk-test-e2e` with two named windows (`win-a`, `win-b`); `afterAll` kills it.
 - A unique board name (`flow<digits>`) is used per run so reruns don't
   collide on the persistent tmux server.
 

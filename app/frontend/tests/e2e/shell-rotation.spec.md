@@ -14,7 +14,7 @@ context).
 ## Shared setup
 
 - `beforeAll` creates an `e2e-shell-rotation-<timestamp>` tmux session
-  on the `rk-e2e` server with two named windows (`win-a`, `win-b`). Each
+  on the `rk-test-e2e` server with two named windows (`win-a`, `win-b`). Each
   window prints a unique ready-marker (`PANE_ALPHA_RDY`, `PANE_BRAVO_RDY`)
   and then runs `cat` so STDIN piped via the BottomBar relay accumulates
   in the pane's view.

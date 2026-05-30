@@ -1,10 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 
-const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
+const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Second tmux server gives us a non-current tile to click during the
-// switch-server portion of the headline flow.
-const TMUX_SERVER_B = `rk-e2e-coupling-${Date.now().toString().slice(-6)}`;
+// switch-server portion of the headline flow. Named under the unified
+// rk-test-e2e-* umbrella with the Playwright process.pid as the second-to-last
+// hyphen field so the automatic post-sweep can parse it; the trailing suffix
+// is a single hyphen-free token to keep the PID position unambiguous.
+const TMUX_SERVER_B = `rk-test-e2e-coupling-${process.pid}-${Date.now().toString().slice(-6)}`;
 const SESSION_A = `e2e-coupling-a-${Date.now()}`;
 const SESSION_B = `e2e-coupling-b-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1024, height: 768 };

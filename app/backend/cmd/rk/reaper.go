@@ -8,33 +8,58 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var reaperDryRun bool
+var (
+	reaperPrefix string
+	reaperYes    bool
+	reaperForce  bool
+	reaperDryRun bool
+)
 
 var reaperCmd = &cobra.Command{
 	Use:   "reaper",
-	Short: "Reap leaked test tmux servers and stale sockets",
+	Short: "Reap leaked test tmux servers and stale sockets by prefix",
 	Long: `Reaper is an operator-invoked janitor of last resort. It scans the tmux
-socket directory (/tmp/tmux-{uid}/) and reaps leaked Go-test scaffolding:
+socket directory (/tmp/tmux-{uid}/) and reaps EVERY artifact whose name starts
+with the prefix — brute-force-by-prefix, with no liveness protection:
 
-  - live orphan test servers   → killed (tmux kill-server)
-  - dead test sockets          → removed (the daemon already exited)
-  - stale *.lock sockets        → removed
+  - live matched servers   → killed (tmux kill-server)
+  - matched dead sockets   → removed (the daemon already exited)
+  - matched *.lock files   → removed
 
-Live non-test servers, rk-e2e-* sockets, and the _rk-ctl control anchor are
-never touched. There is no PID-liveness gate — matched candidates reap
-unconditionally, so the operator running this asserts nothing live needs them.
+Bare "rk reaper" is equivalent to "rk reaper --prefix rk-test", matching every
+rk-test* server, socket, and lock file. Pass --prefix to target a different
+family (e.g. --prefix proj reaps proj*).
 
-Use --dry-run to preview the candidates and their classified actions without
-killing or removing anything.`,
+There is NO PID-liveness gate: a matched candidate reaps unconditionally, so
+the operator running this asserts that nothing live needs the matched sockets.
+DO NOT run rk reaper (bare or --prefix) while tests are running — it will kill
+their live tmux servers. The automatic post-sweep in TestMain protects
+concurrent test processes; this manual tool relies on the human.
+
+Dry-run is the DEFAULT. Bare "rk reaper" (and --prefix) print the match list
+with each entry's classified action (kill/remove) and touch NOTHING. Pass --yes
+(or --force) to actually reap.
+
+The _rk-ctl control anchor and the live rk-daemon production server are skipped
+UNCONDITIONALLY, even under --prefix and even with --yes/--force. An empty
+prefix or one of 3 characters or fewer (e.g. "rk-") is refused unless --force,
+since it would match nearly everything (runkit, production).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
-		result, reapErr := tmux.ReapTestServers(ctx, reaperDryRun)
+		// Dry-run is the default. Acting requires an explicit --yes or --force.
+		// --dry-run is retained as an explicit alias for the default preview and
+		// always wins (forces preview even if --yes/--force were also passed).
+		// --force is the ONLY flag that bypasses the dangerous-prefix guard;
+		// --yes acts but a short/mistyped prefix is still refused under it.
+		act := (reaperYes || reaperForce) && !reaperDryRun
 
-		if reaperDryRun {
-			renderDryRun(result.DryRunPlan)
-		} else {
+		result, reapErr := tmux.ReapTestServers(ctx, reaperPrefix, act, reaperForce)
+
+		if act {
 			renderReapSummary(result)
+		} else {
+			renderDryRun(result.DryRunPlan)
 		}
 
 		// A partial-failure aggregate error is surfaced after the summary so
@@ -44,7 +69,10 @@ killing or removing anything.`,
 }
 
 func init() {
-	reaperCmd.Flags().BoolVar(&reaperDryRun, "dry-run", false, "preview candidates without killing or removing anything")
+	reaperCmd.Flags().StringVar(&reaperPrefix, "prefix", "rk-test", "socket-name prefix to match (bare reaper ≡ --prefix rk-test)")
+	reaperCmd.Flags().BoolVar(&reaperYes, "yes", false, "actually reap matched servers/sockets (default is dry-run preview)")
+	reaperCmd.Flags().BoolVar(&reaperForce, "force", false, "act, and bypass the dangerous-prefix guard (empty or ≤3-char prefix)")
+	reaperCmd.Flags().BoolVar(&reaperDryRun, "dry-run", false, "explicit alias for the default preview-only behavior")
 }
 
 // renderDryRun lists each candidate annotated with its would-be action and
@@ -54,7 +82,7 @@ func renderDryRun(plan []tmux.ReapPlanEntry) {
 		fmt.Println("Dry run: nothing to reap.")
 		return
 	}
-	fmt.Printf("Dry run: %d candidate(s) would be reaped (nothing was touched):\n", len(plan))
+	fmt.Printf("Dry run: %d candidate(s) would be reaped (nothing was touched). Pass --yes to act:\n", len(plan))
 	for _, e := range plan {
 		fmt.Printf("  %-6s %s\n", reapActionLabel(e.Action), e.Name)
 	}
@@ -70,7 +98,7 @@ func renderReapSummary(result tmux.ReapResult) {
 	}
 	fmt.Printf("Reaped %d entry(ies):\n", total)
 	if len(result.Killed) > 0 {
-		fmt.Printf("  killed %d live test server(s):\n", len(result.Killed))
+		fmt.Printf("  killed %d live server(s):\n", len(result.Killed))
 		for _, name := range result.Killed {
 			fmt.Printf("    %s\n", name)
 		}

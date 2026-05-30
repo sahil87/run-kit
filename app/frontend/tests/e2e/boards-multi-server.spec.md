@@ -5,13 +5,14 @@ core cross-server requirement from the spec.
 
 ## Shared setup
 
-- `beforeAll` creates a session on the primary tmux server (`rk-e2e`) plus a
-  second tmux server (`rk-e2e-multi-<digits>`) with its own session, each
-  with one named window (`srv-a-win`, `srv-b-win`).
+- `beforeAll` creates a session on the primary tmux server (`rk-test-e2e`)
+  plus a second tmux server (`rk-test-e2e-multi-<pid>-<suffix>`, where `<pid>`
+  is the Playwright `process.pid` so the automatic post-sweep can parse it)
+  with its own session, each with one named window (`srv-a-win`, `srv-b-win`).
 - A module-scoped `pinnedEntries` array tracks every `(server, windowId)`
   pinned during the test.
 - `afterAll` first POSTs `/api/boards/<name>/unpin` for each tracked entry
-  (best-effort) so the persistent `rk-e2e` server doesn't carry stale
+  (best-effort) so the persistent `rk-test-e2e` server doesn't carry stale
   `@rk_board` entries into later runs, then kills the primary session and
   the secondary tmux server entirely.
 

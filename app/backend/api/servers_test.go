@@ -136,24 +136,24 @@ func TestHandleServersList_MultipleWithOneFailure(t *testing.T) {
 	}
 }
 
-// Regression: Go-test scaffolding tmux sockets (rk-test-*, rk-relay-test-*,
-// etc.) leak readily and accumulate in /tmp/tmux-{uid}/. The user-facing
-// /api/servers handler hides them so the frontend doesn't open SSE streams
-// to dozens of orphans. Playwright e2e servers (rk-e2e-*) are NOT filtered.
-func TestHandleServersList_HidesGoTestServers(t *testing.T) {
+// The test-socket hide filter was DELETED: /api/servers now surfaces EVERY
+// tmux server, including leaked rk-test-* orphans (and the unified
+// rk-test-e2e-* Playwright servers). `rk reaper` is the sole mechanism that
+// keeps this list clean. The former hide-assertion is inverted here — all
+// servers must be returned, sorted alphabetically.
+func TestHandleServersList_ReturnsAllServersIncludingTestSockets(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mock := &serversTmuxMock{
 		servers: []string{
 			"default",
 			"Some",
-			"rk-test-12345-67890",                    // hidden
-			"rk-relay-test-12345-67890",              // hidden
-			"rk-verify-1234",                         // hidden
-			"rk-tmuxctl-test",                        // hidden
-			"rk-daemon-test",                         // hidden
-			"rk-e2e",                                 // shown (persistent harness)
-			"rk-e2e-coupling-654321",                 // shown (Playwright test)
-			"rk-e2e-multi-654321",                    // shown (Playwright test)
+			"rk-test-unit-12345-67890",         // shown (was hidden)
+			"rk-test-relay-12345-67890",        // shown (was hidden)
+			"rk-test-tmuxctl-12345-67890",      // shown (was hidden)
+			"rk-test-daemon-12345-67890",       // shown (was hidden)
+			"rk-test-e2e",                      // shown (persistent harness)
+			"rk-test-e2e-coupling-12345-67890", // shown (Playwright secondary)
+			"rk-test-e2e-multi-12345-67890",    // shown (Playwright secondary)
 		},
 		sessions: map[string][]tmux.SessionInfo{},
 	}
@@ -171,7 +171,18 @@ func TestHandleServersList_HidesGoTestServers(t *testing.T) {
 	for i, e := range got {
 		gotNames[i] = e.Name
 	}
-	want := []string{"Some", "default", "rk-e2e", "rk-e2e-coupling-654321", "rk-e2e-multi-654321"}
+	// Every server is returned, including the rk-test-* orphans, sorted by name.
+	want := []string{
+		"Some",
+		"default",
+		"rk-test-daemon-12345-67890",
+		"rk-test-e2e",
+		"rk-test-e2e-coupling-12345-67890",
+		"rk-test-e2e-multi-12345-67890",
+		"rk-test-relay-12345-67890",
+		"rk-test-tmuxctl-12345-67890",
+		"rk-test-unit-12345-67890",
+	}
 	if len(gotNames) != len(want) {
 		t.Fatalf("got %v, want %v", gotNames, want)
 	}

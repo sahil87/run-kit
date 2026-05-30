@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
+const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 const DESKTOP_VIEWPORT = { width: 1024, height: 768 };
 const SETUP_SESSIONS = [

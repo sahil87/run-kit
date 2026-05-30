@@ -2,11 +2,22 @@ package tmuxctl
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 )
+
+// testSocketName builds a unified test socket name: rk-test-<role>-<pid>-<ns>.
+// Local copy of the helper in internal/tmux/main_test.go (Go _test.go symbols
+// are package-private and cannot be shared across packages). PID-stamping the
+// former fixed name rk-tmuxctl-test makes the socket parseable by the automatic
+// post-sweep instead of relying on t.Cleanup alone.
+func testSocketName(role string) string {
+	return fmt.Sprintf("rk-test-%s-%d-%d", role, os.Getpid(), time.Now().UnixNano())
+}
 
 // TestIntegration_TmuxControlMode_LatencyTarget exercises the real tmux
 // control-mode connection by spinning up an isolated server, opening a
@@ -22,7 +33,7 @@ func TestIntegration_TmuxControlMode_LatencyTarget(t *testing.T) {
 		t.Skip("tmux not available — skipping integration test")
 	}
 
-	const socket = "rk-tmuxctl-test"
+	socket := testSocketName("tmuxctl")
 
 	// Pre-cleanup in case a prior aborted run left the server alive.
 	_ = exec.Command("tmux", "-L", socket, "kill-server").Run()

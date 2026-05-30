@@ -17,12 +17,12 @@ type ReapAction int
 const (
 	// ReapActionSkip leaves the candidate untouched (live non-test servers,
 	// the _rk-ctl control anchor, rk-e2e-* sockets — anything not matched by
-	// IsGoTestServerName, and any matched-but-protected name).
+	// IsGoTestServerName, and any lock file whose owning server is protected).
 	ReapActionSkip ReapAction = iota
 	// ReapActionKill kills the live orphan test server via KillServer.
 	ReapActionKill
-	// ReapActionRemove removes the stale socket file via os.Remove (dead test
-	// sockets and stale *.lock files).
+	// ReapActionRemove removes the stale socket/lock file via os.Remove (dead
+	// test sockets and Go-test servers' *.lock files).
 	ReapActionRemove
 )
 
@@ -33,17 +33,31 @@ const (
 // matrix is unit-testable without spawning servers. The thin I/O routine
 // (reapCandidates) executes the returned action.
 //
+// A `.lock` file (tmux's per-socket lock — a regular file, not a socket) is
+// classified by its OWNING server: strip the suffix and apply the same
+// IsGoTestServerName test. A lock therefore inherits its server's fate, so an
+// rk-e2e-*.lock (live Playwright run), a _rk-ctl.lock, or any non-test
+// server's lock (a production server's, or a stale `kits.lock`) is SPARED
+// exactly as the server itself would be — only a Go-test server's lock is
+// reaped. This matters: dropping a live rk-e2e-* server's lock would disrupt a
+// running e2e suite. The probe result is irrelevant for locks.
+//
 // Rules (checked in this order):
-//   - name ends in ".lock"                       → removeSocket (lock files
-//     carry no test prefix, so they need an explicit branch)
+//   - name ends in LockSocketSuffix:
+//     · base (name without ".lock") matches IsGoTestServerName → remove
+//     · otherwise                                              → skip (e2e,
+//     anchor, non-test, and production locks are all spared)
 //   - name == ControlAnchorSessionName (_rk-ctl)  → skip (owned by tmuxctl)
 //   - IsGoTestServerName(name) && probeAlive      → kill (live orphan test server)
-//   - IsGoTestServerName(name) && !probeAlive     → removeSocket (dead test socket)
+//   - IsGoTestServerName(name) && !probeAlive     → remove (dead test socket)
 //   - otherwise                                   → skip (live/dead non-test
 //     servers, including rk-e2e-* which IsGoTestServerName already excludes)
 func classifyReap(name string, probeAlive bool) ReapAction {
-	if strings.HasSuffix(name, ".lock") {
-		return ReapActionRemove
+	if base, ok := strings.CutSuffix(name, LockSocketSuffix); ok {
+		if IsGoTestServerName(base) {
+			return ReapActionRemove
+		}
+		return ReapActionSkip
 	}
 	if name == ControlAnchorSessionName {
 		return ReapActionSkip
@@ -59,12 +73,13 @@ func classifyReap(name string, probeAlive bool) ReapAction {
 
 // needsProbe reports whether classifyReap will actually consult the probe
 // result for this name. classifyReap only branches on probeAlive in the
-// IsGoTestServerName case (live → kill vs. dead → remove); .lock files, the
-// control anchor, and non-test names are decided by name alone. Keeping this
-// in lock-step with classifyReap lets reapCandidates skip the (subprocess-
-// spawning) probe for names whose action does not depend on it.
+// IsGoTestServerName socket case (live → kill vs. dead → remove); .lock files
+// (decided by base name), the control anchor, and non-test names are decided
+// by name alone. Keeping this in lock-step with classifyReap lets
+// reapCandidates skip the (subprocess-spawning) probe for names whose action
+// does not depend on it.
 func needsProbe(name string) bool {
-	if strings.HasSuffix(name, ".lock") {
+	if strings.HasSuffix(name, LockSocketSuffix) {
 		return false
 	}
 	if name == ControlAnchorSessionName {

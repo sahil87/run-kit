@@ -21,11 +21,11 @@ Since `260529-fww2-rk-reaper-command` the raw scan and the probe are factored in
 | Helper | Responsibility |
 |--------|----------------|
 | `socketDirPath() string` | The single definition of the socket-dir path: `fmt.Sprintf("/tmp/tmux-%d", os.Getuid())`. |
-| `ScanSocketDir(ctx) ([]string, error)` | Raw socket-file names via `os.ReadDir(socketDirPath())` + `filterSocketEntries`. Does NOT probe — **dead sockets ARE included**. Returns `nil, nil` when the dir is absent/unreadable (no servers running). |
-| `filterSocketEntries(entries []os.DirEntry) []string` | Keeps only `os.ModeSocket` entries, dropping directories and regular files. Split out so the socket-mode filter is testable against a temp dir without the hardcoded path (`TestFilterSocketEntries`). |
+| `ScanSocketDir(ctx) ([]string, error)` | Raw reapable candidate names via `os.ReadDir(socketDirPath())` + `filterSocketEntries`. Does NOT probe — **dead sockets ARE included**. Returns `nil, nil` when the dir is absent/unreadable (no servers running). |
+| `filterSocketEntries(entries []os.DirEntry) []string` | Keeps the full reapable candidate set: `os.ModeSocket` entries (live/dead tmux servers) **plus** `*.lock` regular files. tmux `.lock` files are **regular files, not sockets**, so they are matched by name suffix (`LockSocketSuffix = ".lock"`) — a socket-mode-only filter would silently drop them and leave the reaper's `.lock` branch dead in real runs. Directories and non-`.lock` regular files are dropped. Split out so the filter is testable against a temp dir without the hardcoded path (`TestFilterSocketEntries`, which drives a real socket + real `.lock` file). |
 | `probeServerAlive(ctx, name) bool` | Liveness probe: `tmux -L <name> list-sessions` via `exec.CommandContext` with a 2s timeout; `true` iff the command succeeds. |
 
-`ListServers` calls `ScanSocketDir`, then probes each candidate **concurrently** (bounded 10-slot semaphore) via `probeServerAlive`, appends only the live ones, and sorts. Its observable behavior is unchanged by the extraction — it still returns only sorted probe-success names and silently drops dead sockets.
+`ListServers` calls `ScanSocketDir`, **skips any `.lock` candidate** (those are never servers — a probe would be a doomed subprocess), then probes each remaining candidate **concurrently** (bounded 10-slot semaphore) via `probeServerAlive`, appends only the live ones, and sorts. Its observable behavior is unchanged by the extraction — it still returns only sorted probe-success names and silently drops dead sockets.
 
 ### Server Lifecycle
 
@@ -302,7 +302,7 @@ The reaper iterates **RAW** socket-dir candidates via `ScanSocketDir(ctx)` — *
 |-------|-------|--------|
 | (a) Live orphan test server | `IsGoTestServerName(name)` && probe succeeds (daemon alive) | `KillServer(name)` (`ReapActionKill`) |
 | (b) Dead test socket | `IsGoTestServerName(name)` && probe fails (daemon gone) | `os.Remove(filepath.Join(socketDirPath(), name))` (`ReapActionRemove`) |
-| (c) Stale `.lock` socket | `strings.HasSuffix(name, ".lock")` (no test prefix → its own branch) | `os.Remove` (`ReapActionRemove`) |
+| (c) Stale `.lock` file (regular file, not a socket) | `strings.HasSuffix(name, ".lock")` (no test prefix → its own branch; surfaced by `filterSocketEntries` via name, not socket mode) | `os.Remove` (`ReapActionRemove`) |
 
 ### Pure classifier — `classifyReap(name, probeAlive) ReapAction`
 

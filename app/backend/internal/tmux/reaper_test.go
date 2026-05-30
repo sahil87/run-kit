@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 )
@@ -28,10 +29,22 @@ func TestClassifyReap(t *testing.T) {
 		{"dead rk-tmuxctl-test fixed name", "rk-tmuxctl-test", false, ReapActionRemove},
 		{"dead rk-daemon-test fixed name", "rk-daemon-test", false, ReapActionRemove},
 
-		// (c) .lock sockets → remove regardless of probe / prefix
-		{"lock with no test prefix, dead", "somesocket.lock", false, ReapActionRemove},
-		{"lock with no test prefix, live", "somesocket.lock", true, ReapActionRemove},
-		{"lock with test prefix", "rk-test-1234.lock", false, ReapActionRemove},
+		// (c) .lock files inherit their OWNING server's fate (base = name
+		// without ".lock", classified via IsGoTestServerName). Probe is
+		// irrelevant for locks.
+		{"lock of Go-test server → remove", "rk-test-1234-abc.lock", false, ReapActionRemove},
+		{"lock of Go-test server, probe live → remove", "rk-test-1234-abc.lock", true, ReapActionRemove},
+		{"lock of fixed-name test server → remove", "rk-tmuxctl-test.lock", false, ReapActionRemove},
+		{"lock of rk-verify test server → remove", "rk-verify-99.lock", false, ReapActionRemove},
+		// The bug this fixes: an rk-e2e-*.lock belongs to a (possibly LIVE)
+		// Playwright server and MUST be spared — base is not a Go-test name.
+		{"lock of rk-e2e server → skip", "rk-e2e-coupling-640069.lock", true, ReapActionSkip},
+		{"lock of rk-e2e multi server → skip", "rk-e2e-multi-633536.lock", false, ReapActionSkip},
+		// Non-test server lock (production / stale orphan) → spared.
+		{"lock of non-test server → skip", "kits.lock", false, ReapActionSkip},
+		{"lock of non-test server, probe live → skip", "runkit.lock", true, ReapActionSkip},
+		// Control-anchor lock → spared (base is not a Go-test name).
+		{"lock of control anchor → skip", ControlAnchorSessionName + ".lock", false, ReapActionSkip},
 
 		// Live non-test server → skip
 		{"live non-test default", "default", true, ReapActionSkip},
@@ -95,10 +108,12 @@ func presentFiles(t *testing.T, dir string) []string {
 func TestReapCandidates_dryRunMutatesNothing(t *testing.T) {
 	dir := t.TempDir()
 	candidates := []string{
-		"rk-test-111-live",  // live test → would kill
-		"rk-test-222-dead",  // dead test → would remove
-		"stale.lock",        // lock → would remove
-		"runkit",            // live non-test → skip
+		"rk-test-111-live",      // live test → would kill
+		"rk-test-222-dead",      // dead test → would remove
+		"rk-test-333-dead.lock", // Go-test server's lock → would remove
+		"rk-e2e-multi-7.lock",   // e2e server's lock → skip (protected)
+		"kits.lock",             // non-test server's lock → skip
+		"runkit",                // live non-test → skip
 		ControlAnchorSessionName,
 	}
 	writeFiles(t, dir, candidates...)
@@ -120,11 +135,12 @@ func TestReapCandidates_dryRunMutatesNothing(t *testing.T) {
 		t.Errorf("dry-run reported actions: killed=%v removed=%v", result.Killed, result.RemovedSockets)
 	}
 
-	// Dry-run plan lists exactly the three actionable candidates.
+	// Dry-run plan lists exactly the three actionable candidates; the e2e and
+	// non-test locks are spared (inherit their owning server's protection).
 	wantPlan := map[string]ReapAction{
-		"rk-test-111-live": ReapActionKill,
-		"rk-test-222-dead": ReapActionRemove,
-		"stale.lock":       ReapActionRemove,
+		"rk-test-111-live":      ReapActionKill,
+		"rk-test-222-dead":      ReapActionRemove,
+		"rk-test-333-dead.lock": ReapActionRemove,
 	}
 	if len(result.DryRunPlan) != len(wantPlan) {
 		t.Fatalf("dry-run plan size = %d, want %d (%v)", len(result.DryRunPlan), len(wantPlan), result.DryRunPlan)
@@ -144,10 +160,12 @@ func TestReapCandidates_dryRunMutatesNothing(t *testing.T) {
 func TestReapCandidates_removesDeadSocketsAndLocks(t *testing.T) {
 	dir := t.TempDir()
 	candidates := []string{
-		"rk-test-222-dead", // dead test → remove
-		"stale.lock",       // lock → remove
-		"runkit",           // live non-test → skip (preserved)
-		"rk-e2e-foo",       // e2e → skip (preserved)
+		"rk-test-222-dead",       // dead test → remove
+		"rk-test-444-dead.lock",  // Go-test server's lock → remove
+		"rk-e2e-foo.lock",        // e2e server's lock → skip (preserved)
+		"kits.lock",              // non-test server's lock → skip (preserved)
+		"runkit",                 // live non-test → skip (preserved)
+		"rk-e2e-foo",             // e2e → skip (preserved)
 		ControlAnchorSessionName, // anchor → skip (preserved)
 	}
 	writeFiles(t, dir, candidates...)
@@ -160,7 +178,7 @@ func TestReapCandidates_removesDeadSocketsAndLocks(t *testing.T) {
 	}
 
 	sort.Strings(result.RemovedSockets)
-	wantRemoved := []string{"rk-test-222-dead", "stale.lock"}
+	wantRemoved := []string{"rk-test-222-dead", "rk-test-444-dead.lock"}
 	if len(result.RemovedSockets) != len(wantRemoved) {
 		t.Fatalf("removed = %v, want %v", result.RemovedSockets, wantRemoved)
 	}
@@ -175,7 +193,7 @@ func TestReapCandidates_removesDeadSocketsAndLocks(t *testing.T) {
 
 	// Protected entries must still be present; reaped entries gone.
 	after := presentFiles(t, dir)
-	wantPresent := []string{ControlAnchorSessionName, "rk-e2e-foo", "runkit"}
+	wantPresent := []string{ControlAnchorSessionName, "kits.lock", "rk-e2e-foo", "rk-e2e-foo.lock", "runkit"}
 	sort.Strings(wantPresent)
 	if len(after) != len(wantPresent) {
 		t.Fatalf("remaining files = %v, want %v", after, wantPresent)
@@ -193,11 +211,11 @@ func TestReapCandidates_partialFailureLogsAndContinues(t *testing.T) {
 	// os.Remove fails. The other dead socket + lock must still be removed and
 	// an aggregate error returned.
 	candidates := []string{
-		"rk-test-missing", // dead test → remove, but file absent → os.Remove fails
-		"rk-test-present", // dead test → remove (succeeds)
-		"stale.lock",      // lock → remove (succeeds)
+		"rk-test-missing",     // dead test → remove, but file absent → os.Remove fails
+		"rk-test-present",     // dead test → remove (succeeds)
+		"rk-test-9-dead.lock", // Go-test server's lock → remove (succeeds)
 	}
-	writeFiles(t, dir, "rk-test-present", "stale.lock")
+	writeFiles(t, dir, "rk-test-present", "rk-test-9-dead.lock")
 	probe := fakeProbe(nil) // all dead
 
 	result, err := reapCandidates(context.Background(), dir, candidates, probe, false)
@@ -206,7 +224,7 @@ func TestReapCandidates_partialFailureLogsAndContinues(t *testing.T) {
 	}
 
 	sort.Strings(result.RemovedSockets)
-	want := []string{"rk-test-present", "stale.lock"}
+	want := []string{"rk-test-9-dead.lock", "rk-test-present"}
 	if len(result.RemovedSockets) != len(want) {
 		t.Fatalf("removed = %v, want %v (remaining entries must still process after the failure)", result.RemovedSockets, want)
 	}
@@ -219,7 +237,7 @@ func TestReapCandidates_partialFailureLogsAndContinues(t *testing.T) {
 
 func TestReapCandidates_allSuccessNoAggregateError(t *testing.T) {
 	dir := t.TempDir()
-	candidates := []string{"rk-test-dead", "x.lock", "runkit"}
+	candidates := []string{"rk-test-dead", "rk-test-x.lock", "runkit"}
 	writeFiles(t, dir, candidates...)
 	probe := fakeProbe(map[string]bool{"runkit": true})
 
@@ -234,9 +252,13 @@ func TestReapCandidates_allSuccessNoAggregateError(t *testing.T) {
 
 func TestFilterSocketEntries(t *testing.T) {
 	dir := t.TempDir()
-	// Regular files and a subdirectory must be excluded; only socket-mode
-	// entries are returned. Create a real unix socket so the os.ModeSocket
-	// filter is genuinely exercised.
+	// The reapable candidate set is: unix-socket files PLUS `*.lock` REGULAR
+	// files (tmux lock artifacts — not sockets, matched by name). A plain
+	// regular file and a subdirectory must be excluded. This drives the real
+	// filter end-to-end so the `.lock` branch is exercised through production
+	// code, not bypassed by a hand-built candidate list. (Regression: the
+	// socket-mode filter alone silently dropped `.lock` files, leaving the
+	// spec-mandated `.lock` reap branch dead in real runs.)
 	writeFiles(t, dir, "regular-file", "another.lock")
 	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -253,7 +275,9 @@ func TestFilterSocketEntries(t *testing.T) {
 		t.Fatalf("read dir: %v", err)
 	}
 	got := filterSocketEntries(entries)
-	if len(got) != 1 || got[0] != "live-socket" {
-		t.Errorf("filterSocketEntries = %v, want [live-socket] (dirs + regular files excluded)", got)
+	sort.Strings(got)
+	want := []string{"another.lock", "live-socket"}
+	if !slices.Equal(got, want) {
+		t.Errorf("filterSocketEntries = %v, want %v (socket + .lock kept; plain regular file + dir excluded)", got, want)
 	}
 }

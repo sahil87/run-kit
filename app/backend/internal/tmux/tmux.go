@@ -1185,12 +1185,20 @@ func socketDirPath() string {
 	return fmt.Sprintf("/tmp/tmux-%d", os.Getuid())
 }
 
-// ScanSocketDir returns the raw socket-file names in the tmux socket directory
-// (/tmp/tmux-{uid}). It applies only the directory-and-socket-mode filter —
-// it does NOT probe the sockets for liveness, so dead sockets ARE included.
-// Returns nil (no error) when the directory does not exist or cannot be read
-// (no servers running). This is the single source for the socket-dir
-// candidate-collection convention, shared by ListServers and the reaper.
+// LockSocketSuffix is the filename suffix tmux uses for its per-socket lock
+// files in the socket directory. Unlike the sockets themselves these are
+// REGULAR files, not unix sockets, so the socket-mode filter alone would never
+// surface them. The reaper sweeps stale `*.lock` files (PR #199 orphan class);
+// ListServers ignores them. Single source of truth for the suffix.
+const LockSocketSuffix = ".lock"
+
+// ScanSocketDir returns the raw candidate names in the tmux socket directory
+// (/tmp/tmux-{uid}) that the reaper may act on: every unix-socket file PLUS
+// every `*.lock` regular file. It does NOT probe for liveness, so dead sockets
+// ARE included. Returns nil (no error) when the directory does not exist or
+// cannot be read (no servers running). This is the single source for the
+// socket-dir candidate-collection convention, shared by ListServers (which
+// skips the `.lock` entries — see ListServers) and the reaper.
 func ScanSocketDir(ctx context.Context) ([]string, error) {
 	entries, err := os.ReadDir(socketDirPath())
 	if err != nil {
@@ -1200,13 +1208,21 @@ func ScanSocketDir(ctx context.Context) ([]string, error) {
 	return filterSocketEntries(entries), nil
 }
 
-// filterSocketEntries keeps only socket-mode files, dropping directories and
-// non-socket files. Extracted so the socket-mode filter is testable against a
-// temp directory without depending on the hardcoded /tmp/tmux-{uid} path.
+// filterSocketEntries keeps the reapable candidates from a socket-dir listing:
+// unix-socket files (live or dead tmux servers) AND `*.lock` regular files
+// (tmux's per-socket lock artifacts, which are NOT sockets and so must be
+// matched by name). Directories and all other regular files are dropped.
+// Extracted so the filter is testable against a temp directory without
+// depending on the hardcoded /tmp/tmux-{uid} path.
 func filterSocketEntries(entries []os.DirEntry) []string {
 	var candidates []string
 	for _, e := range entries {
 		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), LockSocketSuffix) {
+			// tmux lock files are regular files, not sockets — match by name.
+			candidates = append(candidates, e.Name())
 			continue
 		}
 		info, err := e.Info()
@@ -1248,6 +1264,12 @@ func ListServers(ctx context.Context) ([]string, error) {
 	var servers []string
 
 	for _, name := range candidates {
+		// `.lock` files are not servers — ScanSocketDir surfaces them for the
+		// reaper, but ListServers only enumerates real tmux servers, so skip
+		// them rather than spend a doomed probe subprocess on each.
+		if strings.HasSuffix(name, LockSocketSuffix) {
+			continue
+		}
 		wg.Add(1)
 		sem <- struct{}{} // acquire semaphore slot
 		go func(name string) {

@@ -62,13 +62,21 @@ When `--dry-run` is set, `rk reaper` SHALL list the candidates classified by the
 ## Reaper Logic (`internal/tmux`)
 
 ### Requirement: Shared socket-dir candidate-scan helper extracted from `ListServers`
-The raw socket-directory candidate-collection logic currently inlined in `ListServers` (the `/tmp/tmux-{uid}` `os.ReadDir` plus the directory-and-socket-mode filter at `tmux.go:1045-1058`) SHALL be factored out into a single exported helper. Both `ListServers` and the reaper MUST consume this helper so the `/tmp/tmux-{uid}` convention and the `IsDir`/`os.ModeSocket` filter live in exactly one place. `ListServers`'s observable behavior (probe each candidate, return only probe-success sockets, sorted) MUST be unchanged after the extraction.
+The raw socket-directory candidate-collection logic currently inlined in `ListServers` (the `/tmp/tmux-{uid}` `os.ReadDir` plus the directory-and-socket-mode filter at `tmux.go:1045-1058`) SHALL be factored out into a single exported helper. Both `ListServers` and the reaper MUST consume this helper so the `/tmp/tmux-{uid}` convention and the entry filter live in exactly one place.
+
+The shared filter MUST return the full reapable candidate set: unix-socket files (`os.ModeSocket` — live or dead tmux servers) **plus** `*.lock` regular files. tmux's per-socket `*.lock` files are **regular files, not sockets**, so a socket-mode-only filter would silently drop them — leaving the spec-mandated `.lock` reap branch (below) dead in real runs. `.lock` files MUST therefore be matched by name suffix (single source: `tmux.LockSocketSuffix = ".lock"`), not by mode. `ListServers`, which enumerates only real servers, MUST skip `.lock` candidates (they are never servers — probing one would spend a doomed subprocess); its observable behavior (probe each socket candidate, return only probe-success servers, sorted) MUST otherwise be unchanged after the extraction.
 
 #### Scenario: Single source for the socket-dir convention
 - **GIVEN** the extraction is complete
 - **WHEN** the reaper and `ListServers` need raw socket-dir candidates
 - **THEN** both call the same exported helper
-- **AND** the `/tmp/tmux-{uid}` path construction and socket-mode filter are defined only once
+- **AND** the `/tmp/tmux-{uid}` path construction and entry filter are defined only once
+
+#### Scenario: Lock files survive the shared filter
+- **GIVEN** the socket directory contains a unix-socket file and a `*.lock` regular file
+- **WHEN** the shared filter processes the directory entries
+- **THEN** both the socket and the `.lock` file are returned as candidates
+- **AND** a non-`.lock` regular file and any subdirectory are excluded
 
 #### Scenario: ListServers behavior preserved
 - **GIVEN** a socket directory with live and dead sockets
@@ -89,7 +97,7 @@ The reaper MUST enumerate candidates via the shared raw socket-dir helper, NOT v
 For each raw candidate the reaper SHALL probe the socket for liveness and classify it into exactly one action. The classification rules are:
 - **(a) Live orphan test server** — probe succeeds (daemon alive) AND name matches `tmux.IsGoTestServerName` → kill via `tmux.KillServer(name)`.
 - **(b) Dead test socket** — name matches `tmux.IsGoTestServerName` AND the probe fails (daemon gone) → remove the socket file via `os.Remove`.
-- **(c) `.lock` socket** — name ends in `.lock` (an explicit `strings.HasSuffix(name, ".lock")` branch, because `.lock` files carry no test prefix) → remove via `os.Remove`.
+- **(c) `.lock` file** — name ends in `.lock` (an explicit `strings.HasSuffix(name, ".lock")` branch, because `.lock` files are regular files that carry no test prefix and are surfaced by the shared filter via name, not socket mode) → remove via `os.Remove`.
 
 The classification SHOULD be structured as a pure function over `(name, probeAlive)` returning the action, so it is unit-testable without real tmux servers; the thin I/O-performing reap routine then executes the action.
 
@@ -103,8 +111,8 @@ The classification SHOULD be structured as a pure function over `(name, probeAli
 - **WHEN** the reaper classifies it
 - **THEN** the action is "remove socket file via `os.Remove`"
 
-#### Scenario: Lock socket is removed regardless of prefix
-- **GIVEN** a socket file whose name ends in `.lock` and carries no test prefix
+#### Scenario: Lock file is removed regardless of prefix
+- **GIVEN** a regular `.lock` file whose name carries no test prefix
 - **WHEN** the reaper classifies it
 - **THEN** the explicit `HasSuffix(name, ".lock")` branch selects "remove via `os.Remove`"
 

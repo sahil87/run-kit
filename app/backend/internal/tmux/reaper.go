@@ -9,83 +9,72 @@ import (
 	"strings"
 )
 
+// productionDaemonServer is the tmux server name of the live production daemon
+// (mirrors internal/daemon.ServerSocket). The reaper hard-skips it
+// unconditionally — even under an explicit --prefix --force — so a broad or
+// mistyped prefix can never take down production. Kept as a local literal
+// rather than importing internal/daemon: there is no existing import edge
+// between internal/tmux and internal/daemon, and the reaper only needs the
+// name to refuse it.
+const productionDaemonServer = "rk-daemon"
+
+// minSafePrefixLen is the shortest prefix the reaper will act on without
+// --force. An empty prefix or one of length <= 3 (e.g. "rk-") matches nearly
+// everything (runkit, runWork, production) and is almost always a typo.
+const minSafePrefixLen = 3
+
 // ReapAction is the single action the reaper takes for one socket-dir
 // candidate. It is exported so the thin cobra command can label dry-run
 // plan entries without re-deriving the classification.
 type ReapAction int
 
 const (
-	// ReapActionSkip leaves the candidate untouched (live non-test servers,
-	// the _rk-ctl control anchor, rk-e2e-* sockets — anything not matched by
-	// IsGoTestServerName, and any lock file whose owning server is protected).
+	// ReapActionSkip leaves the candidate untouched. Under the brute-force
+	// reaper this is only the unconditional skips (_rk-ctl control anchor,
+	// live rk-daemon production server) and any name that does not match the
+	// operator's prefix.
 	ReapActionSkip ReapAction = iota
-	// ReapActionKill kills the live orphan test server via KillServer.
+	// ReapActionKill kills a live matched tmux server via KillServer.
 	ReapActionKill
-	// ReapActionRemove removes the stale socket/lock file via os.Remove (dead
-	// test sockets and Go-test servers' *.lock files).
+	// ReapActionRemove removes a matched socket or *.lock file via os.Remove.
 	ReapActionRemove
 )
 
-// classifyReap decides what the reaper should do with a single socket-dir
-// candidate, given its name and whether its probe succeeded (daemon alive).
+// classifyReap decides what the brute-force reaper does with a single
+// socket-dir candidate, given the operator-supplied prefix.
 //
-// It is a PURE function — no I/O, no real tmux — so the full classification
-// matrix is unit-testable without spawning servers. The thin I/O routine
-// (reapCandidates) executes the returned action.
+// It is a PURE function — no I/O, no real tmux, no liveness probe — so the
+// full classification matrix is unit-testable without spawning servers. The
+// thin I/O routine (reapCandidates) executes the returned action.
 //
-// A `.lock` file (tmux's per-socket lock — a regular file, not a socket) is
-// classified by its OWNING server: strip the suffix and apply the same
-// IsGoTestServerName test. A lock therefore inherits its server's fate, so an
-// rk-e2e-*.lock (live Playwright run), a _rk-ctl.lock, or any non-test
-// server's lock (a production server's, or a stale `kits.lock`) is SPARED
-// exactly as the server itself would be — only a Go-test server's lock is
-// reaped. This matters: dropping a live rk-e2e-* server's lock would disrupt a
-// running e2e suite. The probe result is irrelevant for locks.
+// Unlike the prior PID-probing classifier, this version reasons by NAME and
+// FILE KIND only:
+//   - name is the _rk-ctl control anchor, or the live rk-daemon production
+//     server → skip UNCONDITIONALLY (even when it matches the prefix). The
+//     dry-run default alone is not sufficient protection for production.
+//   - name does not start with prefix → skip.
+//   - name matches AND ends in LockSocketSuffix (a regular .lock file) →
+//     remove (no .lock-inherits-base-server reasoning anymore).
+//   - name matches AND its server is live → kill.
+//   - name matches AND its server is a dead socket → remove.
 //
-// Rules (checked in this order):
-//   - name ends in LockSocketSuffix:
-//     · base (name without ".lock") matches IsGoTestServerName → remove
-//     · otherwise                                              → skip (e2e,
-//     anchor, non-test, and production locks are all spared)
-//   - name == ControlAnchorSessionName (_rk-ctl)  → skip (owned by tmuxctl)
-//   - IsGoTestServerName(name) && probeAlive      → kill (live orphan test server)
-//   - IsGoTestServerName(name) && !probeAlive     → remove (dead test socket)
-//   - otherwise                                   → skip (live/dead non-test
-//     servers, including rk-e2e-* which IsGoTestServerName already excludes)
-func classifyReap(name string, probeAlive bool) ReapAction {
-	if base, ok := strings.CutSuffix(name, LockSocketSuffix); ok {
-		if IsGoTestServerName(base) {
-			return ReapActionRemove
-		}
+// The live/dead distinction is the ONLY thing that requires touching the
+// outside world, and it is supplied by the caller (serverLive) rather than
+// probed here, keeping classifyReap pure.
+func classifyReap(name, prefix string, serverLive bool) ReapAction {
+	if name == ControlAnchorSessionName || name == productionDaemonServer {
 		return ReapActionSkip
 	}
-	if name == ControlAnchorSessionName {
+	if !strings.HasPrefix(name, prefix) {
 		return ReapActionSkip
 	}
-	if IsGoTestServerName(name) {
-		if probeAlive {
-			return ReapActionKill
-		}
+	if strings.HasSuffix(name, LockSocketSuffix) {
 		return ReapActionRemove
 	}
-	return ReapActionSkip
-}
-
-// needsProbe reports whether classifyReap will actually consult the probe
-// result for this name. classifyReap only branches on probeAlive in the
-// IsGoTestServerName socket case (live → kill vs. dead → remove); .lock files
-// (decided by base name), the control anchor, and non-test names are decided
-// by name alone. Keeping this in lock-step with classifyReap lets
-// reapCandidates skip the (subprocess-spawning) probe for names whose action
-// does not depend on it.
-func needsProbe(name string) bool {
-	if strings.HasSuffix(name, LockSocketSuffix) {
-		return false
+	if serverLive {
+		return ReapActionKill
 	}
-	if name == ControlAnchorSessionName {
-		return false
-	}
-	return IsGoTestServerName(name)
+	return ReapActionRemove
 }
 
 // ReapPlanEntry pairs a candidate name with the action the reaper would take.
@@ -97,8 +86,8 @@ type ReapPlanEntry struct {
 
 // ReapResult summarizes a reaper run.
 //
-//   - Killed         — names of live orphan test servers that were killed.
-//   - RemovedSockets — names of dead test sockets and *.lock files removed.
+//   - Killed         — names of live matched servers that were killed.
+//   - RemovedSockets — names of dead sockets and *.lock files removed.
 //   - DryRunPlan     — populated only on a dry-run: every classified candidate
 //     that would be acted on (kill or remove), so the caller can preview.
 type ReapResult struct {
@@ -110,57 +99,75 @@ type ReapResult struct {
 // ReapTestServers is the operator-invoked janitor for leaked test tmux servers
 // and stale sockets in the tmux socket directory (/tmp/tmux-{uid}/).
 //
-// It enumerates RAW socket-dir candidates via ScanSocketDir (NOT ListServers,
-// which silently drops dead sockets — exactly the leak shape we must reap),
-// probes each for liveness, classifies it via classifyReap, and — unless
-// dryRun is set — performs the action: KillServer for live orphan test
-// servers, os.Remove for dead test sockets and *.lock files.
+// It is brute-force-by-prefix: every socket, *.lock file, and live server whose
+// name starts with prefix is matched. There is NO liveness probe used to decide
+// match (live servers are killed, dead sockets removed), NO e2e exclusion, and
+// NO .lock-inherits-base-server reasoning. The operator who runs it asserts
+// nothing live needs the matched sockets — see the command's Long help for the
+// operating contract (do not run while tests are in progress).
+//
+// Bare `rk reaper` passes prefix="rk-test". The _rk-ctl anchor and the live
+// rk-daemon production server are hard-skipped unconditionally.
+//
+// Two independent gates control behavior:
+//   - act: when false (the default), the matched actions are recorded in
+//     DryRunPlan and nothing is touched (dry-run preview); when true, matched
+//     servers/sockets are actually reaped. Set by --yes or --force.
+//   - force: bypasses the dangerous-prefix guard (empty or length <= 3). Set
+//     ONLY by --force. --yes acts but does NOT bypass the guard, so a short
+//     or mistyped prefix is still refused under --yes alone.
+//
+// The dangerous-prefix guard (empty or length <= 3) refuses unless force is
+// true — and it refuses regardless of act, so a dry-run with a dangerous prefix
+// also reports the refusal rather than previewing a near-everything match.
 //
 // Per-entry failures are logged via slog and skipped — a single failure MUST
 // NOT abort the sweep. An aggregate error describing the failed entries is
 // returned at the end (nil when every entry succeeded), mirroring
 // sweepOrphanedRelaySessions.
-func ReapTestServers(ctx context.Context, dryRun bool) (ReapResult, error) {
+func ReapTestServers(ctx context.Context, prefix string, act, force bool) (ReapResult, error) {
+	if len(prefix) <= minSafePrefixLen && !force {
+		return ReapResult{}, fmt.Errorf(
+			"refusing prefix %q: empty or <= %d chars matches nearly everything (runkit, production); pass --force to override",
+			prefix, minSafePrefixLen)
+	}
 	candidates, err := ScanSocketDir(ctx)
 	if err != nil {
 		return ReapResult{}, fmt.Errorf("scan socket dir: %w", err)
 	}
-	return reapCandidates(ctx, socketDirPath(), candidates, probeServerAlive, dryRun)
+	return reapCandidates(ctx, socketDirPath(), prefix, candidates, probeServerAlive, act)
 }
 
 // reapCandidates is the I/O-performing core of the reaper, split out from
 // ReapTestServers so tests can drive it against a temp dir with a fake prober
-// (no real tmux server required). It probes and classifies each candidate,
-// then executes the action unless dryRun is set.
+// (no real tmux server required). It classifies each candidate against prefix,
+// then executes the action unless act is false (dry-run preview).
 func reapCandidates(
 	ctx context.Context,
 	dir string,
+	prefix string,
 	candidates []string,
 	probe func(ctx context.Context, name string) bool,
-	dryRun bool,
+	act bool,
 ) (ReapResult, error) {
 	var result ReapResult
 	var errs []string
 
 	for _, name := range candidates {
-		// Only Go-test server names need a liveness probe to distinguish kill
-		// (live orphan) from remove (dead socket). .lock files, the control
-		// anchor, and any non-test name are classified by name alone, so we
-		// skip the probe for them — each probe spawns a `tmux -L <name>
-		// list-sessions` subprocess (up to a 2s timeout), and a noisy socket
-		// dir full of live non-test servers would otherwise pay that cost for
-		// every entry. The pure classifyReap ignores probeAlive in those
-		// branches anyway, so passing false is safe.
-		var probeAlive bool
-		if needsProbe(name) {
-			probeAlive = probe(ctx, name)
+		// A liveness probe is only needed to decide kill (live server) vs
+		// remove (dead socket) for a matched, non-.lock candidate. Skip the
+		// (subprocess-spawning) probe for unmatched names, the unconditional
+		// skips, and .lock files — classifyReap ignores serverLive for those.
+		var serverLive bool
+		if probeNeeded(name, prefix) {
+			serverLive = probe(ctx, name)
 		}
-		action := classifyReap(name, probeAlive)
+		action := classifyReap(name, prefix, serverLive)
 		if action == ReapActionSkip {
 			continue
 		}
 
-		if dryRun {
+		if !act {
 			result.DryRunPlan = append(result.DryRunPlan, ReapPlanEntry{Name: name, Action: action})
 			continue
 		}
@@ -188,4 +195,20 @@ func reapCandidates(
 		return result, fmt.Errorf("reaper partial failures: %s", strings.Join(errs, "; "))
 	}
 	return result, nil
+}
+
+// probeNeeded reports whether reapCandidates must probe a candidate's liveness
+// to classify it. Only a matched, non-.lock candidate that is not one of the
+// unconditional skips needs the probe (live → kill vs. dead → remove); every
+// other candidate is decided by name alone. Kept in lock-step with
+// classifyReap so the probe (a tmux subprocess) is skipped for names whose
+// action does not depend on it.
+func probeNeeded(name, prefix string) bool {
+	if name == ControlAnchorSessionName || name == productionDaemonServer {
+		return false
+	}
+	if !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	return !strings.HasSuffix(name, LockSocketSuffix)
 }

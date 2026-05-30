@@ -1,10 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 
-const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
-// Second tmux server, set up explicitly so the multi-server sidebar has a
-// real counterpart to render. Long suffix avoids collisions across runs.
-const TMUX_SERVER_B = `rk-e2e-multi-${Date.now().toString().slice(-6)}`;
+const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
+// Second tmux server, set up explicitly so the multi-server sidebar has a real
+// counterpart to render. Named under the unified rk-test-e2e-* umbrella with the
+// Playwright process.pid as the second-to-last hyphen field, so the automatic
+// post-sweep can parse it and the e2e teardown glob (rk-test-e2e*) reaps it. The
+// trailing suffix is a single hyphen-free token, keeping the PID second-to-last.
+const TMUX_SERVER_B = `rk-test-e2e-msb-${process.pid}-${Date.now().toString().slice(-6)}`;
 const TEST_SESSION_A = `e2e-msb-a-${Date.now()}`;
 const TEST_SESSION_B = `e2e-msb-b-${Date.now()}`;
 

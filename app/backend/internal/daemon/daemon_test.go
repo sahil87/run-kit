@@ -4,12 +4,27 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
-const testSocket = "rk-daemon-test"
+// testSocketName builds a unified test socket name: rk-test-<role>-<pid>-<ns>.
+// Local copy of the helper in internal/tmux/main_test.go (Go _test.go symbols
+// are package-private and cannot be shared across packages). PID-stamping the
+// former fixed name rk-daemon-test makes the socket parseable by the automatic
+// post-sweep instead of relying on t.Cleanup alone.
+func testSocketName(role string) string {
+	return fmt.Sprintf("rk-test-%s-%d-%d", role, os.Getpid(), time.Now().UnixNano())
+}
+
+// testSocket is the daemon package's isolated test socket. Was a fixed
+// rk-daemon-test; now PID-stamped under the unified umbrella. Computed once per
+// test binary so every helper that targets it (useTestSocket, withServerSocket,
+// startOn/stopOn) shares the same name.
+var testSocket = testSocketName("daemon")
 
 func hasTmux() bool {
 	_, err := exec.LookPath("tmux")

@@ -6,7 +6,7 @@ poll cycle.
 
 ## Shared setup
 
-- Uses the tmux server in `E2E_TMUX_SERVER` (default `rk-e2e`).
+- Uses the tmux server in `E2E_TMUX_SERVER` (default `rk-test-e2e`).
 - `beforeAll` creates `e2e-sse-<timestamp>` so the test has a concrete session
   to assert against; `afterAll` kills it.
 

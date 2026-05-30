@@ -10,9 +10,11 @@ headline user flow end to end.
 ## Shared setup
 
 - `beforeAll` creates one session on the default e2e tmux server
-  (`E2E_TMUX_SERVER`, default `rk-e2e`) and a second tmux server
-  (`rk-e2e-coupling-<suffix>`) with its own session — two distinct servers
-  are required so the Server Pane has a non-current tile to click.
+  (`E2E_TMUX_SERVER`, default `rk-test-e2e`) and a second tmux server
+  (`rk-test-e2e-coupling-<pid>-<suffix>`, where `<pid>` is the Playwright
+  `process.pid` so the automatic post-sweep can parse it) with its own
+  session — two distinct servers are required so the Server Pane has a
+  non-current tile to click.
 - `afterAll` kills the session on the default server and `kill-server`s the
   second tmux server entirely.
 - All tests use the desktop viewport (1024×768) so the sidebar is rendered

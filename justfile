@@ -88,7 +88,7 @@ test-e2e:
 # Run ad-hoc Playwright commands (just pw test, just pw test mobile-layout, just pw test --ui)
 # Requires a dev server on port 3020: RK_PORT=3020 just dev
 pw *args:
-    cd app/frontend && RK_PORT="${RK_PORT:-3020}" E2E_TMUX_SERVER="${E2E_TMUX_SERVER:-rk-e2e}" pnpm exec playwright {{args}}
+    cd app/frontend && RK_PORT="${RK_PORT:-3020}" E2E_TMUX_SERVER="${E2E_TMUX_SERVER:-rk-test-e2e}" pnpm exec playwright {{args}}
 
 # ─── Assets ──────────────────────────────────────────────────
 

@@ -7,9 +7,11 @@ spec.
 
 ## Shared setup
 
-- `beforeAll` creates a session on the primary tmux server (`rk-e2e`,
-  matching the existing e2e fixture convention) and a second tmux server
-  (`rk-e2e-multi-<digits>`) with its own session, each containing one named
+- `beforeAll` creates a session on the primary tmux server
+  (`E2E_TMUX_SERVER`, default `rk-test-e2e`) and a second tmux server
+  (`rk-test-e2e-msb-<pid>-<suffix>`, where `<pid>` is the Playwright
+  `process.pid` so the automatic post-sweep can parse it and the e2e teardown
+  glob `rk-test-e2e*` reaps it) with its own session, each containing one named
   window (`msb-a-win`, `msb-b-win`). The second-server pattern matches
   `boards-multi-server.spec.ts`.
 - `afterAll` kills the primary session and the secondary tmux server

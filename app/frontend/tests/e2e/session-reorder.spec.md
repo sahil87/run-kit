@@ -9,7 +9,7 @@ the server has, the sidebar shows," not the drag mechanics themselves.
 
 ## Shared setup
 
-- Spawns three named tmux sessions on the e2e tmux server (`rk-e2e` by default,
+- Spawns three named tmux sessions on the e2e tmux server (`rk-test-e2e` by default,
   overridable via `E2E_TMUX_SERVER`): `reorder-alpha-{ts}`, `reorder-bravo-{ts}`,
   `reorder-charlie-{ts}`.
 - `afterAll` kills the sessions and unsets `@rk_session_order` to leave the

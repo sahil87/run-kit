@@ -7,13 +7,13 @@ slot.
 ## Shared setup
 
 - `beforeAll` creates an `e2e-board-mobile-<timestamp>` tmux session on
-  `rk-e2e` with three named windows (`m-a`, `m-b`, `m-c`) so the carousel
+  `rk-test-e2e` with three named windows (`m-a`, `m-b`, `m-c`) so the carousel
   has multiple slots to render.
 - A unique board name (`mob<digits>`) is used per run.
 - A module-scoped `pinnedEntries` array tracks every `(server, windowId)`
   pinned during the test.
 - `afterAll` first POSTs `/api/boards/<name>/unpin` for each tracked entry
-  (best-effort) so the persistent `rk-e2e` server doesn't carry stale
+  (best-effort) so the persistent `rk-test-e2e` server doesn't carry stale
   `@rk_board` entries into later runs, then kills the test session.
 
 ## Tests

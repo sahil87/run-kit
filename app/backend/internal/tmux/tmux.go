@@ -1149,33 +1149,18 @@ func CapturePane(paneID string, lines int, server string) (string, error) {
 	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", paneID, "-p", "-S", strconv.Itoa(start))
 }
 
-// IsGoTestServerName reports whether name matches a known Go-test
-// scaffolding server prefix. Go test sockets leak readily (cleanup races
-// with control-mode clients, daemonized servers reparent to init) so the
-// user-facing /api/servers handler hides them to avoid the dev UI churning
-// over hundreds of orphaned sockets after a crash or hard test interrupt.
+// IsTestServerName reports whether name belongs to the unified test-socket
+// umbrella: every Go and Playwright test tmux server is named
+// rk-test-<role>-<pid>-<ns>, so "is this a test artifact?" collapses to a
+// single HasPrefix("rk-test-") check. This is the one place the "rk-test-"
+// literal lives; the tmuxctl supervisor (resurrection guard) consumes it.
 //
-// Playwright e2e servers (rk-e2e-*) are NOT filtered — those tests exercise
-// the multi-server flow through the HTTP API and need their servers to
-// appear in /api/servers.
-//
-// This is intentionally NOT applied in ListServers itself — internal
-// consumers (board.go in particular) iterate every real tmux server,
-// including the Go-test sockets that test fixtures create.
-func IsGoTestServerName(name string) bool {
-	prefixes := []string{
-		"rk-test-",
-		"rk-relay-test-",
-		"rk-verify-",
-		"rk-tmuxctl-test",
-		"rk-daemon-test",
-	}
-	for _, p := range prefixes {
-		if strings.HasPrefix(name, p) {
-			return true
-		}
-	}
-	return false
+// It is intentionally NOT applied in ListServers nor in the /api/servers
+// handler — internal consumers (board.go in particular) iterate every real
+// tmux server, and /api/servers surfaces every server so the operator sees
+// exactly what `rk reaper` will reap.
+func IsTestServerName(name string) bool {
+	return strings.HasPrefix(name, "rk-test-")
 }
 
 // socketDirPath returns the tmux socket directory for the current uid

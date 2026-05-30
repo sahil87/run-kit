@@ -31,7 +31,7 @@ func withRelayTmux(t *testing.T) (server, real, win0ID, win1ID string) {
 		t.Skip("tmux not available — skipping integration test")
 	}
 
-	server = fmt.Sprintf("rk-relay-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+	server = testSocketName("relay")
 	real = "real"
 
 	bootCtx, cancelBoot := context.WithTimeout(context.Background(), 5*time.Second)

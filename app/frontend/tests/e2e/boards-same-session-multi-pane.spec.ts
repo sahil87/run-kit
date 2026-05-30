@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
+const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-board-same-${Date.now()}`;
 const BOARD_NAME = `mp${Date.now().toString().slice(-6)}`;
 

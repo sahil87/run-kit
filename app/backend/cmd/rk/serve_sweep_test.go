@@ -12,6 +12,15 @@ import (
 	"rk/internal/tmux"
 )
 
+// testSocketName builds a unified test socket name: rk-test-<role>-<pid>-<ns>.
+// Local copy of the helper in internal/tmux/main_test.go and api/main_test.go
+// (Go _test.go symbols are package-private and cannot be shared across
+// packages). The single cmd/rk naming site routes through it so no inline
+// "rk-test-..." format string remains.
+func testSocketName(role string) string {
+	return fmt.Sprintf("rk-test-%s-%d-%d", role, os.Getpid(), time.Now().UnixNano())
+}
+
 func TestPidAlive(t *testing.T) {
 	// The current process is unambiguously alive.
 	if !pidAlive(os.Getpid()) {
@@ -73,7 +82,7 @@ func TestSweepOrphanedRelaySessions_scoping(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available — skipping integration test")
 	}
-	server := fmt.Sprintf("rk-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+	server := testSocketName("unit")
 
 	// Bootstrap the isolated server with a non-relay session so it stays alive
 	// even after every relay is reaped (server with zero sessions exits).

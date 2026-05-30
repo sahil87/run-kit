@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
+const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // iPhone 14 viewport
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 

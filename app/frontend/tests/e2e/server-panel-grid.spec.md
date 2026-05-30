@@ -10,7 +10,7 @@ the mobile single-row horizontal-swipe layout.
 - `beforeAll` creates two temporary sessions on the e2e tmux server so
   that the session count shown on the active server's tile is non-zero and
   there is enough content to exercise the grid. `afterAll` kills them.
-- The spec uses `E2E_TMUX_SERVER` (default `rk-e2e`) and verifies that
+- The spec uses `E2E_TMUX_SERVER` (default `rk-test-e2e`) and verifies that
   `/api/servers` surfaces at least that server in its `ServerInfo[]`
   response.
 
@@ -86,7 +86,7 @@ resizable — the bottom drag handle is rendered and reachable.
 
 ## Notes
 
-- These tests use the e2e tmux server (`rk-e2e`) and port 3020, per the
+- These tests use the e2e tmux server (`rk-test-e2e`) and port 3020, per the
   `just test-e2e` isolation convention.
 - Resize drag interaction itself is covered by unit tests in
   `collapsible-panel.test.tsx`; e2e coverage focuses on presence + layout.

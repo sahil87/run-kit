@@ -969,7 +969,7 @@ func withSessionOrderTmux(t *testing.T) string {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available — skipping integration test")
 	}
-	server := fmt.Sprintf("rk-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+	server := testSocketName("unit")
 
 	// Bootstrap: start a session so the server exists. Server-scoped options
 	// require a running server.
@@ -1117,7 +1117,7 @@ func withGroupedSessionTmux(t *testing.T) (string, string) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available — skipping integration test")
 	}
-	server := fmt.Sprintf("rk-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+	server := testSocketName("unit")
 	real := "real"
 
 	bootCtx, cancelBoot := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1323,32 +1323,36 @@ func sessionInfoSliceEqual(a, b []SessionInfo) bool {
 	return true
 }
 
-func TestIsGoTestServerName(t *testing.T) {
+func TestIsTestServerName(t *testing.T) {
 	cases := []struct {
 		name string
 		want bool
 	}{
-		// Go-test scaffolding — must be filtered
-		{"rk-test-29701-1780032043508597000", true},
-		{"rk-relay-test-20089-1780031796792405000", true},
-		{"rk-verify-89115", true},
-		{"rk-tmuxctl-test", true},
-		{"rk-daemon-test", true},
+		// Unified test umbrella — every test socket starts with rk-test-,
+		// including the formerly-distinct relay/tmuxctl/daemon roles and the
+		// PID-stamped e2e secondaries.
+		{"rk-test-unit-48213-1780032043508597000", true},
+		{"rk-test-relay-48213-1780031796792405000", true},
+		{"rk-test-tmuxctl-48213-1", true},
+		{"rk-test-daemon-48213-1", true},
+		{"rk-test-e2e", true},
+		{"rk-test-e2e-multi-48213-1", true},
+		{"rk-test-e2e-coupling-48213-1", true},
 
-		// Playwright e2e — must NOT be filtered (tests assert these appear via /api/servers)
-		{"rk-e2e-coupling-654810", false},
-		{"rk-e2e-multi-632360", false},
-		{"rk-e2e", false},
-
-		// User-facing servers — must NOT be filtered
+		// User-facing / production servers — NOT test artifacts.
 		{"default", false},
 		{"Some", false},
 		{"rk-daemon", false},
 		{"production", false},
+		{"runkit", false},
+		// Legacy prefixes are gone — they no longer match the single umbrella.
+		{"rk-relay-test-20089-1", false},
+		{"rk-verify-89115", false},
+		{"rk-e2e-coupling-654810", false},
 	}
 	for _, tc := range cases {
-		if got := IsGoTestServerName(tc.name); got != tc.want {
-			t.Errorf("IsGoTestServerName(%q) = %v, want %v", tc.name, got, tc.want)
+		if got := IsTestServerName(tc.name); got != tc.want {
+			t.Errorf("IsTestServerName(%q) = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

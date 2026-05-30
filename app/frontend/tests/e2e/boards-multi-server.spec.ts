@@ -1,10 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 
-const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-e2e";
+const TMUX_SERVER_A = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Second tmux server, set up explicitly so the cross-server union has a real
-// counterpart. Using a long suffix to avoid collisions across runs.
-const TMUX_SERVER_B = `rk-e2e-multi-${Date.now().toString().slice(-6)}`;
+// counterpart. Named under the unified rk-test-e2e-* umbrella with the
+// Playwright process.pid as the second-to-last hyphen field, so the automatic
+// post-sweep can parse it like any Go test socket. The trailing suffix is a
+// single hyphen-free token (epoch tail) to keep the PID position unambiguous.
+const TMUX_SERVER_B = `rk-test-e2e-multi-${process.pid}-${Date.now().toString().slice(-6)}`;
 const TEST_SESSION_A = `e2e-board-multi-a-${Date.now()}`;
 const TEST_SESSION_B = `e2e-board-multi-b-${Date.now()}`;
 const BOARD_NAME = `multi${Date.now().toString().slice(-6)}`;
@@ -30,7 +33,7 @@ test.describe("Boards: multi-server union", () => {
   test.afterAll(async ({ request }) => {
     // Unpin while servers are still alive — `@rk_board` lives on the tmux
     // server and survives `kill-session`, so without this the persistent
-    // `rk-e2e` server would carry stale entries into later runs.
+    // `rk-test-e2e` server would carry stale entries into later runs.
     for (const entry of pinnedEntries) {
       try {
         await request.post(`/api/boards/${BOARD_NAME}/unpin`, {

@@ -50,5 +50,7 @@ DEV_PGID=$DEV_PID
 # Wait for server to be ready
 for i in $(seq 1 30); do curl -s "http://localhost:$E2E_PORT" >/dev/null 2>&1 && break; sleep 1; done
 
-# Run tests — pass server name so specs can target the right tmux server
-cd app/frontend && RK_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" pnpm exec playwright test
+# Run tests — pass server name so specs can target the right tmux server.
+# Forward any extra args ("$@") to playwright so callers can scope the run
+# (e.g. `just test-e2e mobile-layout`) against the same seeded test server.
+cd app/frontend && RK_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" pnpm exec playwright test "$@"

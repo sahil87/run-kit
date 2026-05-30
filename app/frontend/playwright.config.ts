@@ -6,7 +6,14 @@ export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 10_000,
   retries: 1,
+  // Serial everywhere: every spec targets one shared tmux server (rk-test-e2e)
+  // and one dev server, and the SSE stream broadcasts session changes to ALL
+  // connected clients. Running workers in parallel therefore lets one worker's
+  // sessions appear in another's sidebar — a correctness race, not just load.
+  // CI gets its speed from sharding across containers (each a fresh tmux +
+  // dev server) instead, see .github/workflows/ci.yml.
   fullyParallel: false,
+  workers: 1,
   globalTeardown: "./tests/e2e/global-teardown.ts",
   use: {
     baseURL: `http://localhost:${port}`,

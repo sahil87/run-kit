@@ -82,8 +82,8 @@ test-frontend:
     cd app/frontend && pnpm test
 
 # Run Playwright e2e tests (port 3020 to avoid colliding with dev server on 3000/3001)
-test-e2e:
-    scripts/test-e2e.sh
+test-e2e *args:
+    scripts/test-e2e.sh {{args}}
 
 # Run ad-hoc Playwright commands (just pw test, just pw test mobile-layout, just pw test --ui)
 # Requires a dev server on port 3020: RK_PORT=3020 just dev

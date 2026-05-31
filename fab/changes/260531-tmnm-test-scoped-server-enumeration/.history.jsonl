@@ -1,0 +1,5 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-31T01:47:55Z"}
+{"args":"Scope backend tmux server enumeration to an allowlisted server under E2E so board tests open one SSE not N — fixes load-dependent board-route connection starvation from unfiltered /api/servers","cmd":"fab-new","event":"command","ts":"2026-05-31T01:47:55Z"}
+{"delta":"+1.4","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-05-31T01:48:57Z"}
+{"delta":"+0.0","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-05-31T01:49:03Z"}
+{"delta":"+0.0","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-05-31T01:49:31Z"}

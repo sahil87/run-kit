@@ -19,6 +19,7 @@ import { Dialog } from "@/components/dialog";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
 import { BoardPane, type BoardPaneHandle } from "./board-pane";
+import { selectLivePanes } from "./select-live-panes";
 import { NotFoundPage } from "@/router";
 
 const CommandPalette = lazy(() =>
@@ -38,6 +39,26 @@ interface BoardPageRouteProps {
  */
 const PANE_WIDTH_SEED = 240;
 const SWIPE_THRESHOLD_PX = 40;
+
+/**
+ * Maximum number of desktop board panes that may hold a live relay WebSocket
+ * simultaneously, on plaintext (HTTP/1.1) origins. Backstops the
+ * IntersectionObserver for the wide-monitor case where more panes are visible
+ * at once than the ~6-connection-per-origin ceiling can afford
+ * (`1 SSE + 4 relay + headroom`). The focused pane is exempt from this cap.
+ */
+const MAX_LIVE_RELAY_PANES = 4;
+
+/**
+ * Horizontal pre-warm margin for the desktop visibility IntersectionObserver,
+ * expressed as an `IntersectionObserver` `rootMargin`. One pane-width on each
+ * side keeps a pane live slightly before it enters and slightly after it
+ * leaves the strict viewport, so a quick scroll-past does not thrash
+ * connect/disconnect (and the `[reconnecting...]` flicker). No debounce — add
+ * one only if thrash is observed during Playwright tuning. Vertical margins are
+ * 0 because the row is a single horizontal strip.
+ */
+const RELAY_PREWARM_ROOT_MARGIN = `0px ${BOARD_PANE_DEFAULT_WIDTH}px`;
 
 export function BoardPage(_props: BoardPageRouteProps) {
   // ToastProvider, SessionProvider, and OptimisticProvider are mounted by
@@ -544,6 +565,36 @@ function DesktopRow({
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
 
+  // Relay-suspension feature is plaintext-only: the ~6-connection-per-origin
+  // ceiling is an HTTP/1.1 artifact. Over HTTPS/h2 (production via Tailscale)
+  // it does not exist, so behavior there is exactly today's (`paused={false}`,
+  // no observer, no cap). `window.location.protocol === "http:"` classifies the
+  // E2E/dev path (`http://localhost:3020`) and raw-port access as plaintext.
+  const plaintext = typeof window !== "undefined" && window.location.protocol === "http:";
+
+  // Per-pane root DOM elements, keyed by pane index, for the IntersectionObserver
+  // to observe. Distinct from `paneRefs` (which holds the imperative
+  // `BoardPaneHandle` for `focus()`); BoardPane exposes its root element via the
+  // separate `rootRef` callback prop so neither contract leaks into the other.
+  const paneElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  // Indices currently within the viewport (incl. pre-warm margin). Only tracked
+  // on plaintext origins; on secure origins it stays empty and is unused.
+  const [visibleIndices, setVisibleIndices] = useState<Set<number>>(new Set());
+
+  // Most-recently-focused pane order (most-recent first), used to break ties
+  // when more panes are visible than the live-pane cap allows. The ref is the
+  // persistent backing store; we fold the current `focusedIndex` to the front
+  // during render (via useMemo keyed on focusedIndex) rather than in a post-commit
+  // effect, so the order consumed by `selectLivePanes` below is never one render
+  // stale — cap eviction always sees the focused pane as most-recent immediately.
+  const mruRef = useRef<number[]>([]);
+  const mruOrder = useMemo(() => {
+    const next = [focusedIndex, ...mruRef.current.filter((i) => i !== focusedIndex)];
+    mruRef.current = next;
+    return next;
+  }, [focusedIndex]);
+
   // Translate horizontal wheel intent (trackpad two-finger pan, or shift+wheel
   // which browsers deliver as deltaX) into row scroll. Vertical wheels bubble
   // through to xterm so per-pane scrollback still works.
@@ -566,6 +617,49 @@ function DesktopRow({
     return () => el.removeEventListener("wheel", onWheel, { capture: true });
   }, []);
 
+  // Visibility tracking via IntersectionObserver, rooted on the horizontal-scroll
+  // container (plaintext origins only). Mirrors the wheel effect's setup/cleanup
+  // discipline. Re-runs when the pane count changes so newly-added panes are
+  // observed and removed panes drop out of the visible set. On secure origins
+  // the observer is never created — every pane stays live (today's behavior).
+  useEffect(() => {
+    if (!plaintext) return;
+    const root = rowRef.current;
+    if (!root) return;
+    const observer = new IntersectionObserver(
+      (records) => {
+        setVisibleIndices((prev) => {
+          const next = new Set(prev);
+          for (const record of records) {
+            const target = record.target;
+            if (!(target instanceof HTMLElement)) continue;
+            const attr = target.dataset.paneIndex;
+            if (attr === undefined) continue;
+            const idx = Number(attr);
+            if (record.isIntersecting) next.add(idx);
+            else next.delete(idx);
+          }
+          return next;
+        });
+      },
+      { root, rootMargin: RELAY_PREWARM_ROOT_MARGIN, threshold: 0 },
+    );
+    for (const el of paneElsRef.current.values()) observer.observe(el);
+    return () => observer.disconnect();
+  }, [plaintext, entries.length]);
+
+  // Compute the live-pane set. On secure origins, every pane is live (feature
+  // off). On plaintext origins, the focused pane plus the most-recently-focused
+  // visible panes are live, capped at MAX_LIVE_RELAY_PANES.
+  const livePanes = plaintext
+    ? selectLivePanes({
+        visible: visibleIndices,
+        focusedIndex,
+        mruOrder,
+        cap: MAX_LIVE_RELAY_PANES,
+      })
+    : null;
+
   return (
     <div ref={rowRef} className="h-full w-full overflow-x-auto flex gap-1 p-1">
       {entries.map((entry, idx) => (
@@ -574,9 +668,17 @@ function DesktopRow({
           ref={(el) => {
             paneRefs.current[idx] = el;
           }}
+          rootRef={(el) => {
+            if (el) {
+              el.dataset.paneIndex = String(idx);
+              paneElsRef.current.set(idx, el);
+            } else {
+              paneElsRef.current.delete(idx);
+            }
+          }}
           entry={entry}
           width={getWidth(entry.windowId)}
-          paused={false}
+          paused={livePanes === null ? false : !livePanes.has(idx)}
           isFocused={idx === focusedIndex}
           onClick={() => onPaneClick(idx)}
           onUnpin={() => onUnpin(entry)}

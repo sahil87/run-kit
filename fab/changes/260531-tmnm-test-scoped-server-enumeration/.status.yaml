@@ -1,0 +1,53 @@
+id: tmnm
+name: 260531-tmnm-test-scoped-server-enumeration
+created: 2026-05-31T01:47:55Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 5
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    fuzzy: true
+    dimensions:
+        signal: 89.4
+        reversibility: 80.6
+        competence: 89.4
+        disambiguation: 85.6
+stage_metrics:
+    intake: {started_at: "2026-05-31T01:47:55Z", driver: fab-new, iterations: 1, completed_at: "2026-05-31T05:34:15Z"}
+    spec: {started_at: "2026-05-31T05:34:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-31T05:38:59Z"}
+    apply: {started_at: "2026-05-31T05:38:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-31T05:39:02Z"}
+    review: {started_at: "2026-05-31T05:39:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-31T05:41:38Z"}
+    hydrate: {started_at: "2026-05-31T05:41:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-31T05:44:08Z"}
+    ship: {started_at: "2026-05-31T05:44:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-31T05:47:12Z"}
+    review-pr: {started_at: "2026-05-31T05:47:12Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/219
+true_impact:
+    added: 372
+    deleted: 0
+    net: 372
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-05-31T05:44:08Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-05-31T05:47:12Z

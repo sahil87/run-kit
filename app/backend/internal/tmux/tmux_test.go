@@ -1356,3 +1356,55 @@ func TestIsTestServerName(t *testing.T) {
 		}
 	}
 }
+
+func TestMatchesServerAllowlist(t *testing.T) {
+	cases := []struct {
+		name      string
+		allowlist string
+		server    string
+		want      bool
+	}{
+		// Unset / empty / whitespace-only allowlist is treated as UNSET and
+		// admits every server — an empty value never means "match nothing".
+		{"unset admits any", "", "kit", true},
+		{"unset admits test server", "", "rk-test-e2e", true},
+		{"whitespace-only admits any", "   ", "runWork", true},
+
+		// Exact match is the prefix-of-itself case.
+		{"exact match", "rk-test-e2e", "rk-test-e2e", true},
+
+		// Prefix admits this-run secondaries (rk-test-e2e-<role>-<pid>-<epoch>).
+		{"prefix admits multi secondary", "rk-test-e2e", "rk-test-e2e-multi-4821-318204", true},
+		{"prefix admits coupling secondary", "rk-test-e2e", "rk-test-e2e-coupling-4821-318211", true},
+
+		// Comma-separated multi-token list, with surrounding whitespace trimmed.
+		{"multi-token admits first prefix", "rk-test-e2e, rk-test-foo", "rk-test-e2e-multi-1-2", true},
+		{"multi-token admits second prefix", "rk-test-e2e, rk-test-foo", "rk-test-foo", true},
+		{"multi-token excludes non-member", "rk-test-e2e, rk-test-foo", "runWork", false},
+
+		// Empty tokens (leading/trailing/double commas) are ignored, not
+		// treated as a wildcard empty prefix. A value that is non-empty but
+		// yields ONLY empty tokens has zero non-empty prefixes, so it matches
+		// nothing (distinct from the "" / whitespace-only "unset" case above —
+		// those short-circuit before tokenizing).
+		{"empty tokens ignored still matches", ",rk-test-e2e,,", "rk-test-e2e", true},
+		{"all-empty tokens match nothing", ",,", "kit", false},
+
+		// Non-match: rk-test-e2e does NOT admit other rk-test-* roles, even
+		// though they share the broader umbrella IsTestServerName matches.
+		{"non-match operator server", "rk-test-e2e", "kit", false},
+		{"non-match other rk-test role", "rk-test-e2e", "rk-test-relay-9001-1717", false},
+
+		// The broader rk-test- umbrella token admits any rk-test-* role.
+		{"umbrella admits e2e", "rk-test-", "rk-test-e2e", true},
+		{"umbrella admits relay", "rk-test-", "rk-test-relay-9001-1717", true},
+		{"umbrella excludes operator", "rk-test-", "runWork", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := matchesServerAllowlist(tc.server, tc.allowlist); got != tc.want {
+				t.Errorf("matchesServerAllowlist(%q, %q) = %v, want %v", tc.server, tc.allowlist, got, tc.want)
+			}
+		})
+	}
+}

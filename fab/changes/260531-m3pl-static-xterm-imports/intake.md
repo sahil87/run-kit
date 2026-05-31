@@ -65,7 +65,10 @@ None — implementation-only; no spec-level behavior change.
 ## Open Questions
 
 - Does converting the five addons to static imports break `terminal-client.test.tsx` under jsdom (e.g., `WebglAddon` touching WebGL APIs at import), requiring new `vi.mock` stubs? Validate during apply.
-- Should the WebGL addon stay dynamically imported (it's the one with a runtime-failure `try/catch` and the heaviest/most-optional dependency), while the other five go static? Tradeoff: keeping WebGL dynamic leaves one chunk fetch on the runtime budget, but it's a single request, not six, and WebGL is the only genuinely optional addon. Decide at spec.
+- ~~Should the WebGL addon stay dynamically imported while the other five go static?~~ **Resolved**: all six go static. Keeping WebGL dynamic would leave one chunk fetch on the runtime connection budget — partially undercutting the root-cause fix. The `try/catch` stays around `new WebglAddon()`/`loadAddon` for GPU-context failures, but the module load becomes static.
+<!-- clarified: all six xterm imports go static (incl. WebGL) — user chose the cleanest full-removal of chunk fetches from the connection budget over the one-fetch middle ground -->
+- ~~Does converting the five addons to static imports require new `vi.mock` stubs?~~ **Resolved**: no. `terminal-client.test.tsx` already mocks all six modules (`@xterm/xterm` :10, `addon-fit` :31, `addon-clipboard` :37, `addon-web-links` :43, `addon-webgl` :49, `addon-unicode-graphemes` :55) and already statically imports three (:4-6). Static source imports align with the existing mocks — no new stubs needed.
+<!-- clarified: no new test mocks required — verified all six vi.mock stubs already present in terminal-client.test.tsx -->>
 
 ## Assumptions
 
@@ -75,7 +78,7 @@ None — implementation-only; no spec-level behavior change.
 | 2 | Certain | All 6 xterm-family imports in terminal-client.tsx are genuine runtime `await import()`; only CSS + type-only refs are static | Verified by reading the file this session (lines 1, 60, 141 static; 147,148,195,200,209,216 runtime) | S:95 R:90 A:95 D:95 |
 | 3 | Confident | Static imports are the right fix because terminal-client.tsx is already router-lazy, so xterm bundles into an already-deferred chunk loaded once per route | Established the lazy-loading via router.tsx; every pane needs identical modules so per-pane dynamic import has no upside | S:80 R:70 A:80 D:80 |
 | 4 | Confident | change_type = fix | Repairs a confirmed defect (deterministic board-route E2E hang); matches keyword "fix"/"hang"/"regression" | S:85 R:90 A:90 D:85 |
-| 5 | Tentative | Whether to keep WebglAddon dynamic while the other five go static | WebGL is the only optional addon with a runtime-failure try/catch; one dynamic fetch vs six is a defensible middle ground — left for spec | S:55 R:65 A:55 D:50 |
-| 6 | Tentative | The five currently-unmocked addons will need new vi.mock stubs in terminal-client.test.tsx | Static import means they eval at module load in jsdom; likely needs stubs, but unverified until apply | S:50 R:70 A:55 D:55 |
+| 5 | Certain | All six xterm imports (including WebGL) go static — none stay dynamic | Clarified — user chose full removal of chunk fetches from the runtime connection budget over keeping one WebGL fetch dynamic; the try/catch stays around WebglAddon construction for GPU-context failures | S:95 R:80 A:90 D:95 |
+| 6 | Certain | No new vi.mock stubs are needed in terminal-client.test.tsx | Clarified — verified all six modules are already mocked (terminal-client.test.tsx:10,31,37,43,49,55) and three already statically imported (:4-6); static source imports align with existing mocks | S:95 R:90 A:95 D:95 |
 
-6 assumptions (2 certain, 2 confident, 2 tentative, 0 unresolved).
+6 assumptions (4 certain, 2 confident, 0 tentative, 0 unresolved).

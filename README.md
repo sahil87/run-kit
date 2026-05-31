@@ -53,7 +53,7 @@ rk riff --skill /fab-discuss    # spawn an agent workspace
 
 The new workspace appears in the dashboard's sidebar; click into it to drive the agent from the browser.
 
-To upgrade later, run `rk update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
+To upgrade later, run `rk update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately. Pass `--skip-brew-update` to skip the internal `brew update` tap-metadata refresh (the version check, upgrade, and daemon restart still run).
 
 ## `rk riff` — the spawner
 
@@ -151,7 +151,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — rk has no 
 | `rk context` | Print agent-optimized environment info (server URL, ports, etc.) — designed to be read by AI agents inside an rk-spawned workspace. |
 | `rk doctor` | Check runtime dependencies. Run this first when something breaks. |
 | `rk init-conf` | Scaffold default `tmux.conf` and `tmux.d/` drop-in directory to `~/.rk/`. Optional. |
-| `rk update` | Upgrade via Homebrew and restart the daemon. |
+| `rk update` | Upgrade via Homebrew and restart the daemon. `--skip-brew-update` skips only the internal `brew update` refresh. |
 | `rk completion` | Generate shell completion scripts (or use `rk shell-init` for eval-safe output). |
 | `rk help` | Help about any command. |
 

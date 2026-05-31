@@ -17,12 +17,39 @@ import (
 
 const brewTimeout = 120 * time.Second
 
+// updateSkipBrewUpdate, when true, skips ONLY the internal `brew update --quiet`
+// tap-metadata refresh. The version check, "already up to date" short-circuit,
+// `brew upgrade`, and daemon restart all still run. Wired to the
+// `--skip-brew-update` boolean flag — a cross-toolkit contract shared with the
+// other sahil87 tools (flag name and semantics must stay exactly as-is).
+var updateSkipBrewUpdate bool
+
+// brewRun streams a `brew <args...>` invocation to stdout/stderr (default
+// behavior). restartDaemon restarts the daemon with the given binary. Both are
+// package-level seams swapped in tests — mirroring the findPortOwner /
+// innerServePIDFn pattern in this package — so the update flow can be exercised
+// without spawning real Homebrew or a real tmux daemon. The defaults preserve
+// the exact subprocess style used everywhere else in this command.
+var (
+	brewRun = func(ctx context.Context, args ...string) error {
+		cmd := exec.CommandContext(ctx, "brew", args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	brewOutput = func(ctx context.Context, args ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, "brew", args...).Output()
+	}
+	restartDaemon = daemon.RestartWithBinary
+	osExecutable  = os.Executable
+)
+
 var updateCmd = &cobra.Command{
 	Use:     "update",
 	Aliases: []string{"upgrade"},
 	Short:   "Update rk to the latest version",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		exePath, err := os.Executable()
+		exePath, err := osExecutable()
 		if err != nil {
 			return fmt.Errorf("could not determine executable path: %w", err)
 		}
@@ -41,22 +68,25 @@ var updateCmd = &cobra.Command{
 
 		fmt.Printf("Current version: v%s\n", version)
 
-		// Refresh tap metadata
-		updateCtx, updateCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer updateCancel()
-
-		update := exec.CommandContext(updateCtx, "brew", "update", "--quiet")
-		update.Stderr = os.Stderr
-		if err := update.Run(); err != nil {
-			return fmt.Errorf("could not check for updates (brew update failed): %w", err)
+		// Refresh tap metadata, unless --skip-brew-update was passed. Skipping
+		// touches ONLY this step; the version check, upgrade, and daemon
+		// restart below all run regardless.
+		if updateSkipBrewUpdate {
+			fmt.Println("Skipping brew update (--skip-brew-update).")
+		} else {
+			updateCtx, updateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := brewRun(updateCtx, "update", "--quiet"); err != nil {
+				updateCancel()
+				return fmt.Errorf("could not check for updates (brew update failed): %w", err)
+			}
+			updateCancel()
 		}
 
 		// Get latest version from Homebrew
 		infoCtx, infoCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer infoCancel()
 
-		info := exec.CommandContext(infoCtx, "brew", "info", "--json=v2", "sahil87/tap/rk")
-		infoOut, err := info.Output()
+		infoOut, err := brewOutput(infoCtx, "info", "--json=v2", "sahil87/tap/rk")
 		if err != nil {
 			return fmt.Errorf("could not determine latest version: %w", err)
 		}
@@ -76,10 +106,7 @@ var updateCmd = &cobra.Command{
 		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewTimeout)
 		defer upgradeCancel()
 
-		upgrade := exec.CommandContext(upgradeCtx, "brew", "upgrade", "sahil87/tap/rk")
-		upgrade.Stdout = os.Stdout
-		upgrade.Stderr = os.Stderr
-		if err := upgrade.Run(); err != nil {
+		if err := brewRun(upgradeCtx, "upgrade", "sahil87/tap/rk"); err != nil {
 			return fmt.Errorf("brew upgrade failed: %w", err)
 		}
 
@@ -97,7 +124,7 @@ var updateCmd = &cobra.Command{
 		// Restart daemon so it picks up the new binary.
 		// Idempotent: if no daemon is running, this starts one.
 		fmt.Println("Restarting rk daemon...")
-		if err := daemon.RestartWithBinary(brewBinPath); err != nil {
+		if err := restartDaemon(brewBinPath); err != nil {
 			return fmt.Errorf("restarting daemon after upgrade: %w", err)
 		}
 		fmt.Printf("rk daemon started (%s/%s/%s)\n",
@@ -105,6 +132,11 @@ var updateCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+func init() {
+	updateCmd.Flags().BoolVar(&updateSkipBrewUpdate, "skip-brew-update", false,
+		"Skip the internal 'brew update' tap-metadata refresh (version check, upgrade, and daemon restart still run)")
 }
 
 // parseBrewVersion extracts the stable version from brew info --json=v2 output.

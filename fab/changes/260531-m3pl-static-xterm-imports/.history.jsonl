@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-31T01:24:12Z"}
+{"args":"Hoist 6 serial runtime await import() calls for xterm family in terminal-client.tsx to static top-of-file imports — fixes HTTP/1.1 6-connection-pool starvation causing board-route E2E hang","cmd":"fab-new","event":"command","ts":"2026-05-31T01:24:12Z"}
+{"delta":"+2.4","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-05-31T01:25:05Z"}
+{"delta":"+0.0","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-05-31T01:25:09Z"}

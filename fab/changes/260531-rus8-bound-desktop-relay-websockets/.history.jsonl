@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-05-31T01:25:20Z"}
+{"args":"Suspend off-screen DesktopRow board panes so live relay WebSocket count stays under the HTTP/1.1 6-per-origin cap on plaintext origins — drive paused from visibility (IntersectionObserver) or LRU cap instead of hardcoded paused=false","cmd":"fab-new","event":"command","ts":"2026-05-31T01:25:20Z"}
+{"delta":"+0.4","event":"confidence","score":0.4,"trigger":"calc-score","ts":"2026-05-31T01:26:14Z"}
+{"delta":"+0.0","event":"confidence","score":0.4,"trigger":"calc-score","ts":"2026-05-31T01:26:18Z"}

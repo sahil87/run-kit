@@ -43,7 +43,13 @@ tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
 # can kill the whole dev subtree (just -> air/vite/node children) by PGID
 # without ever signalling the caller's group. setsid makes the child a session
 # leader, so its PID == its PGID.
-setsid bash -c "RK_PORT=$E2E_PORT exec just dev" &
+#
+# RK_SERVER_ALLOWLIST scopes the backend's READ path: tmux.ListServers (and
+# every consumer rooted at it — /api/servers, board enumeration) returns only
+# rk-test-e2e* servers, so board routes open one SSE per test server instead of
+# one per live operator server on a busy box. This is distinct from
+# E2E_TMUX_SERVER, which scopes the WRITE socket the tests target.
+setsid bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_SERVER exec just dev" &
 DEV_PID=$!
 DEV_PGID=$DEV_PID
 

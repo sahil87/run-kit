@@ -68,9 +68,11 @@ func relayOwnerIsDead(owner string) bool {
 // absent (unstamped/legacy) or dead — a live sibling's relays (e2e backend, an
 // air rebuild, a second instance) are spared so their open terminals survive.
 //
-// Read scope is unchanged: ListServers still scans every socket so the UI keeps
-// seeing foreign servers (rk-e2e-*). Only the destructive reap is scoped, by PID
-// ownership.
+// Read scope follows ListServers: in production (RK_SERVER_ALLOWLIST unset) it
+// scans every socket so the UI keeps seeing foreign servers (rk-e2e-*). Under
+// the e2e harness (allowlist set) ListServers is narrowed to the test servers,
+// so the sweep only visits those — benign, since the destructive reap is scoped
+// by PID ownership regardless and the test env only cares about test servers.
 //
 // Per-server failures (list, owner-read, or kill) are logged and accumulated —
 // they MUST NOT abort the sweep or block server startup. The caller

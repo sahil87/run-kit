@@ -1407,9 +1407,56 @@ func probeServerAlive(ctx context.Context, name string) bool {
 	return cmd.Run() == nil
 }
 
+// ServerAllowlistEnv is the environment variable that, when set, scopes
+// ListServers to only the live servers whose names prefix-match one of its
+// comma-separated tokens. It is read directly in-package (like RK_TMUX_CONF /
+// OriginalTMUX above), NOT threaded through internal/config — ListServers is a
+// ctx-only free function and internal/tmux has no config dependency to carry it.
+//
+// It exists solely for test isolation: the e2e harness sets it to the test
+// server name so the backend's enumeration ignores the operator's live
+// kit/runWork servers. Production leaves it UNSET, in which case ListServers
+// behaves exactly as before (all live servers). See matchesServerAllowlist.
+const ServerAllowlistEnv = "RK_SERVER_ALLOWLIST"
+
+// matchesServerAllowlist reports whether a tmux server name is admitted by the
+// allowlist. An empty or whitespace-only allowlist is treated as UNSET and
+// admits every name (so an empty RK_SERVER_ALLOWLIST never means "match
+// nothing"). Otherwise the allowlist is a comma-separated list of prefixes:
+// each token is trimmed of surrounding whitespace, empty tokens are ignored,
+// and name matches when it HasPrefix ANY remaining token (exact match is the
+// prefix-of-itself case). Prefix matching is required because multi-server e2e
+// specs create rk-test-e2e-<role>-<pid>-<epoch> secondaries that an exact
+// match would wrongly exclude. Extracted as a pure helper so it is unit-testable
+// without live tmux servers.
+func matchesServerAllowlist(name, allowlist string) bool {
+	if strings.TrimSpace(allowlist) == "" {
+		return true
+	}
+	for _, token := range strings.Split(allowlist, ",") {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		if strings.HasPrefix(name, token) {
+			return true
+		}
+	}
+	return false
+}
+
 // ListServers discovers available tmux servers by scanning the tmux socket directory
 // at /tmp/tmux-{uid}/. Probes each socket to confirm the server is alive.
 // Returns sorted server names.
+//
+// When the RK_SERVER_ALLOWLIST env var is set, the live-server list is further
+// narrowed to names that prefix-match the allowlist (see matchesServerAllowlist).
+// The filter lives HERE, not solely in the /api/servers handler, because the
+// board route attaches servers from two distinct ListServers-rooted paths
+// (GET /api/servers and the internal board.go board-entry enumeration); filtering
+// only the handler would leave board enumeration unscoped. Production leaves the
+// var UNSET, so this branch is a no-op there and the "surface every server"
+// contract (see IsTestServerName / tmux.go:1332) is preserved byte-for-byte.
 func ListServers(ctx context.Context) ([]string, error) {
 	candidates, err := ScanSocketDir(ctx)
 	if err != nil {
@@ -1442,6 +1489,19 @@ func ListServers(ctx context.Context) ([]string, error) {
 		}(name)
 	}
 	wg.Wait()
+
+	// Env-gated test-isolation filter. Applied AFTER the liveness probe so only
+	// matching LIVE servers survive. Unset/empty env => admits everything, so
+	// production behavior is unchanged.
+	if allowlist := os.Getenv(ServerAllowlistEnv); strings.TrimSpace(allowlist) != "" {
+		filtered := servers[:0]
+		for _, name := range servers {
+			if matchesServerAllowlist(name, allowlist) {
+				filtered = append(filtered, name)
+			}
+		}
+		servers = filtered
+	}
 
 	sort.Strings(servers)
 	return servers, nil

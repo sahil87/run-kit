@@ -28,12 +28,20 @@ Conversational mode. Third of three fixes drafted from a `/fab-discuss` transpor
 
 ### Backend enumeration — `internal/tmux/tmux.go` and/or `api/servers.go`
 
-Introduce an **allowlist filter** read from an env var (name TBD at spec — candidates: a new `RK_SERVER_ALLOWLIST`, or reuse/rename `E2E_TMUX_SERVER` which the harness already exports). Behavior:
+Introduce an **allowlist filter** read from a new env var **`RK_SERVER_ALLOWLIST`** (read in `config.Load()`, mirroring `RK_PORT`/`RK_HOST`).
+<!-- clarified: env var = new RK_SERVER_ALLOWLIST, not reuse of E2E_TMUX_SERVER. Verified E2E_TMUX_SERVER is shell/TS-only — Go never reads it (test-e2e.sh:5,40,74 and *.spec.ts fallbacks only). A dedicated RK_* name read in config.Load matches the existing convention and is honest about allowlist intent rather than repurposing a shell socket-naming variable for Go config. -->
+
+Behavior:
 
 - **Env unset** (prod default): `ListServers` returns all discovered live servers — unchanged from today.
-- **Env set** (test): the enumeration returns only servers whose name matches the allowlist (single value for now, e.g. `rk-test-e2e`; a comma-list is a possible extension).
+- **Env set** (test): the enumeration returns only servers whose name **prefix-matches** the allowlist value (e.g. `rk-test-e2e`).
+<!-- clarified: match mode = PREFIX, not exact. Verified specs spin up secondaries in beforeAll named rk-test-e2e-<role>-<pid>-<epoch> (boards-multi-server.spec.ts:10 "multi", sidebar-server-coupling.spec.ts:10 "coupling", multi-server-sidebar.spec.ts:10 "msb"). Exact match on rk-test-e2e would wrongly exclude these → multi-server specs fail. Prefix match admits the primary + all this-run secondaries; cross-worktree isolation holds because secondaries embed process.pid (and an epoch suffix), so a different worktree's run has different names under the same prefix. -->
+  The allowlist value MAY itself be a comma-separated list of prefixes (a forward-compatible extension); for now the harness sets a single prefix.
 
-Open design point (spec): apply the filter inside `ListServers` (`tmux.go:1413`) so *all* consumers see the scoped list (servers list, board enumeration, supervisor — anything that calls it), **vs.** apply it only in `handleServersList` (`api/servers.go:19`) so the HTTP surface is scoped but internal callers still see everything. The former is more thorough (the board cross-server attach reads the same list); the latter is narrower-blast-radius. Leaning toward `ListServers` since that is where the SSE-driving list originates, but the supervisor/active-window paths must be checked for unintended scoping.
+Apply the filter inside `ListServers` (`tmux.go:1413`) so *all* enumeration consumers see the scoped list.
+<!-- clarified: filter location = ListServers (not handleServersList-only). Verified the board route attaches servers from TWO ListServers-rooted paths: (1) GET /api/servers (servers.go:25) populates useSessionContext().servers, iterated by use-window-pins.ts:92-95 AND use-boards.ts:40-43; (2) GET /api/boards/{name} enumerates internally via board.go ListAllBoardEntries:151 / GetBoard:221 → ListServers, and the board-entry server fields ALSO drive attach. A handleServersList-only filter leaves path (2) unscoped → SSE inflation persists. ListServers is the only location that fixes both. The tmux.go:1332-1335 comment ("intentionally NOT in ListServers") describes the env-UNSET (prod) path, which the env-gated filter preserves unchanged. Other ListServers callers when env IS set are all test-only context (serve_sweep.go:83 relay sweep, board.go enum) and scoping them in tests is desired. The tmuxctl supervisor does NOT call ListServers (uses os.ReadDir + isTmuxSocketCandidate, supervisor.go:38), so its resurrection guard is untouched. -->
+
+Confirmed safe for all callers: scoping is gated behind the allowlist env var, which only the e2e harness sets — so production (env unset) preserves the `servers.go:20` "surface everything" contract and the `tmux.go:1332` design intent exactly.
 
 ### Test harness — `scripts/test-e2e.sh`
 
@@ -72,10 +80,12 @@ Therefore this change **adds a new forward allowlist** on the enumeration path; 
 
 ## Open Questions
 
-- Filter location: inside `ListServers` (scopes all consumers incl. board cross-server attach — more thorough) vs only `handleServersList` (HTTP-surface-only — narrower)? Must check whether scoping `ListServers` has unintended effects on the `tmuxctl` supervisor / active-window providers that also enumerate servers.
-- Env var: new `RK_SERVER_ALLOWLIST` vs reuse `E2E_TMUX_SERVER` (already exported by the harness but currently Go-invisible)? A dedicated `RK_*` name is more honest about intent and matches the existing config convention; reusing avoids adding a var.
-- Single value vs comma-separated allowlist? Tests spin up secondary servers (`rk-test-e2e-multi-*`, `rk-test-e2e-coupling-*`, per `test-e2e.sh:26`) — does the allowlist need a prefix match (`rk-test-e2e*`) rather than exact, so multi-server specs still see their own secondaries but not the operator's `kit`/`runWork`?
-- Should this be strictly test-only, or is a general prod-side server-allowlist (e.g. for an operator who wants to hide certain servers) a worthwhile generalization? Default assumption: test-only, prod unchanged.
+*(Resolved 2026-05-31 via codebase investigation + user confirmation — see `<!-- clarified -->` markers above.)*
+
+- ~~Filter location~~ → **`ListServers`** (`tmux.go:1413`). The board route attaches servers from two `ListServers`-rooted paths (`/api/servers` and the internal `board.go` board-entry enumeration), so `handleServersList`-only would leave board SSE inflation unscoped. Env-gated, so prod is unchanged and the supervisor (which doesn't call `ListServers`) is untouched.
+- ~~Env var~~ → **new `RK_SERVER_ALLOWLIST`**, read in `config.Load()`. `E2E_TMUX_SERVER` is Go-invisible (shell/TS only); a dedicated `RK_*` name matches convention.
+- ~~Match mode~~ → **prefix** on `rk-test-e2e`. Admits per-spec secondaries (`rk-test-e2e-multi/-coupling/-msb-<pid>-<epoch>`); exact would exclude them. Cross-worktree-safe via embedded `process.pid`.
+- Should this be strictly test-only, or a general prod-side server-allowlist? **Default: test-only, prod unchanged** (env unset = today's behavior). The `RK_SERVER_ALLOWLIST` shape is a forward-compatible base for a future operator-facing allowlist, but that generalization is explicitly out of scope here.
 
 ## Assumptions
 
@@ -86,8 +96,8 @@ Therefore this change **adds a new forward allowlist** on the enumeration path; 
 | 3 | Certain | Must use an ALLOWLIST of the test server name, NOT a denylist — rk-test-e2e is matched by IsTestServerName so `!IsTestServerName` would hide it | Verified tmux.go:1336 (HasPrefix "rk-test-") and supervisor.go:31-42 usage; the denylist hides exactly the wrong thing | S:95 R:80 A:95 D:90 |
 | 4 | Confident | Env-gated, prod-default-unchanged — filter only narrows when the var is set | Preserves the deliberate servers.go:20 prod contract; matches existing RK_PORT/RK_HOST config convention | S:80 R:75 A:85 D:80 |
 | 5 | Confident | change_type = fix | Repairs the environmental cause of a deterministic-on-busy-box test hang; matches "fix"/"hang" | S:80 R:90 A:90 D:80 |
-| 6 | Tentative | Apply the filter in ListServers (all consumers) vs only handleServersList (HTTP only) | ListServers is more thorough since the board attach reads the same list, but may scope the supervisor/active-window paths unintentionally — verify at spec | S:55 R:60 A:60 D:50 |
-| 7 | Tentative | Env var: new RK_SERVER_ALLOWLIST vs reuse E2E_TMUX_SERVER | Dedicated name is clearer + matches convention; reuse avoids a new var — both defensible | S:55 R:70 A:60 D:55 |
-| 8 | Tentative | Allowlist match mode: exact vs prefix (rk-test-e2e*) to also admit test-spun secondaries (rk-test-e2e-multi-*, -coupling-*) | Secondary test servers exist (test-e2e.sh:26); exact-match would wrongly exclude them, prefix risks re-admitting other worktrees' rk-test-* — needs the naming scheme nailed down at spec | S:50 R:60 A:55 D:45 |
+| 6 | Certain | Apply the filter in ListServers (`tmux.go:1413`), env-gated — not handleServersList-only | Clarified — user confirmed. Traced board route to TWO ListServers-rooted paths (/api/servers + board.go ListAllBoardEntries:151/GetBoard:221); handleServersList-only leaves board-entry attach unscoped. tmux.go:1332 comment is the prod (env-unset) path, preserved. Supervisor doesn't call ListServers. | S:95 R:80 A:90 D:90 |
+| 7 | Certain | Env var: new RK_SERVER_ALLOWLIST read in config.Load (not reuse E2E_TMUX_SERVER) | Clarified — user confirmed. Verified E2E_TMUX_SERVER is Go-invisible (shell/TS only); dedicated RK_* mirrors RK_PORT/RK_HOST convention and is honest about allowlist intent. | S:95 R:75 A:90 D:85 |
+| 8 | Certain | Allowlist match mode: prefix on rk-test-e2e (not exact) | Clarified — user confirmed. Verified per-spec secondaries rk-test-e2e-<role>-<pid>-<epoch> created in beforeAll (boards-multi-server.spec.ts:10 etc); exact would exclude them. Cross-worktree-safe via embedded process.pid. | S:95 R:70 A:85 D:80 |
 
-8 assumptions (3 certain, 2 confident, 3 tentative, 0 unresolved).
+8 assumptions (6 certain, 2 confident, 0 tentative, 0 unresolved).

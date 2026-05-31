@@ -22,10 +22,14 @@ Conversational mode. Second of two fixes drafted from a `/fab-discuss` transport
 
 ### `app/frontend/src/components/board/board-page.tsx` — `DesktopRow`
 
-Replace the hardcoded `paused={false}` (`:579`) with a computed `paused` value per pane. Mechanism TBD at spec — one of:
+Replace the hardcoded `paused={false}` (`:579`) with a computed `paused` value per pane, **gated on origin protocol**:
 
-- **IntersectionObserver**: observe each pane element against the `rowRef` scroll container (`:545`). A pane that leaves the viewport (beyond a configurable pre-warm margin, e.g. one pane-width on each side) is paused; re-entering unpauses. Requires a per-pane ref array (the `paneRefs` ref array already exists, `:152`) and an observer wired in an effect alongside the existing wheel handler (`:556-567`).
-- **LRU cap**: track focus order; keep the K most-recently-focused panes (K chosen to stay safely under budget, e.g. 4) unpaused, pause the rest. Simpler — no geometry — and directly bounds connections.
+- **On plaintext (`http:`) origins** — where the ~6-connection ceiling exists — drive `paused` from an **IntersectionObserver**: observe each pane element against the `rowRef` scroll container (`:545`). A pane that leaves the viewport (beyond a configurable pre-warm margin, e.g. one pane-width on each side) is paused; re-entering unpauses. Requires a per-pane ref array (the `paneRefs` ref array already exists, `:152`) and an observer wired in an effect alongside the existing wheel handler (`:556-567`). A **hard cap of 4** simultaneously-live relay panes backstops the observer: if more than 4 panes are visible at once (wide monitor), the least-recently-focused live panes beyond 4 are paused to stay under budget. The focused pane is never paused.
+<!-- clarified: mechanism = IntersectionObserver (mirrors mobile carousel, geometry-accurate, only pauses genuinely off-screen panes). Decided by user this session. -->
+- **On secure (`https:`) origins** — where h2 multiplexes and the ceiling does not exist — behavior is **exactly today's**: every pane renders `paused={false}`, no IntersectionObserver, no cap, no reconnect flicker. The suspension feature is HTTP-only so production behavior over Tailscale HTTPS is provably unchanged.
+<!-- clarified: budget = cap 4 on plaintext HTTP only; uncapped (feature off) on HTTPS. The 6-conn ceiling is plaintext-only, so the suspension feature gates on location.protocol === 'http:'. Decided by user this session. -->
+
+Rejected at clarify: a budget *derived* from attached-server count (`6 − servers − devHMR`) — more moving parts to test, and a static cap of 4 is safely under budget for the common single-server board while never exceeding it. Also rejected: running the IntersectionObserver on HTTPS too (would add reconnect flicker on h2 scroll-back for no connection-budget reason).
 
 ### Behavior to preserve
 
@@ -53,10 +57,11 @@ Replace the hardcoded `paused={false}` (`:579`) with a computed `paused` value p
 
 ## Open Questions
 
-- IntersectionObserver (visibility-accurate, geometry-aware, pre-warm margin) vs LRU cap (simpler, fixed bound, no scroll math)? Tradeoff: IO matches the mobile model and only pauses genuinely off-screen panes; LRU is simpler and guarantees a hard connection ceiling but may pause a visible pane if many are on-screen at once on a wide monitor.
-- What is the connection budget target? With one SSE per attached server and a possible Vite HMR socket in dev, the safe number of simultaneously-live relay panes is roughly `6 − (servers) − (1 if dev)`. Should the cap be static (e.g. 4) or derived from attached-server count?
-- Pre-warm margin and debounce values to avoid reconnect thrash during desktop scroll — needs empirical tuning (Playwright-driven, per the project's Playwright-Driven Development workflow).
-- Is the reconnect flicker (`[reconnecting...]`) acceptable for desktop scroll-back, or should re-entry suppress the flicker (e.g. keep the xterm buffer and only re-open the socket silently)?
+*(Mechanism and budget resolved at clarify — see What Changes. Remaining questions are spec-level tuning, not blocking.)*
+
+- Pre-warm margin and debounce values to avoid reconnect thrash during desktop scroll — needs empirical tuning (Playwright-driven, per the project's Playwright-Driven Development workflow). Spec decision.
+- Is the reconnect flicker (`[reconnecting...]`) acceptable for desktop scroll-back, or should re-entry suppress the flicker (e.g. keep the xterm buffer and only re-open the socket silently)? Spec/UX decision; flicker is already accepted on mobile swipe.
+- How to detect "plaintext origin" robustly: `location.protocol === 'http:'` is the obvious signal, but confirm it correctly classifies the E2E/dev path (`http://localhost:3020`) and raw-port access vs the Tailscale HTTPS path. Spec decision.
 
 ## Assumptions
 
@@ -66,9 +71,10 @@ Replace the hardcoded `paused={false}` (`:579`) with a computed `paused` value p
 | 2 | Certain | The `paused` plumbing already frees the connection: unmount → cancelled=true + ws.close(), and cancelled blocks reconnect; server teardown is sync.Once | Verified in terminal-client.tsx:466-502 and board-pane.tsx:40 comment | S:95 R:85 A:90 D:90 |
 | 3 | Confident | Reuse the existing `paused` prop rather than build new suspension machinery | It's proven on mobile and end-to-end correct; the only gap is what drives the desktop value | S:80 R:70 A:85 D:80 |
 | 4 | Confident | change_type = fix | Bounds connections to repair the plaintext-origin board-route hang/starvation; matches "fix"/"hang"/"regression" | S:80 R:90 A:90 D:80 |
-| 5 | Tentative | Mechanism: IntersectionObserver vs LRU cap | Both viable with different tradeoffs (geometry-accurate vs fixed-ceiling); front-runner is IntersectionObserver to mirror mobile, but not decided — deferred to spec | S:50 R:60 A:60 D:45 |
-| 6 | Tentative | Connection-budget target (static cap e.g. 4 vs derived from attached-server count) | Depends on SSE-per-server count and dev HMR socket; needs the mechanism decision first | S:45 R:65 A:55 D:50 |
-| 7 | Tentative | ui-patterns memory needs a (modify) for desktop pane suspension | Plausible spec-level UI behavior change, but unconfirmed whether ui-patterns already covers pane lifecycle — confirm at hydrate | S:50 R:75 A:55 D:60 |
-| 8 | Tentative | Reconnect flicker on scroll-back is acceptable vs needs silent re-open | UX judgment requiring empirical Playwright tuning; not resolvable from context alone | S:45 R:70 A:45 D:55 |
+| 5 | Certain | Mechanism = IntersectionObserver (not LRU cap) | Clarified — user chose IO this session to mirror the mobile carousel model and pause only genuinely off-screen panes; LRU rejected | S:95 R:60 A:90 D:90 |
+| 6 | Certain | Budget = static cap of 4 live relay panes, applied on plaintext HTTP only | Clarified — user chose a static cap of 4 (safe under the 6-conn ceiling for single-server boards); derived-from-server-count rejected as over-engineered | S:90 R:65 A:85 D:85 |
+| 9 | Certain | Suspension feature is HTTP-only: gated on `location.protocol === 'http:'`; HTTPS keeps today's `paused={false}` behavior with no IO and no cap | Clarified — the 6-conn ceiling is plaintext-only (h2 multiplexes), so production over Tailscale HTTPS is provably unchanged; smallest blast radius | S:90 R:70 A:90 D:90 |
+| 7 | Confident | ui-patterns memory gets a (modify) documenting desktop pane suspension | The behavior demonstrably changes (off-screen desktop panes disconnect/reconnect) and mirrors the already-documented mobile-carousel pause; documenting it is the obvious default. Exact scope (whether a new section vs amend existing) is a hydrate detail, not a fork — hydrate-time only, zero implementation impact | S:70 R:85 A:75 D:80 |
+| 8 | Confident | Reconnect flicker on scroll-back defaults to the accepted mobile behavior; silent re-open is a possible spec-level enhancement | The intake notes flicker is already accepted on mobile swipe (:33); defaulting desktop to the same proven behavior is the obvious front-runner, with a pre-warm margin mitigating thrash. Silent re-open can be layered later without rework | S:70 R:75 A:70 D:75 |
 
-8 assumptions (2 certain, 2 confident, 4 tentative, 0 unresolved).
+9 assumptions (5 certain, 4 confident, 0 tentative, 0 unresolved).

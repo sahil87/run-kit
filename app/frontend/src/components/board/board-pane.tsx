@@ -29,6 +29,14 @@ interface BoardPaneProps {
    * touchend (long-press scroll-lock). Forwarded from the BoardPage's
    * shell-level scroll-lock state. */
   scrollLocked?: boolean;
+  /**
+   * Optional callback ref to the pane's root DOM element. Distinct from the
+   * imperative `BoardPaneHandle` (`forwardRef`, used for `focus()`): the
+   * desktop row needs the actual element to observe with an
+   * `IntersectionObserver` for visibility-driven relay suspension. Mobile does
+   * not pass it. Kept separate so the imperative-handle contract is untouched.
+   */
+  rootRef?: (el: HTMLDivElement | null) => void;
 }
 
 /**
@@ -41,7 +49,7 @@ interface BoardPaneProps {
  * Re-mounting on swipe-in re-establishes the connection.
  */
 export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function BoardPane(
-  { entry, width, paused = false, isFocused, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked },
+  { entry, width, paused = false, isFocused, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked, rootRef },
   ref,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -83,6 +91,7 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
 
   return (
     <div
+      ref={rootRef}
       role="group"
       aria-label={`board pane ${entry.windowName}`}
       onClick={onClick}

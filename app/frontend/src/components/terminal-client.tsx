@@ -1,4 +1,10 @@
 import "@xterm/xterm/css/xterm.css";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import type { UploadedFile } from "@/hooks/use-file-upload";
@@ -144,11 +150,6 @@ export function TerminalClient({
 
     async function init() {
       if (!terminalRef.current) return;
-      const { Terminal } = await import("@xterm/xterm");
-      const { FitAddon } = await import("@xterm/addon-fit");
-
-      // Component unmounted while awaiting imports
-      if (cancelled || !terminalRef.current) return;
 
       const isMobile = !window.matchMedia("(min-width: 640px)").matches;
       const fontPx = isMobile ? 11 : 13;
@@ -192,13 +193,9 @@ export function TerminalClient({
       fitAddonRef.current = fitAddon;
 
       // Clipboard addon — enriched clipboard support
-      const { ClipboardAddon } = await import("@xterm/addon-clipboard");
-      if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
       terminal.loadAddon(new ClipboardAddon(undefined, clipboardProvider));
 
       // Clickable URLs
-      const { WebLinksAddon } = await import("@xterm/addon-web-links");
-      if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
       terminal.loadAddon(new WebLinksAddon());
 
       // xterm defaults to Unicode 6 width tables, but tmux lays out its buffer
@@ -206,19 +203,17 @@ export function TerminalClient({
       // as 2 cells wide land in 1-cell slots and subsequent glyphs overlap.
       // Must load before WebGL so the renderer measures cells against the
       // correct table on first paint.
-      const { UnicodeGraphemesAddon } = await import("@xterm/addon-unicode-graphemes");
-      if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
       terminal.loadAddon(new UnicodeGraphemesAddon());
       terminal.unicode.activeVersion = "15-graphemes";
 
-      // GPU-accelerated rendering (silent fallback to canvas)
+      // GPU-accelerated rendering (silent fallback to canvas). The module is
+      // statically imported (resolved at chunk load), but WebGL context
+      // creation can still throw at runtime — keep the guard around it.
       try {
-        const { WebglAddon } = await import("@xterm/addon-webgl");
-        if (!cancelled) terminal.loadAddon(new WebglAddon());
+        terminal.loadAddon(new WebglAddon());
       } catch {
         // canvas renderer continues working
       }
-      if (cancelled) { try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ } return; }
 
       // Keyboard input → current WebSocket (wsRef always points to latest)
       terminal.onData((data) => {
@@ -266,7 +261,10 @@ export function TerminalClient({
         });
       });
 
-      // Guard against unmount during terminal setup (after imports returned)
+      // Guard against unmount during terminal setup. The addon section above is
+      // now synchronous (static imports), so this single post-construction check
+      // before setTerminalReady disposes a terminal orphaned by an unmount that
+      // raced the font-load await.
       if (cancelled || !terminalRef.current) {
         try { terminal.dispose(); } catch { /* WebGL addon may throw during teardown */ }
         return;

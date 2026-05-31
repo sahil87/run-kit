@@ -5,33 +5,47 @@ created_by: sahil87
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    spec: pending
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    spec: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 7
+    acceptance_count: 15
+    acceptance_completed: 15
 confidence:
-    certain: 2
+    certain: 6
     confident: 2
-    tentative: 2
+    tentative: 0
     unresolved: 0
-    score: 2.4
-    indicative: true
+    score: 4.4
     fuzzy: true
     dimensions:
-        signal: 76.7
-        reversibility: 77.5
-        competence: 77.5
-        disambiguation: 75.8
+        signal: 91.9
+        reversibility: 85.6
+        competence: 91.3
+        disambiguation: 90.6
 stage_metrics:
-    intake: {started_at: "2026-05-31T01:24:12Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-05-31T01:24:12Z", driver: fab-new, iterations: 1, completed_at: "2026-05-31T01:35:46Z"}
+    spec: {started_at: "2026-05-31T01:35:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-31T01:36:39Z"}
+    apply: {started_at: "2026-05-31T01:36:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-31T01:41:26Z"}
+    review: {started_at: "2026-05-31T01:41:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-31T01:43:40Z"}
+    hydrate: {started_at: "2026-05-31T01:43:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-05-31T01:47:11Z"}
+    ship: {started_at: "2026-05-31T01:47:11Z", driver: fab-fff, iterations: 1}
 prs: []
+true_impact:
+    added: 237
+    deleted: 0
+    net: 237
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-05-31T01:47:11Z"
+    computed_at_stage: hydrate
 # true_impact: lazily created on first apply-finish (no placeholder here).
-last_updated: 2026-05-31T01:25:15Z
+last_updated: 2026-05-31T01:47:11Z

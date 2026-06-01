@@ -1,6 +1,6 @@
 # <img src="assets/logo.svg" alt="run-kit logo" width="32" height="32"> run-kit
 
-> Part of [@sahil87's open source toolkit](https://ai.shll.in) — see all projects there.
+> Part of [@sahil87's open source toolkit](https://shll.ai) — see all projects there.
 
 [![Latest release](https://img.shields.io/github/v/release/sahil87/run-kit)](https://github.com/sahil87/run-kit/releases) [![Downloads](https://img.shields.io/github/downloads/sahil87/run-kit/total)](https://github.com/sahil87/run-kit/releases) [![Stars](https://img.shields.io/github/stars/sahil87/run-kit?style=social)](https://github.com/sahil87/run-kit/stargazers)
 

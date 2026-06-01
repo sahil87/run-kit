@@ -106,6 +106,14 @@ const (
 type WindowChangeSubscriber interface {
 	Generation(server string) int64
 	Wait(server string, after int64) <-chan struct{}
+	// Covers reports whether this subscriber has a live control-mode driver
+	// for the named server. A covered server is woken event-driven (its Wait
+	// channel fires on tmux notifications), so the SSE loop can afford the long
+	// safety-net interval. An UNcovered server (no Client — e.g. rk-test-*
+	// servers the supervisor skips, or PTY-unavailable hosts) has no event
+	// driver, so the safety-net timer is its ONLY freshness source and must run
+	// at the fast cadence. See safetyIntervalEffective.
+	Covers(server string) bool
 }
 
 // cachedResult holds a cached FetchSessions result with a timestamp.
@@ -158,19 +166,29 @@ type sseHub struct {
 	safetyInterval time.Duration
 }
 
-// safetyIntervalEffective returns the per-hub safety interval. When a control-
-// mode subscriber is wired, the long 12s safety-net interval applies (control
-// mode is the primary driver). When no subscriber is wired (tests,
-// PTY-unavailable startup), the loop falls back to the legacy 2.5s cadence so
-// existing time-based assertions and PTY-disabled hosts behave identically.
-func (h *sseHub) safetyIntervalEffective() time.Duration {
+// safetyIntervalEffective returns the safety-net interval for a poll cycle
+// covering the given servers. The long 12s interval is correct ONLY when every
+// watched server is control-covered (its Wait channel fires event-driven, so
+// the timer is just a backstop). If ANY watched server is uncovered — no
+// control-mode Client, e.g. an rk-test-* server the supervisor skips, or a
+// PTY-unavailable host — that server has NO event driver, so the safety timer
+// is its only freshness source and must run at the fast legacy cadence;
+// otherwise an external change on it takes up to 12s to surface (the SSE-sync
+// e2e failures: tests assert at 5s but the test server was uncovered yet still
+// got the 12s interval). A per-hub override (h.safetyInterval) wins when set.
+func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 	if h.safetyInterval > 0 {
 		return h.safetyInterval
 	}
-	if h.subscriber != nil {
-		return safetyPollInterval
+	if h.subscriber == nil {
+		return legacyPollInterval
 	}
-	return legacyPollInterval
+	for _, server := range servers {
+		if !h.subscriber.Covers(server) {
+			return legacyPollInterval
+		}
+	}
+	return safetyPollInterval
 }
 
 // detectKilledWindowIDs is a pure function: it returns the set of window ids
@@ -671,7 +689,7 @@ func (h *sseHub) poll() {
 // perServerGen with each server's current generation so the next pass can
 // detect change.
 func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, eventDrivenServers map[string]bool) {
-	timer := time.NewTimer(h.safetyIntervalEffective())
+	timer := time.NewTimer(h.safetyIntervalEffective(servers))
 	defer timer.Stop()
 
 	if h.subscriber == nil {

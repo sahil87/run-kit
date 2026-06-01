@@ -58,6 +58,18 @@ func (s *supervisorSubscriber) Generation(server string) int64 {
 	return c.Generation()
 }
 
+// Covers reports whether the Supervisor has a live Client for the server. A
+// missing Client (rk-test-* servers the supervisor skips via
+// isTmuxSocketCandidate, or PTY-unavailable hosts) means no event-driven
+// wake-ups for that server, so the SSE loop must fall back to the fast safety
+// cadence rather than the 12s control-mode interval.
+func (s *supervisorSubscriber) Covers(server string) bool {
+	if s.sup == nil {
+		return false
+	}
+	return s.sup.Get(server) != nil
+}
+
 func (s *supervisorSubscriber) Wait(server string, after int64) <-chan struct{} {
 	if s.sup == nil {
 		return neverChan()

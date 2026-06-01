@@ -49,6 +49,11 @@ func (s *stubSubscriber) Wait(server string, after int64) <-chan struct{} {
 	return w
 }
 
+// Covers always reports true: the stub models a control-covered server (Bump
+// wakes its Wait channel event-driven), so the hub may use the long safety
+// interval. Tests that need the uncovered fast-poll path use neverSubscriber.
+func (s *stubSubscriber) Covers(string) bool { return true }
+
 func (s *stubSubscriber) Bump(server string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -266,6 +271,10 @@ func (neverSubscriber) Wait(string, int64) <-chan struct{} {
 	return make(chan struct{})
 }
 
+// Covers reports false: neverSubscriber models the no-Client case, so every
+// server is uncovered and the hub must use the fast safety cadence.
+func (neverSubscriber) Covers(string) bool { return false }
+
 // TestSSE_PTYUnavailableDoesNotBusyLoop is the regression test for the
 // PTY-unavailable busy-loop fix: when the WindowChangeSubscriber returns a
 // never-closing Wait channel for a server (because Get(server) returned nil),
@@ -372,6 +381,51 @@ func TestSSE_WaitForNextDoesNotLeakGoroutines(t *testing.T) {
 		t.Errorf("goroutine count grew by %d after %d bumps (baseline %d, after %d) — possible leak in waitForNext",
 			after-baseline, iterations, baseline, after)
 	}
+}
+
+// coverageSubscriber is a WindowChangeSubscriber whose Covers result is driven
+// by a per-server map. Generation/Wait are inert (never fire) — this stub
+// exists only to exercise safetyIntervalEffective's coverage branching.
+type coverageSubscriber struct{ covered map[string]bool }
+
+func (coverageSubscriber) Generation(string) int64            { return 0 }
+func (coverageSubscriber) Wait(string, int64) <-chan struct{} { return make(chan struct{}) }
+func (c coverageSubscriber) Covers(server string) bool        { return c.covered[server] }
+
+// TestSafetyIntervalEffective verifies the per-server interval selection that
+// fixes the SSE-sync latency: the long control-mode interval applies only when
+// EVERY watched server is covered; one uncovered server (e.g. an rk-test-*
+// server the supervisor skips) forces the fast cadence so its external changes
+// surface within the test timeout instead of waiting for the 12s backstop.
+func TestSafetyIntervalEffective(t *testing.T) {
+	t.Run("no subscriber -> legacy fast", func(t *testing.T) {
+		h := newSSEHub(&fetchTracker{}, nil)
+		if got := h.safetyIntervalEffective([]string{"any"}); got != legacyPollInterval {
+			t.Fatalf("got %v, want %v", got, legacyPollInterval)
+		}
+	})
+	t.Run("all covered -> long safety interval", func(t *testing.T) {
+		h := newSSEHub(&fetchTracker{}, nil)
+		h.subscriber = coverageSubscriber{covered: map[string]bool{"a": true, "b": true}}
+		if got := h.safetyIntervalEffective([]string{"a", "b"}); got != safetyPollInterval {
+			t.Fatalf("got %v, want %v", got, safetyPollInterval)
+		}
+	})
+	t.Run("any uncovered -> legacy fast", func(t *testing.T) {
+		h := newSSEHub(&fetchTracker{}, nil)
+		h.subscriber = coverageSubscriber{covered: map[string]bool{"a": true, "rk-test-e2e": false}}
+		if got := h.safetyIntervalEffective([]string{"a", "rk-test-e2e"}); got != legacyPollInterval {
+			t.Fatalf("got %v, want %v (an uncovered server must force the fast cadence)", got, legacyPollInterval)
+		}
+	})
+	t.Run("explicit override wins", func(t *testing.T) {
+		h := newSSEHub(&fetchTracker{}, nil)
+		h.subscriber = coverageSubscriber{covered: map[string]bool{}}
+		h.safetyInterval = 99 * time.Millisecond
+		if got := h.safetyIntervalEffective([]string{"uncovered"}); got != 99*time.Millisecond {
+			t.Fatalf("got %v, want explicit override 99ms", got)
+		}
+	})
 }
 
 // Silence unused-import warning if the kit changes shape.

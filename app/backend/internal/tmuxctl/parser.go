@@ -59,6 +59,22 @@ type WindowRenamedEvent struct {
 // SessionsChangedEvent is emitted when the session list changes (`%sessions-changed`).
 type SessionsChangedEvent struct{}
 
+// UnlinkedWindowEvent is emitted for window add/close/rename in a session the
+// control client is NOT attached to (`%unlinked-window-add @wid`,
+// `%unlinked-window-close @wid`, `%unlinked-window-renamed @wid name`). tmux
+// sends the `%window-*` (linked) variants only for the attached session, and
+// the `%unlinked-window-*` variants for every OTHER session on the server.
+//
+// run-kit's control client attaches to one bootstrap/anchor session per server
+// but renders ALL sessions, so an external change (e.g. a window created by
+// `rk riff`, a CLI, or another tool) in any non-attached session arrives ONLY
+// as an unlinked event. We don't need the per-session active-window detail from
+// these (that's tracked from the linked %session-window-changed for the
+// attached session) — we only need to know the window set changed so the SSE
+// hub rebuilds its snapshot. So this carries no payload; dispatch bumps the
+// generation counter, same as the linked window events.
+type UnlinkedWindowEvent struct{}
+
 // LayoutChangeEvent is emitted on pane layout change. Only WindowID is retained
 // in v1 — the other fields (window-layout / visible-layout / window-flags) are
 // parsed off but not surfaced (`%layout-change @wid layout vis flags`).
@@ -92,6 +108,7 @@ func (WindowAddEvent) isEvent()             {}
 func (WindowCloseEvent) isEvent()           {}
 func (WindowRenamedEvent) isEvent()         {}
 func (SessionsChangedEvent) isEvent()       {}
+func (UnlinkedWindowEvent) isEvent()        {}
 func (LayoutChangeEvent) isEvent()          {}
 func (UnknownEvent) isEvent()               {}
 func (MalformedEvent) isEvent()             {}
@@ -184,6 +201,13 @@ func ParseLine(line string) Event {
 			return MalformedEvent{Raw: line}
 		}
 		return WindowRenamedEvent{WindowID: wid, Name: n}
+	case "unlinked-window-add", "unlinked-window-close", "unlinked-window-renamed":
+		// Window add/close/rename in a NON-attached session on this server. We
+		// don't parse the payload (we only need "something changed" to trigger a
+		// snapshot rebuild — see UnlinkedWindowEvent). Tolerate any/empty rest:
+		// unlike the linked variants we never index the window id, so a missing
+		// argument is not malformed for our purposes.
+		return UnlinkedWindowEvent{}
 	case "sessions-changed":
 		return SessionsChangedEvent{}
 	case "layout-change":

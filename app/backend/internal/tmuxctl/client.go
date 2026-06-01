@@ -308,6 +308,14 @@ func (c *Client) dispatch(ev Event) {
 		c.sink.OnWindowRenamed(v.WindowID, v.Name)
 	case SessionsChangedEvent:
 		c.sink.OnSessionsChanged()
+	case UnlinkedWindowEvent:
+		// A window changed in a session this client is not attached to. No
+		// sink callback — active-window state is session-scoped and tracked
+		// from the linked %session-window-changed for the attached session.
+		// We only need to bump the generation so the SSE hub rebuilds its
+		// snapshot, surfacing the external change without waiting for the 12s
+		// safety poll. The bumpGeneration below (shared with all handled
+		// events) does exactly that.
 	case LayoutChangeEvent:
 		c.sink.OnLayoutChange(v.WindowID)
 	case UnknownEvent, MalformedEvent:

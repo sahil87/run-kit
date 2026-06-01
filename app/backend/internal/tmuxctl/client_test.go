@@ -203,6 +203,49 @@ func TestClient_DispatchAndGenerationBump(t *testing.T) {
 	_ = c.Close()
 }
 
+// TestClient_UnlinkedWindowBumpsGeneration verifies the SSE-sync fix: a
+// %unlinked-window-* notification (a window change in a session this client is
+// not attached to) advances the generation counter so the SSE hub rebuilds its
+// snapshot — without invoking any session-scoped sink callback. Before this,
+// unlinked events were dropped, so an external window change in a non-attached
+// session only surfaced on the 12s safety poll.
+func TestClient_UnlinkedWindowBumpsGeneration(t *testing.T) {
+	resetLoggedUnknowns()
+	sink := &recordingSink{}
+
+	// %begin handshake, then an unlinked-window-add for a non-attached session.
+	stream := []byte("%begin 1 1 0\n%unlinked-window-add @77\n")
+	rwc := newPipeReaderFromBytes(stream)
+	dial := func(ctx context.Context, socket string) (*exec.Cmd, io.ReadWriteCloser, error) {
+		return &exec.Cmd{}, rwc, nil
+	}
+	c, err := openWith(context.Background(), "test", sink, dial, realSleep)
+	if err != nil {
+		t.Fatalf("openWith: %v", err)
+	}
+	defer c.Close()
+
+	// Generation must reach 1 (the unlinked event bumped it).
+	deadline := time.Now().Add(2 * time.Second)
+	for c.Generation() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("generation never advanced on %unlinked-window-add")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if c.Generation() != 1 {
+		t.Fatalf("expected generation=1 after one unlinked event, got %d", c.Generation())
+	}
+
+	// No session-scoped sink callback should fire for an unlinked (cross-session)
+	// event — active-window state is tracked only from the linked variants.
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.swcEvents) != 0 {
+		t.Errorf("expected no session-window-changed sink events, got %+v", sink.swcEvents)
+	}
+}
+
 // TestClient_WaitBlocksUntilEvent ensures Wait(after) returns a not-yet-closed
 // channel when generation == after, and closes when an event arrives.
 func TestClient_WaitBlocksUntilEvent(t *testing.T) {

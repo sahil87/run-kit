@@ -84,13 +84,31 @@ func TestParseLine_LayoutChange(t *testing.T) {
 	}
 }
 
-func TestParseLine_OutputAndUnlinkedDropped(t *testing.T) {
+func TestParseLine_OutputDropped(t *testing.T) {
 	resetLoggedUnknowns()
 	if _, ok := ParseLine("%output %1 hello world").(IgnoredEvent); !ok {
 		t.Fatal("expected IgnoredEvent for output line")
 	}
-	if _, ok := ParseLine("%unlinked-window-add @55").(IgnoredEvent); !ok {
-		t.Fatal("expected IgnoredEvent for unlinked-window-* line")
+}
+
+// %unlinked-window-* fires for window add/close/rename in a session the control
+// client is NOT attached to (every non-attached session on the server). These
+// must parse to UnlinkedWindowEvent so dispatch bumps generation and the SSE
+// hub rebuilds — previously they were dropped as IgnoredEvent, which is why an
+// external window change in a non-attached session took up to 12s (the safety
+// poll) to surface instead of being event-driven.
+func TestParseLine_UnlinkedWindowEvents(t *testing.T) {
+	resetLoggedUnknowns()
+	cases := []string{
+		"%unlinked-window-add @55",
+		"%unlinked-window-close @55",
+		"%unlinked-window-renamed @55 some new name",
+		"%unlinked-window-add", // tolerate missing payload — we never index it
+	}
+	for _, line := range cases {
+		if _, ok := ParseLine(line).(UnlinkedWindowEvent); !ok {
+			t.Errorf("ParseLine(%q) = %T, want UnlinkedWindowEvent", line, ParseLine(line))
+		}
 	}
 }
 

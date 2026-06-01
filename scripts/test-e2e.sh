@@ -17,8 +17,9 @@ cleanup() {
   # SIGTERMs the caller's tmux servers / `-CC` control clients sharing the
   # group — silently destroying live, unrelated tmux sessions (observed:
   # kit/abbb/runWork dying mid-session with no tmux kill-server command). The
-  # dev server is launched via `setsid` into its OWN process group below, so we
-  # target that group by negative PGID and leave the caller's group untouched.
+  # dev server is launched into its OWN process group below (via `set -m` job
+  # control), so we target that group by negative PGID and leave the caller's
+  # group untouched.
   if [ -n "$DEV_PGID" ]; then
     kill -- "-$DEV_PGID" 2>/dev/null || true
   fi
@@ -39,19 +40,47 @@ lsof -iTCP:$E2E_PORT -iTCP:$(( E2E_PORT + 1 )) -sTCP:LISTEN -t 2>/dev/null | xar
 # Start a dedicated tmux server for e2e tests
 tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
 
-# Start the dev server in its OWN process group/session via setsid, so cleanup
-# can kill the whole dev subtree (just -> air/vite/node children) by PGID
-# without ever signalling the caller's group. setsid makes the child a session
-# leader, so its PID == its PGID.
+# Start the dev server in its OWN process group, so cleanup can kill the whole
+# dev subtree (just -> air/vite/node children) by PGID without ever signalling
+# the caller's group (the `kill 0` grenade this replaced killed live operator
+# tmux servers — see the cleanup() comment above).
+#
+# `set -m` enables job control, which makes each `&` background job a process-
+# group leader (its PGID == its PID). This is portable: it needs no external
+# binary, so it works on macOS (which has no `setsid` — that's util-linux, not
+# BSD) as well as Linux/CI. We scope monitor mode to just this launch and turn
+# it back off immediately (after capturing the PGID) so the rest of the script
+# keeps its normal job behavior.
 #
 # RK_SERVER_ALLOWLIST scopes the backend's READ path: tmux.ListServers (and
 # every consumer rooted at it — /api/servers, board enumeration) returns only
 # rk-test-e2e* servers, so board routes open one SSE per test server instead of
 # one per live operator server on a busy box. This is distinct from
 # E2E_TMUX_SERVER, which scopes the WRITE socket the tests target.
-setsid bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_SERVER exec just dev" &
+set -m
+bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_SERVER exec just dev" &
 DEV_PID=$!
-DEV_PGID=$DEV_PID
+set +m
+
+# Verify job control actually put the child in its OWN process group before we
+# trust DEV_PGID for the negative-PGID kill in cleanup(). `set -m` normally
+# makes a background job a group leader (PGID == PID), but if it silently did
+# NOT (an unexpected shell/environment), DEV_PGID would equal THIS script's
+# PGID — and `kill -- -$DEV_PGID` would grenade the caller's whole group (the
+# exact disaster this design prevents). Read the child's real PGID via `ps` and
+# abort if it matches our own. DEV_PGID stays empty on abort, so the EXIT trap's
+# group-kill is a no-op. (Per PR #220 review.)
+DEV_PGID=$(ps -o pgid= -p "$DEV_PID" 2>/dev/null | tr -d ' ')
+SELF_PGID=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
+if [ -z "$DEV_PGID" ]; then
+  echo "ERROR: could not read dev server PGID (pid $DEV_PID); aborting before the EXIT trap can mis-target." >&2
+  exit 1
+fi
+if [ "$DEV_PGID" = "$SELF_PGID" ]; then
+  echo "ERROR: dev server shares this script's process group ($DEV_PGID) — job control did not isolate it. Aborting so cleanup never signals the caller's group." >&2
+  DEV_PGID=""
+  exit 1
+fi
 
 # Wait for BOTH servers to be ready. The frontend (Vite, E2E_PORT) comes up
 # almost instantly, but the Go backend (E2E_PORT+1) is built from scratch by

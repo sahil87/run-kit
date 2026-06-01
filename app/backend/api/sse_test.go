@@ -762,3 +762,84 @@ func TestSSE_HubBootstrapReadsOrderOnFirstPoll(t *testing.T) {
 		t.Errorf("orderFetcher calls = %d, want >= 1", calls)
 	}
 }
+
+// TestRealSessionNameSet verifies the snapshot→real-session-name extraction
+// excludes relay ephemerals and the control anchor (which churn by design and
+// must not trip the disappearance log) while keeping user-facing sessions.
+func TestRealSessionNameSet(t *testing.T) {
+	in := []sessions.ProjectSession{
+		{Name: "shll", Windows: []tmux.WindowInfo{}},
+		{Name: "wt", Windows: []tmux.WindowInfo{}},
+		{Name: tmux.RelaySessionPrefix + "abc123", Windows: []tmux.WindowInfo{}},
+		{Name: tmux.ControlAnchorSessionName, Windows: []tmux.WindowInfo{}},
+		{Name: "", Windows: []tmux.WindowInfo{}}, // defensive: empty name ignored
+	}
+	got := realSessionNameSet(in)
+	want := map[string]bool{"shll": true, "wt": true}
+	if len(got) != len(want) {
+		t.Fatalf("realSessionNameSet size = %d, want %d (got %v)", len(got), len(want), got)
+	}
+	for name := range want {
+		if !got[name] {
+			t.Errorf("realSessionNameSet missing real session %q", name)
+		}
+	}
+	if got[tmux.RelaySessionPrefix+"abc123"] {
+		t.Error("realSessionNameSet must exclude relay ephemerals")
+	}
+	if got[tmux.ControlAnchorSessionName] {
+		t.Error("realSessionNameSet must exclude the control anchor")
+	}
+}
+
+// TestDetectDisappearedSessions verifies the pure prev→current diff: only names
+// present before and absent now are reported, and a grown/equal set yields none.
+func TestDetectDisappearedSessions(t *testing.T) {
+	cases := []struct {
+		name          string
+		prev, current map[string]bool
+		want          []string
+	}{
+		{
+			name:    "one disappeared",
+			prev:    map[string]bool{"shll": true, "wt": true},
+			current: map[string]bool{"wt": true},
+			want:    []string{"shll"},
+		},
+		{
+			name:    "none disappeared (stable)",
+			prev:    map[string]bool{"shll": true},
+			current: map[string]bool{"shll": true},
+			want:    nil,
+		},
+		{
+			name:    "session added, none gone",
+			prev:    map[string]bool{"shll": true},
+			current: map[string]bool{"shll": true, "new": true},
+			want:    nil,
+		},
+		{
+			name:    "all gone (server emptied)",
+			prev:    map[string]bool{"shll": true, "wt": true},
+			current: map[string]bool{},
+			want:    []string{"shll", "wt"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := detectDisappearedSessions(tc.prev, tc.current)
+			gotSet := map[string]bool{}
+			for _, g := range got {
+				gotSet[g] = true
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("detectDisappearedSessions = %v, want %v", got, tc.want)
+			}
+			for _, w := range tc.want {
+				if !gotSet[w] {
+					t.Errorf("detectDisappearedSessions missing %q (got %v)", w, got)
+				}
+			}
+		})
+	}
+}

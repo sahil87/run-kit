@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -135,6 +136,7 @@ type sseHub struct {
 	orderBootstrapAttempts   map[string]int           // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
 	previousBoardJSON        map[string]string        // per-server board bootstrap snapshot payload cache
 	previousWindowIDs        map[string]map[string]bool // per-server prior-tick live window ids for kill-detection
+	previousRealSessions     map[string]map[string]bool // per-server prior-tick real (non-relay/anchor) session names for disappearance logging
 	cache                    map[string]*cachedResult // per-server session fetch cache (500ms TTL)
 	polling                  bool
 	fetcher                  SessionFetcher
@@ -192,6 +194,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector) *sseHub {
 		orderBootstrapAttempts: make(map[string]int),
 		previousBoardJSON:      make(map[string]string),
 		previousWindowIDs:      make(map[string]map[string]bool),
+		previousRealSessions:   make(map[string]map[string]bool),
 		cache:                  make(map[string]*cachedResult),
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
@@ -378,6 +381,38 @@ func windowIDSetFromSessions(sess []sessions.ProjectSession) map[string]bool {
 	return out
 }
 
+// realSessionNameSet returns the set of *user-facing* session names in the
+// snapshot — excluding the per-connection relay ephemerals (rk-relay-*) and the
+// control-mode anchor (_rk-ctl), which churn constantly by design and are not
+// sessions a user would notice losing. Used to detect when a real session
+// disappears between poll ticks (observability for Constitution VI — tmux
+// sessions must survive).
+func realSessionNameSet(sess []sessions.ProjectSession) map[string]bool {
+	out := make(map[string]bool)
+	for _, s := range sess {
+		if s.Name == "" {
+			continue
+		}
+		if strings.HasPrefix(s.Name, tmux.RelaySessionPrefix) || s.Name == tmux.ControlAnchorSessionName {
+			continue
+		}
+		out[s.Name] = true
+	}
+	return out
+}
+
+// detectDisappearedSessions returns names present in prev but absent in
+// current. Pure; mirrors detectKilledWindowIDs.
+func detectDisappearedSessions(prev, current map[string]bool) []string {
+	var gone []string
+	for name := range prev {
+		if !current[name] {
+			gone = append(gone, name)
+		}
+	}
+	return gone
+}
+
 func (h *sseHub) poll() {
 	// Track per-server generation observed on the prior pass. The
 	// event-driven wait fires when generation advances past this.
@@ -545,6 +580,33 @@ func (h *sseHub) poll() {
 			}
 			h.mu.Lock()
 			h.previousWindowIDs[server] = currentIDs
+			h.mu.Unlock()
+
+			// Real-session disappearance logging (observability only — no
+			// behavior change). run-kit audit-logs every session IT kills
+			// (relay ephemerals, explicit kill-session), but a real user
+			// session can vanish OUTSIDE that path — a shell exiting, an
+			// external `tmux kill-session`, an OOM kill, or a server collapsing
+			// to zero under `exit-empty`. When that happens today the logs go
+			// silent, making post-hoc diagnosis impossible (see the `utils`
+			// incident). Emit one WARN per disappeared real session so the next
+			// occurrence is diagnosable. We exclude relay/anchor churn via
+			// realSessionNameSet. This does NOT prevent the loss — it records
+			// it; Constitution VI prevention (exit-empty off / anchor) is a
+			// separate change.
+			currentReal := realSessionNameSet(result)
+			h.mu.RLock()
+			prevReal, hadPrevReal := h.previousRealSessions[server]
+			h.mu.RUnlock()
+			if hadPrevReal {
+				for _, name := range detectDisappearedSessions(prevReal, currentReal) {
+					slog.Warn("real session disappeared between SSE polls (not killed by run-kit's audited path)",
+						"server", server, "session", name,
+						"remaining", len(currentReal))
+				}
+			}
+			h.mu.Lock()
+			h.previousRealSessions[server] = currentReal
 			h.mu.Unlock()
 		}
 

@@ -69,16 +69,13 @@ test.describe("Shell rotation: BottomBar focus tracking", () => {
     // Navigate to the board route — BottomBar is now present on this route.
     await page.goto(`/board/${BOARD_NAME}`, { waitUntil: "domcontentloaded" });
 
-    // Wait for both pane terminals to render their ready-markers.
-    await expect
-      .poll(
-        async () => {
-          const text = await page.locator("body").innerText();
-          return text.includes(WIN_A_MARKER) && text.includes(WIN_B_MARKER);
-        },
-        { timeout: 15_000 },
-      )
-      .toBe(true);
+    // Readiness gate: wait for both panes to mount a live xterm instance. We
+    // assert the `.xterm` DOM signal (terminal attached) rather than scraping
+    // the ready-marker text — xterm renders to a WebGL canvas with no DOM text
+    // layer, so `body.innerText()` never contains terminal content. The actual
+    // behavior under test (focus cycling) is asserted below via `border-accent`,
+    // independent of terminal content; this gate only needs both panes live.
+    await expect(page.locator(".xterm")).toHaveCount(2, { timeout: 15_000 });
 
     // BottomBar is rendered at shell level on the board route — confirm the
     // command-palette and modifier toggle (proxy for "BottomBar present") are

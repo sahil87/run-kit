@@ -15,9 +15,9 @@ context).
 
 - `beforeAll` creates an `e2e-shell-rotation-<timestamp>` tmux session
   on the `rk-test-e2e` server with two named windows (`win-a`, `win-b`). Each
-  window prints a unique ready-marker (`PANE_ALPHA_RDY`, `PANE_BRAVO_RDY`)
-  and then runs `cat` so STDIN piped via the BottomBar relay accumulates
-  in the pane's view.
+  window prints a ready-marker and then runs `cat` so STDIN piped via the
+  BottomBar relay accumulates in the pane's view. (The markers are not
+  scraped — readiness is gated on the `.xterm` DOM signal; see step 4.)
 - A unique board name (`sr<digits>`) is used per run so reruns don't
   collide on the persistent tmux server.
 - `afterAll` kills the test session.
@@ -37,9 +37,11 @@ by the pane's `border-accent` class which marks the focused pane.
    `tmux list-windows -F`.
 2. POST `/api/boards/<name>/pin` with both window IDs.
 3. Navigate to `/board/<name>` (waitUntil `domcontentloaded`).
-4. Poll the rendered text until both ready-markers (`PANE_ALPHA_RDY`,
-   `PANE_BRAVO_RDY`) are present — confirms both panes' terminals
-   connected.
+4. Readiness gate: assert exactly two `.xterm` instances mount — confirms
+   both panes' terminals attached. (We assert the `.xterm` DOM signal rather
+   than scraping ready-marker text: xterm renders to a WebGL canvas with no
+   DOM text layer. The focus-cycling behavior under test is verified via
+   `border-accent` below, independent of terminal content.)
 5. Assert the shell-level `BottomBar` is present by locating the
    `Open command palette` button (a stable BottomBar affordance).
 6. Press `Meta+]` to cycle focus from pane 0 to pane 1.

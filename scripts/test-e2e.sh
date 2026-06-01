@@ -60,8 +60,27 @@ tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
 set -m
 bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_SERVER exec just dev" &
 DEV_PID=$!
-DEV_PGID=$DEV_PID
 set +m
+
+# Verify job control actually put the child in its OWN process group before we
+# trust DEV_PGID for the negative-PGID kill in cleanup(). `set -m` normally
+# makes a background job a group leader (PGID == PID), but if it silently did
+# NOT (an unexpected shell/environment), DEV_PGID would equal THIS script's
+# PGID — and `kill -- -$DEV_PGID` would grenade the caller's whole group (the
+# exact disaster this design prevents). Read the child's real PGID via `ps` and
+# abort if it matches our own. DEV_PGID stays empty on abort, so the EXIT trap's
+# group-kill is a no-op. (Per PR #220 review.)
+DEV_PGID=$(ps -o pgid= -p "$DEV_PID" 2>/dev/null | tr -d ' ')
+SELF_PGID=$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')
+if [ -z "$DEV_PGID" ]; then
+  echo "ERROR: could not read dev server PGID (pid $DEV_PID); aborting before the EXIT trap can mis-target." >&2
+  exit 1
+fi
+if [ "$DEV_PGID" = "$SELF_PGID" ]; then
+  echo "ERROR: dev server shares this script's process group ($DEV_PGID) — job control did not isolate it. Aborting so cleanup never signals the caller's group." >&2
+  DEV_PGID=""
+  exit 1
+fi
 
 # Wait for BOTH servers to be ready. The frontend (Vite, E2E_PORT) comes up
 # almost instantly, but the Go backend (E2E_PORT+1) is built from scratch by

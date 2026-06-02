@@ -42,6 +42,7 @@ func init() {
 	rootCmd.AddCommand(riffCmd)
 	rootCmd.AddCommand(reaperCmd)
 	rootCmd.AddCommand(newShellInitCmd())
+	rootCmd.AddCommand(helpDumpCmd)
 }
 
 func execute() {

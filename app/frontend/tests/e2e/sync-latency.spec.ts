@@ -169,21 +169,49 @@ test.describe("Sync Latency Audit", () => {
     const newWinBtn = sidebar.locator(`button[aria-label='New window in ${SESSION_B}']`);
 
     if (await newWinBtn.isVisible().catch(() => false)) {
+      // Scope to SESSION_B's window rows. The session wrapper has no
+      // `data-session` attribute, so we locate it relationally by anchoring on
+      // the per-session wrapper class `div.mb-2` (unique to the session
+      // wrapper at sidebar/index.tsx:1117) that `has` SESSION_B's
+      // `Navigate to ` button, then count its `[data-window-id]` descendants.
+      // `div.mb-2` + `.filter({ has })` resolves to exactly SESSION_B's
+      // wrapper, so `.first()` is deliberately NOT used: a bare
+      // `.locator("div").filter({ has }).first()` would resolve to the
+      // outermost matching ancestor — the whole-server Sessions container
+      // (index.tsx:731) — and over-count every session's rows.
+      // `[data-window-id]` is the canonical, stable window-row handle (real
+      // windows = tmux `@N`, ghost rows = `ghost-<optimisticId>`) — the same
+      // one sidebar-window-sync.spec.ts selects by. The auto-derived window
+      // name is unpredictable, so we detect "a new row appeared" by a count
+      // increase rather than by name, mirroring test 1's session-level
+      // row-count poll.
+      const sessionBGroup = sidebar
+        .locator("div.mb-2")
+        .filter({ has: page.locator(`button[aria-label='Navigate to ${SESSION_B}']`) });
+      const winRows = sessionBGroup.locator("[data-window-id]");
+      const beforeCount = await winRows.count();
+
+      // Start the timer immediately before the create click so the recorded
+      // value is the true time-to-first-ghost-appearance — the bounded poll
+      // timeout below only bounds the failure case, it does not inflate the
+      // measurement the way the old fixed `waitForTimeout(3_000)` did.
+      const t0 = Date.now();
       await newWinBtn.click();
 
-      // The dialog opens in "window" mode — only path input, window created immediately
-      // The window gets a default name. Measure time until a new window appears.
-      const t0 = Date.now();
-
-      // Dialog might show — click Create if it does
+      // The sidebar "+" create path on the current server is instant (no
+      // dialog) — an optimistic ghost row lands immediately. The dialog guard
+      // is a tolerant no-op for any path that does surface one.
       const dialog = page.locator("[role='dialog']");
       if (await dialog.isVisible({ timeout: 2_000 }).catch(() => false)) {
         await dialog.locator("button:has-text('Create')").click();
       }
 
-      // Count windows under session B — wait for count to increase
-      // We can't predict the name, so just wait for any new window
-      await page.waitForTimeout(3_000);
+      // Wait for a NEW window row to appear under SESSION_B and record the
+      // real elapsed latency (FAST <500ms when the optimistic ghost appears;
+      // SLOW only if create regresses to SSE-dependent).
+      await expect
+        .poll(() => winRows.count(), { timeout: 8_000 })
+        .toBeGreaterThan(beforeCount);
       record("Create window (UI, + button)", Date.now() - t0);
     } else {
       console.log("  [SKIP] No 'New window' button found — session may need expanding");

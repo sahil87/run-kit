@@ -65,16 +65,29 @@ pressing Enter commits an optimistic rename and the new name renders in
 ### `3. Create window via sidebar + button`
 
 **What it proves:** The session row's `+` (New window) button creates a
-new window — at minimum the create operation completes within a reasonable
-budget. Tolerant if the button isn't visible (session not expanded).
+window optimistically — a ghost window row appears under SESSION_B in
+≤500ms, without waiting for the SSE poll. The test fails (records SLOW) if
+the create path ever regresses to SSE-dependent. Tolerant if the button
+isn't visible (session not expanded).
 
 **Steps:**
 1. `setup`.
 2. Assert session B is visible.
 3. If `New window in ${SESSION_B}` button is visible:
-   a. Click it, start timer.
-   b. If a dialog appears, click its `Create` button.
-   c. `waitForTimeout(3000)` and `record`.
+   a. Scope to SESSION_B's window rows — the per-session `div.mb-2` wrapper
+      (unique to the session wrapper in `sidebar/index.tsx`) that `has`
+      SESSION_B's `Navigate to ` button — and count its `[data-window-id]`
+      rows (the stable window-row handle; real `@N` ids and `ghost-<id>`
+      rows alike). Anchoring on `div.mb-2` resolves to exactly SESSION_B's
+      wrapper, so no `.first()` is needed (a bare `div` filter would match
+      the whole-server container and over-count every session's rows).
+   b. Start the timer, then click the `+` button. If a dialog appears (it
+      doesn't for the current-server sidebar `+`, which is instant), click
+      its `Create` button.
+   c. Poll (bounded 8s) until the window-row count under SESSION_B exceeds
+      the pre-click count — i.e. a new (ghost) window row appears — and
+      `record` that elapsed latency. The name is auto-derived/unpredictable,
+      so detection is by count increase (mirroring test 1), not by name.
 4. Otherwise log SKIP.
 
 ### `4. Rename window via UI (double-click)`

@@ -14,13 +14,12 @@ source_paths:
     - app/backend/
     - app/frontend/src/
 stage_directives:
-    apply: []
+    apply:
+        - Use GIVEN/WHEN/THEN for scenarios
+        - Mark ambiguities with [NEEDS CLARIFICATION]
     hydrate: []
     intake: []
     review: []
-    spec:
-        - Use GIVEN/WHEN/THEN for scenarios
-        - Mark ambiguities with [NEEDS CLARIFICATION]
 true_impact_exclude:
     - fab/
     - docs/

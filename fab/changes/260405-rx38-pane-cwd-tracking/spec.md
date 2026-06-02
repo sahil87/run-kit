@@ -229,3 +229,5 @@ The tooltip SHALL be positioned so it does not clip against the left or right ed
 | 10 | Confident | `list-panes` failure is non-fatal — empty Panes, not error | Race condition between `list-windows` and `list-panes` is possible; pane data is supplementary | S:80 R:70 A:85 D:80 |
 
 10 assumptions (7 certain, 3 confident, 0 tentative). Auto-clarified 2026-04-06.
+
+<!-- Merged into plan.md ## Requirements on 2026-06-02 — safe to delete. -->

@@ -6,7 +6,6 @@ change_type: feat
 issues: []
 progress:
     intake: ready
-    spec: pending
     tasks: pending
     apply: pending
     review: pending
@@ -34,4 +33,4 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-04-05T18:41:12Z", driver: fab-new, iterations: 1}
 prs: []
-last_updated: 2026-04-05T18:42:50Z
+last_updated: 2026-06-02T07:28:42Z

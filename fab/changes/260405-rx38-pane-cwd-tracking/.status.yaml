@@ -6,7 +6,6 @@ change_type: refactor
 issues: []
 progress:
     intake: active
-    spec: pending
     apply: pending
     review: pending
     hydrate: pending

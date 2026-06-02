@@ -34,7 +34,7 @@ stage_metrics:
   review: {started_at: "2026-06-02T09:20:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:23:10Z"}
   hydrate: {started_at: "2026-06-02T09:23:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:25:47Z"}
   ship: {started_at: "2026-06-02T09:25:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:27:42Z"}
-  review-pr: {started_at: "2026-06-02T09:27:42Z", driver: git-pr, iterations: 1, completed_at: "2026-06-02T09:40:17Z", phase: fixing, reviewer: '@copilot-pull-request-reviewer[bot]'}
+  review-pr: {started_at: "2026-06-02T09:27:42Z", driver: git-pr, iterations: 1, completed_at: "2026-06-02T09:40:17Z", phase: replying, reviewer: '@copilot-pull-request-reviewer[bot]'}
 prs:
   - https://github.com/sahil87/run-kit/pull/229
 true_impact:

@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-02T03:01:41Z"}
+{"args":"Can you check the issue mss7 - does it still exist, if so, how to fix it?","cmd":"fab-new","event":"command","ts":"2026-06-02T03:01:41Z"}
+{"delta":"+3.4","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-02T03:02:33Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-02T03:02:38Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-02T03:04:53Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-06-02T03:05:24Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-02T03:10:55Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-06-02T03:15:05Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-02T03:15:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-02T03:22:10Z"}
+{"event":"review","result":"passed","ts":"2026-06-02T03:22:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-02T03:24:30Z"}

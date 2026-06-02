@@ -147,30 +147,39 @@ export function Sidebar({
   }, [servers, attachServer, readServerOpen]);
 
   const toggleServerSection = useCallback((server: string) => {
-    setServerSectionsOpen((prev) => {
-      let current = prev[server];
-      if (current === undefined) {
-        try {
-          const v = localStorage.getItem(`runkit-panel-sessions-${server}`);
-          current = v === "false" ? false : v === "true" ? true : server === currentServer;
-        } catch {
-          current = server === currentServer;
-        }
-      }
-      const next = !current;
-      try {
-        localStorage.setItem(`runkit-panel-sessions-${server}`, String(next));
-      } catch {
-        // localStorage unavailable
-      }
-      // When opening a non-current server's group, ask the provider to open
-      // its EventSource so the group's session list is populated.
-      if (next && server !== currentServer) {
-        attachServer(server);
-      }
-      return { ...prev, [server]: next };
-    });
-  }, [currentServer, attachServer]);
+    // The state updater MUST be pure: under React 19 StrictMode (active via
+    // main.tsx in dev/e2e) it is invoked twice. A side-effect inside it
+    // (localStorage.setItem, attachServer) runs twice and — worse — the second
+    // invocation would observe the first's localStorage write and invert the
+    // computed next, making a single click a no-op (the group never opened).
+    //
+    // So: snapshot the current open-state via `readServerOpen` ONCE, BEFORE any
+    // write, derive `next`, then run the side-effects once outside the updater.
+    // `current` is captured before the localStorage.setItem below, so the value
+    // is stable even though `readServerOpen` itself reads localStorage.
+    const current = readServerOpen(server);
+    const next = !current;
+    try {
+      localStorage.setItem(`runkit-panel-sessions-${server}`, String(next));
+    } catch {
+      // localStorage unavailable
+    }
+    // When opening a non-current server's group, ask the provider to open
+    // its EventSource so the group's session list is populated.
+    if (next && server !== currentServer) {
+      attachServer(server);
+    }
+    // Commit from `prev` so back-to-back toggles batched into a single render
+    // still alternate correctly (`prev` accumulates queued updates within a
+    // batch). For an untouched group `prev[server]` is undefined; fall back to
+    // the `current` snapshot taken above — NOT a fresh `readServerOpen`, which
+    // would re-read the localStorage value just written and re-introduce the
+    // StrictMode inversion on the first toggle.
+    setServerSectionsOpen((prev) => ({
+      ...prev,
+      [server]: prev[server] === undefined ? next : !prev[server],
+    }));
+  }, [currentServer, attachServer, readServerOpen]);
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [killTarget, setKillTarget] = useState<{

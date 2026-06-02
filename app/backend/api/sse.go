@@ -610,8 +610,13 @@ func (h *sseHub) poll() {
 			// incident). Emit one WARN per disappeared real session so the next
 			// occurrence is diagnosable. We exclude relay/anchor churn via
 			// realSessionNameSet. This does NOT prevent the loss — it records
-			// it; Constitution VI prevention (exit-empty off / anchor) is a
-			// separate change.
+			// it. Constitution VI PREVENTION (always-on `_rk-ctl` anchor floor +
+			// imperative `exit-empty off` on every dialed server) is implemented
+			// in change 260602-a1wo-prevent-exit-empty-server-death
+			// (tmuxctl.resolveBootstrap / productionDial, tmux.SetExitEmptyOff).
+			// This WARN is KEPT as defense-in-depth: it still surfaces losses
+			// from paths prevention can't cover — an external `tmux kill-session`,
+			// an OOM kill, or a shell exiting a real session.
 			currentReal := realSessionNameSet(result)
 			h.mu.RLock()
 			prevReal, hadPrevReal := h.previousRealSessions[server]

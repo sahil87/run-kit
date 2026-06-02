@@ -2,12 +2,14 @@ package tmuxctl
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -346,6 +348,19 @@ func doubleBackoff(d time.Duration) time.Duration {
 // then runs `tmux -CC -L <socket> attach-session -t =<bootstrap> -r` via
 // creack/pty.
 func productionDial(ctx context.Context, socket string) (*exec.Cmd, io.ReadWriteCloser, error) {
+	// Backstop FIRST, on every dial AND every reconnect (this dialFn is the
+	// reconnect FSM's dial too). Setting `exit-empty off` BEFORE the anchor is
+	// created closes the reapable zero-session sliver during the
+	// close-then-reopen restart window: the old -CC client is gone, and if the
+	// server's real sessions also closed in that gap, tmux would reap the whole
+	// server before resolveBootstrap installs the `_rk-ctl` floor. Non-fatal —
+	// the anchor floor (below) is the primary guarantee; a momentarily
+	// unreachable foreign server must not abort the dial.
+	// Change: 260602-a1wo-prevent-exit-empty-server-death.
+	if err := tmux.SetExitEmptyOff(ctx, socket); err != nil {
+		slog.Debug("tmuxctl: set exit-empty off failed (non-fatal)", "socket", socket, "err", err)
+	}
+
 	bootstrap, err := resolveBootstrap(ctx, socket)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve bootstrap: %w", err)
@@ -365,18 +380,34 @@ func productionDial(ctx context.Context, socket string) (*exec.Cmd, io.ReadWrite
 	return cmd, ptmx, nil
 }
 
-// resolveBootstrap returns the name of the session to attach control mode to.
-// If at least one session exists, returns the first one. Otherwise creates
-// `_rk-ctl` (treating "duplicate session" as benign for the multi-rk case)
-// and returns its name.
+// resolveBootstrap ensures the `_rk-ctl` anchor floor exists on the server and
+// returns the session to attach control mode to.
+//
+// Two concerns are deliberately decoupled (change
+// 260602-a1wo-prevent-exit-empty-server-death):
+//
+//   - Session FLOOR (ALWAYS): the `_rk-ctl` anchor is created unconditionally,
+//     regardless of how many real sessions already exist. This is the run-kit-
+//     owned session that holds the server's session count above zero so it
+//     never collapses to zero and gets reaped by tmux. The prior implementation
+//     created the anchor ONLY when the server was empty at first connect, so a
+//     server that had real sessions at attach time got NO floor — when its last
+//     real session later closed, only relay ephemerals remained, the next relay
+//     disconnect drained it to zero, and tmux's default `exit-empty on` reaped
+//     the whole server (Constitution VI violation, recurred ≥3x).
+//   - Attach TARGET (conditional): we still prefer to attach the control client
+//     to the first existing real session when one is present, else the anchor.
+//     `%session-window-changed` is global on tmux 3.6a, so attaching to the
+//     anchor would NOT regress active-window derivation — preferring the real
+//     session is purely a minimal-diff choice with zero event-scope risk.
+//
+// Anchor creation is idempotent: a concurrent `rk serve` may have created it
+// first, which surfaces as a "duplicate session" error that
+// isDuplicateSessionError treats as benign (multi-process race; no cross-process
+// state per Constitution II).
 func resolveBootstrap(ctx context.Context, socket string) (string, error) {
-	first, err := firstSessionName(ctx, socket)
-	if err == nil && first != "" {
-		return first, nil
-	}
-
-	// Create the anchor. Errors are tolerated only if they look like
-	// "session already exists" (concurrent rk created it first).
+	// Always ensure the anchor floor exists. Errors are tolerated only if they
+	// look like "session already exists" (concurrent rk created it first).
 	if err := createAnchor(ctx, socket); err != nil && !isDuplicateSessionError(err) {
 		return "", fmt.Errorf("create anchor: %w", err)
 	}
@@ -386,9 +417,24 @@ func resolveBootstrap(ctx context.Context, socket string) (string, error) {
 		slog.Debug("tmuxctl: set anchor keepalive failed (non-fatal)", "socket", socket, "err", err)
 	}
 
+	// Attach target: prefer an existing real session; else the anchor.
+	if first, err := firstSessionName(ctx, socket); err == nil && first != "" {
+		return first, nil
+	}
+
 	return tmux.ControlAnchorSessionName, nil
 }
 
+// firstSessionName returns the first real (user-facing) session on the server,
+// or "" when none exists. The `_rk-ctl` anchor is skipped: now that
+// resolveBootstrap creates the anchor floor BEFORE selecting the attach target,
+// the anchor is always present in the listing and — because `_rk-ctl` sorts
+// ahead of a lowercase real session name like `runkit` — would otherwise be
+// picked as the attach target, regressing the "prefer a real session" contract
+// (R2). Skipping it makes the selection robust to listing order. (The relay
+// ephemerals `rk-relay-*` are NOT skipped here: they are valid attach targets
+// — they share their real session's window membership — and the historical
+// behavior already allowed attaching to one.)
 func firstSessionName(ctx context.Context, socket string) (string, error) {
 	args := []string{}
 	if socket != "default" && socket != "" {
@@ -401,17 +447,11 @@ func firstSessionName(ctx context.Context, socket string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// First non-empty line.
-	for i := 0; i < len(out); i++ {
-		if out[i] == '\n' {
-			if i == 0 {
-				continue
-			}
-			return string(out[:i]), nil
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == "" || line == tmux.ControlAnchorSessionName {
+			continue
 		}
-	}
-	if len(out) > 0 {
-		return string(out), nil
+		return line, nil
 	}
 	return "", nil
 }
@@ -425,7 +465,21 @@ func createAnchor(ctx context.Context, socket string) error {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "tmux", args...)
-	return cmd.Run()
+	// Capture stderr and fold it into the returned error. cmd.Run() (unlike
+	// cmd.Output()) does NOT populate ExitError.Stderr, so without this the
+	// "duplicate session: _rk-ctl" text tmux prints on the concurrent-rk race
+	// would be invisible to isDuplicateSessionError, and the now-reachable
+	// always-create path (resolveBootstrap) would treat the benign race as a
+	// hard failure. Change: 260602-a1wo-prevent-exit-empty-server-death.
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+		return err
+	}
+	return nil
 }
 
 func setAnchorKeepalive(ctx context.Context, socket string) error {
@@ -442,17 +496,26 @@ func setAnchorKeepalive(ctx context.Context, socket string) error {
 
 // isDuplicateSessionError detects tmux's "duplicate session" error so the
 // concurrent-rk-creates-anchor-first race is treated as benign.
+//
+// It matches the duplicate text from EITHER source, because the two callers
+// surface the stderr differently: createAnchor uses cmd.Run() (which does NOT
+// populate exec.ExitError.Stderr) but folds the captured stderr into the wrapped
+// error's message string, while a raw *exec.ExitError from cmd.Output() carries
+// the text in ee.Stderr instead. Checking the wrapped message first (and
+// ee.Stderr as a fallback) covers both without depending on which path produced
+// the error. Change: 260602-a1wo-prevent-exit-empty-server-death.
 func isDuplicateSessionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) {
-		// Best-effort string match on the wrapped error (covers test
-		// stubs that return non-ExitError).
-		return matchesDuplicateText(err.Error())
+	if matchesDuplicateText(err.Error()) {
+		return true
 	}
-	return matchesDuplicateText(string(ee.Stderr))
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return matchesDuplicateText(string(ee.Stderr))
+	}
+	return false
 }
 
 func matchesDuplicateText(s string) bool {
@@ -461,14 +524,5 @@ func matchesDuplicateText(s string) bool {
 	if s == "" {
 		return false
 	}
-	return contains(s, "duplicate session") || contains(s, "already exists")
-}
-
-func contains(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, "duplicate session") || strings.Contains(s, "already exists")
 }

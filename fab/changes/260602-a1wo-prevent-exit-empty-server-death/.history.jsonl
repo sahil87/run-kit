@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-02T07:50:32Z"}
+{"args":"Prevent run-kit tmux servers from dying via tmux exit-empty: always-create _rk-ctl anchor floor + exit-empty off backstop; lifetime contract = explicit kill only","cmd":"fab-new","event":"command","ts":"2026-06-02T07:50:32Z"}
+{"delta":"+3.1","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-06-02T07:51:53Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-06-02T07:51:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-02T07:53:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-02T08:02:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-02T08:08:42Z"}
+{"event":"review","result":"passed","ts":"2026-06-02T08:08:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-02T08:14:10Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-02T08:15:27Z"}
+{"event":"review","result":"passed","ts":"2026-06-02T08:16:12Z"}

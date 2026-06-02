@@ -1408,3 +1408,41 @@ func TestMatchesServerAllowlist(t *testing.T) {
 		})
 	}
 }
+
+// TestSetExitEmptyOff sets the server-scoped exit-empty option to off and reads
+// it back via `show-options -g`, asserting the imperative backstop reaches a
+// live tmux server (the one path the embedded `-f` config never covers for
+// hand-created/foreign servers). Change:
+// 260602-a1wo-prevent-exit-empty-server-death.
+func TestSetExitEmptyOff(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// The isolated server is created WITHOUT our `-f` config, so it starts at
+	// tmux's default exit-empty=on — the exact gap that let `kit` inherit `on`.
+	before, err := tmuxExecRawServer(ctx, server, "show-options", "-g", "-v", "exit-empty")
+	if err != nil {
+		t.Fatalf("read exit-empty before: %v", err)
+	}
+	if got := strings.TrimSpace(before); got != "on" {
+		t.Logf("note: default exit-empty was %q (expected \"on\") — proceeding", got)
+	}
+
+	if err := SetExitEmptyOff(ctx, server); err != nil {
+		t.Fatalf("SetExitEmptyOff: %v", err)
+	}
+
+	after, err := tmuxExecRawServer(ctx, server, "show-options", "-g", "-v", "exit-empty")
+	if err != nil {
+		t.Fatalf("read exit-empty after: %v", err)
+	}
+	if got := strings.TrimSpace(after); got != "off" {
+		t.Errorf("exit-empty after SetExitEmptyOff = %q, want \"off\"", got)
+	}
+
+	// Idempotent — a second call is a no-op success.
+	if err := SetExitEmptyOff(ctx, server); err != nil {
+		t.Fatalf("SetExitEmptyOff (second call): %v", err)
+	}
+}

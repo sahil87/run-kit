@@ -1507,6 +1507,28 @@ func ListServers(ctx context.Context) ([]string, error) {
 	return servers, nil
 }
 
+// SetExitEmptyOff sets the server-scoped `exit-empty off` option on the named
+// tmux server so the server is NOT reaped when its session count momentarily
+// reaches zero. tmux's default is `exit-empty on`, which destroys the whole
+// server (taking live agent sessions with it) the instant the last session
+// closes — a Constitution VI violation. The embedded tmux.conf only reaches
+// run-kit-CREATED servers via `-f`; this imperative set covers every server
+// run-kit touches, including hand-created/foreign ones that never loaded our
+// config. It is the backstop for the brief restart/reconnect window where the
+// `_rk-ctl` anchor floor is momentarily absent (see tmuxctl.productionDial,
+// which calls this BEFORE creating the anchor on every dial/reconnect).
+//
+// Server-scoped (`-g`) and idempotent — safe to re-run on every dial. Mirrors
+// the existing tmuxExecServer/serverArgs exec pattern (no shell strings,
+// ctx-scoped with TmuxTimeout). Change: 260602-a1wo-prevent-exit-empty-server-death.
+func SetExitEmptyOff(ctx context.Context, server string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecServer(ctx, server, "set-option", "-g", "exit-empty", "off")
+	return err
+}
+
 // ListKeys runs "tmux list-keys" on the given server and returns the raw output lines.
 // Returns nil (no error) if the server is not running.
 func ListKeys(server string) ([]string, error) {

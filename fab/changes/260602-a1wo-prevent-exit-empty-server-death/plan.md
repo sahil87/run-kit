@@ -182,5 +182,3 @@ implementation. The observability WARN itself SHALL be kept as defense-in-depth.
 ## Deletion Candidates
 
 None — this is a small additive `fix`. The two functions it rewrote (`resolveBootstrap`, `firstSessionName` in `client.go`) replaced their old bodies in place (the only-when-empty branch and the hand-rolled byte-scan loop) rather than leaving dead code behind; `git diff` confirms no orphaned function or branch remains. The `@rk_ctl_keepalive` marker / `setAnchorKeepalive` (`client.go:26`, `client.go:483`) still has no runtime consumer (a pre-existing label, noted in intake §"Mechanism"), but it is intentionally retained by this change and was not made redundant by it, so it is out of scope here.
-</content>
-</invoke>

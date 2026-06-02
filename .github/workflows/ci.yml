@@ -126,3 +126,35 @@ jobs:
             app/frontend/playwright-report/
             app/frontend/test-results/
           retention-days: 7
+
+  # Single stable-named aggregate gate for branch-protection / rulesets to
+  # require. The individual jobs above have names that are fine to require
+  # directly EXCEPT the e2e matrix, whose names (`E2E (shard N/2)`) are coupled
+  # to the shard count — requiring those by name would silently break the gate
+  # if the matrix ever changes. Requiring this one job instead decouples the
+  # ruleset from the job topology.
+  #
+  # Hard gates = backend + frontend (matching the e2e job's own note: e2e is
+  # `continue-on-error` / non-blocking until de-flaked, so it is deliberately
+  # NOT a gate dependency here — it stays visible on the PR as advisory signal).
+  #
+  # `if: always()` is REQUIRED: without it this job is *skipped* when a
+  # dependency fails, and GitHub treats a skipped required check as passing —
+  # which would defeat the gate. With `always()` the job runs regardless, and
+  # the explicit result checks below fail it unless every dependency succeeded.
+  ci-gate:
+    name: CI gate
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: ${{ always() }}
+    steps:
+      - name: Verify required jobs succeeded
+        run: |
+          echo "backend  = ${{ needs.backend.result }}"
+          echo "frontend = ${{ needs.frontend.result }}"
+          if [ "${{ needs.backend.result }}" != "success" ] || \
+             [ "${{ needs.frontend.result }}" != "success" ]; then
+            echo "::error::A required CI job did not succeed — blocking merge."
+            exit 1
+          fi
+          echo "All required CI jobs succeeded."

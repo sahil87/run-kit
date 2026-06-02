@@ -20,6 +20,8 @@ import { Dialog } from "@/components/dialog";
 import { Dashboard } from "@/components/dashboard";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
+import { LogoSpinner } from "@/components/logo-spinner";
+import type { ServerInfo } from "@/api/client";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
@@ -111,6 +113,45 @@ function ServerNotFound({ serverName }: { serverName: string }) {
   );
 }
 
+/** Brief waiting state shown right after creating a server, while the refreshed
+ *  server list is in flight. Reuses ServerNotFound's centered full-screen
+ *  layout idiom and the shared LogoSpinner. Swaps to the server view
+ *  automatically once the server appears in the refreshed list (see the
+ *  three-way guard and the pending-clear effect in SessionContext). */
+function ServerWaiting({ serverName }: { serverName: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg-primary">
+      <LogoSpinner size={48} />
+      <h1 className="text-xl text-text-primary">Creating server…</h1>
+      <p className="text-text-secondary">
+        Waiting for <strong>{serverName}</strong>.
+      </p>
+    </div>
+  );
+}
+
+/** Pure three-way route-guard decision. Distinguishes:
+ *   - "view": the server exists in the list — render the server view;
+ *   - "waiting": the server is absent but is the one the user just created
+ *     (=== pendingServer) — render ServerWaiting;
+ *   - "not-found": the server is absent, is NOT the pending one, AND the list
+ *     has loaded — render ServerNotFound immediately;
+ *   - "view": otherwise (e.g. before the first fetch resolves) fall through to
+ *     the server view / loading rather than flashing not-found.
+ *  Gated on `serversLoaded`, NOT `servers.length > 0` (the latter was the bug:
+ *  with pre-existing servers it fired not-found before the refresh landed). */
+export function resolveServerView(
+  server: string,
+  servers: ServerInfo[],
+  pendingServer: string | null,
+  serversLoaded: boolean,
+): "view" | "waiting" | "not-found" {
+  if (servers.some((s) => s.name === server)) return "view";
+  if (server === pendingServer) return "waiting";
+  if (serversLoaded) return "not-found";
+  return "view";
+}
+
 function AppShell() {
   const ctx = useSessionContext();
   const matches = useMatches();
@@ -124,6 +165,9 @@ function AppShell() {
   const isConnected = ctx.isConnectedByServer.get(server) ?? false;
   const servers = ctx.servers;
   const refreshServers = ctx.refreshServers;
+  const serversLoaded = ctx.serversLoaded;
+  const pendingServer = ctx.pendingServer;
+  const markServerPending = ctx.markServerPending;
   const sessions = useMergedSessions(rawSessions, server);
   const { sidebarOpen, sidebarWidth, fixedWidth } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth } = useChromeDispatch();
@@ -601,16 +645,34 @@ function AppShell() {
     onSettled: () => {
       ghostServerIdRef.current = null;
     },
+    // Refresh the (otherwise one-time-fetched) server list once the create
+    // resolves so the new server appears and the waiting state swaps to the
+    // view. `onAlwaysSettled` runs even though the create dialog has already
+    // unmounted on navigation — AppShell (which owns this hook) stays mounted,
+    // and `refreshServers` only touches root-level SessionContext.
+    onAlwaysSettled: () => {
+      refreshServers();
+    },
+    // A failed create must not strand the UI on the waiting state — clear the
+    // pending marker (empty string clears to null) on the rollback path (also
+    // unmount-safe, root-context only).
+    onAlwaysRollback: () => {
+      markServerPending("");
+    },
   });
 
   const handleCreateServer = useCallback(() => {
     const trimmed = createServerName.trim();
     if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
     executeCreateServer(trimmed);
+    // Mark the just-created server pending so the route guard shows the brief
+    // waiting state (not "Server not found") until the refreshed list includes
+    // it. Cleared automatically by SessionContext once it appears.
+    markServerPending(trimmed);
     navigate({ to: "/$server", params: { server: trimmed } });
     setShowCreateServerDialog(false);
     setCreateServerName("");
-  }, [createServerName, navigate, executeCreateServer]);
+  }, [createServerName, navigate, executeCreateServer, markServerPending]);
 
   const { execute: executeKillServer } = useOptimisticAction<[string]>({
     action: (name) => killServerApi(name),
@@ -1015,8 +1077,15 @@ function AppShell() {
   const displayName = currentWindow?.name ?? windowParam ?? "";
   const displaySession = sessionName ?? "";
 
-  // Server not found check — once server list loads, verify server exists
-  if (servers.length > 0 && !servers.some((s) => s.name === server)) {
+  // Three-way route guard. Distinguishes a just-created server (brief waiting
+  // state) from a genuinely-unknown one (not found), keyed on `serversLoaded`
+  // (NOT `servers.length > 0`, which fired not-found prematurely when the user
+  // already had servers and the post-create refresh hadn't landed yet).
+  const serverView = resolveServerView(server, servers, pendingServer, serversLoaded);
+  if (serverView === "waiting") {
+    return <ServerWaiting serverName={server} />;
+  }
+  if (serverView === "not-found") {
     return <ServerNotFound serverName={server} />;
   }
 

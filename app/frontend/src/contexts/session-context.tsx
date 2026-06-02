@@ -34,6 +34,19 @@ export type SessionContextType = {
   currentServer: string | null;
   servers: ServerInfo[];
   refreshServers: () => void;
+  /** True once the first `fetchServers()` call has settled (even to an empty
+   *  list or a caught error). Lets the route guard distinguish "list still
+   *  loading" from "server genuinely absent" — the explicit replacement for
+   *  the buggy `servers.length > 0` proxy. */
+  serversLoaded: boolean;
+  /** The name of a server the user just created and navigated to, which may
+   *  not yet appear in `servers` (the refreshed list is in flight). The route
+   *  guard renders a brief waiting state for this server instead of "not
+   *  found"; it is cleared automatically once the refreshed list contains it
+   *  (or on a failed create). `null` when no create is in flight. */
+  pendingServer: string | null;
+  /** Mark a server as "pending" (just created, awaiting list refresh). */
+  markServerPending: (name: string) => void;
   /** Mark a server as "attached" so the provider opens its EventSource. Idempotent.
    *  The current server is auto-attached; this is for non-current servers
    *  (sidebar groups expanded by the user). */
@@ -92,6 +105,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
     () => new Map(),
   );
   const [servers, setServers] = useState<ServerInfo[]>([]);
+  // False until the first `fetchServers()` settles. The route guard uses this
+  // (not `servers.length > 0`) to know the list has loaded.
+  const [serversLoaded, setServersLoaded] = useState(false);
+  // Name of a just-created server awaiting the list refresh (waiting state).
+  const [pendingServer, setPendingServer] = useState<string | null>(null);
   // Lazy-attach set: which servers should have an EventSource open. The
   // current server is automatically included; non-current servers must opt
   // in (typically when their sidebar group is expanded). See the
@@ -161,8 +179,32 @@ export function SessionProvider({ children }: SessionProviderProps) {
       setServers(Array.isArray(data) ? data : []);
     } catch {
       // ignore
+    } finally {
+      // The fetch attempt has settled (success, empty, or caught error) — the
+      // list is now "loaded" for the purposes of the route guard. A permanent
+      // false here would hang the guard's not-found branch forever.
+      setServersLoaded(true);
     }
   }, []);
+
+  // Set the pending server. An empty string clears it (`null`) — used by the
+  // create flow's rollback path so a failed create never strands the waiting
+  // state. A real route's `server` param is never empty, so a cleared `null`
+  // can never spuriously match the guard.
+  const markServerPending = useCallback((name: string) => {
+    setPendingServer(name || null);
+  }, []);
+
+  // Clear the pending marker once the refreshed list contains it, so the
+  // waiting state swaps to the server view automatically and a *later* genuine
+  // deletion of that same server correctly shows "Server not found" again
+  // (rather than spinning on a stale marker). Runs as an effect, never during
+  // render. No timer — event-driven on the list changing.
+  useEffect(() => {
+    if (pendingServer && servers.some((s) => s.name === pendingServer)) {
+      setPendingServer(null);
+    }
+  }, [pendingServer, servers]);
 
   useEffect(() => {
     fetchServers();
@@ -370,6 +412,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
       currentServer,
       servers,
       refreshServers: fetchServers,
+      serversLoaded,
+      pendingServer,
+      markServerPending,
       attachServer,
       subscribeBoardChange,
     }),
@@ -381,6 +426,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
       currentServer,
       servers,
       fetchServers,
+      serversLoaded,
+      pendingServer,
+      markServerPending,
       attachServer,
       subscribeBoardChange,
     ],
@@ -443,6 +491,9 @@ export function StandaloneSessionContextProvider({
     currentServer: value.currentServer ?? null,
     servers: value.servers ?? [],
     refreshServers: value.refreshServers ?? (() => {}),
+    serversLoaded: value.serversLoaded ?? false,
+    pendingServer: value.pendingServer ?? null,
+    markServerPending: value.markServerPending ?? (() => {}),
     attachServer: value.attachServer ?? (() => {}),
     subscribeBoardChange: value.subscribeBoardChange ?? (() => () => {}),
   };

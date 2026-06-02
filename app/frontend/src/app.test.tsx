@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
+import { resolveServerView } from "@/app";
+import type { ServerInfo } from "@/api/client";
 
 /**
  * Tests for move window CmdK actions (T010).
@@ -399,5 +401,45 @@ describe("CmdK Window At-Folder Action", () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onCreateWindowAtFolder).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * Tests for the three-way server route guard (260602-3i5d).
+ *
+ * `resolveServerView` is the pure decision behind the AppShell guard:
+ *   - server in list                              → "view"
+ *   - server absent, === pendingServer            → "waiting"
+ *   - server absent, !== pendingServer, loaded    → "not-found"
+ *   - server absent, !== pendingServer, !loaded   → "view" (don't flash not-found)
+ */
+describe("resolveServerView — three-way route guard", () => {
+  const srv = (...names: string[]): ServerInfo[] =>
+    names.map((name) => ({ name, sessionCount: 0 }));
+
+  it("returns 'view' when the server is in the list", () => {
+    expect(resolveServerView("alpha", srv("alpha", "bravo"), null, true)).toBe("view");
+  });
+
+  it("returns 'waiting' for a just-created server absent from the list (=== pendingServer)", () => {
+    // Pre-existing servers present and list loaded — the old `servers.length > 0`
+    // proxy would have wrongly returned not-found here. The pending marker must win.
+    expect(resolveServerView("newsrv", srv("alpha"), "newsrv", true)).toBe("waiting");
+  });
+
+  it("swaps 'waiting' → 'view' once the refreshed list includes the pending server", () => {
+    // Same pending marker, but now the server has appeared in the list.
+    expect(resolveServerView("newsrv", srv("alpha", "newsrv"), "newsrv", true)).toBe("view");
+  });
+
+  it("returns 'not-found' immediately for a genuinely-unknown name once loaded", () => {
+    expect(resolveServerView("typo", srv("alpha"), null, true)).toBe("not-found");
+    // A different pending server must not rescue an unrelated unknown name.
+    expect(resolveServerView("typo", srv("alpha"), "other", true)).toBe("not-found");
+  });
+
+  it("does NOT return 'not-found' for an unknown non-pending name before the first fetch resolves", () => {
+    expect(resolveServerView("typo", [], null, false)).toBe("view");
+    expect(resolveServerView("typo", srv("alpha"), null, false)).toBe("view");
   });
 });

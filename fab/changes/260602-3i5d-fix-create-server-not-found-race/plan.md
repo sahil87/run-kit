@@ -112,31 +112,31 @@ Once the refreshed `servers` list contains `pendingServer`, `pendingServer` SHAL
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `SessionContext` exposes `pendingServer`, `markServerPending`, and `serversLoaded` in the type, live provider value, and standalone/fallback provider value
-- [ ] A-002 R2: `serversLoaded` is `false` before the first fetch resolves and `true` after it settles (including empty-list and error paths)
-- [ ] A-003 R3: `handleCreateServer` marks the new server pending before navigating and triggers `refreshServers()` on create completion
-- [ ] A-004 R5: the route guard uses `serversLoaded` (not `servers.length > 0`) and resolves three-way: in-list→view, not-in-list & ===pending→waiting, not-in-list & !==pending & loaded→not-found
-- [ ] A-005 R6: a `ServerWaiting` component exists as a sibling to `ServerNotFound`, reusing the centered full-screen layout and `LogoSpinner`
-- [ ] A-006 R7: `pendingServer` is cleared (via effect) once the refreshed `servers` list contains it
+- [x] A-001 R1: `SessionContext` exposes `pendingServer`, `markServerPending`, and `serversLoaded` in the type, live provider value, and standalone/fallback provider value
+- [x] A-002 R2: `serversLoaded` is `false` before the first fetch resolves and `true` after it settles (including empty-list and error paths)
+- [x] A-003 R3: `handleCreateServer` marks the new server pending before navigating and triggers `refreshServers()` on create completion
+- [x] A-004 R5: the route guard uses `serversLoaded` (not `servers.length > 0`) and resolves three-way: in-list→view, not-in-list & ===pending→waiting, not-in-list & !==pending & loaded→not-found
+- [x] A-005 R6: a `ServerWaiting` component exists as a sibling to `ServerNotFound`, reusing the centered full-screen layout and `LogoSpinner`
+- [x] A-006 R7: `pendingServer` is cleared (via effect) once the refreshed `servers` list contains it
 
 ### Behavioral Correctness
 
-- [ ] A-007 R5: a just-created server shows `ServerWaiting` while absent from the list, then swaps to the server view once the refreshed list includes it (and `pendingServer` clears)
-- [ ] A-008 R5: a genuinely-unknown server name shows `ServerNotFound` immediately when the list is loaded
-- [ ] A-009 R5: before the first fetch resolves, neither error nor waiting fires for an unknown non-pending name
+- [x] A-007 R5: a just-created server shows `ServerWaiting` while absent from the list, then swaps to the server view once the refreshed list includes it (and `pendingServer` clears)
+- [x] A-008 R5: a genuinely-unknown server name shows `ServerNotFound` immediately when the list is loaded
+- [x] A-009 R5: before the first fetch resolves, neither error nor waiting fires for an unknown non-pending name
 
 ### Edge Cases & Error Handling
 
-- [ ] A-010 R4: a failed create (rollback/error path) clears `pendingServer` — no dangling waiting state
-- [ ] A-011 R7: after `pendingServer` is cleared, a later genuine deletion of that same server shows `ServerNotFound` again
+- [x] A-010 R4: a failed create (rollback/error path) clears `pendingServer` — no dangling waiting state
+- [x] A-011 R7: after `pendingServer` is cleared, a later genuine deletion of that same server shows `ServerNotFound` again
 
 ### Code Quality
 
-- [ ] A-012 Pattern consistency: new code follows naming and structural patterns of surrounding code (context field threading, component layout idiom, pure-helper test style)
-- [ ] A-013 No unnecessary duplication: reuses `LogoSpinner`, the `ServerNotFound` layout idiom, and the existing `refreshServers`/`useOptimisticAction` plumbing
-- [ ] A-014 Type narrowing over assertions: the guard helper returns a discriminated string union; no new `as` casts introduced (code-quality principle)
-- [ ] A-015 No client polling: the waiting→view swap is event-driven (refresh + effect on list change), with NO `setInterval`/timer (no-client-polling anti-pattern, intake Assumption #7)
-- [ ] A-016 Test companion docs: the new `create-server-waiting.spec.ts` ships with a sibling `create-server-waiting.spec.md` (constitution: Test Companion Docs)
+- [x] A-012 Pattern consistency: new code follows naming and structural patterns of surrounding code (context field threading, component layout idiom, pure-helper test style)
+- [x] A-013 No unnecessary duplication: reuses `LogoSpinner`, the `ServerNotFound` layout idiom, and the existing `refreshServers`/`useOptimisticAction` plumbing
+- [x] A-014 Type narrowing over assertions: the guard helper returns a discriminated string union; no new `as` casts introduced (code-quality principle)
+- [x] A-015 No client polling: the waiting→view swap is event-driven (refresh + effect on list change), with NO `setInterval`/timer (no-client-polling anti-pattern, intake Assumption #7)
+- [x] A-016 Test companion docs: the new `create-server-waiting.spec.ts` ships with a sibling `create-server-waiting.spec.md` (constitution: Test Companion Docs)
 
 ## Notes
 

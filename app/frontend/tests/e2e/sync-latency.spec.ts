@@ -45,19 +45,20 @@ function tmux(cmd: string) {
  * being rendered so every test starts from a populated sidebar regardless of
  * runner speed.
  *
- * The gate is name-agnostic (`Navigate to ` prefix) on purpose: test 2 renames
- * the shared SESSION_A via the UI, so a gate hard-wired to `Navigate to
- * ${SESSION_A}` would strand every subsequent `setup()` once the rename lands,
- * time out, and trigger a Playwright worker restart — which re-seeds a fresh,
- * un-renamed SESSION_A and breaks later tests that assumed the rename. Waiting
- * for the seed session B (always present, never renamed) keeps the gate stable
- * across the file's mutations.
+ * The gate is name-agnostic (`Navigate to ` prefix via `aria-label^=`) on
+ * purpose: test 2 renames the shared SESSION_A via the UI, so a gate
+ * hard-wired to `Navigate to ${SESSION_A}` would strand every subsequent
+ * `setup()` once the rename lands, time out, and trigger a Playwright worker
+ * restart — which re-seeds a fresh, un-renamed SESSION_A and breaks later
+ * tests that assumed the rename. Matching any session row keeps the gate
+ * stable across the file's mutations (SESSION_B is always present, but we
+ * don't depend on a specific name).
  */
 async function setup(page: import("@playwright/test").Page) {
   await page.goto(`/${TMUX_SERVER}`);
   await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
   const sidebar = page.locator("nav[aria-label='Sessions']");
-  await expect(sidebar.locator(`button[aria-label='Navigate to ${SESSION_B}']`)).toBeVisible({
+  await expect(sidebar.locator(`button[aria-label^='Navigate to ']`).first()).toBeVisible({
     timeout: READY_TIMEOUT,
   });
   return sidebar;

@@ -15,12 +15,13 @@ that exceeded the 500ms threshold.
 - `beforeAll` creates sessions `e2e-lat-a-<ts>` and `e2e-lat-b-<ts>` so the
   tests have distinct targets for rename, drag, and cross-session move.
 - `setup(page)` navigates to `/${TMUX_SERVER}`, waits for `Connected`, then
-  gates on session **B** being rendered (`Navigate to ${SESSION_B}`) before
-  returning the sidebar locator. The gate is on B (never renamed) rather than
-  A on purpose: test 2 renames the shared SESSION_A via the UI, so a gate
-  hard-wired to A would strand every later `setup()` once the rename lands,
-  time out, and trigger a Playwright worker restart (which re-seeds a fresh,
-  un-renamed SESSION_A and breaks tests assuming the rename).
+  gates on **any** session row being rendered (`aria-label^='Navigate to '`)
+  before returning the sidebar locator. The gate is name-agnostic on purpose:
+  test 2 renames the shared SESSION_A via the UI, so a gate hard-wired to a
+  specific name (e.g. `Navigate to ${SESSION_A}`) would strand every later
+  `setup()` once the rename lands, time out, and trigger a Playwright worker
+  restart (which re-seeds a fresh, un-renamed SESSION_A and breaks tests
+  assuming the rename).
 - `afterAll` best-effort kills both sessions, any `-renamed` variant, the
   kill-session scratch, the instant-create defaults (`session`,
   `session-2`…`session-11`), and any live `e2e-lat-xtgt-<ts>` cross-drag
@@ -82,7 +83,7 @@ budget. Tolerant if the button isn't visible (session not expanded).
 (≤500ms).
 
 **Steps:**
-1. Create `rename-me` window in session B via `execSync`.
+1. Create `rename-me` window in session B via the `tmux()` helper.
 2. `setup`.
 3. Assert `rename-me` is visible.
 4. Double-click, clear, fill `renamed-win`.
@@ -94,7 +95,7 @@ budget. Tolerant if the button isn't visible (session not expanded).
 instant kill with no confirm dialog; the row disappears in ≤500ms.
 
 **Steps:**
-1. Create `kill-me` window via `execSync`.
+1. Create `kill-me` window via the `tmux()` helper.
 2. `setup`.
 3. Assert `kill-me` visible.
 4. Timer, `click({ modifiers: ['Control'] })` on the kill button.
@@ -123,8 +124,8 @@ renamed the shared SESSION_A — that coupling broke on any Playwright worker
 restart (the re-seeded SESSION_A is never renamed).
 
 **Steps:**
-1. Create a dedicated target session `e2e-lat-xtgt-<ts>` via `execSync`.
-2. Create `cross-mv` window in session B via `execSync`.
+1. Create a dedicated target session `e2e-lat-xtgt-<ts>` via the `tmux()` helper.
+2. Create `cross-mv` window in session B via the `tmux()` helper.
 3. `setup`.
 4. Assert both `cross-mv` and `e2e-lat-xtgt-<ts>` are visible.
 5. Read bounding boxes.
@@ -149,7 +150,7 @@ faster time here would imply an unintended optimistic path.
 session row disappears in ≤500ms after confirming.
 
 **Steps:**
-1. Create `e2e-kill-${SESSION_A}` via `execSync`.
+1. Create `e2e-kill-${SESSION_A}` via the `tmux()` helper.
 2. `setup`.
 3. Assert session row visible.
 4. Timer, click `Kill session <name>` button.

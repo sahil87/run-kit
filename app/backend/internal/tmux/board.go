@@ -269,20 +269,30 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 	}
 
 	// Idempotency: the pin-session already exists → the window is already pinned.
-	// A same-board re-pin is a clean no-op. A *different*-board re-pin must NOT
-	// silently report success while leaving the window on its old board — re-stamp
-	// @rk_board so the requested board wins (the window has exactly one pin-session,
-	// so this is the only authoritative place membership lives).
+	// Re-pin makes the requested board win and repairs the order key if it went
+	// missing, so the pin is always board-derivable and sortable. We do NOT try to
+	// repair @rk_home here: once a window lives in its pin-session, its "current
+	// session" IS the pin-session, so there is no source to re-derive the original
+	// home from. @rk_home durability is instead guaranteed at creation by the
+	// stamp-before-move ordering below (it is written while the pin-session is
+	// still empty, so the window never enters a pin-session lacking @rk_home).
+	// A window has exactly one pin-session, so this is the sole authoritative
+	// place its membership lives.
 	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", pinSession); err == nil {
-		current, readErr := showSessionOption(ctx, server, pinSession, BoardOption)
-		if readErr != nil {
-			return fmt.Errorf("read %s on existing pin %q: %w", BoardOption, pinSession, readErr)
-		}
-		if current == board {
-			return nil
-		}
+		// @rk_board: always set to the requested board (different-board re-pin must
+		// not silently keep the old board; same-board is a harmless idempotent set).
 		if err := setSessionOption(ctx, server, pinSession, BoardOption, board); err != nil {
 			return fmt.Errorf("re-stamp %s on existing pin %q: %w", BoardOption, pinSession, err)
+		}
+		// @rk_board_order: repair only if missing/invalid so GetBoard can sort it.
+		curOrder, oerr := showSessionOption(ctx, server, pinSession, BoardOrderOption)
+		if oerr != nil {
+			return fmt.Errorf("read %s on existing pin %q: %w", BoardOrderOption, pinSession, oerr)
+		}
+		if !ValidOrderKey(curOrder) {
+			if err := setSessionOption(ctx, server, pinSession, BoardOrderOption, initialAppendKey); err != nil {
+				return fmt.Errorf("repair %s on existing pin %q: %w", BoardOrderOption, pinSession, err)
+			}
 		}
 		return nil
 	}
@@ -310,9 +320,8 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 	orderKey := nextAppendKey(boardEntries)
 
 	// Create the pin-session (starts with one placeholder window) and capture the
-	// placeholder window's ID by reading the new session's sole window. Move the
-	// target window in, then kill the captured placeholder by ID so the moved
-	// window is the session's sole window. Capturing the placeholder ID (rather
+	// placeholder window's ID so we can kill it after the move, leaving the moved
+	// window as the session's sole window. Capturing the placeholder ID (rather
 	// than assuming index 0) is robust to base-index config and to the moved
 	// window's landing index.
 	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", pinSession); err != nil {
@@ -331,46 +340,43 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 		return fmt.Errorf("read pin placeholder window: pin-session %q reported no windows", pinSession)
 	}
 	placeholderID := strings.TrimSpace(placeholderLines[0])
+
+	// STAMP-BEFORE-MOVE: write all three membership vars onto the (still empty)
+	// pin-session BEFORE moving the target window in. Ordering is load-bearing for
+	// crash/failure safety:
+	//   - The window has NOT moved yet, so a stamp failure strands nothing — we
+	//     simply kill the empty placeholder-only pin-session and return; the window
+	//     is untouched in its home session.
+	//   - Once the move succeeds (below), @rk_home is already durably present, so
+	//     the window can ALWAYS be unpinned. There is no window-moved-but-unstamped
+	//     window, hence no double-fault rollback, no "un-unpinnable" pin-session,
+	//     and the idempotent recovery story is trivially true.
+	stampRollback := func(cause error, opt string) error {
+		_ = KillSessionCtx(context.Background(), server, pinSession)
+		return fmt.Errorf("set %s on new pin %q: %w", opt, pinSession, cause)
+	}
+	if err := setSessionOption(ctx, server, pinSession, HomeOption, home); err != nil {
+		return stampRollback(err, HomeOption)
+	}
+	if err := setSessionOption(ctx, server, pinSession, BoardOption, board); err != nil {
+		return stampRollback(err, BoardOption)
+	}
+	if err := setSessionOption(ctx, server, pinSession, BoardOrderOption, orderKey); err != nil {
+		return stampRollback(err, BoardOrderOption)
+	}
+
+	// Now move the window in. The pin-session is fully stamped, so a successful
+	// move yields a complete, unpinnable pin. A move FAILURE strands nothing (the
+	// window stays home) — roll back the stamped-but-windowless pin-session.
 	if err := MoveWindowToSession(windowID, pinSession, server); err != nil {
-		// Roll back the empty pin-session so a failed move leaves no orphan.
 		_ = KillSessionCtx(context.Background(), server, pinSession)
 		return fmt.Errorf("move window into pin session: %w", err)
 	}
 	if _, err := tmuxExecServer(ctx, server, "kill-window", "-t", placeholderID); err != nil {
-		// Non-fatal: a stray placeholder is cosmetic, but log it loudly.
+		// Non-fatal: a stray placeholder is cosmetic, but log it loudly. The pin is
+		// already valid (window moved, vars stamped) — a leftover placeholder window
+		// in the pin-session does not affect board derivation or unpin.
 		slog.Warn("board: pin placeholder kill failed", "server", server, "pin", pinSession, "placeholder", placeholderID, "err", err)
-	}
-
-	// The window now physically lives in the pin-session. From here a stamp failure
-	// must NOT return with the window stranded: pinEntry rejects a pin-session with
-	// no/invalid @rk_board (→ absent from BOARDS) and parseSessions filters _rk-pin-*
-	// (→ absent from SESSIONS), so a half-stamped pin is an invisible lost window.
-	// On any stamp failure, undo the move (window back to its home) and kill the
-	// pin-session — both rooted in context.Background() for the same reason as above.
-	// Double-fault guard: only kill the pin-session if the move-back SUCCEEDED. If the
-	// move-back itself fails the window is still physically inside the pin-session;
-	// killing it would destroy a live window. Leaving the (still-named) pin-session
-	// keeps the window recoverable — the pin is unpinnable by window id, and the next
-	// same-window Pin sees the existing session and re-stamps via the idempotent path.
-	rollbackMove := func(cause error, opt string) error {
-		if mvErr := MoveWindowToSession(windowID, home, server); mvErr != nil {
-			slog.Error("board: pin stamp-failure rollback move failed — leaving pin-session intact so the window survives (recoverable via unpin/re-pin)",
-				"server", server, "window", windowID, "home", home, "pin", pinSession, "err", mvErr)
-			return fmt.Errorf("set %s: %w (rollback move-back also failed: %v)", opt, cause, mvErr)
-		}
-		_ = KillSessionCtx(context.Background(), server, pinSession)
-		return fmt.Errorf("set %s: %w", opt, cause)
-	}
-
-	// Stamp membership vars on the pin-session.
-	if err := setSessionOption(ctx, server, pinSession, HomeOption, home); err != nil {
-		return rollbackMove(err, HomeOption)
-	}
-	if err := setSessionOption(ctx, server, pinSession, BoardOption, board); err != nil {
-		return rollbackMove(err, BoardOption)
-	}
-	if err := setSessionOption(ctx, server, pinSession, BoardOrderOption, orderKey); err != nil {
-		return rollbackMove(err, BoardOrderOption)
 	}
 	return nil
 }
@@ -401,6 +407,22 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 		return nil
 	}
 
+	// Board-match guard: only unpin if the pin actually belongs to the requested
+	// board. A mismatched `/api/boards/{name}/unpin` (stale or wrong board name)
+	// must NOT silently unpin the window AND must not cause the handler to emit a
+	// `board-changed` event referencing a board the window was never on. Treat a
+	// mismatch as a no-op success — the window stays pinned to its real board, and
+	// the handler's broadcast (which names the URL board) describes a state that
+	// did not change, so suppressing the unpin keeps SSE consistent. An unreadable
+	// @rk_board is a real error.
+	curBoard, err := showSessionOption(ctx, server, pinSession, BoardOption)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", BoardOption, err)
+	}
+	if curBoard != board {
+		return nil
+	}
+
 	home, err := showSessionOption(ctx, server, pinSession, HomeOption)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", HomeOption, err)
@@ -425,20 +447,27 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 		return killPinSessionIfPresent(ctx, server, pinSession)
 	}
 
-	// Home is gone (or was never recorded) — recreate it. Rename the pin-session
-	// to the home name so the moved window becomes the new home session's only
-	// window (no placeholder). When home is empty, fall back to keeping the
-	// window in a freshly named session is impossible without a name; use the
-	// pin-session's window via rename-session to the remembered home.
+	// No recorded @rk_home. With stamp-before-move (see Pin) this should be
+	// unreachable — @rk_home is durably set before the window ever enters the
+	// pin-session — but a legacy/corrupt pin-session could still lack it. Rather
+	// than hard-failing and stranding the window invisibly (it is filtered from
+	// SESSIONS as a `_rk-pin-*` name and, once we strip membership, also from
+	// BOARDS), RECOVER it: rename the pin-session to a deterministic recovered
+	// home name so the window resurfaces in the SESSIONS sidebar. A window is
+	// never left unrecoverable.
 	if home == "" {
-		// No recorded home: leave the window where it is by clearing membership
-		// so it is no longer a board pin, then it surfaces in SESSIONS only if
-		// the pin-session is renamed away. Without a target name we cannot
-		// restore; this should not happen (Pin always stamps @rk_home), so treat
-		// it as an error rather than silently stranding the window.
-		return fmt.Errorf("unpin: pin-session %q has no @rk_home to restore to", pinSession)
+		recovered := "recovered" + strings.TrimPrefix(pinSession, PinSessionPrefix)
+		slog.Warn("board: unpin found pin-session with no @rk_home — recovering window into a renamed session",
+			"server", server, "pin", pinSession, "recovered", recovered)
+		if err := RenameSession(pinSession, recovered, server); err != nil {
+			return fmt.Errorf("recover window from @rk_home-less pin %q: %w", pinSession, err)
+		}
+		_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", recovered, BoardOption)
+		_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", recovered, BoardOrderOption)
+		return nil
 	}
-	// Recreate home by renaming the (single-window) pin-session to the home name.
+	// Home is gone — recreate it by renaming the (single-window) pin-session to
+	// the home name.
 	// This preserves the window as the sole window of the recreated home session
 	// with no placeholder, and atomically removes the `_rk-pin-*` name.
 	if err := RenameSession(pinSession, home, server); err != nil {

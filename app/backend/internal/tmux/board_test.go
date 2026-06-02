@@ -464,6 +464,78 @@ func TestUnpin_RecreatesDeadHome(t *testing.T) {
 	}
 }
 
+func TestUnpin_BoardMismatchIsNoOp(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin to main: %v", err)
+	}
+	// Unpin with the WRONG board name must be a no-op success: the window stays
+	// pinned to "main" and the pin-session survives (so the handler emits no
+	// false board-changed event for "other").
+	if err := Unpin(ctx, server, wid, "other"); err != nil {
+		t.Fatalf("Unpin with mismatched board returned error, want no-op: %v", err)
+	}
+	if !hasSession(t, server, pin) {
+		t.Errorf("mismatched-board Unpin removed the pin-session %s (should be a no-op)", pin)
+	}
+	if b, _ := showSessionOption(ctx, server, pin, BoardOption); b != "main" {
+		t.Errorf("mismatched-board Unpin changed @rk_board to %q, want unchanged 'main'", b)
+	}
+	// The correct board name still unpins.
+	if err := Unpin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Unpin with correct board: %v", err)
+	}
+	if hasSession(t, server, pin) {
+		t.Errorf("pin-session %s survived a correct-board Unpin", pin)
+	}
+}
+
+func TestUnpin_HomelessPinRecoversWindow(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+	// Simulate a legacy/corrupt pin-session that lost @rk_home (stamp-before-move
+	// makes this unreachable in practice, but Unpin must still never strand a
+	// window). Once the window lives in the pin-session there is no source to
+	// re-derive the original home, so Unpin RECOVERS it by renaming the pin-session
+	// to a `recovered*` session — the window resurfaces in SESSIONS rather than
+	// being lost (filtered out of both SESSIONS and BOARDS).
+	if _, err := tmuxExecRawServer(ctx, server, "set-option", "-t", pin, "-u", HomeOption); err != nil {
+		t.Fatalf("clear @rk_home: %v", err)
+	}
+	if err := Unpin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Unpin of @rk_home-less pin returned error, want recovery: %v", err)
+	}
+	if hasSession(t, server, pin) {
+		t.Errorf("pin-session %s survived recovery Unpin", pin)
+	}
+	recovered := "recovered" + strings.TrimPrefix(pin, PinSessionPrefix)
+	if !hasSession(t, server, recovered) {
+		t.Fatalf("recovery session %s was not created — window may be stranded", recovered)
+	}
+	ids := windowsInSession(t, server, recovered)
+	if len(ids) != 1 || ids[0] != wid {
+		t.Errorf("recovered session windows = %v, want [%s]", ids, wid)
+	}
+	// The recovered session must carry no board membership (it's a plain session).
+	if b, _ := showSessionOption(ctx, server, recovered, BoardOption); b != "" {
+		t.Errorf("recovered session retained @rk_board=%q", b)
+	}
+}
+
 func TestUnpin_Idempotent(t *testing.T) {
 	server := withBoardTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

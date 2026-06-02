@@ -86,11 +86,18 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Select the window on its real session so the attach renders the right
-	// window. The accepted tradeoff (#1 in the intake): the real session has a
-	// single active-window pointer shared across attachments, so multi-client
-	// navigation mutates the real session's active window. For a pin-session this
-	// is a no-op — its sole window is permanently active.
-	if err := s.tmux.SelectWindow(windowID, server); err != nil {
+	// window. Scope the select to the resolved session (`<session>:@N`) rather
+	// than a bare `select-window -t @N`: a bare window-id target is ambiguous
+	// inside a tmux session group (members share window membership but keep
+	// independent active-window state, so tmux may set the active window on an
+	// arbitrary member), and `attach-session -t <session>` below attaches to THIS
+	// session — the two must agree. For a single-window pin-session the select is a
+	// no-op (its sole window is permanently active); for a multi-window home
+	// session it pins the active window on the same session we attach to.
+	// The accepted tradeoff (#1 in the intake): a home session's single
+	// active-window pointer is shared across attachments, so multi-client
+	// navigation mutates it.
+	if err := s.tmux.SelectWindowInSession(session, windowID, server); err != nil {
 		slog.Error("select-window failed", "err", err, "session", session, "windowID", windowID)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4004, "Window not found"))

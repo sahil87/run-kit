@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { Sidebar } from "./index";
@@ -62,6 +63,10 @@ const PRIMARY_SESSIONS: ProjectSession[] = [
 type RenderOpts = {
   currentServer?: string | null;
   servers?: { name: string; sessionCount: number }[];
+  /** Wrap the tree in <StrictMode> to surface impure state updaters (the
+   *  double-invocation the real app gets via main.tsx). Off by default so the
+   *  coupling tests keep their single-pass render. */
+  strict?: boolean;
 };
 
 function renderSidebar(opts: RenderOpts = {}) {
@@ -70,7 +75,7 @@ function renderSidebar(opts: RenderOpts = {}) {
   const sessionsByServer = new Map(
     servers.map((s) => [s.name, s.name === currentServer ? PRIMARY_SESSIONS : []]),
   );
-  return render(
+  const tree = (
     <ThemeProvider>
       <ToastProvider>
         <OptimisticProvider>
@@ -100,8 +105,9 @@ function renderSidebar(opts: RenderOpts = {}) {
           </StandaloneSessionContextProvider>
         </OptimisticProvider>
       </ToastProvider>
-    </ThemeProvider>,
+    </ThemeProvider>
   );
+  return render(opts.strict ? <StrictMode>{tree}</StrictMode> : tree);
 }
 
 function getServerGroupHeader(name: string): HTMLElement | null {
@@ -218,5 +224,40 @@ describe("Sidebar — Server Pane / Sessions Pane coupling", () => {
 
     expect(localStorage.getItem("runkit-panel-server")).toBe("true");
     expect(getServerGroupHeader("alpha")).not.toBeInTheDocument();
+  });
+});
+
+describe("Sidebar — per-server group toggle under StrictMode (mss7)", () => {
+  // Regression guard for mss7: clicking Expand on a non-current server's group
+  // did nothing because `toggleServerSection` performed a `localStorage.setItem`
+  // INSIDE the `setServerSectionsOpen` updater. React 19 StrictMode (active in
+  // the real app via main.tsx, and in e2e) double-invokes state updaters; the
+  // second pass observed the first pass's localStorage write and inverted the
+  // computed `next`, so a single click was a net no-op and the group never
+  // opened. This test renders under <StrictMode> — the exact condition the
+  // existing coupling tests omit — and would fail against the pre-fix impure
+  // updater. The fix moves the side-effects out of the updater (pure commit).
+  it("opens a collapsed non-current group on first click and collapses it on the second", () => {
+    // Server Pane key unset → defaults collapsed → all groups render, and
+    // non-current groups (alpha) start collapsed (aria-expanded="false").
+    renderSidebar({ currentServer: "primary", strict: true });
+
+    const alphaToggle = screen.getByRole("button", { name: /Expand alpha sessions/ });
+    expect(alphaToggle).toHaveAttribute("aria-expanded", "false");
+
+    // First click: the group must open (the no-op bug manifested here).
+    fireEvent.click(alphaToggle);
+    expect(
+      screen.getByRole("button", { name: /Collapse alpha sessions/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    // Side-effect ran exactly once and agrees with the rendered state.
+    expect(localStorage.getItem("runkit-panel-sessions-alpha")).toBe("true");
+
+    // Second click: the group must collapse again (full toggle cycle).
+    fireEvent.click(screen.getByRole("button", { name: /Collapse alpha sessions/ }));
+    expect(
+      screen.getByRole("button", { name: /Expand alpha sessions/ }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(localStorage.getItem("runkit-panel-sessions-alpha")).toBe("false");
   });
 });

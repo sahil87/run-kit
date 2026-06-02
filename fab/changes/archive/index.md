@@ -1,5 +1,8 @@
 # Archived Changes
 
+- **260602-a36m-help-dump-shll-ai** — Build-time help-dump — emit rk CLI help tree as help/run-kit.json
+- **260602-72oq-fix-sync-latency-ghost-measure** — Fix sync-latency test 3 false-signal fixed-sleep measurement
+- **260602-3i5d-fix-create-server-not-found-race** — Fix Transient "Server not found" Flash After Server Create
 - **260602-a1wo-prevent-exit-empty-server-death** — Prevent exit-empty tmux server death
 - **260602-mss7-fix-sidebar-group-expand** — Fix sidebar non-current group expand (mss7)
 - **260531-tmnm-test-scoped-server-enumeration** — Test-scoped server enumeration

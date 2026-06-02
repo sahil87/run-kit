@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-02T18:56:12Z"}
+{"args":"release.yml 'Publish help tree to shll.ai' step never lands help/run-kit.json in sahil87/shll.ai. Root cause from v2.1.8 release run (26816371162): cp help/run-kit.json /tmp/shll-ai/help/run-kit.json fails (No such file or directory — destination help/ dir not guaranteed in the clone), the cp failure is not guarded with || return 1, set -e is neutralized because publish_to_shllai runs in an if-condition, and the 'unchanged since last release — nothing to publish' guard then returns 0 — masking the failure as a false success. Fix: mkdir -p the destination dir before cp, hard-fail on cp error, and distinguish copy-failure from genuine no-diff so the publish can't silently no-op.","cmd":"fab-new","event":"command","ts":"2026-06-02T18:56:12Z"}
+{"delta":"+2.1","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-06-02T18:57:18Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-06-02T18:57:23Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-06-02T19:02:24Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-06-02T19:02:43Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-06-02T19:02:53Z"}
+{"delta":"+2.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-02T19:03:07Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-02T19:03:12Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-02T19:04:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-02T19:04:06Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-02T19:05:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-02T19:08:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-02T19:11:56Z"}
+{"event":"review","result":"passed","ts":"2026-06-02T19:11:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-02T19:13:47Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-02T19:14:32Z"}

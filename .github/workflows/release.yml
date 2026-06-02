@@ -187,10 +187,27 @@ jobs:
           publish_to_shllai() {
             # Open a PR (not a direct push) into sahil87/shll.ai with the
             # refreshed help tree, mirroring the Homebrew-tap token-clone pattern.
+            # The clone is EXTERNAL (an unreachable shll.ai must not fail the
+            # release), so it stays best-effort with `|| return 1`.
             git clone "https://x-access-token:${SHLLAI_TOKEN}@github.com/sahil87/shll.ai.git" /tmp/shll-ai || return 1
 
             branch="rk-help-dump-${version}"
-            cp help/run-kit.json /tmp/shll-ai/help/run-kit.json
+
+            # Copying the produced help tree into the clone is INTERNAL: a failure
+            # here means our source is wrong or the destination is unwritable — a
+            # real defect in THIS repo's publish, so it MUST fail the job loudly
+            # rather than be swallowed by the `if publish_to_shllai` wrapper (which
+            # neutralizes `set -e`). The explicit `exit 1` terminates the whole
+            # `run:` shell regardless of the `if`, so a bad copy fails the Release
+            # job and can never reach the "unchanged — nothing to publish" guard
+            # below. `mkdir -p` guarantees the destination dir exists in a fresh
+            # clone whose tree has no `help/` at that commit (the v2.1.8 blocker).
+            src="${PWD}/help/run-kit.json"
+            dest="/tmp/shll-ai/help/run-kit.json"
+            echo "Publishing help tree: src=${src} dest=${dest}"
+            mkdir -p /tmp/shll-ai/help
+            cp "$src" "$dest" || { echo "::error::Failed to copy ${src} to ${dest}"; exit 1; }
+            ls -l "$dest"
 
             cd /tmp/shll-ai
             git config user.name "github-actions[bot]"

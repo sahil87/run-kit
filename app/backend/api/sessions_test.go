@@ -74,7 +74,14 @@ type mockTmuxOps struct {
 
 	listWindowsResult  []tmux.WindowInfo
 	listWindowsErr     error
-	listSessionsResult []tmux.SessionInfo
+	// listWindowsBySession, when non-nil, makes ListWindows session-aware:
+	// it returns the windows mapped to the queried session name (empty slice
+	// for an unmapped session). This is required to faithfully model the
+	// move-based board world, where a pinned window lives ONLY in its
+	// `_rk-pin-<id>` session and NOT in any home session — the flat
+	// listWindowsResult (returned for every session) cannot express that.
+	listWindowsBySession map[string][]tmux.WindowInfo
+	listSessionsResult   []tmux.SessionInfo
 	listServersResult  []string
 
 	resolveWindowSessionResult string
@@ -244,6 +251,9 @@ func (m *mockTmuxOps) SendKeys(windowID, keys, server string) error {
 	return m.err
 }
 func (m *mockTmuxOps) ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error) {
+	if m.listWindowsBySession != nil {
+		return m.listWindowsBySession[session], m.listWindowsErr
+	}
 	return m.listWindowsResult, m.listWindowsErr
 }
 func (m *mockTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {

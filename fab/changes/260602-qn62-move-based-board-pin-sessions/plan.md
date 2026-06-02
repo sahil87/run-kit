@@ -237,6 +237,10 @@ the relay attaches directly.
 
 - [x] T021 Review the board e2e specs (`boards-pin-flow`, `boards-mobile`, `boards-multi-server`, `boards-same-session-multi-pane`, `boards-desktop-suspend`) under `app/frontend/tests/e2e/`: `boards-same-session-multi-pane.spec.ts` asserted the OLD multi-pane-same-session behavior (now each pin is its own session) and `boards-multi-server.spec.ts` asserted cross-server aggregation (now server-scoped) — update those `.spec.ts` to the new model and update their sibling `.spec.md` companions in the same change (Constitution Test Companion Docs). Specs that still hold (pin/unpin a window, render a live pane) stay. <!-- R11 -->
 
+### Phase 7: Rework — board-render join through pin-sessions
+
+- [x] T022 Fix `app/backend/api/boards.go` `handleBoardGet` (and `windowExistsOnServer`) to find pinned windows in their `_rk-pin-<id>` sessions. <!-- R4 --> <!-- rework: CI/e2e regression — handleBoardGet built its live-window join by scanning the user-facing `ListSessions`, which this change taught to HIDE `_rk-pin-*` sessions. Pinned windows live IN those hidden sessions, so the join matched nothing → `GET /api/boards/{name}` returned `[]` → board rendered zero panes (.xterm count 0; `getByText('win-a')` not visible). Fixed by joining each entry against its own pin-session directly (`tmux.PinSessionName(windowID)` → `ListWindows(pinSession)`, a by-name target query not subject to the session-list filter). Also fixed `windowExistsOnServer` to check the pin-session so re-pinning an already-pinned window (different board) is not wrongly 404'd before tmux.Pin's re-stamp path. Planning gap: no task covered the board HTTP handlers' dependency on `ListSessions`. -->
+
 ## Execution Order
 
 - Phase 1 (T001-T002) is the foundation: the prefix constant + helpers are used by board.go and relay.

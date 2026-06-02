@@ -50,61 +50,45 @@ func (s *Server) handleBoardGet(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]BoardEntryResponse, 0, len(entries))
 
-	// Build per-server windowID -> {session, WindowInfo} maps once so the
-	// per-entry join below is O(1) instead of O(sessions × windows).
-	type windowMatch struct {
-		session string
-		info    tmux.WindowInfo
-	}
-	byServer := make(map[string]map[string]windowMatch)
-
-	// First pass: fetch all sessions per server, populating the per-server
-	// windowID lookup as we go.
-	serversNeeded := make(map[string]struct{})
+	// Join each board entry with live window data. A pinned window has been MOVED
+	// into its own single-window pin-session `_rk-pin-<id>`, so the window lives
+	// inside a session that the user-facing `ListSessions`/`parseSessions` path
+	// deliberately HIDES (the `_rk-pin-` skip). Enumerating via `ListSessions`
+	// would therefore never find the pinned window and the board would render
+	// empty (the CI/e2e failure this replaced). Instead, look the window up in its
+	// OWN pin-session directly: the entry's WindowID maps deterministically to its
+	// pin-session name, and `ListWindows -t <pinSession>` is a by-name target query
+	// that is NOT subject to the session-list filter. O(entries) targeted lookups.
 	for _, e := range entries {
-		serversNeeded[e.Server] = struct{}{}
-	}
-	for srv := range serversNeeded {
-		sessions, sErr := s.tmux.ListSessions(r.Context(), srv)
-		if sErr != nil {
-			continue
-		}
-		serverIndex := make(map[string]windowMatch)
-		for _, sess := range sessions {
-			windows, wErr := s.tmux.ListWindows(r.Context(), sess.Name, srv)
-			if wErr != nil {
-				continue
-			}
-			for _, win := range windows {
-				// First win wins — duplicate windowIDs across sessions on the
-				// same tmux server should not occur.
-				if _, exists := serverIndex[win.WindowID]; exists {
-					continue
-				}
-				serverIndex[win.WindowID] = windowMatch{session: sess.Name, info: win}
-			}
-		}
-		byServer[srv] = serverIndex
-	}
-
-	for _, e := range entries {
-		serverIndex, ok := byServer[e.Server]
+		pinSession, ok := tmux.PinSessionName(e.WindowID)
 		if !ok {
+			// Malformed window id (should not occur — entries come from pin
+			// sessions) — skip defensively.
 			continue
 		}
-		match, ok := serverIndex[e.WindowID]
-		if !ok {
-			// Window vanished between GetBoard and the join — skip.
+		windows, wErr := s.tmux.ListWindows(r.Context(), pinSession, e.Server)
+		if wErr != nil || len(windows) == 0 {
+			// Pin-session vanished between GetBoard and the join (window/pin
+			// killed) — skip; the board simply shows one fewer pane.
 			continue
+		}
+		// A pin-session holds exactly one window — its sole window IS the pinned
+		// window. Match by WindowID defensively in case of an unexpected extra.
+		win := windows[0]
+		for _, w := range windows {
+			if w.WindowID == e.WindowID {
+				win = w
+				break
+			}
 		}
 		out = append(out, BoardEntryResponse{
 			Server:      e.Server,
 			WindowID:    e.WindowID,
-			Session:     match.session,
-			WindowIndex: match.info.Index,
-			WindowName:  match.info.Name,
+			Session:     pinSession,
+			WindowIndex: win.Index,
+			WindowName:  win.Name,
 			OrderKey:    e.OrderKey,
-			Panes:       match.info.Panes,
+			Panes:       win.Panes,
 		})
 	}
 	// Stable sort by orderKey to preserve the GetBoard ordering after the join.
@@ -279,9 +263,28 @@ func (s *Server) handleBoardReorder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "newOrderKey": newKey})
 }
 
-// windowExistsOnServer scans every session on the server and returns true if
-// the supplied windowID matches a live window.
+// windowExistsOnServer returns true if the supplied windowID matches a live
+// window on the server — whether the window is in a normal (home) session OR
+// already moved into its own pin-session.
+//
+// The pin-session must be checked explicitly: `ListSessions`/`parseSessions`
+// HIDES `_rk-pin-*` sessions, so a window that is ALREADY pinned would be
+// invisible to the home-session scan alone. Without the pin-session check, a
+// re-pin of an already-pinned window (e.g. moving it to a different board) would
+// be rejected 404 before reaching tmux.Pin's wrong-board re-stamp path.
 func (s *Server) windowExistsOnServer(r *http.Request, server, windowID string) bool {
+	// Fast path: the window's own pin-session (by-name target, not subject to the
+	// session-list filter). If present, the window is already pinned and live.
+	if pinSession, ok := tmux.PinSessionName(windowID); ok {
+		if windows, err := s.tmux.ListWindows(r.Context(), pinSession, server); err == nil {
+			for _, w := range windows {
+				if w.WindowID == windowID {
+					return true
+				}
+			}
+		}
+	}
+	// Otherwise scan the visible (home) sessions.
 	sessions, err := s.tmux.ListSessions(r.Context(), server)
 	if err != nil {
 		return false

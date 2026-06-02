@@ -123,8 +123,7 @@ type ReapResult struct {
 //
 // Per-entry failures are logged via slog and skipped — a single failure MUST
 // NOT abort the sweep. An aggregate error describing the failed entries is
-// returned at the end (nil when every entry succeeded), mirroring
-// sweepOrphanedRelaySessions.
+// returned at the end (nil when every entry succeeded).
 func ReapTestServers(ctx context.Context, prefix string, act, force bool) (ReapResult, error) {
 	if len(prefix) <= minSafePrefixLen && !force {
 		return ReapResult{}, fmt.Errorf(

@@ -57,13 +57,16 @@ func TestBoards_GET_aggregateAcrossServers(t *testing.T) {
 }
 
 func TestBoard_GET_byName(t *testing.T) {
+	// In the move-based model a pinned window lives in its own `_rk-pin-<id>`
+	// session (the handler joins live window data from there, not from a home
+	// session). The pinned window @1234 → pin-session `_rk-pin-1234`.
 	ops := &mockTmuxOps{
 		getBoardResult: []tmux.BoardEntry{
 			{Server: "default", WindowID: "@1234", Board: "main", OrderKey: "a"},
 		},
 		listSessionsResult: []tmux.SessionInfo{{Name: "dev"}},
-		listWindowsResult: []tmux.WindowInfo{
-			{Index: 2, WindowID: "@1234", Name: "agent"},
+		listWindowsBySession: map[string][]tmux.WindowInfo{
+			"_rk-pin-1234": {{Index: 0, WindowID: "@1234", Name: "agent"}},
 		},
 	}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
@@ -83,8 +86,52 @@ func TestBoard_GET_byName(t *testing.T) {
 		t.Fatalf("got %d entries, want 1", len(got))
 	}
 	g := got[0]
-	if g.WindowID != "@1234" || g.Session != "dev" || g.WindowIndex != 2 || g.WindowName != "agent" || g.OrderKey != "a" {
+	if g.WindowID != "@1234" || g.Session != "_rk-pin-1234" || g.WindowName != "agent" || g.OrderKey != "a" {
 		t.Errorf("got %+v", g)
+	}
+}
+
+// TestBoard_GET_byName_windowInPinSession is the regression test for the
+// CI/e2e failure where a pinned board rendered EMPTY. In the move-based model a
+// pinned window is moved into its own `_rk-pin-<id>` session, which the
+// user-facing ListSessions/parseSessions path HIDES. handleBoardGet must look the
+// window up in its pin-session directly — NOT by scanning ListSessions, which
+// would never find it and drop every entry. Here the home session list contains
+// only an unrelated empty session; the pinned window @1234 lives ONLY under
+// `_rk-pin-1234`. The join must still return the entry with live window data.
+func TestBoard_GET_byName_windowInPinSession(t *testing.T) {
+	ops := &mockTmuxOps{
+		getBoardResult: []tmux.BoardEntry{
+			{Server: "default", WindowID: "@1234", Board: "main", OrderKey: "a"},
+		},
+		// Home sessions visible to ListSessions do NOT contain @1234 — it was
+		// moved out into its pin-session (which ListSessions hides). A scan of
+		// these would find nothing.
+		listSessionsResult: []tmux.SessionInfo{{Name: "dev"}},
+		listWindowsBySession: map[string][]tmux.WindowInfo{
+			"dev":          {{Index: 0, WindowID: "@9", Name: "other"}},
+			"_rk-pin-1234": {{Index: 0, WindowID: "@1234", Name: "agent"}},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/boards/main", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var got []BoardEntryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want 1 (board must NOT render empty when the window lives in its pin-session); body=%s", len(got), rec.Body.String())
+	}
+	g := got[0]
+	if g.WindowID != "@1234" || g.Session != "_rk-pin-1234" || g.WindowName != "agent" || g.OrderKey != "a" {
+		t.Errorf("got %+v, want WindowID=@1234 Session=_rk-pin-1234 WindowName=agent OrderKey=a", g)
 	}
 }
 

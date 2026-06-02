@@ -19,7 +19,7 @@ carousel's existing `paused={idx !== carouselIndex}` suspension.
   during the test.
 - `afterAll` POSTs `/api/boards/<name>/unpin` for each tracked entry
   (best-effort) so the persistent `rk-test-e2e` server doesn't carry stale
-  `@rk_board` entries into later runs, then kills the test session.
+  `_rk-pin-*` pin-sessions into later runs, then kills the test session.
 
 ## Tests
 

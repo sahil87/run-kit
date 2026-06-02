@@ -1,0 +1,51 @@
+id: qn62
+name: 260602-qn62-move-based-board-pin-sessions
+created: 2026-06-02T18:37:05Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 23
+    acceptance_count: 28
+    acceptance_completed: 0
+confidence:
+    certain: 9
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 95.7
+        reversibility: 63.3
+        competence: 84.8
+        disambiguation: 84.4
+stage_metrics:
+    intake: {started_at: "2026-06-02T18:37:05Z", driver: fab-new, iterations: 1, completed_at: "2026-06-02T19:09:27Z"}
+    apply: {started_at: "2026-06-02T19:58:25Z", driver: fab-fff, iterations: 2, completed_at: "2026-06-02T20:08:05Z"}
+    review: {started_at: "2026-06-02T20:08:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T20:08:09Z"}
+    hydrate: {started_at: "2026-06-02T20:08:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T20:21:46Z"}
+    ship: {started_at: "2026-06-02T20:21:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T20:23:53Z"}
+    review-pr: {started_at: "2026-06-02T20:23:53Z", driver: git-pr, iterations: 1, completed_at: "2026-06-02T20:25:37Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/233
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-02T20:21:46Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-02T22:15:54Z

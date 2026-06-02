@@ -547,187 +547,6 @@ func TestSSE_SessionOrderCachedOnConnect(t *testing.T) {
 	}
 }
 
-// stubBoardFetcher implements BoardEntriesFetcher for SSE tests.
-type stubBoardFetcher struct {
-	mu                sync.Mutex
-	entries           map[string][]tmux.BoardEntry
-	listCalls         int
-	listErr           error
-	removed           map[string][]string // server -> windowIDs removed
-	removedBoards     map[string]map[string][]string // server -> windowID -> boards returned
-}
-
-func (s *stubBoardFetcher) ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.listCalls++
-	if s.listErr != nil {
-		return nil, s.listErr
-	}
-	return s.entries[server], nil
-}
-
-func (s *stubBoardFetcher) RemoveAllByWindowID(ctx context.Context, server, windowID string) ([]string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.removed == nil {
-		s.removed = make(map[string][]string)
-	}
-	s.removed[server] = append(s.removed[server], windowID)
-	if s.removedBoards != nil {
-		if perWin, ok := s.removedBoards[server]; ok {
-			return perWin[windowID], nil
-		}
-	}
-	// Default: derive from entries snapshot.
-	var boards []string
-	for _, e := range s.entries[server] {
-		if e.WindowID == windowID {
-			boards = append(boards, e.Board)
-		}
-	}
-	return boards, nil
-}
-
-func TestSSE_BoardChangedCachedOnConnect(t *testing.T) {
-	hub := newSSEHub(&slowSessionFetcher{}, nil)
-	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
-	hub.boardFetcher = &stubBoardFetcher{}
-
-	// Pre-populate the bootstrap cache by broadcasting bootstrap.
-	hub.broadcastBoardBootstrap("default", []tmux.BoardEntry{
-		{Server: "default", WindowID: "@1234", Board: "main", OrderKey: "m"},
-	})
-
-	c := &sseClient{ch: make(chan []byte, 32), server: "default"}
-	hub.addClient(c)
-	defer hub.removeClient(c)
-
-	deadline := time.After(500 * time.Millisecond)
-	got := false
-	for !got {
-		select {
-		case ev := <-c.ch:
-			s := string(ev)
-			if strings.Contains(s, "event: board-changed") && strings.Contains(s, `"change":"bootstrap"`) {
-				got = true
-			}
-		case <-deadline:
-			t.Fatal("client did not receive cached board-changed bootstrap event")
-		}
-	}
-}
-
-func TestSSE_BoardBootstrapReadsTmuxOnFirstPoll(t *testing.T) {
-	stub := &stubBoardFetcher{
-		entries: map[string][]tmux.BoardEntry{
-			"default": {
-				{Server: "default", WindowID: "@1234", Board: "main", OrderKey: "m"},
-			},
-		},
-	}
-	hub := newSSEHub(&slowSessionFetcher{}, nil)
-	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
-	hub.boardFetcher = stub
-
-	c := &sseClient{ch: make(chan []byte, 32), server: "default"}
-	hub.addClient(c)
-	defer hub.removeClient(c)
-
-	deadline := time.After(legacyPollInterval + 1*time.Second)
-	got := false
-	for !got {
-		select {
-		case ev := <-c.ch:
-			s := string(ev)
-			if strings.Contains(s, "event: board-changed") &&
-				strings.Contains(s, `"change":"bootstrap"`) &&
-				strings.Contains(s, `"@1234"`) {
-				got = true
-			}
-		case <-deadline:
-			t.Fatal("client did not receive bootstrapped board-changed event")
-		}
-	}
-	stub.mu.Lock()
-	calls := stub.listCalls
-	stub.mu.Unlock()
-	if calls < 1 {
-		t.Errorf("boardFetcher.ListBoardEntries calls = %d, want >= 1", calls)
-	}
-}
-
-// killTrackingFetcher emits a different session set on each call so we can
-// trigger the kill-detection path.
-type killTrackingFetcher struct {
-	mu     sync.Mutex
-	calls  int
-	frames [][]sessions.ProjectSession
-}
-
-func (f *killTrackingFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.calls >= len(f.frames) {
-		f.calls++
-		return f.frames[len(f.frames)-1], nil
-	}
-	out := f.frames[f.calls]
-	f.calls++
-	return out, nil
-}
-
-func TestSSE_WindowKillEmitsBoardCleanup(t *testing.T) {
-	// Frame 0: window @1234 alive, pinned to main.
-	// Frame 1+: window @1234 gone — should trigger cleanup broadcast.
-	frames := [][]sessions.ProjectSession{
-		{
-			{Name: "dev", Windows: []tmux.WindowInfo{
-				{Index: 0, WindowID: "@1234", Name: "agent"},
-			}},
-		},
-		{
-			{Name: "dev", Windows: []tmux.WindowInfo{}},
-		},
-	}
-	stub := &stubBoardFetcher{
-		entries: map[string][]tmux.BoardEntry{
-			"default": {
-				{Server: "default", WindowID: "@1234", Board: "main", OrderKey: "m"},
-			},
-		},
-	}
-	hub := newSSEHub(&killTrackingFetcher{frames: frames}, nil)
-	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
-	hub.boardFetcher = stub
-
-	c := &sseClient{ch: make(chan []byte, 64), server: "default"}
-	hub.addClient(c)
-	defer hub.removeClient(c)
-
-	deadline := time.After(legacyPollInterval*3 + 2*time.Second)
-	got := false
-	for !got {
-		select {
-		case ev := <-c.ch:
-			s := string(ev)
-			if strings.Contains(s, "event: board-changed") &&
-				strings.Contains(s, `"change":"cleanup"`) &&
-				strings.Contains(s, `"@1234"`) {
-				got = true
-			}
-		case <-deadline:
-			t.Fatal("did not receive cleanup event after window killed")
-		}
-	}
-
-	stub.mu.Lock()
-	defer stub.mu.Unlock()
-	if len(stub.removed["default"]) == 0 {
-		t.Errorf("RemoveAllByWindowID was not invoked for default server")
-	}
-}
-
 func TestSSE_HubBootstrapReadsOrderOnFirstPoll(t *testing.T) {
 	stub := &stubOrderFetcher{orders: map[string][]string{
 		"default": {"alpha", "beta"},
@@ -764,13 +583,14 @@ func TestSSE_HubBootstrapReadsOrderOnFirstPoll(t *testing.T) {
 }
 
 // TestRealSessionNameSet verifies the snapshot→real-session-name extraction
-// excludes relay ephemerals and the control anchor (which churn by design and
-// must not trip the disappearance log) while keeping user-facing sessions.
+// excludes board pin-sessions and the control anchor (which are not sessions a
+// user would notice losing and must not trip the disappearance log) while
+// keeping user-facing sessions.
 func TestRealSessionNameSet(t *testing.T) {
 	in := []sessions.ProjectSession{
 		{Name: "shll", Windows: []tmux.WindowInfo{}},
 		{Name: "wt", Windows: []tmux.WindowInfo{}},
-		{Name: tmux.RelaySessionPrefix + "abc123", Windows: []tmux.WindowInfo{}},
+		{Name: tmux.PinSessionPrefix + "42", Windows: []tmux.WindowInfo{}},
 		{Name: tmux.ControlAnchorSessionName, Windows: []tmux.WindowInfo{}},
 		{Name: "", Windows: []tmux.WindowInfo{}}, // defensive: empty name ignored
 	}
@@ -784,8 +604,8 @@ func TestRealSessionNameSet(t *testing.T) {
 			t.Errorf("realSessionNameSet missing real session %q", name)
 		}
 	}
-	if got[tmux.RelaySessionPrefix+"abc123"] {
-		t.Error("realSessionNameSet must exclude relay ephemerals")
+	if got[tmux.PinSessionPrefix+"42"] {
+		t.Error("realSessionNameSet must exclude board pin-sessions")
 	}
 	if got[tmux.ControlAnchorSessionName] {
 		t.Error("realSessionNameSet must exclude the control anchor")

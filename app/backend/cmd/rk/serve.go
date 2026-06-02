@@ -83,16 +83,11 @@ To run rk as a background daemon, see 'rk daemon start' (and the rest of the
 			return fmt.Errorf("ensuring tmux config: %w", err)
 		}
 
-		// Reap orphaned rk-relay-* ephemerals left by a previously crashed
-		// rk serve instance. Synchronous to eliminate races with new relays
-		// creating ephemerals concurrently with the sweep. Bounded to 30s
-		// so a misbehaving tmux server cannot stall startup indefinitely.
-		// Failures are logged but never block startup.
-		sweepCtx, sweepCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		if err := sweepOrphanedRelaySessions(sweepCtx); err != nil {
-			slog.Warn("relay sweep finished with errors", "err", err)
-		}
-		sweepCancel()
+		// No startup sweep: relay ephemerals are gone (the relay attaches the PTY
+		// directly to the real session), and board pin-sessions (`_rk-pin-*`) are
+		// PERSISTENT across rk restarts (Constitution VI — tmux survives the
+		// server). A persisted pin is valid state, not an orphan, so there is
+		// nothing to reap.
 
 		logLevel := slog.LevelInfo
 		if strings.EqualFold(os.Getenv("LOG_LEVEL"), "debug") {
@@ -107,12 +102,9 @@ To run rk as a background daemon, see 'rk daemon start' (and the rest of the
 
 		router, apiServer := api.NewRouterAndServer(ctx, logger)
 
-		// Start the tmuxctl supervisor AFTER tmux.EnsureConfig() and
-		// sweepOrphanedRelaySessions (both above) and BEFORE the HTTP
-		// listen. The sweep must run first so it does not observe the
-		// `_rk-ctl` anchor as an orphan; the supervisor must run before
-		// listen so the SSE hub never races an empty Client map for
-		// sockets that already exist on disk.
+		// Start the tmuxctl supervisor AFTER tmux.EnsureConfig() (above) and
+		// BEFORE the HTTP listen, so the SSE hub never races an empty Client map
+		// for sockets that already exist on disk.
 		//
 		// Per-socket Open failures (PTY unavailable, etc.) are logged
 		// inside the Supervisor and never block startup.

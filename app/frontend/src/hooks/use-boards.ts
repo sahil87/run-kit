@@ -23,20 +23,23 @@ interface UseBoardEntriesResult {
 }
 
 /**
- * Subscribe to the union of board-changed events across all running tmux
- * servers. Returns a function that dispatches the supplied callback when an
- * event arrives. Re-subscribes when the server list changes. Reuses
- * SessionProvider's EventSource pool via attachServer/subscribeBoardChange
- * so we share the per-server SSE connections (boards span servers, so we
- * attach all known servers) and stay under the 6-connection cap.
+ * Subscribe to board-changed events across all running tmux servers. Returns a
+ * function that dispatches the supplied callback when an event arrives.
+ * Re-subscribes when the server list changes. Reuses SessionProvider's
+ * EventSource pool via attachServer/subscribeBoardChange so we share the
+ * per-server SSE connections and stay under the 6-connection cap.
+ *
+ * Boards are server-scoped (a pinned window's pin-session lives on a single
+ * tmux server), but the board LIST is summarized across every reachable server,
+ * so we attach all known servers to receive each one's pin/unpin/reorder events.
  */
 function useBoardChangedSubscription(onEvent: () => void): void {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
   // Use SessionProvider's EventSource pool instead of opening per-server
-  // connections here. We attach all known servers so cross-server
-  // board-changed events arrive (boards are explicitly cross-server).
+  // connections here. We attach all known servers so each server's
+  // board-changed events arrive (the board list spans servers).
   const { servers: ctxServers, attachServer, subscribeBoardChange } = useSessionContext();
   useEffect(() => {
     for (const s of ctxServers) attachServer(s.name);
@@ -96,7 +99,8 @@ export function useBoards(): UseBoardsResult {
 
 /**
  * useBoardEntries fetches and live-updates a specific board's entries.
- * Subscribes to board-changed events on every server (boards span servers).
+ * Subscribes to board-changed events on every server (the board list spans
+ * servers, so a pin/unpin on any server may affect this board).
  */
 export function useBoardEntries(name: string): UseBoardEntriesResult {
   const [entries, setEntries] = useState<BoardEntry[]>([]);

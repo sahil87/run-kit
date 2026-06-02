@@ -148,7 +148,8 @@ func readUntilContains(t *testing.T, conn *websocket.Conn, needle string, deadli
 			if strings.Contains(err.Error(), "i/o timeout") || strings.Contains(err.Error(), "deadline exceeded") {
 				continue
 			}
-			// Connection closed — return what we have.
+			// Connection closed / failed — return what we have. Do NOT loop back
+			// into ReadMessage(), which panics on an already-failed gorilla conn.
 			return buf.Bytes()
 		}
 		buf.Write(msg)
@@ -159,99 +160,77 @@ func readUntilContains(t *testing.T, conn *websocket.Conn, needle string, deadli
 	return buf.Bytes()
 }
 
-func TestRelay_TwoWindowsTwoRelaysDistinctOutput(t *testing.T) {
-	tmuxServer, _, win0ID, win1ID := withRelayTmux(t)
+// realSessionNames returns the non-pin, non-anchor session names on a tmux
+// server. Used to assert the relay creates NO extra (ephemeral) session — the
+// move-based model attaches the PTY directly to the real session.
+func realSessionNames(t *testing.T, server string) []string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	sessions, err := tmux.ListSessions(ctx, server)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	names := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		names = append(names, s.Name)
+	}
+	return names
+}
+
+// TestRelay_DirectAttachRendersSelectedWindow proves the relay attaches the PTY
+// DIRECTLY to the real session and renders the window it selected — once per
+// window. The connections are opened SEQUENTIALLY (not concurrently): in the
+// move-based model both windows live in the SAME real session with a single
+// shared active-window pointer (the accepted multi-client tradeoff #1), so two
+// SIMULTANEOUS attaches would fight over that pointer. Sequential attaches
+// exercise the direct-attach + select-window path per window without that race.
+func TestRelay_DirectAttachRendersSelectedWindow(t *testing.T) {
+	tmuxServer, real, win0ID, win1ID := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
 	defer ts.Close()
 
 	connA := dialRelay(t, ts, tmuxServer, win0ID)
-	connB := dialRelay(t, ts, tmuxServer, win1ID)
-	defer connA.Close()
-	defer connB.Close()
-
-	// Read enough bytes from each to capture the echo'd window markers.
 	bytesA := readUntilContains(t, connA, "WINDOW_ZERO", 5*time.Second)
-	bytesB := readUntilContains(t, connB, "WINDOW_ONE", 5*time.Second)
-
+	connA.Close()
 	if !bytes.Contains(bytesA, []byte("WINDOW_ZERO")) {
-		t.Errorf("relay A did not receive WINDOW_ZERO marker; got: %q", string(bytesA))
+		t.Errorf("relay for win0 did not receive WINDOW_ZERO marker; got: %q", string(bytesA))
 	}
+
+	connB := dialRelay(t, ts, tmuxServer, win1ID)
+	bytesB := readUntilContains(t, connB, "WINDOW_ONE", 5*time.Second)
+	connB.Close()
 	if !bytes.Contains(bytesB, []byte("WINDOW_ONE")) {
-		t.Errorf("relay B did not receive WINDOW_ONE marker; got: %q", string(bytesB))
+		t.Errorf("relay for win1 did not receive WINDOW_ONE marker; got: %q", string(bytesB))
 	}
-	// The central bug-fix invariant: each relay only sees its own window's
-	// content, never the other's.
-	if bytes.Contains(bytesA, []byte("WINDOW_ONE")) {
-		t.Errorf("relay A leaked WINDOW_ONE content (would indicate the active-window bug); got: %q", string(bytesA))
-	}
-	if bytes.Contains(bytesB, []byte("WINDOW_ZERO")) {
-		t.Errorf("relay B leaked WINDOW_ZERO content (would indicate the active-window bug); got: %q", string(bytesB))
+
+	// The relay must NOT create any extra (ephemeral) session — it attaches the
+	// PTY directly to the real session. Only `real` should remain user-facing.
+	names := realSessionNames(t, tmuxServer)
+	for _, n := range names {
+		if n != real {
+			t.Errorf("unexpected extra session %q after relay connect (no ephemeral expected); sessions=%v", n, names)
+		}
 	}
 }
 
-func TestRelay_EphemeralCleanupOnClose(t *testing.T) {
-	tmuxServer, _, win0ID, win1ID := withRelayTmux(t)
+// TestRelay_NoEphemeralCreated asserts the relay attaches directly to the real
+// session and leaves NO `rk-relay-*` ephemeral or extra session behind.
+func TestRelay_NoEphemeralCreated(t *testing.T) {
+	tmuxServer, real, win0ID, _ := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
 	defer ts.Close()
 
-	connA := dialRelay(t, ts, tmuxServer, win0ID)
-	connB := dialRelay(t, ts, tmuxServer, win1ID)
+	conn := dialRelay(t, ts, tmuxServer, win0ID)
+	defer conn.Close()
 
-	// Helper that uses a fresh per-call timeout so the surrounding polling
-	// loops never run past a shared parent deadline (which previously made
-	// this test flaky once the cleanup wait outlived the original 3s ctx).
-	listRelaySessions := func() ([]string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		return tmux.ListRawSessionNames(ctx, tmuxServer)
+	// Give the attach a moment to establish.
+	_ = readUntilContains(t, conn, "WINDOW_ZERO", 3*time.Second)
+
+	names := realSessionNames(t, tmuxServer)
+	if len(names) != 1 || names[0] != real {
+		t.Errorf("expected only the real session %q, got %v (relay must not create an ephemeral)", real, names)
 	}
-
-	// Wait briefly so the relay handlers finish creating their ephemerals.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		names, err := listRelaySessions()
-		if err == nil {
-			n := 0
-			for _, name := range names {
-				if strings.HasPrefix(name, tmux.RelaySessionPrefix) {
-					n++
-				}
-			}
-			if n >= 2 {
-				break
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	// Close both WebSockets; the relay handlers' deferred KillSessionCtx must
-	// reap the ephemerals.
-	connA.Close()
-	connB.Close()
-
-	// Poll until no rk-relay-* sessions remain (cleanup is best-effort and
-	// runs after the goroutine sees the WS close).
-	cleanupDeadline := time.Now().Add(5 * time.Second)
-	var lastNames []string
-	for time.Now().Before(cleanupDeadline) {
-		names, err := listRelaySessions()
-		if err != nil {
-			t.Fatalf("ListRawSessionNames: %v", err)
-		}
-		lastNames = names
-		any := false
-		for _, name := range names {
-			if strings.HasPrefix(name, tmux.RelaySessionPrefix) {
-				any = true
-				break
-			}
-		}
-		if !any {
-			return // success
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("rk-relay-* sessions persisted after WebSocket close: %v", lastNames)
 }
 
 // TestRelay_PercentEncodedAtNot400 is a regression: clients URL-encode '@'
@@ -282,10 +261,10 @@ func TestRelay_PercentEncodedAtNot400(t *testing.T) {
 
 // TestRelay_MissingWindowClose4004 exercises the error path: opening a relay
 // to a well-formed but non-existent window ID should close the WebSocket with
-// code 4004 (session resolution fails) and not leak any ephemeral on the tmux
-// server.
+// code 4004 (session resolution fails) and not leak any extra session on the
+// tmux server.
 func TestRelay_MissingWindowClose4004(t *testing.T) {
-	tmuxServer, _, _, _ := withRelayTmux(t)
+	tmuxServer, real, _, _ := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
 	defer ts.Close()
 
@@ -315,98 +294,17 @@ func TestRelay_MissingWindowClose4004(t *testing.T) {
 	closeErr, ok := readErr.(*websocket.CloseError)
 	if !ok {
 		// The server may abort without a clean close frame in some paths; we
-		// still need to verify no ephemeral was created.
+		// still need to verify no extra session was created.
 		t.Logf("read returned non-close error (acceptable): %v", readErr)
 	} else if closeErr.Code != 4004 {
 		t.Errorf("close code = %d, want 4004", closeErr.Code)
 	}
 
-	// Verify no rk-relay-* leaked.
-	listCtx, cancelList := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancelList()
-	names, err := tmux.ListRawSessionNames(listCtx, tmuxServer)
-	if err != nil {
-		t.Fatalf("ListRawSessionNames: %v", err)
-	}
-	for _, name := range names {
-		if strings.HasPrefix(name, tmux.RelaySessionPrefix) {
-			t.Errorf("ephemeral leaked after missing-session relay: %s", name)
+	// Verify no extra session leaked — only the real session should remain.
+	names := realSessionNames(t, tmuxServer)
+	for _, n := range names {
+		if n != real {
+			t.Errorf("unexpected extra session %q after missing-window relay; sessions=%v", n, names)
 		}
-	}
-}
-
-// TestRelay_OwnerStampFailureAbortsClean exercises the abort-clean path: when
-// the @rk_owner_pid stamp fails after the ephemeral grouped session is created,
-// handleRelay MUST close the WebSocket with the relay-allocation code (4001) and
-// reap the half-owned ephemeral via the deferred KillSessionCtx — so no live
-// but unstamped relay survives (which the next sweep would wrongly reap as an
-// owner=="" orphan). Uses mockTmuxOps to inject the stamp failure deterministically
-// after a successful session resolution and NewGroupedSession.
-func TestRelay_OwnerStampFailureAbortsClean(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	ops := &mockTmuxOps{
-		resolveWindowSessionResult: "real-session",
-		setSessionOwnerPIDErr:      fmt.Errorf("stamp failed: tmux unreachable"),
-	}
-	router := NewTestRouter(logger, &mockSessionFetcher{}, ops, "test-host")
-	ts := httptest.NewServer(router)
-	defer ts.Close()
-
-	httpURL, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("parse url: %v", err)
-	}
-	wsURL := url.URL{
-		Scheme:   "ws",
-		Host:     httpURL.Host,
-		Path:     "/relay/@1",
-		RawQuery: "server=default",
-	}
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
-	if err != nil {
-		t.Fatalf("dial relay: %v", err)
-	}
-	defer conn.Close()
-
-	// The handler must close with 4001 once the owner-pid stamp fails.
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	_, _, readErr := conn.ReadMessage()
-	if readErr == nil {
-		t.Fatal("expected close from server, got message")
-	}
-	if closeErr, ok := readErr.(*websocket.CloseError); ok {
-		if closeErr.Code != 4001 {
-			t.Errorf("close code = %d, want 4001", closeErr.Code)
-		}
-	} else {
-		t.Logf("read returned non-close error (acceptable): %v", readErr)
-	}
-
-	// The stamp must have been attempted, and the ephemeral reaped by the
-	// deferred KillSessionCtx so no unstamped relay survives.
-	//
-	// The reap runs in handleRelay's deferred cleanup on the SERVER goroutine,
-	// which is not synchronized with the client seeing the 4001 close above.
-	// Reading the kill state immediately therefore races the server's defer and
-	// flakes under load (observed in CI). Poll the mutex-guarded accessor with a
-	// short deadline instead of asserting once on the bare fields.
-	if !ops.setSessionOwnerPIDCalled {
-		t.Error("SetSessionOwnerPID was not called — stamp path not exercised")
-	}
-	var killed bool
-	var killedName string
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if killed, killedName = ops.KillSessionWasCalled(); killed {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !killed {
-		t.Error("ephemeral was not reaped after stamp failure (deferred KillSessionCtx not invoked)")
-	}
-	if killedName != ops.newGroupedSessionEphemeral {
-		t.Errorf("reaped session = %q, want the created ephemeral %q",
-			killedName, ops.newGroupedSessionEphemeral)
 	}
 }

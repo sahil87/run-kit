@@ -206,58 +206,6 @@ func TestSSE_SafetyTickerFiresWithoutSubscriber(t *testing.T) {
 	}
 }
 
-// TestDetectKilledWindowIDs verifies the extracted pure function.
-func TestDetectKilledWindowIDs(t *testing.T) {
-	cases := []struct {
-		name    string
-		prev    map[string]bool
-		current map[string]bool
-		want    map[string]bool
-	}{
-		{
-			name:    "no_kills",
-			prev:    map[string]bool{"@1": true, "@2": true},
-			current: map[string]bool{"@1": true, "@2": true},
-			want:    nil,
-		},
-		{
-			name:    "one_kill",
-			prev:    map[string]bool{"@1": true, "@2": true, "@3": true},
-			current: map[string]bool{"@1": true, "@3": true},
-			want:    map[string]bool{"@2": true},
-		},
-		{
-			name:    "all_killed",
-			prev:    map[string]bool{"@1": true, "@2": true},
-			current: map[string]bool{},
-			want:    map[string]bool{"@1": true, "@2": true},
-		},
-		{
-			name:    "empty_prev_returns_nothing",
-			prev:    map[string]bool{},
-			current: map[string]bool{"@1": true},
-			want:    nil,
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			killed := detectKilledWindowIDs(c.prev, c.current)
-			gotSet := map[string]bool{}
-			for _, id := range killed {
-				gotSet[id] = true
-			}
-			if len(gotSet) != len(c.want) {
-				t.Fatalf("len mismatch: got %v, want %v", gotSet, c.want)
-			}
-			for k := range c.want {
-				if !gotSet[k] {
-					t.Errorf("missing %s in result %v", k, gotSet)
-				}
-			}
-		})
-	}
-}
-
 // neverSubscriber is a WindowChangeSubscriber whose Wait channel never closes
 // for any server — models the PTY-unavailable case where supervisorSubscriber
 // has no Client for the requested socket. The SSE loop MUST fall through to

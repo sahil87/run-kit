@@ -83,98 +83,6 @@ func TestValidOrderKey(t *testing.T) {
 	}
 }
 
-func TestParseBoardValue(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  string
-		want []BoardEntry
-	}{
-		{"empty", "", nil},
-		{"whitespace", "   \n", nil},
-		{"single", "@1234:main:a", []BoardEntry{
-			{Server: "s", WindowID: "@1234", Board: "main", OrderKey: "a"},
-		}},
-		{"multiple", "@1234:main:a,@5678:main:c,@9000:deploy:b", []BoardEntry{
-			{Server: "s", WindowID: "@1234", Board: "main", OrderKey: "a"},
-			{Server: "s", WindowID: "@5678", Board: "main", OrderKey: "c"},
-			{Server: "s", WindowID: "@9000", Board: "deploy", OrderKey: "b"},
-		}},
-		{"skip malformed field count", "not:a:valid:entry,@1234:main:a", []BoardEntry{
-			{Server: "s", WindowID: "@1234", Board: "main", OrderKey: "a"},
-		}},
-		{"skip malformed window id", "1234:main:a,@5678:main:b", []BoardEntry{
-			{Server: "s", WindowID: "@5678", Board: "main", OrderKey: "b"},
-		}},
-		{"skip malformed board", "@1234:foo,bar:a,@5678:main:b", []BoardEntry{
-			// the first parses as 4 fields and is skipped on count
-			{Server: "s", WindowID: "@5678", Board: "main", OrderKey: "b"},
-		}},
-		{"skip malformed order key", "@1234:main:Z,@5678:main:b", []BoardEntry{
-			{Server: "s", WindowID: "@5678", Board: "main", OrderKey: "b"},
-		}},
-		{"empty entries between commas", "@1234:main:a,,@5678:main:b", []BoardEntry{
-			{Server: "s", WindowID: "@1234", Board: "main", OrderKey: "a"},
-			{Server: "s", WindowID: "@5678", Board: "main", OrderKey: "b"},
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseBoardValue("s", tt.raw)
-			if len(got) != len(tt.want) {
-				t.Fatalf("got %d entries, want %d (got=%v)", len(got), len(tt.want), got)
-			}
-			for i := range tt.want {
-				if got[i] != tt.want[i] {
-					t.Errorf("idx %d: got %+v, want %+v", i, got[i], tt.want[i])
-				}
-			}
-		})
-	}
-}
-
-func TestSerializeBoardValue(t *testing.T) {
-	tests := []struct {
-		name string
-		in   []BoardEntry
-		want string
-	}{
-		{"empty", nil, ""},
-		{"single", []BoardEntry{
-			{WindowID: "@1234", Board: "main", OrderKey: "a"},
-		}, "@1234:main:a"},
-		{"multiple preserves order", []BoardEntry{
-			{WindowID: "@1234", Board: "main", OrderKey: "a"},
-			{WindowID: "@5678", Board: "deploy", OrderKey: "b"},
-		}, "@1234:main:a,@5678:deploy:b"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := serializeBoardValue(tt.in)
-			if got != tt.want {
-				t.Errorf("got %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestRoundTripBoardValue(t *testing.T) {
-	in := []BoardEntry{
-		{Server: "s", WindowID: "@1234", Board: "main", OrderKey: "a"},
-		{Server: "s", WindowID: "@5678", Board: "deploy", OrderKey: "b"},
-		{Server: "s", WindowID: "@9999", Board: "main", OrderKey: "bm"},
-	}
-	raw := serializeBoardValue(in)
-	got := parseBoardValue("s", raw)
-	if len(got) != len(in) {
-		t.Fatalf("len got=%d, want=%d", len(got), len(in))
-	}
-	for i := range in {
-		if got[i] != in[i] {
-			t.Errorf("idx %d: got %+v, want %+v", i, got[i], in[i])
-		}
-	}
-}
-
 func TestComputeOrderKey(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -256,106 +164,375 @@ func TestComputeOrderKey_InvalidInputs(t *testing.T) {
 	}
 }
 
-// withBoardTmux starts an ephemeral tmux server for board integration tests.
-// Mirrors withSessionOrderTmux from tmux_test.go.
+func TestPinSessionNameRoundTrip(t *testing.T) {
+	tests := []struct {
+		windowID string
+		wantName string
+		wantOK   bool
+	}{
+		{"@42", "_rk-pin-42", true},
+		{"@0", "_rk-pin-0", true},
+		{"@9999999", "_rk-pin-9999999", true},
+		{"42", "", false},
+		{"@abc", "", false},
+		{"", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.windowID, func(t *testing.T) {
+			name, ok := PinSessionName(tt.windowID)
+			if ok != tt.wantOK || name != tt.wantName {
+				t.Fatalf("PinSessionName(%q) = (%q, %v), want (%q, %v)", tt.windowID, name, ok, tt.wantName, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			id, rok := WindowIDFromPinSession(name)
+			if !rok || id != tt.windowID {
+				t.Errorf("WindowIDFromPinSession(%q) = (%q, %v), want (%q, true)", name, id, rok, tt.windowID)
+			}
+		})
+	}
+}
+
+func TestWindowIDFromPinSession_Invalid(t *testing.T) {
+	for _, name := range []string{"dev", "_rk-ctl", "_rk-pin-", "_rk-pin-abc", "rk-relay-x"} {
+		if _, ok := WindowIDFromPinSession(name); ok {
+			t.Errorf("WindowIDFromPinSession(%q) = ok, want not-ok", name)
+		}
+	}
+}
+
+// withBoardTmux starts an ephemeral tmux server with a single home session
+// ("home") for board integration tests. Reuses withSessionOrderTmux's
+// bootstrap, then renames the boot session to "home" so window moves have a
+// stable home target.
 func withBoardTmux(t *testing.T) string {
 	t.Helper()
-	server := withSessionOrderTmux(t) // re-use same helper
+	server := withSessionOrderTmux(t)
+	if err := RenameSession("boot", "home", server); err != nil {
+		t.Fatalf("rename boot->home: %v", err)
+	}
 	return server
 }
 
-func TestPin_AppendsAndIsIdempotent(t *testing.T) {
-	server := withBoardTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+// createHomeWindow adds a window named `name` to the home session and returns
+// its stable @N window id.
+func createHomeWindow(t *testing.T, server, session, name string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	// Use a fake @<N> id; tmux options don't validate that the id maps to a
-	// live window — we test idempotency at the option level.
-	if err := Pin(ctx, server, "@1234", "main"); err != nil {
-		t.Fatalf("Pin first: %v", err)
+	if _, err := tmuxExecServer(ctx, server, "new-window", "-t", session, "-n", name, "-P", "-F", "#{window_id}"); err != nil {
+		t.Fatalf("new-window %q: %v", name, err)
 	}
-	entries, err := ListBoardEntries(ctx, server)
+	// Resolve the id by listing windows and matching the name (the -P output is
+	// swallowed by tmuxExecServer line filtering in some shells; list is robust).
+	windows, err := ListWindows(ctx, session, server)
 	if err != nil {
-		t.Fatalf("ListBoardEntries: %v", err)
+		t.Fatalf("list windows: %v", err)
 	}
-	if len(entries) != 1 || entries[0].WindowID != "@1234" || entries[0].Board != "main" {
-		t.Fatalf("after first Pin got %+v", entries)
-	}
-
-	// Idempotent re-pin.
-	if err := Pin(ctx, server, "@1234", "main"); err != nil {
-		t.Fatalf("Pin second: %v", err)
-	}
-	entries2, err := ListBoardEntries(ctx, server)
-	if err != nil {
-		t.Fatalf("ListBoardEntries: %v", err)
-	}
-	if len(entries2) != 1 {
-		t.Errorf("expected 1 entry after idempotent re-pin, got %+v", entries2)
-	}
-	if entries2[0].OrderKey != entries[0].OrderKey {
-		t.Errorf("order key changed on idempotent re-pin: %q -> %q", entries[0].OrderKey, entries2[0].OrderKey)
-	}
-
-	// Pin a different window — should append.
-	if err := Pin(ctx, server, "@5678", "main"); err != nil {
-		t.Fatalf("Pin third: %v", err)
-	}
-	entries3, err := ListBoardEntries(ctx, server)
-	if err != nil {
-		t.Fatalf("ListBoardEntries: %v", err)
-	}
-	if len(entries3) != 2 {
-		t.Fatalf("expected 2 entries, got %+v", entries3)
-	}
-	// Second entry's order key must be greater than the first's.
-	var first, second BoardEntry
-	for _, e := range entries3 {
-		if e.WindowID == "@1234" {
-			first = e
-		} else {
-			second = e
+	for _, w := range windows {
+		if w.Name == name {
+			return w.WindowID
 		}
 	}
-	if !(first.OrderKey < second.OrderKey) {
-		t.Errorf("expected %q < %q", first.OrderKey, second.OrderKey)
+	t.Fatalf("could not resolve window id for %q in %q", name, session)
+	return ""
+}
+
+// windowsInSession returns the @N ids currently in a session (empty if the
+// session does not exist).
+func windowsInSession(t *testing.T, server, session string) []string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	windows, err := ListWindows(ctx, session, server)
+	if err != nil {
+		return nil
+	}
+	ids := make([]string, 0, len(windows))
+	for _, w := range windows {
+		ids = append(ids, w.WindowID)
+	}
+	return ids
+}
+
+func hasSession(t *testing.T, server, session string) bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := tmuxExecRawServer(ctx, server, "has-session", "-t", session)
+	return err == nil
+}
+
+func TestPin_MovesWindowAndStampsVars(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+
+	// The window left its home session.
+	for _, id := range windowsInSession(t, server, "home") {
+		if id == wid {
+			t.Errorf("window %s still in home session after Pin", wid)
+		}
+	}
+	// The pin-session holds exactly the moved window (no placeholder).
+	pinWindows := windowsInSession(t, server, pin)
+	if len(pinWindows) != 1 || pinWindows[0] != wid {
+		t.Fatalf("pin session windows = %v, want [%s] (single window, no placeholder)", pinWindows, wid)
+	}
+	// Membership vars are stamped.
+	board, _ := showSessionOption(ctx, server, pin, BoardOption)
+	home, _ := showSessionOption(ctx, server, pin, HomeOption)
+	order, _ := showSessionOption(ctx, server, pin, BoardOrderOption)
+	if board != "main" || home != "home" || !ValidOrderKey(order) {
+		t.Errorf("vars: board=%q home=%q order=%q, want main/home/<valid key>", board, home, order)
+	}
+
+	// Derived entry matches.
+	entries, err := ListBoardEntries(ctx, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].WindowID != wid || entries[0].Board != "main" {
+		t.Fatalf("entries = %+v, want one main pin for %s", entries, wid)
 	}
 }
 
-func TestUnpin_RemovesOnlyMatching(t *testing.T) {
+func TestPin_Idempotent(t *testing.T) {
 	server := withBoardTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := Pin(ctx, server, "@1234", "main"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Pin(ctx, server, "@1234", "deploy"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Pin(ctx, server, "@5678", "main"); err != nil {
-		t.Fatal(err)
-	}
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
 
-	if err := Unpin(ctx, server, "@1234", "main"); err != nil {
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin first: %v", err)
+	}
+	order1, _ := showSessionOption(ctx, server, pin, BoardOrderOption)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin second (idempotent): %v", err)
+	}
+	order2, _ := showSessionOption(ctx, server, pin, BoardOrderOption)
+	if order1 != order2 {
+		t.Errorf("order key churned on idempotent re-pin: %q -> %q", order1, order2)
+	}
+	pinWindows := windowsInSession(t, server, pin)
+	if len(pinWindows) != 1 {
+		t.Errorf("idempotent re-pin changed pin window count: %v", pinWindows)
+	}
+}
+
+func TestPin_RePinToDifferentBoardRestamps(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin to main: %v", err)
+	}
+	// Re-pin the already-pinned window to a DIFFERENT board. This must re-stamp
+	// @rk_board (not silently no-op leaving it on "main"), and must not move the
+	// window or churn its pin-session.
+	if err := Pin(ctx, server, wid, "deploy"); err != nil {
+		t.Fatalf("Pin to deploy (re-pin): %v", err)
+	}
+	got, _ := showSessionOption(ctx, server, pin, BoardOption)
+	if got != "deploy" {
+		t.Errorf("re-pin to different board did not re-stamp @rk_board: got %q, want %q", got, "deploy")
+	}
+	pinWindows := windowsInSession(t, server, pin)
+	if len(pinWindows) != 1 {
+		t.Errorf("re-pin to different board changed pin window count: %v", pinWindows)
+	}
+}
+
+func TestPin_AppendsMonotonicWithinBoard(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	w1 := createHomeWindow(t, server, "home", "a1")
+	w2 := createHomeWindow(t, server, "home", "a2")
+	if err := Pin(ctx, server, w1, "main"); err != nil {
 		t.Fatal(err)
 	}
-
-	entries, err := ListBoardEntries(ctx, server)
+	if err := Pin(ctx, server, w2, "main"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := GetBoard(ctx, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries, got %+v", entries)
+	var k1, k2 string
+	for _, e := range entries {
+		switch e.WindowID {
+		case w1:
+			k1 = e.OrderKey
+		case w2:
+			k2 = e.OrderKey
+		}
+	}
+	if k1 == "" || k2 == "" || !(k1 < k2) {
+		t.Errorf("expected k1 < k2, got k1=%q k2=%q", k1, k2)
+	}
+}
+
+func TestUnpin_RestoresToLiveHome(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+	if err := Unpin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Unpin: %v", err)
+	}
+	// Pin-session is gone.
+	if hasSession(t, server, pin) {
+		t.Errorf("pin session %s survived Unpin", pin)
+	}
+	// Window is back in home.
+	found := false
+	for _, id := range windowsInSession(t, server, "home") {
+		if id == wid {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("window %s not restored to home after Unpin", wid)
+	}
+}
+
+func TestUnpin_RecreatesDeadHome(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Create a dedicated home with two windows so it survives moving one out,
+	// then we kill it while the pin is active to exercise the recreate path.
+	if err := CreateSession("temp", "", server); err != nil {
+		t.Fatalf("create temp home: %v", err)
+	}
+	wid := createHomeWindow(t, server, "temp", "agent")
+	pin, _ := PinSessionName(wid)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+	// Kill the home session while the window is pinned (home is now empty of the
+	// pinned window but may still hold its other window — kill the whole session).
+	if err := KillSession("temp", server); err != nil {
+		t.Fatalf("kill home: %v", err)
+	}
+	if hasSession(t, server, "temp") {
+		t.Fatalf("home session 'temp' still alive after kill")
 	}
 
-	// @1234:deploy and @5678:main should remain.
-	have := map[string]bool{}
-	for _, e := range entries {
-		have[e.WindowID+":"+e.Board] = true
+	if err := Unpin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Unpin (recreate home): %v", err)
 	}
-	if !have["@1234:deploy"] || !have["@5678:main"] {
-		t.Errorf("got entries %+v, want @1234:deploy and @5678:main", entries)
+	// Home recreated with the moved window as a member; pin-session gone.
+	if hasSession(t, server, pin) {
+		t.Errorf("pin session %s survived Unpin recreate", pin)
+	}
+	if !hasSession(t, server, "temp") {
+		t.Fatalf("home session 'temp' was not recreated")
+	}
+	ids := windowsInSession(t, server, "temp")
+	if len(ids) != 1 || ids[0] != wid {
+		t.Errorf("recreated home windows = %v, want [%s] (sole window, no placeholder)", ids, wid)
+	}
+	// The recreated home must not carry board membership vars.
+	if b, _ := showSessionOption(ctx, server, "temp", BoardOption); b != "" {
+		t.Errorf("recreated home retained @rk_board=%q", b)
+	}
+}
+
+func TestUnpin_BoardMismatchIsNoOp(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin to main: %v", err)
+	}
+	// Unpin with the WRONG board name must be a no-op success: the window stays
+	// pinned to "main" and the pin-session survives (so the handler emits no
+	// false board-changed event for "other").
+	if err := Unpin(ctx, server, wid, "other"); err != nil {
+		t.Fatalf("Unpin with mismatched board returned error, want no-op: %v", err)
+	}
+	if !hasSession(t, server, pin) {
+		t.Errorf("mismatched-board Unpin removed the pin-session %s (should be a no-op)", pin)
+	}
+	if b, _ := showSessionOption(ctx, server, pin, BoardOption); b != "main" {
+		t.Errorf("mismatched-board Unpin changed @rk_board to %q, want unchanged 'main'", b)
+	}
+	// The correct board name still unpins.
+	if err := Unpin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Unpin with correct board: %v", err)
+	}
+	if hasSession(t, server, pin) {
+		t.Errorf("pin-session %s survived a correct-board Unpin", pin)
+	}
+}
+
+func TestUnpin_HomelessPinRecoversWindow(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
+
+	if err := Pin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+	// Simulate a legacy/corrupt pin-session that lost @rk_home (stamp-before-move
+	// makes this unreachable in practice, but Unpin must still never strand a
+	// window). Once the window lives in the pin-session there is no source to
+	// re-derive the original home, so Unpin RECOVERS it by renaming the pin-session
+	// to a `recovered*` session — the window resurfaces in SESSIONS rather than
+	// being lost (filtered out of both SESSIONS and BOARDS).
+	if _, err := tmuxExecRawServer(ctx, server, "set-option", "-t", pin, "-u", HomeOption); err != nil {
+		t.Fatalf("clear @rk_home: %v", err)
+	}
+	if err := Unpin(ctx, server, wid, "main"); err != nil {
+		t.Fatalf("Unpin of @rk_home-less pin returned error, want recovery: %v", err)
+	}
+	if hasSession(t, server, pin) {
+		t.Errorf("pin-session %s survived recovery Unpin", pin)
+	}
+	recovered := "recovered" + strings.TrimPrefix(pin, PinSessionPrefix)
+	if !hasSession(t, server, recovered) {
+		t.Fatalf("recovery session %s was not created — window may be stranded", recovered)
+	}
+	ids := windowsInSession(t, server, recovered)
+	if len(ids) != 1 || ids[0] != wid {
+		t.Errorf("recovered session windows = %v, want [%s]", ids, wid)
+	}
+	// The recovered session must carry no board membership (it's a plain session).
+	if b, _ := showSessionOption(ctx, server, recovered, BoardOption); b != "" {
+		t.Errorf("recovered session retained @rk_board=%q", b)
 	}
 }
 
@@ -364,29 +541,39 @@ func TestUnpin_Idempotent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Unpin from empty — no error.
-	if err := Unpin(ctx, server, "@1234", "main"); err != nil {
-		t.Fatalf("unpin from empty: %v", err)
+	// Unpin a window that was never pinned — no pin-session, silent success.
+	if err := Unpin(ctx, server, "@9999", "main"); err != nil {
+		t.Fatalf("unpin of never-pinned window: %v", err)
 	}
 }
 
-func TestReorder_UpdatesOrderKey(t *testing.T) {
+func TestReorder_RewritesOnlyOneVar(t *testing.T) {
 	server := withBoardTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := Pin(ctx, server, "@1234", "main"); err != nil {
+	w1 := createHomeWindow(t, server, "home", "a1")
+	w2 := createHomeWindow(t, server, "home", "a2")
+	if err := Pin(ctx, server, w1, "main"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Reorder(ctx, server, "@1234", "main", "m"); err != nil {
+	if err := Pin(ctx, server, w2, "main"); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := ListBoardEntries(ctx, server)
-	if err != nil {
-		t.Fatal(err)
+	pin2, _ := PinSessionName(w2)
+	before2, _ := showSessionOption(ctx, server, pin2, BoardOrderOption)
+
+	if err := Reorder(ctx, server, w1, "main", "z"); err != nil {
+		t.Fatalf("Reorder: %v", err)
 	}
-	if len(entries) != 1 || entries[0].OrderKey != "m" {
-		t.Errorf("got %+v, want order key m", entries)
+	pin1, _ := PinSessionName(w1)
+	after1, _ := showSessionOption(ctx, server, pin1, BoardOrderOption)
+	after2, _ := showSessionOption(ctx, server, pin2, BoardOrderOption)
+	if after1 != "z" {
+		t.Errorf("reordered window key = %q, want z", after1)
+	}
+	if after2 != before2 {
+		t.Errorf("sibling key changed: %q -> %q (no renumber expected)", before2, after2)
 	}
 }
 
@@ -395,54 +582,12 @@ func TestReorder_NotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := Reorder(ctx, server, "@1234", "main", "a")
-	if err == nil {
-		t.Error("expected error for missing entry")
+	if err := Reorder(ctx, server, "@9999", "main", "a"); err == nil {
+		t.Error("expected error for missing pin-session")
 	}
 }
 
-func TestRemoveAllByWindowID(t *testing.T) {
-	server := withBoardTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := Pin(ctx, server, "@1234", "main"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Pin(ctx, server, "@1234", "deploy"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Pin(ctx, server, "@5678", "main"); err != nil {
-		t.Fatal(err)
-	}
-
-	boards, err := RemoveAllByWindowID(ctx, server, "@1234")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(boards) != 2 || boards[0] != "deploy" || boards[1] != "main" {
-		t.Errorf("got boards %v, want [deploy main]", boards)
-	}
-
-	entries, err := ListBoardEntries(ctx, server)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].WindowID != "@5678" {
-		t.Errorf("after removal got %+v, want only @5678", entries)
-	}
-
-	// Removing again is a no-op.
-	boards2, err := RemoveAllByWindowID(ctx, server, "@1234")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(boards2) != 0 {
-		t.Errorf("re-remove got %v, want empty", boards2)
-	}
-}
-
-func TestListBoardEntries_UnsetReturnsEmpty(t *testing.T) {
+func TestListBoardEntries_NoPinsReturnsEmpty(t *testing.T) {
 	server := withBoardTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -456,95 +601,41 @@ func TestListBoardEntries_UnsetReturnsEmpty(t *testing.T) {
 	}
 }
 
-func TestListBoards_AlphabeticalAggregation(t *testing.T) {
+func TestEmptyBoardVanishesOnLastUnpin(t *testing.T) {
 	server := withBoardTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := Pin(ctx, server, "@1234", "main"); err != nil {
+	wid := createHomeWindow(t, server, "home", "only")
+	if err := Pin(ctx, server, wid, "deploy"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Pin(ctx, server, "@5678", "main"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Pin(ctx, server, "@9999", "deploy"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Force ListBoards to use this server only by skipping ListServers — instead
-	// call the helper directly. ListBoards iterates ListServers, which may
-	// return many servers in CI; we only validate via ListBoardEntries summary
-	// helpers here. Compose the summary manually.
+	// Board exists while the pin exists (filter to our server's entries).
 	entries, err := ListBoardEntries(ctx, server)
 	if err != nil {
 		t.Fatal(err)
 	}
-	counts := map[string]int{}
+	foundDeploy := false
 	for _, e := range entries {
-		counts[e.Board]++
-	}
-	if counts["main"] != 2 || counts["deploy"] != 1 {
-		t.Errorf("counts = %v, want main:2 deploy:1", counts)
-	}
-}
-
-func TestGetBoard_DropsStaleEntries(t *testing.T) {
-	server := withBoardTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// boot session has window @1 (or similar) — discover its real id.
-	rawIDs, err := tmuxExecRawServer(ctx, server, "list-windows", "-a", "-F", "#{window_id}")
-	if err != nil {
-		t.Fatalf("list-windows: %v", err)
-	}
-	ids := strings.Split(strings.TrimSpace(rawIDs), "\n")
-	if len(ids) == 0 || ids[0] == "" {
-		t.Fatal("no live windows on bootstrap session")
-	}
-	liveID := ids[0]
-
-	// Pin one live and one stale.
-	if err := Pin(ctx, server, liveID, "main"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Pin(ctx, server, "@9999999", "main"); err != nil {
-		t.Fatal(err)
-	}
-
-	// GetBoard runs the cleanup. We can't easily inject ListServers, so call
-	// ListBoardEntries afterwards on this server only and verify the stale
-	// entry was written back. To avoid pulling other servers into the test,
-	// run GetBoard, then re-read entries on the test server only.
-	gb, err := GetBoard(ctx, "main")
-	if err != nil {
-		t.Fatalf("GetBoard: %v", err)
-	}
-	// gb may include entries from other servers if ListServers returns more.
-	// We just verify the stale @9999999 is not present and the live one is.
-	foundLive := false
-	for _, e := range gb {
-		if e.Server == server {
-			if e.WindowID == "@9999999" {
-				t.Errorf("stale @9999999 leaked into GetBoard result")
-			}
-			if e.WindowID == liveID {
-				foundLive = true
-			}
+		if e.Board == "deploy" {
+			foundDeploy = true
 		}
 	}
-	if !foundLive {
-		t.Errorf("live entry %s not found in GetBoard result", liveID)
+	if !foundDeploy {
+		t.Fatalf("board 'deploy' not derived while pin exists")
 	}
 
-	// Also assert the option was rewritten.
-	entries, err := ListBoardEntries(ctx, server)
+	if err := Unpin(ctx, server, wid, "deploy"); err != nil {
+		t.Fatal(err)
+	}
+	// After the last unpin, no pin carries @rk_board=deploy on this server.
+	entries2, err := ListBoardEntries(ctx, server)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range entries {
-		if e.WindowID == "@9999999" {
-			t.Errorf("write-back failed: stale entry still in @rk_board")
+	for _, e := range entries2 {
+		if e.Board == "deploy" {
+			t.Errorf("board 'deploy' still derived after last unpin: %+v", e)
 		}
 	}
 }

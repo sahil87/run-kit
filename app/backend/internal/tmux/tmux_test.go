@@ -178,28 +178,36 @@ func TestParseSessions(t *testing.T) {
 			want: []SessionInfo{{Name: "alpha", Color: intPtr(4)}, {Name: "beta"}},
 		},
 		{
-			name: "filters rk-relay-* ephemerals from user-facing list",
+			name: "filters _rk-pin-* board pin-sessions from user-facing list",
 			lines: []string{
 				sessionLine("agent", "0", "agent"),
-				sessionLine("rk-relay-deadbeef", "0", "rk-relay-deadbeef"),
+				sessionLine("_rk-pin-42", "0", "_rk-pin-42"),
 				sessionLine("dev", "0", "dev"),
 			},
 			want: []SessionInfo{{Name: "agent"}, {Name: "dev"}},
 		},
 		{
-			name: "rk-relay-* exclusion still allows group leaders to be kept",
+			name: "_rk-pin-* exclusion still allows group leaders to be kept",
 			lines: []string{
 				sessionLineGrouped("devshell", "1", "devshell", 2),
 				sessionLineGrouped("devshell-82", "1", "devshell", 2),
-				sessionLine("rk-relay-cafebabe", "0", "rk-relay-cafebabe"),
+				sessionLine("_rk-pin-7", "0", "_rk-pin-7"),
 			},
 			want: []SessionInfo{{Name: "devshell"}},
 		},
 		{
-			name: "only rk-relay-* sessions present returns nil",
+			name: "relay ephemerals are no longer filtered (relay layer removed)",
 			lines: []string{
-				sessionLine("rk-relay-aaaa1111", "0", "rk-relay-aaaa1111"),
-				sessionLine("rk-relay-bbbb2222", "0", "rk-relay-bbbb2222"),
+				sessionLine("rk-relay-deadbeef", "0", "rk-relay-deadbeef"),
+				sessionLine("dev", "0", "dev"),
+			},
+			want: []SessionInfo{{Name: "rk-relay-deadbeef"}, {Name: "dev"}},
+		},
+		{
+			name: "only _rk-pin-* sessions present returns nil",
+			lines: []string{
+				sessionLine("_rk-pin-1", "0", "_rk-pin-1"),
+				sessionLine("_rk-pin-2", "0", "_rk-pin-2"),
 			},
 			want: nil,
 		},
@@ -1109,10 +1117,10 @@ func TestGetSessionOrder_invalidJSONReturnsSyntaxError(t *testing.T) {
 	}
 }
 
-// withGroupedSessionTmux starts an isolated tmux server with a "real" session
-// containing two windows for the NewGroupedSession integration tests. Skips
-// the test if tmux is unavailable. Returns (server, realSession).
-func withGroupedSessionTmux(t *testing.T) (string, string) {
+// withRealSessionTmux starts an isolated tmux server with a "real" session
+// containing two windows. Skips the test if tmux is unavailable. Returns
+// (server, realSession).
+func withRealSessionTmux(t *testing.T) (string, string) {
 	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available — skipping integration test")
@@ -1126,7 +1134,6 @@ func withGroupedSessionTmux(t *testing.T) (string, string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Skipf("could not start isolated tmux server %q: %v\n%s", server, err, string(out))
 	}
-	// Add a second window so we can verify group window membership is shared.
 	addCtx, cancelAdd := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelAdd()
 	if out, err := exec.CommandContext(addCtx, "tmux", "-L", server, "new-window", "-t", real, "-n", "win1").CombinedOutput(); err != nil {
@@ -1141,66 +1148,14 @@ func withGroupedSessionTmux(t *testing.T) (string, string) {
 	return server, real
 }
 
-func TestNewGroupedSession_success(t *testing.T) {
-	server, real := withGroupedSessionTmux(t)
+// ResolveWindowSession returns the session a window lives in. In the move-based
+// model a window lives in exactly one session (home or `_rk-pin-*`), so a window
+// in the real session resolves to that session.
+func TestResolveWindowSession_findsOwningSession(t *testing.T) {
+	server, real := withRealSessionTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	ephemeral := "rk-relay-test1234"
-	if err := NewGroupedSession(ctx, server, real, ephemeral); err != nil {
-		t.Fatalf("NewGroupedSession: %v", err)
-	}
-
-	// Ephemeral appears in the raw session list (the user-facing ListSessions
-	// filters rk-relay-*, so we use the raw helper).
-	names, err := ListRawSessionNames(ctx, server)
-	if err != nil {
-		t.Fatalf("ListRawSessionNames: %v", err)
-	}
-	found := false
-	for _, n := range names {
-		if n == ephemeral {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("ephemeral %q not in raw session list: %v", ephemeral, names)
-	}
-
-	// Window membership is shared with the real session.
-	winLines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ephemeral, "-F", "#{window_index}")
-	if err != nil {
-		t.Fatalf("list-windows for ephemeral: %v", err)
-	}
-	realWinLines, err := tmuxExecServer(ctx, server, "list-windows", "-t", real, "-F", "#{window_index}")
-	if err != nil {
-		t.Fatalf("list-windows for real: %v", err)
-	}
-	if len(winLines) != len(realWinLines) {
-		t.Errorf("ephemeral has %d windows, real has %d (should be equal in a session group)", len(winLines), len(realWinLines))
-	}
-	if len(winLines) < 2 {
-		t.Errorf("ephemeral has %d windows, expected ≥2 from real session", len(winLines))
-	}
-}
-
-// Regression: when a relay's ephemeral session is grouped with the real
-// session, every window appears under both sessions. ResolveWindowSession
-// must return the real (user-facing) session, not the ephemeral — otherwise
-// a fresh relay groups itself against a dying ephemeral and tears down with
-// it.
-func TestResolveWindowSession_skipsEphemeralGroupMember(t *testing.T) {
-	server, real := withGroupedSessionTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	ephemeral := "rk-relay-resolve-test"
-	if err := NewGroupedSession(ctx, server, real, ephemeral); err != nil {
-		t.Fatalf("NewGroupedSession: %v", err)
-	}
-
-	// Pick a window ID that exists in both group members.
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", real, "-F", "#{window_id}")
 	if err != nil || len(lines) == 0 {
 		t.Fatalf("list-windows on real session: lines=%v err=%v", lines, err)
@@ -1212,63 +1167,35 @@ func TestResolveWindowSession_skipsEphemeralGroupMember(t *testing.T) {
 		t.Fatalf("ResolveWindowSession: %v", err)
 	}
 	if got != real {
-		t.Errorf("ResolveWindowSession(%q) = %q, want %q (ephemeral group member must be skipped)", id, got, real)
+		t.Errorf("ResolveWindowSession(%q) = %q, want %q", id, got, real)
 	}
 }
 
-func TestNewGroupedSession_missingRealSessionFails(t *testing.T) {
-	server, _ := withGroupedSessionTmux(t)
+func TestKillSessionCtx_killsSession(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	ephemeral := "rk-relay-test5678"
-	if err := NewGroupedSession(ctx, server, "ghost", ephemeral); err == nil {
-		t.Fatal("expected error when real session does not exist, got nil")
+	// Create a throwaway session, then kill it via KillSessionCtx.
+	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", "victim"); err != nil {
+		t.Fatalf("create victim session: %v", err)
 	}
-
-	// Ephemeral must NOT have been created on failure.
-	names, err := ListRawSessionNames(ctx, server)
-	if err != nil {
-		t.Fatalf("ListRawSessionNames: %v", err)
-	}
-	for _, n := range names {
-		if n == ephemeral {
-			t.Errorf("ephemeral %q should not exist after failed NewGroupedSession", ephemeral)
-		}
-	}
-}
-
-func TestKillSessionCtx_killsEphemeral(t *testing.T) {
-	server, real := withGroupedSessionTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	ephemeral := "rk-relay-deadbeef"
-	if err := NewGroupedSession(ctx, server, real, ephemeral); err != nil {
-		t.Fatalf("NewGroupedSession: %v", err)
-	}
-	if err := KillSessionCtx(ctx, server, ephemeral); err != nil {
+	if err := KillSessionCtx(ctx, server, "victim"); err != nil {
 		t.Fatalf("KillSessionCtx: %v", err)
 	}
-	names, err := ListRawSessionNames(ctx, server)
-	if err != nil {
-		t.Fatalf("ListRawSessionNames: %v", err)
-	}
-	for _, n := range names {
-		if n == ephemeral {
-			t.Errorf("ephemeral %q still present after KillSessionCtx", ephemeral)
-		}
+	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", "victim"); err == nil {
+		t.Errorf("session 'victim' still present after KillSessionCtx")
 	}
 }
 
-func TestListSessions_filtersRkRelay(t *testing.T) {
-	server, real := withGroupedSessionTmux(t)
+func TestListSessions_filtersPinSessions(t *testing.T) {
+	server, real := withRealSessionTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	ephemeral := "rk-relay-feedface"
-	if err := NewGroupedSession(ctx, server, real, ephemeral); err != nil {
-		t.Fatalf("NewGroupedSession: %v", err)
+	// A `_rk-pin-*` session must be filtered out of the user-facing list.
+	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", PinSessionPrefix+"42"); err != nil {
+		t.Fatalf("create pin session: %v", err)
 	}
 
 	got, err := ListSessions(ctx, server)
@@ -1276,11 +1203,10 @@ func TestListSessions_filtersRkRelay(t *testing.T) {
 		t.Fatalf("ListSessions: %v", err)
 	}
 	for _, s := range got {
-		if strings.HasPrefix(s.Name, RelaySessionPrefix) {
-			t.Errorf("ListSessions returned ephemeral %q — should be filtered", s.Name)
+		if strings.HasPrefix(s.Name, PinSessionPrefix) {
+			t.Errorf("ListSessions returned pin-session %q — should be filtered", s.Name)
 		}
 	}
-	// Real session should still be present.
 	foundReal := false
 	for _, s := range got {
 		if s.Name == real {

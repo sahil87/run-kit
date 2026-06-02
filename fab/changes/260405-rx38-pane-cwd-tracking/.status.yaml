@@ -14,7 +14,7 @@ progress:
     review-pr: pending
 plan:
     generated: true
-    task_count: 12
+    task_count: 0
     acceptance_count: 0
     acceptance_completed: 0
 confidence:
@@ -23,7 +23,6 @@ confidence:
     tentative: 1
     unresolved: 0
     score: 3.7
-    indicative: true
     fuzzy: true
     dimensions:
         signal: 85.0
@@ -33,4 +32,4 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-04-05T21:51:38Z", driver: fab-new, iterations: 1}
 prs: []
-last_updated: 2026-04-05T21:52:57Z
+last_updated: 2026-06-02T07:28:42Z

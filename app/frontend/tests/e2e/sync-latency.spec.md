@@ -66,9 +66,11 @@ pressing Enter commits an optimistic rename and the new name renders in
 
 **What it proves:** The session row's `+` (New window) button creates a
 window optimistically — a ghost window row appears under SESSION_B in
-≤500ms, without waiting for the SSE poll. The test fails (records SLOW) if
-the create path ever regresses to SSE-dependent. Tolerant if the button
-isn't visible (session not expanded).
+≤500ms, without waiting for the SSE poll. This is an audit: it records the
+real appearance latency and the summary flags it `[SLOW] ← SSE-dependent`
+(rather than hard-failing the suite) if the create path ever regresses to
+SSE-dependent (>500ms). Tolerant if the button isn't visible (session not
+expanded).
 
 **Steps:**
 1. `setup`.

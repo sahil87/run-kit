@@ -1,0 +1,18 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-02T09:12:32Z"}
+{"args":"fix: sync-latency.spec.ts test 3 is a no-op fixed-sleep latency test (waitForTimeout(3_000) then record elapsed) that always reports SLOW/SSE-dependent regardless of reality. Replace with time-to-first-ghost-appearance measurement; audit other actions for the same anti-pattern; update companion .spec.md per Test Companion Docs rule. Test-quality only, no production changes. Backlog 72oq.","cmd":"fab-new","event":"command","ts":"2026-06-02T09:12:32Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-06-02T09:12:36Z"}
+{"delta":"+3.1","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-06-02T09:13:40Z"}
+{"delta":"+0.0","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-06-02T09:13:45Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-02T09:14:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-02T09:14:36Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-02T09:15:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-02T09:20:45Z"}
+{"event":"review","result":"failed","ts":"2026-06-02T09:25:49Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-02T09:25:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-02T09:32:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-02T09:32:23Z"}
+{"event":"review","result":"passed","ts":"2026-06-02T09:32:23Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-02T09:33:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-02T09:33:55Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-02T09:35:05Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-02T09:36:53Z"}

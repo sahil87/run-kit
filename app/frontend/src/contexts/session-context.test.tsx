@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act, cleanup } from "@testing-library/react";
+import { renderHook, act, cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { SessionProvider, useSessionContext } from "./session-context";
+import {
+  SessionProvider,
+  useSessionContext,
+  StandaloneSessionContextProvider,
+} from "./session-context";
 import { ChromeProvider } from "./chrome-context";
 
 vi.mock("@/api/client", () => ({
@@ -194,5 +198,86 @@ describe("SessionProvider — currentServer follows route", () => {
     setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
     expect(result.current.currentServer).toBe(null);
+  });
+});
+
+describe("SessionProvider — pendingServer marker", () => {
+  it("markServerPending sets pendingServer; appearing in the refreshed list clears it", async () => {
+    // First fetch: empty list (server not yet created).
+    vi.mocked(listServers).mockResolvedValueOnce([]);
+    setMockMatches([{ params: { server: "newsrv" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.pendingServer).toBe(null);
+
+    // Mark pending (mirrors handleCreateServer after a create).
+    act(() => { result.current.markServerPending("newsrv"); });
+    expect(result.current.pendingServer).toBe("newsrv");
+
+    // Refresh resolves with the new server present — the clear-effect fires.
+    vi.mocked(listServers).mockResolvedValueOnce([{ name: "newsrv", sessionCount: 0 }]);
+    await act(async () => {
+      result.current.refreshServers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.servers.some((s) => s.name === "newsrv")).toBe(true);
+    expect(result.current.pendingServer).toBe(null);
+  });
+
+  it("markServerPending('') clears the marker (failed-create rollback path)", async () => {
+    vi.mocked(listServers).mockResolvedValue([]);
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    act(() => { result.current.markServerPending("ghost"); });
+    expect(result.current.pendingServer).toBe("ghost");
+
+    // Empty string clears to null without the server ever appearing.
+    act(() => { result.current.markServerPending(""); });
+    expect(result.current.pendingServer).toBe(null);
+  });
+});
+
+describe("SessionProvider — serversLoaded flag", () => {
+  it("flips false → true after the first fetch resolves (even to an empty list)", async () => {
+    vi.mocked(listServers).mockResolvedValue([]);
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+
+    // Synchronously after mount the promise has not settled yet.
+    expect(result.current.serversLoaded).toBe(false);
+
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // Settled to an empty list — still counts as "loaded".
+    expect(result.current.serversLoaded).toBe(true);
+    expect(result.current.servers).toEqual([]);
+  });
+});
+
+describe("StandaloneSessionContextProvider — pending-server fallbacks", () => {
+  it("supplies safe no-op/default values for the new fields", () => {
+    function Probe() {
+      const ctx = useSessionContext();
+      // Exercise the no-op so it is covered (must not throw).
+      ctx.markServerPending("x");
+      return (
+        <div>
+          <span data-testid="pending">{String(ctx.pendingServer)}</span>
+          <span data-testid="loaded">{String(ctx.serversLoaded)}</span>
+        </div>
+      );
+    }
+    render(
+      <StandaloneSessionContextProvider value={{}}>
+        <Probe />
+      </StandaloneSessionContextProvider>,
+    );
+    expect(screen.getByTestId("pending").textContent).toBe("null");
+    expect(screen.getByTestId("loaded").textContent).toBe("false");
   });
 });

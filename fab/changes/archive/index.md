@@ -1,5 +1,52 @@
 # Archived Changes
 
+- **260602-mss7-fix-sidebar-group-expand** — Fix sidebar non-current group expand (mss7)
+- **260531-tmnm-test-scoped-server-enumeration** — Test-scoped server enumeration
+- **260531-rus8-bound-desktop-relay-websockets** — Bound desktop relay WebSockets
+- **260531-m3pl-static-xterm-imports** — Static xterm imports
+- **260531-ckwv-skip-brew-update-flag** — Add --skip-brew-update flag to update command
+- **260530-v6hm-active-window-event-derivation** — Active-Window Event-Driven Derivation
+- **260530-cf3g-unify-test-socket-reaping** — Unify Test Socket Reaping
+- **260529-wtg4-isolate-relay-sweep-test-leaks** — Isolate Relay Sweep & Stop Test Artifact Leaks
+- **260529-jad6-window-api-stability** — Window-State API Stability Remediation
+- **260529-fww2-rk-reaper-command** — rk reaper command
+- **260529-chgz-window-id-routing** — Window-ID Routing (stable `@N` identity)
+- **260528-nvlp-active-window-sync** — Active Window Sync — tmux truth, URL as bookmark
+- **260528-5zvv-rk-daemon-cli-restructure** — rk daemon CLI Restructure
+- **260527-901h-deterministic-daemon-lifecycle** — Deterministic Daemon Lifecycle
+- **260516-tdu6-couple-server-pane-sessions-scope** — Couple Server Pane expand state with Sessions Pane server scope
+- **260509-17m3-rotated-shell-layout** — Rotated Shell Layout
+- **260508-hdjr-relay-grouped-sessions-board-panes** — Relay Grouped Sessions for Board Panes
+- **260508-dc0t-multiserver-session-provider** — Multi-Server SessionProvider + Unified Sidebar
+- **260507-lvon-session-order-tmux-persist** — Persist Sidebar Session Order to tmux
+- **260507-4vuv-pane-boards** — Pane Boards
+- **260504-lald-rk-riff-count-rename-and-fanout-fixes** — rk riff — `--count` rename and fan-out correctness fixes
+- **260423-udhe-rk-riff-cli-surface** — rk riff — CLI Surface Refinement
+- **260423-jmwu-rk-riff-workflow-features** — rk riff — Workflow Features
+- **260423-ba9f-rk-riff-correctness-fixes** — rk riff — Correctness and Portability Fixes
+- **260419-l1ja-fix-rk-iframe-relative-urls** — Fix rk iframe URL recipe — use relative /proxy/... paths
+- **260419-afyv-adapt-fab-pane-map-agents-schema** — Adapt to fab-kit `_agents` schema refactor
+- **260419-9ufu-sidebar-separator-cursor-fixes** — Sidebar Separator Cursor Fixes
+- **260418-zar8-server-panel-collapsed-selected-shade** — Sidebar header "current item" affordances — Server collapsed shade + Sessions header name
+- **260418-yadg-fix-mutation-server-race** — Fix Mutation APIs Targeting Wrong tmux Server
+- **260418-xgl2-xterm-emoji-width** — Fix xterm.js emoji / wide-character rendering
+- **260418-2cjc-right-align-server-name** — Right-align Server Name in Server Panel Header
+- **260417-w4af-name-riff-window-after-worktree** — Name the tmux window created by `rk riff` after the worktree
+- **260417-jpkl-server-panel-tile-grid** — Server Panel Tile Grid
+- **260417-hyrl-bundle-jetbrains-mono-nerd-font** — Bundle JetBrainsMono Nerd Font as a webfont in the frontend
+- **260417-g9uo-mobile-tap-focus-regression** — Mobile tap-to-focus regression after frontend dep upgrade
+- **260417-aaon-fix-riff-copilot-feedback** — Fix rk riff Copilot Review Feedback
+- **260417-5nok-fix-sidebar-fab-state** — Fix Sidebar Fab State Display
+- **260416-r1j6-add-riff-command** — Add rk riff Command
+- **260416-jn4h-session-window-color-tinting** — Session and Window Color Tinting
+- **260416-a5ug-pane-panel-spinner-animations** — Pane Panel Spinner Animations
+- **260416-6b0h-iframe-proxy-windows** — Iframe Proxy Windows
+- **260416-0gz9-rk-context-agent-discovery** — rk context — Agent Discovery
+- **260412-lc2q-pane-panel-copy-cwd-branch** — Pane Panel — Copy CWD & Git Branch
+- **260411-z63r-sidebar-host-window-panels** — Sidebar Host & Window Panels
+- **260411-sl02-cross-session-drag-optimistic-update** — Cross-Session Drag Optimistic Update
+- **260411-sl01-optimistic-sidebar-window-reorder** — Optimistic Sidebar Window Reorder
+- **260406-65f1-shorten-cwd-status-panel** — Shorten CWD in Status Panel
 - **260405-gle4-quick-session-launch** — Splits session/window creation into an instant default path (no folder prompt, uses active pane's CWD) and a secondary 'New Session at Folder' Cmd+K action, reducing friction for the most common quick-launch case.
 - **260405-f8p9-sidebar-component-decomposition** — Decomposes the 713-line monolithic sidebar.tsx into five sub-components (SessionRow, WindowRow, ServerSelector, KillDialog, and index orchestrator) to improve iterability, testability, and reviewability with zero behavioral changes.
 - **260405-x3yt-sidebar-window-state-zustand** — Rewrite sidebar window state management with Zustand using immutable identifiers instead of mutable indexes to fix deletion/rename bugs.

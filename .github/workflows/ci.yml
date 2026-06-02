@@ -63,14 +63,14 @@ jobs:
   e2e:
     name: E2E (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
-    # Non-blocking for now. The e2e suite is SSE-driven and shares one dev +
-    # tmux server per shard; under a 2-vCPU runner's contention a rotating
-    # subset of tests loses the timing race (the flaky set is non-deterministic,
-    # not a fixed list). Readiness gates (see tests/e2e/_ready.ts) reduce this,
-    # but proper de-flaking — deterministic polls / optimistic-aware waits — is
-    # tracked as a follow-up. Until then the signal stays visible without
-    # blocking PRs on jitter; backend + frontend are the hard gates.
-    continue-on-error: true
+    # Blocking gate (since 260602-a1wo). The e2e suite is SSE-driven and shares
+    # one dev + tmux server per shard; under a 2-vCPU runner's contention a
+    # rotating subset of tests can lose the timing race (the flaky set is
+    # non-deterministic). Readiness gates (see tests/e2e/_ready.ts) reduce this,
+    # and proper de-flaking (deterministic polls / optimistic-aware waits) is a
+    # tracked follow-up. E2E is now a required dependency of the `ci-gate` job,
+    # so a failing/flaky shard blocks merge — admin bypass on the main ruleset
+    # is the intended escape hatch for known-flake overrides.
     strategy:
       fail-fast: false
       matrix:
@@ -132,28 +132,35 @@ jobs:
   # directly EXCEPT the e2e matrix, whose names (`E2E (shard N/2)`) are coupled
   # to the shard count — requiring those by name would silently break the gate
   # if the matrix ever changes. Requiring this one job instead decouples the
-  # ruleset from the job topology.
+  # ruleset from the job topology: changing the shard count needs no ruleset
+  # edit, because the matrix's aggregate result still surfaces as `needs.e2e`.
   #
-  # Hard gates = backend + frontend (matching the e2e job's own note: e2e is
-  # `continue-on-error` / non-blocking until de-flaked, so it is deliberately
-  # NOT a gate dependency here — it stays visible on the PR as advisory signal).
+  # Hard gates = backend + frontend + e2e (all three required). The e2e job had
+  # its `continue-on-error: true` removed so a failing shard actually fails the
+  # job (and thus this gate) — given e2e's known CI flakiness, admin bypass on
+  # the main ruleset is the intended escape hatch for overriding a known-flake.
   #
   # `if: always()` is REQUIRED: without it this job is *skipped* when a
   # dependency fails, and GitHub treats a skipped required check as passing —
   # which would defeat the gate. With `always()` the job runs regardless, and
   # the explicit result checks below fail it unless every dependency succeeded.
+  # For the e2e matrix, `needs.e2e.result` is the AGGREGATE: it is 'success'
+  # only when every shard succeeded, 'failure' if any shard failed — so one
+  # check covers all shards.
   ci-gate:
     name: CI gate
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    needs: [backend, frontend, e2e]
     if: ${{ always() }}
     steps:
       - name: Verify required jobs succeeded
         run: |
           echo "backend  = ${{ needs.backend.result }}"
           echo "frontend = ${{ needs.frontend.result }}"
+          echo "e2e      = ${{ needs.e2e.result }}"
           if [ "${{ needs.backend.result }}" != "success" ] || \
-             [ "${{ needs.frontend.result }}" != "success" ]; then
+             [ "${{ needs.frontend.result }}" != "success" ] || \
+             [ "${{ needs.e2e.result }}" != "success" ]; then
             echo "::error::A required CI job did not succeed — blocking merge."
             exit 1
           fi

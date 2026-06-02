@@ -25,11 +25,11 @@ func TestBaseGroupName(t *testing.T) {
 		want      string
 	}{
 		{"ungrouped → own name", "solo", "", "solo"},
-		{"base member from list (queried as base)", "runKit", "runKit,rk-relay-abc", "runKit"},
-		{"base member from list (queried as ephemeral)", "rk-relay-abc", "runKit,rk-relay-abc", "runKit"},
+		{"base member from list (queried as base)", "runKit", "runKit,_rk-ctl", "runKit"},
+		{"base member from list (queried as anchor)", "_rk-ctl", "runKit,_rk-ctl", "runKit"},
 		{"anchor skipped, base chosen", "_rk-ctl", "_rk-ctl,runKit", "runKit"},
-		{"ephemeral-only list → own name fallback", "rk-relay-x", "rk-relay-x", "rk-relay-x"},
-		{"order independent — base is first non-special", "rk-relay-x", "rk-relay-x,runKit", "runKit"},
+		{"anchor-only list → own name fallback", "_rk-ctl", "_rk-ctl", "_rk-ctl"},
+		{"order independent — base is first non-special", "_rk-ctl", "_rk-ctl,runKit", "runKit"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

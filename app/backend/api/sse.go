@@ -27,11 +27,13 @@ func (prodSessionOrderFetcher) GetSessionOrder(ctx context.Context, server strin
 	return tmux.GetSessionOrder(ctx, server)
 }
 
-// BoardEntriesFetcher reads the @rk_board entries for a tmux server.
-// Injected so tests can stub the tmux dependency for bootstrap and cleanup.
+// BoardEntriesFetcher reads board pin entries for a tmux server. In the
+// move-based model membership is derived live from `_rk-pin-*` sessions, so the
+// SSE hub no longer needs an eager-cleanup hook — a killed pinned window simply
+// drops out of the next ListBoardEntries read. Kept as a one-method interface
+// so tests can stub the tmux dependency.
 type BoardEntriesFetcher interface {
 	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
-	RemoveAllByWindowID(ctx context.Context, server, windowID string) ([]string, error)
 }
 
 type prodBoardEntriesFetcher struct{}
@@ -40,31 +42,20 @@ func (prodBoardEntriesFetcher) ListBoardEntries(ctx context.Context, server stri
 	return tmux.ListBoardEntries(ctx, server)
 }
 
-func (prodBoardEntriesFetcher) RemoveAllByWindowID(ctx context.Context, server, windowID string) ([]string, error) {
-	return tmux.RemoveAllByWindowID(ctx, server, windowID)
-}
-
 // boardEventName is the SSE event type for board-membership changes. Matches
 // the kebab-case convention established by `event: session-order`.
 const boardEventName = "board-changed"
 
-// boardChangedPayload is the body of `event: board-changed` for pin/unpin/
-// reorder/cleanup mutations.
+// boardChangedPayload is the body of `event: board-changed` for explicit
+// pin/unpin/reorder mutations. Board membership changes only through these
+// mutations (each handler emits its own event), so there is no synthetic
+// cleanup or bootstrap variant.
 type boardChangedPayload struct {
 	Board    string `json:"board"`
-	Change   string `json:"change"` // "pin" | "unpin" | "reorder" | "cleanup" | "bootstrap"
+	Change   string `json:"change"` // "pin" | "unpin" | "reorder"
 	Server   string `json:"server"`
 	WindowID string `json:"windowId,omitempty"`
 	OrderKey string `json:"orderKey,omitempty"`
-}
-
-// boardBootstrapPayload is the body of the synthetic bootstrap event sent on
-// first poll per server. Carries the full entries snapshot so the frontend
-// can rehydrate.
-type boardBootstrapPayload struct {
-	Server  string             `json:"server"`
-	Change  string             `json:"change"` // always "bootstrap"
-	Entries []tmux.BoardEntry  `json:"entries"`
 }
 
 const (
@@ -142,14 +133,11 @@ type sseHub struct {
 	previousJSON             map[string]string        // per-server sessions JSON dedup cache
 	previousOrderJSON        map[string]string        // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
 	orderBootstrapAttempts   map[string]int           // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
-	previousBoardJSON        map[string]string        // per-server board bootstrap snapshot payload cache
-	previousWindowIDs        map[string]map[string]bool // per-server prior-tick live window ids for kill-detection
-	previousRealSessions     map[string]map[string]bool // per-server prior-tick real (non-relay/anchor) session names for disappearance logging
+	previousRealSessions     map[string]map[string]bool // per-server prior-tick real (non-anchor) session names for disappearance logging
 	cache                    map[string]*cachedResult // per-server session fetch cache (500ms TTL)
 	polling                  bool
 	fetcher                  SessionFetcher
 	orderFetcher             SessionOrderFetcher
-	boardFetcher             BoardEntriesFetcher
 	metrics                  *metrics.Collector
 	cachedMetricsJSON        string // latest metrics JSON for new clients
 
@@ -191,32 +179,16 @@ func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 	return safetyPollInterval
 }
 
-// detectKilledWindowIDs is a pure function: it returns the set of window ids
-// present in prev but absent in current. Used by the snapshot builder to fan
-// out one `board-changed { cleanup }` event per killed window.
-func detectKilledWindowIDs(prev, current map[string]bool) []string {
-	var killed []string
-	for id := range prev {
-		if !current[id] {
-			killed = append(killed, id)
-		}
-	}
-	return killed
-}
-
 func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector) *sseHub {
 	return &sseHub{
 		clients:                make(map[string][]*sseClient),
 		previousJSON:           make(map[string]string),
 		previousOrderJSON:      make(map[string]string),
 		orderBootstrapAttempts: make(map[string]int),
-		previousBoardJSON:      make(map[string]string),
-		previousWindowIDs:      make(map[string]map[string]bool),
 		previousRealSessions:   make(map[string]map[string]bool),
 		cache:                  make(map[string]*cachedResult),
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
-		boardFetcher:           prodBoardEntriesFetcher{},
 		metrics:                mc,
 	}
 }
@@ -239,14 +211,6 @@ func (h *sseHub) addClient(c *sseClient) {
 	if prev, ok := h.previousOrderJSON[c.server]; ok && prev != "" {
 		select {
 		case c.ch <- []byte(fmt.Sprintf("event: session-order\ndata: %s\n\n", prev)):
-		default:
-		}
-	}
-
-	// Send cached board-changed bootstrap snapshot (after session-order, before metrics).
-	if prev, ok := h.previousBoardJSON[c.server]; ok && prev != "" {
-		select {
-		case c.ch <- []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", boardEventName, prev)):
 		default:
 		}
 	}
@@ -325,9 +289,10 @@ func (h *sseHub) broadcastSessionOrder(server string, order []string) {
 
 // broadcastBoardChanged pushes a board-changed event to every client
 // connected for the supplied server. The payload is rendered as JSON and
-// emitted using the shared SSE envelope. No payload caching is performed
-// for incremental events — the bootstrap cache covers the snapshot use
-// case via previousBoardJSON.
+// emitted using the shared SSE envelope. No payload caching is performed:
+// board membership changes only through the explicit pin/unpin/reorder
+// handlers (each emits its own event), and a killed pinned window drops out
+// of the next live ListBoardEntries read — there is no snapshot to cache.
 func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayload) {
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -350,68 +315,18 @@ func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayloa
 	}
 }
 
-// broadcastBoardBootstrap delivers the per-server snapshot of @rk_board
-// entries on first poll. Caches the payload under previousBoardJSON so
-// future addClient calls receive the same snapshot.
-func (h *sseHub) broadcastBoardBootstrap(server string, entries []tmux.BoardEntry) {
-	if entries == nil {
-		entries = []tmux.BoardEntry{}
-	}
-	payload := boardBootstrapPayload{
-		Server:  server,
-		Change:  "bootstrap",
-		Entries: entries,
-	}
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		slog.Warn("board-bootstrap broadcast marshal failed", "err", err, "server", server)
-		return
-	}
-	jsonStr := string(jsonBytes)
-	event := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", boardEventName, jsonStr))
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.previousBoardJSON[server] = jsonStr
-	for _, c := range h.clients[server] {
-		select {
-		case c.ch <- event:
-		default:
-			if !c.dropped {
-				slog.Warn("SSE event dropped", "server", server, "event", boardEventName)
-				c.dropped = true
-			}
-		}
-	}
-}
-
-// windowIDSetFromSessions extracts the union of window ids across every
-// session's windows. Used for window-kill detection between poll ticks.
-func windowIDSetFromSessions(sess []sessions.ProjectSession) map[string]bool {
-	out := make(map[string]bool)
-	for _, s := range sess {
-		for _, w := range s.Windows {
-			if w.WindowID != "" {
-				out[w.WindowID] = true
-			}
-		}
-	}
-	return out
-}
-
 // realSessionNameSet returns the set of *user-facing* session names in the
-// snapshot — excluding the per-connection relay ephemerals (rk-relay-*) and the
-// control-mode anchor (_rk-ctl), which churn constantly by design and are not
-// sessions a user would notice losing. Used to detect when a real session
-// disappears between poll ticks (observability for Constitution VI — tmux
-// sessions must survive).
+// snapshot — excluding the board pin-sessions (_rk-pin-*) and the control-mode
+// anchor (_rk-ctl), which are not sessions a user would notice losing. Used to
+// detect when a real session disappears between poll ticks (observability for
+// Constitution VI — tmux sessions must survive).
 func realSessionNameSet(sess []sessions.ProjectSession) map[string]bool {
 	out := make(map[string]bool)
 	for _, s := range sess {
 		if s.Name == "" {
 			continue
 		}
-		if strings.HasPrefix(s.Name, tmux.RelaySessionPrefix) || s.Name == tmux.ControlAnchorSessionName {
+		if strings.HasPrefix(s.Name, tmux.PinSessionPrefix) || s.Name == tmux.ControlAnchorSessionName {
 			continue
 		}
 		out[s.Name] = true
@@ -420,7 +335,7 @@ func realSessionNameSet(sess []sessions.ProjectSession) map[string]bool {
 }
 
 // detectDisappearedSessions returns names present in prev but absent in
-// current. Pure; mirrors detectKilledWindowIDs.
+// current. Pure helper for the real-session disappearance WARN.
 func detectDisappearedSessions(prev, current map[string]bool) []string {
 	var gone []string
 	for name := range prev {
@@ -552,63 +467,22 @@ func (h *sseHub) poll() {
 				}
 			}
 
-			// Board bootstrap on first successful poll for this server.
-			h.mu.RLock()
-			_, boardSeeded := h.previousBoardJSON[server]
-			h.mu.RUnlock()
-			if !boardSeeded && h.boardFetcher != nil {
-				bootCtx, cancelBoot := context.WithTimeout(context.Background(), 2*time.Second)
-				entries, berr := h.boardFetcher.ListBoardEntries(bootCtx, server)
-				cancelBoot()
-				if berr != nil {
-					slog.Debug("board bootstrap (best-effort)", "server", server, "err", berr)
-				} else {
-					h.broadcastBoardBootstrap(server, entries)
-				}
-			}
-
-			// Window-kill detection for eager board cleanup. Compute the
-			// current window-id set from the freshly fetched session list,
-			// diff against the prior snapshot via the pure
-			// detectKilledWindowIDs helper, and fan out one
-			// board-changed { cleanup } event per affected board.
-			currentIDs := windowIDSetFromSessions(result)
-			h.mu.RLock()
-			prevIDs, hasPrev := h.previousWindowIDs[server]
-			h.mu.RUnlock()
-			if hasPrev && h.boardFetcher != nil {
-				killed := detectKilledWindowIDs(prevIDs, currentIDs)
-				for _, prevID := range killed {
-					cleanCtx, cancelClean := context.WithTimeout(context.Background(), 2*time.Second)
-					boards, cerr := h.boardFetcher.RemoveAllByWindowID(cleanCtx, server, prevID)
-					cancelClean()
-					if cerr != nil {
-						slog.Debug("board cleanup (best-effort)", "server", server, "windowId", prevID, "err", cerr)
-						continue
-					}
-					for _, b := range boards {
-						h.broadcastBoardChanged(server, boardChangedPayload{
-							Board:    b,
-							Change:   "cleanup",
-							Server:   server,
-							WindowID: prevID,
-						})
-					}
-				}
-			}
-			h.mu.Lock()
-			h.previousWindowIDs[server] = currentIDs
-			h.mu.Unlock()
+			// Board membership changes are surfaced only via the explicit
+			// pin/unpin/reorder handlers (each emits its own board-changed
+			// event). In the move-based model a killed pinned window simply
+			// drops out of the next ListBoardEntries read — the frontend's
+			// refetch on the session-list change picks it up — so there is no
+			// eager board-cleanup diff and no first-poll bootstrap broadcast.
 
 			// Real-session disappearance logging (observability only — no
 			// behavior change). run-kit audit-logs every session IT kills
-			// (relay ephemerals, explicit kill-session), but a real user
-			// session can vanish OUTSIDE that path — a shell exiting, an
-			// external `tmux kill-session`, an OOM kill, or a server collapsing
+			// (board pin-session teardown on unpin, explicit kill-session), but
+			// a real user session can vanish OUTSIDE that path — a shell exiting,
+			// an external `tmux kill-session`, an OOM kill, or a server collapsing
 			// to zero under `exit-empty`. When that happens today the logs go
 			// silent, making post-hoc diagnosis impossible (see the `utils`
 			// incident). Emit one WARN per disappeared real session so the next
-			// occurrence is diagnosable. We exclude relay/anchor churn via
+			// occurrence is diagnosable. We exclude pin-session/anchor churn via
 			// realSessionNameSet. This does NOT prevent the loss — it records
 			// it. Constitution VI PREVENTION (always-on `_rk-ctl` anchor floor +
 			// imperative `exit-empty off` on every dialed server) is implemented

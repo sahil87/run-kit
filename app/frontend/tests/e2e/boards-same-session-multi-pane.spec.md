@@ -1,16 +1,16 @@
 # boards-same-session-multi-pane.spec.ts
 
 Validates that pinning two windows from the **same** tmux session to one board
-renders each pane with its own window's content — the central regression
-covered by `260508-hdjr-relay-grouped-sessions-board-panes` (PR #186 shipped
-the boards feature with a relay-layer bug where every pane mirrored the same
-active window).
+renders each pane with its own window's content.
 
-The bug-fix architecture: each WebSocket relay creates a per-connection
-ephemeral grouped tmux session (`rk-relay-<rand>`), `select-window`s on the
-ephemeral, and attaches to the ephemeral. Group members share window membership
-but maintain independent active-window state, so each pane's terminal sees
-only its targeted window's PTY output.
+The move-based architecture (`260602-qn62-move-based-board-pin-sessions`): each
+pinned window is MOVED into its own single-window pin-session (`_rk-pin-<id>`),
+and a board pane attaches its WebSocket relay DIRECTLY to that pin-session
+(whose sole window is permanently active). There is no per-connection ephemeral
+grouped session anymore — single-window pin-sessions remove window *sharing*,
+which is what the old ephemeral isolation layer existed to work around. Two
+windows from one source session therefore become two independent pin-sessions,
+each with its own direct relay, so each pane sees only its own window's PTY.
 
 ## Shared setup
 
@@ -30,8 +30,8 @@ So the original "scrape the marker text" assertion was unverifiable against the
 real renderer. Per-pane isolation is instead proven at the **relay layer**:
 each pinned window opens its own `/relay/<windowId>` WebSocket and each pane
 mounts its own live `.xterm` instance. Two distinct relay sockets for the two
-distinct window ids is the direct connection-level proof that the
-grouped-ephemeral relay isolates each pane. This matches the assertion style of
+distinct window ids is the direct connection-level proof that each pane attaches
+to its own pin-session. This matches the assertion style of
 `boards-desktop-suspend.spec.ts`.
 
 ## Tests
@@ -41,9 +41,9 @@ grouped-ephemeral relay isolates each pane. This matches the assertion style of
 **What it proves:** Pinning two distinct windows of the same tmux session into
 a single board produces two independent pane terminals — each mounts its own
 live xterm instance and opens its own per-window relay WebSocket, with no
-shared/aliased socket. This is the multi-pane same-session relay-isolation
-invariant restored by the grouped-session refactor, verified at the connection
-layer (xterm's WebGL canvas exposes no DOM text to scrape).
+shared/aliased socket. This is the multi-pane same-session isolation invariant:
+each window is moved into its own pin-session and relayed directly, verified at
+the connection layer (xterm's WebGL canvas exposes no DOM text to scrape).
 
 **Steps:**
 

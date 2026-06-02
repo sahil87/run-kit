@@ -20,13 +20,6 @@ import (
 // JSON-encoded sidebar session order.
 const SessionOrderOption = "@rk_session_order"
 
-// OwnerPIDOption is the session-scoped user option stamped on each relay
-// ephemeral with the PID of the owning `rk serve` process. The startup sweep
-// reads it to distinguish a live sibling's relays (spare) from a crashed
-// predecessor's orphans (reap). Session-scoped so it dies with the ephemeral
-// and never bleeds onto the real session through the session group.
-const OwnerPIDOption = "@rk_owner_pid"
-
 // OriginalTMUX captures the TMUX env var before init() strips it.
 // Package-level var init runs before init(), so this sees the original value.
 // Used by cmd/rk/context.go to restore TMUX in child process environments
@@ -159,17 +152,47 @@ const (
 	ActivityThresholdSeconds = 10
 	// listDelim is the tab delimiter used in tmux format strings.
 	listDelim = "\t"
-	// RelaySessionPrefix is the reserved name prefix for run-kit's per-WebSocket
-	// ephemeral grouped sessions. Sessions matching this prefix are filtered out
-	// of user-facing session lists and reaped at server start.
-	RelaySessionPrefix = "rk-relay-"
+	// PinSessionPrefix is the reserved name prefix for run-kit's single-window
+	// board pin-sessions. Each pinned window is MOVED into its own session named
+	// `_rk-pin-<windowDigits>` (the window's `@N` id with the `@` stripped, since
+	// tmux session names disallow `@`). Sessions matching this prefix are filtered
+	// out of user-facing session lists — a board is the set of pin-sessions
+	// sharing an `@rk_board` value, not a session itself. Pin-sessions are
+	// persistent across rk restarts (Constitution VI); there is no startup sweep.
+	PinSessionPrefix = "_rk-pin-"
 	// ControlAnchorSessionName is the literal name of the hidden anchor session
 	// created by the tmuxctl package on tmux servers that have zero user
 	// sessions (a `tmux -CC attach` requires an attached session). It is
-	// filtered from user-facing session lists in parseSessions and is NEVER
-	// touched by the relay sweep — it's owned by tmuxctl, not the relay.
+	// filtered from user-facing session lists in parseSessions — it's owned by
+	// tmuxctl, not user-facing.
 	ControlAnchorSessionName = "_rk-ctl"
 )
+
+// PinSessionName derives the single-window pin-session name for a window id by
+// stripping the leading `@` (tmux session names disallow `@`): `@42` →
+// `_rk-pin-42`. Returns ("", false) for an invalid window id. The mapping is
+// pure and reversible (see WindowIDFromPinSession), so membership needs no
+// name→id lookup table.
+func PinSessionName(windowID string) (string, bool) {
+	if !ValidWindowID(windowID) {
+		return "", false
+	}
+	return PinSessionPrefix + windowID[1:], true
+}
+
+// WindowIDFromPinSession is the inverse of PinSessionName: `_rk-pin-42` → `@42`.
+// Returns ("", false) when name lacks the prefix or the recovered id is not a
+// valid `@<digits>` window id.
+func WindowIDFromPinSession(name string) (string, bool) {
+	if !strings.HasPrefix(name, PinSessionPrefix) {
+		return "", false
+	}
+	id := "@" + strings.TrimPrefix(name, PinSessionPrefix)
+	if !ValidWindowID(id) {
+		return "", false
+	}
+	return id, true
+}
 
 // PaneInfo describes a single tmux pane within a window.
 type PaneInfo struct {
@@ -273,12 +296,15 @@ func parseSessions(lines []string) []SessionInfo {
 		if len(parts) < 2 {
 			continue
 		}
-		// Filter run-kit's per-WebSocket ephemeral grouped sessions from every
-		// user-facing session list. This is the single chokepoint — every
+		// Filter run-kit's single-window board pin-sessions from every
+		// user-facing session list. A pinned window is physically MOVED into
+		// its `_rk-pin-*` session, so it leaves its home session's tab list;
+		// the pin-session itself is never a user-facing SESSIONS entry (it is
+		// rendered only as a BOARDS pane). This is the single chokepoint — every
 		// consumer (REST, SSE, board derivation, server-aggregate) flows
 		// through ListSessions/parseSessions, so a single early-skip here
-		// guarantees no ephemeral leaks into the UI.
-		if strings.HasPrefix(parts[0], RelaySessionPrefix) {
+		// guarantees no pin-session leaks into the SESSIONS UI.
+		if strings.HasPrefix(parts[0], PinSessionPrefix) {
 			continue
 		}
 		// Filter the tmuxctl control-mode anchor session — owned by the
@@ -341,14 +367,11 @@ func parseSessions(lines []string) []SessionInfo {
 	return sessions
 }
 
-// ListRawSessionNames returns every session name on the given server WITHOUT
-// the user-facing filters applied by ListSessions (group-copy de-duplication
-// and rk-relay-* exclusion). It is intended only for housekeeping callers that
-// need to see every session, such as the startup sweep that reaps orphan
-// rk-relay-* ephemerals from a prior crashed instance.
-//
-// Returns nil if the server is not running.
-func ListRawSessionNames(ctx context.Context, server string) ([]string, error) {
+// ListPinSessionNames returns every `_rk-pin-*` session name on the given
+// server. Board membership is derived from these single-window pin-sessions and
+// their session vars (`@rk_board`/`@rk_home`/`@rk_board_order`). Returns nil
+// (no error) if the server is not running. Read-only.
+func ListPinSessionNames(ctx context.Context, server string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
@@ -360,12 +383,18 @@ func ListRawSessionNames(ctx context.Context, server string) ([]string, error) {
 		}
 		return nil, err
 	}
-	return lines, nil
+	var pins []string
+	for _, name := range lines {
+		if strings.HasPrefix(name, PinSessionPrefix) {
+			pins = append(pins, name)
+		}
+	}
+	return pins, nil
 }
 
 // ListSessions returns sessions from the specified tmux server,
-// filtering out session-group copies and run-kit's per-WebSocket ephemerals
-// (RelaySessionPrefix). Returns nil if no server is running.
+// filtering out session-group copies and run-kit's board pin-sessions
+// (PinSessionPrefix). Returns nil if no server is running.
 func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -541,10 +570,11 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 
 // baseGroupName returns the user-facing base session name for a session group,
 // given the session's own name and its `#{session_group_list}` value (a
-// comma-separated list of MEMBER NAMES). The base is the member that is neither
-// an rk-relay-* ephemeral nor the _rk-ctl anchor — i.e. the real, user-facing
-// session that the dashboard keys on. When the list is empty (ungrouped
-// session) or yields no qualifying member, the session's own name is returned.
+// comma-separated list of MEMBER NAMES). The base is the member that is not the
+// _rk-ctl anchor — i.e. the real, user-facing session that the dashboard keys
+// on. (Relay ephemerals no longer exist, so only the anchor is filtered.) When
+// the list is empty (ungrouped session) or yields no qualifying member, the
+// session's own name is returned.
 //
 // This MUST NOT key on `#{session_group}`: tmux 3.6a reports that field as an
 // opaque NUMERIC group id (e.g. "0"), not the leader's name — so `name ==
@@ -559,7 +589,7 @@ func baseGroupName(name, groupList string) string {
 		if m == "" {
 			continue
 		}
-		if strings.HasPrefix(m, RelaySessionPrefix) || m == ControlAnchorSessionName {
+		if m == ControlAnchorSessionName {
 			continue
 		}
 		return m
@@ -569,10 +599,10 @@ func baseGroupName(name, groupList string) string {
 
 // parseSessionGroups parses `list-sessions` output of the form
 // `#{session_id}<delim>#{session_name}<delim>#{session_group_list}` into a
-// `$sid`→base-session-name map. The rk-relay-* ephemerals and the _rk-ctl
-// anchor are NOT filtered here — they share their base session's group, so their
-// `$sid` must resolve to the SAME base name for an active-window event fired
-// against an ephemeral member to update the correct (user-facing) group. The
+// `$sid`→base-session-name map. The _rk-ctl anchor is NOT filtered here — it
+// shares its base session's group, so its `$sid` must resolve to the SAME base
+// name for an active-window event fired against the anchor member to update the
+// correct (user-facing) group. The
 // group key is the base session name (via baseGroupName), NOT tmux's numeric
 // `#{session_group}` id, so it matches the `SessionInfo.Name` the derivation
 // path looks up. Lines with fewer than 3 fields are skipped. Exported
@@ -671,7 +701,7 @@ func parseActiveWindowsByGroup(lines []string) map[string]string {
 			baseSeen[base] = true
 			continue
 		}
-		// Non-base (ephemeral/anchor) row — only used as a fallback if the
+		// Non-base (anchor) row — only used as a fallback if the
 		// group never produces a base-member row in this listing.
 		if !baseSeen[base] {
 			if _, ok := out[base]; !ok {
@@ -866,42 +896,12 @@ func KillSessionCtx(ctx context.Context, server, session string) error {
 	return err
 }
 
-// NewGroupedSession creates a detached ephemeral session in the same group as
-// realSession on the given tmux server using `tmux new-session -d -s <ephemeral>
-// -t <realSession>`. The new session shares window membership with realSession
-// but maintains independent active-window state — clients attached to it can
-// navigate windows independently of clients attached to other group members.
-//
-// Used by the WebSocket relay to give each connection its own attach target so
-// concurrent board panes targeting the same real session do not steal each
-// other's active window. The returned session MUST be killed by the caller
-// (typically via `defer KillSessionCtx`).
-//
-// The parent ctx is wrapped with TmuxTimeout consistent with sibling helpers.
-//
-// Returns a non-nil error if realSession does not exist on the server. tmux's
-// new-session -t silently creates an empty group when the target is missing,
-// which would leak a useless ephemeral; we explicitly probe with has-session
-// first so the caller's defer-kill is the only path that creates ephemerals.
-func NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error {
-	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
-	defer cancel()
-
-	if _, err := tmuxExecServer(ctx, server, "has-session", "-t", realSession); err != nil {
-		return fmt.Errorf("real session %q not found: %w", realSession, err)
-	}
-	_, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", ephemeral, "-t", realSession)
-	return err
-}
-
-// ResolveWindowSession returns the name of the user-facing session that owns
-// the window identified by windowID on the given server. Ephemeral relay
-// sessions (RelaySessionPrefix) are filtered out — a window in a session group
-// appears under every group member, and `display-message -t @N` may pick the
-// ephemeral over the real session, which would make a fresh relay group itself
-// against a dying ephemeral. Returns an error when the window ID does not exist
-// in any non-ephemeral session — callers (e.g. the relay) treat that as
-// "window not found".
+// ResolveWindowSession returns the name of the session that owns the window
+// identified by windowID on the given server — either a normal home session or
+// a board pin-session (`_rk-pin-*`). Since a window lives in exactly ONE session
+// (the move-based model removes window sharing), the first match is
+// authoritative. Returns an error when the window ID does not exist in any
+// session — callers (e.g. the relay) treat that as "window not found".
 func ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", "#{session_name}"+listDelim+"#{window_id}")
 	if err != nil {
@@ -915,9 +915,6 @@ func ResolveWindowSession(ctx context.Context, server, windowID string) (string,
 		session := strings.TrimSpace(parts[0])
 		id := strings.TrimSpace(parts[1])
 		if id != windowID {
-			continue
-		}
-		if strings.HasPrefix(session, RelaySessionPrefix) {
 			continue
 		}
 		if session == "" {
@@ -1190,44 +1187,6 @@ func UnsetSessionColor(session string, server string) error {
 	return err
 }
 
-// SetSessionOwnerPID stamps the @rk_owner_pid user option on a relay ephemeral
-// session with the owning `rk serve` process PID. Session-scoped (mirrors
-// SetSessionColor's `set-option -t <session>` pattern) so ownership lives on the
-// ephemeral itself and is never inherited by the real session through the
-// session group. The startup sweep reads this to spare a live sibling's relays.
-func SetSessionOwnerPID(ctx context.Context, server, session string, pid int) error {
-	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
-	defer cancel()
-
-	_, err := tmuxExecServer(ctx, server, "set-option", "-t", session, OwnerPIDOption, strconv.Itoa(pid))
-	return err
-}
-
-// GetSessionOwnerPID reads the @rk_owner_pid user option from a session and
-// returns its raw string value, or "" when the option is unset or the server is
-// unreachable. Mirrors GetSessionOrder's tolerance: tmux reports an unset
-// user-option as "invalid option"/"unknown option" and an absent socket as
-// "no server running"/"failed to connect" — both are normal states that the
-// sweep MUST treat as "no owner" (→ orphan) rather than a hard error. Other
-// subprocess failures propagate so the caller can log + accumulate per server.
-func GetSessionOwnerPID(ctx context.Context, server, session string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
-	defer cancel()
-
-	out, err := tmuxExecRawServer(ctx, server, "show-options", "-v", "-t", session, OwnerPIDOption)
-	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "invalid option") ||
-			strings.Contains(errMsg, "unknown option") ||
-			strings.Contains(errMsg, "no server running") ||
-			strings.Contains(errMsg, "failed to connect") {
-			return "", nil
-		}
-		return "", fmt.Errorf("read %s on %s: %w", OwnerPIDOption, session, err)
-	}
-	return strings.TrimSpace(out), nil
-}
-
 // SetWindowColor sets the @color user option on a window by its window ID.
 func SetWindowColor(windowID string, color int, server string) error {
 	ctx, cancel := withTimeout()
@@ -1259,8 +1218,9 @@ func SelectWindow(windowID string, server string) error {
 // "<session>:<windowID>". A bare window-id target (`select-window -t @N`) is
 // ambiguous inside a tmux session group — group members share window membership
 // but keep independent active-window state, so tmux may set the active window on
-// the wrong member. The relay needs the active window set on its per-WebSocket
-// ephemeral specifically, so it qualifies the target with the ephemeral session.
+// the wrong member. The REST window-select handler (api/windows.go handleWindowSelect)
+// resolves the owning session and qualifies the target with it so the active window
+// is set on the intended session, not an arbitrary group member.
 func SelectWindowInSession(session, windowID, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()

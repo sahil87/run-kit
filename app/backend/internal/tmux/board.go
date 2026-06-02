@@ -9,20 +9,22 @@ import (
 	"strings"
 )
 
-// BoardOption is the tmux server-scoped user option that stores the
-// per-server pin membership of pane boards. The stored value is a
-// comma-separated list of `<windowID>:<board>:<orderKey>` entries.
-const BoardOption = "@rk_board"
-
-// boardEntrySep separates entries within the @rk_board value. boardFieldSep
-// separates fields within an entry. Both are reserved characters and rejected
-// in board-name validation.
+// Board membership is derived entirely from single-window pin-sessions
+// (`_rk-pin-*`) and their session-scoped user options — there is no `@rk_board`
+// server-option encoding (Constitution II: state derived from tmux). A board is
+// the set of pin-sessions sharing a `@rk_board` value.
+//
+//   - @rk_board       — which board this pinned window belongs to
+//   - @rk_home        — the home session to restore the window to on unpin
+//   - @rk_board_order — fractional order key within the board (ComputeOrderKey)
 const (
-	boardEntrySep = ","
-	boardFieldSep = ":"
+	BoardOption      = "@rk_board"
+	HomeOption       = "@rk_home"
+	BoardOrderOption = "@rk_board_order"
 )
 
-// BoardEntry represents a single (server, windowID) pin to a named board.
+// BoardEntry represents a single (server, windowID) pin to a named board,
+// derived from a `_rk-pin-*` session's vars.
 type BoardEntry struct {
 	Server   string `json:"server"`
 	WindowID string `json:"windowId"`
@@ -43,8 +45,7 @@ var (
 )
 
 // ValidBoardName reports whether name is a syntactically valid board name.
-// Pattern: alphanumeric + hyphen + underscore, length 1-32. The reserved
-// separator characters `,` and `:` are excluded by the pattern.
+// Pattern: alphanumeric + hyphen + underscore, length 1-32.
 func ValidBoardName(name string) bool {
 	return boardNamePattern.MatchString(name)
 }
@@ -58,57 +59,6 @@ func ValidWindowID(id string) bool {
 // (1-16 lowercase ASCII letters).
 func ValidOrderKey(key string) bool {
 	return orderKeyPattern.MatchString(key)
-}
-
-// parseBoardValue parses the raw @rk_board option value into entries. The
-// supplied server is attached to each entry. Malformed entries are skipped
-// with a warning log; valid entries are returned unsorted.
-func parseBoardValue(server, raw string) []BoardEntry {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	parts := strings.Split(raw, boardEntrySep)
-	out := make([]BoardEntry, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		fields := strings.Split(p, boardFieldSep)
-		if len(fields) != 3 {
-			slog.Warn("board: malformed @rk_board entry (field count)", "server", server, "entry", p)
-			continue
-		}
-		windowID := strings.TrimSpace(fields[0])
-		board := strings.TrimSpace(fields[1])
-		orderKey := strings.TrimSpace(fields[2])
-		if !ValidWindowID(windowID) || !ValidBoardName(board) || !ValidOrderKey(orderKey) {
-			slog.Warn("board: malformed @rk_board entry (invalid field)", "server", server, "entry", p)
-			continue
-		}
-		out = append(out, BoardEntry{
-			Server:   server,
-			WindowID: windowID,
-			Board:    board,
-			OrderKey: orderKey,
-		})
-	}
-	return out
-}
-
-// serializeBoardValue produces the canonical @rk_board option value for a
-// slice of entries. Server is implicit (per-server option), so it is not
-// included in the serialized form.
-func serializeBoardValue(entries []BoardEntry) string {
-	if len(entries) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(entries))
-	for _, e := range entries {
-		parts = append(parts, e.WindowID+boardFieldSep+e.Board+boardFieldSep+e.OrderKey)
-	}
-	return strings.Join(parts, boardEntrySep)
 }
 
 // isAbsentOption returns true when err is one of the operational tmux states
@@ -125,58 +75,108 @@ func isAbsentOption(err error) bool {
 		strings.Contains(msg, "failed to connect")
 }
 
-// ListBoardEntries returns the pinned-window entries stored on the named
-// server. Returns ([]BoardEntry{}, nil) when the option is unset or the
-// server is not reachable — these are normal operational states.
+// showSessionOption reads a single session-scoped user option from a session,
+// returning "" (no error) when the option is unset or the server is
+// unreachable. Other failures propagate.
+func showSessionOption(ctx context.Context, server, session, option string) (string, error) {
+	out, err := tmuxExecRawServer(ctx, server, "show-options", "-v", "-t", session, option)
+	if err != nil {
+		if isAbsentOption(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read %s on %s/%s: %w", option, server, session, err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// setSessionOption sets a session-scoped user option on a session.
+func setSessionOption(ctx context.Context, server, session, option, value string) error {
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-t", session, option, value)
+	return err
+}
+
+// pinEntry derives the BoardEntry for a single pin-session by reading its
+// session vars. Returns (entry, true, nil) when the session carries a valid
+// @rk_board value; (zero, false, nil) when it is not a board pin (no/invalid
+// @rk_board) — a defensive skip rather than an error.
+func pinEntry(ctx context.Context, server, pinSession string) (BoardEntry, bool, error) {
+	windowID, ok := WindowIDFromPinSession(pinSession)
+	if !ok {
+		return BoardEntry{}, false, nil
+	}
+	board, err := showSessionOption(ctx, server, pinSession, BoardOption)
+	if err != nil {
+		return BoardEntry{}, false, err
+	}
+	if !ValidBoardName(board) {
+		// Not a board pin (or malformed) — skip without error.
+		return BoardEntry{}, false, nil
+	}
+	orderKey, err := showSessionOption(ctx, server, pinSession, BoardOrderOption)
+	if err != nil {
+		return BoardEntry{}, false, err
+	}
+	if !ValidOrderKey(orderKey) {
+		orderKey = initialAppendKey
+	}
+	return BoardEntry{
+		Server:   server,
+		WindowID: windowID,
+		Board:    board,
+		OrderKey: orderKey,
+	}, true, nil
+}
+
+// ListBoardEntries returns the pinned-window entries on the named server,
+// derived from its `_rk-pin-*` sessions. Returns ([]BoardEntry{}, nil) when no
+// pin-sessions exist or the server is not reachable — normal operational states.
 func ListBoardEntries(ctx context.Context, server string) ([]BoardEntry, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", BoardOption)
+	pins, err := ListPinSessionNames(ctx, server)
 	if err != nil {
 		if isAbsentOption(err) {
 			return []BoardEntry{}, nil
 		}
-		return nil, fmt.Errorf("read %s on %s: %w", BoardOption, server, err)
+		return nil, fmt.Errorf("list pin sessions on %s: %w", server, err)
 	}
-	entries := parseBoardValue(server, out)
-	if entries == nil {
-		return []BoardEntry{}, nil
+	out := make([]BoardEntry, 0, len(pins))
+	for _, pin := range pins {
+		entry, ok, derr := pinEntry(ctx, server, pin)
+		if derr != nil {
+			slog.Warn("board: pin-session var read failed", "server", server, "pin", pin, "err", derr)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		out = append(out, entry)
 	}
-	return entries, nil
+	return out, nil
 }
 
-// ListAllBoardEntries aggregates entries from every reachable server.
-func ListAllBoardEntries(ctx context.Context) ([]BoardEntry, error) {
+// ListBoards returns the alphabetical per-board pin-count summary across all
+// reachable servers, derived from pin-sessions. A board exists only while at
+// least one pin-session carries its name (no empty boards, no registry).
+func ListBoards(ctx context.Context) ([]BoardSummary, error) {
 	servers, err := ListServers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list servers: %w", err)
 	}
 	if len(servers) == 0 {
-		// No reachable servers — also try "default" since it may not have a socket file yet.
 		servers = []string{"default"}
 	}
-	all := make([]BoardEntry, 0)
+	counts := make(map[string]int)
 	for _, s := range servers {
 		entries, lerr := ListBoardEntries(ctx, s)
 		if lerr != nil {
 			slog.Warn("board: ListBoardEntries failed", "server", s, "err", lerr)
 			continue
 		}
-		all = append(all, entries...)
-	}
-	return all, nil
-}
-
-// ListBoards returns the alphabetical summary across all servers.
-func ListBoards(ctx context.Context) ([]BoardSummary, error) {
-	entries, err := ListAllBoardEntries(ctx)
-	if err != nil {
-		return nil, err
-	}
-	counts := make(map[string]int)
-	for _, e := range entries {
-		counts[e.Board]++
+		for _, e := range entries {
+			counts[e.Board]++
+		}
 	}
 	out := make([]BoardSummary, 0, len(counts))
 	for name, count := range counts {
@@ -186,34 +186,10 @@ func ListBoards(ctx context.Context) ([]BoardSummary, error) {
 	return out, nil
 }
 
-// liveWindowIDs returns the set of window IDs currently present on the named
-// server. Returns nil with nil error when the server is unreachable.
-func liveWindowIDs(ctx context.Context, server string) (map[string]bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
-	defer cancel()
-
-	out, err := tmuxExecRawServer(ctx, server, "list-windows", "-a", "-F", "#{window_id}")
-	if err != nil {
-		if isAbsentOption(err) {
-			return map[string]bool{}, nil
-		}
-		return nil, fmt.Errorf("list-windows on %s: %w", server, err)
-	}
-	set := make(map[string]bool)
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			set[line] = true
-		}
-	}
-	return set, nil
-}
-
-// GetBoard returns entries for a single board across all servers, sorted by
-// order key. Stale entries (windows that no longer exist on their source
-// server) are dropped from the response and best-effort write-back to
-// @rk_board on each affected server. Write-back failures do NOT fail the
-// read; they are logged and the cleaned slice is returned.
+// GetBoard returns entries for a single board across all reachable servers,
+// sorted by order key. Membership is derived live from pin-sessions, so there
+// is no stale entry to clean up — a killed pinned window's session simply
+// disappears from the listing.
 func GetBoard(ctx context.Context, name string) ([]BoardEntry, error) {
 	if !ValidBoardName(name) {
 		return nil, fmt.Errorf("invalid board name")
@@ -232,54 +208,14 @@ func GetBoard(ctx context.Context, name string) ([]BoardEntry, error) {
 			slog.Warn("board: ListBoardEntries failed", "server", s, "err", lerr)
 			continue
 		}
-		live, werr := liveWindowIDs(ctx, s)
-		if werr != nil {
-			slog.Warn("board: liveWindowIDs failed", "server", s, "err", werr)
-			// Without live data we can't safely drop stale entries — return what we have.
-			for _, e := range entries {
-				if e.Board == name {
-					out = append(out, e)
-				}
-			}
-			continue
-		}
-		// Split into kept-on-server (all boards) and matching-this-board.
-		kept := entries[:0:len(entries)]
-		var dropped bool
 		for _, e := range entries {
-			if !live[e.WindowID] {
-				dropped = true
-				continue
-			}
-			kept = append(kept, e)
 			if e.Board == name {
 				out = append(out, e)
-			}
-		}
-		if dropped {
-			// Best-effort write-back of the cleaned slice.
-			if werr := setBoardValue(ctx, s, kept); werr != nil {
-				slog.Warn("board: stale-cleanup write-back failed", "server", s, "err", werr)
 			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].OrderKey < out[j].OrderKey })
 	return out, nil
-}
-
-// setBoardValue writes the entries slice as the @rk_board option on the named
-// server. An empty slice unsets the option (set -u) so the absent state is
-// canonical.
-func setBoardValue(ctx context.Context, server string, entries []BoardEntry) error {
-	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
-	defer cancel()
-	if len(entries) == 0 {
-		_, err := tmuxExecRawServer(ctx, server, "set-option", "-su", BoardOption)
-		return err
-	}
-	value := serializeBoardValue(entries)
-	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", BoardOption, value)
-	return err
 }
 
 // initialAppendKey is the first order key assigned when a board has no
@@ -288,8 +224,8 @@ func setBoardValue(ctx context.Context, server string, entries []BoardEntry) err
 // representation strictly less than "a".
 const initialAppendKey = "m"
 
-// nextAppendKey returns an order key strictly greater than the largest
-// existing key in entries (lexicographic). Empty list → initialAppendKey.
+// nextAppendKey returns an order key strictly greater than the largest existing
+// key among the supplied board entries (lexicographic). Empty → initialAppendKey.
 func nextAppendKey(entries []BoardEntry) string {
 	maxKey := ""
 	for _, e := range entries {
@@ -302,15 +238,22 @@ func nextAppendKey(entries []BoardEntry) string {
 	}
 	next, err := ComputeOrderKey(maxKey, "")
 	if err != nil {
-		// Fall back to extending with 'a'.
 		return maxKey + "a"
 	}
 	return next
 }
 
-// Pin adds an entry for (server, windowID, board) with a fresh order key.
-// Idempotent: returns nil with no mutation if the same (windowID, board)
-// already exists on the server.
+// Pin MOVES the window identified by windowID into its own single-window
+// pin-session `_rk-pin-<id>` and records its board membership. The window leaves
+// its home session (intended — this is what removes window sharing and lets a
+// board pane attach directly to the pin-session).
+//
+// Idempotent: if `_rk-pin-<id>` already exists, Pin is a no-op (no re-move, no
+// order-key churn).
+//
+// Security (Constitution §I): windowID and board are validated before any
+// subprocess; every tmux call is ctx+timeout-scoped via the package exec
+// helpers with explicit argument slices (no shell strings).
 func Pin(ctx context.Context, server, windowID, board string) error {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -320,36 +263,125 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 	if !ValidBoardName(board) {
 		return fmt.Errorf("invalid board name")
 	}
+	pinSession, ok := PinSessionName(windowID)
+	if !ok {
+		return fmt.Errorf("invalid window id")
+	}
+
+	// Idempotency: the pin-session already exists → the window is already pinned.
+	// A same-board re-pin is a clean no-op. A *different*-board re-pin must NOT
+	// silently report success while leaving the window on its old board — re-stamp
+	// @rk_board so the requested board wins (the window has exactly one pin-session,
+	// so this is the only authoritative place membership lives).
+	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", pinSession); err == nil {
+		current, readErr := showSessionOption(ctx, server, pinSession, BoardOption)
+		if readErr != nil {
+			return fmt.Errorf("read %s on existing pin %q: %w", BoardOption, pinSession, readErr)
+		}
+		if current == board {
+			return nil
+		}
+		if err := setSessionOption(ctx, server, pinSession, BoardOption, board); err != nil {
+			return fmt.Errorf("re-stamp %s on existing pin %q: %w", BoardOption, pinSession, err)
+		}
+		return nil
+	}
+
+	// Resolve the home session to remember for unpin. The window must currently
+	// live in a home session (not already a pin-session).
+	home, err := ResolveWindowSession(ctx, server, windowID)
+	if err != nil {
+		return fmt.Errorf("resolve home session: %w", err)
+	}
+
+	// Compute the append key restricted to this board BEFORE the move (the
+	// window still counts under its old session, but board membership is read
+	// from existing pin-sessions, which excludes this window).
 	entries, err := ListBoardEntries(ctx, server)
 	if err != nil {
 		return err
 	}
-	// Idempotency: same window already pinned to this board is a no-op.
-	for _, e := range entries {
-		if e.WindowID == windowID && e.Board == board {
-			return nil
-		}
-	}
-	// Compute the next append key restricted to this board, so order keys are
-	// monotonic within the board (cross-board reuse is fine).
 	boardEntries := make([]BoardEntry, 0)
 	for _, e := range entries {
 		if e.Board == board {
 			boardEntries = append(boardEntries, e)
 		}
 	}
-	newKey := nextAppendKey(boardEntries)
-	entries = append(entries, BoardEntry{
-		Server:   server,
-		WindowID: windowID,
-		Board:    board,
-		OrderKey: newKey,
-	})
-	return setBoardValue(ctx, server, entries)
+	orderKey := nextAppendKey(boardEntries)
+
+	// Create the pin-session (starts with one placeholder window) and capture the
+	// placeholder window's ID by reading the new session's sole window. Move the
+	// target window in, then kill the captured placeholder by ID so the moved
+	// window is the session's sole window. Capturing the placeholder ID (rather
+	// than assuming index 0) is robust to base-index config and to the moved
+	// window's landing index.
+	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", pinSession); err != nil {
+		return fmt.Errorf("create pin session: %w", err)
+	}
+	placeholderLines, err := tmuxExecServer(ctx, server, "list-windows", "-t", pinSession, "-F", "#{window_id}")
+	if err != nil || len(placeholderLines) == 0 {
+		// Roll back the empty pin-session. Root the teardown in context.Background():
+		// Pin's ctx may already be at/near its deadline, and KillSessionCtx wraps the
+		// passed ctx with WithTimeout — a cancelled parent would make the kill a no-op
+		// and orphan the session (the same reason relay.go roots teardown in Background).
+		_ = KillSessionCtx(context.Background(), server, pinSession)
+		if err != nil {
+			return fmt.Errorf("read pin placeholder window: %w", err)
+		}
+		return fmt.Errorf("read pin placeholder window: pin-session %q reported no windows", pinSession)
+	}
+	placeholderID := strings.TrimSpace(placeholderLines[0])
+	if err := MoveWindowToSession(windowID, pinSession, server); err != nil {
+		// Roll back the empty pin-session so a failed move leaves no orphan.
+		_ = KillSessionCtx(context.Background(), server, pinSession)
+		return fmt.Errorf("move window into pin session: %w", err)
+	}
+	if _, err := tmuxExecServer(ctx, server, "kill-window", "-t", placeholderID); err != nil {
+		// Non-fatal: a stray placeholder is cosmetic, but log it loudly.
+		slog.Warn("board: pin placeholder kill failed", "server", server, "pin", pinSession, "placeholder", placeholderID, "err", err)
+	}
+
+	// The window now physically lives in the pin-session. From here a stamp failure
+	// must NOT return with the window stranded: pinEntry rejects a pin-session with
+	// no/invalid @rk_board (→ absent from BOARDS) and parseSessions filters _rk-pin-*
+	// (→ absent from SESSIONS), so a half-stamped pin is an invisible lost window.
+	// On any stamp failure, undo the move (window back to its home) and kill the
+	// pin-session — both rooted in context.Background() for the same reason as above.
+	// Double-fault guard: only kill the pin-session if the move-back SUCCEEDED. If the
+	// move-back itself fails the window is still physically inside the pin-session;
+	// killing it would destroy a live window. Leaving the (still-named) pin-session
+	// keeps the window recoverable — the pin is unpinnable by window id, and the next
+	// same-window Pin sees the existing session and re-stamps via the idempotent path.
+	rollbackMove := func(cause error, opt string) error {
+		if mvErr := MoveWindowToSession(windowID, home, server); mvErr != nil {
+			slog.Error("board: pin stamp-failure rollback move failed — leaving pin-session intact so the window survives (recoverable via unpin/re-pin)",
+				"server", server, "window", windowID, "home", home, "pin", pinSession, "err", mvErr)
+			return fmt.Errorf("set %s: %w (rollback move-back also failed: %v)", opt, cause, mvErr)
+		}
+		_ = KillSessionCtx(context.Background(), server, pinSession)
+		return fmt.Errorf("set %s: %w", opt, cause)
+	}
+
+	// Stamp membership vars on the pin-session.
+	if err := setSessionOption(ctx, server, pinSession, HomeOption, home); err != nil {
+		return rollbackMove(err, HomeOption)
+	}
+	if err := setSessionOption(ctx, server, pinSession, BoardOption, board); err != nil {
+		return rollbackMove(err, BoardOption)
+	}
+	if err := setSessionOption(ctx, server, pinSession, BoardOrderOption, orderKey); err != nil {
+		return rollbackMove(err, BoardOrderOption)
+	}
+	return nil
 }
 
-// Unpin removes the entry matching (windowID, board) on the given server.
-// Idempotent: silently succeeds if the entry is not present.
+// Unpin restores the pinned window to its remembered home session and removes
+// the pin-session. If the home session was killed while the window was pinned,
+// it is recreated with the moved window as its only window. The window is
+// appended at tmux's next free index in the home session (no original-position
+// restore).
+//
+// Idempotent: a missing pin-session is a silent success.
 func Unpin(ctx context.Context, server, windowID, board string) error {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -359,27 +391,83 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 	if !ValidBoardName(board) {
 		return fmt.Errorf("invalid board name")
 	}
-	entries, err := ListBoardEntries(ctx, server)
-	if err != nil {
-		return err
+	pinSession, ok := PinSessionName(windowID)
+	if !ok {
+		return fmt.Errorf("invalid window id")
 	}
-	out := entries[:0:len(entries)]
-	changed := false
-	for _, e := range entries {
-		if e.WindowID == windowID && e.Board == board {
-			changed = true
-			continue
-		}
-		out = append(out, e)
-	}
-	if !changed {
+
+	// Idempotency: no pin-session → nothing to unpin.
+	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", pinSession); err != nil {
 		return nil
 	}
-	return setBoardValue(ctx, server, out)
+
+	home, err := showSessionOption(ctx, server, pinSession, HomeOption)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", HomeOption, err)
+	}
+
+	homeAlive := false
+	if home != "" {
+		if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", home); err == nil {
+			homeAlive = true
+		}
+	}
+
+	if homeAlive {
+		// Move the window back into the live home session (tmux appends it).
+		// Moving the pin-session's SOLE window out may auto-destroy the now-empty
+		// pin-session (tmux's default exit-empty behaviour), so a subsequent
+		// kill-session would report "can't find session" — which IS the desired
+		// end state. killPinSessionIfPresent tolerates that.
+		if err := MoveWindowToSession(windowID, home, server); err != nil {
+			return fmt.Errorf("restore window to home %q: %w", home, err)
+		}
+		return killPinSessionIfPresent(ctx, server, pinSession)
+	}
+
+	// Home is gone (or was never recorded) — recreate it. Rename the pin-session
+	// to the home name so the moved window becomes the new home session's only
+	// window (no placeholder). When home is empty, fall back to keeping the
+	// window in a freshly named session is impossible without a name; use the
+	// pin-session's window via rename-session to the remembered home.
+	if home == "" {
+		// No recorded home: leave the window where it is by clearing membership
+		// so it is no longer a board pin, then it surfaces in SESSIONS only if
+		// the pin-session is renamed away. Without a target name we cannot
+		// restore; this should not happen (Pin always stamps @rk_home), so treat
+		// it as an error rather than silently stranding the window.
+		return fmt.Errorf("unpin: pin-session %q has no @rk_home to restore to", pinSession)
+	}
+	// Recreate home by renaming the (single-window) pin-session to the home name.
+	// This preserves the window as the sole window of the recreated home session
+	// with no placeholder, and atomically removes the `_rk-pin-*` name.
+	if err := RenameSession(pinSession, home, server); err != nil {
+		return fmt.Errorf("recreate home %q from pin session: %w", home, err)
+	}
+	// Clear the membership vars left on the now-renamed session so a future read
+	// does not mistake the recreated home for a pin.
+	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", home, BoardOption)
+	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", home, HomeOption)
+	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", home, BoardOrderOption)
+	return nil
 }
 
-// Reorder updates the order key of an existing entry. Returns an error if
-// the entry is not found or newOrderKey is invalid.
+// killPinSessionIfPresent kills the pin-session, treating an
+// already-gone session ("can't find session" / "session not found") as success.
+// Moving a single-window pin-session's only window out can auto-destroy the
+// empty session under tmux's default exit-empty behaviour, so the explicit kill
+// is best-effort cleanup, not a hard requirement.
+func killPinSessionIfPresent(ctx context.Context, server, pinSession string) error {
+	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", pinSession); err != nil {
+		// Already gone (auto-destroyed) — the desired end state.
+		return nil
+	}
+	return KillSessionCtx(ctx, server, pinSession)
+}
+
+// Reorder updates the order key of an existing pin by rewriting only its
+// pin-session's @rk_board_order var. Returns an error if the pin-session does
+// not exist, is not on the named board, or newOrderKey is invalid.
 func Reorder(ctx context.Context, server, windowID, board, newOrderKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -392,57 +480,21 @@ func Reorder(ctx context.Context, server, windowID, board, newOrderKey string) e
 	if !ValidOrderKey(newOrderKey) {
 		return fmt.Errorf("invalid order key")
 	}
-	entries, err := ListBoardEntries(ctx, server)
+	pinSession, ok := PinSessionName(windowID)
+	if !ok {
+		return fmt.Errorf("invalid window id")
+	}
+	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", pinSession); err != nil {
+		return fmt.Errorf("entry not found")
+	}
+	current, err := showSessionOption(ctx, server, pinSession, BoardOption)
 	if err != nil {
 		return err
 	}
-	found := false
-	for i, e := range entries {
-		if e.WindowID == windowID && e.Board == board {
-			entries[i].OrderKey = newOrderKey
-			found = true
-			break
-		}
-	}
-	if !found {
+	if current != board {
 		return fmt.Errorf("entry not found")
 	}
-	return setBoardValue(ctx, server, entries)
-}
-
-// RemoveAllByWindowID removes every entry whose window_id matches the
-// supplied id from the named server's @rk_board, returning the list of
-// board names that lost entries (deduplicated, sorted alphabetically).
-// Idempotent: empty result + nil error if no entries matched.
-func RemoveAllByWindowID(ctx context.Context, server, windowID string) ([]string, error) {
-	if !ValidWindowID(windowID) {
-		return nil, fmt.Errorf("invalid window id")
-	}
-	entries, err := ListBoardEntries(ctx, server)
-	if err != nil {
-		return nil, err
-	}
-	out := entries[:0:len(entries)]
-	boardSet := make(map[string]struct{})
-	for _, e := range entries {
-		if e.WindowID == windowID {
-			boardSet[e.Board] = struct{}{}
-			continue
-		}
-		out = append(out, e)
-	}
-	if len(boardSet) == 0 {
-		return nil, nil
-	}
-	if err := setBoardValue(ctx, server, out); err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(boardSet))
-	for n := range boardSet {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names, nil
+	return setSessionOption(ctx, server, pinSession, BoardOrderOption, newOrderKey)
 }
 
 // ComputeOrderKey returns a key strictly between `before` and `after` in

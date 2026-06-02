@@ -10,11 +10,13 @@ const BOARD_NAME = `mp${Date.now().toString().slice(-6)}`;
 // xterm renders glyphs to a WebGL canvas with NO DOM text layer (verified —
 // `.xterm-rows` is absent and `body.innerText()` never contains terminal
 // content), so the previous `innerText` assertion could never pass. Per-pane
-// isolation is instead proven at the relay layer: each pinned window opens its
-// OWN `/relay/<windowId>` WebSocket, and each pane mounts its own live `.xterm`
-// instance. Distinct relay sockets for the two distinct window ids is the
-// direct connection-level proof that the grouped-ephemeral relay isolates each
-// pane (matching the assertion style of boards-desktop-suspend.spec.ts).
+// isolation is instead proven at the relay layer: in the move-based model each
+// pinned window is MOVED into its own single-window pin-session (`_rk-pin-<id>`)
+// and a board pane attaches DIRECTLY to it, opening its OWN `/relay/<windowId>`
+// WebSocket and mounting its own live `.xterm`. Two windows from ONE source
+// session therefore become two independent pin-sessions, each with its own
+// relay socket — distinct sockets for the two window ids is the connection-level
+// proof that the panes are isolated (matching boards-desktop-suspend.spec.ts).
 const WIN_A_MARKER = "PANE_ALPHA_OK";
 const WIN_B_MARKER = "PANE_BRAVO_OK";
 
@@ -70,8 +72,8 @@ test.describe("Boards: same-session multi-pane", () => {
     expect(winB).toBeTruthy();
 
     // Track which window ids opened a relay WebSocket. A distinct relay per
-    // window id is the isolation proof: two windows from ONE session each get
-    // their own grouped-ephemeral relay.
+    // window id is the isolation proof: two windows from ONE source session are
+    // each MOVED into their own pin-session and get their own direct relay.
     const relayWindowIds = new Set<string>();
     page.on("websocket", (ws) => {
       const wid = relayWindowId(ws.url());

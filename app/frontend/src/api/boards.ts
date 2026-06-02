@@ -16,7 +16,13 @@ export interface BoardSummary {
   pinCount: number;
 }
 
-/** A single pinned-window entry on a board, joined with live window data for rendering. */
+/**
+ * A single pinned-window entry on a board, joined with live window data for
+ * rendering. In the move-based model the pinned window has been MOVED into its
+ * own single-window pin-session (`_rk-pin-<id>`) server-side, so `session` is
+ * that pin-session — the relay resolves it from `windowId` transparently, and
+ * the component does not need to know it is a pin-session.
+ */
 export interface BoardEntry {
   server: string;
   windowId: string;
@@ -33,7 +39,12 @@ export interface ReorderResponse {
   newOrderKey: string;
 }
 
-/** GET /api/boards — aggregated across all servers, sorted by name. */
+/**
+ * GET /api/boards — derived from `_rk-pin-*` pin-sessions grouped by their
+ * `@rk_board` session var, summarized across reachable servers and sorted by
+ * name. Boards are server-scoped (a pinned window's session lives on one tmux
+ * server); a board exists only while at least one pin carries its name.
+ */
 export async function listBoards(): Promise<BoardSummary[]> {
   const res = await deduplicatedFetch("/api/boards");
   if (!res.ok) await throwOnError(res);

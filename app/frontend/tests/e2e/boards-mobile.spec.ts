@@ -28,9 +28,10 @@ test.describe("Boards: mobile carousel", () => {
   });
 
   test.afterAll(async ({ request }) => {
-    // Unpin while the tmux server is still alive — `@rk_board` is a server
-    // option that survives `kill-session`, so stale entries would otherwise
-    // pollute the persistent `rk-test-e2e` server across runs.
+    // Unpin while the tmux server is still alive — each pin lives in a
+    // `_rk-pin-*` session that persists across restarts (and survives killing
+    // the source session), so stale pin-sessions would otherwise pollute the
+    // persistent `rk-test-e2e` server across runs.
     for (const entry of pinnedEntries) {
       try {
         await request.post(`/api/boards/${BOARD_NAME}/unpin`, {

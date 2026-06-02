@@ -28,7 +28,6 @@ type TmuxOps interface {
 	CreateSession(name, cwd, server string) error
 	KillSession(session, server string) error
 	KillSessionCtx(ctx context.Context, server, session string) error
-	NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error
 	RenameSession(session, name, server string) error
 	CreateWindow(session, name, cwd, server string) error
 	KillWindow(windowID, server string) error
@@ -56,7 +55,6 @@ type TmuxOps interface {
 	CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error
 	GetSessionOrder(ctx context.Context, server string) ([]string, error)
 	SetSessionOrder(ctx context.Context, server string, order []string) error
-	SetSessionOwnerPID(ctx context.Context, server, session string, pid int) error
 	ListBoards(ctx context.Context) ([]tmux.BoardSummary, error)
 	GetBoard(ctx context.Context, name string) ([]tmux.BoardEntry, error)
 	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
@@ -119,9 +117,6 @@ func (p *prodTmuxOps) KillSession(session, server string) error {
 }
 func (p *prodTmuxOps) KillSessionCtx(ctx context.Context, server, session string) error {
 	return tmux.KillSessionCtx(ctx, server, session)
-}
-func (p *prodTmuxOps) NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error {
-	return tmux.NewGroupedSession(ctx, server, realSession, ephemeral)
 }
 func (p *prodTmuxOps) RenameSession(session, name, server string) error {
 	return tmux.RenameSession(session, name, server)
@@ -203,9 +198,6 @@ func (p *prodTmuxOps) GetSessionOrder(ctx context.Context, server string) ([]str
 }
 func (p *prodTmuxOps) SetSessionOrder(ctx context.Context, server string, order []string) error {
 	return tmux.SetSessionOrder(ctx, server, order)
-}
-func (p *prodTmuxOps) SetSessionOwnerPID(ctx context.Context, server, session string, pid int) error {
-	return tmux.SetSessionOwnerPID(ctx, server, session, pid)
 }
 func (p *prodTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	return tmux.ListBoards(ctx)

@@ -2,10 +2,7 @@ package api
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,18 +17,6 @@ import (
 
 	"rk/internal/tmux"
 )
-
-// newEphemeralRelayName returns a unique ephemeral session name of the form
-// "rk-relay-<8 hex chars>". The 8-hex suffix is read from crypto/rand and is
-// never derived from user input — keeping the surface inside the relay handler
-// closed against injection (constitution I).
-func newEphemeralRelayName() (string, error) {
-	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s%s", tmux.RelaySessionPrefix, hex.EncodeToString(b[:])), nil
-}
 
 // No timeout for the attach command — it's a long-lived process that stays alive
 // for the duration of the WebSocket connection. Cancellation happens via the
@@ -83,10 +68,13 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Resolve the owning session from the window ID. The per-WebSocket ephemeral
-	// grouped-session mechanism keys off the *real session name*, so we derive it
-	// from the window ID via a targeted display-message lookup. A missing window
-	// (resolution fails or returns empty) preserves the existing 4004 close code.
+	// Resolve the owning session from the window ID. In the move-based model a
+	// window lives in exactly ONE session — either a normal home session or its
+	// board pin-session (`_rk-pin-*`). The relay attaches the PTY DIRECTLY to that
+	// real session (no per-WebSocket ephemeral grouped session): single-window
+	// pin-sessions remove window *sharing*, which was the only reason the
+	// ephemeral isolation layer existed. A missing window (resolution fails or
+	// returns empty) preserves the existing 4004 close code.
 	resolveCtx, resolveCancel := context.WithTimeout(r.Context(), 5*time.Second)
 	session, err := s.tmux.ResolveWindowSession(resolveCtx, server, windowID)
 	resolveCancel()
@@ -97,60 +85,13 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Allocate a per-WebSocket ephemeral grouped session. tmux session groups
-	// share window membership but maintain independent active-window state, so
-	// each relay can SelectWindow on its own ephemeral without disturbing other
-	// clients attached to the same real session (e.g., other board panes, or
-	// other browser tabs).
-	ephemeral, err := newEphemeralRelayName()
-	if err != nil {
-		slog.Error("ephemeral name generation failed", "err", err)
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4001, "Failed to allocate relay session"))
-		return
-	}
-	if err := s.tmux.NewGroupedSession(r.Context(), server, session, ephemeral); err != nil {
-		slog.Warn("new-session (grouped) failed", "err", err, "session", session, "ephemeral", ephemeral)
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4004, "Session not found"))
-		return
-	}
-	// Best-effort cleanup with a fresh context — r.Context() is cancelled at
-	// disconnect time (the trigger for this defer), so reusing it would cause
-	// the kill to be cancelled before tmux can run it.
-	defer func() {
-		if err := s.tmux.KillSessionCtx(context.Background(), server, ephemeral); err != nil {
-			slog.Debug("ephemeral cleanup failed", "err", err, "ephemeral", ephemeral)
-		}
-	}()
-
-	// Stamp the ephemeral with this rk serve process's PID BEFORE it becomes
-	// attachable (before SelectWindowInSession). A sibling startup sweep reaps
-	// any rk-relay-* whose @rk_owner_pid is empty, so an attachable-but-unstamped
-	// relay is indistinguishable from an orphan and would be wrongly killed.
-	// Stamping first guarantees the only unstamped relays a sweep can see are
-	// genuine orphans (owner already exited), never this live instance's relay.
-	//
-	// On stamp failure the relay is unprotectable — keeping it open is a false
-	// promise (the next sweep would reap owner=="" and drop the terminal). So we
-	// abort cleanly: log, close the WebSocket with the relay-allocation close
-	// code, and return — the deferred KillSessionCtx above reaps the half-owned
-	// ephemeral. This mirrors every other setup-step failure in handleRelay.
-	if err := s.tmux.SetSessionOwnerPID(r.Context(), server, ephemeral, os.Getpid()); err != nil {
-		slog.Warn("relay owner-pid stamp failed", "err", err, "ephemeral", ephemeral)
-		conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(4001, "Failed to allocate relay session"))
-		return
-	}
-
-	// Select the window on the ephemeral, scoped to the ephemeral session. A bare
-	// window-id target (`select-window -t @N`) is ambiguous inside a session group
-	// — members share window membership but keep independent active-window state,
-	// so tmux could set the active window on the real session or another group
-	// member. Qualifying the target as "<ephemeral>:@N" pins the active window to
-	// THIS WebSocket's ephemeral, preserving multi-client isolation.
-	if err := s.tmux.SelectWindowInSession(ephemeral, windowID, server); err != nil {
-		slog.Error("select-window failed", "err", err, "ephemeral", ephemeral, "windowID", windowID)
+	// Select the window on its real session so the attach renders the right
+	// window. The accepted tradeoff (#1 in the intake): the real session has a
+	// single active-window pointer shared across attachments, so multi-client
+	// navigation mutates the real session's active window. For a pin-session this
+	// is a no-op — its sole window is permanently active.
+	if err := s.tmux.SelectWindow(windowID, server); err != nil {
+		slog.Error("select-window failed", "err", err, "session", session, "windowID", windowID)
 		conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4004, "Window not found"))
 		return
@@ -189,9 +130,9 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("config reload before attach (best-effort)", "server", server, "err", err)
 	}
 
-	// Attach to the ephemeral, not the real session — this is the linchpin of
-	// the grouped-session fix.
-	attachArgs = append(attachArgs, "attach-session", "-t", ephemeral)
+	// Attach DIRECTLY to the resolved owning session (home or `_rk-pin-*`). No
+	// ephemeral, no defer-kill — the session is durable and owned by tmux.
+	attachArgs = append(attachArgs, "attach-session", "-t", session)
 	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
 	cmd.Env = forceTERM(os.Environ())
 

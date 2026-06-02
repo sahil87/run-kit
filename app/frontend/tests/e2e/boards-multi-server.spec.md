@@ -1,7 +1,10 @@
 # boards-multi-server.spec.ts
 
-Validates that boards aggregate windows across multiple tmux servers — the
-core cross-server requirement from the spec.
+Validates that the board view aggregates pinned windows sharing a board name
+across multiple tmux servers. In the move-based model each pinned window's
+pin-session (`_rk-pin-<id>`) lives on a single tmux server (boards are
+server-scoped), but `GET /api/boards/<name>` and the board page UNION every
+pin-session carrying that `@rk_board` name across all reachable servers.
 
 ## Shared setup
 
@@ -13,7 +16,7 @@ core cross-server requirement from the spec.
   pinned during the test.
 - `afterAll` first POSTs `/api/boards/<name>/unpin` for each tracked entry
   (best-effort) so the persistent `rk-test-e2e` server doesn't carry stale
-  `@rk_board` entries into later runs, then kills the primary session and
+  `_rk-pin-*` pin-sessions into later runs, then kills the primary session and
   the secondary tmux server entirely.
 
 ## Tests
@@ -21,9 +24,9 @@ core cross-server requirement from the spec.
 ### `a board with windows from two servers shows the union on /board/<name>`
 
 **What it proves:** Pinning windows from two different tmux servers to the
-same board makes both windows appear on the board page — the
-cross-server aggregation contract holds end-to-end through the HTTP API and
-the UI render path.
+same board name makes both windows appear on the board page — the
+cross-server board-name aggregation contract holds end-to-end through the HTTP
+API and the UI render path, even though each pin-session is server-local.
 
 **Steps:**
 

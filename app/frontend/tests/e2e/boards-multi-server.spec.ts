@@ -31,9 +31,10 @@ test.describe("Boards: multi-server union", () => {
   });
 
   test.afterAll(async ({ request }) => {
-    // Unpin while servers are still alive — `@rk_board` lives on the tmux
-    // server and survives `kill-session`, so without this the persistent
-    // `rk-test-e2e` server would carry stale entries into later runs.
+    // Unpin while servers are still alive — each pin lives in a `_rk-pin-*`
+    // session that PERSISTS across restarts (and survives killing the SOURCE
+    // session), so without this the persistent `rk-test-e2e` server would carry
+    // stale pin-sessions into later runs.
     for (const entry of pinnedEntries) {
       try {
         await request.post(`/api/boards/${BOARD_NAME}/unpin`, {

@@ -31,9 +31,9 @@ func (m *mockSessionFetcher) FetchSessions(ctx context.Context, server string) (
 //
 // Most fields are written and read within a single goroutine (synchronous
 // handler tests), so they need no locking. The kill-session fields are the
-// exception: the relay abort-clean path reaps the ephemeral from a deferred
-// cleanup on the SERVER goroutine while the test goroutine observes it, so
-// those two are guarded by killMu and accessed via KillSessionWasCalled.
+// exception: a deferred cleanup on the SERVER goroutine may observe them while
+// the test goroutine reads them, so those two are guarded by killMu and
+// accessed via KillSessionWasCalled.
 type mockTmuxOps struct {
 	createSessionCalled bool
 	createSessionName   string
@@ -44,12 +44,6 @@ type mockTmuxOps struct {
 	renameSessionCalled    bool
 	renameSessionSession   string
 	renameSessionName      string
-
-	newGroupedSessionCalled    bool
-	newGroupedSessionServer    string
-	newGroupedSessionReal      string
-	newGroupedSessionEphemeral string
-	newGroupedSessionErr       error
 
 	createWindowCalled  bool
 	createWindowSession string
@@ -139,11 +133,6 @@ type mockTmuxOps struct {
 	setSessionOrderOrder  []string
 	setSessionOrderErr    error
 
-	setSessionOwnerPIDCalled  bool
-	setSessionOwnerPIDSession string
-	setSessionOwnerPIDPID     int
-	setSessionOwnerPIDErr     error
-
 	// Boards
 	listBoardsCalled         bool
 	listBoardsResult         []tmux.BoardSummary
@@ -205,16 +194,6 @@ func (m *mockTmuxOps) KillSessionWasCalled() (bool, string) {
 	m.killMu.Lock()
 	defer m.killMu.Unlock()
 	return m.killSessionCalled, m.killSessionName
-}
-func (m *mockTmuxOps) NewGroupedSession(ctx context.Context, server, realSession, ephemeral string) error {
-	m.newGroupedSessionCalled = true
-	m.newGroupedSessionServer = server
-	m.newGroupedSessionReal = realSession
-	m.newGroupedSessionEphemeral = ephemeral
-	if m.newGroupedSessionErr != nil {
-		return m.newGroupedSessionErr
-	}
-	return m.err
 }
 func (m *mockTmuxOps) RenameSession(session, name, server string) error {
 	m.renameSessionCalled = true
@@ -390,16 +369,6 @@ func (m *mockTmuxOps) SetSessionOrder(ctx context.Context, server string, order 
 	}
 	return m.err
 }
-func (m *mockTmuxOps) SetSessionOwnerPID(ctx context.Context, server, session string, pid int) error {
-	m.setSessionOwnerPIDCalled = true
-	m.setSessionOwnerPIDSession = session
-	m.setSessionOwnerPIDPID = pid
-	if m.setSessionOwnerPIDErr != nil {
-		return m.setSessionOwnerPIDErr
-	}
-	return m.err
-}
-
 func (m *mockTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	m.listBoardsCalled = true
 	if m.listBoardsErr != nil {

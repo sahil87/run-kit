@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-02T09:13:20Z"}
+{"args":"Build-time help-dump: emit rk CLI help tree as help/run-kit.json and PR into sahil87/shll.ai (backlog a36m)","cmd":"fab-new","event":"command","ts":"2026-06-02T09:13:20Z"}
+{"delta":"+2.5","event":"confidence","score":2.5,"trigger":"calc-score","ts":"2026-06-02T09:14:36Z"}
+{"delta":"+0.0","event":"confidence","score":2.5,"trigger":"calc-score","ts":"2026-06-02T09:14:40Z"}
+{"delta":"+1.6","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-02T09:15:00Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-02T09:15:03Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-02T09:16:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-02T09:16:18Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-02T09:18:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-02T09:23:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-02T09:28:39Z"}
+{"event":"review","result":"passed","ts":"2026-06-02T09:28:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-02T09:32:18Z"}

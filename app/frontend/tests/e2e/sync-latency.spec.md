@@ -14,9 +14,19 @@ that exceeded the 500ms threshold.
   interactions legitimately exceed Playwright's default 10s.
 - `beforeAll` creates sessions `e2e-lat-a-<ts>` and `e2e-lat-b-<ts>` so the
   tests have distinct targets for rename, drag, and cross-session move.
+- `setup(page)` navigates to `/${TMUX_SERVER}`, waits for `Connected`, then
+  gates on **any** session row being rendered (`aria-label^='Navigate to '`)
+  before returning the sidebar locator. The gate is name-agnostic on purpose:
+  test 2 renames the shared SESSION_A via the UI, so a gate hard-wired to a
+  specific name (e.g. `Navigate to ${SESSION_A}`) would strand every later
+  `setup()` once the rename lands, time out, and trigger a Playwright worker
+  restart (which re-seeds a fresh, un-renamed SESSION_A and breaks tests
+  assuming the rename).
 - `afterAll` best-effort kills both sessions, any `-renamed` variant, the
-  kill-session scratch, and the instant-create defaults (`session`,
-  `session-2`…`session-11`) that may linger on the shared tmux server.
+  kill-session scratch, the instant-create defaults (`session`,
+  `session-2`…`session-11`), and any live `e2e-lat-xtgt-<ts>` cross-drag
+  target sessions (enumerated by prefix) that may linger on the shared tmux
+  server.
 - A shared `results` array collects `{ action, ms, optimistic }` rows that
   the `afterAll` prints at the end of the file.
 
@@ -45,7 +55,8 @@ pressing Enter commits an optimistic rename and the new name renders in
 
 **Steps:**
 1. `setup`.
-2. Wait for `Navigate to ${SESSION_A}` button to exist.
+2. Wait for the `Navigate to ${SESSION_A}` button to exist (this test runs
+   before any rename, so SESSION_A's original name is still present).
 3. Double-click the session name to enter edit mode.
 4. Clear and fill the input with `${SESSION_A}-renamed`.
 5. Start timer, press Enter.
@@ -72,7 +83,7 @@ budget. Tolerant if the button isn't visible (session not expanded).
 (≤500ms).
 
 **Steps:**
-1. Create `rename-me` window in session B via `execSync`.
+1. Create `rename-me` window in session B via the `tmux()` helper.
 2. `setup`.
 3. Assert `rename-me` is visible.
 4. Double-click, clear, fill `renamed-win`.
@@ -84,7 +95,7 @@ budget. Tolerant if the button isn't visible (session not expanded).
 instant kill with no confirm dialog; the row disappears in ≤500ms.
 
 **Steps:**
-1. Create `kill-me` window via `execSync`.
+1. Create `kill-me` window via the `tmux()` helper.
 2. `setup`.
 3. Assert `kill-me` visible.
 4. Timer, `click({ modifiers: ['Control'] })` on the kill button.
@@ -107,16 +118,20 @@ reorders them optimistically.
 ### `7. Move window to another session (cross-session drag)`
 
 **What it proves:** Dragging a window onto a different session row moves
-it across sessions. Uses the renamed variant of session A as the target.
+it across sessions. Self-contained: the test creates its own dedicated
+target session `e2e-lat-xtgt-<ts>` rather than relying on test 2 having
+renamed the shared SESSION_A — that coupling broke on any Playwright worker
+restart (the re-seeded SESSION_A is never renamed).
 
 **Steps:**
-1. Create `cross-mv` in session B.
-2. `setup`.
-3. Assert both `cross-mv` and `${SESSION_A}-renamed` are visible.
-4. Read bounding boxes.
-5. Timer, drag-drop source over target.
-6. Poll up to 5s for the source row to disappear from under session B.
-7. `record` either "moved" or "may not have moved".
+1. Create a dedicated target session `e2e-lat-xtgt-<ts>` via the `tmux()` helper.
+2. Create `cross-mv` window in session B via the `tmux()` helper.
+3. `setup`.
+4. Assert both `cross-mv` and `e2e-lat-xtgt-<ts>` are visible.
+5. Read bounding boxes.
+6. Timer, drag-drop source over target.
+7. Poll up to 5s for the source row to disappear from under session B.
+8. `record` either "moved" or "may not have moved".
 
 ### `8. External tmux change (SSE baseline)`
 
@@ -135,7 +150,7 @@ faster time here would imply an unintended optimistic path.
 session row disappears in ≤500ms after confirming.
 
 **Steps:**
-1. Create `e2e-kill-${SESSION_A}` via `execSync`.
+1. Create `e2e-kill-${SESSION_A}` via the `tmux()` helper.
 2. `setup`.
 3. Assert session row visible.
 4. Timer, click `Kill session <name>` button.

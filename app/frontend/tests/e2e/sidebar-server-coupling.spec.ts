@@ -108,25 +108,4 @@ test.describe("Sidebar — Server Pane / Sessions Pane coupling", () => {
     await expect(page.locator(`[data-server='${TMUX_SERVER_A}']`).first()).toBeVisible();
     await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`).first()).toBeVisible();
   });
-
-  test("opening the Server Pane on a board route shows the empty-state hint", async ({
-    page,
-  }) => {
-    test.setTimeout(30_000);
-    await page.setViewportSize(DESKTOP_VIEWPORT);
-    // Seed the open state in localStorage before navigation so the hint is
-    // visible immediately when the board route mounts (no current server).
-    await page.goto(`/${TMUX_SERVER_A}`, { waitUntil: "domcontentloaded" });
-    await page.evaluate(() => localStorage.setItem("runkit-panel-server", "true"));
-
-    // Board route — currentServer === null in the unified Sidebar.
-    await page.goto(`/`, { waitUntil: "domcontentloaded" });
-
-    await expect(
-      page.getByText("Select a server above to see its sessions."),
-    ).toBeVisible({ timeout: 10_000 });
-    // No server groups in the Sessions area while the hint is showing.
-    await expect(page.locator(`[data-server='${TMUX_SERVER_A}']`)).toHaveCount(0);
-    await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`)).toHaveCount(0);
-  });
 });

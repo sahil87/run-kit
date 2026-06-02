@@ -41,15 +41,24 @@ function tmux(cmd: string) {
  * Navigate to the tmux server dashboard and wait until the sidebar is usable.
  * `Connected` (SSE socket open) is necessary but not sufficient: the first
  * session payload lands a beat later, so a test that acts the instant
- * `Connected` shows would hit an empty sidebar. Gate on the seed session
- * (SESSION_A) being rendered so every test starts from a populated sidebar
- * regardless of runner speed.
+ * `Connected` shows would hit an empty sidebar. Gate on *any* session row
+ * being rendered so every test starts from a populated sidebar regardless of
+ * runner speed.
+ *
+ * The gate is name-agnostic (`Navigate to ` prefix via `aria-label^=`) on
+ * purpose: test 2 renames the shared SESSION_A via the UI, so a gate
+ * hard-wired to `Navigate to ${SESSION_A}` would strand every subsequent
+ * `setup()` once the rename lands, time out, and trigger a Playwright worker
+ * restart — which re-seeds a fresh, un-renamed SESSION_A and breaks later
+ * tests that assumed the rename. Matching any session row keeps the gate
+ * stable across the file's mutations (SESSION_B is always present, but we
+ * don't depend on a specific name).
  */
 async function setup(page: import("@playwright/test").Page) {
   await page.goto(`/${TMUX_SERVER}`);
   await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
   const sidebar = page.locator("nav[aria-label='Sessions']");
-  await expect(sidebar.locator(`button[aria-label='Navigate to ${SESSION_A}']`)).toBeVisible({
+  await expect(sidebar.locator(`button[aria-label^='Navigate to ']`).first()).toBeVisible({
     timeout: READY_TIMEOUT,
   });
   return sidebar;
@@ -76,6 +85,17 @@ test.describe("Sync Latency Audit", () => {
       "session",
     ];
     for (let i = 2; i <= 11; i++) names.push(`session-${i}`);
+    // Test 7 creates dedicated cross-drag target sessions named
+    // `e2e-lat-xtgt-<ts>`; sweep any that are live (a worker restart can leave
+    // more than one). Enumerate by prefix since the timestamp is test-scoped.
+    try {
+      const live = execSync(`tmux -L ${TMUX_SERVER} list-sessions -F "#{session_name}"`)
+        .toString()
+        .trim()
+        .split("\n")
+        .filter((n) => n.startsWith("e2e-lat-xtgt-"));
+      names.push(...live);
+    } catch { /* ok — no server or no sessions */ }
     for (const s of names) {
       try { tmux(`kill-session -t ${s}`); } catch { /* ok */ }
     }
@@ -256,16 +276,22 @@ test.describe("Sync Latency Audit", () => {
   });
 
   test("7. Move window to another session (cross-session drag)", async ({ page }) => {
+    // Self-contained: create both the source window and a dedicated target
+    // session this test owns. Earlier this dragged onto `${SESSION_A}-renamed`,
+    // relying on test 2 having renamed the shared SESSION_A in the same worker
+    // — a coupling that breaks on any worker restart (the re-seeded SESSION_A
+    // is never renamed). Owning the target removes the ordering dependency.
+    const crossTarget = `e2e-lat-xtgt-${Date.now()}`;
+    tmux(`new-session -d -s ${crossTarget} -x 80 -y 24`);
     tmux(`new-window -t ${SESSION_B} -n cross-mv`);
 
     const sidebar = await setup(page);
-    const renamedA = `${SESSION_A}-renamed`;
 
     await expect(sidebar.locator("text=cross-mv").first()).toBeVisible({ timeout: 8_000 });
-    await expect(sidebar.locator(`text=${renamedA}`).first()).toBeVisible({ timeout: 8_000 });
+    await expect(sidebar.locator(`text=${crossTarget}`).first()).toBeVisible({ timeout: 8_000 });
 
     const source = sidebar.locator("text=cross-mv").first();
-    const target = sidebar.locator(`text=${renamedA}`).first();
+    const target = sidebar.locator(`text=${crossTarget}`).first();
     const sourceBB = await source.boundingBox();
     const targetBB = await target.boundingBox();
 

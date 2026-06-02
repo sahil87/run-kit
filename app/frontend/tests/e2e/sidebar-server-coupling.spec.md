@@ -3,9 +3,8 @@
 Behavioural contract for the coupling between the sidebar's Server Pane open
 state and the Sessions Pane's server-scope filter. When the Server Pane is
 collapsed, the Sessions tree shows one `ServerGroup` per server; when the
-Server Pane is open, the tree narrows to the current server's group (or
-shows an empty-state hint if no current server is resolved). Validates the
-headline user flow end to end.
+Server Pane is open, the tree narrows to the current server's group.
+Validates the headline user flow end to end.
 
 ## Shared setup
 
@@ -70,23 +69,13 @@ without losing any server's `ServerGroup`.
 5. Click the Server Pane header again to close it.
 6. Assert both `[data-server='A']` and `[data-server='B']` are visible.
 
-### `opening the Server Pane on a board route shows the empty-state hint`
-
-**What it proves:** When the Server Pane is open AND no current server is
-resolved (board route `/`), the Sessions tree renders no `ServerGroup`s
-and instead shows the literal copy `Select a server above to see its
-sessions.`
-
-**Steps:**
-1. Set desktop viewport and navigate to `/${TMUX_SERVER_A}` first so the
-   app initialises and we can write the localStorage key from the browser
-   context.
-2. `page.evaluate(() => localStorage.setItem("runkit-panel-server", "true"))`.
-3. Navigate to `/` (board route — `currentServer === null`).
-4. Assert the text `Select a server above to see its sessions.` is
-   visible.
-5. Assert `[data-server='A']` count is `0`.
-6. Assert `[data-server='B']` count is `0`.
+> **Note:** the `currentServer === null` empty-state hint (`Select a server
+> above to see its sessions.`) is no longer covered here. It previously had
+> an e2e case targeting `/`, but `/` now renders `ServerListPage` (no
+> sidebar) — the `<Sidebar currentServer={null}>` state lives on the
+> `/board/$name` route. The hint's render logic remains covered by the unit
+> test `src/components/sidebar/index.test.tsx` ("renders the empty-state
+> hint when the Server Pane is open and currentServer is null").
 
 ## Notes
 
@@ -94,8 +83,7 @@ sessions.`
   opening the sidebar drawer first; the coupling logic itself is layout-
   independent.
 - The headline user flow is covered by tests 1 and 2 together (narrow on
-  open, switch via tile); test 3 verifies the reverse direction; test 4
-  covers the `currentServer === null` boundary.
-- All four tests use the e2e tmux server pattern from
+  open, switch via tile); test 3 verifies the reverse direction.
+- All three tests use the e2e tmux server pattern from
   `multi-server-sidebar.spec.ts` — port 3020, isolated tmux servers,
   best-effort setup/teardown.

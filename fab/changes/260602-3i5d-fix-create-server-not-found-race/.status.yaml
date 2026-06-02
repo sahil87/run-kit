@@ -5,47 +5,47 @@ created_by: sahil87
 change_type: fix
 issues: []
 progress:
-    intake: done
-    apply: done
-    review: done
-    hydrate: done
-    ship: done
-    review-pr: done
+  intake: done
+  apply: done
+  review: done
+  hydrate: done
+  ship: done
+  review-pr: done
 plan:
-    generated: true
-    task_count: 7
-    acceptance_count: 16
-    acceptance_completed: 16
+  generated: true
+  task_count: 7
+  acceptance_count: 16
+  acceptance_completed: 16
 confidence:
-    certain: 7
-    confident: 3
-    tentative: 0
-    unresolved: 0
-    score: 4.1
-    fuzzy: true
-    dimensions:
-        signal: 89.0
-        reversibility: 73.5
-        competence: 80.0
-        disambiguation: 77.0
+  certain: 7
+  confident: 3
+  tentative: 0
+  unresolved: 0
+  score: 4.1
+  fuzzy: true
+  dimensions:
+    signal: 89.0
+    reversibility: 73.5
+    competence: 80.0
+    disambiguation: 77.0
 stage_metrics:
-    intake: {started_at: "2026-06-02T09:08:52Z", driver: fab-new, iterations: 1, completed_at: "2026-06-02T09:11:03Z"}
-    apply: {started_at: "2026-06-02T09:11:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:20:13Z"}
-    review: {started_at: "2026-06-02T09:20:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:23:10Z"}
-    hydrate: {started_at: "2026-06-02T09:23:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:25:47Z"}
-    ship: {started_at: "2026-06-02T09:25:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:27:42Z"}
-    review-pr: {started_at: "2026-06-02T09:27:42Z", driver: git-pr, iterations: 1, completed_at: "2026-06-02T09:40:17Z"}
+  intake: {started_at: "2026-06-02T09:08:52Z", driver: fab-new, iterations: 1, completed_at: "2026-06-02T09:11:03Z"}
+  apply: {started_at: "2026-06-02T09:11:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:20:13Z"}
+  review: {started_at: "2026-06-02T09:20:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:23:10Z"}
+  hydrate: {started_at: "2026-06-02T09:23:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:25:47Z"}
+  ship: {started_at: "2026-06-02T09:25:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T09:27:42Z"}
+  review-pr: {started_at: "2026-06-02T09:27:42Z", driver: git-pr, iterations: 1, completed_at: "2026-06-02T09:40:17Z", phase: fixing, reviewer: '@copilot-pull-request-reviewer[bot]'}
 prs:
-    - https://github.com/sahil87/run-kit/pull/229
+  - https://github.com/sahil87/run-kit/pull/229
 true_impact:
+  added: 0
+  deleted: 0
+  net: 0
+  excluding:
     added: 0
     deleted: 0
     net: 0
-    excluding:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-06-02T09:25:47Z"
-    computed_at_stage: hydrate
+  computed_at: "2026-06-02T09:25:47Z"
+  computed_at_stage: hydrate
 # true_impact: lazily created on first apply-finish (no placeholder here).
 last_updated: 2026-06-02T09:40:17Z

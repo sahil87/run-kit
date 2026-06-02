@@ -35,10 +35,14 @@ guard suppress the false negative that the old binary guard produced.
 3. In the "Create tmux server" dialog, fill the `Server name` field with the
    freshly-generated server name and click the `Create` button.
 4. Assert the URL navigates to `/${CREATED_SERVER}`.
-5. Assert the `Connected` indicator becomes visible (the working server view
-   loaded).
-6. Assert no element with the text "Server not found" is present at any point
-   after the create completes.
+5. Race two outcomes against each other — whichever appears first wins: the
+   `Connected` indicator becoming visible (working server view loaded) vs. the
+   "Server not found" text becoming visible. Each side swallows its own 15s
+   timeout so the loser can't surface as an unhandled rejection.
+6. Assert the race winner is `connected`, not `not-found`. Racing (rather than
+   asserting `toHaveCount(0)` only after `Connected` settles) is what lets the
+   test catch a *transient* flash: if the error screen renders even briefly
+   during navigation it wins the race and the test fails.
 
 ### `a genuinely-unknown server URL still shows 'Server not found'`
 

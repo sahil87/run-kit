@@ -50,13 +50,31 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
     // The URL navigates to the new server immediately.
     await expect(page).toHaveURL(new RegExp(`/${CREATED_SERVER}(?:$|[/?#])`));
 
-    // The page ends on the working server view: the connection indicator shows
-    // "Connected". The fix's core promise is that we reach this state without
-    // ever rendering the "Server not found" error screen.
-    await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(page.getByText("Server not found")).toHaveCount(0);
+    // The fix's core promise is that we reach the working server view WITHOUT
+    // ever rendering the "Server not found" error screen — not even for a frame.
+    // Asserting `toHaveCount(0)` only after "Connected" settles would miss a
+    // transient flash (the screen would have come and gone by then), so instead
+    // race the two outcomes: the first of "Connected appears" vs. "Server not
+    // found appears" to win decides the test. If the error screen flashes during
+    // navigation it wins the race and we fail; reaching "Connected" first proves
+    // no flash occurred.
+    // Each side swallows its own timeout rejection so the loser (which never
+    // appears on the happy path and times out after the winner resolves) can't
+    // surface as an unhandled rejection.
+    const connected = page
+      .locator("[aria-label='Connected']")
+      .waitFor({ state: "visible", timeout: 15_000 })
+      .then(() => "connected" as const)
+      .catch(() => "timeout" as const);
+    const notFound = page
+      .getByText("Server not found")
+      .waitFor({ state: "visible", timeout: 15_000 })
+      .then(() => "not-found" as const)
+      .catch(() => "timeout" as const);
+    const winner = await Promise.race([connected, notFound]);
+    expect(winner, "'Server not found' flashed before the server view loaded").toBe(
+      "connected",
+    );
   });
 
   test("a genuinely-unknown server URL still shows 'Server not found'", async ({

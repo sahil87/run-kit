@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260602-a1wo-prevent-exit-empty-server-death** — Prevent exit-empty tmux server death
 - **260602-mss7-fix-sidebar-group-expand** — Fix sidebar non-current group expand (mss7)
 - **260531-tmnm-test-scoped-server-enumeration** — Test-scoped server enumeration
 - **260531-rus8-bound-desktop-relay-websockets** — Bound desktop relay WebSockets

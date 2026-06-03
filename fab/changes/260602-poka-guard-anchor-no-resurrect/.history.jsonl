@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-02T23:41:31Z"}
+{"args":"fix: createAnchor must not resurrect a killed tmux server","cmd":"fab-new","event":"command","ts":"2026-06-02T23:41:31Z"}
+{"delta":"+3.7","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-06-02T23:42:40Z"}
+{"delta":"+0.0","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-06-02T23:42:45Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-02T23:43:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-02T23:43:56Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-02T23:46:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-02T23:50:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-02T23:56:35Z"}
+{"event":"review","result":"passed","ts":"2026-06-02T23:56:35Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"ship","ts":"2026-06-02T23:58:34Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-02T23:59:25Z"}

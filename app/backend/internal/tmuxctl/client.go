@@ -33,6 +33,26 @@ const (
 	maxBackoff     = 5 * time.Second
 )
 
+// serverProbeTimeout bounds the side-effect-free `list-sessions` liveness probe
+// in probeAndFirstSession. Mirrors the 2s used by internal/tmux.probeServerAlive
+// (tmux.go:1359) — long enough for a momentarily busy server, short enough that
+// a hung tmux cannot block a dial/reconnect (Constitution: Process Execution).
+const serverProbeTimeout = 2 * time.Second
+
+// Dead-server stderr fragments emitted by tmux when no server is listening on a
+// socket. tmux 3.6a uses TWO distinct forms: a server that was killed (the
+// socket file may linger) reports "no server running on <path>", while a socket
+// that never existed (or was cleaned up) reports "error connecting to <path>
+// (No such file or directory)". "failed to connect" is the older/alternate
+// phrasing. All three mean "genuinely dead → decline". These match the same text
+// internal/tmux (tmux.go:1501, ListKeys/KillServer) and internal/tmux/board.go
+// (isAbsentOption) already key off for the live-vs-dead distinction.
+const (
+	noServerRunningText = "no server running"
+	failedToConnectText = "failed to connect"
+	noSocketFileText    = "No such file or directory"
+)
+
 // dialFn opens a fresh control-mode subprocess + PTY for the given socket.
 // Returns (cmd, pty, error). Both cmd and pty must be released by the caller
 // (cmd.Wait + pty.Close) when the connection ends.
@@ -380,21 +400,42 @@ func productionDial(ctx context.Context, socket string) (*exec.Cmd, io.ReadWrite
 	return cmd, ptmx, nil
 }
 
-// resolveBootstrap ensures the `_rk-ctl` anchor floor exists on the server and
-// returns the session to attach control mode to.
+// errServerDead is the sentinel resolveBootstrap returns when the liveness
+// probe finds no tmux server listening on the socket. productionDial wraps and
+// propagates it so the reconnect FSM backs off harmlessly instead of letting
+// createAnchor's `new-session` resurrect a killed server.
+// Change: 260602-poka-guard-anchor-no-resurrect.
+var errServerDead = errors.New("tmuxctl: tmux server is not running on socket (declining to start it)")
+
+// resolveBootstrap ensures the `_rk-ctl` anchor floor exists on an ALREADY-RUNNING
+// server and returns the session to attach control mode to. It NEVER starts a
+// server: a genuinely dead socket is declined (errServerDead) so a killed server
+// stays dead.
 //
-// Two concerns are deliberately decoupled (change
+// Probe-first ordering (change 260602-poka-guard-anchor-no-resurrect): a single
+// side-effect-free `tmux -L <socket> list-sessions` runs FIRST and serves double
+// duty — it both distinguishes a dead server (exit 1, "no server running" /
+// "failed to connect") from a live one (exit 0, including the alive-but-zero-real-
+// session floor case), AND yields the first real session for the attach target.
+// Folding the probe into the existing listing keeps net tmux round-trips flat at
+// 4 (SetExitEmptyOff, this list-sessions probe+first-session, createAnchor,
+// setAnchorKeepalive). createAnchor — whose `new-session` would otherwise
+// implicitly start a dead server — is reached ONLY after the probe confirms the
+// server is already up, so it can never resurrect.
+//
+// Two concerns remain deliberately decoupled (change
 // 260602-a1wo-prevent-exit-empty-server-death):
 //
-//   - Session FLOOR (ALWAYS): the `_rk-ctl` anchor is created unconditionally,
-//     regardless of how many real sessions already exist. This is the run-kit-
-//     owned session that holds the server's session count above zero so it
-//     never collapses to zero and gets reaped by tmux. The prior implementation
-//     created the anchor ONLY when the server was empty at first connect, so a
-//     server that had real sessions at attach time got NO floor — when its last
-//     real session later closed, only relay ephemerals remained, the next relay
-//     disconnect drained it to zero, and tmux's default `exit-empty on` reaped
-//     the whole server (Constitution VI violation, recurred ≥3x).
+//   - Session FLOOR (ALWAYS, when alive): the `_rk-ctl` anchor is created
+//     unconditionally on a live server, regardless of how many real sessions
+//     already exist. This is the run-kit-owned session that holds the server's
+//     session count above zero so it never collapses to zero and gets reaped by
+//     tmux. The prior implementation created the anchor ONLY when the server was
+//     empty at first connect, so a server that had real sessions at attach time
+//     got NO floor — when its last real session later closed, only relay
+//     ephemerals remained, the next relay disconnect drained it to zero, and
+//     tmux's default `exit-empty on` reaped the whole server (Constitution VI
+//     violation, recurred ≥3x).
 //   - Attach TARGET (conditional): we still prefer to attach the control client
 //     to the first existing real session when one is present, else the anchor.
 //     `%session-window-changed` is global on tmux 3.6a, so attaching to the
@@ -406,8 +447,20 @@ func productionDial(ctx context.Context, socket string) (*exec.Cmd, io.ReadWrite
 // isDuplicateSessionError treats as benign (multi-process race; no cross-process
 // state per Constitution II).
 func resolveBootstrap(ctx context.Context, socket string) (string, error) {
-	// Always ensure the anchor floor exists. Errors are tolerated only if they
-	// look like "session already exists" (concurrent rk created it first).
+	// Probe FIRST. A dead server is declined before createAnchor runs, so the
+	// anchor's `new-session` can never resurrect a killed server. A live server
+	// (including the alive-but-zero-real-session floor case) passes the probe and
+	// yields the first real session in the same listing.
+	alive, first, err := probeAndFirstSession(ctx, socket)
+	if err != nil {
+		return "", err
+	}
+	if !alive {
+		return "", errServerDead
+	}
+
+	// Server is alive — ensure the anchor floor exists. Errors are tolerated only
+	// if they look like "session already exists" (concurrent rk created it first).
 	if err := createAnchor(ctx, socket); err != nil && !isDuplicateSessionError(err) {
 		return "", fmt.Errorf("create anchor: %w", err)
 	}
@@ -418,42 +471,100 @@ func resolveBootstrap(ctx context.Context, socket string) (string, error) {
 	}
 
 	// Attach target: prefer an existing real session; else the anchor.
-	if first, err := firstSessionName(ctx, socket); err == nil && first != "" {
+	if first != "" {
 		return first, nil
 	}
-
 	return tmux.ControlAnchorSessionName, nil
 }
 
-// firstSessionName returns the first real (user-facing) session on the server,
-// or "" when none exists. The `_rk-ctl` anchor is skipped: now that
-// resolveBootstrap creates the anchor floor BEFORE selecting the attach target,
-// the anchor is always present in the listing and — because `_rk-ctl` sorts
-// ahead of a lowercase real session name like `runkit` — would otherwise be
-// picked as the attach target, regressing the "prefer a real session" contract
-// (R2). Skipping it makes the selection robust to listing order. (The relay
-// ephemerals `rk-relay-*` are NOT skipped here: they are valid attach targets
-// — they share their real session's window membership — and the historical
-// behavior already allowed attaching to one.)
-func firstSessionName(ctx context.Context, socket string) (string, error) {
+// probeAndFirstSession runs a single side-effect-free `tmux -L <socket>
+// list-sessions` that serves as BOTH the server-liveness probe and the
+// first-real-session selector. It mirrors the `internal/tmux.probeServerAlive`
+// pattern (tmux.go:1359) locally rather than calling cross-package: tmuxctl is
+// the sanctioned self-contained bypass of the internal/tmux/ boundary (see
+// doc.go) and the listing already lived here, so folding the dead-vs-empty
+// distinction in keeps the package self-contained and the round-trip count flat.
+// Change: 260602-poka-guard-anchor-no-resurrect.
+//
+// Returns:
+//   - alive=false when the server is genuinely dead (exit 1 with "no server
+//     running" / "failed to connect"); in that case resolveBootstrap declines.
+//   - alive=true on exit 0 — INCLUDING empty output (a live server with zero
+//     real sessions, the Constitution VI exit-empty floor case): the anchor is
+//     still created and `_rk-ctl` is returned as the attach target.
+//   - first = the first real (user-facing) session name, or "" when none.
+//
+// The `_rk-ctl` anchor is skipped when picking `first`: it may already be present
+// in the listing and — because `_rk-ctl` sorts ahead of a lowercase real session
+// name like `runkit` — would otherwise be picked, regressing the "prefer a real
+// session" contract (R2). (The relay ephemerals `rk-relay-*` are NOT skipped:
+// they are valid attach targets — they share their real session's window
+// membership.) Any non-dead error (timeout, unexpected failure) is returned so
+// the caller surfaces it rather than silently treating the server as dead.
+func probeAndFirstSession(ctx context.Context, socket string) (alive bool, first string, err error) {
 	args := []string{}
 	if socket != "default" && socket != "" {
 		args = append(args, "-L", socket)
 	}
 	args = append(args, "list-sessions", "-F", "#{session_name}")
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, serverProbeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, "tmux", args...).Output()
-	if err != nil {
-		return "", err
+	cmd := exec.CommandContext(cctx, "tmux", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, runErr := cmd.Output()
+	if runErr != nil {
+		// A dead server is a clean, expected outcome — not an error to surface.
+		if isServerDeadError(runErr, stderr.String()) {
+			return false, "", nil
+		}
+		// Anything else (timeout, PTY/exec failure) propagates so the caller can
+		// decide; we do NOT misclassify it as a dead server.
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return false, "", fmt.Errorf("%w: %s", runErr, msg)
+		}
+		return false, "", runErr
 	}
 	for _, line := range strings.Split(string(out), "\n") {
 		if line == "" || line == tmux.ControlAnchorSessionName {
 			continue
 		}
-		return line, nil
+		return true, line, nil
 	}
-	return "", nil
+	// Exit 0 with no real sessions: alive (anchor-only / zero-session floor).
+	return true, "", nil
+}
+
+// isServerDeadError reports whether a failed `tmux list-sessions` means the
+// server is genuinely dead (vs. some other failure). It matches the same
+// "no server running" / "failed to connect" stderr that internal/tmux and
+// internal/tmux/board.go (isAbsentOption) already key off, checking both the
+// captured stderr and the error string so it works regardless of which carries
+// the text. Change: 260602-poka-guard-anchor-no-resurrect.
+func isServerDeadError(err error, stderr string) bool {
+	if err == nil {
+		return false
+	}
+	if matchesServerDeadText(stderr) || matchesServerDeadText(err.Error()) {
+		return true
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return matchesServerDeadText(string(ee.Stderr))
+	}
+	return false
+}
+
+// matchesServerDeadText reports whether a tmux stderr/error fragment names one
+// of the genuinely-dead-server states (server killed, never existed, or
+// unreachable). Mirrors the structure of matchesDuplicateText.
+func matchesServerDeadText(s string) bool {
+	if s == "" {
+		return false
+	}
+	return strings.Contains(s, noServerRunningText) ||
+		strings.Contains(s, failedToConnectText) ||
+		strings.Contains(s, noSocketFileText)
 }
 
 func createAnchor(ctx context.Context, socket string) error {

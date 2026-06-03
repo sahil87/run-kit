@@ -1,0 +1,51 @@
+id: poka
+name: 260602-poka-guard-anchor-no-resurrect
+created: 2026-06-02T23:41:31Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 7
+    confident: 1
+    tentative: 1
+    unresolved: 0
+    score: 3.7
+    fuzzy: true
+    dimensions:
+        signal: 85.6
+        reversibility: 70.6
+        competence: 87.2
+        disambiguation: 84.4
+stage_metrics:
+    intake: {started_at: "2026-06-02T23:41:31Z", driver: fab-new, iterations: 1, completed_at: "2026-06-02T23:43:56Z"}
+    apply: {started_at: "2026-06-02T23:43:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T23:50:58Z"}
+    review: {started_at: "2026-06-02T23:50:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T23:56:35Z"}
+    hydrate: {started_at: "2026-06-02T23:56:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-02T23:58:34Z"}
+    ship: {started_at: "2026-06-02T23:58:34Z", driver: fab-continue, iterations: 1, completed_at: "2026-06-03T00:00:58Z"}
+    review-pr: {started_at: "2026-06-03T00:00:58Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/234
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-02T23:58:34Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-03T00:00:58Z

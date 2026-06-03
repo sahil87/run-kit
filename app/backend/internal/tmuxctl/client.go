@@ -415,8 +415,9 @@ var errServerDead = errors.New("tmuxctl: tmux server is not running on socket (d
 // Probe-first ordering (change 260602-poka-guard-anchor-no-resurrect): a single
 // side-effect-free `tmux -L <socket> list-sessions` runs FIRST and serves double
 // duty — it both distinguishes a dead server (exit 1, "no server running" /
-// "failed to connect") from a live one (exit 0, including the alive-but-zero-real-
-// session floor case), AND yields the first real session for the attach target.
+// "failed to connect" / "No such file or directory") from a live one (exit 0,
+// including the alive-but-zero-real-session floor case), AND yields the first
+// real session for the attach target.
 // Folding the probe into the existing listing keeps net tmux round-trips flat at
 // 4 (SetExitEmptyOff, this list-sessions probe+first-session, createAnchor,
 // setAnchorKeepalive). createAnchor — whose `new-session` would otherwise

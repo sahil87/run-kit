@@ -39,20 +39,6 @@ const (
 // a hung tmux cannot block a dial/reconnect (Constitution: Process Execution).
 const serverProbeTimeout = 2 * time.Second
 
-// Dead-server stderr fragments emitted by tmux when no server is listening on a
-// socket. tmux 3.6a uses TWO distinct forms: a server that was killed (the
-// socket file may linger) reports "no server running on <path>", while a socket
-// that never existed (or was cleaned up) reports "error connecting to <path>
-// (No such file or directory)". "failed to connect" is the older/alternate
-// phrasing. All three mean "genuinely dead → decline". These match the same text
-// internal/tmux (tmux.go:1501, ListKeys/KillServer) and internal/tmux/board.go
-// (isAbsentOption) already key off for the live-vs-dead distinction.
-const (
-	noServerRunningText = "no server running"
-	failedToConnectText = "failed to connect"
-	noSocketFileText    = "No such file or directory"
-)
-
 // dialFn opens a fresh control-mode subprocess + PTY for the given socket.
 // Returns (cmd, pty, error). Both cmd and pty must be released by the caller
 // (cmd.Wait + pty.Close) when the connection ends.
@@ -558,14 +544,15 @@ func isServerDeadError(err error, stderr string) bool {
 
 // matchesServerDeadText reports whether a tmux stderr/error fragment names one
 // of the genuinely-dead-server states (server killed, never existed, or
-// unreachable). Mirrors the structure of matchesDuplicateText.
+// unreachable). It delegates to tmux.IsServerGone so the dead-server sentinel
+// set is defined in exactly one place (Constitution III) — see
+// internal/tmux/tmux.go. The caller holds a string here, so it is wrapped in an
+// error for the shared helper.
 func matchesServerDeadText(s string) bool {
 	if s == "" {
 		return false
 	}
-	return strings.Contains(s, noServerRunningText) ||
-		strings.Contains(s, failedToConnectText) ||
-		strings.Contains(s, noSocketFileText)
+	return tmux.IsServerGone(errors.New(s))
 }
 
 func createAnchor(ctx context.Context, socket string) error {

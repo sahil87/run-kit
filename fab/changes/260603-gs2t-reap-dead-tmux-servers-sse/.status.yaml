@@ -1,0 +1,51 @@
+id: gs2t
+name: 260603-gs2t-reap-dead-tmux-servers-sse
+created: 2026-06-03T04:51:56Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    fuzzy: true
+    dimensions:
+        signal: 90.9
+        reversibility: 81.4
+        competence: 86.6
+        disambiguation: 89.0
+stage_metrics:
+    intake: {started_at: "2026-06-03T04:51:56Z", driver: fab-new, iterations: 1, completed_at: "2026-06-03T04:55:18Z"}
+    apply: {started_at: "2026-06-03T04:55:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T05:04:01Z"}
+    review: {started_at: "2026-06-03T05:04:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T05:11:44Z"}
+    hydrate: {started_at: "2026-06-03T05:11:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T05:15:16Z"}
+    ship: {started_at: "2026-06-03T05:15:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T05:18:31Z"}
+    review-pr: {started_at: "2026-06-03T05:18:31Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/235
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-03T05:15:16Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-03T05:18:31Z

@@ -162,6 +162,61 @@ describe("SessionProvider — multi-server EventSource pool", () => {
     expect(result.current.isConnectedByServer.get("work") ?? false).toBe(false);
   });
 
+  it("handles server-gone: closes the ES, clears the slice, and re-queries listServers", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // Seed a slice so we can observe it being cleared.
+    act(() => {
+      MockEventSource.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
+    });
+    expect(result.current.sessionsByServer.has("runkit")).toBe(true);
+
+    const es = MockEventSource.forServer("runkit")!;
+    const callsBefore = vi.mocked(listServers).mock.calls.length;
+
+    // Backend reaped the server — emit server-gone on its stream.
+    await act(async () => {
+      es.emit("server-gone", {});
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(es.closed).toBe(true);
+    expect(result.current.sessionsByServer.has("runkit")).toBe(false);
+    expect(result.current.isConnectedByServer.has("runkit")).toBe(false);
+    // refreshServers() → listServers re-queried after the event.
+    expect(vi.mocked(listServers).mock.calls.length).toBeGreaterThan(callsBefore);
+  });
+
+  it("onerror → markDisconnected timer triggers refreshServers as a fallback", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+      setMockMatches([{ params: { server: "runkit" } }]);
+      const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+      const es = MockEventSource.forServer("runkit")!;
+      const callsBefore = vi.mocked(listServers).mock.calls.length;
+
+      // Trigger onerror — arms the 3s disconnect timer.
+      act(() => { es.onerror?.(); });
+      // Before the timer elapses, no extra fetch and still connected-by-default.
+      expect(vi.mocked(listServers).mock.calls.length).toBe(callsBefore);
+
+      // Advance past the 3s timer — markDisconnected fires.
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+
+      expect(result.current.isConnectedByServer.get("runkit")).toBe(false);
+      expect(vi.mocked(listServers).mock.calls.length).toBeGreaterThan(callsBefore);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("closes the EventSource and clears keyed entries when a server disappears from /api/servers", async () => {
     vi.mocked(listServers).mockResolvedValueOnce([{ name: "runkit", sessionCount: 0 }, { name: "work", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);

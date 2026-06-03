@@ -1489,6 +1489,45 @@ func SetExitEmptyOff(ctx context.Context, server string) error {
 	return err
 }
 
+// serverGoneText holds the tmux stderr fragments that mean the server's socket
+// is gone — killed, never started, or otherwise unreachable. tmux uses several
+// phrasings: a killed server reports "no server running on <path>", a socket
+// that never existed reports "error connecting to <path> (No such file or
+// directory)", and "failed to connect" is the older/alternate phrasing. This is
+// the single definition of the bare dead-server sentinel set shared with the
+// tmuxctl layer (Constitution III): tmuxctl.matchesServerDeadText delegates here
+// via IsServerGone. Note: other tmux-package sites (e.g. ListKeys, KillServer,
+// board enumeration) intentionally pair these phrasings with "invalid option"/
+// "unknown option" for a distinct "absent-option-OR-dead" check and are out of
+// scope here.
+var serverGoneText = []string{
+	"no server running",
+	"failed to connect",
+	"No such file or directory",
+}
+
+// IsServerGone reports whether err indicates the tmux server's socket is gone —
+// killed, never started, or otherwise unreachable. Matches tmux's stderr for a
+// missing/dead socket across the known phrasings. A nil error returns false.
+func IsServerGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	return containsServerGoneText(err.Error())
+}
+
+// containsServerGoneText reports whether s contains any dead-server sentinel
+// substring. Accepts a raw string so callers holding stderr/error text (not an
+// error value) can share the same sentinel set.
+func containsServerGoneText(s string) bool {
+	for _, frag := range serverGoneText {
+		if strings.Contains(s, frag) {
+			return true
+		}
+	}
+	return false
+}
+
 // ListKeys runs "tmux list-keys" on the given server and returns the raw output lines.
 // Returns nil (no error) if the server is not running.
 func ListKeys(server string) ([]string, error) {

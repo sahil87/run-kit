@@ -387,8 +387,12 @@ func (h *sseHub) poll() {
 		}
 		h.mu.RUnlock()
 
-		// Poll each server and broadcast to its clients
+		// Poll each server and broadcast to its clients. deadServers collects
+		// servers whose tmux socket is gone (tmux.IsServerGone) so they can be
+		// reaped from the poll set AFTER the loop — never mid-range over the
+		// snapshot, and never under the write lock while FetchSessions runs.
 		dataChanged := false
+		var deadServers []string
 		for _, server := range servers {
 			// Check session fetch cache (500ms TTL). If the prior
 			// waitForNext call observed a control-mode notification
@@ -405,7 +409,16 @@ func (h *sseHub) poll() {
 				var err error
 				result, err = h.fetcher.FetchSessions(context.Background(), server)
 				if err != nil {
-					slog.Warn("SSE poll error", "err", err, "server", server)
+					if tmux.IsServerGone(err) {
+						// The tmux socket is gone — killed, never started, or
+						// unreachable. Reap it from the poll set instead of
+						// re-polling the corpse every tick (the WARN drumbeat).
+						// Collected here; reaped after the loop (see below).
+						slog.Info("SSE: tmux server gone, reaping from poll set", "server", server)
+						deadServers = append(deadServers, server)
+					} else {
+						slog.Warn("SSE poll error", "err", err, "server", server)
+					}
 					continue
 				}
 				h.cache[server] = &cachedResult{data: result, fetchedAt: time.Now()}
@@ -504,6 +517,38 @@ func (h *sseHub) poll() {
 			}
 			h.mu.Lock()
 			h.previousRealSessions[server] = currentReal
+			h.mu.Unlock()
+		}
+
+		// Reap dead servers collected during the loop. A dead socket has no
+		// reason to stay in the poll set ("no socket = no polling") — a
+		// reconnecting client re-registers it naturally via addClient (which
+		// re-spawns this goroutine when !h.polling). Emit a one-time
+		// server-gone event to each dead server's registered clients so the
+		// frontend can react immediately, then delete the server from h.clients
+		// and ALL per-server maps so no stale state leaks into a future
+		// re-registration. All mutation happens here, under a single write
+		// lock, AFTER the snapshot iteration above (never mid-range, never
+		// across FetchSessions).
+		if len(deadServers) > 0 {
+			h.mu.Lock()
+			goneEvent := []byte("event: server-gone\ndata: {}\n\n")
+			for _, server := range deadServers {
+				for _, c := range h.clients[server] {
+					select {
+					case c.ch <- goneEvent:
+					default:
+					}
+				}
+				delete(h.clients, server)
+				delete(h.cache, server)
+				delete(h.previousJSON, server)
+				delete(h.previousRealSessions, server)
+				delete(h.orderBootstrapAttempts, server)
+				delete(h.previousOrderJSON, server)
+				delete(perServerGen, server)
+				delete(eventDrivenServers, server)
+			}
 			h.mu.Unlock()
 		}
 

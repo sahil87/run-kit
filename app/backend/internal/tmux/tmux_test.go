@@ -1372,3 +1372,25 @@ func TestSetExitEmptyOff(t *testing.T) {
 		t.Fatalf("SetExitEmptyOff (second call): %v", err)
 	}
 }
+
+func TestIsServerGone(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil error", err: nil, want: false},
+		{name: "no server running", err: errors.New("exit status 1: no server running on /tmp/tmux-1001/utils"), want: true},
+		{name: "failed to connect", err: errors.New("exit status 1: failed to connect to server"), want: true},
+		{name: "No such file or directory", err: errors.New("exit status 1: error connecting to /tmp/tmux-1001/utils (No such file or directory)"), want: true},
+		{name: "non-matching error", err: errors.New("exit status 1: some other tmux failure"), want: false},
+		{name: "empty error message", err: errors.New(""), want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsServerGone(tc.err); got != tc.want {
+				t.Errorf("IsServerGone(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}

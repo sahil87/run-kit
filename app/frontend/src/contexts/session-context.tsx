@@ -277,6 +277,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
       const markDisconnected = () => {
         updateSlice(name, { isConnected: false }, true);
+        // Fallback for a catastrophic socket death the backend couldn't signal
+        // with a `server-gone` event (e.g. the daemon itself is mid-restart):
+        // re-query /api/servers so a genuinely-gone server drops out of the
+        // list and `resolveServerView` flips to the not-found view. Idempotent
+        // — if the server is still alive it simply reappears in the list.
+        fetchServers();
       };
 
       es.addEventListener("sessions", (e: MessageEvent) => {
@@ -341,6 +347,24 @@ export function SessionProvider({ children }: SessionProviderProps) {
         }
       });
 
+      // server-gone — the backend reaped this server from its poll set because
+      // its tmux socket is gone. Tear down the stream exactly like the pool-diff
+      // cleanup below (clear timer, close ES, drop pool + slice), then re-query
+      // /api/servers so the now-absent server drops from the list and
+      // `resolveServerView` flips a viewer to the existing not-found view.
+      es.addEventListener("server-gone", () => {
+        if (entry.disconnectTimer) clearTimeout(entry.disconnectTimer);
+        entry.es.close();
+        pool.delete(name);
+        setSlicesByServer((prev) => {
+          if (!prev.has(name)) return prev;
+          const next = new Map(prev);
+          next.delete(name);
+          return next;
+        });
+        fetchServers();
+      });
+
       es.onerror = () => {
         if (!entry.disconnectTimer) {
           entry.disconnectTimer = setTimeout(markDisconnected, 3000);
@@ -372,7 +396,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // cycles in Strict Mode dev. Real cleanup happens implicitly when the
     // window unloads. The pool dedupes via `pool.has(name)` so re-runs are
     // safe without close-then-reopen.
-  }, [attachedSet, updateSlice]);
+  }, [attachedSet, updateSlice, fetchServers]);
 
   // Derive per-field Maps from the slice Map. Memoized so unrelated re-renders
   // don't churn consumer references. Each Map is a fresh reference whenever

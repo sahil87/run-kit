@@ -94,6 +94,89 @@ func TestSSEInitialSnapshot(t *testing.T) {
 	}
 }
 
+// goneSessionFetcher returns a tmux.IsServerGone-matching error so the poll
+// loop reaps the server. result is returned for any server not in goneServers.
+type goneSessionFetcher struct {
+	mu          sync.Mutex
+	goneServers map[string]bool
+	result      []sessions.ProjectSession
+}
+
+func (f *goneSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.goneServers[server] {
+		return nil, fmt.Errorf("exit status 1: error connecting to /tmp/tmux-1001/%s (No such file or directory)", server)
+	}
+	return f.result, nil
+}
+
+func TestSSEHubReapsDeadServer(t *testing.T) {
+	sf := &goneSessionFetcher{goneServers: map[string]bool{"dead": true}}
+	hub := newSSEHub(sf, nil)
+	// Short safety interval so the poll loop cycles quickly for the test.
+	hub.safetyInterval = 50 * time.Millisecond
+
+	client := &sseClient{ch: make(chan []byte, 8), server: "dead"}
+	hub.addClient(client) // starts the poll goroutine
+
+	// The poll loop's first tick fetches "dead", gets an IsServerGone error,
+	// reaps it, and emits server-gone to the registered client.
+	gotGone := false
+	deadline := time.After(2 * time.Second)
+	for !gotGone {
+		select {
+		case ev := <-client.ch:
+			if strings.HasPrefix(string(ev), "event: server-gone") {
+				gotGone = true
+			}
+		case <-deadline:
+			t.Fatal("client did not receive server-gone event")
+		}
+	}
+
+	// After reaping its last client, the server must be gone from h.clients
+	// and the poll goroutine must stop (it observes zero clients).
+	stoppedPolling := false
+	for i := 0; i < 40; i++ {
+		hub.mu.RLock()
+		_, present := hub.clients["dead"]
+		polling := hub.polling
+		hub.mu.RUnlock()
+		if !present && !polling {
+			stoppedPolling = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !stoppedPolling {
+		hub.mu.RLock()
+		_, present := hub.clients["dead"]
+		polling := hub.polling
+		hub.mu.RUnlock()
+		t.Fatalf("server not reaped / poll not stopped: present=%v polling=%v", present, polling)
+	}
+
+	// All per-server maps must be cleared for the reaped server.
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	if _, ok := hub.cache["dead"]; ok {
+		t.Error("cache not cleared for reaped server")
+	}
+	if _, ok := hub.previousJSON["dead"]; ok {
+		t.Error("previousJSON not cleared for reaped server")
+	}
+	if _, ok := hub.previousRealSessions["dead"]; ok {
+		t.Error("previousRealSessions not cleared for reaped server")
+	}
+	if _, ok := hub.orderBootstrapAttempts["dead"]; ok {
+		t.Error("orderBootstrapAttempts not cleared for reaped server")
+	}
+	if _, ok := hub.previousOrderJSON["dead"]; ok {
+		t.Error("previousOrderJSON not cleared for reaped server")
+	}
+}
+
 func TestSSEHubDeduplication(t *testing.T) {
 	sf := &slowSessionFetcher{
 		result: []sessions.ProjectSession{

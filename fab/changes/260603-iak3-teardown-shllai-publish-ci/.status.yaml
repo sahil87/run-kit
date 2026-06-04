@@ -1,0 +1,51 @@
+id: iak3
+name: 260603-iak3-teardown-shllai-publish-ci
+created: 2026-06-03T07:50:30Z
+created_by: sahil-noon
+change_type: ci
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 8
+    acceptance_completed: 8
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    fuzzy: true
+    dimensions:
+        signal: 88.9
+        reversibility: 81.0
+        competence: 88.8
+        disambiguation: 88.9
+stage_metrics:
+    intake: {started_at: "2026-06-03T07:50:30Z", driver: fab-new, iterations: 1, completed_at: "2026-06-03T15:05:47Z"}
+    apply: {started_at: "2026-06-03T15:05:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T15:10:12Z"}
+    review: {started_at: "2026-06-03T15:10:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T15:12:53Z"}
+    hydrate: {started_at: "2026-06-03T15:12:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T15:15:22Z"}
+    ship: {started_at: "2026-06-03T15:15:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T15:17:48Z"}
+    review-pr: {started_at: "2026-06-03T15:17:48Z", driver: git-pr, iterations: 1, completed_at: "2026-06-03T15:19:28Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/236
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-03T15:15:22Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-04T10:05:20Z

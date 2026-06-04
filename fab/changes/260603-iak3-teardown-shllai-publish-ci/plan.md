@@ -113,5 +113,3 @@ The hidden Cobra subcommand `help-dump` (`app/backend/cmd/rk/help_dump.go`) and 
 | 6 | Confident | `docs/memory/run-kit/architecture.md` reconciliation is deferred to hydrate, not done at apply | Memory hydration is a hydrate-stage activity per the fab pipeline; apply touches code/CI only (per intake Affected Memory + task directive) | S:85 R:88 A:88 D:85 |
 
 6 assumptions (4 certain, 2 confident, 0 tentative).
-</content>
-</invoke>

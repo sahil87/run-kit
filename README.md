@@ -1,4 +1,4 @@
-# <img src="assets/logo.svg" alt="run-kit logo" width="32" height="32"> run-kit
+# <img src="https://raw.githubusercontent.com/sahil87/run-kit/main/assets/logo.svg" alt="run-kit logo" width="32" height="32"> run-kit
 
 > Part of [@sahil87's open source toolkit](https://shll.ai) — see all projects there.
 
@@ -83,7 +83,7 @@ rk riff -- --worktree-name pacing-canyon             # name the worktree
 
 **Prerequisites:** must be inside a tmux session, [`wt`](https://github.com/sahil87/wt) on `PATH`, and the launcher (default `claude --dangerously-skip-permissions`) available. Override the launcher per-project via `agent.spawn_command` in `fab/project/config.yaml`.
 
-See the [riff guide](docs/wiki/riff.md) for the full reference.
+See the [riff guide](docs/site/workflows.md) for the full reference.
 
 ## `rk serve` — the dashboard daemon
 
@@ -126,7 +126,7 @@ Some browser features (clipboard, secure context) require HTTPS. Accessing rk fr
 2. Run `tailscale serve --bg http://localhost:3000`.
 3. Open `https://<machine>.<tailnet>.ts.net` on your phone or another laptop.
 
-For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/wiki/tailscale.md).
+For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/site/install.md).
 
 ## Shell completion
 
@@ -166,13 +166,3 @@ Run `rk <command> --help` for full flag details.
 ## Architecture
 
 rk's daemon runs in a dedicated tmux server (`rk-daemon`), separate from agent sessions (`runkit`). Restarts use kill-and-restart (no polling loop or signal files), are idempotent (`--restart` works whether or not a daemon is running), and never touch agent tmux sessions — agents survive daemon restarts unaffected.
-
-## Contributing
-
-Run `just doctor` to check development prerequisites (Node 20+, pnpm, tmux, just, Go 1.22+, air, direnv), then:
-
-```bash
-just setup
-just dev       # watch mode (Go backend + Vite dev server)
-just prod      # run from built binary
-```

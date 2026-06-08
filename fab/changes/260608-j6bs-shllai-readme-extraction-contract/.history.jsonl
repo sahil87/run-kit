@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-08T09:58:30Z"}
+{"args":"Conform repo to shll.ai README-extraction contract: restructure README.md (Part 1 — head order, tail denylist, absolute images, no site-escaping relative links) and add docs/site/** tree (Part 2 — install.md + workflows.md) following the per-tool table row for run-kit (slug run-kit, reserved overview/readme/commands).","cmd":"fab-new","event":"command","ts":"2026-06-08T09:58:30Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-06-08T09:58:40Z"}
+{"delta":"+3.8","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-06-08T09:59:26Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-06-08T09:59:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-08T10:00:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-08T10:04:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-08T10:07:35Z"}
+{"event":"review","result":"passed","ts":"2026-06-08T10:07:35Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-08T10:08:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-08T10:09:00Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-08T10:10:52Z"}

@@ -55,6 +55,8 @@ The new workspace appears in the dashboard's sidebar; click into it to drive the
 
 To upgrade later, run `rk update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
 
+See the [install & access guide](docs/site/install.md) for prerequisites, `rk doctor`, development setup, and driving rk from your phone over Tailscale HTTPS.
+
 ## `rk riff` — the spawner
 
 The headline command. One invocation gives you a git worktree, a tmux window inside it, and one or more Claude Code panes ready to go.
@@ -155,7 +157,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — rk has no 
 | `rk completion` | Generate shell completion scripts (or use `rk shell-init` for eval-safe output). |
 | `rk help` | Help about any command. |
 
-Run `rk <command> --help` for full flag details.
+Run `rk <command> --help` for full flag details, or see the [full command reference](https://shll.ai/tools/run-kit/commands/) for every command and flag.
 
 ## Troubleshooting
 

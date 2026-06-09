@@ -1183,6 +1183,12 @@ func TestResolveWindowSession_notFound(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ResolveWindowSession(@999999) = %q, want non-nil error", got)
 	}
+	// Assert the contract message, not just any error — guards against a raw
+	// tmux stderr/exit-status error leaking through instead of the documented
+	// `window %q not found` contract the relay (code 4004) depends on.
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("ResolveWindowSession(@999999) error = %q, want it to contain \"not found\"", err)
+	}
 }
 
 func TestKillSessionCtx_killsSession(t *testing.T) {

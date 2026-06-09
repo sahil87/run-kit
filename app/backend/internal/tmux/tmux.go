@@ -899,30 +899,25 @@ func KillSessionCtx(ctx context.Context, server, session string) error {
 // ResolveWindowSession returns the name of the session that owns the window
 // identified by windowID on the given server — either a normal home session or
 // a board pin-session (`_rk-pin-*`). Since a window lives in exactly ONE session
-// (the move-based model removes window sharing), the first match is
-// authoritative. Returns an error when the window ID does not exist in any
-// session — callers (e.g. the relay) treat that as "window not found".
+// (the move-based model removes window sharing), a targeted
+// `display-message -t <windowID> -p "#{session_name}"` resolves the window's
+// single owning session in O(1) — no enumeration. Returns an error when the
+// window ID does not exist (tmux exits non-zero for a missing `-t @N`, and an
+// empty session result is also treated as not-found) — callers (e.g. the relay)
+// treat that as "window not found".
 func ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
-	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", "#{session_name}"+listDelim+"#{window_id}")
+	lines, err := tmuxExecServer(ctx, server, "display-message", "-t", windowID, "-p", "#{session_name}")
 	if err != nil {
 		return "", err
 	}
-	for _, line := range lines {
-		parts := strings.SplitN(line, listDelim, 2)
-		if len(parts) != 2 {
-			continue
-		}
-		session := strings.TrimSpace(parts[0])
-		id := strings.TrimSpace(parts[1])
-		if id != windowID {
-			continue
-		}
-		if session == "" {
-			continue
-		}
-		return session, nil
+	if len(lines) == 0 {
+		return "", fmt.Errorf("window %q not found", windowID)
 	}
-	return "", fmt.Errorf("window %q not found", windowID)
+	session := strings.TrimSpace(lines[0])
+	if session == "" {
+		return "", fmt.Errorf("window %q not found", windowID)
+	}
+	return session, nil
 }
 
 // resolveWindowSessionIndex resolves both the owning session name and the current

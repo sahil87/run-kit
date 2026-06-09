@@ -1171,6 +1171,20 @@ func TestResolveWindowSession_findsOwningSession(t *testing.T) {
 	}
 }
 
+// ResolveWindowSession returns an error when the window ID does not exist on the
+// server. The relay relies on this not-found contract to close the socket with
+// code 4004 "Window not found".
+func TestResolveWindowSession_notFound(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := ResolveWindowSession(ctx, server, "@999999")
+	if err == nil {
+		t.Fatalf("ResolveWindowSession(@999999) = %q, want non-nil error", got)
+	}
+}
+
 func TestKillSessionCtx_killsSession(t *testing.T) {
 	server, _ := withRealSessionTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

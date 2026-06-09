@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-09T17:37:44Z"}
+{"args":"restore O(1) display-message lookup in ResolveWindowSession (relay-connect latency regression)","cmd":"fab-new","event":"command","ts":"2026-06-09T17:37:44Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-06-09T17:37:48Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-09T17:39:04Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-09T17:39:08Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-09T17:40:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-09T17:40:06Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-09T17:40:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-09T17:44:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-09T17:47:10Z"}
+{"event":"review","result":"passed","ts":"2026-06-09T17:47:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-09T17:51:17Z"}

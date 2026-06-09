@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo, useReducer } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
@@ -22,6 +22,17 @@ import { ServerPanel } from "./server-panel";
 import { SessionRow } from "./session-row";
 import { WindowPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
+
+/** Shallow element-wise compare of two flat string arrays (same length, same
+ *  elements in order). Used to detect when an SSE-delivered session order has
+ *  caught up to a transient drag override so the override can be dropped. */
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
 
 export type SidebarProps = {
   /** Identifies the "active" server for visual treatment + default expanded
@@ -209,34 +220,25 @@ export function Sidebar({
   const [sessionDropTarget, setSessionDropTarget] = useState<{ server: string; session: string } | null>(null);
 
   // Session reorder per server. The persisted order arrives via SSE
-  // (`sessionOrderByServer`). During an active drag we render `localOrder`
-  // for snappy visual feedback and ignore incoming SSE events for that
-  // server until dragend.
+  // (`sessionOrderByServer`). The displayed order is DERIVED at render time:
+  // `override ?? sseOrder`. The transient drag override lives in a ref (not
+  // state) keyed by server — it is consumed synchronously at render, so
+  // writing it never needs to trigger a render on its own. We keep it out of
+  // state to avoid a reconciling effect that re-runs on every SSE slice tick.
   const [sessionDragSource, setSessionDragSource] = useState<{ server: string; name: string } | null>(null);
-  const [localOrderByServer, setLocalOrderByServer] = useState<Record<string, string[] | null>>({});
+  const orderOverrideRef = useRef<Record<string, string[]>>({});
   const orderPutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const SESSION_ORDER_DEBOUNCE_MS = 250;
 
+  // Minimal render nudge. Refs do not trigger re-renders, so when we set or
+  // clear `orderOverrideRef` we bump this counter to re-render reading the
+  // updated override (or the now-authoritative SSE order after a clear). This
+  // replaces the removed whole-Map watcher effect — the override lifecycle is
+  // driven by drag events plus a per-server SSE-order equality check at render.
+  const [, forceRender] = useReducer((x: number) => x + 1, 0);
+
   const sessionDragSourceRef = useRef<typeof sessionDragSource>(null);
   sessionDragSourceRef.current = sessionDragSource;
-
-  // Drop the local override for any server NOT mid-drag whenever SSE-delivered
-  // order changes. Keep localOrder in place for the active drag's server.
-  useEffect(() => {
-    setLocalOrderByServer((prev) => {
-      if (sessionDragSourceRef.current === null) {
-        // No active drag — flush all overrides.
-        if (Object.keys(prev).length === 0) return prev;
-        return {};
-      }
-      const activeServer = sessionDragSourceRef.current.server;
-      const next: Record<string, string[] | null> = {};
-      for (const [s, v] of Object.entries(prev)) {
-        if (s === activeServer) next[s] = v;
-      }
-      return next;
-    });
-  }, [ctx.sessionOrderByServer]);
 
   useEffect(() => {
     return () => {
@@ -646,7 +648,8 @@ export function Sidebar({
     setSessionDragSource({ server, name });
     e.dataTransfer.setData("application/x-session-reorder", `${server}:${name}`);
     e.dataTransfer.effectAllowed = "move";
-    setLocalOrderByServer((prev) => ({ ...prev, [server]: orderedNames }));
+    orderOverrideRef.current[server] = orderedNames;
+    forceRender();
   }
 
   function handleSessionReorderOver(e: React.DragEvent, server: string, targetName: string, naturalNames: string[]) {
@@ -655,27 +658,26 @@ export function Sidebar({
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
 
-    setLocalOrderByServer((prev) => {
-      const base = prev[server] ?? naturalNames;
-      const dragName = sessionDragSource.name;
-      const fromIdx = base.indexOf(dragName);
-      const toIdx = base.indexOf(targetName);
-      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev;
-      const next = [...base];
-      next.splice(fromIdx, 1);
-      next.splice(toIdx, 0, dragName);
+    const base = orderOverrideRef.current[server] ?? naturalNames;
+    const dragName = sessionDragSource.name;
+    const fromIdx = base.indexOf(dragName);
+    const toIdx = base.indexOf(targetName);
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
+    const next = [...base];
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, dragName);
 
-      if (orderPutTimerRef.current) clearTimeout(orderPutTimerRef.current);
-      const orderToPut = next.slice();
-      orderPutTimerRef.current = setTimeout(() => {
-        orderPutTimerRef.current = null;
-        setSessionOrder(server, orderToPut).catch((err) => {
-          addToast(err.message || "Failed to save session order");
-        });
-      }, SESSION_ORDER_DEBOUNCE_MS);
+    if (orderPutTimerRef.current) clearTimeout(orderPutTimerRef.current);
+    const orderToPut = next.slice();
+    orderPutTimerRef.current = setTimeout(() => {
+      orderPutTimerRef.current = null;
+      setSessionOrder(server, orderToPut).catch((err) => {
+        addToast(err.message || "Failed to save session order");
+      });
+    }, SESSION_ORDER_DEBOUNCE_MS);
 
-      return { ...prev, [server]: next };
-    });
+    orderOverrideRef.current[server] = next;
+    forceRender();
   }
 
   function handleSessionReorderEnd() {
@@ -752,7 +754,22 @@ export function Sidebar({
             if (serverPaneOpen && visibleServers.length === 0) {
               return <div className="text-text-secondary text-xs py-4 text-center">Select a server above to see its sessions.</div>;
             }
-            return visibleServers.map((srvInfo) => (
+            return visibleServers.map((srvInfo) => {
+              // Derive the displayed order per server: override ?? SSE order.
+              // Per-server SSE-echo clear (no whole-Map effect): once the SSE
+              // order for THIS server element-wise equals the stored override,
+              // the round-trip has landed — drop the override so the row reads
+              // the authoritative SSE order. Mutating the ref during render is
+              // safe (it is not state); when equal we render `null` anyway, so
+              // the displayed output is unchanged and no render nudge is needed.
+              const sseOrder = ctx.sessionOrderByServer.get(srvInfo.name) ?? [];
+              const override = orderOverrideRef.current[srvInfo.name];
+              let localOrder: string[] | null = override ?? null;
+              if (override && arraysEqual(override, sseOrder)) {
+                delete orderOverrideRef.current[srvInfo.name];
+                localOrder = null;
+              }
+              return (
               <ServerGroup
                 key={srvInfo.name}
                 server={srvInfo.name}
@@ -763,8 +780,8 @@ export function Sidebar({
                 isOpen={serverPaneOpen ? true : readServerOpen(srvInfo.name)}
                 onToggleOpen={() => toggleServerSection(srvInfo.name)}
                 rawSessions={sessionsByServer.get(srvInfo.name) ?? []}
-                sessionOrder={ctx.sessionOrderByServer.get(srvInfo.name) ?? []}
-                localOrder={localOrderByServer[srvInfo.name] ?? null}
+                sessionOrder={sseOrder}
+                localOrder={localOrder}
                 isConnected={isConnectedByServer.get(srvInfo.name) ?? false}
                 currentSessionName={srvInfo.name === currentServer ? currentSession : null}
                 currentWindowId={srvInfo.name === currentServer ? currentWindowId : null}
@@ -853,7 +870,8 @@ export function Sidebar({
                 onSessionReorderOver={handleSessionReorderOver}
                 onSessionReorderEnd={handleSessionReorderEnd}
               />
-            ));
+              );
+            });
           })()}
         </div>
       </div>

@@ -1195,7 +1195,7 @@ describe("Sidebar", () => {
       vi.useFakeTimers();
       try {
         const { setSessionOrder } = await import("@/api/client");
-        (setSessionOrder as ReturnType<typeof vi.fn>).mockClear();
+        vi.mocked(setSessionOrder).mockClear();
 
         renderSidebar({ sessionOrderByServer: { runkit: ["run-kit", "ao-server"] } });
 

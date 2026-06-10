@@ -612,6 +612,33 @@ describe("TerminalClient connection identity — (server, owning session), not w
     );
   });
 
+  it('reconnects when windowId changes while sessionName is still "" — unresolved identity falls back to windowId', async () => {
+    // Cold deep-link to @0, then navigation (browser history / typed URL)
+    // to @1 BEFORE the first SSE snapshot resolves the session. The live
+    // connection was opened for @0's owner, so it must not be reused: the
+    // relay must re-resolve @1's owner, and the later resolution must be
+    // recorded against THAT connection.
+    const { view, renderAt } = createHarness({ sessionName: "", windowId: "@0" });
+    await flushInit();
+    const ws1 = lastSocket();
+    expect(ws1.url).toContain(`/relay/${encodeURIComponent("@0")}`);
+    const instanceCount = MockWebSocket.instances.length;
+
+    view.rerender(renderAt({ sessionName: "", windowId: "@1" }));
+    await act(async () => {});
+
+    expect(ws1.close).toHaveBeenCalled();
+    expect(MockWebSocket.instances.length).toBe(instanceCount + 1);
+    const ws2 = lastSocket();
+    expect(ws2.url).toContain(`/relay/${encodeURIComponent("@1")}`);
+
+    // The eventual resolution is absorbed as usual — no further reconnect.
+    view.rerender(renderAt({ sessionName: "resolved-sess", windowId: "@1" }));
+    await act(async () => {});
+    expect(ws2.close).not.toHaveBeenCalled();
+    expect(MockWebSocket.instances.length).toBe(instanceCount + 1);
+  });
+
   it('does not reconnect when sessionName resolves from "" — and a later genuine session change does', async () => {
     // Cold deep-link: the SSE-derived sessionName prop is "" until the first
     // snapshot resolves it; the relay already resolved the owning session

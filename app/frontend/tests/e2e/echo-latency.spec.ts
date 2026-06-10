@@ -408,6 +408,22 @@ test.describe("Echo latency benchmark", () => {
       )
       .toBe(true);
 
+    // Renderer confirmation: the WebGL addon loads in a try/catch with a silent
+    // canvas fallback. A canvas fallback renders measurably slower, so the
+    // latency numbers below are only meaningful if WebGL is actually live —
+    // assert it. (If a CI runner genuinely lacks a GPU/WebGL this will fail
+    // loudly, which is the right signal: the numbers from that box are not
+    // comparable to a WebGL run and shouldn't be silently trusted.)
+    const renderer = await page.evaluate(
+      (wid) => window.__rkRenderer?.[wid],
+      windowId,
+    );
+    expect(
+      renderer,
+      `expected WebGL renderer to be active (got ${renderer}); canvas fallback ` +
+        "renders slower and would make these latency numbers non-comparable",
+    ).toBe("webgl");
+
     // Focus the terminal for keyboard input. Click the terminal area (the
     // documented tap-to-focus path) then focus the helper textarea xterm reads
     // keystrokes from — belt and suspenders so keyboard.press routes into xterm.

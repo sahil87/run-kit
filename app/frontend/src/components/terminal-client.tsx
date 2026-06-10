@@ -46,6 +46,8 @@ export const clipboardProvider = {
 declare global {
   interface Window {
     __rkTerminals?: Record<string, import("@xterm/xterm").Terminal>;
+    /** Active renderer per windowId — "webgl" until a context-loss demotes it. */
+    __rkRenderer?: Record<string, "webgl" | "canvas">;
   }
 }
 
@@ -62,6 +64,17 @@ function unregisterTestTerminal(windowId: string) {
 // Shared encoder for measuring UTF-8 byte length on the inbound flush path
 // (allocated once, not per message).
 const textEncoder = new TextEncoder();
+
+/** Record which renderer is live for `windowId` (read by the latency harness). */
+function setActiveRenderer(windowId: string, renderer: "webgl" | "canvas") {
+  if (typeof window === "undefined") return;
+  (window.__rkRenderer ??= {})[windowId] = renderer;
+}
+
+function unsetActiveRenderer(windowId: string) {
+  if (typeof window === "undefined" || !window.__rkRenderer) return;
+  delete window.__rkRenderer[windowId];
+}
 
 type TerminalClientProps = {
   sessionName: string;
@@ -247,10 +260,30 @@ export function TerminalClient({
       // GPU-accelerated rendering (silent fallback to canvas). The module is
       // statically imported (resolved at chunk load), but WebGL context
       // creation can still throw at runtime — keep the guard around it.
+      //
+      // Two robustness additions over a bare load:
+      //  1. Record the active renderer ("webgl" | "canvas") on a window hook so
+      //     the latency harness can ASSERT WebGL is live — a silent canvas
+      //     fallback renders slower, and without this we'd never know it
+      //     happened (the whole point of the latency work is to not regress
+      //     blind).
+      //  2. Handle `onContextLoss`: a WebGL context can be lost AFTER successful
+      //     creation (tab backgrounding, GPU reset, driver hiccup). When that
+      //     happens the addon stops painting and the terminal FREEZES unless we
+      //     dispose it — disposing drops xterm back to its DOM/canvas renderer,
+      //     which keeps working. Correctness, not latency.
       try {
-        terminal.loadAddon(new WebglAddon());
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => {
+          // Drop to the fallback renderer so output keeps flowing.
+          try { webgl.dispose(); } catch { /* already disposing */ }
+          setActiveRenderer(windowId, "canvas");
+        });
+        terminal.loadAddon(webgl);
+        setActiveRenderer(windowId, "webgl");
       } catch {
         // canvas renderer continues working
+        setActiveRenderer(windowId, "canvas");
       }
 
       // Keyboard input → current WebSocket (wsRef always points to latest)
@@ -325,6 +358,10 @@ export function TerminalClient({
         wsRef.current = null;
       }
       if (focusRef) focusRef.current = null;
+      // Note: __rkTerminals register/unregister moved to the dedicated
+      // windowId-keyed effect below. __rkRenderer is set at WebGL-load time in
+      // this init effect, so its cleanup stays here.
+      unsetActiveRenderer(windowId);
       xtermRef.current = null;
       fitAddonRef.current = null;
       try { terminal?.dispose(); } catch { /* WebGL addon may throw during teardown */ }

@@ -13,11 +13,15 @@ just pw test echo-latency
 
 ## Why measure to the buffer, not the WS frame
 
-`terminal-client.tsx` batches incoming WebSocket data and flushes it to xterm
-once per `requestAnimationFrame`. That coalescing delay (up to ~1 frame) is
-part of what the user actually feels. The benchmark therefore stops the clock
-at **glyph-in-`term.buffer.active`** — after the rAF flush — rather than at
-"WS message received", which would understate latency by up to a frame.
+`terminal-client.tsx` writes inbound data to xterm via an **adaptive flush**:
+small chunks arriving while idle are written synchronously (so an echo paints
+this tick), while larger chunks or bursts coalesce into one write per
+`requestAnimationFrame`. Whatever path a given chunk takes, the render cost up
+to the painted glyph is part of what the user feels. The benchmark therefore
+stops the clock at **glyph-in-`term.buffer.active`** rather than at "WS message
+received", which would understate latency by the render tail. (Measuring this
+way is what let the adaptive flush show up as a real win — full-path p50 fell
+from ~40ms to ~10ms when the unconditional rAF wait was removed for echoes.)
 
 The WebGL renderer paints to a canvas that is **not DOM-readable**, so reading
 the parsed buffer is the only honest "glyph visible" signal available to a
@@ -25,6 +29,17 @@ Playwright driver. To reach the live `Terminal` instance the harness relies on
 a test-only registry: `terminal-client.tsx` registers each terminal on
 `window.__rkTerminals` (keyed by windowId) on mount and unregisters it on
 dispose. The registry is inert unless a test reads it.
+
+**Renderer confirmation.** The WebGL addon loads in a try/catch with a silent
+canvas fallback, and a live WebGL context can also be lost at runtime (tab
+backgrounding, GPU reset). Either way the renderer would be slower — making the
+latency numbers non-comparable — without any visible signal. So
+`terminal-client.tsx` records the active renderer on `window.__rkRenderer`
+(`"webgl"` until a context-loss demotes it to `"canvas"`), and the full-path
+test asserts it is `"webgl"`. A canvas fallback now fails the run loudly instead
+of quietly skewing the measurement. (The same context-loss handler also disposes
+the dead addon so the terminal drops to canvas and keeps rendering rather than
+freezing — a correctness fix independent of the benchmark.)
 
 Detection is **count-based on the cursor row**, not a fixed cell: the harness
 snapshots how many times `ch` appears on the cursor's row before the keystroke,
@@ -130,13 +145,15 @@ input path including the rAF render flush.
 3. `page.goto(/${server}/${windowId})`; wait for `.xterm-screen` visible.
 4. Poll until `window.__rkTerminals[windowId]` exists (terminal mounted +
    opened).
-5. Click `[role='application']` and focus `.xterm-helper-textarea` so
+5. **Assert `window.__rkRenderer[windowId] === "webgl"`** — fail loudly if the
+   renderer silently fell back to canvas (slower; non-comparable numbers).
+6. Click `[role='application']` and focus `.xterm-helper-textarea` so
    `keyboard.press` routes into xterm.
-6. **Warmup**: press Enter, then repeatedly press `w` (250ms cadence, up to 15s)
+7. **Warmup**: press Enter, then repeatedly press `w` (250ms cadence, up to 15s)
    until a `w` shows on the cursor row. This confirms the full input path is
    live and absorbs the cold-backend connect delay (relay attach + tmux select +
    cat start) instead of guessing with a fixed sleep.
-7. For each of 40 trials (char alternates `x`/`o`):
+8. For each of 40 trials (char alternates `x`/`o`):
    a. Press Enter (fresh line) and settle ~30ms so the newline echo lands.
    b. `measureEcho(page, windowId, ch, ECHO_DEADLINE_MS)`:
       - Snapshot the count of `ch` on the cursor row; clear `__rkSendAt` and
@@ -147,7 +164,7 @@ input path including the rAF render flush.
         a 5s deadline or if the keystroke produced no WebSocket send.
    c. Push three rows: `{ label: "full-path" }`, `{ label: "network" }`,
       `{ label: "render" }`.
-8. Assert 40 full-path samples were collected.
+9. Assert 40 full-path samples were collected.
 
 ### `baseline tmux-only echo distribution`
 

@@ -44,6 +44,34 @@ share one clock and only the sub-ms, unbatched keydown handler is excluded.
 This mirrors the `WebSocket.prototype.send` wrap pattern in
 `mobile-touch-scroll.spec.ts`.
 
+## Attribution: splitting the tail into network vs. render
+
+A single full-path number can't tell you *where* to optimize. A second init
+script (`INSTALL_RECV_STAMP`) wraps the `WebSocket` constructor to attach a
+`message` listener that fires before the app's own `onmessage` handler and
+stamps `window.__rkRecvAt` on the FIRST inbound frame after a keystroke send
+(for single-char interactive echo nothing else is in flight, so that frame is
+the echo). Both stamps reset per trial. Each measurement then yields three
+attributable segments, all on the page clock:
+
+| Segment | Span | What it is |
+|---------|------|------------|
+| `network` | send → recv | network out + relay + tmux echo + relay + network back |
+| `render`  | recv → glyph | `requestAnimationFrame` flush + xterm parse + buffer commit |
+| `full`    | send → glyph | the full perceived path (= network + render) |
+
+The summary prints all three distributions plus a one-line attribution verdict
+naming whichever p50 dominates. On localhost, **render dominates ~3:1** (network
+~8ms, render ~25ms) — the render figure is the rAF-coalescing + parse tail and
+is the objective sub-metric the next change (adaptive flush) must drive down.
+
+> A further server-side split (relay-internal PTY-read→WS-write timestamps in
+> `relay.go`) would subdivide `network` into browser↔relay vs. relay↔tmux. It is
+> deliberately **not** added here: on localhost both halves are tiny and the
+> split is not actionable for the render work. It becomes worthwhile only when
+> `rk serve` runs over a real network, where the network segment dominates and
+> the question shifts to predictive/local echo.
+
 ## Baseline and the run-kit tax
 
 A second test measures the **pure tmux echo** with no browser and no
@@ -91,8 +119,10 @@ latency as a p50/p95/p99 distribution over 40 trials, exercising the full
 input path including the rAF render flush.
 
 **Steps:**
-1. `page.addInitScript(INSTALL_SEND_STAMP)` — wrap `WebSocket.prototype.send`
-   before the app loads so the relay socket is wrapped at construction.
+1. `page.addInitScript(INSTALL_SEND_STAMP)` and `page.addInitScript(
+   INSTALL_RECV_STAMP)` — wrap `WebSocket.prototype.send` and the `WebSocket`
+   constructor before the app loads so the relay socket is wrapped at
+   construction (send stamp + first-inbound-frame recv stamp).
 2. `resolveFirstWindowId(page)` to get the deep-link `@N`.
 3. `page.goto(/${server}/${windowId})`; wait for `.xterm-screen` visible.
 4. Poll until `window.__rkTerminals[windowId]` exists (terminal mounted +
@@ -106,12 +136,14 @@ input path including the rAF render flush.
 7. For each of 40 trials (char alternates `x`/`o`):
    a. Press Enter (fresh line) and settle ~30ms so the newline echo lands.
    b. `measureEcho(page, windowId, ch, ECHO_DEADLINE_MS)`:
-      - Snapshot the count of `ch` on the cursor row; clear `window.__rkSendAt`.
+      - Snapshot the count of `ch` on the cursor row; clear `__rkSendAt` and
+        `__rkRecvAt`.
       - `keyboard.press(ch)` — a real keystroke through the genuine input path.
-      - rAF-poll the cursor row until the `ch` count increases, then return
-        `performance.now() − __rkSendAt`. Reject on a 5s deadline or if the
-        keystroke produced no WebSocket send.
-   c. Push `{ label: "full-path", ms }`.
+      - rAF-poll the cursor row until the `ch` count increases, then return the
+        three segments `{ full, network, render }` (see Attribution). Reject on
+        a 5s deadline or if the keystroke produced no WebSocket send.
+   c. Push three rows: `{ label: "full-path" }`, `{ label: "network" }`,
+      `{ label: "render" }`.
 8. Assert 40 full-path samples were collected.
 
 ### `baseline tmux-only echo distribution`

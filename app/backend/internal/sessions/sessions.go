@@ -85,20 +85,26 @@ type paneMapEntry struct {
 // tmux socket the backend is querying; otherwise fab falls back to $TMUX or
 // the default socket.
 //
-// cmd.Dir is deliberately set to a NON-project directory (os.TempDir). The fab
-// router resolves which versioned fab-go binary to dispatch from the CWD's
-// fab/project/config.yaml; `pane map --all-sessions` is a CROSS-project,
-// cross-worktree query whose per-window data (change/stage/pr_url, each read
-// from the pane's own worktree .status.yaml) does NOT depend on CWD — only the
-// router's version selection does. Pinning that selection to any one project's
-// fab_version is wrong: a single project pinned to an older fab (one that
-// predates a field like pr_url) silently strips that field from EVERY window on
-// the server, even windows owned by projects on a newer fab. Running from a
-// neutral dir makes the router fall back to the globally-installed fab, so the
-// schema is always the newest the host's fab CLI supports and never downgraded
-// by a stale sibling project. (Inheriting the daemon's CWD is not enough — if
-// the daemon ever launches inside a fab project, that project's version would
-// re-pin; an explicit non-project dir is deterministic.)
+// cmd.Dir is deliberately set to a freshly-created, empty, private (0700) temp
+// directory. The fab router resolves which versioned fab-go binary to dispatch
+// from the CWD's fab/project/config.yaml; `pane map --all-sessions` is a
+// CROSS-project, cross-worktree query whose per-window data (change/stage/pr_url,
+// each read from the pane's own worktree .status.yaml) does NOT depend on CWD —
+// only the router's version selection does. Pinning that selection to any one
+// project's fab_version is wrong: a single project pinned to an older fab (one
+// that predates a field like pr_url) silently strips that field from EVERY
+// window on the server, even windows owned by projects on a newer fab. Running
+// from a project-free dir makes the router fall back to the globally-installed
+// fab, so the schema is always the newest the host's fab CLI supports and never
+// downgraded by a stale sibling project.
+//
+// We create our OWN empty dir rather than reuse os.TempDir(): the shared system
+// temp dir can already contain a fab/project/config.yaml (re-pinning the
+// version) and is world-writable on Unix, so another process could plant one
+// there — both would silently reintroduce the bug. A per-call MkdirTemp(0700)
+// dir is guaranteed project-free and not writable by others. If the dir can't
+// be created we fall back to running with the inherited CWD rather than failing
+// the whole pane-map (degraded, but better than no data).
 func fetchPaneMap(server string) (map[string]paneMapEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -109,7 +115,11 @@ func fetchPaneMap(server string) (map[string]paneMapEntry, error) {
 	}
 	args = append(args, "pane", "map", "--json", "--all-sessions")
 	cmd := exec.CommandContext(ctx, "fab", args...)
-	cmd.Dir = os.TempDir()
+	// Project-free CWD so the fab router uses the global fab version (see above).
+	if neutralDir, err := os.MkdirTemp("", "rk-panemap-"); err == nil {
+		defer os.RemoveAll(neutralDir)
+		cmd.Dir = neutralDir
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

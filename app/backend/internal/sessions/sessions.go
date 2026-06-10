@@ -83,11 +83,23 @@ type paneMapEntry struct {
 // PATH and returns a lookup map keyed by "session:windowIndex". When server is
 // non-empty, it is passed as `-L <server>` so the subprocess targets the same
 // tmux socket the backend is querying; otherwise fab falls back to $TMUX or
-// the default socket. When repoRoot is non-empty, cmd.Dir is set to it so the
-// router can resolve the project's fab_version from fab/project/config.yaml;
-// otherwise the subprocess inherits the server's CWD. Returns nil map and an
-// error on failure.
-func fetchPaneMap(server, repoRoot string) (map[string]paneMapEntry, error) {
+// the default socket.
+//
+// cmd.Dir is deliberately set to a NON-project directory (os.TempDir). The fab
+// router resolves which versioned fab-go binary to dispatch from the CWD's
+// fab/project/config.yaml; `pane map --all-sessions` is a CROSS-project,
+// cross-worktree query whose per-window data (change/stage/pr_url, each read
+// from the pane's own worktree .status.yaml) does NOT depend on CWD — only the
+// router's version selection does. Pinning that selection to any one project's
+// fab_version is wrong: a single project pinned to an older fab (one that
+// predates a field like pr_url) silently strips that field from EVERY window on
+// the server, even windows owned by projects on a newer fab. Running from a
+// neutral dir makes the router fall back to the globally-installed fab, so the
+// schema is always the newest the host's fab CLI supports and never downgraded
+// by a stale sibling project. (Inheriting the daemon's CWD is not enough — if
+// the daemon ever launches inside a fab project, that project's version would
+// re-pin; an explicit non-project dir is deterministic.)
+func fetchPaneMap(server string) (map[string]paneMapEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -97,9 +109,7 @@ func fetchPaneMap(server, repoRoot string) (map[string]paneMapEntry, error) {
 	}
 	args = append(args, "pane", "map", "--json", "--all-sessions")
 	cmd := exec.CommandContext(ctx, "fab", args...)
-	if repoRoot != "" {
-		cmd.Dir = repoRoot
-	}
+	cmd.Dir = os.TempDir()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -161,7 +171,7 @@ var (
 // fetchPaneMapCached wraps fetchPaneMap with a per-server TTL cache.
 // Uses a double-check pattern after write lock acquisition to prevent thundering herd.
 // On fetch error, the stale cache entry for that server is preserved (if one exists).
-func fetchPaneMapCached(server, repoRoot string) (map[string]paneMapEntry, error) {
+func fetchPaneMapCached(server string) (map[string]paneMapEntry, error) {
 	paneMapCacheMu.RLock()
 	if entry, ok := paneMapCache[server]; ok && time.Since(entry.time) < paneMapCacheTTL {
 		cached := entry.data
@@ -178,7 +188,7 @@ func fetchPaneMapCached(server, repoRoot string) (map[string]paneMapEntry, error
 		return entry.data, nil
 	}
 
-	m, err := fetchPaneMap(server, repoRoot)
+	m, err := fetchPaneMap(server)
 	if err != nil {
 		// Preserve stale cache entry on error (graceful degradation).
 		if entry, ok := paneMapCache[server]; ok {
@@ -189,23 +199,6 @@ func fetchPaneMapCached(server, repoRoot string) (map[string]paneMapEntry, error
 
 	paneMapCache[server] = paneMapCacheEntry{data: m, time: time.Now()}
 	return m, nil
-}
-
-// findRepoRoot walks up from dir until it finds a directory containing
-// fab/project/config.yaml (the fab-project identity marker), returning that
-// directory. Returns "" if not found.
-func findRepoRoot(dir string) string {
-	for {
-		candidate := filepath.Join(dir, "fab/project/config.yaml")
-		if _, err := os.Stat(candidate); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
 }
 
 // Per-entry git branch cache with separate positive/negative TTLs.
@@ -392,29 +385,13 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	}
 	wg.Wait()
 
-	// Derive repoRoot by walking up from the first available window's
-	// WorktreePath until we find a directory containing fab/project/config.yaml
-	// (the fab-project identity marker). WorktreePath is the pane's cwd which
-	// may be a subdirectory of the repo.
-	repoRoot := ""
-	for _, sd := range data {
-		for _, w := range sd.windows {
-			if w.WorktreePath != "" {
-				repoRoot = findRepoRoot(w.WorktreePath)
-				if repoRoot != "" {
-					break
-				}
-			}
-		}
-		if repoRoot != "" {
-			break
-		}
-	}
-
-	// Fetch pane-map once for all sessions. If refreshing the cache fails,
-	// fetchPaneMapCached may return a stale cached paneMap; if no data is
-	// available, windows keep empty fab fields (graceful degradation).
-	paneMap, _ := fetchPaneMapCached(server, repoRoot)
+	// Fetch pane-map once for all sessions. fetchPaneMap runs from a neutral
+	// (non-project) dir so the fab router dispatches the globally-installed fab
+	// version — `pane map` is a cross-project query and must not be pinned to
+	// any single window's project version (see fetchPaneMap doc). If refreshing
+	// the cache fails, fetchPaneMapCached may return a stale cached paneMap; if
+	// none is available, windows keep empty fab fields (graceful degradation).
+	paneMap, _ := fetchPaneMapCached(server)
 
 	// Collect all pane cwds for git branch resolution.
 	var allCwds []string

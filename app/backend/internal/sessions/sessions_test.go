@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"testing"
 	"time"
 
@@ -389,8 +388,7 @@ func TestFetchPaneMapFabNotOnPath(t *testing.T) {
 	// non-nil error and a nil map. We force the failure by clearing PATH
 	// for the duration of this test.
 	t.Setenv("PATH", "")
-	repoRoot := t.TempDir()
-	m, err := fetchPaneMap("", repoRoot)
+	m, err := fetchPaneMap("")
 	if err == nil {
 		t.Error("expected error when fab is not on PATH, got nil")
 	}
@@ -416,10 +414,11 @@ func tmuxSocketDir() string {
 // TestFetchPaneMapIntegration exercises the real subprocess invocation path.
 // Skips when `fab` or `tmux` is not on PATH (CI without them installed).
 //
-// Go test binaries run with CWD = package directory, so to find the running
-// repo's fab/project/config.yaml we walk up from os.Getwd() using findRepoRoot.
-// We then reuse the running repo's fab_version in a freshly-written config.yaml
-// inside a t.TempDir(), so the router can resolve a version it knows how to run.
+// fetchPaneMap runs `fab pane map` from a neutral (non-project) dir, so the fab
+// router dispatches the globally-installed fab version regardless of any
+// project pin — no per-repo config setup is needed here (this is the whole
+// point of the cross-project version-independence fix). We just need a real
+// `fab` on PATH and a live socket to query.
 //
 // The test targets a freshly-booted, isolated rk-test-* tmux server rather than
 // the ambient default socket: `fab pane map --all-sessions` runs
@@ -434,46 +433,6 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 	}
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available on PATH")
-	}
-
-	// Locate the running repo's fab/project/config.yaml by walking up from the
-	// test binary's CWD (the package dir).
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("os.Getwd: %v", err)
-	}
-	repoRoot := findRepoRoot(cwd)
-	if repoRoot == "" {
-		t.Fatalf("could not locate repo root by walking up from %q", cwd)
-	}
-	configBytes, err := os.ReadFile(filepath.Join(repoRoot, "fab/project/config.yaml"))
-	if err != nil {
-		t.Fatalf("read running repo config.yaml: %v", err)
-	}
-	// Extract the fab_version line verbatim so the router sees a real,
-	// installed version.
-	versionRe := regexp.MustCompile(`(?m)^fab_version:\s*(\S+)\s*$`)
-	matches := versionRe.FindStringSubmatch(string(configBytes))
-	if len(matches) < 2 {
-		t.Fatalf("running repo config.yaml missing fab_version line:\n%s", configBytes)
-	}
-	fabVersion := matches[1]
-
-	// Create a temp dir with a minimal fab/project/config.yaml.
-	tempDir := t.TempDir()
-	projectDir := filepath.Join(tempDir, "fab", "project")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", projectDir, err)
-	}
-	configPath := filepath.Join(projectDir, "config.yaml")
-	minimalConfig := fmt.Sprintf("fab_version: %s\nproject:\n  name: integration-test\n", fabVersion)
-	if err := os.WriteFile(configPath, []byte(minimalConfig), 0o644); err != nil {
-		t.Fatalf("write %s: %v", configPath, err)
-	}
-
-	// Sanity-check: findRepoRoot on tempDir should return tempDir itself.
-	if got := findRepoRoot(tempDir); got != tempDir {
-		t.Fatalf("findRepoRoot(%q) = %q, want %q", tempDir, got, tempDir)
 	}
 
 	// Boot an isolated tmux server with one known session so the subprocess
@@ -502,9 +461,9 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 	// The subprocess call SHALL succeed against the live isolated server, and
 	// the booted session SHALL appear — proving the real parse+dedup path ran,
 	// not merely that "empty is tolerated".
-	paneMap, err := fetchPaneMap(server, tempDir)
+	paneMap, err := fetchPaneMap(server)
 	if err != nil {
-		t.Fatalf("fetchPaneMap(%q, %q) error: %v", server, tempDir, err)
+		t.Fatalf("fetchPaneMap(%q) error: %v", server, err)
 	}
 	found := false
 	for _, e := range paneMap {

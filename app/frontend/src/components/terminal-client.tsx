@@ -59,6 +59,10 @@ function unregisterTestTerminal(windowId: string) {
   delete window.__rkTerminals[windowId];
 }
 
+// Shared encoder for measuring UTF-8 byte length on the inbound flush path
+// (allocated once, not per message).
+const textEncoder = new TextEncoder();
+
 type TerminalClientProps = {
   sessionName: string;
   windowId: string;
@@ -461,10 +465,42 @@ export function TerminalClient({
     const wsProto =
       window.location.protocol === "https:" ? "wss:" : "ws:";
 
-    // Write batching: accumulate WebSocket data and flush once per animation frame
+    // Adaptive write flushing.
+    //
+    // The naive strategy — buffer every inbound chunk and flush once per
+    // requestAnimationFrame — adds up to a full frame (~16ms) of latency to a
+    // lone keystroke echo for no benefit: there is nothing to coalesce when one
+    // small chunk arrives in an idle frame. (Latency attribution showed this
+    // rAF tail dominates perceived input latency ~3:1 over the network hop.)
+    //
+    // Instead: write SMALL chunks that arrive while idle straight to the
+    // terminal, synchronously, so an echo paints on the same tick. Fall back to
+    // rAF-coalescing only under load — i.e. once a chunk is large, or once we
+    // are already buffering — so a flood (`cat largefile`, a build log) still
+    // batches into one write per frame and does not melt the renderer.
+    //
+    // Ordering safety (terminal bytes are order-sensitive): the moment ANYTHING
+    // is buffered, every subsequent chunk also buffers until the buffer drains.
+    // An immediate write therefore only happens when the buffer is empty AND no
+    // flush is pending, so a synchronous write can never jump ahead of buffered
+    // bytes.
     let textBuffer = "";
     let binaryBuffers: Uint8Array[] = [];
     let flushRafId: number | null = null;
+    // At most ONE immediate (synchronous) write per animation frame. The flag is
+    // reset on each rAF tick. This is the flood guard: the first small idle
+    // chunk in a frame paints immediately (interactive echo), but a burst of
+    // small chunks within the same frame coalesces — without it, a program
+    // emitting one byte at a time would write synchronously on every message.
+    let wroteImmediatelyThisFrame = false;
+    let frameResetRafId: number | null = null;
+
+    // A chunk larger than this is treated as "under load" and coalesced rather
+    // than written immediately. A keystroke echo is a handful of bytes; a paste,
+    // a program's burst output, or a redraw is far larger (the relay reads the
+    // PTY in 4KB chunks). The threshold trades a little extra latency on medium
+    // chunks for protection against synchronous-write storms.
+    const IMMEDIATE_WRITE_MAX_BYTES = 64;
 
     function flushToTerminal() {
       flushRafId = null;
@@ -476,6 +512,50 @@ export function TerminalClient({
         terminal.write(buf);
       }
       binaryBuffers = [];
+    }
+
+    /** True while we are coalescing — a flush is pending or data is buffered. */
+    function isBuffering(): boolean {
+      return flushRafId !== null || textBuffer !== "" || binaryBuffers.length > 0;
+    }
+
+    function scheduleFlush() {
+      if (flushRafId === null) {
+        flushRafId = requestAnimationFrame(flushToTerminal);
+      }
+    }
+
+    /**
+     * UTF-8 byte length of a string, computed only when necessary. Bounds:
+     * UTF-8 bytes ≥ UTF-16 code units (every code unit is ≥1 byte), and ≤ 4×
+     * code units. So if `4 * length <= MAX` it is definitely within the
+     * threshold, and if `length > MAX` it is definitely over — neither needs an
+     * encode. Only the ambiguous middle band pays for `TextEncoder`.
+     */
+    function textByteLength(s: string): number {
+      if (s.length * 4 <= IMMEDIATE_WRITE_MAX_BYTES) return s.length; // ≤ threshold for sure
+      if (s.length > IMMEDIATE_WRITE_MAX_BYTES) return s.length; // ≥ threshold for sure (loose, but > MAX)
+      return textEncoder.encode(s).length;
+    }
+
+    /** Decide whether an inbound chunk of `len` bytes can be written now. */
+    function canWriteImmediately(len: number): boolean {
+      return (
+        !isBuffering() &&
+        !wroteImmediatelyThisFrame &&
+        len <= IMMEDIATE_WRITE_MAX_BYTES
+      );
+    }
+
+    /** Mark that an immediate write happened; arm a one-shot frame reset. */
+    function markImmediateWrite() {
+      wroteImmediatelyThisFrame = true;
+      if (frameResetRafId === null) {
+        frameResetRafId = requestAnimationFrame(() => {
+          frameResetRafId = null;
+          wroteImmediatelyThisFrame = false;
+        });
+      }
     }
 
     function connect() {
@@ -500,13 +580,35 @@ export function TerminalClient({
           needsReset = false;
           terminal.reset();
         }
+
         if (typeof event.data === "string") {
+          // Idle + small + first-this-frame → write now so an echo paints this
+          // tick. Otherwise (buffering, large chunk, or already wrote this
+          // frame) coalesce into the next frame.
+          //
+          // Measure the threshold in UTF-8 BYTES, not String.length (UTF-16
+          // code units): a multibyte string can be ≤64 code units yet >64 bytes,
+          // which would wrongly take the immediate path and weaken the flood
+          // guard. textByteLength only encodes when the cheap code-unit upper
+          // bound (each UTF-16 unit is ≤3 UTF-8 bytes within the BMP, 4 across a
+          // surrogate pair) leaves the result ambiguous, so the hot path for a
+          // tiny ASCII echo stays allocation-free.
+          if (canWriteImmediately(textByteLength(event.data))) {
+            terminal.write(event.data);
+            markImmediateWrite();
+            return;
+          }
           textBuffer += event.data;
+          scheduleFlush();
         } else {
-          binaryBuffers.push(new Uint8Array(event.data));
-        }
-        if (!flushRafId) {
-          flushRafId = requestAnimationFrame(flushToTerminal);
+          const chunk = new Uint8Array(event.data);
+          if (canWriteImmediately(chunk.length)) {
+            terminal.write(chunk);
+            markImmediateWrite();
+            return;
+          }
+          binaryBuffers.push(chunk);
+          scheduleFlush();
         }
       };
 
@@ -516,6 +618,11 @@ export function TerminalClient({
           cancelAnimationFrame(flushRafId);
           flushRafId = null;
         }
+        if (frameResetRafId) {
+          cancelAnimationFrame(frameResetRafId);
+          frameResetRafId = null;
+        }
+        wroteImmediatelyThisFrame = false;
         try { flushToTerminal(); } catch { /* terminal may be disposed */ }
 
         if (cancelled) return;
@@ -541,6 +648,7 @@ export function TerminalClient({
     return () => {
       cancelled = true;
       if (flushRafId) cancelAnimationFrame(flushRafId);
+      if (frameResetRafId) cancelAnimationFrame(frameResetRafId);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (wsRef.current) {
         wsRef.current.close();

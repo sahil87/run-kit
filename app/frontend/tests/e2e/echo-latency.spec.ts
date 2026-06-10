@@ -29,6 +29,10 @@ import { execSync } from "node:child_process";
 
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-echo-${Date.now()}`;
+// Dedicated session for the throughput test — it runs a burst command rather
+// than the interactive `cat`, so it gets its own window to avoid disturbing the
+// echo session.
+const BURST_SESSION = `e2e-burst-${Date.now()}`;
 const port = Number(process.env.RK_PORT ?? "3333");
 const BASE = `http://localhost:${port}`;
 
@@ -39,6 +43,14 @@ const BASELINE_TRIALS = 40;
 // Per-keystroke echo deadline. Generous — a stalled echo should fail loudly
 // rather than silently skew the distribution toward the poll cap.
 const ECHO_DEADLINE_MS = 5_000;
+
+// Throughput guard: number of lines a burst command emits. `seq 1 N` produces
+// predictable, countable output whose final line (`N`) is a unique end-marker.
+// Large enough that the relay delivers it as many multi-KB frames — exercising
+// the coalescing (under-load) branch of the adaptive flush, the path that must
+// NOT regress when echo latency is optimized.
+const THROUGHPUT_LINES = 20_000;
+const THROUGHPUT_DEADLINE_MS = 30_000;
 
 interface Sample {
   label: string;
@@ -95,13 +107,14 @@ function summarize(label: string, values: number[]): string {
 }
 
 /**
- * Resolve the first window's stable tmux id (`@N`) for TEST_SESSION from the
+ * Resolve the first window's stable tmux id (`@N`) for `session` from the
  * backend snapshot. The terminal route is keyed by window id, not index, so a
  * deep-link must carry `@N`. Polls because the session is created via the tmux
  * CLI and surfaces in the snapshot asynchronously.
  */
 async function resolveFirstWindowId(
   page: import("@playwright/test").Page,
+  session: string = TEST_SESSION,
 ): Promise<string> {
   const deadline = Date.now() + 5_000;
   let id: string | null = null;
@@ -114,7 +127,7 @@ async function resolveFirstWindowId(
         name: string;
         windows: Array<{ windowId: string }>;
       }>;
-      const wid = sessions.find((s) => s.name === TEST_SESSION)?.windows[0]
+      const wid = sessions.find((s) => s.name === session)?.windows[0]
         ?.windowId;
       if (wid) {
         id = wid;
@@ -123,7 +136,7 @@ async function resolveFirstWindowId(
     }
     await page.waitForTimeout(200);
   }
-  expect(id, `first window for ${TEST_SESSION} not found`).not.toBeNull();
+  expect(id, `first window for ${session} not found`).not.toBeNull();
   return id!;
 }
 
@@ -327,6 +340,9 @@ test.describe("Echo latency benchmark", () => {
     try {
       tmux(`kill-session -t ${TEST_SESSION}`);
     } catch { /* ok */ }
+    try {
+      tmux(`kill-session -t ${BURST_SESSION}`);
+    } catch { /* ok */ }
 
     const pick = (label: string) =>
       samples.filter((s) => s.label === label).map((s) => s.ms);
@@ -334,6 +350,7 @@ test.describe("Echo latency benchmark", () => {
     const network = pick("network");
     const render = pick("render");
     const base = pick("baseline");
+    const throughput = pick("throughput");
 
     console.log("\n=== ECHO LATENCY BENCHMARK ===");
     console.log("  keystroke → glyph-visible, p50/p95/p99\n");
@@ -355,7 +372,14 @@ test.describe("Echo latency benchmark", () => {
       console.log(
         `  attribution (p50): network=${np.toFixed(1)}ms, render=${rp.toFixed(1)}ms` +
           ` → ${dominant} dominates. Render is the rAF-flush + xterm-parse tail` +
-          " (the PR-#2 adaptive-flush target).",
+          " (the adaptive-flush target).",
+      );
+    }
+    if (throughput.length) {
+      console.log(
+        `\n  throughput guard: ${THROUGHPUT_LINES} lines rendered to quiescence in` +
+          ` ${throughput[0].toFixed(0)}ms — the under-load coalescing path. Echo` +
+          " latency must drop WITHOUT this regressing.",
       );
     }
     console.log("=== END BENCHMARK ===\n");
@@ -482,5 +506,123 @@ test.describe("Echo latency benchmark", () => {
     expect(samples.filter((s) => s.label === "baseline").length).toBe(
       BASELINE_TRIALS,
     );
+  });
+
+  test("throughput guard — burst output renders fully and fast", async ({ page }) => {
+    resetSamples("throughput"); // idempotent across a Playwright retry
+    // Flood the terminal with a large, countable burst (`seq 1 N`) and measure
+    // time-to-quiescence plus that the final line landed. This exercises the
+    // adaptive flush's UNDER-LOAD branch: the relay delivers seq's output as
+    // many multi-KB frames, which must coalesce into ~one write per frame rather
+    // than writing synchronously per frame. The guard's job is to prove the
+    // echo-latency optimization did not trade away burst-render performance —
+    // it asserts both completeness (no dropped/garbled output) and a sane bound.
+    tmux(`new-session -d -s ${BURST_SESSION} -x 80 -y 24`);
+
+    const windowId = await resolveFirstWindowId(page, BURST_SESSION);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(
+        () => page.evaluate((wid) => Boolean(window.__rkTerminals?.[wid]), windowId),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+
+    await page.locator("[role='application']").click();
+    await page.locator(".xterm-helper-textarea").focus();
+
+    // Warm up with a marker-based poll instead of a fixed sleep — the relay
+    // WebSocket must be OPEN and the shell consuming input before the burst, and
+    // a fixed sleep is flaky on a cold/slow runner (consistent with the
+    // full-path test, which avoids fixed sleeps for the same reason). Press `z`
+    // until it echoes on the cursor row, then clear the line so the marker isn't
+    // mistaken for burst output.
+    await expect
+      .poll(
+        async () => {
+          await page.keyboard.press("z");
+          return page.evaluate((wid) => {
+            const term = window.__rkTerminals?.[wid];
+            if (!term) return false;
+            const buf = term.buffer.active;
+            const row =
+              buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "";
+            return row.includes("z");
+          }, windowId);
+        },
+        { timeout: 15_000, intervals: [250] },
+      )
+      .toBe(true);
+    // Clear the typed warmup marker(s) from the prompt line WITHOUT executing
+    // them (Ctrl-U kills the line in the shell's line editor) so the burst
+    // command runs from a clean prompt.
+    await page.keyboard.press("Control+u");
+
+    // Issue the burst. The unique end-marker is the final line `N` on its own.
+    const endMarker = String(THROUGHPUT_LINES);
+    const t0 = performance.now();
+    await page.keyboard.type(`seq 1 ${THROUGHPUT_LINES}\n`);
+
+    // Quiescence = the terminal's scrollback line count stops growing AND the
+    // end-marker is present in the buffer. Poll the registered Terminal's
+    // buffer; the WebGL canvas is not DOM-readable (same rationale as measureEcho).
+    const elapsed = await page.evaluate(
+      async ({ windowId, endMarker, deadlineMs }) => {
+        const term = window.__rkTerminals?.[windowId];
+        if (!term) throw new Error(`no registered terminal for ${windowId}`);
+        const t0 = performance.now();
+        const deadline = t0 + deadlineMs;
+
+        const endMarkerPresent = (): boolean => {
+          const buf = term.buffer.active;
+          // Scan the last rows of scrollback for the marker on its own line.
+          const total = buf.length;
+          for (let y = Math.max(0, total - term.rows * 2); y < total; y++) {
+            const line = buf.getLine(y)?.translateToString(true).trim();
+            if (line === endMarker) return true;
+          }
+          return false;
+        };
+
+        return await new Promise<number>((resolve, reject) => {
+          let lastLen = -1;
+          let stableSince = 0;
+          const tick = () => {
+            const now = performance.now();
+            const len = term.buffer.active.length;
+            if (len !== lastLen) {
+              lastLen = len;
+              stableSince = now;
+            }
+            // Done when the end-marker is in the buffer and growth has settled
+            // for ~150ms (a few frames with no new lines).
+            if (endMarkerPresent() && now - stableSince > 150) {
+              resolve(now - t0);
+              return;
+            }
+            if (now > deadline) {
+              reject(
+                new Error(
+                  `throughput timeout: endMarker=${endMarkerPresent()}, len=${len}`,
+                ),
+              );
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        });
+      },
+      { windowId, endMarker, deadlineMs: THROUGHPUT_DEADLINE_MS },
+    );
+    const wall = performance.now() - t0;
+
+    // Correctness: the final line of the burst rendered (no truncation/garble).
+    // Timing: recorded for the summary and bounded by the deadline (the
+    // page.evaluate above already rejects past it). We record `elapsed` (the
+    // in-page quiescence time) as the comparable metric across runs.
+    samples.push({ label: "throughput", ms: elapsed });
+    expect(wall).toBeLessThan(THROUGHPUT_DEADLINE_MS);
   });
 });

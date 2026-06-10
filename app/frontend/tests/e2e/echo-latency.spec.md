@@ -96,12 +96,15 @@ anything an *under*-estimate of the web path's true added latency.
 - `beforeAll` creates session `e2e-echo-<ts>` (80×24) and starts `cat` in it
   (`send-keys 'cat' Enter`). `cat` echoes every line of stdin verbatim — the
   cleanest echo source, with no prompt / completion / PS1 noise.
-- `afterAll` sends `C-c` to break out of `cat`, kills the session, then prints
-  the summary table: full-path p50/p95/p99, baseline p50/p95/p99, and the
-  computed run-kit tax.
-- `resolveFirstWindowId(page)` polls `/api/sessions` for the session's first
-  window's stable `@N` id (the terminal route is keyed by window id, not
-  index), mirroring `mobile-touch-scroll.spec.ts`.
+- The throughput guard uses its own `BURST_SESSION` (`e2e-burst-<ts>`) so its
+  flood doesn't disturb the echo session.
+- `afterAll` sends `C-c` to break out of `cat`, kills both sessions, then prints
+  the summary table: full-path / network / render / baseline p50/p95/p99, the
+  computed run-kit tax, the attribution verdict, and the throughput time.
+- `resolveFirstWindowId(page, session?)` polls `/api/sessions` for the named
+  session's first window's stable `@N` id (the terminal route is keyed by window
+  id, not index), mirroring `mobile-touch-scroll.spec.ts`. Defaults to the echo
+  session; the throughput test passes `BURST_SESSION`.
 - Trials alternate the two chars `x`/`o` and reset the line (Enter) each trial,
   so global char-uniqueness is never needed — the count-based row detector
   (see above) handles disambiguation.
@@ -164,3 +167,32 @@ a p50/p95/p99 distribution over 40 trials.
       ends with the char, or the 5s deadline passes.
    c. Assert it landed; push `{ label: "baseline", ms }`.
 3. Assert 40 baseline samples were collected.
+
+### `throughput guard — burst output renders fully and fast`
+
+**What it proves:** Optimizing echo latency (the adaptive flush in
+`terminal-client.tsx`, which writes small idle chunks immediately instead of
+always waiting for a `requestAnimationFrame`) did **not** regress burst
+rendering. A large, countable flood must still render completely and quickly via
+the under-load coalescing path — no dropped/garbled output, no renderer melt.
+
+**Steps:**
+1. Create a dedicated `BURST_SESSION` (so the flood doesn't disturb the echo
+   session's interactive `cat`).
+2. `resolveFirstWindowId(page, BURST_SESSION)`, navigate, wait for
+   `.xterm-screen` and the registered terminal handle; focus the terminal.
+3. Mark `performance.now()`, then `keyboard.type("seq 1 N\n")` (N =
+   `THROUGHPUT_LINES`, 20000). `seq` emits predictable output whose final line
+   `N` is a unique end-marker; the relay delivers it as many multi-KB frames,
+   exercising the coalescing branch.
+4. In-page `requestAnimationFrame` loop tracks `term.buffer.active.length`;
+   quiescence = the end-marker line is present in the last rows of scrollback
+   AND the line count has been stable for ~150ms. Returns the in-page elapsed
+   time, or rejects past the 30s deadline.
+5. Assert wall-clock under the deadline; push `{ label: "throughput", ms }` (the
+   in-page quiescence time) for the summary.
+
+**Why this lives in the same file:** the echo tests and this guard are two sides
+of the same trade-off. Keeping them together means a future change that shaves
+echo latency at the cost of flood performance fails *here*, in the same run that
+shows the latency win — they can't drift apart.

@@ -244,7 +244,7 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
           onCopy={() => handleCopy("pr", win.prUrl ?? prLine)}
           title={win.prUrl ?? undefined}
         >
-          <span className="text-accent" aria-hidden="true">{""}</span>
+          <span className="text-accent" aria-hidden="true">{"\uF407"}</span>
           {" "}
           <span className={`${prFailish ? "text-red-400" : "text-text-secondary"} group-hover:text-accent`}>
             {prLine}

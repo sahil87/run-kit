@@ -31,10 +31,11 @@ selected window is change-bound with a PR, the Pane panel shows the `pr` row
 is a scratch window, no PR row appears.
 
 **Steps:**
-1. Navigate to `/default` (`@1` is the active window, so the Pane panel shows it).
+1. Navigate directly to the change-bound window route `/default/%401` (`@1`,
+   percent-encoded) — the Pane panel reflects the URL-selected window.
 2. Assert the Pane panel's pr row — the element titled with the PR URL — is
    visible and contains `#386` and `open`.
-3. Click the `@2` row in the Sessions nav to select the scratch window.
+3. Navigate to the scratch window route `/default/%402` (`@2`).
 4. Assert no element is titled with the PR URL (count 0) and no `#386` text
    appears anywhere in the Pane panel.
 
@@ -45,10 +46,11 @@ mobile (375px) and desktop (1024px) breakpoints — covering the responsive
 requirement.
 
 **Steps:**
-1. Set viewport to 375×812 and navigate to `/default`.
+1. Set viewport to 375×812 and navigate to the change-bound window route
+   `/default/%401` (`@1`).
 2. Open the mobile sidebar drawer (which hosts the Pane panel) via the top-bar
    `Toggle navigation` button.
 3. Assert the pr row (titled with the PR URL) contains `#386`.
-4. Set viewport to 1024×800 and reload `/default`.
+4. Set viewport to 1024×800 and navigate to `/default/%401` again.
 5. Assert the pr row (titled with the PR URL) contains `#386` in the persistent
    desktop sidebar.

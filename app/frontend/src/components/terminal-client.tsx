@@ -478,18 +478,21 @@ export function TerminalClient({
 
   // WebSocket connection — reconnects when session or windowId changes.
   //
-  // Pre-hdjr (260507-4vuv era), the relay called `tmux select-window` then
-  // `tmux attach-session -t <real-session>`, so all clients shared the
-  // session's "active window" state and a window switch within the same
-  // session needed no reconnect — the next select-window from any client
-  // moved everyone. Post-hdjr (260508-hdjr) each WebSocket runs against
-  // its own ephemeral grouped session with INDEPENDENT active-window
-  // state, by design. That fixed the board-pane cross-talk bug, but it
-  // also means a URL-only window switch no longer flips the relay's
-  // ephemeral. Reconnecting on windowId change is the simplest fix:
-  // the new connection creates a fresh ephemeral pointing at the new
-  // window. (A future protocol-level "select-window" message would
-  // avoid the reconnect flicker.)
+  // Backend model (since 260602-qn62, move-based board pin-sessions): the
+  // relay resolves the window's real owning session via ResolveWindowSession
+  // — in the move-based model a window lives in exactly ONE session, its
+  // home session or its `_rk-pin-*` board pin-session — then runs a
+  // session-scoped select (`tmux select-window -t <session>:@N`) and
+  // attaches the PTY DIRECTLY to that real session
+  // (`attach-session -t <session>`). There is no per-WebSocket ephemeral
+  // grouped session and no defer-kill; that earlier design (260508-hdjr)
+  // was deleted wholesale by 260602-qn62.
+  //
+  // Consequence: a same-session reconnect is now REDUNDANT — the REST
+  // selectWindow already redraws the attached PTY in place, because the PTY
+  // is attached to the real session. A follow-up change will eliminate those
+  // reconnects by keying this effect's teardown on the resolved owning
+  // session instead of windowId (explicitly out of scope here).
   useEffect(() => {
     if (!terminalReady || !xtermRef.current) return;
 
@@ -539,8 +542,42 @@ export function TerminalClient({
     // chunks for protection against synchronous-write storms.
     const IMMEDIATE_WRITE_MAX_BYTES = 64;
 
+    // Deferred per-connection reset. Each connect() arms this flag; the reset
+    // then executes immediately BEFORE the first chunk of that connection is
+    // written — in the same tick on the immediate path, and inside the same
+    // rAF callback (same frame) on the coalesced path — so clear + repaint
+    // land in one presented frame. Resetting at message-RECEIPT time (the old
+    // behavior) guaranteed ≥1 fully-cleared frame whenever the first chunk
+    // took the coalesced path: the wipe was synchronous but the repaint
+    // waited for the next animation frame. That cleared frame was the
+    // window-switch flicker. Until the new redraw arrives, the user keeps
+    // seeing the OLD content instead of black.
+    //
+    // Handoff semantics (why an effect-scoped flag is per-connection safe):
+    // connections within one effect are strictly sequential, and the flush
+    // buffers above only ever hold the CURRENT connection's data. An old
+    // connection's close-time drain (ws.onclose) runs before the reconnect
+    // timer's connect() re-arms the flag, so a tail drain can never consume a
+    // reset armed for a DIFFERENT connection — which is why arming must stay
+    // in connect() and nowhere earlier. A zero-message connection closes with
+    // empty buffers; the empty flush below neither consumes nor executes the
+    // pending reset (resetting with nothing to repaint would recreate the
+    // flicker) — the next connect() simply re-arms, idempotently.
+    let pendingReset = false;
+
+    /** Run the deferred per-connection reset exactly once, at first-write time. */
+    function consumePendingReset() {
+      if (!pendingReset) return;
+      pendingReset = false;
+      terminal.reset();
+    }
+
     function flushToTerminal() {
       flushRafId = null;
+      // An empty flush (e.g. a zero-message connection's close-time drain)
+      // must not consume or execute the pending reset — see above.
+      if (!textBuffer && binaryBuffers.length === 0) return;
+      consumePendingReset();
       if (textBuffer) {
         terminal.write(textBuffer);
         textBuffer = "";
@@ -597,11 +634,13 @@ export function TerminalClient({
 
     function connect() {
       if (cancelled) return;
+      // Arm the deferred reset for this connection (consumed at first-write
+      // time by both write paths — see pendingReset above).
+      pendingReset = true;
       const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(windowIdRef.current)}?server=${server}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.binaryType = "arraybuffer";
-      let needsReset = true;
 
       ws.onopen = () => {
         if (cancelled) return;
@@ -613,10 +652,6 @@ export function TerminalClient({
 
       ws.onmessage = (event) => {
         if (cancelled) return;
-        if (needsReset) {
-          needsReset = false;
-          terminal.reset();
-        }
 
         if (typeof event.data === "string") {
           // Idle + small + first-this-frame → write now so an echo paints this
@@ -631,6 +666,7 @@ export function TerminalClient({
           // surrogate pair) leaves the result ambiguous, so the hot path for a
           // tiny ASCII echo stays allocation-free.
           if (canWriteImmediately(textByteLength(event.data))) {
+            consumePendingReset();
             terminal.write(event.data);
             markImmediateWrite();
             return;
@@ -640,6 +676,7 @@ export function TerminalClient({
         } else {
           const chunk = new Uint8Array(event.data);
           if (canWriteImmediately(chunk.length)) {
+            consumePendingReset();
             terminal.write(chunk);
             markImmediateWrite();
             return;
@@ -684,6 +721,19 @@ export function TerminalClient({
 
     return () => {
       cancelled = true;
+      // Neutralize this effect's pending write state. The old socket's
+      // onclose can be delivered asynchronously AFTER this cleanup, and its
+      // drain runs BEFORE the `cancelled` check (deliberately — the
+      // same-effect transient-drop drain must keep working). Without this, a
+      // first chunk still buffered at teardown (rAF cancelled below, reset
+      // unconsumed) would make that orphaned drain reset the shared terminal
+      // and paint stale old-window content — possibly after the successor
+      // effect's connection has already painted. Clearing the flag and
+      // buffers turns the orphaned drain into a no-op via the empty-flush
+      // guard in flushToTerminal.
+      pendingReset = false;
+      textBuffer = "";
+      binaryBuffers = [];
       if (flushRafId) cancelAnimationFrame(flushRafId);
       if (frameResetRafId) cancelAnimationFrame(frameResetRafId);
       if (reconnectTimer) clearTimeout(reconnectTimer);

@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-10T09:01:15Z"}
+{"args":"fix: defer terminal.reset() into the first write of each new relay connection to eliminate the black-frame flicker on tmux window switch; rewrite the stale ephemeral-relay-era comment above the WebSocket effect in terminal-client.tsx to describe the move-based pin-session relay design","cmd":"fab-new","event":"command","ts":"2026-06-10T09:01:15Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-10T09:02:58Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-10T09:03:12Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-10T09:03:15Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-10T09:03:20Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-10T09:04:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-10T09:04:53Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-10T09:06:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-10T09:17:01Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-10T09:17:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-10T09:37:55Z"}
+{"event":"review","result":"passed","ts":"2026-06-10T09:37:55Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-10T09:38:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-10T09:43:34Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-10T09:44:46Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-10T09:46:12Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-06-10T09:47:31Z"}
+{"event":"review","result":"passed","ts":"2026-06-10T09:58:18Z"}

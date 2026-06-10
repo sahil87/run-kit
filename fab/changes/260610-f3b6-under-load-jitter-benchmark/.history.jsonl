@@ -1,0 +1,5 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-10T13:33:30Z"}
+{"args":"extend echo-latency harness with under-load jitter benchmark","cmd":"fab-new","event":"command","ts":"2026-06-10T13:33:30Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-10T13:35:15Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-10T13:35:24Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"ship","ts":"2026-06-10T13:35:58Z"}

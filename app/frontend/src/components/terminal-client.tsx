@@ -505,7 +505,21 @@ export function TerminalClient({
   //     immediately by windowId (the relay resolves the owning session
   //     server-side) and absorb the "" → resolved transition by merely
   //     recording it — by construction the live connection is already
-  //     attached to that window's owning session.
+  //     attached to that window's owning session. That construction only
+  //     holds if the windowId hasn't changed since connect, which is why
+  //     the UNRESOLVED state falls back to windowId-based identity (next
+  //     bullet).
+  //   - connectedWindowIdRef — the windowId the live connection was opened
+  //     for. Read ONLY while unresolved (connectedSessionRef is ""): with
+  //     no session known yet, the connection's identity IS its windowId,
+  //     so a windowId change in that state bumps for a reconnect — the
+  //     relay re-resolves the new window's owner. Without this, navigating
+  //     to another window before the first SSE snapshot (browser history,
+  //     typed URL) would leave the socket attached to the OLD window's
+  //     session, and the later "" → resolved absorption would record the
+  //     NEW window's session — a silent identity/attachment mismatch.
+  //     Once resolved, windowId changes are same-session rides and this
+  //     ref is not consulted.
   //   - connectedServerRef — the server the live connection was opened
   //     against. The connect effect re-runs on `server` changes directly
   //     (it stays in the deps), so the watcher below must NOT also bump
@@ -535,12 +549,15 @@ export function TerminalClient({
   //         URL writeback in app.tsx are both gated on a non-empty
   //         sessionName, so the route would wedge.
   //     "" → resolved never bumps (absorption — connectedSessionRef
-  //     above), and "" → "" is a no-op. The watcher also records identity
+  //     above), and "" → "" with an unchanged windowId is a no-op; a
+  //     windowId change while unresolved bumps (windowId-based identity —
+  //     connectedWindowIdRef above). The watcher also records identity
   //     before a connection exists — harmless: pre-ready bumps are blocked
   //     by the server guard (connectedServerRef is "" until the first
   //     connect; the server prop never is).
   const connectedSessionRef = useRef("");
   const connectedServerRef = useRef("");
+  const connectedWindowIdRef = useRef("");
   const [connectionEpoch, setConnectionEpoch] = useState(0);
 
   // Session-identity watcher. MUST stay declared BEFORE the connect effect:
@@ -549,8 +566,29 @@ export function TerminalClient({
   // see that the reconnect is already being handled by the `server` dep.
   useEffect(() => {
     const servedSession = connectedSessionRef.current;
+
+    // UNRESOLVED connection (opened before the first snapshot — its served
+    // session is ""): identity is the windowId it was opened for. A
+    // windowId change here must reconnect — the relay resolved the OLD
+    // window's owner, so riding the socket (or absorbing a same-commit
+    // resolution) would silently mismatch identity and attachment.
+    // connectedWindowIdRef is "" before the first connect, so pre-ready
+    // renders skip this branch (and the server guard blocks their bumps).
+    if (
+      !servedSession &&
+      connectedWindowIdRef.current &&
+      windowId !== connectedWindowIdRef.current
+    ) {
+      connectedSessionRef.current = sessionName;
+      // Server changed in this same commit → the connect effect re-runs
+      // via its `server` dep; bumping the epoch too would reconnect twice.
+      if (server !== connectedServerRef.current) return;
+      setConnectionEpoch((epoch) => epoch + 1);
+      return;
+    }
+
     if (!sessionName) {
-      // "" → "" (cold mount, still unresolved): nothing to do.
+      // "" → "" (cold mount, still unresolved, same window): nothing to do.
       if (!servedSession) return;
       // resolved → "": loss of identity (see the connectionEpoch bullet
       // above) — record it and bump so the probe reconnect either
@@ -569,7 +607,7 @@ export function TerminalClient({
     // Same-commit server change → see above.
     if (server !== connectedServerRef.current) return;
     setConnectionEpoch((epoch) => epoch + 1);
-  }, [sessionName, server]);
+  }, [sessionName, server, windowId]);
 
   // WebSocket connection — lives as long as (server, owning session) does.
   // windowId is deliberately NOT a dependency: same-session switches ride
@@ -590,6 +628,7 @@ export function TerminalClient({
     // timer-driven connect() can never observe a changed identity.
     connectedServerRef.current = server;
     connectedSessionRef.current = sessionName;
+    connectedWindowIdRef.current = windowIdRef.current;
 
     const terminal = xtermRef.current;
 

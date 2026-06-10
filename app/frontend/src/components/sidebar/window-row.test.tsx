@@ -106,4 +106,46 @@ describe("WindowRow", () => {
     const { container } = renderGhostRow(win);
     expect(container.querySelector(".opacity-50.animate-pulse")).not.toBeNull();
   });
+
+  it("renders the PR status line for a change-bound window with a PR", () => {
+    const win = makeWindow({
+      windowId: "@0",
+      index: 0,
+      fabChange: "260610-596o-x",
+      prNumber: 386,
+      prUrl: "https://github.com/o/r/pull/386",
+      prState: "open",
+      prChecks: "pass",
+    });
+    renderRow(win);
+    expect(screen.getByTestId("pr-status-line")).toBeInTheDocument();
+    const link = screen.getByTestId("pr-status-link") as HTMLAnchorElement;
+    expect(link).toHaveTextContent("PR #386");
+    expect(link).toHaveAttribute("href", "https://github.com/o/r/pull/386");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("hides the PR line when the window has a PR but is not change-bound", () => {
+    const win = makeWindow({
+      windowId: "@0",
+      index: 0,
+      fabChange: undefined,
+      prNumber: 386,
+      prUrl: "https://github.com/o/r/pull/386",
+      prState: "open",
+    });
+    renderRow(win);
+    expect(screen.queryByTestId("pr-status-line")).toBeNull();
+  });
+
+  it("hides the PR line when the window is change-bound but has no PR", () => {
+    const win = makeWindow({
+      windowId: "@0",
+      index: 0,
+      fabChange: "260610-596o-x",
+      prNumber: undefined,
+    });
+    renderRow(win);
+    expect(screen.queryByTestId("pr-status-line")).toBeNull();
+  });
 });

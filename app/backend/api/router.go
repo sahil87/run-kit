@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"rk/internal/metrics"
+	"rk/internal/prstatus"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 	"rk/internal/validate"
@@ -70,6 +71,7 @@ type Server struct {
 	tmux     TmuxOps
 	hostname string
 	metrics  *metrics.Collector
+	prStatus *prstatus.Collector
 	sseHub   *sseHub
 	sseOnce  sync.Once
 }
@@ -77,7 +79,13 @@ type Server struct {
 // initSSEHub lazily creates the SSE hub on first use.
 func (s *Server) initSSEHub() {
 	s.sseOnce.Do(func() {
-		s.sseHub = newSSEHub(s.sessions, s.metrics)
+		// A nil *prstatus.Collector must be passed as a nil interface so the
+		// hub's nil check (no PR fields attached) works — wrap only when set.
+		var pc PRStatusSnapshotter
+		if s.prStatus != nil {
+			pc = s.prStatus
+		}
+		s.sseHub = newSSEHub(s.sessions, s.metrics, pc)
 	})
 }
 
@@ -293,12 +301,16 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	mc := metrics.NewCollector(metricsPollInterval)
 	mc.Start(ctx)
 
+	pc := prstatus.NewCollector(prStatusPollInterval)
+	pc.Start(ctx)
+
 	s := &Server{
 		logger:   logger,
 		sessions: &prodSessionFetcher{},
 		tmux:     &prodTmuxOps{},
 		hostname: hostname,
 		metrics:  mc,
+		prStatus: pc,
 	}
 	return s.buildRouter(), s
 }
@@ -357,6 +369,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/sessions/stream", s.handleSSE)
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
+	r.Post("/api/pr-status/refresh", s.handlePRStatusRefresh)
 
 	// Server management routes
 	r.Get("/api/servers", s.handleServersList)

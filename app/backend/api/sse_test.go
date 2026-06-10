@@ -113,7 +113,7 @@ func (f *goneSessionFetcher) FetchSessions(ctx context.Context, server string) (
 
 func TestSSEHubReapsDeadServer(t *testing.T) {
 	sf := &goneSessionFetcher{goneServers: map[string]bool{"dead": true}}
-	hub := newSSEHub(sf, nil)
+	hub := newSSEHub(sf, nil, nil)
 	// Short safety interval so the poll loop cycles quickly for the test.
 	hub.safetyInterval = 50 * time.Millisecond
 
@@ -184,7 +184,7 @@ func TestSSEHubDeduplication(t *testing.T) {
 		},
 	}
 
-	hub := newSSEHub(sf, nil)
+	hub := newSSEHub(sf, nil, nil)
 	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
 
 	hub.addClient(client)
@@ -225,7 +225,7 @@ func TestSSEHubStopsPollingWhenNoClients(t *testing.T) {
 		result: []sessions.ProjectSession{},
 	}
 
-	hub := newSSEHub(sf, nil)
+	hub := newSSEHub(sf, nil, nil)
 	client := &sseClient{ch: make(chan []byte, 8), server: "default"}
 
 	hub.addClient(client)
@@ -270,7 +270,7 @@ func (f *countingSessionFetcher) FetchSessions(ctx context.Context, server strin
 
 func TestSSEHubDropLogging(t *testing.T) {
 	sf := &countingSessionFetcher{}
-	hub := newSSEHub(sf, nil)
+	hub := newSSEHub(sf, nil, nil)
 
 	// Use a buffer of 1 so it fills immediately
 	client := &sseClient{ch: make(chan []byte, 1), server: "default"}
@@ -325,7 +325,7 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 		},
 	}
 
-	hub := newSSEHub(sf, nil)
+	hub := newSSEHub(sf, nil, nil)
 	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
 	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
 
@@ -408,7 +408,7 @@ func filterSSEEvents(events []string, name string) []string {
 
 func TestSSEHubRemoveClientSwapDelete(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
-	hub := newSSEHub(sf, nil)
+	hub := newSSEHub(sf, nil, nil)
 
 	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
 	c2 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
@@ -455,7 +455,7 @@ func TestSSEHubRemoveClientSwapDelete(t *testing.T) {
 
 func TestSSEHubRemoveLastClientDeletesKey(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
-	hub := newSSEHub(sf, nil)
+	hub := newSSEHub(sf, nil, nil)
 
 	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
 	c2 := &sseClient{ch: make(chan []byte, 8), server: "default"}
@@ -492,7 +492,7 @@ func TestSSEHubConcurrentAddRemove(t *testing.T) {
 		},
 	}
 
-	hub := newSSEHub(sf, nil)
+	hub := newSSEHub(sf, nil, nil)
 
 	// Seed one client to start polling
 	seed := &sseClient{ch: make(chan []byte, 32), server: "default"}
@@ -566,7 +566,7 @@ func (s *stubOrderFetcher) GetSessionOrder(ctx context.Context, server string) (
 }
 
 func TestSSE_BroadcastSessionOrderReachesMatchingClients(t *testing.T) {
-	hub := newSSEHub(&slowSessionFetcher{}, nil)
+	hub := newSSEHub(&slowSessionFetcher{}, nil, nil)
 	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
 
 	cDefault := &sseClient{ch: make(chan []byte, 32), server: "default"}
@@ -601,7 +601,7 @@ func TestSSE_BroadcastSessionOrderReachesMatchingClients(t *testing.T) {
 }
 
 func TestSSE_SessionOrderCachedOnConnect(t *testing.T) {
-	hub := newSSEHub(&slowSessionFetcher{}, nil)
+	hub := newSSEHub(&slowSessionFetcher{}, nil, nil)
 	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
 
 	// Broadcast before any client connects — the payload should be cached.
@@ -634,7 +634,7 @@ func TestSSE_HubBootstrapReadsOrderOnFirstPoll(t *testing.T) {
 	stub := &stubOrderFetcher{orders: map[string][]string{
 		"default": {"alpha", "beta"},
 	}}
-	hub := newSSEHub(&slowSessionFetcher{}, nil)
+	hub := newSSEHub(&slowSessionFetcher{}, nil, nil)
 	hub.orderFetcher = stub
 
 	c := &sseClient{ch: make(chan []byte, 32), server: "default"}

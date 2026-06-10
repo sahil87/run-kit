@@ -1,0 +1,49 @@
+id: 596o
+name: 260610-596o-pr-status-sidebar
+created: 2026-06-10T00:37:08Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 29
+    acceptance_completed: 29
+confidence:
+    certain: 6
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 89.9
+        reversibility: 78.3
+        competence: 89.1
+        disambiguation: 88.4
+stage_metrics:
+    intake: {started_at: "2026-06-10T00:37:08Z", driver: fab-new, iterations: 1, completed_at: "2026-06-10T00:38:50Z"}
+    apply: {started_at: "2026-06-10T00:38:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-10T01:02:45Z"}
+    review: {started_at: "2026-06-10T01:02:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-10T01:07:01Z"}
+    hydrate: {started_at: "2026-06-10T01:07:01Z", driver: fab-continue, iterations: 1, completed_at: "2026-06-10T01:15:14Z"}
+    ship: {started_at: "2026-06-10T01:15:14Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-10T01:15:14Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-10T01:15:14Z

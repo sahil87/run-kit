@@ -55,6 +55,15 @@ export type WindowInfo = {
   agentIdleDuration?: string;
   fabChange?: string;
   fabStage?: string;
+  /** PR URL / number from `fab pane map` (Layer 1 — filesystem, cheap). */
+  prUrl?: string;
+  prNumber?: number;
+  /** Live PR status from the in-memory prstatus collector (Layer 3 — attached
+   *  by the SSE hub only for change-bound windows). */
+  prState?: "open" | "merged" | "closed";
+  prChecks?: "pass" | "fail" | "pending" | "none";
+  prReview?: "approved" | "changes_requested" | "review_required" | "none";
+  prIsDraft?: boolean;
   rkType?: string;
   rkUrl?: string;
   panes?: PaneInfo[];

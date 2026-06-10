@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"rk/internal/metrics"
+	"rk/internal/prstatus"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 )
@@ -40,6 +41,15 @@ type prodBoardEntriesFetcher struct{}
 
 func (prodBoardEntriesFetcher) ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error) {
 	return tmux.ListBoardEntries(ctx, server)
+}
+
+// PRStatusSnapshotter supplies the current in-memory PR-status map, keyed by PR
+// number. Injected into the SSE hub so the poll path can attach live PR status
+// to change-bound windows via a PURE in-memory read — the hot path makes no
+// network call. Implemented by *prstatus.Collector; a one-method interface lets
+// tests stub it and lets the hub degrade gracefully (nil → no PR fields).
+type PRStatusSnapshotter interface {
+	Snapshot() map[int]prstatus.PRStatus
 }
 
 // boardEventName is the SSE event type for board-membership changes. Matches
@@ -76,6 +86,13 @@ const (
 	// metrics sampling frequency is not coupled to the SSE event/safety
 	// cadences — both have independent freshness requirements.
 	metricsPollInterval = 2500 * time.Millisecond
+	// prStatusPollInterval is the cadence at which prstatus.Collector makes
+	// its single batched `gh` call. Deliberately slow (~40 calls/hr vs. the
+	// 5000/hr authenticated limit) — the SSE hot path reads the cached
+	// snapshot, never gh, so PR-status freshness is decoupled from the SSE
+	// cadence. On-demand refresh (POST /api/pr-status/refresh) covers the
+	// "I want it now" case.
+	prStatusPollInterval = 90 * time.Second
 	// sseHeartbeatPeriod is the time after which a connection without
 	// data writes a `: heartbeat` comment to keep the connection alive
 	// through intermediate proxies and detect dead connections. With the
@@ -128,18 +145,22 @@ type sseClient struct {
 const orderBootstrapMaxAttempts = 3
 
 type sseHub struct {
-	mu                       sync.RWMutex
-	clients                  map[string][]*sseClient
-	previousJSON             map[string]string        // per-server sessions JSON dedup cache
-	previousOrderJSON        map[string]string        // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
-	orderBootstrapAttempts   map[string]int           // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
-	previousRealSessions     map[string]map[string]bool // per-server prior-tick real (non-anchor) session names for disappearance logging
-	cache                    map[string]*cachedResult // per-server session fetch cache (500ms TTL)
-	polling                  bool
-	fetcher                  SessionFetcher
-	orderFetcher             SessionOrderFetcher
-	metrics                  *metrics.Collector
-	cachedMetricsJSON        string // latest metrics JSON for new clients
+	mu                     sync.RWMutex
+	clients                map[string][]*sseClient
+	previousJSON           map[string]string          // per-server sessions JSON dedup cache
+	previousOrderJSON      map[string]string          // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
+	orderBootstrapAttempts map[string]int             // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
+	previousRealSessions   map[string]map[string]bool // per-server prior-tick real (non-anchor) session names for disappearance logging
+	cache                  map[string]*cachedResult   // per-server session fetch cache (500ms TTL)
+	polling                bool
+	fetcher                SessionFetcher
+	orderFetcher           SessionOrderFetcher
+	metrics                *metrics.Collector
+	cachedMetricsJSON      string // latest metrics JSON for new clients
+	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
+	// poll path joins onto change-bound windows. nil degrades gracefully (no
+	// PR fields attached) — used by tests and when no collector is wired.
+	prStatus PRStatusSnapshotter
 
 	// subscriber, when non-nil, provides per-server Wait(after) channels
 	// driven by tmux control-mode notifications. When nil, the loop runs
@@ -179,7 +200,7 @@ func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 	return safetyPollInterval
 }
 
-func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector) *sseHub {
+func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, pc PRStatusSnapshotter) *sseHub {
 	return &sseHub{
 		clients:                make(map[string][]*sseClient),
 		previousJSON:           make(map[string]string),
@@ -190,6 +211,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector) *sseHub {
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
 		metrics:                mc,
+		prStatus:               pc,
 	}
 }
 
@@ -315,6 +337,41 @@ func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayloa
 	}
 }
 
+// attachPRStatus joins live PR status onto change-bound windows from the
+// in-memory collector snapshot. It is a PURE read of prStatus.Snapshot() — NO
+// network/gh call — preserving the SSE hot path's zero-network-call guarantee.
+//
+// Gate: status is attached only to a window that has BOTH a non-nil PrNumber
+// (from the pane-map enrichment) AND a non-empty FabChange (the change-bound
+// gate). The four display fields are always reset first so a window that lost
+// its PR (merged/closed → dropped from the snapshot) clears cleanly even on a
+// cached result slice (the cache stores the same slice by reference).
+//
+// No-op when no collector is wired (nil prStatus) — degrades gracefully.
+func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
+	if h.prStatus == nil {
+		return
+	}
+	snap := h.prStatus.Snapshot()
+	for si := range sess {
+		windows := sess[si].Windows
+		for wi := range windows {
+			w := &windows[wi]
+			// Reset display fields so stale values never linger.
+			w.PrState, w.PrChecks, w.PrReview, w.PrIsDraft = "", "", "", false
+			if w.FabChange == "" || w.PrNumber == nil {
+				continue
+			}
+			if st, ok := snap[*w.PrNumber]; ok {
+				w.PrState = st.State
+				w.PrChecks = st.Checks
+				w.PrReview = st.ReviewDecision
+				w.PrIsDraft = st.IsDraft
+			}
+		}
+	}
+}
+
 // realSessionNameSet returns the set of *user-facing* session names in the
 // snapshot — excluding the board pin-sessions (_rk-pin-*) and the control-mode
 // anchor (_rk-ctl), which are not sessions a user would notice losing. Used to
@@ -423,6 +480,13 @@ func (h *sseHub) poll() {
 				}
 				h.cache[server] = &cachedResult{data: result, fetchedAt: time.Now()}
 			}
+
+			// Attach live PR status to change-bound windows. PURE in-memory
+			// read of the collector snapshot — the hot path makes NO network
+			// call (the gh cost lives on the 90s background tick + on-demand
+			// POST). Done after the cache write so the cached snapshot stays
+			// free of mutable PR fields; the attach is cheap and idempotent.
+			h.attachPRStatus(result)
 
 			jsonBytes, err := json.Marshal(result)
 			if err != nil {

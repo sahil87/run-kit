@@ -29,10 +29,10 @@ const (
 	// WindowName is the tmux window name where `rk serve` runs.
 	WindowName = "serve"
 
-	// cmdTimeout is the default timeout for tmux commands.
+	// cmdTimeout is the default timeout for one-shot tmux commands
+	// (has-session, send-keys, kill-session, list-panes). Kept short so
+	// probes like IsRunning() stay snappy.
 	cmdTimeout = 5 * time.Second
-	// stopPollInterval is how often we check if the process stopped.
-	stopPollInterval = 200 * time.Millisecond
 
 	// LogEnvVar is the env var the daemonized inner serve reads to learn that
 	// it should tee slog output to a file in addition to stderr. Set by
@@ -69,6 +69,23 @@ func targetFor(session string) string {
 // integration tests can exercise IsRunning/Stop against an isolated socket
 // without touching a production daemon.
 var serverSocket = ServerSocket
+
+// stopGracePeriod bounds Stop()'s wait for the inner `rk serve` to exit after
+// C-c. It must exceed the inner serve's combined graceful-shutdown budget —
+// supervisor stop (5s) + server.Shutdown (5s) in cmd/rk/serve.go, run
+// sequentially, ~10s worst case — plus margin for C-c keystroke delivery and
+// tmux round-trips. It feeds Stop()'s grace-deadline timer (NOT a context
+// bounding the operation); each individual tmux command keeps the shorter
+// cmdTimeout. A var (not const) so tests can shrink it to deterministically
+// drive Stop()'s timeout/kill branch without burning the full grace period of
+// wall-clock — mirroring the serverSocket test seam.
+var stopGracePeriod = 12 * time.Second
+
+// stopPollInterval is how often Stop() checks whether the session has
+// disappeared. A var (not const) for the same test-seam reason as
+// stopGracePeriod: tests shrink it so the poll loop reacts quickly relative to
+// a shrunken grace period.
+var stopPollInterval = 200 * time.Millisecond
 
 // runTmux executes a tmux command on the daemon server, capturing stderr for diagnostics.
 func runTmux(ctx context.Context, args ...string) error {
@@ -108,6 +125,17 @@ func runTmuxOutput(ctx context.Context, args ...string) ([]byte, error) {
 // like "rk" cannot accidentally match "rk-relay-*" or "rk-daemon".
 func sessionExistsCtx(ctx context.Context, name string) bool {
 	return runTmux(ctx, "has-session", "-t", "="+name) == nil
+}
+
+// sessionExists is the context-free form of sessionExistsCtx: it runs the
+// liveness probe under its own fresh cmdTimeout context. Stop() uses this for
+// every poll/re-probe so no liveness check ever inherits a near-expired
+// deadline from the grace period — a stale context would error and be misread
+// as "session gone".
+func sessionExists(name string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	return sessionExistsCtx(ctx, name)
 }
 
 // runningSessionCtx returns the name of the live daemon session — preferring
@@ -295,39 +323,77 @@ func resolveDaemonLogPath() (string, bool) {
 	return filepath.Join(cache, daemonLogDirName, daemonLogFilename), true
 }
 
-// Stop sends C-c to the daemon pane and waits up to 5 seconds for it to exit.
-// A single context bounds the entire operation (send-keys + polling + kill).
-// Returns nil if the daemon is not running. Targets a legacy-named daemon
-// (SessionName == LegacySessionName) transparently so users upgrading from
-// older binaries can stop/restart without manual cleanup.
+// Stop sends C-c to the daemon pane and waits up to stopGracePeriod for it to
+// exit. The grace period covers the inner `rk serve`'s worst-case graceful
+// shutdown (supervisor stop + server.Shutdown, sequential ~10s) so a healthy
+// shutdown is never mis-classified as hung.
+//
+// The grace deadline is an independent timer, NOT a context bounding the whole
+// operation: every tmux command (initial lookup, C-c send, each liveness poll,
+// the kill) gets its own fresh cmdTimeout-bounded context. This is deliberate —
+// an earlier version bounded everything with one stopGracePeriod context, which
+// (a) made every probe inherit a near-expired deadline as the grace period wound
+// down, so a probe could fail on `context deadline exceeded` and be misread as
+// "session gone", and (b) coupled the wall-clock deadline to command execution,
+// leaving no seam to drive the timeout branch in tests. Separating the timer
+// from per-command contexts fixes both.
+//
+// Returns nil if the daemon is not running, if it exits on its own within the
+// grace period (C-c worked), or if the session has already vanished by kill-time
+// — a daemon that exited on its own is the success outcome, not a failure. Only
+// a session that is still alive AND fails to die under kill-session surfaces an
+// error. Targets a legacy-named daemon (SessionName == LegacySessionName)
+// transparently so users upgrading from older binaries can stop/restart without
+// manual cleanup.
 func Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer cancel()
+	// Initial lookup under its own fresh cmdTimeout context.
+	lookupCtx, lookupCancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer lookupCancel()
 
-	session := runningSessionCtx(ctx)
+	session := runningSessionCtx(lookupCtx)
 	if session == "" {
 		return nil
 	}
 
-	// Send C-c to trigger graceful shutdown.
-	if err := runTmux(ctx, "send-keys", "-t", targetFor(session), "C-c"); err != nil {
+	// Send C-c to trigger graceful shutdown, under its own fresh context.
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer sendCancel()
+	if err := runTmux(sendCtx, "send-keys", "-t", targetFor(session), "C-c"); err != nil {
 		return fmt.Errorf("sending C-c to daemon: %w", err)
 	}
 
-	// Poll until the session disappears or context expires.
+	// The grace deadline is an independent timer, NOT a context bounding the
+	// operation. Each liveness poll runs under its own fresh cmdTimeout context
+	// (via sessionExists) so no probe inherits a near-expired deadline.
+	graceTimer := time.NewTimer(stopGracePeriod)
+	defer graceTimer.Stop()
+
 	for {
 		select {
-		case <-ctx.Done():
-			// Timeout — kill forcefully with a fresh short context.
+		case <-graceTimer.C:
+			// Grace period elapsed. Re-probe under a fresh context: if the daemon
+			// already exited on its own (C-c worked), that's success — never kill
+			// an absent session nor surface a `can't find session` error.
+			if !sessionExists(session) {
+				return nil
+			}
+			// Still alive — force-kill under a fresh short context.
 			killCtx, killCancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer killCancel()
 			slog.Warn("tmux teardown", "audit", "kill", "op", "kill-session", "server", serverSocket, "target", session, "callers", "daemon.Stop(timeout)")
 			if err := runTmux(killCtx, "kill-session", "-t", "="+session); err != nil {
+				// kill-session errored. Re-confirm liveness under a fresh context:
+				// if the session is now gone the kill effectively succeeded (or the
+				// daemon raced to exit) — treat as success. Only a session that is
+				// still alive after a failed kill is a genuine failure.
+				if !sessionExists(session) {
+					return nil
+				}
 				return fmt.Errorf("killing daemon session after timeout: %w", err)
 			}
 			return nil
 		case <-time.After(stopPollInterval):
-			if !sessionExistsCtx(ctx, session) {
+			if !sessionExists(session) {
 				return nil
 			}
 		}

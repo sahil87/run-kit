@@ -68,23 +68,32 @@ function getAgentLine(win: WindowInfo): string | null {
 }
 
 /**
- * Build the PR status line for the pane panel, e.g. "#241 · open · checks pass".
- * Returns null unless the window is change-bound (`fabChange`) AND carries a
- * `prNumber` — the same gate the sidebar/dashboard PR surface uses. State is
- * always "open" in practice (the collector queries states: OPEN only).
+ * Build the PR status line for the pane panel, e.g. "#241 · open · checks pass"
+ * for an open PR, or "#241 · merged" once it lands. Returns null unless the
+ * window is change-bound (`fabChange`) AND carries a `prNumber` — the same gate
+ * the sidebar/dashboard PR surface uses. For a merged/closed PR the checks and
+ * review parts are suppressed (they're historical once the PR is no longer
+ * open); only the terminal state is shown.
  */
 function getPrLine(win: WindowInfo): string | null {
   if (!win.fabChange || !win.prNumber) return null;
   const parts = [`#${win.prNumber}`];
   if (win.prState) parts.push(`${win.prState}${win.prIsDraft ? " (draft)" : ""}`);
-  if (win.prChecks && win.prChecks !== "none") parts.push(`checks ${win.prChecks}`);
-  if (win.prReview && win.prReview !== "none") parts.push(`review: ${win.prReview.replace(/_/g, " ")}`);
+  const isOpen = !win.prState || win.prState === "open";
+  if (isOpen && win.prChecks && win.prChecks !== "none") parts.push(`checks ${win.prChecks}`);
+  if (isOpen && win.prReview && win.prReview !== "none") parts.push(`review: ${win.prReview.replace(/_/g, " ")}`);
   return parts.join(" · ");
 }
 
-/** Fail-ish PR states get the red token (mirrors the dashboard PrStatusLine). */
+/**
+ * Fail-ish PR states get the red token (mirrors the dashboard PrStatusLine).
+ * Gated on the PR being open: getPrLine suppresses the checks/review text for a
+ * merged/closed PR (it's historical once landed), so coloring the row red on a
+ * now-hidden failure would be misleading — a terminal-state row stays neutral.
+ */
 function prIsFailish(win: WindowInfo): boolean {
-  return win.prChecks === "fail" || win.prReview === "changes_requested";
+  const isOpen = !win.prState || win.prState === "open";
+  return isOpen && (win.prChecks === "fail" || win.prReview === "changes_requested");
 }
 
 export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {

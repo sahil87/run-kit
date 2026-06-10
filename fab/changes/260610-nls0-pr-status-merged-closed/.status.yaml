@@ -1,0 +1,45 @@
+id: nls0
+name: 260610-nls0-pr-status-merged-closed
+created: 2026-06-10T05:14:19Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 0
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 0.0
+stage_metrics:
+    intake: {started_at: "2026-06-10T05:14:19Z", driver: fab-new, iterations: 1, completed_at: "2026-06-10T05:15:01Z"}
+    apply: {started_at: "2026-06-10T05:15:01Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T05:15:01Z"}
+    review: {started_at: "2026-06-10T05:15:01Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T05:15:01Z"}
+    hydrate: {started_at: "2026-06-10T05:15:01Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T05:15:01Z"}
+    ship: {started_at: "2026-06-10T05:15:01Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T05:15:01Z"}
+    review-pr: {started_at: "2026-06-10T05:15:01Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T05:42:41Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/248
+true_impact:
+    added: 74
+    deleted: 40
+    net: 34
+    excluding:
+        added: 74
+        deleted: 40
+        net: 34
+    computed_at: "2026-06-10T05:15:01Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-10T05:42:41Z

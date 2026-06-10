@@ -177,13 +177,19 @@ func ghAvailable(ctx context.Context) bool {
 	return cmd.Run() == nil
 }
 
-// ghQuery is the GraphQL query fetching every open PR authored by the user
-// across all repos in a single call. statusCheckRollup.state is GitHub's
-// pre-collapsed rollup enum (SUCCESS|FAILURE|PENDING|ERROR|EXPECTED) so we get
-// the rollup for free without iterating individual check runs.
+// ghQuery is the GraphQL query fetching the user's most-recently-updated PRs
+// across all repos in a single call — OPEN, MERGED, and CLOSED, ordered by
+// UPDATED_AT desc and capped at $limit. Including MERGED/CLOSED lets the pane
+// line show a "merged"/"closed" state instead of a bare PR number after a PR
+// lands. The recency ordering + $limit cap IS the eviction mechanism: a stale
+// merged PR ages out of the top-$limit window and drops from the next wholesale
+// rebuild, so the in-memory snapshot stays bounded without separate pruning.
+// A just-merged PR is recently updated, so it sits near the top and is always
+// included. statusCheckRollup.state is GitHub's pre-collapsed rollup enum
+// (SUCCESS|FAILURE|PENDING|ERROR|EXPECTED) so we get the rollup for free.
 const ghQuery = `query($limit: Int!) {
   viewer {
-    pullRequests(first: $limit, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    pullRequests(first: $limit, states: [OPEN, MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number
         url
@@ -262,15 +268,18 @@ func parsePRs(out []byte) ([]ghPR, error) {
 
 // --- enum collapse --------------------------------------------------------------
 
-// mapState collapses GitHub's PR state to the display state. The GraphQL query
-// fetches `states: OPEN` only — a PR that merges or closes drops out of the next
-// wholesale rebuild rather than being shown (this is the cleanup mechanism), so
-// the snapshot only ever carries open PRs and this returns "open" for them. The
-// draft flag is surfaced separately via PRStatus.IsDraft; a draft PR is still
-// "open". Non-OPEN inputs (never produced by the current query) also map to
-// "open" as a safe default.
-func mapState(_ string, _ bool) string {
-	return "open"
+// mapState collapses GitHub's PR state to the display state open|merged|closed.
+// The draft flag is surfaced separately via PRStatus.IsDraft; a draft PR is
+// still "open". An unexpected/empty state defaults to "open".
+func mapState(ghState string, _ bool) string {
+	switch ghState {
+	case "MERGED":
+		return "merged"
+	case "CLOSED":
+		return "closed"
+	default: // OPEN (and any unexpected value)
+		return "open"
+	}
 }
 
 // mapChecks collapses GitHub's statusCheckRollup state to pass|fail|pending|none.

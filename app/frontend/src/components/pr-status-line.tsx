@@ -1,15 +1,16 @@
 import { refreshPrStatus } from "@/api/client";
 import type { WindowInfo } from "@/types";
 
-/**
- * State glyph. The collector only fetches OPEN PRs (states: OPEN — the
- * wholesale-rebuild cleanup means merged/closed PRs simply drop out of the
- * snapshot rather than being displayed), so `prState` is always "open" in
- * practice and the glyph is the open dot. Kept as a function for the (unused)
- * non-open fallback so the call site reads uniformly.
- */
-function stateGlyph(_state: WindowInfo["prState"]): string {
-  return "●";
+/** State glyph: open=●, merged=✓, closed=✗. Falls back to ● for unknown. */
+function stateGlyph(state: WindowInfo["prState"]): string {
+  switch (state) {
+    case "merged":
+      return "✓";
+    case "closed":
+      return "✗";
+    default:
+      return "●";
+  }
 }
 
 /** Human-readable checks/review summary, e.g. "checks pass" or "review: changes requested". */

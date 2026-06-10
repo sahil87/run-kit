@@ -83,8 +83,10 @@ func TestRefreshWholesaleRebuildDropsAbsentPR(t *testing.T) {
 		t.Fatalf("first cycle snapshot = %v, want #100 and #200", snap)
 	}
 
-	// Second cycle: #100 merged/closed → absent from --state open result.
-	// Wholesale rebuild must drop it (no eviction logic).
+	// Second cycle: #100 is simply absent from the fetch result. Whatever the
+	// real-world reason (e.g. it aged out of the top-$limit UPDATED_AT window),
+	// the wholesale rebuild must drop it — there is no separate pruning logic,
+	// so "not in the latest fetch" is the entire eviction mechanism.
 	out = ghJSON(ghFixture(200, "u200", "OPEN", false, "SUCCESS", ""))
 	c.refresh(context.Background())
 	snap := c.Snapshot()
@@ -212,12 +214,11 @@ func TestMapState(t *testing.T) {
 	}{
 		{"OPEN", false, "open"},
 		{"OPEN", true, "open"}, // draft is surfaced via IsDraft, still "open"
-		// The collector queries states: OPEN only, so merged/closed PRs never
-		// reach mapState — they drop out of the wholesale rebuild instead. Any
-		// non-OPEN input therefore maps to the "open" safe default.
-		{"MERGED", false, "open"},
-		{"CLOSED", false, "open"},
-		{"WAT", false, "open"},
+		// The collector queries states: [OPEN, MERGED, CLOSED] so the line can
+		// show a terminal state after a PR lands.
+		{"MERGED", false, "merged"},
+		{"CLOSED", false, "closed"},
+		{"WAT", false, "open"}, // unexpected → safe "open" default
 	}
 	for _, tc := range cases {
 		if got := mapState(tc.in, tc.draft); got != tc.want {
@@ -230,7 +231,8 @@ func TestDraftAndEnumCollapseEndToEnd(t *testing.T) {
 	c := newTestCollector(func(context.Context) ([]byte, error) {
 		return ghJSON(
 			ghFixture(11, "u11", "OPEN", true, "FAILURE", "CHANGES_REQUESTED") + "," +
-				ghFixture(12, "u12", "OPEN", false, "SUCCESS", "APPROVED"),
+				ghFixture(12, "u12", "OPEN", false, "SUCCESS", "APPROVED") + "," +
+				ghFixture(13, "u13", "MERGED", false, "", ""),
 		), nil
 	})
 	c.refresh(context.Background())
@@ -244,11 +246,16 @@ func TestDraftAndEnumCollapseEndToEnd(t *testing.T) {
 		t.Errorf("#11 collapse wrong: %+v", p11)
 	}
 	// #12 is a non-draft open PR with passing checks and an approval — exercises
-	// the SUCCESS→pass and APPROVED→approved collapses. (Merged/closed states
-	// are unreachable: the query is states: OPEN.)
+	// the SUCCESS→pass and APPROVED→approved collapses.
 	p12 := snap[12]
 	if p12.State != "open" || p12.IsDraft || p12.Checks != "pass" || p12.ReviewDecision != "approved" {
 		t.Errorf("#12 collapse wrong: %+v", p12)
+	}
+	// #13 is merged — the query now includes MERGED so a landed PR shows its
+	// terminal state (checks/review are "none"/none for the empty fixture).
+	p13 := snap[13]
+	if p13.State != "merged" {
+		t.Errorf("#13 should be merged, got %+v", p13)
 	}
 }
 

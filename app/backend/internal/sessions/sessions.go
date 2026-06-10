@@ -75,6 +75,8 @@ type paneMapEntry struct {
 	Stage             *string `json:"stage"`
 	AgentState        *string `json:"agent_state"`
 	AgentIdleDuration *string `json:"agent_idle_duration"`
+	PrURL             *string `json:"pr_url"`
+	PrNumber          *int    `json:"pr_number"`
 }
 
 // fetchPaneMap runs `fab pane map --json --all-sessions` via the fab router on
@@ -451,6 +453,8 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 				sd.windows[j].FabStage = derefStr(entry.Stage)
 				sd.windows[j].AgentState = derefStr(entry.AgentState)
 				sd.windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
+				sd.windows[j].PrURL = entry.PrURL
+				sd.windows[j].PrNumber = entry.PrNumber
 			}
 			for k := range sd.windows[j].Panes {
 				if branch, ok := gitBranches[sd.windows[j].Panes[k].Cwd]; ok {

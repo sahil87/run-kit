@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { getWindowDuration, parseFabChange } from "@/lib/format";
+import { PrStatusLine } from "@/components/pr-status-line";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
@@ -94,10 +95,13 @@ export function Dashboard({
                     const ghost = isGhostWindow(win);
 
                     return (
-                      <button
+                      <div
                         key={ghost ? `ghost-${win.optimisticId}` : win.windowId}
+                        className={`rounded border border-border bg-bg-primary hover:border-text-secondary transition-colors${ghost ? " opacity-50 animate-pulse" : ""}`}
+                      >
+                      <button
                         onClick={() => onNavigate(win.windowId)}
-                        className={`w-full text-left p-2 rounded bg-bg-primary border border-border hover:border-text-secondary transition-colors min-h-[36px]${ghost ? " opacity-50 animate-pulse" : ""}`}
+                        className="w-full text-left p-2 min-h-[36px]"
                         data-testid={`window-card-${session.name}-${win.index}`}
                       >
                         <div className="flex items-center justify-between gap-2">
@@ -142,6 +146,15 @@ export function Dashboard({
                           </div>
                         )}
                       </button>
+                      {/* Live PR status line — under the card (outside the
+                          button so the PR link is valid HTML). Gate lives in
+                          PrStatusLine: change-bound windows with a PR only. */}
+                      {!ghost && (
+                        <div className="px-2 pb-2 -mt-1">
+                          <PrStatusLine win={win} />
+                        </div>
+                      )}
+                      </div>
                     );
                   })}
 

@@ -1,3 +1,6 @@
+---
+description: Session enumeration, group filtering, direct-attach relay + move-based board pin-sessions (`_rk-pin-*`), window addressing, SSE poll-set reap on dead-server fetch error, unified test-socket naming + `rk reaper`, env-gated `RK_SERVER_ALLOWLIST` test-scoping
+---
 # tmux Session Enumeration
 
 ## Multi-Server Model

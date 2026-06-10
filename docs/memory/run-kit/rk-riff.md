@@ -1,3 +1,6 @@
+---
+description: "`rk riff` subcommand — worktree + tmux window + Claude launcher with argv-ordered pane arrays, presets, named layouts, and parallel fan-out"
+---
 # `rk riff`
 
 `rk riff` is the Cobra subcommand that creates a git worktree, opens a new tmux window inside it, and launches one or more Claude Code sessions (or arbitrary shell panes) in a multi-pane layout. It generalizes the earlier single-skill riff model to an argv-ordered pane array with presets, named layouts, and parallel fan-out across N worktrees.

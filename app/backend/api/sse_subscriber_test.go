@@ -95,7 +95,7 @@ func TestSSE_EventDrivenWakesOnSubscriberBump(t *testing.T) {
 			}},
 		},
 	}
-	hub := newSSEHub(tracker, nil)
+	hub := newSSEHub(tracker, nil, nil)
 	hub.subscriber = sub
 	hub.safetyInterval = 5 * time.Second // long enough that the test
 	// would clearly fail if it had to wait for the timer.
@@ -173,7 +173,7 @@ func TestSSE_SafetyTickerFiresWithoutSubscriber(t *testing.T) {
 			"kits": {{Name: "s1"}},
 		},
 	}
-	hub := newSSEHub(tracker, nil)
+	hub := newSSEHub(tracker, nil, nil)
 	hub.safetyInterval = 50 * time.Millisecond
 
 	client := &sseClient{ch: make(chan []byte, 16), server: "kits"}
@@ -234,7 +234,7 @@ func TestSSE_PTYUnavailableDoesNotBusyLoop(t *testing.T) {
 			"kits": {{Name: "s1"}},
 		},
 	}
-	hub := newSSEHub(tracker, nil)
+	hub := newSSEHub(tracker, nil, nil)
 	hub.subscriber = neverSubscriber{}
 	// 200ms safety interval so a healthy loop ticks ~5 times per second;
 	// a busy-loop would call FetchSessions hundreds of times in 250ms.
@@ -276,7 +276,7 @@ func TestSSE_WaitForNextDoesNotLeakGoroutines(t *testing.T) {
 			"kits": {{Name: "s1"}},
 		},
 	}
-	hub := newSSEHub(tracker, nil)
+	hub := newSSEHub(tracker, nil, nil)
 	hub.subscriber = sub
 	hub.safetyInterval = 5 * time.Second // safety timer never wins.
 
@@ -347,27 +347,27 @@ func (c coverageSubscriber) Covers(server string) bool        { return c.covered
 // surface within the test timeout instead of waiting for the 12s backstop.
 func TestSafetyIntervalEffective(t *testing.T) {
 	t.Run("no subscriber -> legacy fast", func(t *testing.T) {
-		h := newSSEHub(&fetchTracker{}, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil)
 		if got := h.safetyIntervalEffective([]string{"any"}); got != legacyPollInterval {
 			t.Fatalf("got %v, want %v", got, legacyPollInterval)
 		}
 	})
 	t.Run("all covered -> long safety interval", func(t *testing.T) {
-		h := newSSEHub(&fetchTracker{}, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil)
 		h.subscriber = coverageSubscriber{covered: map[string]bool{"a": true, "b": true}}
 		if got := h.safetyIntervalEffective([]string{"a", "b"}); got != safetyPollInterval {
 			t.Fatalf("got %v, want %v", got, safetyPollInterval)
 		}
 	})
 	t.Run("any uncovered -> legacy fast", func(t *testing.T) {
-		h := newSSEHub(&fetchTracker{}, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil)
 		h.subscriber = coverageSubscriber{covered: map[string]bool{"a": true, "rk-test-e2e": false}}
 		if got := h.safetyIntervalEffective([]string{"a", "rk-test-e2e"}); got != legacyPollInterval {
 			t.Fatalf("got %v, want %v (an uncovered server must force the fast cadence)", got, legacyPollInterval)
 		}
 	})
 	t.Run("explicit override wins", func(t *testing.T) {
-		h := newSSEHub(&fetchTracker{}, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil)
 		h.subscriber = coverageSubscriber{covered: map[string]bool{}}
 		h.safetyInterval = 99 * time.Millisecond
 		if got := h.safetyIntervalEffective([]string{"uncovered"}); got != 99*time.Millisecond {

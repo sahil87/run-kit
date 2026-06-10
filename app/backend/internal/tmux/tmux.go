@@ -206,22 +206,33 @@ type PaneInfo struct {
 
 // WindowInfo describes a single tmux window within a session.
 type WindowInfo struct {
-	Index             int        `json:"index"`
-	WindowID          string     `json:"windowId"`
-	Name              string     `json:"name"`
-	WorktreePath      string     `json:"worktreePath"`
-	Activity          string     `json:"activity"` // "active" or "idle"
-	IsActiveWindow    bool       `json:"isActiveWindow"`
-	PaneCommand       string     `json:"paneCommand,omitempty"`
-	ActivityTimestamp int64      `json:"activityTimestamp"`
-	Color             *int       `json:"color,omitempty"`
-	AgentState        string     `json:"agentState,omitempty"`
-	AgentIdleDuration string     `json:"agentIdleDuration,omitempty"`
-	FabChange         string     `json:"fabChange,omitempty"`
-	FabStage          string     `json:"fabStage,omitempty"`
-	RkType            string     `json:"rkType,omitempty"`
-	RkUrl             string     `json:"rkUrl,omitempty"`
-	Panes             []PaneInfo `json:"panes,omitempty"`
+	Index             int    `json:"index"`
+	WindowID          string `json:"windowId"`
+	Name              string `json:"name"`
+	WorktreePath      string `json:"worktreePath"`
+	Activity          string `json:"activity"` // "active" or "idle"
+	IsActiveWindow    bool   `json:"isActiveWindow"`
+	PaneCommand       string `json:"paneCommand,omitempty"`
+	ActivityTimestamp int64  `json:"activityTimestamp"`
+	Color             *int   `json:"color,omitempty"`
+	AgentState        string `json:"agentState,omitempty"`
+	AgentIdleDuration string `json:"agentIdleDuration,omitempty"`
+	FabChange         string `json:"fabChange,omitempty"`
+	FabStage          string `json:"fabStage,omitempty"`
+	// PR fields. PrURL/PrNumber come from `fab pane map` (filesystem, cheap)
+	// via the sessions enrichment join (Layer 1). PrState/PrChecks/PrReview/
+	// PrIsDraft are attached by the SSE hub from the in-memory prstatus
+	// collector snapshot (Layer 3) — only for change-bound windows. Both
+	// layers are populated outside this package.
+	PrURL     *string    `json:"prUrl,omitempty"`
+	PrNumber  *int       `json:"prNumber,omitempty"`
+	PrState   string     `json:"prState,omitempty"`
+	PrChecks  string     `json:"prChecks,omitempty"`
+	PrReview  string     `json:"prReview,omitempty"`
+	PrIsDraft bool       `json:"prIsDraft,omitempty"`
+	RkType    string     `json:"rkType,omitempty"`
+	RkUrl     string     `json:"rkUrl,omitempty"`
+	Panes     []PaneInfo `json:"panes,omitempty"`
 }
 
 // tmuxExecServer runs a tmux command targeting the specified server and returns stdout lines (empty lines filtered).

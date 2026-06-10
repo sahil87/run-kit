@@ -279,6 +279,111 @@ func TestPaneMapNilLeavesAllFieldsEmpty(t *testing.T) {
 	}
 }
 
+func TestPaneMapEntryParsesPrFields(t *testing.T) {
+	jsonData := `[
+		{"session":"dev","window_index":0,"pane":"%0","tab":"main","worktree":"/p","change":"260610-596o-x","stage":"apply","agent_state":null,"agent_idle_duration":null,"pr_url":"https://github.com/o/r/pull/386","pr_number":386},
+		{"session":"dev","window_index":1,"pane":"%1","tab":"build","worktree":"/b","change":null,"stage":null,"agent_state":null,"agent_idle_duration":null,"pr_url":null,"pr_number":null}
+	]`
+
+	var entries []paneMapEntry
+	if err := json.Unmarshal([]byte(jsonData), &entries); err != nil {
+		t.Fatalf("failed to parse pane-map JSON: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+
+	// First entry: PR fields populated.
+	if entries[0].PrURL == nil || *entries[0].PrURL != "https://github.com/o/r/pull/386" {
+		t.Errorf("entries[0].PrURL = %v, want the PR url", entries[0].PrURL)
+	}
+	if entries[0].PrNumber == nil || *entries[0].PrNumber != 386 {
+		t.Errorf("entries[0].PrNumber = %v, want 386", entries[0].PrNumber)
+	}
+	// Second entry: null PR fields parse to nil pointers.
+	if entries[1].PrURL != nil {
+		t.Errorf("entries[1].PrURL = %v, want nil", entries[1].PrURL)
+	}
+	if entries[1].PrNumber != nil {
+		t.Errorf("entries[1].PrNumber = %v, want nil", entries[1].PrNumber)
+	}
+}
+
+func TestPaneMapJoinPopulatesPerWindowPrFields(t *testing.T) {
+	change := "260610-596o-x"
+	prURL := "https://github.com/o/r/pull/386"
+	prNumber := 386
+
+	paneMap := map[string]paneMapEntry{
+		// Window with a PR (change-bound).
+		"dev:0": {
+			Session:     "dev",
+			WindowIndex: 0,
+			Change:      &change,
+			PrURL:       &prURL,
+			PrNumber:    &prNumber,
+		},
+		// Window with a pane-map entry but null PR fields.
+		"dev:1": {
+			Session:     "dev",
+			WindowIndex: 1,
+			Change:      &change,
+			PrURL:       nil,
+			PrNumber:    nil,
+		},
+	}
+
+	windows := []tmux.WindowInfo{
+		{Index: 0, WindowID: "@10", Name: "main"},
+		{Index: 1, WindowID: "@11", Name: "build"},
+		{Index: 2, WindowID: "@12", Name: "test"}, // no pane-map entry
+	}
+
+	// Mirror the FetchSessions enrichment join FAITHFULLY: production does not
+	// join by (session, index) directly — it first re-keys the (session, index)
+	// pane-map onto each window's stable WindowID (so an index shift from a
+	// reorder can never misattribute one window's PR fields to another), then
+	// joins by WindowID. Reproduce both steps here.
+	sessionName := "dev"
+	enrichByWindowID := make(map[string]paneMapEntry, len(paneMap))
+	for j := range windows {
+		indexKey := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
+		if entry, ok := paneMap[indexKey]; ok {
+			enrichByWindowID[windows[j].WindowID] = entry
+		}
+	}
+	for j := range windows {
+		if entry, ok := enrichByWindowID[windows[j].WindowID]; ok {
+			windows[j].PrURL = entry.PrURL
+			windows[j].PrNumber = entry.PrNumber
+		}
+	}
+
+	// Window 0: PR fields flow through as the entry's pointer values.
+	if windows[0].PrURL == nil || *windows[0].PrURL != prURL {
+		t.Errorf("windows[0].PrURL = %v, want %q", windows[0].PrURL, prURL)
+	}
+	if windows[0].PrNumber == nil || *windows[0].PrNumber != prNumber {
+		t.Errorf("windows[0].PrNumber = %v, want %d", windows[0].PrNumber, prNumber)
+	}
+
+	// Window 1: pane-map entry present but null PR fields → nil.
+	if windows[1].PrURL != nil {
+		t.Errorf("windows[1].PrURL = %v, want nil", windows[1].PrURL)
+	}
+	if windows[1].PrNumber != nil {
+		t.Errorf("windows[1].PrNumber = %v, want nil", windows[1].PrNumber)
+	}
+
+	// Window 2: no pane-map entry → nil PR fields.
+	if windows[2].PrURL != nil {
+		t.Errorf("windows[2].PrURL = %v, want nil", windows[2].PrURL)
+	}
+	if windows[2].PrNumber != nil {
+		t.Errorf("windows[2].PrNumber = %v, want nil", windows[2].PrNumber)
+	}
+}
+
 func TestFetchPaneMapFabNotOnPath(t *testing.T) {
 	// When `fab` is not reachable via $PATH, fetchPaneMap MUST return a
 	// non-nil error and a nil map. We force the failure by clearing PATH

@@ -317,6 +317,20 @@ export async function initTmuxConf(): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
+/** Trigger an on-demand refresh of the server-side PR-status collector. The
+ *  refreshed statuses arrive via the normal SSE sessions stream — this just
+ *  kicks the (otherwise 90s-cadence) batched `gh` fetch. Best-effort: callers
+ *  ignore the result. Server-independent (the collector is global). */
+export async function refreshPrStatus(): Promise<{ ok: boolean }> {
+  const res = await fetch("/api/pr-status/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) await throwOnError(res);
+  return { ok: true };
+}
+
 export async function uploadFile(
   server: string,
   session: string,

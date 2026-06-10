@@ -68,17 +68,20 @@ function getAgentLine(win: WindowInfo): string | null {
 }
 
 /**
- * Build the PR status line for the pane panel, e.g. "#241 · open · checks pass".
- * Returns null unless the window is change-bound (`fabChange`) AND carries a
- * `prNumber` — the same gate the sidebar/dashboard PR surface uses. State is
- * always "open" in practice (the collector queries states: OPEN only).
+ * Build the PR status line for the pane panel, e.g. "#241 · open · checks pass"
+ * for an open PR, or "#241 · merged" once it lands. Returns null unless the
+ * window is change-bound (`fabChange`) AND carries a `prNumber` — the same gate
+ * the sidebar/dashboard PR surface uses. For a merged/closed PR the checks and
+ * review parts are suppressed (they're historical once the PR is no longer
+ * open); only the terminal state is shown.
  */
 function getPrLine(win: WindowInfo): string | null {
   if (!win.fabChange || !win.prNumber) return null;
   const parts = [`#${win.prNumber}`];
   if (win.prState) parts.push(`${win.prState}${win.prIsDraft ? " (draft)" : ""}`);
-  if (win.prChecks && win.prChecks !== "none") parts.push(`checks ${win.prChecks}`);
-  if (win.prReview && win.prReview !== "none") parts.push(`review: ${win.prReview.replace(/_/g, " ")}`);
+  const isOpen = !win.prState || win.prState === "open";
+  if (isOpen && win.prChecks && win.prChecks !== "none") parts.push(`checks ${win.prChecks}`);
+  if (isOpen && win.prReview && win.prReview !== "none") parts.push(`review: ${win.prReview.replace(/_/g, " ")}`);
   return parts.join(" · ");
 }
 

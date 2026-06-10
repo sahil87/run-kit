@@ -439,6 +439,21 @@ describe("StatusPanel copy behavior", () => {
       );
     });
 
+    it("shows the terminal state and suppresses checks/review for a merged PR", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-x",
+        prNumber: 247,
+        prUrl: "https://github.com/sahil87/run-kit/pull/247",
+        prState: "merged",
+        prChecks: "pass",
+        prReview: "approved",
+      });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      // Merged PRs show "#247 · merged" only — checks/review are historical
+      // once a PR lands, so they're suppressed.
+      expect(screen.getByText("#247 · merged")).toBeInTheDocument();
+    });
+
     it("renders an open-in-new-tab link to the PR URL", () => {
       const win = makeWindow({
         fabChange: "260610-596o-x",

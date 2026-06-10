@@ -51,6 +51,18 @@ func withServerSocket(t *testing.T, socket string) {
 	t.Cleanup(func() { serverSocket = orig })
 }
 
+// withStopTiming shrinks Stop()'s grace period and poll interval for the
+// duration of the test and restores them on cleanup. Shrinking the grace
+// period lets a test deterministically drive Stop() into its timeout/kill
+// branch — the code path the rk-update restart bug lived in — without burning
+// the full 12s wall-clock. Mirrors the withServerSocket test seam.
+func withStopTiming(t *testing.T, grace, poll time.Duration) {
+	t.Helper()
+	origGrace, origPoll := stopGracePeriod, stopPollInterval
+	stopGracePeriod, stopPollInterval = grace, poll
+	t.Cleanup(func() { stopGracePeriod, stopPollInterval = origGrace, origPoll })
+}
+
 func TestConstants(t *testing.T) {
 	if ServerSocket != "rk-daemon" {
 		t.Errorf("ServerSocket = %q, want %q", ServerSocket, "rk-daemon")
@@ -98,6 +110,21 @@ func startOn(socket, session string) error {
 	return exec.Command("tmux", "-L", socket,
 		"new-session", "-d", "-s", session, "-n", WindowName,
 		"sleep", "300").Run()
+}
+
+// startSelfExitingOn creates a session whose inner command HONORS SIGINT (C-c)
+// AND also self-exits after a fixed short delay, so the session vanishes on its
+// own within a bounded, signal-delivery-independent window. Unlike startOn's
+// `sleep 300` (ignores C-c, stays alive), and unlike a pure `trap … INT` shell
+// (whose exit timing depends on C-c delivery latency and so races a short grace
+// period under load), the fixed `sleep` bounds teardown deterministically:
+// pair it with a grace period several times larger and the session is reliably
+// gone before the grace timer fires — no wall-clock race. delaySec is the
+// fixed self-exit delay in seconds (fractional ok, e.g. "0.2").
+func startSelfExitingOn(socket, session, delaySec string) error {
+	return exec.Command("tmux", "-L", socket,
+		"new-session", "-d", "-s", session, "-n", WindowName,
+		"sh", "-c", "trap 'exit 0' INT; sleep "+delaySec+"; exit 0").Run()
 }
 
 // stopOn sends C-c and kills the named session on the given socket.
@@ -259,6 +286,119 @@ func TestStop_LegacySessionName(t *testing.T) {
 	}
 	if IsRunning() {
 		t.Error("IsRunning() = true after Stop(); legacy session should be gone")
+	}
+}
+
+// TestStop_TimeoutThenSessionVanished is the regression test for the rk-update
+// restart bug: Stop() reported a non-nil error on a graceful shutdown that
+// actually SUCCEEDED, aborting RestartWithBinary before the new binary launched.
+//
+// The bug lived ONLY in the timeout/kill branch: when the inner serve's graceful
+// shutdown outlasted Stop()'s budget, the grace timer fired, and by kill-time the
+// session had finished exiting — so `kill-session` returned `can't find session`,
+// which old code wrapped as a fatal error.
+//
+// Reaching that branch deterministically requires the session to be LIVE at the
+// initial lookup, then GONE by the kill-branch re-probe — without a wall-clock
+// race. We construct that ordering with a wide margin:
+//   - poll interval set huge (1h) so the happy-path poll arm can never fire;
+//     the grace timer is the only select arm that can win.
+//   - the session self-exits at a FIXED 200ms (startSelfExitingOn), independent
+//     of C-c delivery latency, so teardown completes in a tight, bounded window.
+//   - the grace period is 2s — 10x the self-exit delay — so the session is
+//     reliably gone (≈1.8s margin) before the grace timer fires and Stop()
+//     re-probes. No event-ordering race remains even under CPU/tmux load.
+//
+// Why this is the real guard: the PRE-EXISTING TestStop_LegacySessionName uses
+// `sleep 300` (ignores C-c) and always hits the kill path with a LIVE session,
+// which old code handled fine. The very first version of THIS test used the full
+// 12s grace, so the session vanished in the happy-path poll loop and the test
+// passed against buggy code — proving nothing. Here the huge poll interval
+// bypasses the happy path and forces the timeout/kill branch — the only code the
+// fix touches. This test FAILS against pre-fix daemon.go (kill against the
+// vanished session → `can't find session` error) and PASSES against the fix.
+func TestStop_TimeoutThenSessionVanished(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+	// Grace (2s) ≫ the session's fixed 200ms self-exit, and poll interval huge so
+	// only the grace timer fires. Stop() therefore takes the timeout/kill branch
+	// with the session already gone — the exact bug condition — with no race.
+	withStopTiming(t, 2*time.Second, time.Hour)
+
+	if err := startSelfExitingOn(testSocket, SessionName, "0.2"); err != nil {
+		t.Fatalf("startSelfExitingOn() error: %v", err)
+	}
+	if !IsRunning() {
+		t.Fatal("IsRunning() = false; expected true for the freshly started session")
+	}
+
+	// Stop() sends C-c and waits; the session self-exits at ~200ms, well before
+	// the 2s grace timer. When the timer fires, the fix's re-probe under a fresh
+	// context finds the session already gone and returns nil. Pre-fix code ran
+	// kill-session against the vanished session and returned a `can't find
+	// session` error — aborting the rk-update restart.
+	err := Stop()
+	if err != nil {
+		t.Fatalf("Stop() = %v; a session that exits on its own during the wait must report success, not a kill error", err)
+	}
+	if IsRunning() {
+		t.Error("IsRunning() = true after Stop(); the self-exiting session should be gone")
+	}
+}
+
+// TestStop_TimeoutStuckSessionIsKilled pins the OTHER side of the kill branch: a
+// session that does NOT honor C-c and is STILL ALIVE when the grace timer fires
+// must be force-killed (not silently reported as a successful stop). Uses
+// startOn's `sleep 300` (ignores C-c) so the session is reliably alive at the
+// timeout; Stop()'s re-probe finds it present, kill-session succeeds, and Stop()
+// returns nil. A restart round-trip then confirms a fresh session comes back up.
+// Guards against an over-broad "always return nil" regression of the fix.
+//
+// (The remaining sub-branch — kill-session itself failing while the session is
+// still alive, which surfaces a wrapped error — is correct by inspection but not
+// unit-tested: provoking a kill failure on a genuinely live session would
+// require process/IPC injection beyond this integration test's reach.)
+func TestStop_TimeoutStuckSessionIsKilled(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+	withStopTiming(t, time.Nanosecond, time.Hour)
+
+	// sleep 300 ignores C-c, so the session is still alive when the (instantly
+	// expired) grace period sends Stop() into the kill branch.
+	if err := startOn(testSocket, SessionName); err != nil {
+		t.Fatalf("startOn() error: %v", err)
+	}
+	if !IsRunning() {
+		t.Fatal("IsRunning() = false; expected true for the freshly started session")
+	}
+
+	// Re-probe finds the session alive → kill-session runs and succeeds → nil.
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop() = %v; killing a live stuck session should succeed", err)
+	}
+	if IsRunning() {
+		t.Error("IsRunning() = true after Stop(); the stuck session should have been killed")
+	}
+
+	// Restart round-trip: after a successful stop, a fresh session must come
+	// back up — the end-to-end behavior `rk update` relies on.
+	if err := startOn(testSocket, SessionName); err != nil {
+		t.Fatalf("startOn() after Stop() error: %v; restart round-trip must bring a fresh session back up", err)
+	}
+	if !IsRunning() {
+		t.Error("IsRunning() = false after restart; a fresh session should be up")
 	}
 }
 

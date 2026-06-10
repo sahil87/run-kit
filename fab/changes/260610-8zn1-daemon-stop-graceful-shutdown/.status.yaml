@@ -1,0 +1,51 @@
+id: 8zn1
+name: 260610-8zn1-daemon-stop-graceful-shutdown
+created: 2026-06-10T03:18:31Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 3
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 83.8
+        reversibility: 85.6
+        competence: 84.8
+        disambiguation: 79.8
+stage_metrics:
+    intake: {started_at: "2026-06-10T03:18:31Z", driver: fab-new, iterations: 1, completed_at: "2026-06-10T04:25:15Z"}
+    apply: {started_at: "2026-06-10T04:47:57Z", driver: fab-fff, iterations: 3, completed_at: "2026-06-10T04:52:34Z"}
+    review: {started_at: "2026-06-10T04:52:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-10T05:11:48Z"}
+    hydrate: {started_at: "2026-06-10T05:11:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-10T05:13:53Z"}
+    ship: {started_at: "2026-06-10T05:13:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-10T05:15:44Z"}
+    review-pr: {started_at: "2026-06-10T05:15:44Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T05:17:06Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/249
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-10T05:13:53Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-10T05:17:06Z

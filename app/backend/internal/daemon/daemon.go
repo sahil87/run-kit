@@ -377,8 +377,9 @@ func Stop() error {
 			if !sessionExists(session) {
 				return nil
 			}
-			// Still alive — force-kill under a fresh short context.
-			killCtx, killCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			// Still alive — force-kill under its own fresh cmdTimeout context,
+			// consistent with every other one-shot tmux command here.
+			killCtx, killCancel := context.WithTimeout(context.Background(), cmdTimeout)
 			defer killCancel()
 			slog.Warn("tmux teardown", "audit", "kill", "op", "kill-session", "server", serverSocket, "target", session, "callers", "daemon.Stop(timeout)")
 			if err := runTmux(killCtx, "kill-session", "-t", "="+session); err != nil {

@@ -1,16 +1,15 @@
 import { refreshPrStatus } from "@/api/client";
 import type { WindowInfo } from "@/types";
 
-/** State glyph: open=●, merged=✓, closed=✗. Falls back to ● for unknown. */
-function stateGlyph(state: WindowInfo["prState"]): string {
-  switch (state) {
-    case "merged":
-      return "✓"; // ✓
-    case "closed":
-      return "✗"; // ✗
-    default:
-      return "●"; // ●
-  }
+/**
+ * State glyph. The collector only fetches OPEN PRs (states: OPEN — the
+ * wholesale-rebuild cleanup means merged/closed PRs simply drop out of the
+ * snapshot rather than being displayed), so `prState` is always "open" in
+ * practice and the glyph is the open dot. Kept as a function for the (unused)
+ * non-open fallback so the call site reads uniformly.
+ */
+function stateGlyph(_state: WindowInfo["prState"]): string {
+  return "●";
 }
 
 /** Human-readable checks/review summary, e.g. "checks pass" or "review: changes requested". */
@@ -53,14 +52,16 @@ export function PrStatusLine({ win }: { win: WindowInfo }) {
     <div
       className={`flex items-center gap-1 text-xs ${colorClass} truncate`}
       data-testid="pr-status-line"
-      // Clicking the line (but not the link) kicks an on-demand refresh.
-      // Best-effort: ignore errors (gh may be absent/unauth server-side).
+      // Clicking the line (but not the link) kicks an on-demand refresh. This
+      // is a best-effort progressive enhancement, NOT a semantic control — the
+      // PR link below is the real, keyboard-accessible action — so we use a
+      // plain onClick with no button role / tabIndex (a non-operable
+      // role="button" would be an a11y lie). Errors are ignored (gh may be
+      // absent/unauth server-side).
       onClick={(e) => {
         e.stopPropagation();
         void refreshPrStatus().catch(() => {});
       }}
-      role="button"
-      tabIndex={-1}
       title="Refresh PR status"
     >
       {win.prUrl ? (

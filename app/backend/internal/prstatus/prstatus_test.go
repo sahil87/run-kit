@@ -212,8 +212,11 @@ func TestMapState(t *testing.T) {
 	}{
 		{"OPEN", false, "open"},
 		{"OPEN", true, "open"}, // draft is surfaced via IsDraft, still "open"
-		{"MERGED", false, "merged"},
-		{"CLOSED", false, "closed"},
+		// The collector queries states: OPEN only, so merged/closed PRs never
+		// reach mapState — they drop out of the wholesale rebuild instead. Any
+		// non-OPEN input therefore maps to the "open" safe default.
+		{"MERGED", false, "open"},
+		{"CLOSED", false, "open"},
 		{"WAT", false, "open"},
 	}
 	for _, tc := range cases {
@@ -227,7 +230,7 @@ func TestDraftAndEnumCollapseEndToEnd(t *testing.T) {
 	c := newTestCollector(func(context.Context) ([]byte, error) {
 		return ghJSON(
 			ghFixture(11, "u11", "OPEN", true, "FAILURE", "CHANGES_REQUESTED") + "," +
-				ghFixture(12, "u12", "MERGED", false, "", ""),
+				ghFixture(12, "u12", "OPEN", false, "SUCCESS", "APPROVED"),
 		), nil
 	})
 	c.refresh(context.Background())
@@ -240,8 +243,11 @@ func TestDraftAndEnumCollapseEndToEnd(t *testing.T) {
 	if p11.State != "open" || p11.Checks != "fail" || p11.ReviewDecision != "changes_requested" {
 		t.Errorf("#11 collapse wrong: %+v", p11)
 	}
+	// #12 is a non-draft open PR with passing checks and an approval — exercises
+	// the SUCCESS→pass and APPROVED→approved collapses. (Merged/closed states
+	// are unreachable: the query is states: OPEN.)
 	p12 := snap[12]
-	if p12.State != "merged" || p12.Checks != "none" || p12.ReviewDecision != "none" {
+	if p12.State != "open" || p12.IsDraft || p12.Checks != "pass" || p12.ReviewDecision != "approved" {
 		t.Errorf("#12 collapse wrong: %+v", p12)
 	}
 }

@@ -484,8 +484,14 @@ func (h *sseHub) poll() {
 			// Attach live PR status to change-bound windows. PURE in-memory
 			// read of the collector snapshot — the hot path makes NO network
 			// call (the gh cost lives on the 90s background tick + on-demand
-			// POST). Done after the cache write so the cached snapshot stays
-			// free of mutable PR fields; the attach is cheap and idempotent.
+			// POST). NOTE: `result` and `h.cache[server].data` are the SAME
+			// slice (stored by reference above), so this mutates the cached
+			// snapshot in place — that is intentional and safe because
+			// attachPRStatus is idempotent: it resets all four PR fields to
+			// zero before re-attaching, so re-running it on a cache hit yields
+			// the same result and a PR that left the collector snapshot clears
+			// cleanly. Re-deriving every tick keeps the cached sessions in sync
+			// with the latest PR snapshot without a deep copy.
 			h.attachPRStatus(result)
 
 			jsonBytes, err := json.Marshal(result)

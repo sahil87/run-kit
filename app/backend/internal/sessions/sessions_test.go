@@ -334,16 +334,26 @@ func TestPaneMapJoinPopulatesPerWindowPrFields(t *testing.T) {
 	}
 
 	windows := []tmux.WindowInfo{
-		{Index: 0, Name: "main"},
-		{Index: 1, Name: "build"},
-		{Index: 2, Name: "test"}, // no pane-map entry
+		{Index: 0, WindowID: "@10", Name: "main"},
+		{Index: 1, WindowID: "@11", Name: "build"},
+		{Index: 2, WindowID: "@12", Name: "test"}, // no pane-map entry
 	}
 
-	// Mirror the FetchSessions enrichment join (assign PrURL/PrNumber by index→entry).
+	// Mirror the FetchSessions enrichment join FAITHFULLY: production does not
+	// join by (session, index) directly — it first re-keys the (session, index)
+	// pane-map onto each window's stable WindowID (so an index shift from a
+	// reorder can never misattribute one window's PR fields to another), then
+	// joins by WindowID. Reproduce both steps here.
 	sessionName := "dev"
+	enrichByWindowID := make(map[string]paneMapEntry, len(paneMap))
 	for j := range windows {
-		key := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
-		if entry, ok := paneMap[key]; ok {
+		indexKey := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
+		if entry, ok := paneMap[indexKey]; ok {
+			enrichByWindowID[windows[j].WindowID] = entry
+		}
+	}
+	for j := range windows {
+		if entry, ok := enrichByWindowID[windows[j].WindowID]; ok {
 			windows[j].PrURL = entry.PrURL
 			windows[j].PrNumber = entry.PrNumber
 		}

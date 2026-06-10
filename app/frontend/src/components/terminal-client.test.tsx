@@ -186,44 +186,78 @@ class MockWebSocket {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Shared helpers for the WS-connection describe blocks (deferred reset +
+// connection identity). Module-scoped like createWsRef above; the mutable
+// state (rAF queue, MockWebSocket.instances, Terminal mock) is reset per test
+// by stubConnectionEnv() in each block's beforeEach.
+// ---------------------------------------------------------------------------
+
+// requestAnimationFrame is stubbed with a manual queue so tests can drive
+// the rAF-coalesced flush path deterministically.
+let rafCallbacks = new Map<number, FrameRequestCallback>();
+let nextRafId = 1;
+
+function runRafCallbacks() {
+  const cbs = [...rafCallbacks.values()];
+  rafCallbacks.clear();
+  for (const cb of cbs) cb(0);
+}
+
+type TerminalSpies = {
+  reset: ReturnType<typeof vi.fn>;
+  write: ReturnType<typeof vi.fn>;
+};
+
+/** The Terminal instance created by this test's render. */
+function terminalSpies(): TerminalSpies {
+  const instance = vi.mocked(Terminal).mock.results[0]?.value as
+    | TerminalSpies
+    | undefined;
+  expect(instance).toBeTruthy();
+  return instance!;
+}
+
+/** Call order of the write(...) call whose payload matches `data`. */
+function writeOrderOf(term: TerminalSpies, data: unknown): number {
+  const idx = term.write.mock.calls.findIndex((c) => {
+    if (data instanceof Uint8Array && c[0] instanceof Uint8Array) {
+      return c[0].length === data.length && c[0].every((b: number, i: number) => b === data[i]);
+    }
+    return c[0] === data;
+  });
+  expect(idx).toBeGreaterThanOrEqual(0);
+  return term.write.mock.invocationCallOrder[idx];
+}
+
+/** Per-test environment stubs shared by the WS-connection describe blocks. */
+function stubConnectionEnv() {
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+    matches: false,
+    media: "",
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+  MockWebSocket.instances = [];
+  vi.stubGlobal("WebSocket", MockWebSocket);
+  rafCallbacks = new Map();
+  nextRafId = 1;
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    const id = nextRafId++;
+    rafCallbacks.set(id, cb);
+    return id;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+    rafCallbacks.delete(id);
+  });
+  vi.mocked(Terminal).mockClear();
+}
+
 describe("TerminalClient deferred reset (reset at first write, not receipt)", () => {
-  // requestAnimationFrame is stubbed with a manual queue so tests can drive
-  // the rAF-coalesced flush path deterministically.
-  let rafCallbacks: Map<number, FrameRequestCallback>;
-  let nextRafId: number;
-
-  function runRafCallbacks() {
-    const cbs = [...rafCallbacks.values()];
-    rafCallbacks.clear();
-    for (const cb of cbs) cb(0);
-  }
-
-  type TerminalSpies = {
-    reset: ReturnType<typeof vi.fn>;
-    write: ReturnType<typeof vi.fn>;
-  };
-
-  /** The Terminal instance created by this test's render. */
-  function terminalSpies(): TerminalSpies {
-    const instance = vi.mocked(Terminal).mock.results[0]?.value as
-      | TerminalSpies
-      | undefined;
-    expect(instance).toBeTruthy();
-    return instance!;
-  }
-
-  /** Call order of the write(...) call whose payload matches `data`. */
-  function writeOrderOf(term: TerminalSpies, data: unknown): number {
-    const idx = term.write.mock.calls.findIndex((c) => {
-      if (data instanceof Uint8Array && c[0] instanceof Uint8Array) {
-        return c[0].length === data.length && c[0].every((b: number, i: number) => b === data[i]);
-      }
-      return c[0] === data;
-    });
-    expect(idx).toBeGreaterThanOrEqual(0);
-    return term.write.mock.invocationCallOrder[idx];
-  }
-
   async function mountAndGetSocket(): Promise<MockWebSocket> {
     renderTerminalClient(false);
     // Init is async (font-load await + state update + WS effect). Flush
@@ -234,31 +268,7 @@ describe("TerminalClient deferred reset (reset at first write, not receipt)", ()
     return MockWebSocket.instances[MockWebSocket.instances.length - 1];
   }
 
-  beforeEach(() => {
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
-      matches: false,
-      media: "",
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    }));
-    MockWebSocket.instances = [];
-    vi.stubGlobal("WebSocket", MockWebSocket);
-    rafCallbacks = new Map();
-    nextRafId = 1;
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
-      const id = nextRafId++;
-      rafCallbacks.set(id, cb);
-      return id;
-    });
-    vi.stubGlobal("cancelAnimationFrame", (id: number) => {
-      rafCallbacks.delete(id);
-    });
-    vi.mocked(Terminal).mockClear();
-  });
+  beforeEach(stubConnectionEnv);
 
   afterEach(() => {
     cleanup();
@@ -431,17 +441,19 @@ describe("TerminalClient deferred reset (reset at first write, not receipt)", ()
   });
 
   it("neutralizes pending write state at effect teardown — a dead connection's late onclose drain neither resets nor writes", async () => {
-    // Window switch while the first chunk is still buffered: the WS effect
-    // (deps include windowId) tears down with the rAF pending and the reset
-    // unconsumed. The old socket's onclose is delivered asynchronously AFTER
-    // cleanup, and its drain runs before the `cancelled` check — without the
-    // cleanup neutralization it would reset the shared terminal and paint
-    // stale old-window content over the successor connection's output.
+    // Cross-session switch while the first chunk is still buffered: the WS
+    // effect (keyed on the resolved owning session — a same-session windowId
+    // switch no longer tears down) tears down with the rAF pending and the
+    // reset unconsumed. The old socket's onclose is delivered asynchronously
+    // AFTER cleanup, and its drain runs before the `cancelled` check —
+    // without the cleanup neutralization it would reset the shared terminal
+    // and paint stale old-session content over the successor connection's
+    // output.
     const wsRef = createWsRef();
-    const renderAt = (windowId: string) => (
+    const renderAt = (sessionName: string, windowId: string) => (
       <FocusedTerminalProvider>
         <TerminalClient
-          sessionName="test-session"
+          sessionName={sessionName}
           windowId={windowId}
           server="default"
           wsRef={wsRef}
@@ -452,7 +464,7 @@ describe("TerminalClient deferred reset (reset at first write, not receipt)", ()
       </FocusedTerminalProvider>
     );
 
-    const view = render(renderAt("@0"));
+    const view = render(renderAt("session-a", "@0"));
     await act(async () => {});
     await act(async () => {});
     const ws1 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
@@ -465,10 +477,11 @@ describe("TerminalClient deferred reset (reset at first write, not receipt)", ()
     expect(term.reset).not.toHaveBeenCalled();
     expect(term.write).not.toHaveBeenCalled();
 
-    // Switch windows — the old effect's cleanup runs (cancels the rAF, must
+    // Cross-session navigation — the session-identity watcher bumps the
+    // connection epoch, the old effect's cleanup runs (cancels the rAF, must
     // also neutralize the buffered chunk + pending reset), then the successor
     // effect opens a new connection.
-    view.rerender(renderAt("@1"));
+    view.rerender(renderAt("session-b", "@1"));
     await act(async () => {});
     const ws2 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
     expect(ws2).not.toBe(ws1);
@@ -480,6 +493,252 @@ describe("TerminalClient deferred reset (reset at first write, not receipt)", ()
 
     expect(term.reset).not.toHaveBeenCalled();
     expect(term.write).not.toHaveBeenCalledWith(stale);
+  });
+});
+
+describe("TerminalClient connection identity — (server, owning session), not windowId", () => {
+  type Props = {
+    sessionName: string;
+    windowId: string;
+    server?: string;
+    onSessionNotFound?: () => void;
+  };
+
+  /** Rerenderable harness so tests can change session/window/server props. */
+  function createHarness(initial: Props) {
+    const wsRef = createWsRef();
+    const renderAt = (p: Props) => (
+      <FocusedTerminalProvider>
+        <TerminalClient
+          sessionName={p.sessionName}
+          windowId={p.windowId}
+          server={p.server ?? "default"}
+          wsRef={wsRef}
+          composeOpen={false}
+          setComposeOpen={vi.fn()}
+          onSessionNotFound={p.onSessionNotFound}
+          scrollLocked={false}
+        />
+      </FocusedTerminalProvider>
+    );
+    const view = render(renderAt(initial));
+    return { view, renderAt };
+  }
+
+  function lastSocket(): MockWebSocket {
+    expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    return MockWebSocket.instances[MockWebSocket.instances.length - 1];
+  }
+
+  /** Init is async (font-load await + state update + WS effect). */
+  async function flushInit() {
+    await act(async () => {});
+    await act(async () => {});
+  }
+
+  beforeEach(stubConnectionEnv);
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("keeps the live socket across a same-session windowId switch — no close, no new socket, no reset", async () => {
+    const { view, renderAt } = createHarness({ sessionName: "sess", windowId: "@0" });
+    await flushInit();
+    const ws1 = lastSocket();
+    const term = terminalSpies();
+
+    act(() => {
+      ws1.onmessage?.({ data: "ok" }); // consume the deferred reset
+    });
+    expect(term.reset).toHaveBeenCalledTimes(1);
+    const instanceCount = MockWebSocket.instances.length;
+
+    // Same-session window switch: tmux select-window (REST / status-bar
+    // click) moves the attached PTY in place — the socket must survive.
+    view.rerender(renderAt({ sessionName: "sess", windowId: "@1" }));
+    await act(async () => {});
+
+    expect(ws1.close).not.toHaveBeenCalled();
+    expect(MockWebSocket.instances.length).toBe(instanceCount);
+    expect(term.reset).toHaveBeenCalledTimes(1); // no new reset — scrollback survives
+
+    // The surviving socket still serves writes (buffered: a second chunk in
+    // the same frame coalesces; drain the rAF queue to flush it).
+    act(() => {
+      ws1.onmessage?.({ data: "more" });
+    });
+    act(() => {
+      runRafCallbacks();
+    });
+    expect(term.write).toHaveBeenCalledWith("more");
+  });
+
+  it("closes the old socket and opens exactly one new one on a cross-session switch, with the deferred reset before the new connection's first write", async () => {
+    const { view, renderAt } = createHarness({ sessionName: "sess-a", windowId: "@0" });
+    await flushInit();
+    const ws1 = lastSocket();
+    const term = terminalSpies();
+
+    act(() => {
+      ws1.onmessage?.({ data: "old" });
+    });
+    expect(term.reset).toHaveBeenCalledTimes(1);
+    const instanceCount = MockWebSocket.instances.length;
+
+    // Cross-session navigation: the owning session genuinely changed —
+    // teardown + reconnect, targeting the LATEST windowId.
+    view.rerender(renderAt({ sessionName: "sess-b", windowId: "@3" }));
+    await act(async () => {});
+
+    expect(ws1.close).toHaveBeenCalled();
+    expect(MockWebSocket.instances.length).toBe(instanceCount + 1); // exactly one
+    const ws2 = lastSocket();
+    expect(ws2).not.toBe(ws1);
+    expect(ws2.url).toContain(`/relay/${encodeURIComponent("@3")}`);
+
+    // Part-1 invariant on genuine reconnects: the reset is re-armed and
+    // fires before the new connection's first write (no black frame).
+    expect(term.reset).toHaveBeenCalledTimes(1); // armed, not yet fired
+    act(() => {
+      ws2.onmessage?.({ data: "new" });
+    });
+    expect(term.reset).toHaveBeenCalledTimes(2);
+    expect(term.reset.mock.invocationCallOrder[1]).toBeLessThan(
+      writeOrderOf(term, "new"),
+    );
+  });
+
+  it('does not reconnect when sessionName resolves from "" — and a later genuine session change does', async () => {
+    // Cold deep-link: the SSE-derived sessionName prop is "" until the first
+    // snapshot resolves it; the relay already resolved the owning session
+    // server-side, so the resolution must be absorbed without a reconnect.
+    const { view, renderAt } = createHarness({ sessionName: "", windowId: "@0" });
+    await flushInit();
+    const ws1 = lastSocket();
+    const term = terminalSpies();
+
+    act(() => {
+      ws1.onmessage?.({ data: "ok" });
+    });
+    expect(term.reset).toHaveBeenCalledTimes(1);
+    const instanceCount = MockWebSocket.instances.length;
+
+    view.rerender(renderAt({ sessionName: "resolved-sess", windowId: "@0" }));
+    await act(async () => {});
+
+    expect(ws1.close).not.toHaveBeenCalled();
+    expect(MockWebSocket.instances.length).toBe(instanceCount);
+    expect(term.reset).toHaveBeenCalledTimes(1);
+
+    // The resolution was RECORDED as the connection's identity: a later
+    // genuine session change must reconnect.
+    view.rerender(renderAt({ sessionName: "other-sess", windowId: "@2" }));
+    await act(async () => {});
+
+    expect(ws1.close).toHaveBeenCalled();
+    expect(MockWebSocket.instances.length).toBe(instanceCount + 1);
+  });
+
+  it("reconnects after a transient drop with the LATEST windowId in the relay URL", async () => {
+    const { view, renderAt } = createHarness({ sessionName: "sess", windowId: "@0" });
+    await flushInit();
+    const ws1 = lastSocket();
+    expect(ws1.url).toContain(`/relay/${encodeURIComponent("@0")}`);
+
+    // Same-session switch first — rides the existing socket (no reconnect)…
+    view.rerender(renderAt({ sessionName: "sess", windowId: "@5" }));
+    await act(async () => {});
+    const instanceCount = MockWebSocket.instances.length;
+    expect(lastSocket()).toBe(ws1);
+
+    // …then the socket drops. The reconnect timer's connect() reads
+    // windowIdRef.current, so the new URL must target @5, not @0.
+    vi.useFakeTimers();
+    act(() => {
+      ws1.onclose?.({ code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(MockWebSocket.instances.length).toBe(instanceCount + 1);
+    const ws2 = lastSocket();
+    expect(ws2).not.toBe(ws1);
+    expect(ws2.url).toContain(`/relay/${encodeURIComponent("@5")}`);
+  });
+
+  it("reconnects exactly once when server and session change together (the watcher does not double-trigger)", async () => {
+    const { view, renderAt } = createHarness({
+      sessionName: "sess",
+      windowId: "@0",
+      server: "alpha",
+    });
+    await flushInit();
+    const ws1 = lastSocket();
+    expect(ws1.url).toContain("server=alpha");
+    const instanceCount = MockWebSocket.instances.length;
+
+    // Cross-server navigation changes server AND sessionName in one commit.
+    // The connect effect re-runs via its `server` dep; the session-identity
+    // watcher must skip its epoch bump (connectedServerRef mismatch) or the
+    // connection would be torn down and rebuilt twice.
+    view.rerender(renderAt({ sessionName: "sess-2", windowId: "@1", server: "beta" }));
+    await act(async () => {});
+    await act(async () => {});
+
+    expect(ws1.close).toHaveBeenCalled();
+    expect(MockWebSocket.instances.length).toBe(instanceCount + 1); // exactly one
+    expect(lastSocket().url).toContain("server=beta");
+  });
+
+  it('bumps the epoch on resolved → "" — loss of identity triggers a probe reconnect', async () => {
+    const { view, renderAt } = createHarness({ sessionName: "sess", windowId: "@0" });
+    await flushInit();
+    const ws1 = lastSocket();
+    const instanceCount = MockWebSocket.instances.length;
+
+    // The viewed window left the SSE snapshot (killed externally, pinned to
+    // a filtered _rk-pin-* session, or a dead deep link): sessionName goes
+    // resolved → "" and stays there. The watcher must probe-reconnect — the
+    // pre-change sessionName dep did this implicitly, and every other
+    // recovery path (kill redirect, URL writeback) is gated on a non-empty
+    // sessionName.
+    view.rerender(renderAt({ sessionName: "", windowId: "@0" }));
+    await act(async () => {});
+
+    expect(ws1.close).toHaveBeenCalled();
+    expect(MockWebSocket.instances.length).toBe(instanceCount + 1);
+    expect(lastSocket()).not.toBe(ws1);
+  });
+
+  it('restores the 4004 redirect after an external kill — resolved → "" probe closes 4004 and onSessionNotFound fires', async () => {
+    const onSessionNotFound = vi.fn();
+    const { view, renderAt } = createHarness({
+      sessionName: "sess",
+      windowId: "@0",
+      onSessionNotFound,
+    });
+    await flushInit();
+    const instanceCount = MockWebSocket.instances.length;
+
+    // Kill-while-viewing: the window vanishes from the snapshot…
+    view.rerender(renderAt({ sessionName: "", windowId: "@0", onSessionNotFound }));
+    await act(async () => {});
+    expect(MockWebSocket.instances.length).toBe(instanceCount + 1);
+    const probe = lastSocket();
+
+    // …the probe finds it gone: the relay closes 4004, and the redirect
+    // path must fire (no reconnect loop, no wedged route).
+    act(() => {
+      probe.onclose?.({ code: 4004 });
+    });
+    expect(onSessionNotFound).toHaveBeenCalledTimes(1);
+    // 4004 must not schedule a reconnect — the probe stays the last socket.
+    expect(MockWebSocket.instances.length).toBe(instanceCount + 1);
   });
 });
 

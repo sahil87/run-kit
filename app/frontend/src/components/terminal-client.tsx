@@ -471,12 +471,15 @@ export function TerminalClient({
     xtermRef.current.options.theme = deriveXtermTheme(activeTheme.palette);
   }, [activeTheme]);
 
-  // Keep a ref to windowId so reconnect (after a transient WS drop) reads
-  // the latest value without needing to be torn down/rebuilt.
+  // Keep a ref to windowId so the relay URL always reads the latest value
+  // without the WS effect needing to be torn down/rebuilt — this is what
+  // lets same-session window switches ride the existing socket, and what
+  // makes a transient-drop reconnect attach to the window the user is
+  // looking at NOW, not the one from connect time.
   const windowIdRef = useRef(windowId);
   windowIdRef.current = windowId;
 
-  // WebSocket connection — reconnects when session or windowId changes.
+  // Connection identity — (server, owning session), NOT windowId.
   //
   // Backend model (since 260602-qn62, move-based board pin-sessions): the
   // relay resolves the window's real owning session via ResolveWindowSession
@@ -484,17 +487,109 @@ export function TerminalClient({
   // home session or its `_rk-pin-*` board pin-session — then runs a
   // session-scoped select (`tmux select-window -t <session>:@N`) and
   // attaches the PTY DIRECTLY to that real session
-  // (`attach-session -t <session>`). There is no per-WebSocket ephemeral
-  // grouped session and no defer-kill; that earlier design (260508-hdjr)
-  // was deleted wholesale by 260602-qn62.
+  // (`attach-session -t <session>`). The attached PTY therefore tracks its
+  // session's active window natively, exactly like a local `tmux attach`
+  // client.
   //
-  // Consequence: a same-session reconnect is now REDUNDANT — the REST
-  // selectWindow already redraws the attached PTY in place, because the PTY
-  // is attached to the real session. A follow-up change will eliminate those
-  // reconnects by keying this effect's teardown on the resolved owning
-  // session instead of windowId (explicitly out of scope here).
+  // Consequence: a same-session windowId change needs NO reconnect — tmux
+  // has already switched the active window in place (a status-bar click
+  // travels over this very socket) or will switch it (REST selectWindow
+  // fired by navigateToWindow and the mount-time URL alignment in app.tsx),
+  // and the attached PTY redraws by itself. Reconnecting would only add a
+  // WS + PTY + attach roundtrip and wipe the xterm scrollback. So the
+  // connection is keyed on (server, owning session), tracked as:
+  //
+  //   - connectedSessionRef — the session the live connection serves.
+  //     "" means "not yet resolved": on a cold deep-link the sessionName
+  //     prop is SSE-derived and resolves a beat after mount, so we connect
+  //     immediately by windowId (the relay resolves the owning session
+  //     server-side) and absorb the "" → resolved transition by merely
+  //     recording it — by construction the live connection is already
+  //     attached to that window's owning session.
+  //   - connectedServerRef — the server the live connection was opened
+  //     against. The connect effect re-runs on `server` changes directly
+  //     (it stays in the deps), so the watcher below must NOT also bump
+  //     the epoch when the server changed in the same commit — that would
+  //     tear down and reconnect twice.
+  //   - connectionEpoch — bumped by the watcher to force a teardown +
+  //     reconnect when the served identity changes in a way the connect
+  //     effect's own deps don't already cover:
+  //       • resolved → different resolved: cross-session navigation, or a
+  //         window moved to another session. A session RENAME also lands
+  //         here and reconnects — accepted tradeoff: the SSE snapshot
+  //         carries no stable session id to tell a rename from a genuine
+  //         session change, renames are rare, and the deferred reset keeps
+  //         any reconnect flicker-free.
+  //       • resolved → "": LOSS of identity. sessionName is derived by
+  //         locating the URL's @N in the SSE snapshot, so it goes "" and
+  //         STAYS "" when the viewed window is killed externally, pinned
+  //         to a `_rk-pin-*` board session (pin-sessions are filtered from
+  //         the snapshot — pinning the viewed window therefore presents as
+  //         resolved → "", never resolved → resolved), or the route is a
+  //         dead deep link. The bump issues a probe reconnect by windowId:
+  //         if the window still exists (e.g. an X → "" → X ghost gap
+  //         during navigation — one reconnect, flicker-free) the relay
+  //         re-resolves the owning session server-side; if it is gone the
+  //         relay closes 4004 and the onSessionNotFound redirect fires.
+  //         Without this bump nothing recovers: the kill redirect and the
+  //         URL writeback in app.tsx are both gated on a non-empty
+  //         sessionName, so the route would wedge.
+  //     "" → resolved never bumps (absorption — connectedSessionRef
+  //     above), and "" → "" is a no-op. The watcher also records identity
+  //     before a connection exists — harmless: pre-ready bumps are blocked
+  //     by the server guard (connectedServerRef is "" until the first
+  //     connect; the server prop never is).
+  const connectedSessionRef = useRef("");
+  const connectedServerRef = useRef("");
+  const [connectionEpoch, setConnectionEpoch] = useState(0);
+
+  // Session-identity watcher. MUST stay declared BEFORE the connect effect:
+  // on a same-commit server+session change it has to read the PRE-change
+  // server from connectedServerRef (the connect effect overwrites it) to
+  // see that the reconnect is already being handled by the `server` dep.
+  useEffect(() => {
+    const servedSession = connectedSessionRef.current;
+    if (!sessionName) {
+      // "" → "" (cold mount, still unresolved): nothing to do.
+      if (!servedSession) return;
+      // resolved → "": loss of identity (see the connectionEpoch bullet
+      // above) — record it and bump so the probe reconnect either
+      // re-resolves the window server-side or closes 4004 and the
+      // onSessionNotFound redirect fires.
+      connectedSessionRef.current = "";
+      // Server changed in this same commit → the connect effect re-runs
+      // via its `server` dep; bumping the epoch too would reconnect twice.
+      if (server !== connectedServerRef.current) return;
+      setConnectionEpoch((epoch) => epoch + 1);
+      return;
+    }
+    connectedSessionRef.current = sessionName;
+    // First resolution ("" → resolved) or unchanged → record only.
+    if (!servedSession || servedSession === sessionName) return;
+    // Same-commit server change → see above.
+    if (server !== connectedServerRef.current) return;
+    setConnectionEpoch((epoch) => epoch + 1);
+  }, [sessionName, server]);
+
+  // WebSocket connection — lives as long as (server, owning session) does.
+  // windowId is deliberately NOT a dependency: same-session switches ride
+  // the existing socket, and the relay URL reads windowIdRef.current so any
+  // genuine reconnect (session change, server change, transient drop) picks
+  // up the latest window. sessionName is NOT a dependency either: its
+  // changes are translated into connectionEpoch bumps by the watcher above,
+  // which is what lets the cold-deep-link "" → resolved transition pass
+  // without a reconnect.
   useEffect(() => {
     if (!terminalReady || !xtermRef.current) return;
+
+    // Record the identity this connection serves. sessionName may be ""
+    // here (cold deep-link, or a loss-of-identity probe reconnect) — the
+    // watcher above fills it in on resolution without forcing a reconnect.
+    // Recording at effect-run time is sufficient: any identity change
+    // re-runs this effect (clearing the reconnect timer), so a
+    // timer-driven connect() can never observe a changed identity.
+    connectedServerRef.current = server;
+    connectedSessionRef.current = sessionName;
 
     const terminal = xtermRef.current;
 
@@ -742,8 +837,12 @@ export function TerminalClient({
         wsRef.current = null;
       }
     };
+    // sessionName and windowId are deliberately omitted (connection identity
+    // is (server, owning session) — see the comment block above); they are
+    // read inside only via windowIdRef / identity recording, which must not
+    // retrigger the effect. onSessionNotFound is a close-time callback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalReady, sessionName, windowId, server, wsRef]);
+  }, [terminalReady, server, wsRef, connectionEpoch]);
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">

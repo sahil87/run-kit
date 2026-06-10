@@ -83,9 +83,10 @@ func TestRefreshWholesaleRebuildDropsAbsentPR(t *testing.T) {
 		t.Fatalf("first cycle snapshot = %v, want #100 and #200", snap)
 	}
 
-	// Second cycle: #100 has aged out of the top-$limit UPDATED_AT window, so
-	// it's absent from the fetch. Wholesale rebuild must drop it (this recency
-	// window IS the eviction mechanism — no separate pruning logic).
+	// Second cycle: #100 is simply absent from the fetch result. Whatever the
+	// real-world reason (e.g. it aged out of the top-$limit UPDATED_AT window),
+	// the wholesale rebuild must drop it — there is no separate pruning logic,
+	// so "not in the latest fetch" is the entire eviction mechanism.
 	out = ghJSON(ghFixture(200, "u200", "OPEN", false, "SUCCESS", ""))
 	c.refresh(context.Background())
 	snap := c.Snapshot()

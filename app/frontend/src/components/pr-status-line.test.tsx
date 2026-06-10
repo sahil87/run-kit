@@ -61,6 +61,28 @@ describe("PrStatusLine", () => {
     expect(line).toHaveTextContent("review: approved");
   });
 
+  it("renders the merged glyph and state for a merged PR", () => {
+    render(
+      <PrStatusLine
+        win={makeWindow({ fabChange: "260610-x", prNumber: 386, prState: "merged" })}
+      />,
+    );
+    const line = screen.getByTestId("pr-status-line");
+    expect(line).toHaveTextContent("\u2713"); // ✓
+    expect(line).toHaveTextContent("merged");
+  });
+
+  it("renders the closed glyph and state for a closed PR", () => {
+    render(
+      <PrStatusLine
+        win={makeWindow({ fabChange: "260610-x", prNumber: 386, prState: "closed" })}
+      />,
+    );
+    const line = screen.getByTestId("pr-status-line");
+    expect(line).toHaveTextContent("\u2717"); // ✗
+    expect(line).toHaveTextContent("closed");
+  });
+
   it("uses the red token for failing checks", () => {
     render(
       <PrStatusLine

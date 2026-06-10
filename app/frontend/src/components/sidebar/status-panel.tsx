@@ -85,9 +85,15 @@ function getPrLine(win: WindowInfo): string | null {
   return parts.join(" · ");
 }
 
-/** Fail-ish PR states get the red token (mirrors the dashboard PrStatusLine). */
+/**
+ * Fail-ish PR states get the red token (mirrors the dashboard PrStatusLine).
+ * Gated on the PR being open: getPrLine suppresses the checks/review text for a
+ * merged/closed PR (it's historical once landed), so coloring the row red on a
+ * now-hidden failure would be misleading — a terminal-state row stays neutral.
+ */
 function prIsFailish(win: WindowInfo): boolean {
-  return win.prChecks === "fail" || win.prReview === "changes_requested";
+  const isOpen = !win.prState || win.prState === "open";
+  return isOpen && (win.prChecks === "fail" || win.prReview === "changes_requested");
 }
 
 export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {

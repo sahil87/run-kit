@@ -27,6 +27,7 @@ vi.mock("@/api/client", async (importOriginal) => {
     moveWindowToSession: vi.fn().mockResolvedValue({ ok: true }),
     setSessionColor: vi.fn().mockResolvedValue({ ok: true }),
     setWindowColor: vi.fn().mockResolvedValue({ ok: true }),
+    setSessionOrder: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -107,22 +108,32 @@ type SidebarTestOverrides = Partial<React.ComponentProps<typeof Sidebar>> & {
    *  StandaloneSessionContextProvider. Defaults to `{ runkit: <sessions> }`. */
   sessions?: ProjectSession[];
   serverList?: { name: string; sessionCount: number }[];
+  /** Override the per-server SSE-delivered session order. Defaults to empty
+   *  arrays per server. */
+  sessionOrderByServer?: Record<string, string[]>;
 };
 
-function renderSidebar(overrides: SidebarTestOverrides = {}) {
+function buildTree(overrides: SidebarTestOverrides) {
   const currentServer = overrides.currentServer ?? "runkit";
   const sessionData = overrides.sessions ?? sessions;
   const serverList = overrides.serverList ?? [{ name: "runkit", sessionCount: 0 }];
+  const orderOverride = overrides.sessionOrderByServer;
   // Spread overrides minus the context-only fields onto Sidebar.
-  const { sessions: _omitSessions, serverList: _omitServerList, currentServer: _omitCurrentServer, ...sidebarOverrides } = overrides;
-  return render(
+  const {
+    sessions: _omitSessions,
+    serverList: _omitServerList,
+    currentServer: _omitCurrentServer,
+    sessionOrderByServer: _omitOrder,
+    ...sidebarOverrides
+  } = overrides;
+  return (
     <ThemeProvider>
     <ToastProvider>
       <OptimisticProvider>
         <StandaloneSessionContextProvider
           value={{
             sessionsByServer: new Map(serverList.map((s) => [s.name, s.name === currentServer ? sessionData : []])),
-            sessionOrderByServer: new Map(serverList.map((s) => [s.name, []])),
+            sessionOrderByServer: new Map(serverList.map((s) => [s.name, orderOverride?.[s.name] ?? []])),
             isConnectedByServer: new Map(serverList.map((s) => [s.name, false])),
             metricsByServer: new Map(),
             currentServer,
@@ -146,8 +157,20 @@ function renderSidebar(overrides: SidebarTestOverrides = {}) {
         </StandaloneSessionContextProvider>
       </OptimisticProvider>
     </ToastProvider>
-    </ThemeProvider>,
+    </ThemeProvider>
   );
+}
+
+function renderSidebar(overrides: SidebarTestOverrides = {}) {
+  const result = render(buildTree(overrides));
+  return {
+    ...result,
+    /** Re-render with a changed SSE order (or other overrides) to simulate the
+     *  next SSE slice arriving. Merges over the original overrides. */
+    rerenderWith(next: SidebarTestOverrides) {
+      result.rerender(buildTree({ ...overrides, ...next }));
+    },
+  };
 }
 
 // The session name appears inside the SessionRow's "Navigate to {name}" button.
@@ -1089,6 +1112,108 @@ describe("Sidebar", () => {
       // Should not throw from duplicate React keys
       renderSidebar({ sessions: sessionsWithGhostWindow });
       expect(screen.getByText("new-window")).toBeInTheDocument();
+    });
+  });
+
+  describe("session reorder display-order derivation (ebks)", () => {
+    // The default fixture has two sessions on server "runkit": "run-kit"
+    // (windows @0-@2) and "ao-server" (window @3). The per-server SSE order is
+    // over SESSION names. Displayed order = override ?? sseOrder.
+
+    /** Returns the session-row names in current DOM (document) order. */
+    function sessionNamesInDomOrder(): string[] {
+      const navButtons = screen.getAllByLabelText(/^Navigate to /);
+      return navButtons.map((b) => b.getAttribute("aria-label")!.replace("Navigate to ", ""));
+    }
+
+    /** Drag session `from` onto session `to` within `server`, reordering rows. */
+    function dragSessionOnto(from: string, to: string) {
+      const fromRow = screen.getByLabelText(`Navigate to ${from}`).closest("[draggable]") as HTMLElement;
+      const toRow = screen.getByLabelText(`Navigate to ${to}`).closest("[draggable]") as HTMLElement;
+      const dataTransfer = {
+        _store: {} as Record<string, string>,
+        types: [] as string[],
+        setData(type: string, val: string) {
+          this._store[type] = val;
+          if (!this.types.includes(type)) this.types.push(type);
+        },
+        getData(type: string) {
+          return this._store[type] ?? "";
+        },
+        effectAllowed: "",
+        dropEffect: "",
+      };
+      fireEvent.dragStart(fromRow, { dataTransfer });
+      fireEvent.dragOver(toRow, { dataTransfer });
+    }
+
+    it("(a) displayed order follows SSE order when no override", () => {
+      // SSE says ao-server first, then run-kit — reversed from fixture order.
+      renderSidebar({ sessionOrderByServer: { runkit: ["ao-server", "run-kit"] } });
+      const order = sessionNamesInDomOrder();
+      expect(order.indexOf("ao-server")).toBeLessThan(order.indexOf("run-kit"));
+    });
+
+    it("(b) a drag override persists across unrelated re-renders until the matching SSE order arrives, then is dropped (no snap-back)", () => {
+      // Start with the natural fixture order via SSE (run-kit, then ao-server).
+      const { rerenderWith } = renderSidebar({ sessionOrderByServer: { runkit: ["run-kit", "ao-server"] } });
+      let order = sessionNamesInDomOrder();
+      expect(order.indexOf("run-kit")).toBeLessThan(order.indexOf("ao-server"));
+
+      // Drag ao-server above run-kit — override applies immediately (snappy).
+      dragSessionOnto("ao-server", "run-kit");
+      order = sessionNamesInDomOrder();
+      expect(order.indexOf("ao-server")).toBeLessThan(order.indexOf("run-kit"));
+
+      // An UNRELATED SSE slice arrives that does NOT yet echo the new order
+      // (still the old order). The override MUST hold — no snap-back.
+      act(() => {
+        rerenderWith({ sessionOrderByServer: { runkit: ["run-kit", "ao-server"] } });
+      });
+      order = sessionNamesInDomOrder();
+      expect(order.indexOf("ao-server")).toBeLessThan(order.indexOf("run-kit"));
+
+      // Now the matching SSE order echoes back. The override is dropped and the
+      // row reads the authoritative (now-identical) SSE order — still ao-server
+      // first, and no stale override lingers.
+      act(() => {
+        rerenderWith({ sessionOrderByServer: { runkit: ["ao-server", "run-kit"] } });
+      });
+      order = sessionNamesInDomOrder();
+      expect(order.indexOf("ao-server")).toBeLessThan(order.indexOf("run-kit"));
+
+      // A subsequent unrelated SSE slice that reverts the order would now take
+      // effect (proving the override was actually cleared, not still pinning).
+      act(() => {
+        rerenderWith({ sessionOrderByServer: { runkit: ["run-kit", "ao-server"] } });
+      });
+      order = sessionNamesInDomOrder();
+      expect(order.indexOf("run-kit")).toBeLessThan(order.indexOf("ao-server"));
+    });
+
+    it("(c) a reorder fires the debounced PUT once with the reordered names", async () => {
+      vi.useFakeTimers();
+      try {
+        const { setSessionOrder } = await import("@/api/client");
+        vi.mocked(setSessionOrder).mockClear();
+
+        renderSidebar({ sessionOrderByServer: { runkit: ["run-kit", "ao-server"] } });
+
+        dragSessionOnto("ao-server", "run-kit");
+
+        // Debounce window not yet elapsed → no PUT.
+        expect(setSessionOrder).not.toHaveBeenCalled();
+
+        // Advance past SESSION_ORDER_DEBOUNCE_MS (250ms).
+        act(() => {
+          vi.advanceTimersByTime(250);
+        });
+
+        expect(setSessionOrder).toHaveBeenCalledTimes(1);
+        expect(setSessionOrder).toHaveBeenCalledWith("runkit", ["ao-server", "run-kit"]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

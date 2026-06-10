@@ -209,32 +209,6 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
         </CopyableRow>
       )}
 
-      {/* run */}
-      {processLine && (
-        <div className="truncate">
-          <span className="text-text-secondary">run </span>
-          <BrailleSnake className="text-accent" />{" "}
-          <span className="text-text-secondary">{processLine}</span>
-        </div>
-      )}
-
-      {/* agt */}
-      {agentLine && (
-        <div className="truncate">
-          <span className="text-text-secondary">agt </span>
-          <StarTwinkle className="text-accent" />{" "}
-          <span className="text-text-secondary">{agentLine}</span>
-        </div>
-      )}
-
-      {/* fab */}
-      {fabLine && (
-        <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
-          <ClockSpinner className="text-accent" />{" "}
-          <span className="text-text-primary group-hover:text-accent">{fabLine}</span>
-        </CopyableRow>
-      )}
-
       {/* pr — live PR status for a change-bound window with a PR. The row body
           copies the PR URL on click (consistent with every other row). When a
           PR URL is present, a hover-revealed open link (right-aligned, always
@@ -271,6 +245,33 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
           )}
         </div>
       )}
+
+      {/* run */}
+      {processLine && (
+        <div className="truncate">
+          <span className="text-text-secondary">run </span>
+          <BrailleSnake className="text-accent" />{" "}
+          <span className="text-text-secondary">{processLine}</span>
+        </div>
+      )}
+
+      {/* agt */}
+      {agentLine && (
+        <div className="truncate">
+          <span className="text-text-secondary">agt </span>
+          <StarTwinkle className="text-accent" />{" "}
+          <span className="text-text-secondary">{agentLine}</span>
+        </div>
+      )}
+
+      {/* fab */}
+      {fabLine && (
+        <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
+          <ClockSpinner className="text-accent" />{" "}
+          <span className="text-text-primary group-hover:text-accent">{fabLine}</span>
+        </CopyableRow>
+      )}
+
     </div>
   );
 }

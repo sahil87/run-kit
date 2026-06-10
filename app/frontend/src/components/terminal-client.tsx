@@ -30,6 +30,31 @@ export const clipboardProvider = {
   },
 };
 
+/**
+ * Test-only terminal registry. The echo-latency e2e harness needs a handle to
+ * the live `Terminal` instance to poll `term.buffer.active` for the echoed
+ * glyph (the WebGL canvas is not DOM-readable). We expose instances on
+ * `window.__rkTerminals`, keyed by windowId, so a Playwright `page.evaluate`
+ * can reach them. Inert in normal use — nothing reads the registry unless a
+ * test driver does. Kept tiny and symmetric (register on create, unregister on
+ * dispose) so a stale handle never points at a disposed terminal.
+ */
+declare global {
+  interface Window {
+    __rkTerminals?: Record<string, import("@xterm/xterm").Terminal>;
+  }
+}
+
+function registerTestTerminal(windowId: string, terminal: import("@xterm/xterm").Terminal) {
+  if (typeof window === "undefined") return;
+  (window.__rkTerminals ??= {})[windowId] = terminal;
+}
+
+function unregisterTestTerminal(windowId: string) {
+  if (typeof window === "undefined" || !window.__rkTerminals) return;
+  delete window.__rkTerminals[windowId];
+}
+
 type TerminalClientProps = {
   sessionName: string;
   windowId: string;
@@ -192,6 +217,15 @@ export function TerminalClient({
       xtermRef.current = terminal;
       fitAddonRef.current = fitAddon;
 
+      // Test-only hook: register this Terminal instance on a window-level
+      // registry keyed by windowId so the echo-latency e2e harness can read
+      // `term.buffer.active` directly. The WebGL renderer paints to a canvas
+      // that is NOT DOM-readable, so reading the parsed buffer is the only
+      // honest way to detect "glyph visible" from a Playwright driver. This is
+      // a single ref assignment with no runtime cost; it is cleaned up on
+      // unmount alongside the terminal dispose below.
+      registerTestTerminal(windowId, terminal);
+
       // Clipboard addon — enriched clipboard support
       terminal.loadAddon(new ClipboardAddon(undefined, clipboardProvider));
 
@@ -287,6 +321,7 @@ export function TerminalClient({
         wsRef.current = null;
       }
       if (focusRef) focusRef.current = null;
+      unregisterTestTerminal(windowId);
       xtermRef.current = null;
       fitAddonRef.current = null;
       try { terminal?.dispose(); } catch { /* WebGL addon may throw during teardown */ }

@@ -30,6 +30,35 @@ export const clipboardProvider = {
   },
 };
 
+/**
+ * Test-only terminal registry. The echo-latency e2e harness needs a handle to
+ * the live `Terminal` instance to poll `term.buffer.active` for the echoed
+ * glyph (the WebGL canvas is not DOM-readable). We expose instances on
+ * `window.__rkTerminals`, keyed by windowId, so a Playwright `page.evaluate`
+ * can reach them. Kept tiny and symmetric (register on create, unregister on
+ * dispose) so a stale handle never points at a disposed terminal.
+ *
+ * Gated on `import.meta.env.DEV`: this is populated ONLY in dev/e2e builds
+ * (Vite's dev server, which is what `just dev` / the e2e harness run against),
+ * never in a production `vite build`. So production bundles do not expose live
+ * Terminal instances on `window` at all — the helpers compile to no-ops there.
+ */
+declare global {
+  interface Window {
+    __rkTerminals?: Record<string, import("@xterm/xterm").Terminal>;
+  }
+}
+
+function registerTestTerminal(windowId: string, terminal: import("@xterm/xterm").Terminal) {
+  if (!import.meta.env.DEV || typeof window === "undefined") return;
+  (window.__rkTerminals ??= {})[windowId] = terminal;
+}
+
+function unregisterTestTerminal(windowId: string) {
+  if (!import.meta.env.DEV || typeof window === "undefined" || !window.__rkTerminals) return;
+  delete window.__rkTerminals[windowId];
+}
+
 type TerminalClientProps = {
   sessionName: string;
   windowId: string;
@@ -192,6 +221,11 @@ export function TerminalClient({
       xtermRef.current = terminal;
       fitAddonRef.current = fitAddon;
 
+      // (The test-only registry is keyed on `windowId`, which can change while
+      // this terminal stays mounted — see the dedicated effect below, which
+      // re-keys register/unregister on windowId so the registry never goes
+      // stale. The init effect deliberately does NOT register here.)
+
       // Clipboard addon — enriched clipboard support
       terminal.loadAddon(new ClipboardAddon(undefined, clipboardProvider));
 
@@ -293,6 +327,21 @@ export function TerminalClient({
       setTerminalReady(false);
     };
   }, [wsRef, focusRef]);
+
+  // Test-only registry, keyed on the CURRENT windowId. The init effect runs
+  // mount-only (deps [wsRef, focusRef]), but `windowId` can change while this
+  // component stays mounted (it is rendered without a `key` in app.tsx, so a
+  // window switch re-renders rather than remounts). Registering here — keyed on
+  // [terminalReady, windowId] — re-keys the entry on every switch and cleans up
+  // the OLD id before adding the new one, so `window.__rkTerminals` never holds
+  // a stale handle. The echo-latency harness reads this to poll
+  // `term.buffer.active` (the WebGL canvas is not DOM-readable). Inert in normal
+  // use — nothing reads the registry unless a test driver does.
+  useEffect(() => {
+    if (!terminalReady || !xtermRef.current) return;
+    registerTestTerminal(windowId, xtermRef.current);
+    return () => unregisterTestTerminal(windowId);
+  }, [terminalReady, windowId]);
 
   // Scroll-lock: prevent xterm textarea from gaining focus when locked.
   // Instead of reactively blurring on focusin (which disrupts active touch

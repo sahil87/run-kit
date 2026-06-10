@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-10T04:42:21Z"}
+{"args":"Add hover-reveal open-in-new-tab link + prefix padding to the PANE panel pr row","cmd":"fab-new","event":"command","ts":"2026-06-10T04:42:21Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"apply","ts":"2026-06-10T04:43:03Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review","ts":"2026-06-10T04:43:03Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"hydrate","ts":"2026-06-10T04:43:03Z"}
+{"event":"review","result":"passed","ts":"2026-06-10T04:43:03Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"ship","ts":"2026-06-10T04:43:03Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-10T04:43:03Z"}

@@ -5,11 +5,15 @@ import { test, expect, type Page } from "@playwright/test";
 // `sessions` payload (and the server list) via page.route. That lets us
 // exercise the frontend display gate deterministically without any network or
 // gh dependency. See pr-status-sidebar.spec.md for intent + steps.
+//
+// PR status renders in the Pane panel (the per-window metadata panel in the
+// sidebar), NOT on the window-tree rows — so each assertion first selects the
+// target window, then reads the Pane panel.
 
 const SERVER = "default";
 
 // One change-bound window with a PR (gate satisfied) and one scratch window
-// with NO fabChange (gate fails — PR line must be absent even if a prNumber
+// with NO fabChange (gate fails — PR row must be absent even if a prNumber
 // were present). The change-bound window carries prState/prChecks/prReview as
 // the backend SSE join would attach them.
 const sessionsPayload = JSON.stringify([
@@ -45,8 +49,25 @@ const sessionsPayload = JSON.stringify([
   },
 ]);
 
+// The Pane panel renders the *selected* window (URL `/$server/$window`), so the
+// tests navigate to the window route. `@` is percent-encoded in the path.
+const BOUND_WINDOW_URL = `/${SERVER}/%401`; // @1 — change-bound window with a PR
+const SCRATCH_WINDOW_URL = `/${SERVER}/%402`; // @2 — scratch window, no PR
+
 /** Install routes that fully mock the server list and the SSE sessions stream. */
 async function mockBackend(page: Page) {
+  // Stub the relay WebSocket so the terminal route mounts without a backend —
+  // the Pane panel lives in the sidebar and renders regardless, but stubbing
+  // the WS keeps the page from churning on failed relay reconnects.
+  await page.routeWebSocket(/\/relay\//, () => {
+    /* accept and hold the socket open; send nothing */
+  });
+
+  // Selecting a window POSTs to /select — accept it so clicks/nav don't error.
+  await page.route("**/api/windows/*/select", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
+  );
+
   // Single known server so the app attaches exactly one SSE connection.
   await page.route("**/api/servers", (route) =>
     route.fulfill({
@@ -72,53 +93,46 @@ async function mockBackend(page: Page) {
   );
 }
 
-test.describe("Sidebar PR status line", () => {
+test.describe("Pane panel PR status", () => {
   test.beforeEach(async ({ page }) => {
     await mockBackend(page);
   });
 
-  test("renders the PR line for a change-bound window and hides it for a scratch window", async ({
+  test("Pane panel shows the PR row for a change-bound window and hides it for a scratch window", async ({
     page,
   }) => {
-    await page.goto(`/${SERVER}`);
+    // Select the change-bound window (@1) — the Pane panel reflects the selected
+    // window, which is keyed off the URL's window segment.
+    await page.goto(BOUND_WINDOW_URL);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
-    await expect(sidebar).toBeVisible();
+    // Change-bound window (@1): Pane panel carries the pr row.
+    const prRow = page.locator("[title='https://github.com/o/r/pull/386']");
+    await expect(prRow).toBeVisible();
+    await expect(prRow).toContainText("#386");
+    await expect(prRow).toContainText("open");
 
-    // Change-bound window (@1) shows the PR line, linking to the PR URL.
-    const boundRow = sidebar.locator("[data-window-id='@1']");
-    const prLine = boundRow.locator("[data-testid='pr-status-line']");
-    await expect(prLine).toBeVisible();
-    await expect(prLine).toContainText("PR #386");
-    await expect(prLine).toContainText("open");
-    const link = boundRow.locator("[data-testid='pr-status-link']");
-    await expect(link).toHaveAttribute("href", "https://github.com/o/r/pull/386");
-    await expect(link).toHaveAttribute("target", "_blank");
-
-    // Scratch window (@2) is not change-bound → no PR line.
-    const scratchRow = sidebar.locator("[data-window-id='@2']");
-    await expect(scratchRow).toBeVisible();
-    await expect(scratchRow.locator("[data-testid='pr-status-line']")).toHaveCount(0);
+    // Scratch window (@2) — not change-bound → no pr row.
+    await page.goto(SCRATCH_WINDOW_URL);
+    await expect(page.locator("[title='https://github.com/o/r/pull/386']")).toHaveCount(0);
+    // No PR-number text anywhere in the Pane panel for the scratch window.
+    await expect(page.getByText(/#386/)).toHaveCount(0);
   });
 
-  test("PR line renders at 375px (mobile) and 1024px (desktop)", async ({ page }) => {
-    // Mobile: the sidebar is a drawer — open it via the top-bar toggle, then
-    // assert the PR line renders within the mobile drawer's Sessions nav.
+  test("Pane panel PR row renders at 375px (mobile) and 1024px (desktop)", async ({ page }) => {
+    // Mobile: open the sidebar drawer (which hosts the Pane panel), assert the
+    // pr row for the selected change-bound window (@1).
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto(`/${SERVER}`);
+    await page.goto(BOUND_WINDOW_URL);
     await page.locator("button[aria-label='Toggle navigation']").click();
-    const mobileSidebar = page.locator("nav[aria-label='Sessions']");
-    await expect(mobileSidebar).toBeVisible();
     await expect(
-      mobileSidebar.locator("[data-window-id='@1'] [data-testid='pr-status-line']"),
-    ).toContainText("PR #386");
+      page.locator("[title='https://github.com/o/r/pull/386']"),
+    ).toContainText("#386");
 
-    // Desktop: the sidebar is a persistent column — the PR line still renders.
+    // Desktop: persistent sidebar column — the pr row still renders.
     await page.setViewportSize({ width: 1024, height: 800 });
-    await page.goto(`/${SERVER}`);
-    const desktopSidebar = page.locator("nav[aria-label='Sessions']");
+    await page.goto(BOUND_WINDOW_URL);
     await expect(
-      desktopSidebar.locator("[data-window-id='@1'] [data-testid='pr-status-line']"),
-    ).toContainText("PR #386");
+      page.locator("[title='https://github.com/o/r/pull/386']"),
+    ).toContainText("#386");
   });
 });

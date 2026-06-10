@@ -385,4 +385,70 @@ describe("StatusPanel copy behavior", () => {
 
     expect(copyToClipboard).toHaveBeenCalledWith("/home/user/code/run-kit");
   });
+
+  describe("pr row", () => {
+    it("renders the pr row for a change-bound window with a PR", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-pr-status-sidebar",
+        prNumber: 241,
+        prUrl: "https://github.com/sahil87/run-kit/pull/241",
+        prState: "open",
+        prChecks: "pass",
+        prReview: "approved",
+      });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      expect(
+        screen.getByText("#241 · open · checks pass · review: approved"),
+      ).toBeInTheDocument();
+    });
+
+    it("hides the pr row when the window is not change-bound", () => {
+      const win = makeWindow({
+        fabChange: undefined,
+        prNumber: 241,
+        prUrl: "https://github.com/sahil87/run-kit/pull/241",
+        prState: "open",
+      });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      expect(screen.queryByText(/#241/)).toBeNull();
+    });
+
+    it("hides the pr row when the window is change-bound but has no PR", () => {
+      const win = makeWindow({ fabChange: "260610-596o-x", prNumber: undefined });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      expect(screen.queryByText(/^#\d+/)).toBeNull();
+    });
+
+    it("copies the PR URL on click", async () => {
+      const { copyToClipboard } = await import("@/lib/clipboard");
+      vi.mocked(copyToClipboard).mockClear();
+
+      const win = makeWindow({
+        fabChange: "260610-596o-x",
+        prNumber: 241,
+        prUrl: "https://github.com/sahil87/run-kit/pull/241",
+        prState: "open",
+      });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      const prButton = document.querySelector(
+        "[title='https://github.com/sahil87/run-kit/pull/241']",
+      ) as HTMLButtonElement;
+      fireEvent.click(prButton);
+      expect(copyToClipboard).toHaveBeenCalledWith(
+        "https://github.com/sahil87/run-kit/pull/241",
+      );
+    });
+
+    it("applies the red token when checks fail", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-x",
+        prNumber: 241,
+        prState: "open",
+        prChecks: "fail",
+      });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      const value = screen.getByText("#241 · open · checks fail");
+      expect(value.className).toContain("text-red-400");
+    });
+  });
 });

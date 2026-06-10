@@ -1,8 +1,9 @@
 # pr-status-sidebar.spec.ts
 
-Verifies the sidebar's live PR-status line: it renders for a change-bound window
-that has a PR and is hidden for a scratch window, at both mobile and desktop
-viewports.
+Verifies the **Pane panel's** live PR-status row: it renders for a change-bound
+window that has a PR and is hidden for a scratch window, at both mobile and
+desktop viewports. (PR status lives in the per-window Pane panel — not on the
+window-tree rows — so each test selects the target window, then reads the panel.)
 
 ## Shared setup
 
@@ -15,37 +16,41 @@ viewports.
     session `dev` with two windows:
     - `@1` "feature-work" — change-bound (`fabChange` set) with
       `prNumber: 386`, `prUrl`, `prState: open`, `prChecks: pass`,
-      `prReview: approved` (the gate is satisfied).
+      `prReview: approved` (the gate is satisfied). `@1` is the active window,
+      so the Pane panel reflects it on load.
     - `@2` "scratch-shell" — no `fabChange` (the gate fails).
 - `beforeEach` installs both routes before navigation.
 
 ## Tests
 
-### `renders the PR line for a change-bound window and hides it for a scratch window`
+### `Pane panel shows the PR row for a change-bound window and hides it for a scratch window`
 
-**What it proves:** the display gate is `fabChange && prNumber` — a change-bound
-window with a PR shows the line (with the PR number, state, and an external link
-to the PR URL), while a scratch window shows nothing.
-
-**Steps:**
-1. Navigate to `/default`.
-2. Assert the Sessions nav is visible.
-3. In the `@1` row, assert the `pr-status-line` is visible and contains
-   `PR #386` and `open`.
-4. Assert the `pr-status-link` anchor has `href` = the PR URL and
-   `target="_blank"`.
-5. In the `@2` row, assert there is no `pr-status-line` (count 0).
-
-### `PR line renders at 375px (mobile) and 1024px (desktop)`
-
-**What it proves:** the PR line is present and readable at both the mobile
-(375px) and desktop (1024px) breakpoints — covering the responsive requirement.
+**What it proves:** the display gate is `fabChange && prNumber` — when the
+selected window is change-bound with a PR, the Pane panel shows the `pr` row
+(PR number + state, copyable, titled with the PR URL); when the selected window
+is a scratch window, no PR row appears.
 
 **Steps:**
-1. Set viewport to 375×812 and navigate to `/default`.
-2. Open the mobile sidebar drawer via the top-bar `Toggle navigation` button.
-3. Assert the `@1` row's `pr-status-line` contains `PR #386` inside the mobile
-   Sessions nav.
-4. Set viewport to 1024×800 and reload `/default`.
-5. Assert the `@1` row's `pr-status-line` contains `PR #386` in the desktop
-   sidebar.
+1. Navigate directly to the change-bound window route `/default/%401` (`@1`,
+   percent-encoded) — the Pane panel reflects the URL-selected window.
+2. Assert the Pane panel's pr row — the element titled with the PR URL — is
+   visible and contains `#386` and `open`.
+3. Navigate to the scratch window route `/default/%402` (`@2`).
+4. Assert no element is titled with the PR URL (count 0) and no `#386` text
+   appears anywhere in the Pane panel.
+
+### `Pane panel PR row renders at 375px (mobile) and 1024px (desktop)`
+
+**What it proves:** the Pane panel's PR row is present and readable at both the
+mobile (375px) and desktop (1024px) breakpoints — covering the responsive
+requirement.
+
+**Steps:**
+1. Set viewport to 375×812 and navigate to the change-bound window route
+   `/default/%401` (`@1`).
+2. Open the mobile sidebar drawer (which hosts the Pane panel) via the top-bar
+   `Toggle navigation` button.
+3. Assert the pr row (titled with the PR URL) contains `#386`.
+4. Set viewport to 1024×800 and navigate to `/default/%401` again.
+5. Assert the pr row (titled with the PR URL) contains `#386` in the persistent
+   desktop sidebar.

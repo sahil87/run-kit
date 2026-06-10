@@ -7,7 +7,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { formatDuration, parseFabChange } from "@/lib/format";
 import type { WindowInfo } from "@/types";
 
-type CopyableRowKey = "tmx" | "cwd" | "git" | "fab";
+type CopyableRowKey = "tmx" | "cwd" | "git" | "fab" | "pr";
 
 const COPY_FEEDBACK_MS = 1000;
 
@@ -65,6 +65,26 @@ function getAgentLine(win: WindowInfo): string | null {
   if (!win.agentState) return null;
   if (win.agentIdleDuration) return `${win.agentState} ${win.agentIdleDuration}`;
   return win.agentState;
+}
+
+/**
+ * Build the PR status line for the pane panel, e.g. "#241 · open · checks pass".
+ * Returns null unless the window is change-bound (`fabChange`) AND carries a
+ * `prNumber` — the same gate the sidebar/dashboard PR surface uses. State is
+ * always "open" in practice (the collector queries states: OPEN only).
+ */
+function getPrLine(win: WindowInfo): string | null {
+  if (!win.fabChange || !win.prNumber) return null;
+  const parts = [`#${win.prNumber}`];
+  if (win.prState) parts.push(`${win.prState}${win.prIsDraft ? " (draft)" : ""}`);
+  if (win.prChecks && win.prChecks !== "none") parts.push(`checks ${win.prChecks}`);
+  if (win.prReview && win.prReview !== "none") parts.push(`review: ${win.prReview.replace(/_/g, " ")}`);
+  return parts.join(" · ");
+}
+
+/** Fail-ish PR states get the red token (mirrors the dashboard PrStatusLine). */
+function prIsFailish(win: WindowInfo): boolean {
+  return win.prChecks === "fail" || win.prReview === "changes_requested";
 }
 
 export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {
@@ -148,6 +168,8 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
     : null;
   const processLine = getProcessLine(win, nowSeconds);
   const agentLine = getAgentLine(win);
+  const prLine = getPrLine(win);
+  const prFailish = prIsFailish(win);
 
   return (
     <div className="flex flex-col gap-0 text-xs">
@@ -210,6 +232,23 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
         <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
           <ClockSpinner className="text-accent" />{" "}
           <span className="text-text-primary group-hover:text-accent">{fabLine}</span>
+        </CopyableRow>
+      )}
+
+      {/* pr — live PR status for a change-bound window with a PR. Copies the PR
+          URL on click (or the line text if no URL). Gated via getPrLine. */}
+      {prLine && (
+        <CopyableRow
+          prefix="pr"
+          copied={copiedRow === "pr"}
+          onCopy={() => handleCopy("pr", win.prUrl ?? prLine)}
+          title={win.prUrl ?? undefined}
+        >
+          <span className="text-accent" aria-hidden="true">{"\uF407"}</span>
+          {" "}
+          <span className={`${prFailish ? "text-red-400" : "text-text-secondary"} group-hover:text-accent`}>
+            {prLine}
+          </span>
         </CopyableRow>
       )}
     </div>

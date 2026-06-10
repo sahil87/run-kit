@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import { getWindowDuration } from "@/lib/format";
-import { PrStatusLine } from "@/components/pr-status-line";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
@@ -234,15 +233,6 @@ export function WindowRow({
           )}
         </span>
       </button>
-      {/* Live PR status line — rendered ONLY for change-bound windows with a
-          PR (gate lives inside PrStatusLine). Sits below the name row, indented
-          to align under the name. Outside the button so the PR link is valid
-          (no <a> inside <button>). */}
-      {!ghost && (
-        <div className="pl-[18px] pr-11">
-          <PrStatusLine win={win} />
-        </div>
-      )}
       {/* Hover-reveal buttons: pin + color swatch + kill */}
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
         {showPinIcon && (

@@ -1,5 +1,13 @@
 # Archived Changes
 
+- **260609-enic-restore-display-message-resolve-window** — Restore O(1) display-message lookup in ResolveWindowSession
+- **260609-ebks-derive-sidebar-order** — Derive sidebar session display-order instead of storing localOrderByServer in state
+- **260608-j6bs-shllai-readme-extraction-contract** — Conform repo to shll.ai README-extraction contract
+- **260603-iak3-teardown-shllai-publish-ci** — Teardown shll.ai Help-Tree Publish CI (Push → Pull Migration)
+- **260603-gs2t-reap-dead-tmux-servers-sse** — Reap Dead Tmux Servers from SSE Poll Set
+- **260602-qn62-move-based-board-pin-sessions** — Move-Based Server-Scoped Boards (Pin Sessions)
+- **260602-poka-guard-anchor-no-resurrect** — Guard createAnchor against resurrecting a killed tmux server
+- **260602-2dt9-fix-shllai-help-publish** — Fix shll.ai help-tree publish — run-kit.json never lands
 - **260602-a36m-help-dump-shll-ai** — Build-time help-dump — emit rk CLI help tree as help/run-kit.json
 - **260602-72oq-fix-sync-latency-ghost-measure** — Fix sync-latency test 3 false-signal fixed-sleep measurement
 - **260602-3i5d-fix-create-server-not-found-race** — Fix Transient "Server not found" Flash After Server Create

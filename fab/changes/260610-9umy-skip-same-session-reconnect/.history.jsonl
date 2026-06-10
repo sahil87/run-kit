@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-10T11:12:17Z"}
+{"args":"Part 2 of the window-switch flicker work: skip the redundant same-session relay reconnect by keying the TerminalClient WS effect teardown on the resolved owning session instead of windowId (follow-up to 260610-qf25 / PR #251)","cmd":"fab-new","event":"command","ts":"2026-06-10T11:12:17Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-10T11:13:37Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-10T11:13:44Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-06-10T11:13:44Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-10T11:15:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-10T11:15:19Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-10T11:16:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-10T11:28:34Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-10T11:29:25Z"}
+{"event":"review","result":"failed","ts":"2026-06-10T11:44:14Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-10T11:44:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-10T11:53:04Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-10T11:54:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-10T12:04:18Z"}
+{"event":"review","result":"passed","ts":"2026-06-10T12:04:18Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-10T12:05:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-10T12:07:46Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-10T12:08:56Z"}

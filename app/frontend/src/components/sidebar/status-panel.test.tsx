@@ -397,9 +397,37 @@ describe("StatusPanel copy behavior", () => {
         prReview: "approved",
       });
       render(<StatusPanel window={win} nowSeconds={0} />);
-      expect(
-        screen.getByText("#241 · open · checks pass · review: approved"),
-      ).toBeInTheDocument();
+      expect(screen.getByTestId("pr-line")).toHaveTextContent(
+        "#241 · open · checks pass · review: approved",
+      );
+    });
+
+    it("colors the segments by state: open/pass/approved are green", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-pr-status-sidebar",
+        prNumber: 241,
+        prState: "open",
+        prChecks: "pass",
+        prReview: "approved",
+      });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      expect(screen.getByText("open").className).toContain("text-accent-green");
+      expect(screen.getByText("checks pass").className).toContain("text-accent-green");
+      expect(screen.getByText("review: approved").className).toContain("text-accent-green");
+      expect(screen.getByText("#241").className).toContain("text-text-primary");
+    });
+
+    it("colors pending checks yellow and a draft state neutral", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-pr-status-sidebar",
+        prNumber: 241,
+        prState: "open",
+        prIsDraft: true,
+        prChecks: "pending",
+      });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      expect(screen.getByText("checks pending").className).toContain("text-yellow-400");
+      expect(screen.getByText("open (draft)").className).toContain("text-text-secondary");
     });
 
     it("hides the pr row when the window is not change-bound", () => {
@@ -451,7 +479,9 @@ describe("StatusPanel copy behavior", () => {
       render(<StatusPanel window={win} nowSeconds={0} />);
       // Merged PRs show "#247 · merged" only — checks/review are historical
       // once a PR lands, so they're suppressed.
-      expect(screen.getByText("#247 · merged")).toBeInTheDocument();
+      expect(screen.getByTestId("pr-line")).toHaveTextContent("#247 · merged");
+      expect(screen.queryByText(/checks/)).toBeNull();
+      expect(screen.getByText("merged").className).toContain("text-purple-400");
     });
 
     it("shows the terminal state and suppresses checks/review for a closed PR", () => {
@@ -465,10 +495,10 @@ describe("StatusPanel copy behavior", () => {
       });
       render(<StatusPanel window={win} nowSeconds={0} />);
       // Closed PRs show "#247 · closed" only — same suppression as merged.
-      expect(screen.getByText("#247 · closed")).toBeInTheDocument();
+      expect(screen.getByTestId("pr-line")).toHaveTextContent("#247 · closed");
     });
 
-    it("does not apply the red token to a closed PR with a hidden failed check", () => {
+    it("suppresses a hidden failed check for a closed PR; only the state is red", () => {
       const win = makeWindow({
         fabChange: "260610-596o-x",
         prNumber: 247,
@@ -476,10 +506,12 @@ describe("StatusPanel copy behavior", () => {
         prChecks: "fail",
       });
       render(<StatusPanel window={win} nowSeconds={0} />);
-      // The failure text is suppressed for a terminal-state PR, so the row must
-      // stay neutral (no text-red-400) rather than red on a hidden reason.
-      const value = screen.getByText("#247 · closed");
-      expect(value.className).not.toContain("text-red-400");
+      // The failure text is suppressed for a terminal-state PR — the red on the
+      // state segment refers to "closed" itself (GitHub convention), never to a
+      // hidden failure reason, which must not leak into other segments.
+      expect(screen.queryByText(/checks/)).toBeNull();
+      expect(screen.getByText("closed").className).toContain("text-red-400");
+      expect(screen.getByText("#247").className).not.toContain("text-red-400");
     });
 
     it("renders an open-in-new-tab link to the PR URL", () => {
@@ -512,7 +544,7 @@ describe("StatusPanel copy behavior", () => {
       expect(screen.queryByRole("link")).toBeNull();
     });
 
-    it("applies the red token when checks fail", () => {
+    it("applies the red token to the failing checks segment", () => {
       const win = makeWindow({
         fabChange: "260610-596o-x",
         prNumber: 241,
@@ -520,8 +552,10 @@ describe("StatusPanel copy behavior", () => {
         prChecks: "fail",
       });
       render(<StatusPanel window={win} nowSeconds={0} />);
-      const value = screen.getByText("#241 · open · checks fail");
-      expect(value.className).toContain("text-red-400");
+      expect(screen.getByTestId("pr-line")).toHaveTextContent("#241 · open · checks fail");
+      expect(screen.getByText("checks fail").className).toContain("text-red-400");
+      // The failure is scoped to its segment — the still-open state stays green.
+      expect(screen.getByText("open").className).toContain("text-accent-green");
     });
   });
 });

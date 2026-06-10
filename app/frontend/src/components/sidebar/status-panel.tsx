@@ -3,6 +3,7 @@ import { BrailleSnake } from "@/components/braille-snake";
 import { ClockSpinner } from "@/components/clock-spinner";
 import { StarTwinkle } from "@/components/star-twinkle";
 import { CollapsiblePanel } from "./collapsible-panel";
+import { ICON_CLASS } from "./icons";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatDuration, parseFabChange } from "@/lib/format";
 import type { WindowInfo } from "@/types";
@@ -67,33 +68,57 @@ function getAgentLine(win: WindowInfo): string | null {
   return win.agentState;
 }
 
-/**
- * Build the PR status line for the pane panel, e.g. "#241 · open · checks pass"
- * for an open PR, or "#241 · merged" once it lands. Returns null unless the
- * window is change-bound (`fabChange`) AND carries a `prNumber` — the same gate
- * the sidebar/dashboard PR surface uses. For a merged/closed PR the checks and
- * review parts are suppressed (they're historical once the PR is no longer
- * open); only the terminal state is shown.
- */
-function getPrLine(win: WindowInfo): string | null {
-  if (!win.fabChange || !win.prNumber) return null;
-  const parts = [`#${win.prNumber}`];
-  if (win.prState) parts.push(`${win.prState}${win.prIsDraft ? " (draft)" : ""}`);
-  const isOpen = !win.prState || win.prState === "open";
-  if (isOpen && win.prChecks && win.prChecks !== "none") parts.push(`checks ${win.prChecks}`);
-  if (isOpen && win.prReview && win.prReview !== "none") parts.push(`review: ${win.prReview.replace(/_/g, " ")}`);
-  return parts.join(" · ");
-}
+type PrSegment = { text: string; color: string };
+
+/** GitHub-style state colors: open=green, merged=purple, closed=red. */
+const PR_STATE_COLORS: Record<NonNullable<WindowInfo["prState"]>, string> = {
+  open: "text-accent-green",
+  merged: "text-purple-400",
+  closed: "text-red-400",
+};
+
+const PR_CHECKS_COLORS: Record<string, string> = {
+  pass: "text-accent-green",
+  fail: "text-red-400",
+  pending: "text-yellow-400",
+};
+
+const PR_REVIEW_COLORS: Record<string, string> = {
+  approved: "text-accent-green",
+  changes_requested: "text-red-400",
+  review_required: "text-yellow-400",
+};
 
 /**
- * Fail-ish PR states get the red token (mirrors the dashboard PrStatusLine).
- * Gated on the PR being open: getPrLine suppresses the checks/review text for a
- * merged/closed PR (it's historical once landed), so coloring the row red on a
- * now-hidden failure would be misleading — a terminal-state row stays neutral.
+ * Build the PR status line for the pane panel as colored segments, e.g.
+ * "#241 · open · checks pass" for an open PR, or "#241 · merged" once it
+ * lands. Returns null unless the window is change-bound (`fabChange`) AND
+ * carries a `prNumber` — the same gate the sidebar/dashboard PR surface uses.
+ * For a merged/closed PR the checks and review parts are suppressed (they're
+ * historical once the PR is no longer open); only the terminal state is shown.
+ * A draft PR keeps the neutral token for its state — draft is "not ready",
+ * not a healthy green.
  */
-function prIsFailish(win: WindowInfo): boolean {
+function getPrSegments(win: WindowInfo): PrSegment[] | null {
+  if (!win.fabChange || !win.prNumber) return null;
+  const segments: PrSegment[] = [{ text: `#${win.prNumber}`, color: "text-text-primary" }];
+  if (win.prState) {
+    segments.push({
+      text: `${win.prState}${win.prIsDraft ? " (draft)" : ""}`,
+      color: win.prIsDraft ? "text-text-secondary" : PR_STATE_COLORS[win.prState],
+    });
+  }
   const isOpen = !win.prState || win.prState === "open";
-  return isOpen && (win.prChecks === "fail" || win.prReview === "changes_requested");
+  if (isOpen && win.prChecks && win.prChecks !== "none") {
+    segments.push({ text: `checks ${win.prChecks}`, color: PR_CHECKS_COLORS[win.prChecks] });
+  }
+  if (isOpen && win.prReview && win.prReview !== "none") {
+    segments.push({
+      text: `review: ${win.prReview.replace(/_/g, " ")}`,
+      color: PR_REVIEW_COLORS[win.prReview],
+    });
+  }
+  return segments;
 }
 
 export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {
@@ -177,15 +202,15 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
     : null;
   const processLine = getProcessLine(win, nowSeconds);
   const agentLine = getAgentLine(win);
-  const prLine = getPrLine(win);
-  const prFailish = prIsFailish(win);
+  const prSegments = getPrSegments(win);
+  const prText = prSegments?.map((s) => s.text).join(" · ") ?? "";
 
   return (
     <div className="flex flex-col gap-0 text-xs">
       {/* tmx */}
       {paneId ? (
         <CopyableRow prefix="tmx" copied={copiedRow === "tmx"} onCopy={() => handleCopy("tmx", paneId)}>
-          <span className="text-accent" aria-hidden="true">{"\uF489"}</span>
+          <span className={ICON_CLASS} aria-hidden="true">{"\uF489"}</span>
           {" "}
           <span className="text-text-secondary group-hover:text-accent">
             pane {activePaneIndex + 1}/{paneCount}{paneId && ` ${paneId}`}
@@ -194,7 +219,7 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
       ) : (
         <div className="truncate">
           <span className="text-text-secondary">tmx </span>
-          <span className="text-accent" aria-hidden="true">{"\uF489"}</span>
+          <span className={ICON_CLASS} aria-hidden="true">{"\uF489"}</span>
           {" "}
           <span className="text-text-secondary">
             pane {activePaneIndex + 1}/{paneCount}
@@ -204,7 +229,7 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
 
       {/* cwd */}
       <CopyableRow prefix="cwd" copied={copiedRow === "cwd"} onCopy={() => handleCopy("cwd", activePaneCwd)} title={activePaneCwd}>
-        <span className="text-accent" aria-hidden="true">{"\uF413"}</span>
+        <span className={ICON_CLASS} aria-hidden="true">{"\uF413"}</span>
         {" "}
         <span className="text-text-secondary group-hover:text-accent">{cwd}</span>
       </CopyableRow>
@@ -212,7 +237,7 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
       {/* git */}
       {gitBranch && (
         <CopyableRow prefix="git" copied={copiedRow === "git"} onCopy={() => handleCopy("git", gitBranch)}>
-          <span className="text-accent" aria-hidden="true">{"\uF418"}</span>
+          <span className={ICON_CLASS} aria-hidden="true">{"\uF418"}</span>
           {" "}
           <span className="text-text-primary group-hover:text-accent">{gitBranch}</span>
         </CopyableRow>
@@ -223,20 +248,25 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
           PR URL is present, a hover-revealed open link (right-aligned, always
           shown on touch) opens the PR in a new tab — the open + copy affordances
           are split the same way the sidebar window row splits its row-body
-          action from its hover action buttons. Gated via getPrLine. */}
-      {prLine && (
+          action from its hover action buttons. Gated via getPrSegments. */}
+      {prSegments && (
         <div className="group/pr relative">
           <CopyableRow
             prefix={"pr\u00A0"}
             copied={copiedRow === "pr"}
-            onCopy={() => handleCopy("pr", win.prUrl ?? prLine)}
+            onCopy={() => handleCopy("pr", win.prUrl ?? prText)}
             title={win.prUrl ?? undefined}
             className={win.prUrl ? "pr-6" : undefined}
           >
-            <span className="text-accent" aria-hidden="true">{"\uF407"}</span>
+            <span className={ICON_CLASS} aria-hidden="true">{"\uF407"}</span>
             {" "}
-            <span className={`${prFailish ? "text-red-400" : "text-text-secondary"} group-hover:text-accent`}>
-              {prLine}
+            <span data-testid="pr-line">
+              {prSegments.map((seg, i) => (
+                <span key={seg.text}>
+                  {i > 0 && <span className="text-text-secondary group-hover:text-accent">{" \u00B7 "}</span>}
+                  <span className={`${seg.color} group-hover:text-accent`}>{seg.text}</span>
+                </span>
+              ))}
             </span>
           </CopyableRow>
           {win.prUrl && (
@@ -259,7 +289,7 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
       {processLine && (
         <div className="truncate">
           <span className="text-text-secondary">run </span>
-          <BrailleSnake className="text-accent" />{" "}
+          <BrailleSnake className={ICON_CLASS} />{" "}
           <span className="text-text-secondary">{processLine}</span>
         </div>
       )}
@@ -268,7 +298,7 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
       {agentLine && (
         <div className="truncate">
           <span className="text-text-secondary">agt </span>
-          <StarTwinkle className="text-accent" />{" "}
+          <StarTwinkle className={ICON_CLASS} />{" "}
           <span className="text-text-secondary">{agentLine}</span>
         </div>
       )}
@@ -276,7 +306,7 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
       {/* fab */}
       {fabLine && (
         <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
-          <ClockSpinner className="text-accent" />{" "}
+          <ClockSpinner className={ICON_CLASS} />{" "}
           <span className="text-text-primary group-hover:text-accent">{fabLine}</span>
         </CopyableRow>
       )}

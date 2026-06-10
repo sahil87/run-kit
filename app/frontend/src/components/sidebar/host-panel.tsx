@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { CollapsiblePanel } from "./collapsible-panel";
+import { ICON_CLASS } from "./icons";
 import { sparkline } from "@/lib/sparkline";
 import { gaugeBar, gaugeColor, formatMemory } from "@/lib/gauge";
 import { useMetrics } from "@/contexts/session-context";
@@ -50,6 +51,7 @@ export function HostPanel({ isConnected }: HostPanelProps) {
           {/* CPU sparkline — label+pct fixed, sparkline clips oldest (left) data on narrow panels */}
           <div className="flex items-baseline gap-[1ch]">
             <span className="text-text-secondary shrink-0">cpu</span>
+            <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uF2DB"}</span>
             <div className="text-accent flex-1 min-w-0 overflow-hidden" dir="rtl">
               <span className="whitespace-nowrap" dir="ltr">{sparkline(metrics.cpu.samples)}</span>
             </div>
@@ -62,6 +64,8 @@ export function HostPanel({ isConnected }: HostPanelProps) {
           {/* Disk + Uptime */}
           <div className="text-text-secondary truncate">
             <span>dsk </span>
+            <span className={ICON_CLASS} aria-hidden="true">{"\uF0A0"}</span>
+            {" "}
             <span>{formatDisk(metrics.disk.used, metrics.disk.total)}</span>
             <span> &middot; up </span>
             <span>{formatUptime(metrics.uptime)}</span>
@@ -104,6 +108,7 @@ function MemoryLine({ used, total }: { used: number; total: number }) {
   return (
     <div className="flex items-baseline gap-[1ch]">
       <span className="text-text-secondary shrink-0">mem</span>
+      <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\u{F035B}"}</span>
       <div ref={gaugeRef} className="flex-1 min-w-0 overflow-hidden whitespace-nowrap">
         <span className={color}>{gaugeBar(ratio, charCount)}</span>
       </div>
@@ -132,6 +137,8 @@ function LoadLine({
   return (
     <div className="truncate">
       <span className="text-text-secondary">ld&nbsp; </span>
+      <span className={ICON_CLASS} aria-hidden="true">{"\uF0E4"}</span>
+      {" "}
       <span className={p1 > 90 ? redClass : "text-text-primary"}>{p1}%</span>
       <span className="text-text-secondary"> </span>
       <span className={p5 > 90 ? redClass : "text-text-primary"}>{p5}%</span>

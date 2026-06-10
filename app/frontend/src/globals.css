@@ -34,6 +34,7 @@
   --color-text-secondary: #7a8394;
   --color-border: #454d66;
   --color-accent: #5b8af0;
+  --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
   --font-mono: "MonaspiceNe Nerd Font Mono", monospace;
 }
@@ -47,6 +48,7 @@ html[data-theme="dark"] {
   --color-text-secondary: #7a8394;
   --color-border: #454d66;
   --color-accent: #5b8af0;
+  --color-accent-bright: #82a8f7;
   --color-accent-green: #22c55e;
 }
 
@@ -59,6 +61,9 @@ html[data-theme="light"] {
   --color-text-secondary: #6b7280;
   --color-border: #d1d5db;
   --color-accent: #4a7ae8;
+  /* "bright" means more salient than accent, relative to the theme background:
+     lighter on dark, darker + more saturated on light (lighter would wash out). */
+  --color-accent-bright: #3b66d6;
   --color-accent-green: #16a34a;
 }
 

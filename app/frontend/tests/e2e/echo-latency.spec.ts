@@ -509,6 +509,7 @@ test.describe("Echo latency benchmark", () => {
   });
 
   test("throughput guard — burst output renders fully and fast", async ({ page }) => {
+    resetSamples("throughput"); // idempotent across a Playwright retry
     // Flood the terminal with a large, countable burst (`seq 1 N`) and measure
     // time-to-quiescence plus that the final line landed. This exercises the
     // adaptive flush's UNDER-LOAD branch: the relay delivers seq's output as
@@ -530,7 +531,33 @@ test.describe("Echo latency benchmark", () => {
 
     await page.locator("[role='application']").click();
     await page.locator(".xterm-helper-textarea").focus();
-    await page.waitForTimeout(1_000); // relay open + shell ready
+
+    // Warm up with a marker-based poll instead of a fixed sleep — the relay
+    // WebSocket must be OPEN and the shell consuming input before the burst, and
+    // a fixed sleep is flaky on a cold/slow runner (consistent with the
+    // full-path test, which avoids fixed sleeps for the same reason). Press `z`
+    // until it echoes on the cursor row, then clear the line so the marker isn't
+    // mistaken for burst output.
+    await expect
+      .poll(
+        async () => {
+          await page.keyboard.press("z");
+          return page.evaluate((wid) => {
+            const term = window.__rkTerminals?.[wid];
+            if (!term) return false;
+            const buf = term.buffer.active;
+            const row =
+              buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "";
+            return row.includes("z");
+          }, windowId);
+        },
+        { timeout: 15_000, intervals: [250] },
+      )
+      .toBe(true);
+    // Clear the typed warmup marker(s) from the prompt line WITHOUT executing
+    // them (Ctrl-U kills the line in the shell's line editor) so the burst
+    // command runs from a clean prompt.
+    await page.keyboard.press("Control+u");
 
     // Issue the burst. The unique end-marker is the final line `N` on its own.
     const endMarker = String(THROUGHPUT_LINES);

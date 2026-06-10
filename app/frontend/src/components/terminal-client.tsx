@@ -59,6 +59,10 @@ function unregisterTestTerminal(windowId: string) {
   delete window.__rkTerminals[windowId];
 }
 
+// Shared encoder for measuring UTF-8 byte length on the inbound flush path
+// (allocated once, not per message).
+const textEncoder = new TextEncoder();
+
 type TerminalClientProps = {
   sessionName: string;
   windowId: string;
@@ -521,6 +525,19 @@ export function TerminalClient({
       }
     }
 
+    /**
+     * UTF-8 byte length of a string, computed only when necessary. Bounds:
+     * UTF-8 bytes ≥ UTF-16 code units (every code unit is ≥1 byte), and ≤ 4×
+     * code units. So if `4 * length <= MAX` it is definitely within the
+     * threshold, and if `length > MAX` it is definitely over — neither needs an
+     * encode. Only the ambiguous middle band pays for `TextEncoder`.
+     */
+    function textByteLength(s: string): number {
+      if (s.length * 4 <= IMMEDIATE_WRITE_MAX_BYTES) return s.length; // ≤ threshold for sure
+      if (s.length > IMMEDIATE_WRITE_MAX_BYTES) return s.length; // ≥ threshold for sure (loose, but > MAX)
+      return textEncoder.encode(s).length;
+    }
+
     /** Decide whether an inbound chunk of `len` bytes can be written now. */
     function canWriteImmediately(len: number): boolean {
       return (
@@ -568,7 +585,15 @@ export function TerminalClient({
           // Idle + small + first-this-frame → write now so an echo paints this
           // tick. Otherwise (buffering, large chunk, or already wrote this
           // frame) coalesce into the next frame.
-          if (canWriteImmediately(event.data.length)) {
+          //
+          // Measure the threshold in UTF-8 BYTES, not String.length (UTF-16
+          // code units): a multibyte string can be ≤64 code units yet >64 bytes,
+          // which would wrongly take the immediate path and weaken the flood
+          // guard. textByteLength only encodes when the cheap code-unit upper
+          // bound (each UTF-16 unit is ≤3 UTF-8 bytes within the BMP, 4 across a
+          // surrogate pair) leaves the result ambiguous, so the hot path for a
+          // tiny ASCII echo stays allocation-free.
+          if (canWriteImmediately(textByteLength(event.data))) {
             terminal.write(event.data);
             markImmediateWrite();
             return;

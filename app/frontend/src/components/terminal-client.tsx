@@ -217,14 +217,10 @@ export function TerminalClient({
       xtermRef.current = terminal;
       fitAddonRef.current = fitAddon;
 
-      // Test-only hook: register this Terminal instance on a window-level
-      // registry keyed by windowId so the echo-latency e2e harness can read
-      // `term.buffer.active` directly. The WebGL renderer paints to a canvas
-      // that is NOT DOM-readable, so reading the parsed buffer is the only
-      // honest way to detect "glyph visible" from a Playwright driver. This is
-      // a single ref assignment with no runtime cost; it is cleaned up on
-      // unmount alongside the terminal dispose below.
-      registerTestTerminal(windowId, terminal);
+      // (The test-only registry is keyed on `windowId`, which can change while
+      // this terminal stays mounted — see the dedicated effect below, which
+      // re-keys register/unregister on windowId so the registry never goes
+      // stale. The init effect deliberately does NOT register here.)
 
       // Clipboard addon — enriched clipboard support
       terminal.loadAddon(new ClipboardAddon(undefined, clipboardProvider));
@@ -321,13 +317,27 @@ export function TerminalClient({
         wsRef.current = null;
       }
       if (focusRef) focusRef.current = null;
-      unregisterTestTerminal(windowId);
       xtermRef.current = null;
       fitAddonRef.current = null;
       try { terminal?.dispose(); } catch { /* WebGL addon may throw during teardown */ }
       setTerminalReady(false);
     };
   }, [wsRef, focusRef]);
+
+  // Test-only registry, keyed on the CURRENT windowId. The init effect runs
+  // mount-only (deps [wsRef, focusRef]), but `windowId` can change while this
+  // component stays mounted (it is rendered without a `key` in app.tsx, so a
+  // window switch re-renders rather than remounts). Registering here — keyed on
+  // [terminalReady, windowId] — re-keys the entry on every switch and cleans up
+  // the OLD id before adding the new one, so `window.__rkTerminals` never holds
+  // a stale handle. The echo-latency harness reads this to poll
+  // `term.buffer.active` (the WebGL canvas is not DOM-readable). Inert in normal
+  // use — nothing reads the registry unless a test driver does.
+  useEffect(() => {
+    if (!terminalReady || !xtermRef.current) return;
+    registerTestTerminal(windowId, xtermRef.current);
+    return () => unregisterTestTerminal(windowId);
+  }, [terminalReady, windowId]);
 
   // Scroll-lock: prevent xterm textarea from gaining focus when locked.
   // Instead of reactively blurring on focusin (which disrupts active touch

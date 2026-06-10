@@ -118,8 +118,9 @@ async function resolveFirstWindowId(
 /**
  * Init script: wrap WebSocket.prototype.send so every relay send stamps the
  * page-clock time of the most recent outbound byte on `window.__rkSendAt`. A
- * real keystroke flows xterm keydown → onData → ws.send (terminal-client.tsx:
- * 219), so this stamp is the moment the keystroke leaves the browser — the true
+ * real keystroke flows xterm keydown → onData → ws.send (TerminalClient's
+ * `terminal.onData` handler), so this stamp is the moment the keystroke leaves
+ * the browser — the true
  * start of the relay→tmux→echo→render round-trip. Stamping inside the real send
  * path (rather than marking time in the test before keyboard.press) keeps start
  * and finish on ONE clock and excludes only the sub-ms, unbatched keydown
@@ -363,7 +364,9 @@ test.describe("Echo latency benchmark", () => {
       // tool's own cost (an honest limitation noted in the summary).
       while (performance.now() < deadline) {
         const lines = tmuxCapture().replace(/\n+$/, "").split("\n");
-        const last = lines[lines.length - 1] ?? "";
+        // Trim trailing whitespace on the candidate line: `capture-pane -p` can
+        // right-pad a row with spaces, which would defeat a bare `endsWith(ch)`.
+        const last = (lines[lines.length - 1] ?? "").replace(/\s+$/, "");
         if (last.endsWith(ch)) {
           landed = true;
           break;

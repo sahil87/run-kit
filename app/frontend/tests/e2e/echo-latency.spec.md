@@ -36,7 +36,7 @@ prompt re-flowing the line or to cursor-column drift — the arrival of one more
 ## How the start timestamp is taken
 
 A real keystroke flows `keyboard.press` → xterm keydown → `onData` → `ws.send`
-(`terminal-client.tsx:219`). An init script (`INSTALL_SEND_STAMP`) wraps
+(TerminalClient's `terminal.onData` handler). An init script (`INSTALL_SEND_STAMP`) wraps
 `WebSocket.prototype.send` to stamp `window.__rkSendAt = performance.now()` on
 every single-character send. The measured latency is `firstVisible −
 __rkSendAt`, both `performance.now()` on the page clock — so start and finish

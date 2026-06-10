@@ -154,6 +154,42 @@ const INSTALL_SEND_STAMP = () => {
 };
 
 /**
+ * Init script: stamp the page-clock time at which the FIRST inbound WebSocket
+ * frame arrives after a keystroke send (`window.__rkRecvAt`). Wrapping the
+ * `WebSocket` constructor lets us attach a `message` listener that fires before
+ * the app's own `onmessage` handler (message events have no capture/bubble — on
+ * a non-DOM target listeners fire in registration order, and we register first).
+ *
+ * For single-char interactive echo there is nothing else in flight, so the
+ * first frame after the send IS the echo: we stamp `__rkRecvAt` only when a send
+ * has been recorded and no receive has yet — the harness resets both per trial.
+ * This splits the full path into two attributable segments:
+ *   send → recv   = network out + relay + tmux echo + relay + network back
+ *   recv → glyph  = rAF flush + xterm parse + buffer commit  (the render tail)
+ * Installed alongside INSTALL_SEND_STAMP via addInitScript.
+ */
+const INSTALL_RECV_STAMP = () => {
+  const w = window as unknown as { __rkSendAt?: number; __rkRecvAt?: number };
+  const OrigWS = window.WebSocket;
+  const Wrapped = function (this: WebSocket, url: string | URL, protocols?: string | string[]) {
+    const ws = new OrigWS(url, protocols);
+    ws.addEventListener("message", () => {
+      if (w.__rkSendAt !== undefined && w.__rkRecvAt === undefined) {
+        w.__rkRecvAt = performance.now();
+      }
+    });
+    return ws;
+  } as unknown as { prototype: WebSocket } & Record<string, unknown>;
+  // Preserve the prototype and the readonly ready-state constants so any code
+  // referencing WebSocket.OPEN etc. through the wrapper still works.
+  Wrapped.prototype = OrigWS.prototype;
+  for (const k of ["CONNECTING", "OPEN", "CLOSING", "CLOSED"] as const) {
+    Wrapped[k] = (OrigWS as unknown as Record<string, unknown>)[k];
+  }
+  (window as unknown as { WebSocket: unknown }).WebSocket = Wrapped;
+};
+
+/**
  * Dispatch one real keystroke and time how long until its glyph appears in the
  * live xterm buffer. The keystroke goes through the genuine input path
  * (keyboard.press → xterm keydown → onData → ws.send); the send-stamp wrapper
@@ -173,23 +209,35 @@ const INSTALL_SEND_STAMP = () => {
  * glyph is a poor global sentinel. Anchoring on the cursor cell means the same
  * char can be reused every trial.
  */
+/** A single keystroke's latency, split into attributable segments (ms). */
+interface EchoTiming {
+  /** send → glyph-visible: the full perceived path. */
+  full: number;
+  /** send → first inbound frame: network out + relay + tmux echo + back. */
+  network: number;
+  /** first inbound frame → glyph-visible: rAF flush + xterm parse (render tail). */
+  render: number;
+}
+
 async function measureEcho(
   page: import("@playwright/test").Page,
   windowId: string,
   ch: string,
   deadlineMs: number,
-): Promise<number> {
+): Promise<EchoTiming> {
   // Snapshot the cursor row's count of `ch` BEFORE the keystroke. The echo
   // increments that count by one. Counting occurrences in the whole cursor row
   // (rather than betting on an exact column) is robust to prompt-rendering noise
   // and cursor drift: a fancy multi-line prompt can re-flow the line, but the
   // arrival of one more `ch` on the active row is unambiguous. Also clear the
-  // prior send-stamp so we time THIS keystroke's send.
+  // prior send/recv stamps so we time THIS keystroke's round-trip.
   const before = await page.evaluate(
     ({ windowId, ch }) => {
       const term = window.__rkTerminals?.[windowId];
       if (!term) throw new Error(`no registered terminal for ${windowId}`);
-      (window as unknown as { __rkSendAt?: number }).__rkSendAt = undefined;
+      const w = window as unknown as { __rkSendAt?: number; __rkRecvAt?: number };
+      w.__rkSendAt = undefined;
+      w.__rkRecvAt = undefined;
       const buf = term.buffer.active;
       const row = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "";
       return row.split(ch).length - 1; // count of ch in the row
@@ -202,8 +250,8 @@ async function measureEcho(
   await page.keyboard.press(ch);
 
   // Poll the cursor row on the page clock until the count of `ch` increases,
-  // then return (firstVisible − sendStamp). Both timestamps are
-  // performance.now() in the page context — no Node↔browser clock mixing.
+  // then return the three segments. All timestamps are performance.now() in the
+  // page context — no Node↔browser clock mixing.
   return page.evaluate(
     async ({ windowId, ch, before, deadlineMs }) => {
       const term = window.__rkTerminals?.[windowId];
@@ -217,26 +265,41 @@ async function measureEcho(
       };
 
       const startWait = performance.now();
-      return await new Promise<number>((resolve, reject) => {
-        const deadline = startWait + deadlineMs;
-        const tick = () => {
-          if (echoLanded()) {
-            const sentAt = (window as unknown as { __rkSendAt?: number }).__rkSendAt;
-            if (sentAt === undefined) {
-              reject(new Error("keystroke produced no WebSocket send"));
+      // This shape mirrors EchoTiming, but it CANNOT reference that interface:
+      // page.evaluate serializes this callback into the browser's JS realm,
+      // where the outer module's compile-time types don't exist. The inline
+      // literal is required here — do not "DRY" it against EchoTiming.
+      return await new Promise<{ full: number; network: number; render: number }>(
+        (resolve, reject) => {
+          const deadline = startWait + deadlineMs;
+          const tick = () => {
+            if (echoLanded()) {
+              const glyphAt = performance.now();
+              const w = window as unknown as { __rkSendAt?: number; __rkRecvAt?: number };
+              if (w.__rkSendAt === undefined) {
+                reject(new Error("keystroke produced no WebSocket send"));
+                return;
+              }
+              // recv stamp should exist (the echo frame arrived before paint);
+              // if a coalesced first-frame somehow missed it, fall back to the
+              // glyph time so `network` is a lower bound rather than negative.
+              const recvAt = w.__rkRecvAt ?? glyphAt;
+              resolve({
+                full: glyphAt - w.__rkSendAt,
+                network: recvAt - w.__rkSendAt,
+                render: glyphAt - recvAt,
+              });
               return;
             }
-            resolve(performance.now() - sentAt);
-            return;
-          }
-          if (performance.now() > deadline) {
-            reject(new Error(`echo timeout for ${JSON.stringify(ch)}`));
-            return;
-          }
+            if (performance.now() > deadline) {
+              reject(new Error(`echo timeout for ${JSON.stringify(ch)}`));
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
           requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      });
+        },
+      );
     },
     { windowId, ch, before, deadlineMs },
   );
@@ -265,12 +328,18 @@ test.describe("Echo latency benchmark", () => {
       tmux(`kill-session -t ${TEST_SESSION}`);
     } catch { /* ok */ }
 
-    const full = samples.filter((s) => s.label === "full-path").map((s) => s.ms);
-    const base = samples.filter((s) => s.label === "baseline").map((s) => s.ms);
+    const pick = (label: string) =>
+      samples.filter((s) => s.label === label).map((s) => s.ms);
+    const full = pick("full-path");
+    const network = pick("network");
+    const render = pick("render");
+    const base = pick("baseline");
 
     console.log("\n=== ECHO LATENCY BENCHMARK ===");
     console.log("  keystroke → glyph-visible, p50/p95/p99\n");
     if (full.length) console.log(summarize("full-path (browser)", full));
+    if (network.length) console.log(summarize("├─ network (send→recv)", network));
+    if (render.length) console.log(summarize("└─ render (recv→glyph)", render));
     if (base.length) console.log(summarize("baseline (tmux only)", base));
     if (full.length && base.length) {
       const tax = percentile(full, 50) - percentile(base, 50);
@@ -279,14 +348,29 @@ test.describe("Echo latency benchmark", () => {
           " — the cost the web path adds over a local tmux echo.",
       );
     }
+    if (network.length && render.length) {
+      const np = percentile(network, 50);
+      const rp = percentile(render, 50);
+      const dominant = rp >= np ? "render" : "network";
+      console.log(
+        `  attribution (p50): network=${np.toFixed(1)}ms, render=${rp.toFixed(1)}ms` +
+          ` → ${dominant} dominates. Render is the rAF-flush + xterm-parse tail` +
+          " (the PR-#2 adaptive-flush target).",
+      );
+    }
     console.log("=== END BENCHMARK ===\n");
   });
 
   test("full-path keystroke→echo distribution", async ({ page }) => {
-    resetSamples("full-path"); // idempotent across a Playwright retry
-    // Install the send-stamp wrapper BEFORE the app loads so it wraps the relay
-    // WebSocket at construction time.
+    // Idempotent across a Playwright retry — this test records all three labels.
+    resetSamples("full-path");
+    resetSamples("network");
+    resetSamples("render");
+    // Install the send- and recv-stamp wrappers BEFORE the app loads so they
+    // wrap the relay WebSocket at construction time. Together they split each
+    // measurement into network (send→recv) and render (recv→glyph) segments.
     await page.addInitScript(INSTALL_SEND_STAMP);
+    await page.addInitScript(INSTALL_RECV_STAMP);
 
     const windowId = await resolveFirstWindowId(page);
     await page.goto(`${BASE}/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
@@ -338,8 +422,13 @@ test.describe("Echo latency benchmark", () => {
       // newline echo lands before we snapshot the pre-keystroke count.
       await page.keyboard.press("Enter");
       await page.waitForTimeout(30);
-      const ms = await measureEcho(page, windowId, ch, ECHO_DEADLINE_MS);
-      samples.push({ label: "full-path", ms });
+      const t = await measureEcho(page, windowId, ch, ECHO_DEADLINE_MS);
+      // Record the full path plus its two attributable segments as separate
+      // labeled rows, so the summary can report each distribution and the
+      // render tail (the PR-#2 target) is tracked objectively over time.
+      samples.push({ label: "full-path", ms: t.full });
+      samples.push({ label: "network", ms: t.network });
+      samples.push({ label: "render", ms: t.render });
     }
     expect(samples.filter((s) => s.label === "full-path").length).toBe(
       FULL_PATH_TRIALS,

@@ -1,0 +1,51 @@
+id: enic
+name: 260609-enic-restore-display-message-resolve-window
+created: 2026-06-09T17:37:44Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 3
+    acceptance_count: 11
+    acceptance_completed: 0
+confidence:
+    certain: 5
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 93.1
+        reversibility: 81.9
+        competence: 91.0
+        disambiguation: 89.8
+stage_metrics:
+    intake: {started_at: "2026-06-09T17:37:44Z", driver: fab-new, iterations: 1, completed_at: "2026-06-09T17:40:06Z"}
+    apply: {started_at: "2026-06-09T17:40:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-09T17:44:02Z"}
+    review: {started_at: "2026-06-09T17:44:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-09T17:47:10Z"}
+    hydrate: {started_at: "2026-06-09T17:47:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-09T17:51:17Z"}
+    ship: {started_at: "2026-06-09T17:51:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-09T17:53:14Z"}
+    review-pr: {started_at: "2026-06-09T17:53:14Z", driver: git-pr, iterations: 1, completed_at: "2026-06-09T18:00:29Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/239
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-09T17:51:17Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-09T18:00:29Z

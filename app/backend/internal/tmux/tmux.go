@@ -899,30 +899,47 @@ func KillSessionCtx(ctx context.Context, server, session string) error {
 // ResolveWindowSession returns the name of the session that owns the window
 // identified by windowID on the given server — either a normal home session or
 // a board pin-session (`_rk-pin-*`). Since a window lives in exactly ONE session
-// (the move-based model removes window sharing), the first match is
-// authoritative. Returns an error when the window ID does not exist in any
-// session — callers (e.g. the relay) treat that as "window not found".
+// (the move-based model removes window sharing), a targeted
+// `display-message -t <windowID> -p "#{session_name}"` resolves the window's
+// single owning session in O(1) — no enumeration.
+//
+// Not-found contract: callers (e.g. the relay) rely on a missing window
+// surfacing as `window %q not found`. On tmux 3.6a, `display-message` for a
+// missing `-t @N` exits 0 with empty stdout, so the empty-result guard is the
+// primary not-found path. A tmux error whose stderr names a missing window
+// (other tmux versions/phrasings) is also mapped to the same contract; genuine
+// operational errors (dead server, deadline) are returned unchanged so callers
+// can distinguish "window gone" from "tmux unavailable".
 func ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
-	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", "#{session_name}"+listDelim+"#{window_id}")
+	lines, err := tmuxExecServer(ctx, server, "display-message", "-t", windowID, "-p", "#{session_name}")
 	if err != nil {
+		if isMissingWindowErr(err) {
+			return "", fmt.Errorf("window %q not found", windowID)
+		}
 		return "", err
 	}
-	for _, line := range lines {
-		parts := strings.SplitN(line, listDelim, 2)
-		if len(parts) != 2 {
-			continue
-		}
-		session := strings.TrimSpace(parts[0])
-		id := strings.TrimSpace(parts[1])
-		if id != windowID {
-			continue
-		}
-		if session == "" {
-			continue
-		}
-		return session, nil
+	if len(lines) == 0 {
+		return "", fmt.Errorf("window %q not found", windowID)
 	}
-	return "", fmt.Errorf("window %q not found", windowID)
+	session := strings.TrimSpace(lines[0])
+	if session == "" {
+		return "", fmt.Errorf("window %q not found", windowID)
+	}
+	return session, nil
+}
+
+// isMissingWindowErr reports whether err's stderr text matches tmux's
+// missing-window phrasings (e.g. "can't find window: @N"). Used to map a tmux
+// target-not-found error back to the not-found contract without swallowing
+// operational failures (a dead server reports different stderr — see
+// serverGoneText).
+func isMissingWindowErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "can't find window") ||
+		strings.Contains(msg, "window not found")
 }
 
 // resolveWindowSessionIndex resolves both the owning session name and the current

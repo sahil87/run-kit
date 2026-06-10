@@ -71,10 +71,10 @@ function readPreference(): { preference: string; themeDark: string; themeLight: 
 function applyThemeToDOM(theme: Theme): void {
   const root = document.documentElement;
 
-  // Derive the 8 UI colors from the full palette
+  // Derive the 9 UI colors from the full palette
   const uiColors: UIColors = deriveUIColors(theme.palette, theme.category);
 
-  // Set all 8 CSS custom properties
+  // Set all 9 CSS custom properties
   const colorKeys = Object.keys(COLOR_CSS_MAP) as (keyof UIColors)[];
   for (const key of colorKeys) {
     root.style.setProperty(COLOR_CSS_MAP[key], uiColors[key]);

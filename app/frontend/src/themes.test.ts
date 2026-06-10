@@ -105,10 +105,11 @@ describe("themes", () => {
   });
 
   describe("COLOR_CSS_MAP", () => {
-    it("maps all 8 color keys to CSS custom property names", () => {
-      expect(Object.keys(COLOR_CSS_MAP)).toHaveLength(8);
+    it("maps all 9 color keys to CSS custom property names", () => {
+      expect(Object.keys(COLOR_CSS_MAP)).toHaveLength(9);
       expect(COLOR_CSS_MAP.bgPrimary).toBe("--color-bg-primary");
       expect(COLOR_CSS_MAP.accent).toBe("--color-accent");
+      expect(COLOR_CSS_MAP.accentBright).toBe("--color-accent-bright");
     });
   });
 });
@@ -148,13 +149,28 @@ describe("deriveUIColors", () => {
     expect(ui.border).not.toBe(theme.palette.background);
   });
 
-  it("all 8 keys are valid hex", () => {
+  it("all 9 keys are valid hex", () => {
     for (const theme of THEMES) {
       const ui = deriveUIColors(theme.palette, theme.category);
       const keys = Object.keys(ui) as (keyof UIColors)[];
-      expect(keys).toHaveLength(8);
+      expect(keys).toHaveLength(9);
       for (const key of keys) {
         expect(ui[key]).toMatch(HEX_RE);
+      }
+    }
+  });
+
+  it("derives accentBright lighter than accent on dark, darker on light", () => {
+    const luminance = (hex: string) => {
+      const n = parseInt(hex.slice(1), 16);
+      return ((n >> 16) & 0xff) + ((n >> 8) & 0xff) + (n & 0xff);
+    };
+    for (const theme of THEMES) {
+      const ui = deriveUIColors(theme.palette, theme.category);
+      if (theme.category === "dark") {
+        expect(luminance(ui.accentBright)).toBeGreaterThan(luminance(ui.accent));
+      } else {
+        expect(luminance(ui.accentBright)).toBeLessThan(luminance(ui.accent));
       }
     }
   });

@@ -25,6 +25,7 @@ export type UIColors = {
   textSecondary: string;
   border: string;
   accent: string;
+  accentBright: string;
   accentGreen: string;
 };
 
@@ -47,6 +48,7 @@ export const COLOR_CSS_MAP: Record<keyof UIColors, string> = {
   textSecondary: "--color-text-secondary",
   border: "--color-border",
   accent: "--color-accent",
+  accentBright: "--color-accent-bright",
   accentGreen: "--color-accent-green",
 };
 
@@ -147,9 +149,10 @@ export function saturateHex(hex: string, factor: number): string {
 
 // ── Derivation functions ─────────────────────────────────────────────────────
 
-/** Derive the 8 UI CSS colors from a full theme palette. */
+/** Derive the 9 UI CSS colors from a full theme palette. */
 export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"): UIColors {
   const isDark = category === "dark";
+  const accent = palette.ansi[4];
   return {
     bgPrimary: palette.background,
     bgCard: isDark ? lightenHex(palette.background, 8) : darkenHex(palette.background, 3),
@@ -157,7 +160,10 @@ export function deriveUIColors(palette: ThemePalette, category: "dark" | "light"
     textPrimary: palette.foreground,
     textSecondary: blendHex(palette.foreground, palette.ansi[8], 0.3),
     border: blendHex(palette.foreground, palette.background, 0.25),
-    accent: palette.ansi[4],
+    accent,
+    // "bright" = more salient than accent relative to the theme background:
+    // lighter on dark, darker + more saturated on light (lighter would wash out).
+    accentBright: isDark ? lightenHex(accent, 25) : saturateHex(darkenHex(accent, 12), 1.15),
     accentGreen: palette.ansi[2],
   };
 }

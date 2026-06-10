@@ -402,7 +402,7 @@ describe("ThemeProvider", () => {
   });
 
   describe("CSS custom properties", () => {
-    it("applies all 8 CSS custom properties via deriveUIColors to document.documentElement.style", () => {
+    it("applies all 9 CSS custom properties via deriveUIColors to document.documentElement.style", () => {
       render(
         <ThemeProvider>
           <TestConsumer />
@@ -418,6 +418,7 @@ describe("ThemeProvider", () => {
       expect(style.getPropertyValue("--color-text-secondary")).toBe(derived.textSecondary);
       expect(style.getPropertyValue("--color-border")).toBe(derived.border);
       expect(style.getPropertyValue("--color-accent")).toBe(derived.accent);
+      expect(style.getPropertyValue("--color-accent-bright")).toBe(derived.accentBright);
       expect(style.getPropertyValue("--color-accent-green")).toBe(derived.accentGreen);
     });
 

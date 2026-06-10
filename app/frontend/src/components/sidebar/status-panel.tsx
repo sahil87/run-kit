@@ -209,6 +209,43 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
         </CopyableRow>
       )}
 
+      {/* pr — live PR status for a change-bound window with a PR. The row body
+          copies the PR URL on click (consistent with every other row). When a
+          PR URL is present, a hover-revealed open link (right-aligned, always
+          shown on touch) opens the PR in a new tab — the open + copy affordances
+          are split the same way the sidebar window row splits its row-body
+          action from its hover action buttons. Gated via getPrLine. */}
+      {prLine && (
+        <div className="group/pr relative">
+          <CopyableRow
+            prefix={"pr\u00A0"}
+            copied={copiedRow === "pr"}
+            onCopy={() => handleCopy("pr", win.prUrl ?? prLine)}
+            title={win.prUrl ?? undefined}
+            className={win.prUrl ? "pr-6" : undefined}
+          >
+            <span className="text-accent" aria-hidden="true">{"\uF407"}</span>
+            {" "}
+            <span className={`${prFailish ? "text-red-400" : "text-text-secondary"} group-hover:text-accent`}>
+              {prLine}
+            </span>
+          </CopyableRow>
+          {win.prUrl && (
+            <a
+              href={win.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Open PR #${win.prNumber} in a new tab`}
+              title="Open PR in a new tab"
+              className="absolute right-0 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover/pr:opacity-100 coarse:opacity-100 text-[12px] px-0.5 min-h-[20px] flex items-center justify-center"
+            >
+              {"\u2197"}
+            </a>
+          )}
+        </div>
+      )}
+
       {/* run */}
       {processLine && (
         <div className="truncate">
@@ -235,22 +272,6 @@ function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: numbe
         </CopyableRow>
       )}
 
-      {/* pr — live PR status for a change-bound window with a PR. Copies the PR
-          URL on click (or the line text if no URL). Gated via getPrLine. */}
-      {prLine && (
-        <CopyableRow
-          prefix="pr"
-          copied={copiedRow === "pr"}
-          onCopy={() => handleCopy("pr", win.prUrl ?? prLine)}
-          title={win.prUrl ?? undefined}
-        >
-          <span className="text-accent" aria-hidden="true">{"\uF407"}</span>
-          {" "}
-          <span className={`${prFailish ? "text-red-400" : "text-text-secondary"} group-hover:text-accent`}>
-            {prLine}
-          </span>
-        </CopyableRow>
-      )}
     </div>
   );
 }

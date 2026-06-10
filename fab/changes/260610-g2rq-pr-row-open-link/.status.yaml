@@ -1,0 +1,45 @@
+id: g2rq
+name: 260610-g2rq-pr-row-open-link
+created: 2026-06-10T04:42:21Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 0
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 0.0
+stage_metrics:
+    intake: {started_at: "2026-06-10T04:42:21Z", driver: fab-new, iterations: 1, completed_at: "2026-06-10T04:43:03Z"}
+    apply: {started_at: "2026-06-10T04:43:03Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T04:43:03Z"}
+    review: {started_at: "2026-06-10T04:43:03Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T04:43:03Z"}
+    hydrate: {started_at: "2026-06-10T04:43:03Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T04:43:03Z"}
+    ship: {started_at: "2026-06-10T04:43:03Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T04:43:03Z"}
+    review-pr: {started_at: "2026-06-10T04:43:03Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/247
+true_impact:
+    added: 64
+    deleted: 14
+    net: 50
+    excluding:
+        added: 64
+        deleted: 14
+        net: 50
+    computed_at: "2026-06-10T04:43:03Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-10T04:43:03Z

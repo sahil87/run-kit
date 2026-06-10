@@ -439,6 +439,36 @@ describe("StatusPanel copy behavior", () => {
       );
     });
 
+    it("renders an open-in-new-tab link to the PR URL", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-x",
+        prNumber: 241,
+        prUrl: "https://github.com/sahil87/run-kit/pull/241",
+        prState: "open",
+      });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      const link = screen.getByRole("link", {
+        name: "Open PR #241 in a new tab",
+      }) as HTMLAnchorElement;
+      expect(link).toHaveAttribute(
+        "href",
+        "https://github.com/sahil87/run-kit/pull/241",
+      );
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    });
+
+    it("does not render the open link when the PR has no URL", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-x",
+        prNumber: 241,
+        prUrl: undefined,
+        prState: "open",
+      });
+      render(<StatusPanel window={win} nowSeconds={0} />);
+      expect(screen.queryByRole("link")).toBeNull();
+    });
+
     it("applies the red token when checks fail", () => {
       const win = makeWindow({
         fabChange: "260610-596o-x",

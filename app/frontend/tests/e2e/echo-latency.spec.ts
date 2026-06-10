@@ -45,7 +45,19 @@ interface Sample {
   ms: number;
 }
 
-const samples: Sample[] = [];
+let samples: Sample[] = [];
+
+/**
+ * Drop any prior samples for `label`. Called at the start of each test so a
+ * Playwright retry (config has `retries: 1`) re-runs in the SAME worker process
+ * — and therefore against this persistent module-level array — without the
+ * failed attempt's partial samples lingering. Without this, a retry would
+ * double-count (failing the exact-count assertions) and skew the afterAll
+ * percentile summary.
+ */
+function resetSamples(label: string): void {
+  samples = samples.filter((s) => s.label !== label);
+}
 
 function tmux(cmd: string): void {
   execSync(`tmux -L ${TMUX_SERVER} ${cmd}`, { stdio: "ignore" });
@@ -271,6 +283,7 @@ test.describe("Echo latency benchmark", () => {
   });
 
   test("full-path keystroke→echo distribution", async ({ page }) => {
+    resetSamples("full-path"); // idempotent across a Playwright retry
     // Install the send-stamp wrapper BEFORE the app loads so it wraps the relay
     // WebSocket at construction time.
     await page.addInitScript(INSTALL_SEND_STAMP);
@@ -334,6 +347,7 @@ test.describe("Echo latency benchmark", () => {
   });
 
   test("baseline tmux-only echo distribution", async ({ page }) => {
+    resetSamples("baseline"); // idempotent across a Playwright retry
     // Pure tmux echo: send a char via the tmux CLI directly into the same
     // `cat`, then poll capture-pane until the current line shows it. No
     // browser, no WebSocket — this is the floor the full path is measured

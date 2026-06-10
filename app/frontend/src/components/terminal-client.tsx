@@ -35,9 +35,13 @@ export const clipboardProvider = {
  * the live `Terminal` instance to poll `term.buffer.active` for the echoed
  * glyph (the WebGL canvas is not DOM-readable). We expose instances on
  * `window.__rkTerminals`, keyed by windowId, so a Playwright `page.evaluate`
- * can reach them. Inert in normal use — nothing reads the registry unless a
- * test driver does. Kept tiny and symmetric (register on create, unregister on
+ * can reach them. Kept tiny and symmetric (register on create, unregister on
  * dispose) so a stale handle never points at a disposed terminal.
+ *
+ * Gated on `import.meta.env.DEV`: this is populated ONLY in dev/e2e builds
+ * (Vite's dev server, which is what `just dev` / the e2e harness run against),
+ * never in a production `vite build`. So production bundles do not expose live
+ * Terminal instances on `window` at all — the helpers compile to no-ops there.
  */
 declare global {
   interface Window {
@@ -46,12 +50,12 @@ declare global {
 }
 
 function registerTestTerminal(windowId: string, terminal: import("@xterm/xterm").Terminal) {
-  if (typeof window === "undefined") return;
+  if (!import.meta.env.DEV || typeof window === "undefined") return;
   (window.__rkTerminals ??= {})[windowId] = terminal;
 }
 
 function unregisterTestTerminal(windowId: string) {
-  if (typeof window === "undefined" || !window.__rkTerminals) return;
+  if (!import.meta.env.DEV || typeof window === "undefined" || !window.__rkTerminals) return;
   delete window.__rkTerminals[windowId];
 }
 

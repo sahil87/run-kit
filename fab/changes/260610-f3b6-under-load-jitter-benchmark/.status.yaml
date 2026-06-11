@@ -10,7 +10,7 @@ progress:
     review: pending
     hydrate: pending
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: false
     task_count: 0
@@ -31,8 +31,8 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-06-10T13:33:30Z", driver: fab-new, iterations: 1}
     ship: {started_at: "2026-06-10T13:35:58Z", driver: git-pr, iterations: 1, completed_at: "2026-06-10T13:36:59Z"}
-    review-pr: {started_at: "2026-06-10T13:36:59Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-06-10T13:36:59Z", driver: git-pr, iterations: 1, completed_at: "2026-06-11T06:28:54Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/255
 # true_impact: lazily created on first apply-finish (no placeholder here).
-last_updated: 2026-06-10T13:36:59Z
+last_updated: 2026-06-11T06:28:54Z

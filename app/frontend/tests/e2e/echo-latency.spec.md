@@ -127,9 +127,11 @@ therefore reports, per label:
   flood doesn't disturb the echo session; the under-load test likewise uses its
   own `LOAD_SESSION` (`e2e-echo-load-<ts>`) so its tick stream doesn't pollute
   the idle measurements.
-- `afterAll` sends `C-c` to break out of `cat`, kills both sessions, then prints
-  the summary table: full-path / network / render / baseline p50/p95/p99, the
-  computed run-kit tax, the attribution verdict, and the throughput time.
+- `afterAll` sends `C-c` to break out of `cat`, kills all three sessions
+  (`TEST_SESSION`, `BURST_SESSION`, `LOAD_SESSION`), then prints the summary
+  table: full-path / network / render / under-load / baseline p50/p95/p99, the
+  computed run-kit tax, the attribution verdict, the distribution histograms,
+  and the throughput time.
 - `resolveFirstWindowId(page, session?)` polls `/api/sessions` for the named
   session's first window's stable `@N` id (the terminal route is keyed by window
   id, not index), mirroring `mobile-touch-scroll.spec.ts`. Defaults to the echo

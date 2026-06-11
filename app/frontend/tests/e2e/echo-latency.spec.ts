@@ -697,6 +697,13 @@ test.describe("Echo latency benchmark", () => {
     // The generator is bounded (2000 ticks ≈ 100s) so it self-terminates even
     // if cleanup fails — it can never outlive the run as an orphaned load
     // loop. Killing the session kills it with the pane in the normal case.
+    // Retry-safe: if a prior attempt failed after creating the session and the
+    // retry runs in the same worker process (same module-level Date.now() name),
+    // the leftover session would make new-session fail with "duplicate session".
+    // Kill any leftover first; on a clean first attempt this is a no-op error.
+    try {
+      tmux(`kill-session -t ${LOAD_SESSION}`);
+    } catch { /* no stale session */ }
     tmux(`new-session -d -s ${LOAD_SESSION} -x 80 -y 24`);
     // The attached client renders the tmux status line on the terminal's
     // bottom row, and it permanently shows the session name (`e2e-echo-load-…`)
@@ -739,17 +746,20 @@ test.describe("Echo latency benchmark", () => {
     await expect
       .poll(
         () =>
-          page.evaluate((wid) => {
-            const term = window.__rkTerminals?.[wid];
-            if (!term) return false;
-            const buf = term.buffer.active;
-            for (let y = Math.max(0, buf.length - 8); y < buf.length; y++) {
-              if ((buf.getLine(y)?.translateToString(true) ?? "").includes("tick")) {
-                return true;
+          page.evaluate(
+            ({ windowId, scanRows }) => {
+              const term = window.__rkTerminals?.[windowId];
+              if (!term) return false;
+              const buf = term.buffer.active;
+              for (let y = Math.max(0, buf.length - scanRows); y < buf.length; y++) {
+                if ((buf.getLine(y)?.translateToString(true) ?? "").includes("tick")) {
+                  return true;
+                }
               }
-            }
-            return false;
-          }, windowId),
+              return false;
+            },
+            { windowId, scanRows: LOAD_SCAN_ROWS },
+          ),
         { timeout: 15_000, intervals: [250] },
       )
       .toBe(true);
@@ -757,17 +767,20 @@ test.describe("Echo latency benchmark", () => {
       .poll(
         async () => {
           await page.keyboard.press("w");
-          return page.evaluate((wid) => {
-            const term = window.__rkTerminals?.[wid];
-            if (!term) return false;
-            const buf = term.buffer.active;
-            for (let y = Math.max(0, buf.length - 8); y < buf.length; y++) {
-              if ((buf.getLine(y)?.translateToString(true) ?? "").includes("w")) {
-                return true;
+          return page.evaluate(
+            ({ windowId, scanRows }) => {
+              const term = window.__rkTerminals?.[windowId];
+              if (!term) return false;
+              const buf = term.buffer.active;
+              for (let y = Math.max(0, buf.length - scanRows); y < buf.length; y++) {
+                if ((buf.getLine(y)?.translateToString(true) ?? "").includes("w")) {
+                  return true;
+                }
               }
-            }
-            return false;
-          }, windowId);
+              return false;
+            },
+            { windowId, scanRows: LOAD_SCAN_ROWS },
+          );
         },
         { timeout: 15_000, intervals: [250] },
       )

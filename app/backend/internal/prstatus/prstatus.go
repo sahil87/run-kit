@@ -51,9 +51,13 @@ type PRStatus struct {
 }
 
 // Collector holds the latest PR-status snapshot, refreshed in the background.
+// The map is keyed by canonical PR URL, NOT by PR number: numbers are only
+// unique per repository, and the batched query spans ALL of the viewer's repos,
+// so two open PRs can share a number (e.g. repoA#18 and repoB#18) and a
+// number-keyed map would let one silently clobber the other.
 type Collector struct {
 	mu       sync.RWMutex
-	byNumber map[int]PRStatus
+	byURL    map[string]PRStatus
 	interval time.Duration
 
 	// ghExec runs the batched gh query and returns its raw stdout. It is a
@@ -71,7 +75,7 @@ type Collector struct {
 // Call Start to begin the background goroutine.
 func NewCollector(interval time.Duration) *Collector {
 	return &Collector{
-		byNumber:  make(map[int]PRStatus),
+		byURL:     make(map[string]PRStatus),
 		interval:  interval,
 		ghExec:    defaultGhExec,
 		available: ghAvailable,
@@ -97,13 +101,13 @@ func (c *Collector) Start(ctx context.Context) {
 	}()
 }
 
-// Snapshot returns a deep copy of the current PR-status map. Callers may read
-// it freely without holding the lock.
-func (c *Collector) Snapshot() map[int]PRStatus {
+// Snapshot returns a deep copy of the current PR-status map, keyed by
+// canonical PR URL. Callers may read it freely without holding the lock.
+func (c *Collector) Snapshot() map[string]PRStatus {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	out := make(map[int]PRStatus, len(c.byNumber))
-	for k, v := range c.byNumber {
+	out := make(map[string]PRStatus, len(c.byURL))
+	for k, v := range c.byURL {
 		out[k] = v
 	}
 	return out
@@ -116,7 +120,7 @@ func (c *Collector) RefreshNow(ctx context.Context) {
 	c.refresh(ctx)
 }
 
-// refresh performs ONE batched gh call and rebuilds byNumber wholesale.
+// refresh performs ONE batched gh call and rebuilds byURL wholesale.
 //
 // Failure modes (all leave the last-good map untouched, return without error):
 //   - ghExec is nil (gh unavailable / collector not wired) → no-op
@@ -143,10 +147,17 @@ func (c *Collector) refresh(ctx context.Context) {
 		return
 	}
 
-	next := make(map[int]PRStatus, len(prs))
+	next := make(map[string]PRStatus, len(prs))
 	now := time.Now()
 	for _, p := range prs {
-		next[p.Number] = PRStatus{
+		// URL is the map key: a node with an empty URL (malformed/partial gh
+		// JSON — url unmarshals to "" without error) must be skipped, or every
+		// such node would collide on the "" key and could attach a wrong
+		// status downstream.
+		if p.URL == "" {
+			continue
+		}
+		next[p.URL] = PRStatus{
 			Number:         p.Number,
 			URL:            p.URL,
 			State:          mapState(p.State, p.IsDraft),
@@ -160,7 +171,7 @@ func (c *Collector) refresh(ctx context.Context) {
 	// REPLACE wholesale: a PR absent from the new result (merged/closed/no
 	// longer OPEN) is gone next cycle. This is the cleanup mechanism.
 	c.mu.Lock()
-	c.byNumber = next
+	c.byURL = next
 	c.mu.Unlock()
 }
 

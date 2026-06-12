@@ -43,13 +43,14 @@ func (prodBoardEntriesFetcher) ListBoardEntries(ctx context.Context, server stri
 	return tmux.ListBoardEntries(ctx, server)
 }
 
-// PRStatusSnapshotter supplies the current in-memory PR-status map, keyed by PR
-// number. Injected into the SSE hub so the poll path can attach live PR status
+// PRStatusSnapshotter supplies the current in-memory PR-status map, keyed by
+// canonical PR URL (PR numbers are only unique per repo — see prstatus.Collector).
+// Injected into the SSE hub so the poll path can attach live PR status
 // to change-bound windows via a PURE in-memory read — the hot path makes no
 // network call. Implemented by *prstatus.Collector; a one-method interface lets
 // tests stub it and lets the hub degrade gracefully (nil → no PR fields).
 type PRStatusSnapshotter interface {
-	Snapshot() map[int]prstatus.PRStatus
+	Snapshot() map[string]prstatus.PRStatus
 }
 
 // boardEventName is the SSE event type for board-membership changes. Matches
@@ -341,11 +342,13 @@ func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayloa
 // in-memory collector snapshot. It is a PURE read of prStatus.Snapshot() — NO
 // network/gh call — preserving the SSE hot path's zero-network-call guarantee.
 //
-// Gate: status is attached only to a window that has BOTH a non-nil PrNumber
-// (from the pane-map enrichment) AND a non-empty FabChange (the change-bound
-// gate). The four display fields are always reset first so a window that lost
-// its PR (merged/closed → dropped from the snapshot) clears cleanly even on a
-// cached result slice (the cache stores the same slice by reference).
+// Gate: status is attached only to a window that has BOTH a non-empty PrURL
+// (from the pane-map enrichment; nil and "" both fail the gate) AND a
+// non-empty FabChange (the change-bound gate). The join is by canonical PR URL, never by bare PR number — numbers
+// are only unique per repo, so a number join can pick up an unrelated repo's
+// PR state. The four display fields are always reset first so a window that
+// lost its PR (merged/closed → dropped from the snapshot) clears cleanly even
+// on a cached result slice (the cache stores the same slice by reference).
 //
 // No-op when no collector is wired (nil prStatus) — degrades gracefully.
 func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
@@ -359,10 +362,10 @@ func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
 			w := &windows[wi]
 			// Reset display fields so stale values never linger.
 			w.PrState, w.PrChecks, w.PrReview, w.PrIsDraft = "", "", "", false
-			if w.FabChange == "" || w.PrNumber == nil {
+			if w.FabChange == "" || w.PrURL == nil || *w.PrURL == "" {
 				continue
 			}
-			if st, ok := snap[*w.PrNumber]; ok {
+			if st, ok := snap[*w.PrURL]; ok {
 				w.PrState = st.State
 				w.PrChecks = st.Checks
 				w.PrReview = st.ReviewDecision

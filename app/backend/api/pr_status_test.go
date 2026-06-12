@@ -13,19 +13,22 @@ import (
 
 // stubSnapshotter implements PRStatusSnapshotter with a canned map.
 type stubSnapshotter struct {
-	snap map[int]prstatus.PRStatus
+	snap map[string]prstatus.PRStatus
 }
 
-func (s stubSnapshotter) Snapshot() map[int]prstatus.PRStatus { return s.snap }
+func (s stubSnapshotter) Snapshot() map[string]prstatus.PRStatus { return s.snap }
 
 func intp(n int) *int       { return &n }
 func strp(s string) *string { return &s }
 
 func TestAttachPRStatusChangeBoundGate(t *testing.T) {
 	hub := &sseHub{
-		prStatus: stubSnapshotter{snap: map[int]prstatus.PRStatus{
-			386: {Number: 386, URL: "u386", State: "open", Checks: "pass", ReviewDecision: "approved"},
-			999: {Number: 999, URL: "u999", State: "merged", Checks: "fail"},
+		prStatus: stubSnapshotter{snap: map[string]prstatus.PRStatus{
+			"u386": {Number: 386, URL: "u386", State: "open", Checks: "pass", ReviewDecision: "approved"},
+			"u999": {Number: 999, URL: "u999", State: "merged", Checks: "fail"},
+			// Poisoned empty key: the collector never produces one, but the
+			// gate must still refuse to join an empty PrURL against it.
+			"": {State: "closed"},
 		}},
 	}
 
@@ -34,12 +37,16 @@ func TestAttachPRStatusChangeBoundGate(t *testing.T) {
 		Windows: []tmux.WindowInfo{
 			// change-bound window with a matching PR → attach
 			{Index: 0, FabChange: "260610-x", PrNumber: intp(386), PrURL: strp("u386")},
-			// scratch window (no FabChange) WITH a PrNumber → gate blocks attach
+			// scratch window (no FabChange) WITH a PrURL → gate blocks attach
 			{Index: 1, FabChange: "", PrNumber: intp(999), PrURL: strp("u999")},
 			// change-bound window whose PR is not in the snapshot → no attach
-			{Index: 2, FabChange: "260610-y", PrNumber: intp(123)},
-			// change-bound window with no PrNumber → no attach
-			{Index: 3, FabChange: "260610-z", PrNumber: nil},
+			{Index: 2, FabChange: "260610-y", PrNumber: intp(123), PrURL: strp("u123")},
+			// change-bound window with no PrURL (e.g. a stale fab that emits
+			// pr_number only) → no attach — the join key is the URL
+			{Index: 3, FabChange: "260610-z", PrNumber: intp(386), PrURL: nil},
+			// change-bound window with an EMPTY PrURL → gate treats it as
+			// missing; must not match an empty snapshot key
+			{Index: 4, FabChange: "260610-w", PrNumber: intp(7), PrURL: strp("")},
 		},
 	}}
 
@@ -50,20 +57,53 @@ func TestAttachPRStatusChangeBoundGate(t *testing.T) {
 		t.Errorf("window 0 (change-bound, matched) not enriched: %+v", ws[0])
 	}
 	if ws[1].PrState != "" || ws[1].PrChecks != "" || ws[1].PrReview != "" {
-		t.Errorf("window 1 (scratch) must NOT be enriched despite PrNumber: %+v", ws[1])
+		t.Errorf("window 1 (scratch) must NOT be enriched despite PrURL: %+v", ws[1])
 	}
 	if ws[2].PrState != "" {
 		t.Errorf("window 2 (no snapshot match) must stay empty: %+v", ws[2])
 	}
 	if ws[3].PrState != "" {
-		t.Errorf("window 3 (no PrNumber) must stay empty: %+v", ws[3])
+		t.Errorf("window 3 (no PrURL) must stay empty: %+v", ws[3])
+	}
+	if ws[4].PrState != "" {
+		t.Errorf("window 4 (empty PrURL) must stay empty: %+v", ws[4])
+	}
+}
+
+func TestAttachPRStatusSameNumberDifferentRepos(t *testing.T) {
+	// Regression: two change-bound windows whose PRs share a number but live in
+	// different repos must each get THEIR OWN state. The old number-keyed join
+	// showed an open idea#18 as merged because shll#18 (same number) had merged.
+	hub := &sseHub{
+		prStatus: stubSnapshotter{snap: map[string]prstatus.PRStatus{
+			"https://github.com/sahil87/idea/pull/18": {Number: 18, URL: "https://github.com/sahil87/idea/pull/18", State: "open", Checks: "pass"},
+			"https://github.com/sahil87/shll/pull/18": {Number: 18, URL: "https://github.com/sahil87/shll/pull/18", State: "merged", Checks: "none"},
+		}},
+	}
+
+	sess := []sessions.ProjectSession{{
+		Name: "dev",
+		Windows: []tmux.WindowInfo{
+			{Index: 0, FabChange: "260612-a", PrNumber: intp(18), PrURL: strp("https://github.com/sahil87/idea/pull/18")},
+			{Index: 1, FabChange: "260612-b", PrNumber: intp(18), PrURL: strp("https://github.com/sahil87/shll/pull/18")},
+		},
+	}}
+
+	hub.attachPRStatus(sess)
+	ws := sess[0].Windows
+
+	if ws[0].PrState != "open" {
+		t.Errorf("idea#18 window state = %q, want open: %+v", ws[0].PrState, ws[0])
+	}
+	if ws[1].PrState != "merged" {
+		t.Errorf("shll#18 window state = %q, want merged: %+v", ws[1].PrState, ws[1])
 	}
 }
 
 func TestAttachPRStatusNilCollectorNoop(t *testing.T) {
 	hub := &sseHub{prStatus: nil}
 	sess := []sessions.ProjectSession{{
-		Windows: []tmux.WindowInfo{{FabChange: "x", PrNumber: intp(1)}},
+		Windows: []tmux.WindowInfo{{FabChange: "x", PrNumber: intp(1), PrURL: strp("u1")}},
 	}}
 	hub.attachPRStatus(sess) // must not panic
 	if sess[0].Windows[0].PrState != "" {
@@ -74,10 +114,10 @@ func TestAttachPRStatusNilCollectorNoop(t *testing.T) {
 func TestAttachPRStatusResetsStaleFields(t *testing.T) {
 	// A window carrying stale PR fields whose PR dropped from the snapshot must
 	// be cleared (wholesale-rebuild + reset semantics).
-	hub := &sseHub{prStatus: stubSnapshotter{snap: map[int]prstatus.PRStatus{}}}
+	hub := &sseHub{prStatus: stubSnapshotter{snap: map[string]prstatus.PRStatus{}}}
 	sess := []sessions.ProjectSession{{
 		Windows: []tmux.WindowInfo{
-			{FabChange: "x", PrNumber: intp(386), PrState: "open", PrChecks: "pass", PrReview: "approved", PrIsDraft: true},
+			{FabChange: "x", PrNumber: intp(386), PrURL: strp("u386"), PrState: "open", PrChecks: "pass", PrReview: "approved", PrIsDraft: true},
 		},
 	}}
 	hub.attachPRStatus(sess)

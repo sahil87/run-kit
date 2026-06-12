@@ -26,6 +26,9 @@ func TestAttachPRStatusChangeBoundGate(t *testing.T) {
 		prStatus: stubSnapshotter{snap: map[string]prstatus.PRStatus{
 			"u386": {Number: 386, URL: "u386", State: "open", Checks: "pass", ReviewDecision: "approved"},
 			"u999": {Number: 999, URL: "u999", State: "merged", Checks: "fail"},
+			// Poisoned empty key: the collector never produces one, but the
+			// gate must still refuse to join an empty PrURL against it.
+			"": {State: "closed"},
 		}},
 	}
 
@@ -41,6 +44,9 @@ func TestAttachPRStatusChangeBoundGate(t *testing.T) {
 			// change-bound window with no PrURL (e.g. a stale fab that emits
 			// pr_number only) → no attach — the join key is the URL
 			{Index: 3, FabChange: "260610-z", PrNumber: intp(386), PrURL: nil},
+			// change-bound window with an EMPTY PrURL → gate treats it as
+			// missing; must not match an empty snapshot key
+			{Index: 4, FabChange: "260610-w", PrNumber: intp(7), PrURL: strp("")},
 		},
 	}}
 
@@ -58,6 +64,9 @@ func TestAttachPRStatusChangeBoundGate(t *testing.T) {
 	}
 	if ws[3].PrState != "" {
 		t.Errorf("window 3 (no PrURL) must stay empty: %+v", ws[3])
+	}
+	if ws[4].PrState != "" {
+		t.Errorf("window 4 (empty PrURL) must stay empty: %+v", ws[4])
 	}
 }
 

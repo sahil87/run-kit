@@ -150,6 +150,13 @@ func (c *Collector) refresh(ctx context.Context) {
 	next := make(map[string]PRStatus, len(prs))
 	now := time.Now()
 	for _, p := range prs {
+		// URL is the map key: a node with an empty URL (malformed/partial gh
+		// JSON — url unmarshals to "" without error) must be skipped, or every
+		// such node would collide on the "" key and could attach a wrong
+		// status downstream.
+		if p.URL == "" {
+			continue
+		}
 		next[p.URL] = PRStatus{
 			Number:         p.Number,
 			URL:            p.URL,

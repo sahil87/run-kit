@@ -342,9 +342,9 @@ func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayloa
 // in-memory collector snapshot. It is a PURE read of prStatus.Snapshot() — NO
 // network/gh call — preserving the SSE hot path's zero-network-call guarantee.
 //
-// Gate: status is attached only to a window that has BOTH a non-nil PrURL
-// (from the pane-map enrichment) AND a non-empty FabChange (the change-bound
-// gate). The join is by canonical PR URL, never by bare PR number — numbers
+// Gate: status is attached only to a window that has BOTH a non-empty PrURL
+// (from the pane-map enrichment; nil and "" both fail the gate) AND a
+// non-empty FabChange (the change-bound gate). The join is by canonical PR URL, never by bare PR number — numbers
 // are only unique per repo, so a number join can pick up an unrelated repo's
 // PR state. The four display fields are always reset first so a window that
 // lost its PR (merged/closed → dropped from the snapshot) clears cleanly even
@@ -362,7 +362,7 @@ func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
 			w := &windows[wi]
 			// Reset display fields so stale values never linger.
 			w.PrState, w.PrChecks, w.PrReview, w.PrIsDraft = "", "", "", false
-			if w.FabChange == "" || w.PrURL == nil {
+			if w.FabChange == "" || w.PrURL == nil || *w.PrURL == "" {
 				continue
 			}
 			if st, ok := snap[*w.PrURL]; ok {

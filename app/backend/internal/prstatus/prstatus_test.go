@@ -284,6 +284,29 @@ func TestRefreshCrossRepoSameNumberNoCollision(t *testing.T) {
 	}
 }
 
+func TestRefreshSkipsEmptyURL(t *testing.T) {
+	// A node with an empty URL (malformed/partial gh JSON) must be dropped —
+	// inserting it would make unrelated empty-URL nodes collide on the "" key.
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		return ghJSON(
+			ghFixture(1, "", "MERGED", false, "", "") + "," +
+				ghFixture(2, "u2", "OPEN", false, "SUCCESS", ""),
+		), nil
+	})
+	c.refresh(context.Background())
+	snap := c.Snapshot()
+
+	if _, ok := snap[""]; ok {
+		t.Error("empty-URL node must not be inserted under the \"\" key")
+	}
+	if len(snap) != 1 {
+		t.Errorf("snapshot size = %d, want 1 (only the valid node): %v", len(snap), snap)
+	}
+	if _, ok := snap["u2"]; !ok {
+		t.Error("valid node u2 should remain present")
+	}
+}
+
 func TestSnapshotIsCopy(t *testing.T) {
 	c := newTestCollector(func(context.Context) ([]byte, error) {
 		return ghJSON(ghFixture(1, "u1", "OPEN", false, "SUCCESS", "")), nil

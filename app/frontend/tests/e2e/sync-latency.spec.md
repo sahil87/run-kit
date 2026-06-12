@@ -113,8 +113,11 @@ instant kill with no confirm dialog; the row disappears in ≤500ms.
 1. Create `kill-me` window via the `tmux()` helper.
 2. `setup`.
 3. Assert `kill-me` visible.
-4. Timer, `click({ modifiers: ['Control'] })` on the kill button.
-5. Wait for `kill-me` to disappear, `record`.
+4. Hover the `kill-me` row — the icon cluster is `pointer-events-none` at
+   rest (stray-click hardening), so group-hover must restore interactivity
+   before the kill button can receive the click.
+5. Timer, `click({ modifiers: ['Control'] })` on the kill button.
+6. Wait for `kill-me` to disappear, `record`.
 
 ### `6. Move window within session (drag-drop reorder)`
 

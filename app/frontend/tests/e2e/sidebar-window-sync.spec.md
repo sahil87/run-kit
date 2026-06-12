@@ -110,11 +110,14 @@ higher-level, user-visible contract.
 1. Create `kill-win-<ts>` via `execSync`.
 2. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
 3. Assert `kill-win-<ts>` is visible in the sidebar.
-4. Ctrl+click the sidebar's `Kill window kill-win-<ts>` button — performs
+4. Hover the `kill-win-<ts>` row — the icon cluster is
+   `pointer-events-none` at rest (stray-click hardening), so group-hover
+   must restore interactivity before the kill button can receive the click.
+5. Ctrl+click the sidebar's `Kill window kill-win-<ts>` button — performs
    an instant optimistic kill, bypassing the confirm dialog (the dialog
    path relies on a `killTargetRef` that is cleared synchronously, which
    makes this edge harder to exercise deterministically via the UI).
-5. Assert `kill-win-<ts>` disappears within 5s.
-6. Create `win-new-<ts>` externally via `execSync`.
-7. Assert `win-new-<ts>` appears within 5s.
-8. Assert `kill-win-<ts>` is still gone.
+6. Assert `kill-win-<ts>` disappears within 5s.
+7. Create `win-new-<ts>` externally via `execSync`.
+8. Assert `win-new-<ts>` appears within 5s.
+9. Assert `kill-win-<ts>` is still gone.

@@ -172,3 +172,5 @@ app/backend/build/frontend/*
 
 # tmux.conf is copied from configs/tmux/default.conf at build time
 app/backend/build/tmux.conf
+
+.status.yaml.lock

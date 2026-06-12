@@ -50,7 +50,7 @@ func TestRefreshBuildsSnapshot(t *testing.T) {
 	c.refresh(context.Background())
 
 	snap := c.Snapshot()
-	got, ok := snap[386]
+	got, ok := snap["https://example/pull/386"]
 	if !ok {
 		t.Fatalf("PR #386 missing from snapshot: %v", snap)
 	}
@@ -79,7 +79,7 @@ func TestRefreshWholesaleRebuildDropsAbsentPR(t *testing.T) {
 	)
 	c := newTestCollector(func(context.Context) ([]byte, error) { return out, nil })
 	c.refresh(context.Background())
-	if snap := c.Snapshot(); len(snap) != 2 || snap[100].Number != 100 || snap[200].Number != 200 {
+	if snap := c.Snapshot(); len(snap) != 2 || snap["u100"].Number != 100 || snap["u200"].Number != 200 {
 		t.Fatalf("first cycle snapshot = %v, want #100 and #200", snap)
 	}
 
@@ -90,10 +90,10 @@ func TestRefreshWholesaleRebuildDropsAbsentPR(t *testing.T) {
 	out = ghJSON(ghFixture(200, "u200", "OPEN", false, "SUCCESS", ""))
 	c.refresh(context.Background())
 	snap := c.Snapshot()
-	if _, ok := snap[100]; ok {
+	if _, ok := snap["u100"]; ok {
 		t.Error("PR #100 should be gone after wholesale rebuild")
 	}
-	if _, ok := snap[200]; !ok {
+	if _, ok := snap["u200"]; !ok {
 		t.Error("PR #200 should remain")
 	}
 	if len(snap) != 1 {
@@ -113,14 +113,14 @@ func TestRefreshStaleWhileRevalidateOnError(t *testing.T) {
 
 	// First refresh: good data.
 	c.refresh(context.Background())
-	if _, ok := c.Snapshot()[386]; !ok {
+	if _, ok := c.Snapshot()["u386"]; !ok {
 		t.Fatal("PR #386 missing after first refresh")
 	}
 
 	// Second refresh: gh errors — last-good map MUST be kept.
 	c.refresh(context.Background())
 	snap := c.Snapshot()
-	if got, ok := snap[386]; !ok || got.ReviewDecision != "approved" {
+	if got, ok := snap["u386"]; !ok || got.ReviewDecision != "approved" {
 		t.Errorf("stale-while-revalidate failed: snapshot = %v", snap)
 	}
 }
@@ -169,7 +169,7 @@ func TestRefreshBadJSONKeepsLastGood(t *testing.T) {
 	})
 	c.refresh(context.Background())
 	c.refresh(context.Background())
-	if _, ok := c.Snapshot()[7]; !ok {
+	if _, ok := c.Snapshot()["u7"]; !ok {
 		t.Error("bad JSON should keep last-good map")
 	}
 }
@@ -238,7 +238,7 @@ func TestDraftAndEnumCollapseEndToEnd(t *testing.T) {
 	c.refresh(context.Background())
 	snap := c.Snapshot()
 
-	p11 := snap[11]
+	p11 := snap["u11"]
 	if !p11.IsDraft {
 		t.Error("#11 should be draft")
 	}
@@ -247,15 +247,40 @@ func TestDraftAndEnumCollapseEndToEnd(t *testing.T) {
 	}
 	// #12 is a non-draft open PR with passing checks and an approval — exercises
 	// the SUCCESS→pass and APPROVED→approved collapses.
-	p12 := snap[12]
+	p12 := snap["u12"]
 	if p12.State != "open" || p12.IsDraft || p12.Checks != "pass" || p12.ReviewDecision != "approved" {
 		t.Errorf("#12 collapse wrong: %+v", p12)
 	}
 	// #13 is merged — the query now includes MERGED so a landed PR shows its
 	// terminal state (checks/review are "none"/none for the empty fixture).
-	p13 := snap[13]
+	p13 := snap["u13"]
 	if p13.State != "merged" {
 		t.Errorf("#13 should be merged, got %+v", p13)
+	}
+}
+
+func TestRefreshCrossRepoSameNumberNoCollision(t *testing.T) {
+	// PR numbers are only unique per repository. Two PRs sharing a number but
+	// living in different repos must BOTH survive the rebuild under their own
+	// URL keys — a number-keyed map let one clobber the other (the bug where an
+	// open repoA#18 displayed as merged because repoB#18 had merged).
+	c := newTestCollector(func(context.Context) ([]byte, error) {
+		return ghJSON(
+			ghFixture(18, "https://github.com/sahil87/idea/pull/18", "OPEN", false, "SUCCESS", "") + "," +
+				ghFixture(18, "https://github.com/sahil87/shll/pull/18", "MERGED", false, "", ""),
+		), nil
+	})
+	c.refresh(context.Background())
+	snap := c.Snapshot()
+
+	if len(snap) != 2 {
+		t.Fatalf("snapshot size = %d, want 2 (one per URL): %v", len(snap), snap)
+	}
+	if got := snap["https://github.com/sahil87/idea/pull/18"].State; got != "open" {
+		t.Errorf("idea#18 state = %q, want open", got)
+	}
+	if got := snap["https://github.com/sahil87/shll/pull/18"].State; got != "merged" {
+		t.Errorf("shll#18 state = %q, want merged", got)
 	}
 }
 
@@ -265,8 +290,8 @@ func TestSnapshotIsCopy(t *testing.T) {
 	})
 	c.refresh(context.Background())
 	snap := c.Snapshot()
-	delete(snap, 1) // mutate the copy
-	if _, ok := c.Snapshot()[1]; !ok {
+	delete(snap, "u1") // mutate the copy
+	if _, ok := c.Snapshot()["u1"]; !ok {
 		t.Error("mutating the snapshot must not affect the collector's map")
 	}
 }

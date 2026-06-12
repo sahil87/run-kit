@@ -250,6 +250,11 @@ test.describe("Sync Latency Audit", () => {
 
     const killBtn = sidebar.locator("button[aria-label='Kill window kill-me']");
 
+    // The icon cluster is pointer-events-none at rest (stray-click hardening);
+    // hover the row first so group-hover restores interactivity, mirroring how
+    // a real cursor reaches the kill button.
+    await sidebar.locator("text=kill-me").first().hover();
+
     const t0 = Date.now();
     await killBtn.click({ modifiers: ["Control"] });
 

@@ -73,6 +73,7 @@ type paneMapEntry struct {
 	Worktree          string  `json:"worktree"`
 	Change            *string `json:"change"`
 	Stage             *string `json:"stage"`
+	DisplayState      *string `json:"display_state"` // active/ready/done/failed/pending/skipped; nil when null/absent (fab < 2.1.7)
 	AgentState        *string `json:"agent_state"`
 	AgentIdleDuration *string `json:"agent_idle_duration"`
 	PrURL             *string `json:"pr_url"`
@@ -438,6 +439,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			if entry, ok := enrichByWindowID[sd.windows[j].WindowID]; ok {
 				sd.windows[j].FabChange = derefStr(entry.Change)
 				sd.windows[j].FabStage = derefStr(entry.Stage)
+				sd.windows[j].FabDisplayState = derefStr(entry.DisplayState)
 				sd.windows[j].AgentState = derefStr(entry.AgentState)
 				sd.windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
 				sd.windows[j].PrURL = entry.PrURL

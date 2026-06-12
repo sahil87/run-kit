@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-12T08:02:31Z"}
+{"args":"Consume fab pane map display_state; quiet parked sidebar rows; harden hover-icon cluster.","cmd":"fab-new","event":"command","ts":"2026-06-12T08:02:31Z"}
+{"delta":"+3.2","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-06-12T08:05:53Z"}
+{"delta":"+0.0","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-06-12T08:06:12Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-06-12T08:06:12Z"}
+{"cmd":"git-branch","event":"command","ts":"2026-06-12T08:07:59Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-12T08:08:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-12T08:09:01Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-12T08:09:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-12T08:18:51Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-12T08:19:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-12T08:28:33Z"}
+{"event":"review","result":"passed","ts":"2026-06-12T08:28:33Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-12T08:29:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-12T08:38:00Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-12T08:38:41Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-12T08:40:08Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-06-12T08:41:40Z"}
+{"event":"review","result":"passed","ts":"2026-06-12T09:05:28Z"}

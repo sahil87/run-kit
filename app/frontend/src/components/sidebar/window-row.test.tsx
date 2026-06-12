@@ -47,6 +47,35 @@ function renderRow(win: WindowInfo) {
   );
 }
 
+/** Render with `server` and `onColorChange` wired so all three hover-revealed
+ *  icons (pin / color swatch / kill) exist in the DOM. */
+function renderRowWithIcons(win: WindowInfo) {
+  return render(
+    <WindowRow
+      win={win}
+      session="alpha"
+      isSelected={false}
+      isDragOver={false}
+      nowSeconds={0}
+      editingWindow={null}
+      editingName=""
+      inputRef={{ current: null }}
+      onSelectWindow={noop}
+      onDoubleClickName={noop}
+      onWindowNameChange={noop}
+      onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+      onRenameBlur={noop}
+      onKillClick={noop as React.MouseEventHandler}
+      onDragStart={noopDrag}
+      onDragOver={noopDrag}
+      onDrop={noopDrag}
+      onDragEnd={noop}
+      onColorChange={noop}
+      server="srv"
+    />,
+  );
+}
+
 function makeGhostWindow(overrides: Partial<MergedWindow> = {}): MergedWindow {
   return {
     name: "ghost-win",
@@ -122,5 +151,123 @@ describe("WindowRow", () => {
     });
     renderRow(win);
     expect(screen.queryByTestId("pr-status-line")).toBeNull();
+  });
+
+  // Quiet parked rows: fab pane map display_state === "done" means the change
+  // is parked (fully shipped, awaiting archive) — the stage text is stale and
+  // is suppressed; the duration stands alone. Any other value, unknown future
+  // values, or an absent field keeps today's show-stage behavior.
+  describe("fab stage quiet-row policy", () => {
+    it("suppresses stage text when fabDisplayState is done, keeping the duration", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260612-epqk-x",
+        fabStage: "review-pr",
+        fabDisplayState: "done",
+        agentState: "idle",
+        agentIdleDuration: "2m",
+      });
+      renderRow(win);
+      expect(screen.queryByText("review-pr")).toBeNull();
+      expect(screen.getByText("2m")).toBeInTheDocument();
+    });
+
+    it("shows stage text when fabDisplayState is active", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabStage: "review-pr",
+        fabDisplayState: "active",
+      });
+      renderRow(win);
+      expect(screen.getByText("review-pr")).toBeInTheDocument();
+    });
+
+    it("shows stage text when fabDisplayState is ready", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabStage: "intake",
+        fabDisplayState: "ready",
+      });
+      renderRow(win);
+      expect(screen.getByText("intake")).toBeInTheDocument();
+    });
+
+    it("shows stage text when fabDisplayState is absent (older fab binary)", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabStage: "apply",
+      });
+      renderRow(win);
+      expect(screen.getByText("apply")).toBeInTheDocument();
+    });
+
+    it("shows stage text for unknown future fabDisplayState values", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabStage: "apply",
+        fabDisplayState: "paused",
+      });
+      renderRow(win);
+      expect(screen.getByText("apply")).toBeInTheDocument();
+    });
+  });
+
+  // jsdom does not evaluate :hover / @media (pointer: coarse) / :has() as
+  // computed styles, so the hardening contract is asserted as class strings.
+  describe("hover-icon cluster hardening", () => {
+    it("icon container is inert at rest and restores interactivity on hover, coarse pointers, and focus within", () => {
+      const win = makeWindow({ windowId: "@0", index: 0 });
+      const { container } = renderRowWithIcons(win);
+      const cluster = container.querySelector("div.absolute.right-2");
+      expect(cluster).not.toBeNull();
+      expect(cluster!.className).toContain("pointer-events-none");
+      expect(cluster!.className).toContain("group-hover:pointer-events-auto");
+      expect(cluster!.className).toContain("coarse:pointer-events-auto");
+      expect(cluster!.className).toContain("has-[:focus-visible]:pointer-events-auto");
+    });
+
+    it("hover-revealed buttons reveal themselves on keyboard focus", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
+      renderRowWithIcons(win);
+      const pin = screen.getByLabelText("Pin my-shell to a board");
+      const swatch = screen.getByLabelText("Set color for my-shell");
+      const kill = screen.getByLabelText("Kill window my-shell");
+      for (const btn of [pin, swatch, kill]) {
+        expect(btn.className).toContain("opacity-0");
+        expect(btn.className).toContain("focus-visible:opacity-100");
+      }
+    });
+
+    it("pinned pin button stays permanently visible (no geometry/visibility change)", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
+      render(
+        <WindowRow
+          win={win}
+          session="alpha"
+          isSelected={false}
+          isDragOver={false}
+          nowSeconds={0}
+          editingWindow={null}
+          editingName=""
+          inputRef={{ current: null }}
+          onSelectWindow={noop}
+          onDoubleClickName={noop}
+          onWindowNameChange={noop}
+          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+          onRenameBlur={noop}
+          onKillClick={noop as React.MouseEventHandler}
+          server="srv"
+          isPinnedToAny={true}
+        />,
+      );
+      const pin = screen.getByLabelText("Pin my-shell to a board");
+      expect(pin.className).toContain("opacity-100");
+      expect(pin.className).not.toContain("opacity-0 ");
+    });
   });
 });

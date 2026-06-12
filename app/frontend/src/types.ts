@@ -55,6 +55,10 @@ export type WindowInfo = {
   agentIdleDuration?: string;
   fabChange?: string;
   fabStage?: string;
+  /** Pipeline state of the displayed stage from `fab pane map` `display_state`
+   *  (`active`/`ready`/`done`/`failed`/`pending`/`skipped`); absent when fab
+   *  reports null or omits the field (fab < 2.1.7). */
+  fabDisplayState?: string;
   /** PR URL / number from `fab pane map` (Layer 1 — filesystem, cheap). */
   prUrl?: string;
   prNumber?: number;

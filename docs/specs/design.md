@@ -333,7 +333,7 @@ The sidebar replaces the old Dashboard and Project pages. It shows all sessions 
 
 **Window row**: Single line, three zones:
 - Left: Activity dot (● green = active, dim gray = idle) + window name. No ring on the dot — the left border accent is sufficient to indicate the selected window.
-- Right: Fab stage + progress icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows. Kill `✕` button (hover-reveal on desktop, always visible on mobile/touch).
+- Right: Fab stage + progress icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows; also suppressed for parked changes (`fab pane map` `display_state === "done"`) — quiet rows show duration only, while any other/unknown/absent state value keeps the stage text. Kill `✕` button (hover-reveal on desktop, always visible on mobile/touch).
 - Currently selected window gets `bg-accent/10` highlight + `b order-accent` left border + `font-medium`
 - Tap → switches terminal to that session:window
 
@@ -431,7 +431,7 @@ Each line: `{change-name}:{stage}:{state}:{confidence}:{indicative}`. We can mat
 | 14 | Sidebar ordering | Same as tmux output order (no resorting) |
 | 15 | Drawer trigger | Hamburger icon (`☰`) only — no swipe gesture. Hamburger is always the leftmost top bar element. |
 | 16 | Testing strategy | MSW-backed tests for UI behavior (drawer, breadcrumbs, sidebar, keyboard, touch targets, viewport). Thin E2E suite (3-5 tests) for API integration round-trips (create/kill session, SSE stream). |
-| 17 | Sidebar fab status | Inline on same line as window name, right-aligned. Stage name + icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows. |
+| 17 | Sidebar fab status | Inline on same line as window name, right-aligned. Stage name + icon, `text-secondary`, no "fab:" prefix. Omitted for non-fab windows. Suppressed for parked changes — `fabDisplayState === "done"` (from `fab pane map` `display_state`, fab ≥ 2.1.7) shows duration only (quiet row); other/unknown/absent values keep the stage text. |
 | 18 | Layout borders | `border-b` on top bar, `border-t` on bottom bar, `border-r` on sidebar. Clear visual separation between chrome regions and content. |
 | 19 | Padding consistency | Top bar and sidebar use `px-3 sm:px-6`. Bottom bar uses `px-1.5` (6px) — tighter since it shares the terminal's fixed-width container. Terminal container gets `py-0.5 px-1` for breathing room. Bottom bar `py-1.5` for near-symmetry with top bar's `py-2`. |
 | 20 | "+ New Session" location | Moved from sidebar footer to top bar line 2. Always visible (not gated on current window). Sidebar has no footer section. |

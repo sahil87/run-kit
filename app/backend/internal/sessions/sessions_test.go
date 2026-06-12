@@ -383,6 +383,101 @@ func TestPaneMapJoinPopulatesPerWindowPrFields(t *testing.T) {
 	}
 }
 
+func TestPaneMapEntryParsesDisplayState(t *testing.T) {
+	// Three wire shapes: present with a value, explicit JSON null, and absent
+	// key (fab < 2.1.7 omits display_state entirely).
+	jsonData := `[
+		{"session":"dev","window_index":0,"pane":"%0","tab":"main","worktree":"/p","change":"260612-epqk-x","stage":"review-pr","display_state":"done","agent_state":null,"agent_idle_duration":null},
+		{"session":"dev","window_index":1,"pane":"%1","tab":"build","worktree":"/b","change":"260612-epqk-x","stage":"apply","display_state":null,"agent_state":null,"agent_idle_duration":null},
+		{"session":"dev","window_index":2,"pane":"%2","tab":"old","worktree":"/o","change":null,"stage":null,"agent_state":null,"agent_idle_duration":null}
+	]`
+
+	var entries []paneMapEntry
+	if err := json.Unmarshal([]byte(jsonData), &entries); err != nil {
+		t.Fatalf("failed to parse pane-map JSON: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("got %d entries, want 3", len(entries))
+	}
+
+	// Entry 0: display_state present with a value.
+	if entries[0].DisplayState == nil || *entries[0].DisplayState != "done" {
+		t.Errorf("entries[0].DisplayState = %v, want %q", entries[0].DisplayState, "done")
+	}
+	// Entry 1: explicit JSON null → nil pointer.
+	if entries[1].DisplayState != nil {
+		t.Errorf("entries[1].DisplayState = %v, want nil", entries[1].DisplayState)
+	}
+	// Entry 2: key absent (older fab) → nil pointer.
+	if entries[2].DisplayState != nil {
+		t.Errorf("entries[2].DisplayState = %v, want nil", entries[2].DisplayState)
+	}
+}
+
+func TestPaneMapJoinPopulatesDisplayState(t *testing.T) {
+	change := "260612-epqk-x"
+	stage := "review-pr"
+
+	paneMap := map[string]paneMapEntry{
+		// Parked change: display_state "done".
+		"dev:0": {
+			Session:      "dev",
+			WindowIndex:  0,
+			Change:       &change,
+			Stage:        &stage,
+			DisplayState: strPtr("done"),
+		},
+		// Entry present but display_state null/absent (older fab).
+		"dev:1": {
+			Session:      "dev",
+			WindowIndex:  1,
+			Change:       &change,
+			Stage:        &stage,
+			DisplayState: nil,
+		},
+	}
+
+	windows := []tmux.WindowInfo{
+		{Index: 0, WindowID: "@20", Name: "main"},
+		{Index: 1, WindowID: "@21", Name: "build"},
+		{Index: 2, WindowID: "@22", Name: "test"}, // no pane-map entry
+	}
+
+	// Mirror the FetchSessions enrichment join faithfully: re-key the
+	// (session, index) pane-map onto each window's stable WindowID, then join
+	// by WindowID and map DisplayState through derefStr.
+	sessionName := "dev"
+	enrichByWindowID := make(map[string]paneMapEntry, len(paneMap))
+	for j := range windows {
+		indexKey := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
+		if entry, ok := paneMap[indexKey]; ok {
+			enrichByWindowID[windows[j].WindowID] = entry
+		}
+	}
+	for j := range windows {
+		if entry, ok := enrichByWindowID[windows[j].WindowID]; ok {
+			windows[j].FabStage = derefStr(entry.Stage)
+			windows[j].FabDisplayState = derefStr(entry.DisplayState)
+		}
+	}
+
+	// Window 0: parked → FabDisplayState "done".
+	if windows[0].FabDisplayState != "done" {
+		t.Errorf("windows[0].FabDisplayState = %q, want %q", windows[0].FabDisplayState, "done")
+	}
+	if windows[0].FabStage != stage {
+		t.Errorf("windows[0].FabStage = %q, want %q", windows[0].FabStage, stage)
+	}
+	// Window 1: nil DisplayState → empty string after derefStr.
+	if windows[1].FabDisplayState != "" {
+		t.Errorf("windows[1].FabDisplayState = %q, want empty", windows[1].FabDisplayState)
+	}
+	// Window 2: no pane-map entry → field stays empty.
+	if windows[2].FabDisplayState != "" {
+		t.Errorf("windows[2].FabDisplayState = %q, want empty", windows[2].FabDisplayState)
+	}
+}
+
 func TestFetchPaneMapFabNotOnPath(t *testing.T) {
 	// When `fab` is not reachable via $PATH, fetchPaneMap MUST return a
 	// non-nil error and a nil map. We force the failure by clearing PATH

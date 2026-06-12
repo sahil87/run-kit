@@ -281,6 +281,10 @@ test.describe("Sidebar Window Sync", () => {
     // We use this path because the dialog path relies on a killTargetRef that
     // is reset to null synchronously on handleKill, making it unreliable to
     // observe the "killed entry persists" edge case via the UI.
+    // The icon cluster is pointer-events-none at rest (stray-click hardening);
+    // hover the row first so group-hover restores interactivity, mirroring how
+    // a real cursor reaches the kill button.
+    await sidebar.locator(`text=${windowName}`).first().hover();
     await sidebar
       .locator(`button[aria-label="Kill window ${windowName}"]`)
       .click({ modifiers: ["Control"] });

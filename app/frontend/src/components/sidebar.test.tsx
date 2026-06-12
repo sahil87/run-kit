@@ -276,6 +276,54 @@ describe("Sidebar", () => {
     expect(applySpans.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("hides fab stage text on parked windows (fabDisplayState done), keeping the duration", () => {
+    // A fully-shipped change parked at review-pr reports display_state "done"
+    // from fab pane map — the stale stage text is suppressed (quiet row) while
+    // an actively-worked sibling keeps its stage text.
+    const parked: ProjectSession[] = [
+      {
+        name: "run-kit",
+        windows: [
+          {
+            index: 0,
+            windowId: "@0",
+            name: "main",
+            worktreePath: "~/code/run-kit",
+            activity: "idle",
+            isActiveWindow: true,
+            fabStage: "review-pr",
+            fabChange: "260612-epqk-parked",
+            fabDisplayState: "done",
+            agentState: "idle",
+            agentIdleDuration: "2m",
+            paneCommand: "zsh",
+            activityTimestamp: Math.floor(Date.now() / 1000) - 180,
+          },
+          {
+            index: 1,
+            windowId: "@1",
+            name: "scratch",
+            worktreePath: "~/code/run-kit",
+            activity: "idle",
+            isActiveWindow: false,
+            fabStage: "apply",
+            fabChange: "260612-epqk-active",
+            fabDisplayState: "active",
+            agentState: "active",
+            paneCommand: "claude",
+            activityTimestamp: Math.floor(Date.now() / 1000) - 5,
+          },
+        ],
+      },
+    ];
+    renderSidebar({ sessions: parked });
+    // Parked row: stage text gone, duration still rendered.
+    expect(screen.queryByText("review-pr")).not.toBeInTheDocument();
+    expect(screen.getAllByText("2m").length).toBeGreaterThanOrEqual(1);
+    // Active sibling keeps its stage text.
+    expect(screen.getAllByText("apply").length).toBeGreaterThanOrEqual(1);
+  });
+
   it("does not render empty-state hint when sessions exist", () => {
     renderSidebar();
     expect(screen.queryByText(/no sessions/)).not.toBeInTheDocument();

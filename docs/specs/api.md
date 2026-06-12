@@ -72,7 +72,8 @@ Returns all tmux sessions with their windows, enriched with fab-kit state where 
         "activity": "active",
         "isActiveWindow": true,
         "fabChange": "260312-jz77-scaffold-app-structure",
-        "fabStage": "review-pr"
+        "fabStage": "review-pr",
+        "fabDisplayState": "done"
       }
     ]
   }
@@ -90,6 +91,7 @@ Returns all tmux sessions with their windows, enriched with fab-kit state where 
 | `isActiveWindow` | `bool` | Whether this is the currently selected tmux window |
 | `fabChange` | `string?` | Active change name from `.fab-status.yaml`, omitted if no active change |
 | `fabStage` | `string?` | Current active stage (first `active` entry in `.fab-status.yaml` `progress` map), omitted if no active change |
+| `fabDisplayState` | `string?` | Pipeline state of the displayed stage from `fab pane map` `display_state` — one of `active`, `ready`, `done`, `failed`, `pending`, `skipped`; omitted when fab reports `null` or the field is absent (fab < 2.1.7) |
 
 **Behavior:**
 - Filters out byobu session-group copies (keep where `name == group` or `grouped == 0`)

@@ -219,6 +219,7 @@ type WindowInfo struct {
 	AgentIdleDuration string `json:"agentIdleDuration,omitempty"`
 	FabChange         string `json:"fabChange,omitempty"`
 	FabStage          string `json:"fabStage,omitempty"`
+	FabDisplayState   string `json:"fabDisplayState,omitempty"` // pipeline state of the displayed stage; empty when fab reports null/omits the field
 	// PR fields. PrURL/PrNumber come from `fab pane map` (filesystem, cheap)
 	// via the sessions enrichment join (Layer 1). PrState/PrChecks/PrReview/
 	// PrIsDraft are attached by the SSE hub from the in-memory prstatus

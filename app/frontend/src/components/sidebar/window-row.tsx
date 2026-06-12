@@ -221,7 +221,12 @@ export function WindowRow({
           )}
         </span>
         <span className="flex items-center gap-1.5 shrink-0">
-          {win.fabStage && (
+          {/* Quiet parked rows: a change whose displayed stage is fully done
+              (fab pane map display_state === "done") is parked, not active —
+              suppress the stale stage text and let the duration stand alone.
+              Any other value, unknown future values, or an absent field (older
+              fab binaries omit display_state) keeps today's behavior. */}
+          {win.fabStage && win.fabDisplayState !== "done" && (
             <span className="text-xs text-text-secondary">
               {win.fabStage}
             </span>
@@ -233,8 +238,12 @@ export function WindowRow({
           )}
         </span>
       </button>
-      {/* Hover-reveal buttons: pin + color swatch + kill */}
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
+      {/* Hover-reveal buttons: pin + color swatch + kill. Inert at rest on
+          fine pointers (pointer-events-none) so stray clicks near the row's
+          right edge fall through to the row-select button instead of hitting
+          an invisible icon; interactivity is restored on hover, coarse
+          pointers, and keyboard focus within (has-[:focus-visible]). */}
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 pointer-events-none group-hover:pointer-events-auto coarse:pointer-events-auto has-[:focus-visible]:pointer-events-auto">
         {showPinIcon && (
           <button
             ref={pinBtnRef}
@@ -248,7 +257,7 @@ export function WindowRow({
             className={`transition-opacity cursor-pointer ${
               isPinnedToAny
                 ? "opacity-100 text-text-secondary hover:text-text-primary"
-                : "opacity-0 group-hover:opacity-100 coarse:opacity-100 text-text-secondary hover:text-text-primary"
+                : "opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary"
             } px-0.5 min-h-[36px] flex items-center justify-center`}
           >
             <PinIcon filled={isPinnedToAny} />
@@ -263,7 +272,7 @@ export function WindowRow({
               e.stopPropagation();
               setShowColorPicker((v) => !v);
             }}
-            className="text-[12px] text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[36px] flex items-center justify-center"
+            className="text-[12px] text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-h-[36px] flex items-center justify-center"
           >
             &#x25A0;
           </button>
@@ -272,7 +281,7 @@ export function WindowRow({
           type="button"
           aria-label={`Kill window ${win.name}`}
           onClick={onKillClick}
-          className="text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 px-1 min-h-[36px] flex items-center justify-center"
+          className="text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-1 min-h-[36px] flex items-center justify-center"
         >
           {"\u2715"}
         </button>

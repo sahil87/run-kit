@@ -1,0 +1,51 @@
+id: oo89
+name: 260613-oo89-terminal-font-size-control
+created: 2026-06-13T15:14:03Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 3
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 82.9
+        reversibility: 83.6
+        competence: 86.4
+        disambiguation: 85.7
+stage_metrics:
+    intake: {started_at: "2026-06-13T15:14:03Z", driver: fab-new, iterations: 1, completed_at: "2026-06-13T15:16:49Z"}
+    apply: {started_at: "2026-06-13T15:16:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-13T15:26:56Z"}
+    review: {started_at: "2026-06-13T15:26:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-13T15:35:46Z"}
+    hydrate: {started_at: "2026-06-13T15:35:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-13T15:38:26Z"}
+    ship: {started_at: "2026-06-13T15:38:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-13T15:39:51Z"}
+    review-pr: {started_at: "2026-06-13T15:39:51Z", driver: git-pr, iterations: 1, completed_at: "2026-06-13T15:46:53Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/264
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-13T15:38:26Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-13T15:46:53Z

@@ -146,6 +146,56 @@ describe("TopBar", () => {
     expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
   });
 
+  describe("TerminalFontControl", () => {
+    const FONT_KEY = "runkit-terminal-font-size";
+
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    it("renders the combo control with the effective size and all three buttons", () => {
+      localStorage.setItem(FONT_KEY, "13");
+      renderTopBar();
+      expect(screen.getByLabelText("Decrease terminal font")).toBeInTheDocument();
+      expect(screen.getByLabelText("Increase terminal font")).toBeInTheDocument();
+      expect(screen.getByLabelText("Reset terminal font")).toBeInTheDocument();
+      expect(screen.getByLabelText("Terminal font size 13")).toHaveTextContent("13");
+    });
+
+    it("steps and persists on increase / decrease", () => {
+      localStorage.setItem(FONT_KEY, "13");
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("Increase terminal font")));
+      expect(screen.getByLabelText("Terminal font size 14")).toBeInTheDocument();
+      expect(localStorage.getItem(FONT_KEY)).toBe("14");
+      act(() => fireEvent.click(screen.getByLabelText("Decrease terminal font")));
+      expect(screen.getByLabelText("Terminal font size 13")).toBeInTheDocument();
+      expect(localStorage.getItem(FONT_KEY)).toBe("13");
+    });
+
+    it("disables the decrease button at the min bound (8)", () => {
+      localStorage.setItem(FONT_KEY, "8");
+      renderTopBar();
+      expect(screen.getByLabelText("Decrease terminal font")).toBeDisabled();
+      expect(screen.getByLabelText("Increase terminal font")).not.toBeDisabled();
+    });
+
+    it("disables the increase button at the max bound (24)", () => {
+      localStorage.setItem(FONT_KEY, "24");
+      renderTopBar();
+      expect(screen.getByLabelText("Increase terminal font")).toBeDisabled();
+      expect(screen.getByLabelText("Decrease terminal font")).not.toBeDisabled();
+    });
+
+    it("reset clears the stored preference (forget)", () => {
+      localStorage.setItem(FONT_KEY, "18");
+      renderTopBar();
+      expect(screen.getByLabelText("Terminal font size 18")).toBeInTheDocument();
+      act(() => fireEvent.click(screen.getByLabelText("Reset terminal font")));
+      expect(localStorage.getItem(FONT_KEY)).toBeNull();
+    });
+  });
+
   it("renders hamburger icon (not logo img) as navigation toggle", () => {
     renderTopBar();
     const toggleBtn = screen.getByLabelText("Toggle navigation");

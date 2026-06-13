@@ -11,10 +11,20 @@ export type BreadcrumbDropdownItem = {
 const FIXED_WIDTH_STORAGE_KEY = "runkit-fixed-width";
 const SIDEBAR_OPEN_STORAGE_KEY = "runkit-sidebar-open";
 const SIDEBAR_WIDTH_STORAGE_KEY = "runkit-sidebar-width";
+const TERMINAL_FONT_STORAGE_KEY = "runkit-terminal-font-size";
 
 const SIDEBAR_DEFAULT_WIDTH = 220;
 const SIDEBAR_MIN_WIDTH = 160;
 const SIDEBAR_MAX_WIDTH = 400;
+
+const TERMINAL_FONT_MIN = 8;
+const TERMINAL_FONT_MAX = 24;
+const TERMINAL_FONT_STEP = 1;
+// Device defaults (the values terminal-client.tsx previously hardcoded),
+// used when no preference is stored. The terminal font size is JS-driven only
+// (xterm `options.fontSize`); there is no CSS rule it must stay aligned with.
+const TERMINAL_FONT_DEFAULT_MOBILE = 11;
+const TERMINAL_FONT_DEFAULT_DESKTOP = 13;
 
 export const SIDEBAR_WIDTH_BOUNDS = {
   default: SIDEBAR_DEFAULT_WIDTH,
@@ -22,8 +32,18 @@ export const SIDEBAR_WIDTH_BOUNDS = {
   max: SIDEBAR_MAX_WIDTH,
 } as const;
 
+export const TERMINAL_FONT_BOUNDS = {
+  min: TERMINAL_FONT_MIN,
+  max: TERMINAL_FONT_MAX,
+  step: TERMINAL_FONT_STEP,
+} as const;
+
 function clampSidebarWidth(width: number): number {
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+}
+
+function clampTerminalFont(px: number): number {
+  return Math.min(TERMINAL_FONT_MAX, Math.max(TERMINAL_FONT_MIN, px));
 }
 
 function readFixedWidth(): boolean {
@@ -68,6 +88,26 @@ function readSidebarWidth(): number {
   return SIDEBAR_DEFAULT_WIDTH;
 }
 
+/** Device default terminal font size when no explicit preference is stored.
+ * Reuses the same mobile rule as the rest of the chrome (narrow width OR
+ * coarse pointer) via the shared `isMobileViewport()` helper. */
+function deviceDefaultFontSize(): number {
+  return isMobileViewport() ? TERMINAL_FONT_DEFAULT_MOBILE : TERMINAL_FONT_DEFAULT_DESKTOP;
+}
+
+/** Stored terminal-font preference (clamped) if present; otherwise null = "no
+ * preference, use the device default". A null/absent key is the unset state
+ * that `resetTerminalFont` returns to. */
+function readTerminalFontSize(): number | null {
+  try {
+    const stored = localStorage.getItem(TERMINAL_FONT_STORAGE_KEY);
+    if (stored === null) return null;
+    const parsed = Number(stored);
+    if (!isNaN(parsed)) return clampTerminalFont(parsed);
+  } catch { /* noop */ }
+  return null;
+}
+
 type ChromeState = {
   currentSession: ProjectSession | null;
   currentWindow: WindowInfo | null;
@@ -75,6 +115,10 @@ type ChromeState = {
   sidebarWidth: number;
   isConnected: boolean;
   fixedWidth: boolean;
+  /** Effective terminal font size in px — the stored preference if set, else
+   * the device default (11 mobile / 13 desktop). This is what `TerminalClient`
+   * reads and what the top-bar combo control displays. */
+  terminalFontSize: number;
 };
 
 type ChromeDispatch = {
@@ -92,6 +136,14 @@ type ChromeDispatch = {
   persistSidebarWidth: (width: number) => void;
   setIsConnected: (connected: boolean) => void;
   toggleFixedWidth: () => void;
+  /** Step the terminal font up/down by one step from the *effective* size,
+   * clamped into TERMINAL_FONT_BOUNDS and persisted to localStorage. The first
+   * step from the unset state operates on the device default. */
+  increaseTerminalFont: () => void;
+  decreaseTerminalFont: () => void;
+  /** Forget the preference: removes the stored key so the effective size falls
+   * back to the device default. */
+  resetTerminalFont: () => void;
 };
 
 const ChromeStateContext = createContext<ChromeState | null>(null);
@@ -132,9 +184,39 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // Stored *preference* (number | null). null = unset → fall back to the device
+  // default. Storing the preference (not the effective value) is what lets
+  // `resetTerminalFont` distinguish "unset" from "happens to equal the default".
+  const [terminalFontPref, setTerminalFontPref] = useState(readTerminalFontSize);
+  const terminalFontSize = terminalFontPref ?? deviceDefaultFontSize();
+
+  // Step from the *effective* size so the first step out of the unset state
+  // lands adjacent to the device default (e.g. desktop 13 → 14).
+  const stepTerminalFont = useCallback((delta: number) => {
+    setTerminalFontPref((prev) => {
+      const effective = prev ?? deviceDefaultFontSize();
+      const next = clampTerminalFont(effective + delta);
+      try { localStorage.setItem(TERMINAL_FONT_STORAGE_KEY, String(next)); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
+
+  const increaseTerminalFont = useCallback(
+    () => stepTerminalFont(TERMINAL_FONT_STEP),
+    [stepTerminalFont],
+  );
+  const decreaseTerminalFont = useCallback(
+    () => stepTerminalFont(-TERMINAL_FONT_STEP),
+    [stepTerminalFont],
+  );
+  const resetTerminalFont = useCallback(() => {
+    try { localStorage.removeItem(TERMINAL_FONT_STORAGE_KEY); } catch { /* noop */ }
+    setTerminalFontPref(null);
+  }, []);
+
   const stateValue = useMemo<ChromeState>(
-    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth }),
-    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth],
+    () => ({ currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize }),
+    [currentSession, currentWindow, sidebarOpen, sidebarWidth, isConnected, fixedWidth, terminalFontSize],
   );
 
   const dispatchRef = useRef<ChromeDispatch | null>(null);
@@ -147,6 +229,9 @@ export function ChromeProvider({ children }: { children: React.ReactNode }) {
       persistSidebarWidth,
       setIsConnected,
       toggleFixedWidth,
+      increaseTerminalFont,
+      decreaseTerminalFont,
+      resetTerminalFont,
     };
   }
 

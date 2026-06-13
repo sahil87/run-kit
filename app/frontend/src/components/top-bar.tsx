@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner } from "@/components/logo-spinner";
-import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
+import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
@@ -222,6 +222,10 @@ export function TopBar({
               terminal-bearing surface, including board panes. Lift it out of
               the `currentWindow` block so board mode (where `currentWindow`
               is always `null`) still exposes the toggle. */}
+          <span className="hidden sm:flex">
+            <TerminalFontControl />
+          </span>
+
           <span className="hidden sm:flex">
             <FixedWidthToggle />
           </span>
@@ -507,6 +511,77 @@ function ClosePaneButton({
         </svg>
       )}
     </button>
+  );
+}
+
+/**
+ * Terminal font-size combo: `[−] {size} [+]` plus a reset button. Reads the
+ * effective `terminalFontSize` from ChromeContext and dispatches the global
+ * increase/decrease/reset mutators (the setting applies to every live
+ * terminal). The ± buttons disable at the TERMINAL_FONT_BOUNDS edges. Reset
+ * "forgets" the preference, reverting to the device default.
+ *
+ * Cmd +/- is deliberately NOT intercepted — these controls (plus the matching
+ * command-palette actions) are the only font levers; browser-native zoom stays
+ * available for whole-page scaling.
+ */
+function TerminalFontControl() {
+  const { terminalFontSize } = useChromeState();
+  const { increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
+
+  const atMin = terminalFontSize <= TERMINAL_FONT_BOUNDS.min;
+  const atMax = terminalFontSize >= TERMINAL_FONT_BOUNDS.max;
+
+  const buttonClass =
+    "min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border";
+
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label="Terminal font size">
+      <button
+        type="button"
+        onClick={decreaseTerminalFont}
+        disabled={atMin}
+        aria-label="Decrease terminal font"
+        title="Decrease terminal font"
+        className={buttonClass}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+          <line x1="3" y1="7" x2="11" y2="7" />
+        </svg>
+      </button>
+      <span
+        className="min-w-[2ch] text-center text-xs text-text-secondary tabular-nums select-none"
+        aria-label={`Terminal font size ${terminalFontSize}`}
+      >
+        {terminalFontSize}
+      </span>
+      <button
+        type="button"
+        onClick={increaseTerminalFont}
+        disabled={atMax}
+        aria-label="Increase terminal font"
+        title="Increase terminal font"
+        className={buttonClass}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+          <line x1="3" y1="7" x2="11" y2="7" />
+          <line x1="7" y1="3" x2="7" y2="11" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={resetTerminalFont}
+        aria-label="Reset terminal font"
+        title="Reset terminal font (device default)"
+        className={buttonClass}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {/* circular-arrow reset glyph */}
+          <path d="M11.5 7a4.5 4.5 0 1 1-1.32-3.18" />
+          <polyline points="11.5,1.5 11.5,4 9,4" />
+        </svg>
+      </button>
+    </div>
   );
 }
 

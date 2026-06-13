@@ -170,7 +170,7 @@ function AppShell() {
   const markServerPending = ctx.markServerPending;
   const sessions = useMergedSessions(rawSessions, server);
   const { sidebarOpen, sidebarWidth, fixedWidth } = useChromeState();
-  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth } = useChromeDispatch();
+  const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const wsRef = useRef<WebSocket | null>(null);
@@ -1025,6 +1025,19 @@ function AppShell() {
     [sessionName, fixedWidth, toggleFixedWidth],
   );
 
+  // Terminal font-size actions. No `shortcut` — Cmd +/- is deliberately not
+  // intercepted (native browser zoom stays available); the palette + the
+  // top-bar combo are the only font levers. Global setting → applies to every
+  // live terminal.
+  const terminalFontActions: PaletteAction[] = useMemo(
+    () => [
+      { id: "terminal-font-increase", label: "Increase terminal font", onSelect: increaseTerminalFont },
+      { id: "terminal-font-decrease", label: "Decrease terminal font", onSelect: decreaseTerminalFont },
+      { id: "terminal-font-reset", label: "Reset terminal font", onSelect: resetTerminalFont },
+    ],
+    [increaseTerminalFont, decreaseTerminalFont, resetTerminalFont],
+  );
+
   const { execute: executeReloadConfig } = useOptimisticAction<[string]>({
     action: (srv) => reloadTmuxConfig(srv),
     onSettled: () => addToast("Tmux config reloaded", "info"),
@@ -1097,8 +1110,8 @@ function AppShell() {
   );
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...windowSwitchActions],
-    [sessionActions, windowActions, boardActions, viewActions, themeActions, configActions, serverActions, windowSwitchActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...serverActions, ...windowSwitchActions],
+    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, serverActions, windowSwitchActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

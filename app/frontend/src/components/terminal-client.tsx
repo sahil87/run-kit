@@ -9,6 +9,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { useTheme } from "@/contexts/theme-context";
+import { useChromeState } from "@/contexts/chrome-context";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { deriveXtermTheme } from "@/themes";
 import { ComposeBuffer } from "@/components/compose-buffer";
@@ -117,6 +118,7 @@ export function TerminalClient({
   const [composeFiles, setComposeFiles] = useState<UploadedFile[]>([]);
   const { uploadFiles, uploading } = useFileUpload(sessionName, windowId, server);
   const { theme: activeTheme } = useTheme();
+  const { terminalFontSize } = useChromeState();
   const { setFocused } = useFocusedTerminal();
 
   // Register this terminal as the BottomBar's focused input target. The
@@ -197,8 +199,10 @@ export function TerminalClient({
     async function init() {
       if (!terminalRef.current) return;
 
-      const isMobile = !window.matchMedia("(min-width: 640px)").matches;
-      const fontPx = isMobile ? 11 : 13;
+      // Effective font size from ChromeContext (stored preference, else the
+      // device default). Read at mount; subsequent changes are applied by the
+      // dedicated terminalFontSize effect below (this init effect is mount-only).
+      const fontPx = terminalFontSize;
 
       // Ensure the bundled webfont is loaded before xterm measures cell
       // dimensions. xterm.js measures once at open() and does not re-measure
@@ -369,6 +373,20 @@ export function TerminalClient({
     };
   }, [wsRef, focusRef]);
 
+  // Apply terminal-font changes to the live xterm instance. The font size lives
+  // in ChromeContext (global, all terminals react), so when the user steps or
+  // resets it, set the option and refit so xterm recomputes rows×cols — which
+  // resizes the underlying PTY (the ResizeObserver in the init effect emits the
+  // resulting cols/rows over the WebSocket). Guarded against the not-yet-
+  // initialized terminal: if xtermRef is null the effect is a no-op, and the
+  // init effect already constructs with the current size.
+  useEffect(() => {
+    const term = xtermRef.current;
+    if (!term) return;
+    term.options.fontSize = terminalFontSize;
+    fitAddonRef.current?.fit();
+  }, [terminalFontSize, terminalReady]);
+
   // Test-only registry, keyed on the CURRENT windowId. The init effect runs
   // mount-only (deps [wsRef, focusRef]), but `windowId` can change while this
   // component stays mounted (it is rendered without a `key` in app.tsx, so a
@@ -417,7 +435,6 @@ export function TerminalClient({
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
     if (!isTouch) return;
 
-    const LINE_HEIGHT = xtermRef.current?.options.fontSize ?? 13;
     let startY = 0;
     let accumulatedDelta = 0;
 
@@ -437,9 +454,13 @@ export function TerminalClient({
       accumulatedDelta += dy;
       startY = currentY;
 
-      const lines = Math.trunc(accumulatedDelta / LINE_HEIGHT);
+      // Read the font size live — it can change at runtime via the terminal-font
+      // control, and this effect is not torn down on a font change (deps below
+      // are mount-stable), so capturing it at setup would go stale.
+      const lineHeight = xtermRef.current?.options.fontSize ?? 13;
+      const lines = Math.trunc(accumulatedDelta / lineHeight);
       if (lines === 0) return;
-      accumulatedDelta -= lines * LINE_HEIGHT;
+      accumulatedDelta -= lines * lineHeight;
 
       // SGR mouse encoding: \x1b[<button;col;rowM
       // button 64 = scroll up (older), 65 = scroll down (newer)

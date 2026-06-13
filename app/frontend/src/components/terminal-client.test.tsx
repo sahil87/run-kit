@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, act, waitFor } from "@testing-library/react";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
+import { ChromeProvider } from "@/contexts/chrome-context";
 import { Terminal } from "@xterm/xterm";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -87,17 +88,19 @@ function createWsRef(): React.MutableRefObject<WebSocket | null> {
 
 function renderTerminalClient(scrollLocked = false) {
   return render(
-    <FocusedTerminalProvider>
-      <TerminalClient
-        sessionName="test-session"
-        windowId="@0"
-        server="default"
-        wsRef={createWsRef()}
-        composeOpen={false}
-        setComposeOpen={vi.fn()}
-        scrollLocked={scrollLocked}
-      />
-    </FocusedTerminalProvider>,
+    <ChromeProvider>
+      <FocusedTerminalProvider>
+        <TerminalClient
+          sessionName="test-session"
+          windowId="@0"
+          server="default"
+          wsRef={createWsRef()}
+          composeOpen={false}
+          setComposeOpen={vi.fn()}
+          scrollLocked={scrollLocked}
+        />
+      </FocusedTerminalProvider>
+    </ChromeProvider>,
   );
 }
 
@@ -451,17 +454,19 @@ describe("TerminalClient deferred reset (reset at first write, not receipt)", ()
     // output.
     const wsRef = createWsRef();
     const renderAt = (sessionName: string, windowId: string) => (
-      <FocusedTerminalProvider>
-        <TerminalClient
-          sessionName={sessionName}
-          windowId={windowId}
-          server="default"
-          wsRef={wsRef}
-          composeOpen={false}
-          setComposeOpen={vi.fn()}
-          scrollLocked={false}
-        />
-      </FocusedTerminalProvider>
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName={sessionName}
+            windowId={windowId}
+            server="default"
+            wsRef={wsRef}
+            composeOpen={false}
+            setComposeOpen={vi.fn()}
+            scrollLocked={false}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>
     );
 
     const view = render(renderAt("session-a", "@0"));
@@ -508,18 +513,20 @@ describe("TerminalClient connection identity — (server, owning session), not w
   function createHarness(initial: Props) {
     const wsRef = createWsRef();
     const renderAt = (p: Props) => (
-      <FocusedTerminalProvider>
-        <TerminalClient
-          sessionName={p.sessionName}
-          windowId={p.windowId}
-          server={p.server ?? "default"}
-          wsRef={wsRef}
-          composeOpen={false}
-          setComposeOpen={vi.fn()}
-          onSessionNotFound={p.onSessionNotFound}
-          scrollLocked={false}
-        />
-      </FocusedTerminalProvider>
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName={p.sessionName}
+            windowId={p.windowId}
+            server={p.server ?? "default"}
+            wsRef={wsRef}
+            composeOpen={false}
+            setComposeOpen={vi.fn()}
+            onSessionNotFound={p.onSessionNotFound}
+            scrollLocked={false}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>
     );
     const view = render(renderAt(initial));
     return { view, renderAt };

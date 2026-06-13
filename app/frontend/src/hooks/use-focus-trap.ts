@@ -3,19 +3,26 @@ import { useEffect, useRef } from "react";
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /**
- * True when a NESTED modal layer is open inside `container`. The drawer
+ * True when a NESTED *modal* layer is open inside `container`. The drawer
  * `<aside>` itself carries `role="dialog"`, so a nested layer is a
  * `role="dialog"` element that is a *descendant* of the container — never the
  * container itself. `element.querySelector` only ever returns descendants
  * (never the element it's called on), so any match is already nested; the
  * `!== container` check is belt-and-suspenders. When this is true the drawer
- * trap stands down: the nested modal (e.g. `KillDialog`'s `Dialog`,
- * `PinPopover`) owns its own Escape-close and Tab-trap, so a single Escape must
- * dismiss only the topmost layer and the drawer-wide Tab wrap must not move
- * focus out of the nested dialog into the rows behind it.
+ * trap stands down: the nested modal (e.g. `KillDialog`'s `Dialog`) owns its
+ * own Escape-close and Tab-trap, so a single Escape must dismiss only the
+ * topmost layer and the drawer-wide Tab wrap must not move focus out of the
+ * nested dialog into the rows behind it.
+ *
+ * The match is narrowed to `aria-modal="true"` so the drawer trap only stands
+ * down for genuinely modal nested dialogs (which own their own focus trap).
+ * Non-modal popovers like `PinPopover` carry `role="dialog"` *without*
+ * `aria-modal` and do NOT trap focus themselves — for those, the drawer's
+ * Tab-wrap must stay active so focus cannot escape the drawer (preserving the
+ * `aria-modal` contract on the `<aside>`).
  */
 function hasNestedDialog(container: HTMLElement): boolean {
-  const dialog = container.querySelector('[role="dialog"]');
+  const dialog = container.querySelector('[role="dialog"][aria-modal="true"]');
   return dialog != null && dialog !== container;
 }
 

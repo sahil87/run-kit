@@ -33,9 +33,12 @@ function Trap({ active, onEscape }: { active: boolean; onEscape: () => void }) {
 
 /**
  * Harness with a NESTED modal: the container holds its own focusable buttons
- * PLUS a `role="dialog"` descendant (mirroring `KillDialog`'s `Dialog` /
- * `PinPopover` rendering inside the drawer `<aside>`). Drives the trap from a
- * ref to the container so R10 (trap-defers-to-nested-modal) can be exercised.
+ * PLUS a `role="dialog" aria-modal="true"` descendant (mirroring `KillDialog`'s
+ * `Dialog` rendering inside the drawer `<aside>`). The `aria-modal="true"` is
+ * load-bearing: the trap only stands down for genuinely modal nested dialogs,
+ * so a plain `role="dialog"` (e.g. the non-modal `PinPopover`) would NOT defer.
+ * Drives the trap from a ref to the container so R10 (trap-defers-to-nested-
+ * modal) can be exercised.
  */
 function NestedTrap({ active, onEscape }: { active: boolean; onEscape: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -48,7 +51,7 @@ function NestedTrap({ active, onEscape }: { active: boolean; onEscape: () => voi
       <button type="button" data-testid="last">
         last
       </button>
-      <div role="dialog" data-testid="nested">
+      <div role="dialog" aria-modal="true" data-testid="nested">
         <button type="button" data-testid="nested-button">
           nested
         </button>
@@ -114,7 +117,7 @@ describe("useFocusTrap", () => {
     expect(onEscape).not.toHaveBeenCalled();
   });
 
-  it("stands down while a nested role=dialog descendant is open (R10)", () => {
+  it("stands down while a nested modal role=dialog aria-modal descendant is open (R10)", () => {
     const onEscape = vi.fn();
     const { getByTestId } = render(<NestedTrap active onEscape={onEscape} />);
     // Escape does NOT collapse the drawer — the nested modal owns its close.

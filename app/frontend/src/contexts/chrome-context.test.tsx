@@ -60,6 +60,9 @@ describe("ChromeProvider terminal font size", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    // restoreAllMocks does not undo stubGlobal — unstub matchMedia explicitly
+    // so the viewport stub cannot leak into other suites.
+    vi.unstubAllGlobals();
     localStorage.clear();
   });
 

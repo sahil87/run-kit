@@ -310,6 +310,21 @@ describe("WindowRow", () => {
       renderRow(win);
       expect(screen.queryByLabelText("PR needs attention")).toBeNull();
     });
+
+    it("does not render the PR-fail glyph when the window is not change-bound (no fabChange)", () => {
+      // A non-change-bound window with a populated prNumber and failing checks
+      // must NOT show the triage glyph — the gate mirrors PrStatusLine's
+      // `if (!win.fabChange || !win.prNumber) return null`.
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        prNumber: 386,
+        prChecks: "fail",
+        prReview: "changes_requested",
+      });
+      renderRow(win);
+      expect(screen.queryByLabelText("PR needs attention")).toBeNull();
+    });
   });
 
   // jsdom does not evaluate :hover / @media (pointer: coarse) / :has() as

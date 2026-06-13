@@ -225,10 +225,11 @@ export function WindowRow({
           {/* PR-fail signal: a small red bullet for change-bound windows whose
               PR needs attention (checks failing or changes requested). Reuses
               the shared isFailish predicate so the row stays in lockstep with
-              PrStatusLine. Gated on prNumber (mirrors PrStatusLine's gate) so a
-              window with no PR never shows a stray glyph. A bare glyph needs an
-              accessible name, hence aria-label + title. */}
-          {win.prNumber && isFailish(win) && (
+              PrStatusLine. Gated on fabChange && prNumber (mirrors
+              PrStatusLine's own `if (!win.fabChange || !win.prNumber) return
+              null` gate) so a non-change-bound window never shows a stray glyph.
+              A bare glyph needs an accessible name, hence aria-label + title. */}
+          {win.fabChange && win.prNumber && isFailish(win) && (
             <span
               className="text-xs text-red-400 shrink-0"
               aria-label="PR needs attention"

@@ -103,19 +103,35 @@ cost, so the baseline reads ~13ms even though the real tty echo is sub-ms. The
 baseline is therefore a conservative floor, and the reported run-kit tax is if
 anything an *under*-estimate of the web path's true added latency.
 
+## Jitter: spread and histogram
+
+Percentiles alone can hide a **bimodal** distribution — fast-mode echoes paint
+within a few ms while slow-mode echoes wait ~a frame or a pacing window.
+Perceptually that is jitter, even when the p50 looks great. The summary
+therefore reports, per label:
+
+- `spread(p95−p50)` — the single-number jitter signal, and
+- an ASCII **histogram** (4ms buckets, overflow row, trailing-empty trimmed)
+  for the idle full-path and under-load distributions, where two clusters are
+  directly visible.
+
 ## Shared setup
 
 - Per-file timeout raised to 90s (120s on CI) via `test.setTimeout` — the file
-  runs `FULL_PATH_TRIALS` + `BASELINE_TRIALS` (40 + 40) echo round-trips back
-  to back.
+  runs `FULL_PATH_TRIALS` + `BASELINE_TRIALS` + `UNDER_LOAD_TRIALS`
+  (40 + 40 + 30) echo round-trips back to back.
 - `beforeAll` creates session `e2e-echo-<ts>` (80×24) and starts `cat` in it
   (`send-keys 'cat' Enter`). `cat` echoes every line of stdin verbatim — the
   cleanest echo source, with no prompt / completion / PS1 noise.
 - The throughput guard uses its own `BURST_SESSION` (`e2e-burst-<ts>`) so its
-  flood doesn't disturb the echo session.
-- `afterAll` sends `C-c` to break out of `cat`, kills both sessions, then prints
-  the summary table: full-path / network / render / baseline p50/p95/p99, the
-  computed run-kit tax, the attribution verdict, and the throughput time.
+  flood doesn't disturb the echo session; the under-load test likewise uses its
+  own `LOAD_SESSION` (`e2e-echo-load-<ts>`) so its tick stream doesn't pollute
+  the idle measurements.
+- `afterAll` sends `C-c` to break out of `cat`, kills all three sessions
+  (`TEST_SESSION`, `BURST_SESSION`, `LOAD_SESSION`), then prints the summary
+  table: full-path / network / render / under-load / baseline p50/p95/p99, the
+  computed run-kit tax, the attribution verdict, the distribution histograms,
+  and the throughput time.
 - `resolveFirstWindowId(page, session?)` polls `/api/sessions` for the named
   session's first window's stable `@N` id (the terminal route is keyed by window
   id, not index), mirroring `mobile-touch-scroll.spec.ts`. Defaults to the echo
@@ -184,6 +200,49 @@ a p50/p95/p99 distribution over 40 trials.
       ends with the char, or the 5s deadline passes.
    c. Assert it landed; push `{ label: "baseline", ms }`.
 3. Assert 40 baseline samples were collected.
+
+### `under-load keystroke→echo distribution`
+
+**What it proves:** Characterizes echo latency while the pane is **also
+receiving a background stream** — "typing while an agent is producing output",
+the everyday condition the idle benchmark deliberately excludes. Concurrent
+output splits echoes into a fast mode and a slow mode (measured ~4ms vs ~22ms
+clusters, roughly 1:2). A controlled experiment that replaced the adaptive
+flush with a uniform `setTimeout(0)` strategy reproduced the **same** bimodal
+histogram (while regressing idle p50 from ~10ms to ~15ms), so the slow mode
+originates **upstream** of the client flush — tmux paces updates to attached
+clients while a pane is streaming, and an echo arriving inside a pacing window
+waits for the next batch. The recorded distribution — and its histogram —
+characterizes the split wherever it comes from and guards against a client
+change making it worse.
+
+**Steps:**
+1. `page.addInitScript(INSTALL_SEND_STAMP)` — send stamp only. The recv stamp
+   is *not* installed: under load the first inbound frame after a send may be
+   a tick rather than the echo, so the network/render split is meaningless and
+   only `full` is recorded.
+2. Create `LOAD_SESSION`, then start the load + echo pair in it:
+   `seq 1 2000 | while read i; do echo tick; sleep 0.05; done & cat` — a
+   background tick line every ~50ms plus the same interactive `cat` the idle
+   benchmark uses. The generator is **bounded** (2000 ticks ≈ 100s) so it
+   self-terminates even if cleanup fails — it can never outlive the run as an
+   orphaned load loop.
+3. Navigate to the window, wait for `.xterm-screen` + the registered terminal,
+   assert the WebGL renderer (same rationale as the idle test), focus.
+4. Two-stage warmup: poll until `tick` is visible in the bottom rows (inbound
+   stream is live through the relay), then press `w` until it appears
+   (keystroke path is live). `w` is never used as a probe char.
+5. For each of 30 trials (probe char rotates through a 19-char alphabet that
+   shares no letter with `tick`):
+   a. `measureEchoUnderLoad` — waits until the probe char is **absent** from
+      the bottom 8 rows (so its next appearance is unambiguously this trial's
+      echo; the cursor-row count detector of `measureEcho` would lose the echo
+      when a tick moves the cursor), clears the send stamp, presses the key,
+      then rAF-polls the bottom rows until the char appears. Returns
+      glyph-time − send-stamp.
+   b. Push `{ label: "under-load", ms }`; settle 40ms so trials approximate a
+      human typing cadence and collide with ticks independently.
+6. Assert 30 under-load samples were collected.
 
 ### `throughput guard — burst output renders fully and fast`
 

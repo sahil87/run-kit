@@ -379,6 +379,101 @@ describe("WindowRow", () => {
     });
   });
 
+  // W3C-APG tree leaf semantics (Wave 3 sidebar-keyboard-nav). The window row
+  // wrapper is the treeitem; the roving model in index.tsx threads tabIndex +
+  // level/set/pos metadata. Level-2 leaves carry NO aria-expanded.
+  describe("tree ARIA + roving tabindex", () => {
+    function row(el: HTMLElement): HTMLElement {
+      // The treeitem is the [data-window-id] wrapper carrying role="treeitem".
+      const item = el.querySelector<HTMLElement>('[role="treeitem"][data-window-id]');
+      expect(item).not.toBeNull();
+      return item!;
+    }
+
+    it("renders role=treeitem at aria-level 2 with no aria-expanded", () => {
+      const win = makeWindow({ windowId: "@3", index: 0, name: "edit" });
+      const { container } = render(
+        <WindowRow
+          win={win}
+          session="alpha"
+          isSelected={false}
+          isDragOver={false}
+          editingWindow={null}
+          editingName=""
+          inputRef={{ current: null }}
+          onSelectWindow={noop}
+          onStartEditing={noop}
+          onWindowNameChange={noop}
+          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+          onRenameBlur={noop}
+          onKillClick={noop}
+          ariaLevel={2}
+          ariaSetSize={1}
+          ariaPosInSet={1}
+          tabIndex={-1}
+        />,
+      );
+      const item = row(container);
+      expect(item).toHaveAttribute("role", "treeitem");
+      expect(item).toHaveAttribute("aria-level", "2");
+      expect(item).not.toHaveAttribute("aria-expanded");
+    });
+
+    it("reflects aria-setsize / aria-posinset when passed", () => {
+      const win = makeWindow({ windowId: "@3", index: 1, name: "test" });
+      const { container } = render(
+        <WindowRow
+          win={win}
+          session="alpha"
+          isSelected={false}
+          isDragOver={false}
+          editingWindow={null}
+          editingName=""
+          inputRef={{ current: null }}
+          onSelectWindow={noop}
+          onStartEditing={noop}
+          onWindowNameChange={noop}
+          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+          onRenameBlur={noop}
+          onKillClick={noop}
+          ariaLevel={2}
+          ariaSetSize={2}
+          ariaPosInSet={2}
+          tabIndex={0}
+        />,
+      );
+      const item = row(container);
+      expect(item).toHaveAttribute("aria-setsize", "2");
+      expect(item).toHaveAttribute("aria-posinset", "2");
+    });
+
+    it("defaults tabIndex to -1 and reflects an explicit roving tabIndex of 0", () => {
+      const win = makeWindow({ windowId: "@3", index: 0 });
+      const { container: a } = renderRow(win);
+      expect(row(a)).toHaveAttribute("tabindex", "-1");
+
+      const { container: b } = render(
+        <WindowRow
+          win={win}
+          session="alpha"
+          isSelected={false}
+          isDragOver={false}
+          editingWindow={null}
+          editingName=""
+          inputRef={{ current: null }}
+          onSelectWindow={noop}
+          onStartEditing={noop}
+          onWindowNameChange={noop}
+          onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+          onRenameBlur={noop}
+          onKillClick={noop}
+          tabIndex={0}
+        />,
+      );
+      expect(row(b)).toHaveAttribute("tabindex", "0");
+    });
+  });
+
   // React.memo only pays off when the parent passes referentially-stable props.
   // This proves the memo'd WindowRow does NOT re-render its body when its PARENT
   // re-renders with an identical prop set — the property the whole change depends

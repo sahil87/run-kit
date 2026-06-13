@@ -66,6 +66,18 @@ type WindowRowProps = {
    *  `pinnedToBoard`) serves every row; the row binds its own (server,
    *  windowId). Used by the pin popover to render checkmarks. */
   isPinnedToBoard?: (board: string, server: string, windowId: string) => boolean;
+  /** Roving-tabindex value: `0` for the single roving-focused tree row, `-1`
+   *  for every other row (the roving model lives in `index.tsx`). Defaults to
+   *  `-1` so a row rendered without the tree wiring is not a tab stop. Only the
+   *  two affected rows change this per arrow keypress, preserving the memo tree. */
+  tabIndex?: number;
+  /** W3C-APG tree leaf metadata. Window rows are level-2 leaves. `ariaSetSize`
+   *  is the count of sibling windows in the session; `ariaPosInSet` the row's
+   *  1-based position among them. Omitted ⇒ not announced (e.g. in unit tests
+   *  that render a bare row). */
+  ariaLevel?: number;
+  ariaSetSize?: number;
+  ariaPosInSet?: number;
 };
 
 function WindowRowInner({
@@ -96,6 +108,10 @@ function WindowRowInner({
   isPinnedToActiveBoard = false,
   boards = [],
   isPinnedToBoard,
+  tabIndex = -1,
+  ariaLevel,
+  ariaSetSize,
+  ariaPosInSet,
 }: WindowRowProps) {
   const ghost = isGhostWindow(win);
   const srv = server ?? "";
@@ -192,6 +208,13 @@ function WindowRowInner({
       // unlike the window name or session+index, which are ambiguous or
       // transient. Ghost rows expose their optimistic id until confirmed.
       data-window-id={ghost ? `ghost-${win.optimisticId}` : win.windowId}
+      // W3C-APG tree leaf. The roving model in index.tsx threads `tabIndex`
+      // (0 for the one roving row, -1 otherwise) + level/set/pos metadata.
+      role="treeitem"
+      aria-level={ariaLevel}
+      aria-setsize={ariaSetSize}
+      aria-posinset={ariaPosInSet}
+      tabIndex={tabIndex}
       className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}`}
       draggable={dragEnabled}
       onDragStart={dragEnabled && onDragStart ? (e) => onDragStart(e, srv, session, win.index, win.windowId, win.name) : undefined}

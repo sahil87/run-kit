@@ -62,6 +62,94 @@ describe("SessionRow", () => {
     expect(screen.getByLabelText("Kill session agent-work")).toBeInTheDocument();
   });
 
+  // W3C-APG tree node semantics (Wave 3 sidebar-keyboard-nav). The session row
+  // wrapper is a level-1 treeitem; its aria-expanded mirrors the chevron's, and
+  // aria-controls points at the window-list group id. The roving model in
+  // index.tsx threads tabIndex + set/pos and the data-session-row handle.
+  describe("tree ARIA + roving tabindex", () => {
+    function treeitem(container: HTMLElement): HTMLElement {
+      const item = container.querySelector<HTMLElement>('[role="treeitem"]');
+      expect(item).not.toBeNull();
+      return item!;
+    }
+
+    it("renders role=treeitem at aria-level 1 with aria-expanded mirroring !isCollapsed", () => {
+      const session = makeSession({ name: "api" });
+      const { container, rerender } = render(
+        <SessionRow {...rowProps(session)} isCollapsed={false} />,
+      );
+      const expanded = treeitem(container);
+      expect(expanded).toHaveAttribute("role", "treeitem");
+      expect(expanded).toHaveAttribute("aria-level", "1");
+      expect(expanded).toHaveAttribute("aria-expanded", "true");
+
+      rerender(<SessionRow {...rowProps(session)} isCollapsed={true} />);
+      expect(treeitem(container)).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("wires aria-controls to the window-group id and exposes the data-session-row handle", () => {
+      const session = makeSession({ name: "api" });
+      const { container } = render(
+        <SessionRow
+          {...rowProps(session)}
+          windowGroupId="windows-srv-api"
+          sessionRowKey="srv:api"
+        />,
+      );
+      const item = treeitem(container);
+      expect(item).toHaveAttribute("aria-controls", "windows-srv-api");
+      expect(item).toHaveAttribute("data-session-row", "srv:api");
+    });
+
+    // SF-5: the role="group" window list is mounted only while expanded, so the
+    // session row must reference it via aria-controls ONLY when expanded — a
+    // collapsed row pointing at an unmounted id is invalid ARIA.
+    it("emits aria-controls only while expanded (absent when collapsed)", () => {
+      const session = makeSession({ name: "api" });
+      const { container, rerender } = render(
+        <SessionRow
+          {...rowProps(session)}
+          isCollapsed={false}
+          windowGroupId="windows-srv-api"
+          sessionRowKey="srv:api"
+        />,
+      );
+      expect(treeitem(container)).toHaveAttribute("aria-controls", "windows-srv-api");
+
+      rerender(
+        <SessionRow
+          {...rowProps(session)}
+          isCollapsed={true}
+          windowGroupId="windows-srv-api"
+          sessionRowKey="srv:api"
+        />,
+      );
+      expect(treeitem(container)).not.toHaveAttribute("aria-controls");
+    });
+
+    it("reflects aria-setsize / aria-posinset and the roving tabIndex", () => {
+      const session = makeSession({ name: "api" });
+      const { container } = render(
+        <SessionRow
+          {...rowProps(session)}
+          ariaSetSize={3}
+          ariaPosInSet={2}
+          tabIndex={0}
+        />,
+      );
+      const item = treeitem(container);
+      expect(item).toHaveAttribute("aria-setsize", "3");
+      expect(item).toHaveAttribute("aria-posinset", "2");
+      expect(item).toHaveAttribute("tabindex", "0");
+    });
+
+    it("defaults tabIndex to -1 when not the roving row", () => {
+      const session = makeSession({ name: "api" });
+      const { container } = render(<SessionRow {...rowProps(session)} />);
+      expect(treeitem(container)).toHaveAttribute("tabindex", "-1");
+    });
+  });
+
   // React.memo only pays off when the parent passes referentially-stable props.
   // Proves the memo'd SessionRow does NOT re-render its body when its PARENT
   // re-renders with an identical prop set.

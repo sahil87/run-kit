@@ -36,6 +36,13 @@ function arraysEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
+/** Identity of a roving tree row, keyed by its row key (`data-window-id` for a
+ *  window, `${server}:${name}` for a session). A discriminated union so Enter/
+ *  Space activation derives the right handler + args with no type assertions. */
+type RowIdentity =
+  | { kind: "window"; server: string; session: string; windowId: string; ghost: boolean }
+  | { kind: "session"; server: string; session: string; firstWindowId: string };
+
 export type SidebarProps = {
   /** Identifies the "active" server for visual treatment + default expanded
    *  group. `null` on board route — no group is marked current and all
@@ -735,12 +742,250 @@ export function Sidebar({
     // selected window) this no-ops and the trap's first-focus stands.
     const row = navRef.current?.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]');
     if (!row) return; // fallback: trap's first-focusable focus stands
+    // SF-4: sync the roving cursor to the row we focus so the `tabIndex=0`
+    // tab-stop and the focused row do not desync (which would make the next
+    // arrow press jump). The roving treeitem is the `[data-window-id]` wrapper;
+    // its key is that windowId.
+    const treeItem = row.closest<HTMLElement>("[data-window-id]");
+    const key = treeItem?.getAttribute("data-window-id") ?? null;
+    if (key != null) setRovingKey(key);
     const raf = requestAnimationFrame(() => {
       if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
       row.focus();
     });
     return () => cancelAnimationFrame(raf);
   }, [isMobile, sidebarOpen]);
+
+  // ── Roving-tabindex arrow navigation (W3C APG Tree pattern) ───────────────
+  // The roving "cursor" is tracked as a stable ROW KEY (a window row's
+  // `data-window-id`, or a session row's `data-session-row` = `${server}:${name}`)
+  // rather than a numeric index, so it survives the visible-rows list growing or
+  // shrinking (expand/collapse, SSE adds/removes) without pointing at the wrong
+  // row. Exactly one rendered treeitem gets `tabIndex={0}` (the roving row, or
+  // the FIRST visible row as a fallback when `rovingKey` matches nothing); the
+  // rest get `-1`. Threading only this single string into the memo'd groups
+  // means an arrow press changes `tabIndex` on just the two affected rows.
+  const treeRef = useRef<HTMLDivElement>(null);
+  const [rovingKey, setRovingKey] = useState<string | null>(null);
+
+  // Identity lookup for each roving row key. Built per-server inside each
+  // ServerGroup (where the MERGED session/window data lives — raw sessionsByServer
+  // lacks ghost/rename overlays, so a renamed session's `${server}:${newName}`
+  // key would not match a raw-derived map). Each group registers its own slice;
+  // the union is read at Enter/Space time to call onSelectWindow/onSelectFirstWindow
+  // DIRECTLY with a typed identity — no brittle DOM `.click()` synthesis.
+  const rowIdentityRef = useRef<Map<string, Map<string, RowIdentity>>>(new Map());
+  // Bumped only when a group's visible-row SET signature changes (window
+  // add/remove, collapse/expand, rename) — NOT on the several-per-second passive
+  // SSE activity ticks. Gates the roving-key normalization effect so it
+  // re-validates only when the set actually changes (Wave-2 #262 invariant: an
+  // SSE tick must NOT change roving state).
+  const [rowsVersion, bumpRowsVersion] = useReducer((x: number) => x + 1, 0);
+  const groupSignatureRef = useRef<Map<string, string>>(new Map());
+  const registerGroupRows = useCallback(
+    (groupServer: string, signature: string, slice: Map<string, RowIdentity>) => {
+      const prev = groupSignatureRef.current.get(groupServer);
+      groupSignatureRef.current.set(groupServer, signature);
+      rowIdentityRef.current.set(groupServer, slice);
+      // Only nudge the normalize effect when this group's set signature changed.
+      if (prev !== signature) bumpRowsVersion();
+    },
+    [],
+  );
+
+  const identityForKey = useCallback((key: string): RowIdentity | null => {
+    for (const slice of rowIdentityRef.current.values()) {
+      const id = slice.get(key);
+      if (id) return id;
+    }
+    return null;
+  }, []);
+
+  // Read the currently-rendered visible tree rows straight from the DOM — they
+  // are emitted in document order, already exclude collapsed sessions' windows
+  // (those aren't rendered) and flow continuously across open server groups, so
+  // the DOM is the authoritative flattened visible-rows list. Each row exposes
+  // its identity via `data-window-id` (window) or `data-session-row` (session).
+  const getVisibleRows = useCallback((): HTMLElement[] => {
+    const root = treeRef.current;
+    if (!root) return [];
+    return Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+  }, []);
+
+  const rowKeyOf = useCallback((el: HTMLElement): string | null => {
+    return el.getAttribute("data-window-id") ?? el.getAttribute("data-session-row");
+  }, []);
+
+  // After any render that changed the visible rows, move DOM focus + scroll to
+  // the roving row — mirrors the CommandPalette/ThemeSelector
+  // "Keyboard-Navigable List Scroll Pattern" (listRef + scrollIntoView nearest).
+  // `focusMovedRef` gates the focus() call to user-driven key navigation only,
+  // so a passive re-render (SSE tick) never steals focus into the sidebar.
+  const focusMovedRef = useRef(false);
+  useEffect(() => {
+    if (rovingKey === null) return;
+    if (!focusMovedRef.current) return;
+    focusMovedRef.current = false;
+    const root = treeRef.current;
+    if (!root) return;
+    const sel = `[data-window-id="${CSS.escape(rovingKey)}"], [data-session-row="${CSS.escape(rovingKey)}"]`;
+    const row = root.querySelector<HTMLElement>(sel);
+    if (!row) return;
+    if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
+    row.focus();
+  }, [rovingKey]);
+
+  // Normalize the roving key: when the visible-row SET changes, if the current
+  // `rovingKey` matches no rendered treeitem (initial mount, collapse removed it,
+  // server switched, rename re-keyed it), reset it to the FIRST visible row so
+  // the tree always has exactly one tab stop (`tabIndex={0}`). This is a pure
+  // render-follow effect — it does NOT move DOM focus (focusMovedRef stays
+  // false), so a passive SSE re-render never pulls focus into the sidebar.
+  //
+  // Gated on `[rovingKey, rowsVersion]` — `rowsVersion` is bumped ONLY when a
+  // group's visible-set signature changes (registerGroupRows), so this does NOT
+  // run on the several-per-second passive SSE activity ticks, which would
+  // otherwise run a full-tree querySelectorAll and could flip roving state on
+  // window churn (the Wave-2 #262 invariant: an SSE tick must NOT change roving
+  // state).
+  useEffect(() => {
+    const rows = getVisibleRows();
+    if (rows.length === 0) {
+      if (rovingKey !== null) setRovingKey(null);
+      return;
+    }
+    const matched = rovingKey != null && rows.some((r) => rowKeyOf(r) === rovingKey);
+    if (!matched) {
+      const firstKey = rowKeyOf(rows[0]);
+      if (firstKey != null && firstKey !== rovingKey) setRovingKey(firstKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rovingKey, rowsVersion]);
+
+  // Move the roving cursor to the row at `nextIndex` in the visible-rows list,
+  // updating both the key (drives `tabIndex`) and DOM focus.
+  const moveRovingTo = useCallback((rows: HTMLElement[], nextIndex: number) => {
+    const clamped = Math.max(0, Math.min(nextIndex, rows.length - 1));
+    const el = rows[clamped];
+    if (!el) return;
+    const key = rowKeyOf(el);
+    if (key == null) return;
+    focusMovedRef.current = true;
+    if (key === rovingKey) {
+      // Same key (e.g. stop-at-end) — the [rovingKey] effect won't re-fire, so
+      // focus/scroll imperatively here to keep the row visible + focused.
+      if (typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest" });
+      el.focus();
+      focusMovedRef.current = false;
+    } else {
+      setRovingKey(key);
+    }
+  }, [rovingKey, rowKeyOf]);
+
+  // Tree-container keydown. Scoped to the `role="tree"` element (never document,
+  // never the terminal), so arrows act only when focus is inside the tree.
+  const handleTreeKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Never hijack arrows/Enter while a rename input (or any editable) is the
+    // target — its own onKeyDown commits/cancels and arrows move the caret.
+    const target = e.target as HTMLElement;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target.isContentEditable
+    ) {
+      return;
+    }
+
+    const rows = getVisibleRows();
+    if (rows.length === 0) return;
+    let currentIndex = rows.findIndex((r) => rowKeyOf(r) === rovingKey);
+    if (currentIndex === -1) currentIndex = 0; // no roving row yet → act from first
+    const currentEl = rows[currentIndex];
+    const isWindow = currentEl?.hasAttribute("data-window-id") ?? false;
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        moveRovingTo(rows, currentIndex + 1); // stop at end (clamped in moveRovingTo)
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        moveRovingTo(rows, currentIndex - 1); // stop at start
+        break;
+      case "Home":
+        e.preventDefault();
+        moveRovingTo(rows, 0);
+        break;
+      case "End":
+        e.preventDefault();
+        moveRovingTo(rows, rows.length - 1);
+        break;
+      case "ArrowRight": {
+        e.preventDefault();
+        if (isWindow) break; // leaf — no-op
+        const expanded = currentEl?.getAttribute("aria-expanded") === "true";
+        if (!expanded) {
+          // collapsed session → expand (focus stays on the session row)
+          const key = currentEl ? rowKeyOf(currentEl) : null;
+          const sep = key?.indexOf(":") ?? -1;
+          if (key && sep > -1) toggleSession(key.slice(0, sep), key.slice(sep + 1));
+        } else {
+          // expanded session → move to first window child (next visible row,
+          // which is this session's first window when expanded)
+          moveRovingTo(rows, currentIndex + 1);
+        }
+        break;
+      }
+      case "ArrowLeft": {
+        e.preventDefault();
+        if (isWindow) {
+          // window → move to parent session row (scan upward for the nearest
+          // level-1 treeitem)
+          for (let i = currentIndex - 1; i >= 0; i--) {
+            if (rows[i].getAttribute("aria-level") === "1") {
+              moveRovingTo(rows, i);
+              break;
+            }
+          }
+        } else {
+          const expanded = currentEl?.getAttribute("aria-expanded") === "true";
+          if (expanded) {
+            // expanded session → collapse
+            const key = currentEl ? rowKeyOf(currentEl) : null;
+            const sep = key?.indexOf(":") ?? -1;
+            if (key && sep > -1) toggleSession(key.slice(0, sep), key.slice(sep + 1));
+          }
+          // collapsed session → no-op (server header is a structural wrapper)
+        }
+        break;
+      }
+      case "Enter":
+      case " ": { // Space
+        e.preventDefault();
+        if (!currentEl) break;
+        const key = rowKeyOf(currentEl);
+        if (key == null) break;
+        const identity = identityForKey(key);
+        if (!identity) break;
+        if (identity.kind === "window") {
+          // SF-3: ghost/optimistic rows have no real windowId — activation is a
+          // no-op (mirrors the isGhostWindow/dragEnabled guard on the drag path).
+          if (identity.ghost || identity.windowId === "") break;
+          // SF-2: call the handler DIRECTLY with the typed identity — no brittle
+          // DOM `.click()` synthesis or magic-string aria-label coupling.
+          onSelectWindow(identity.server, identity.session, identity.windowId);
+        } else {
+          // Session row: select its first window (no-op if the session is empty,
+          // i.e. no first window to activate).
+          if (identity.firstWindowId === "") break;
+          onSelectWindow(identity.server, identity.session, identity.firstWindowId);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }, [getVisibleRows, rowKeyOf, rovingKey, moveRovingTo, toggleSession, identityForKey, onSelectWindow]);
 
   // Stable per-action callbacks passed to every ServerGroup. Each takes the
   // server (and other identity) as a leading argument so a single reference
@@ -822,7 +1067,13 @@ export function Sidebar({
             </span>
           )}
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div
+          ref={treeRef}
+          role="tree"
+          aria-label="Session tree"
+          onKeyDown={handleTreeKeyDown}
+          className="flex-1 min-h-0 overflow-y-auto"
+        >
           {(() => {
             if (servers.length === 0) {
               return <div className="text-text-secondary text-xs py-4 text-center">No servers</div>;
@@ -868,6 +1119,8 @@ export function Sidebar({
                 isConnected={isConnectedByServer.get(srvInfo.name) ?? false}
                 currentSessionName={srvInfo.name === currentServer ? currentSession : null}
                 currentWindowId={srvInfo.name === currentServer ? currentWindowId : null}
+                rovingKey={rovingKey}
+                registerGroupRows={registerGroupRows}
                 editingWindow={editingWindow?.server === srvInfo.name ? editingWindow : null}
                 editingName={editingName}
                 inputRef={inputRef}
@@ -975,6 +1228,16 @@ type ServerGroupProps = {
   isConnected: boolean;
   currentSessionName: string | null;
   currentWindowId: string | null;
+  /** Roving-tabindex cursor key (a window row's `data-window-id` or a session
+   *  row's `${server}:${name}`). The single row whose key matches gets
+   *  `tabIndex={0}`; all others `-1`. A single string prop keeps the memo tree
+   *  intact — an arrow press flips `tabIndex` on only the two affected rows. */
+  rovingKey: string | null;
+  /** Register this group's visible-row identity slice + a set-signature with the
+   *  parent. Called from a layout effect after each render so the parent's
+   *  union lookup (Enter/Space activation) and the roving-key normalization
+   *  effect stay in sync with the MERGED rows actually painted. */
+  registerGroupRows: (server: string, signature: string, slice: Map<string, RowIdentity>) => void;
 
   editingWindow: { server: string; session: string; windowId: string } | null;
   editingName: string;
@@ -1035,6 +1298,8 @@ function ServerGroupInner(props: ServerGroupProps) {
     localOrder,
     currentSessionName,
     currentWindowId,
+    rovingKey,
+    registerGroupRows,
     editingWindow,
     editingName,
     inputRef,
@@ -1110,6 +1375,48 @@ function ServerGroupInner(props: ServerGroupProps) {
 
   const naturalNames = useMemo(() => orderedSessions.map((s) => s.name), [orderedSessions]);
 
+  // Build this group's roving-row identity slice + a cheap visible-set
+  // signature. The slice maps each row key → typed identity for direct
+  // Enter/Space activation in the parent (no DOM `.click()` synthesis). The
+  // signature is a string of the visible-row keys IN ORDER — it changes only
+  // when the visible-row SET changes (window add/remove, collapse/expand,
+  // rename), NOT on a passive activity-only SSE tick, so the parent's
+  // normalization effect is not woken on every tick. Derived from the SAME
+  // merged `orderedSessions` that render the rows, so renamed-session keys
+  // (`${server}:${newName}`) match the painted DOM.
+  const { rowSlice, rowSignature } = useMemo(() => {
+    const slice = new Map<string, RowIdentity>();
+    const sigParts: string[] = [];
+    if (isOpen) {
+      for (const session of orderedSessions) {
+        const sessionRowKey = `${server}:${session.name}`;
+        const firstWindowId = session.windows[0]?.windowId ?? "";
+        slice.set(sessionRowKey, { kind: "session", server, session: session.name, firstWindowId });
+        sigParts.push(sessionRowKey);
+        const isCollapsed = collapsed[sessionRowKey] ?? false;
+        if (!isCollapsed) {
+          for (const win of session.windows) {
+            const ghost = isGhostWindow(win);
+            const winRowKey = ghost ? `ghost-${win.optimisticId}` : win.windowId;
+            slice.set(winRowKey, {
+              kind: "window",
+              server,
+              session: session.name,
+              windowId: win.windowId,
+              ghost,
+            });
+            sigParts.push(winRowKey);
+          }
+        }
+      }
+    }
+    return { rowSlice: slice, rowSignature: sigParts.join("|") };
+  }, [isOpen, orderedSessions, collapsed, server]);
+
+  useEffect(() => {
+    registerGroupRows(server, rowSignature, rowSlice);
+  }, [registerGroupRows, server, rowSignature, rowSlice]);
+
   return (
     <section
       className="border-b border-border last:border-b-0"
@@ -1165,9 +1472,12 @@ function ServerGroupInner(props: ServerGroupProps) {
               (no sessions — + new)
             </button>
           ) : (
-            orderedSessions.map((session) => {
+            orderedSessions.map((session, sessionIdx) => {
               const isCollapsed = collapsed[`${server}:${session.name}`] ?? false;
               const isGhostSession = "optimistic" in session && session.optimistic;
+              // Stable per-row tree handles + position metadata (W3C APG).
+              const sessionRowKey = `${server}:${session.name}`;
+              const windowGroupId = `windows-${server}-${session.name}`;
               return (
                 <div key={session.name} className={`mb-2${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
                   <SessionRow
@@ -1183,6 +1493,11 @@ function ServerGroupInner(props: ServerGroupProps) {
                     draggable={!isGhostSession}
                     isDragSource={sessionDragSource === session.name}
                     orderedNames={naturalNames}
+                    tabIndex={rovingKey === sessionRowKey ? 0 : -1}
+                    ariaSetSize={orderedSessions.length}
+                    ariaPosInSet={sessionIdx + 1}
+                    windowGroupId={windowGroupId}
+                    sessionRowKey={sessionRowKey}
                     onDragStart={isGhostSession ? undefined : onSessionReorderStart}
                     onDragEnd={isGhostSession ? undefined : onSessionReorderEnd}
                     onToggleCollapse={onToggleSession}
@@ -1201,9 +1516,11 @@ function ServerGroupInner(props: ServerGroupProps) {
                   />
 
                   {!isCollapsed && (
-                    <div className="ml-3">
-                      {session.windows.map((win) => {
+                    <div className="ml-3" role="group" id={windowGroupId}>
+                      {session.windows.map((win, winIdx) => {
                         const ghost = isGhostWindow(win);
+                        // Roving key matches the row's `data-window-id` handle.
+                        const winRowKey = ghost ? `ghost-${win.optimisticId}` : win.windowId;
                         // Exactly ONE row per session may look selected, so
                         // selection keys on a SINGLE source of truth — never
                         // an OR of two, which lights up two rows whenever the
@@ -1254,6 +1571,10 @@ function ServerGroupInner(props: ServerGroupProps) {
                             isPinnedToAny={!ghost && pinnedSet.has(`${server}:${win.windowId}`)}
                             isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
                             isPinnedToBoard={pinnedToBoard}
+                            tabIndex={rovingKey === winRowKey ? 0 : -1}
+                            ariaLevel={2}
+                            ariaSetSize={session.windows.length}
+                            ariaPosInSet={winIdx + 1}
                             onSelectWindow={onSelectWindow}
                             onStartEditing={onWindowStartEditing}
                             onWindowNameChange={onWindowNameChange}

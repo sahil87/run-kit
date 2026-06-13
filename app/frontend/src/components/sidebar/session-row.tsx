@@ -39,6 +39,22 @@ type SessionRowProps = {
   onDragLeave: (e: React.DragEvent, server: string, name: string) => void;
   onDrop: (e: React.DragEvent, server: string, name: string) => void;
   onColorChange?: (server: string, name: string, color: number | null) => void;
+  /** Roving-tabindex value: `0` for the single roving-focused tree row, `-1`
+   *  otherwise. Defaults to `-1`. Only the two affected rows change this per
+   *  arrow keypress, preserving the Wave-2 memo tree. */
+  tabIndex?: number;
+  /** W3C-APG tree node metadata. Session rows are level-1 nodes. `ariaSetSize`
+   *  is the count of sibling sessions in the group; `ariaPosInSet` the row's
+   *  1-based position among them. `windowGroupId` is the `id` of the
+   *  `role="group"` window-list container, referenced by `aria-controls`
+   *  ONLY while expanded (the group is unmounted when collapsed).
+   *  Omitted ⇒ not announced (e.g. unit tests rendering a bare row). */
+  ariaSetSize?: number;
+  ariaPosInSet?: number;
+  windowGroupId?: string;
+  /** Stable DOM handle for the roving-focus effect to query — analogous to the
+   *  window row's `data-window-id`. Value is the `${server}:${name}` key. */
+  sessionRowKey?: string;
 };
 
 function SessionRowInner({
@@ -69,6 +85,11 @@ function SessionRowInner({
   onDragLeave,
   onDrop,
   onColorChange,
+  tabIndex = -1,
+  ariaSetSize,
+  ariaPosInSet,
+  windowGroupId,
+  sessionRowKey,
 }: SessionRowProps) {
   const name = session.name;
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -91,6 +112,20 @@ function SessionRowInner({
 
   return (
     <div
+      // W3C-APG tree node (level 1). `aria-expanded` mirrors the chevron's own
+      // (lifted onto the treeitem); `aria-controls` points at the window-list
+      // group's id. The roving model in index.tsx threads `tabIndex` + set/pos.
+      role="treeitem"
+      aria-level={1}
+      aria-expanded={!isCollapsed}
+      // Reference the window-list group ONLY while expanded — the role="group"
+      // list is mounted (index.tsx) only when !isCollapsed, so a collapsed row
+      // pointing aria-controls at an unmounted id would be invalid ARIA.
+      aria-controls={isCollapsed ? undefined : windowGroupId}
+      aria-setsize={ariaSetSize}
+      aria-posinset={ariaPosInSet}
+      tabIndex={tabIndex}
+      data-session-row={sessionRowKey}
       className={`flex items-center justify-between group pl-1.5 sm:pl-2 relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors${isDragSource ? " opacity-50" : ""}`}
       draggable={draggable}
       onDragStart={onDragStart ? (e) => onDragStart(e, server, name, orderedNames) : undefined}

@@ -26,7 +26,7 @@ function summaryText(win: WindowInfo): string {
 }
 
 /** Fail-ish states get the red token; everything else uses the secondary token. */
-function isFailish(win: WindowInfo): boolean {
+export function isFailish(win: WindowInfo): boolean {
   return win.prChecks === "fail" || win.prReview === "changes_requested";
 }
 

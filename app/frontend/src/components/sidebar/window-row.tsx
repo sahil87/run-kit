@@ -6,6 +6,7 @@ import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
 import { UNCOLORED_SELECTED_ANSI, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
+import { isFailish } from "@/components/pr-status-line";
 import { PinPopover } from "./pin-popover";
 
 type ProjectWindow = ProjectSession["windows"][number];
@@ -196,7 +197,7 @@ export function WindowRow({
       >
         <span className="flex items-center gap-1.5 truncate min-w-0">
           <span
-            className="w-1.5 h-1.5 rounded-full shrink-0 text-text-secondary"
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${win.fabDisplayState === "failed" ? "text-red-400" : "text-text-secondary"}`}
             aria-label={win.activity}
             style={{
               border: win.activity === "active" ? "none" : "1.5px solid currentColor",
@@ -221,13 +222,31 @@ export function WindowRow({
           )}
         </span>
         <span className="flex items-center gap-1.5 shrink-0">
+          {/* PR-fail signal: a small red bullet for change-bound windows whose
+              PR needs attention (checks failing or changes requested). Reuses
+              the shared isFailish predicate so the row stays in lockstep with
+              PrStatusLine. Gated on fabChange && prNumber (mirrors
+              PrStatusLine's own `if (!win.fabChange || !win.prNumber) return
+              null` gate) so a non-change-bound window never shows a stray glyph.
+              A bare glyph needs an accessible name, hence aria-label + title. */}
+          {win.fabChange && win.prNumber && isFailish(win) && (
+            <span
+              className="text-xs text-red-400 shrink-0"
+              aria-label="PR needs attention"
+              title="PR checks failing or changes requested"
+            >
+              &#x25CF;
+            </span>
+          )}
           {/* Quiet parked rows: a change whose displayed stage is fully done
               (fab pane map display_state === "done") is parked, not active —
               suppress the stale stage text and let the duration stand alone.
               Any other value, unknown future values, or an absent field (older
-              fab binaries omit display_state) keeps today's behavior. */}
+              fab binaries omit display_state) keeps today's behavior. A failed
+              stage renders in the red token instead of secondary; the gate
+              itself is unchanged. */}
           {win.fabStage && win.fabDisplayState !== "done" && (
-            <span className="text-xs text-text-secondary">
+            <span className={`text-xs ${win.fabDisplayState === "failed" ? "text-red-400" : "text-text-secondary"}`}>
               {win.fabStage}
             </span>
           )}

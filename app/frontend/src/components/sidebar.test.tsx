@@ -4,6 +4,7 @@ import { Sidebar } from "./sidebar";
 import { OptimisticProvider, useOptimisticContext } from "@/contexts/optimistic-context";
 import { MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { ThemeProvider } from "@/contexts/theme-context";
+import { ChromeProvider } from "@/contexts/chrome-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import type { ProjectSession } from "@/types";
@@ -142,17 +143,19 @@ function buildTree(overrides: SidebarTestOverrides) {
           }}
         >
           <MetricsProvider value={null}>
-            <Sidebar
-              currentServer={currentServer}
-              currentSession="run-kit"
-              currentWindowId="@0"
-              onSelectWindow={vi.fn()}
-              onCreateWindow={vi.fn()}
-              onCreateSession={vi.fn()}
-              onCreateServer={vi.fn()}
-              onKillServer={vi.fn()}
-              {...sidebarOverrides}
-            />
+            <ChromeProvider>
+              <Sidebar
+                currentServer={currentServer}
+                currentSession="run-kit"
+                currentWindowId="@0"
+                onSelectWindow={vi.fn()}
+                onCreateWindow={vi.fn()}
+                onCreateSession={vi.fn()}
+                onCreateServer={vi.fn()}
+                onKillServer={vi.fn()}
+                {...sidebarOverrides}
+              />
+            </ChromeProvider>
           </MetricsProvider>
         </StandaloneSessionContextProvider>
       </OptimisticProvider>
@@ -973,16 +976,18 @@ describe("Sidebar", () => {
             >
               <MetricsProvider value={null}>
                 <KilledCountDisplay />
-                <Sidebar
-                  currentServer="runkit"
-                  currentSession="run-kit"
-                  currentWindowId="@0"
-                  onSelectWindow={vi.fn()}
-                  onCreateWindow={vi.fn()}
-                  onCreateSession={vi.fn()}
-                  onCreateServer={vi.fn()}
-                  onKillServer={vi.fn()}
-                />
+                <ChromeProvider>
+                  <Sidebar
+                    currentServer="runkit"
+                    currentSession="run-kit"
+                    currentWindowId="@0"
+                    onSelectWindow={vi.fn()}
+                    onCreateWindow={vi.fn()}
+                    onCreateSession={vi.fn()}
+                    onCreateServer={vi.fn()}
+                    onKillServer={vi.fn()}
+                  />
+                </ChromeProvider>
               </MetricsProvider>
             </StandaloneSessionContextProvider>
           </OptimisticProvider>

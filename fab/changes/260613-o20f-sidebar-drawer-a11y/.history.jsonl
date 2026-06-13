@@ -1,0 +1,22 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-13T07:33:18Z"}
+{"args":"Sidebar Wave 1 change B (sidebar-drawer-a11y) from backlog o20f. Mobile overlay declares role=dialog aria-modal=true (shell.tsx:131-132) but traps nothing — Tab leaks to terminal behind, Escape no-ops, no focus-on-open. Add focus-into-drawer + Tab trap + Escape-close reusing Dialog/CommandPalette focus-cycle logic; bonus: scrollIntoView+focus the aria-current row (window-row.tsx:193) on sidebar open, mirroring server-panel.tsx:77-82. Files: shell/shell.tsx, sidebar/index.tsx. This change is orthogonal to Wave 1 changes A and C. Context: docs/memory/run-kit/ui-patterns.md \"## Sidebar\".","cmd":"fab-new","event":"command","ts":"2026-06-13T07:33:18Z"}
+{"delta":"+0.9","event":"confidence","score":0.9,"trigger":"calc-score","ts":"2026-06-13T07:34:51Z"}
+{"delta":"+0.0","event":"confidence","score":0.9,"trigger":"calc-score","ts":"2026-06-13T07:34:55Z"}
+{"delta":"+0.9","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-06-13T07:35:44Z"}
+{"delta":"+0.0","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-06-13T07:35:48Z"}
+{"delta":"+0.0","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-06-13T09:39:18Z"}
+{"delta":"+0.0","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-06-13T09:39:31Z"}
+{"delta":"+0.0","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-06-13T09:39:42Z"}
+{"delta":"+1.4","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-06-13T09:39:55Z"}
+{"delta":"+0.0","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-06-13T09:40:00Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-13T09:41:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-13T09:41:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-13T09:47:10Z"}
+{"event":"review","result":"failed","ts":"2026-06-13T09:51:50Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-13T09:51:50Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-13T09:59:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-13T10:05:25Z"}
+{"event":"review","result":"passed","ts":"2026-06-13T10:05:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-13T10:08:13Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-13T10:10:15Z"}
+{"event":"review","result":"passed","ts":"2026-06-13T10:16:10Z"}

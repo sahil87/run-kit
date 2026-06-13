@@ -1,0 +1,51 @@
+id: o20f
+name: 260613-o20f-sidebar-drawer-a11y
+created: 2026-06-13T07:33:18Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 7
+    acceptance_count: 22
+    acceptance_completed: 22
+confidence:
+    certain: 3
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 3.2
+    fuzzy: true
+    dimensions:
+        signal: 85.4
+        reversibility: 84.4
+        competence: 87.3
+        disambiguation: 84.7
+stage_metrics:
+    intake: {started_at: "2026-06-13T07:33:18Z", driver: fab-new, iterations: 1, completed_at: "2026-06-13T09:41:23Z"}
+    apply: {started_at: "2026-06-13T09:51:50Z", driver: fab-fff, iterations: 2, completed_at: "2026-06-13T09:59:27Z"}
+    review: {started_at: "2026-06-13T09:59:27Z", driver: fab-fff, iterations: 2, completed_at: "2026-06-13T10:05:25Z"}
+    hydrate: {started_at: "2026-06-13T10:05:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-13T10:08:13Z"}
+    ship: {started_at: "2026-06-13T10:08:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-13T10:10:15Z"}
+    review-pr: {started_at: "2026-06-13T10:10:15Z", driver: git-pr, iterations: 1, completed_at: "2026-06-13T10:16:10Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/261
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-13T10:08:13Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-13T10:16:10Z

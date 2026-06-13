@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { Shell } from "./shell";
 import { ChromeProvider } from "@/contexts/chrome-context";
 
@@ -19,8 +20,12 @@ function mockMatchMedia(matches: (query: string) => boolean) {
   );
 }
 
-function renderShell(opts: { open?: boolean; mobile?: boolean } = {}) {
-  const { open = true, mobile = false } = opts;
+function renderShell(opts: { open?: boolean; mobile?: boolean; sidebarChildren?: ReactNode } = {}) {
+  const {
+    open = true,
+    mobile = false,
+    sidebarChildren = <div data-testid="sidebar">SIDEBAR</div>,
+  } = opts;
   // ChromeProvider initialises sidebarOpen from localStorage. Seed an EXPLICIT
   // preference for both states: with no stored value the default is
   // viewport-dependent (collapsed on mobile), so relying on "absent ⇒ open"
@@ -34,12 +39,23 @@ function renderShell(opts: { open?: boolean; mobile?: boolean } = {}) {
   );
   return render(
     <ChromeProvider>
-      <Shell sidebarChildren={<div data-testid="sidebar">SIDEBAR</div>}>
+      <Shell sidebarChildren={sidebarChildren}>
         <header style={{ gridArea: "topbar" }} data-testid="topbar">TOP</header>
         <main style={{ gridArea: "content" }} data-testid="content">CONTENT</main>
         <footer style={{ gridArea: "bottombar" }} data-testid="bottombar">BOTTOM</footer>
       </Shell>
     </ChromeProvider>,
+  );
+}
+
+/** Sidebar children with ≥2 focusable buttons so the Tab wrap is observable. */
+function trapChildren() {
+  return (
+    <div data-testid="sidebar">
+      <button type="button" data-testid="first">first</button>
+      <button type="button" data-testid="middle">middle</button>
+      <button type="button" data-testid="last">last</button>
+    </div>
   );
 }
 
@@ -93,5 +109,58 @@ describe("Shell", () => {
   it("does not render the mobile overlay when sidebarOpen is false", () => {
     renderShell({ open: false, mobile: true });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  describe("mobile drawer focus trap", () => {
+    it("focuses inside the <aside> on mount when mobile + open", () => {
+      renderShell({ open: true, mobile: true, sidebarChildren: trapChildren() });
+      const overlay = screen.getByRole("dialog");
+      // The trap focuses the first focusable inside the drawer on activation.
+      expect(overlay.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).toBe(screen.getByTestId("first"));
+    });
+
+    it("closes the drawer on Escape", () => {
+      renderShell({ open: true, mobile: true, sidebarChildren: trapChildren() });
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: "Escape" });
+      // setSidebarOpen(false) unmounts the overlay.
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("wraps Tab from the last focusable to the first", () => {
+      renderShell({ open: true, mobile: true, sidebarChildren: trapChildren() });
+      const last = screen.getByTestId("last");
+      last.focus();
+      expect(document.activeElement).toBe(last);
+      fireEvent.keyDown(document, { key: "Tab" });
+      expect(document.activeElement).toBe(screen.getByTestId("first"));
+    });
+
+    it("wraps Shift+Tab from the first focusable to the last", () => {
+      renderShell({ open: true, mobile: true, sidebarChildren: trapChildren() });
+      const first = screen.getByTestId("first");
+      first.focus();
+      expect(document.activeElement).toBe(first);
+      fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(screen.getByTestId("last"));
+    });
+
+    it("does not steal focus or attach the trap on desktop", () => {
+      renderShell({ open: true, mobile: false, sidebarChildren: trapChildren() });
+      // Desktop sidebar is not a modal: Shell renders the overlay (and thus the
+      // sidebarChildren) only on mobile, so there is no role="dialog" and the
+      // trap never activates — focus stays on <body>, nothing is focused.
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("first")).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it("does not steal focus when mobile but closed", () => {
+      renderShell({ open: false, mobile: true, sidebarChildren: trapChildren() });
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      // Children are not rendered while closed, so nothing is focused by the trap.
+      expect(screen.queryByTestId("first")).not.toBeInTheDocument();
+    });
   });
 });

@@ -217,6 +217,101 @@ describe("WindowRow", () => {
     });
   });
 
+  // Triage signals: a failed fab stage colors the stage text and activity dot
+  // red; a PR in trouble (checks failing or changes requested) surfaces a small
+  // red glyph. These reuse the existing red token (text-red-400) and the shared
+  // isFailish predicate — pure presentation over already-transmitted fields.
+  describe("triage signals", () => {
+    it("colors the stage text red when fabDisplayState is failed", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabStage: "review",
+        fabDisplayState: "failed",
+      });
+      renderRow(win);
+      const stage = screen.getByText("review");
+      expect(stage.className).toContain("text-red-400");
+      expect(stage.className).not.toContain("text-text-secondary");
+    });
+
+    it("keeps the secondary token on the stage text for a non-failed stage", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabStage: "apply",
+        fabDisplayState: "active",
+      });
+      renderRow(win);
+      const stage = screen.getByText("apply");
+      expect(stage.className).toContain("text-text-secondary");
+      expect(stage.className).not.toContain("text-red-400");
+    });
+
+    it("colors the activity dot red when fabDisplayState is failed", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        activity: "idle",
+        fabDisplayState: "failed",
+      });
+      renderRow(win);
+      const dot = screen.getByLabelText("idle");
+      expect(dot.className).toContain("text-red-400");
+      expect(dot.className).not.toContain("text-text-secondary");
+    });
+
+    it("renders the PR-fail glyph when prChecks is fail", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260613-o20f-x",
+        prNumber: 386,
+        prChecks: "fail",
+      });
+      renderRow(win);
+      const glyph = screen.getByLabelText("PR needs attention");
+      expect(glyph).toBeInTheDocument();
+      expect(glyph.className).toContain("text-red-400");
+    });
+
+    it("renders the PR-fail glyph when prReview is changes_requested", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260613-o20f-x",
+        prNumber: 386,
+        prChecks: "pass",
+        prReview: "changes_requested",
+      });
+      renderRow(win);
+      expect(screen.getByLabelText("PR needs attention")).toBeInTheDocument();
+    });
+
+    it("does not render the PR-fail glyph when checks pass and review is clean", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260613-o20f-x",
+        prNumber: 386,
+        prChecks: "pass",
+        prReview: "approved",
+      });
+      renderRow(win);
+      expect(screen.queryByLabelText("PR needs attention")).toBeNull();
+    });
+
+    it("does not render the PR-fail glyph when the window has no PR", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        prChecks: "fail",
+      });
+      renderRow(win);
+      expect(screen.queryByLabelText("PR needs attention")).toBeNull();
+    });
+  });
+
   // jsdom does not evaluate :hover / @media (pointer: coarse) / :has() as
   // computed styles, so the hardening contract is asserted as class strings.
   describe("hover-icon cluster hardening", () => {

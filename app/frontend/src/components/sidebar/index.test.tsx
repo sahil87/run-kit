@@ -411,7 +411,10 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
   }
 
   function rowKey(el: HTMLElement): string | null {
-    return el.getAttribute("data-window-id") ?? el.getAttribute("data-session-row");
+    // Mirrors production rowKeyOf: the globally-unique roving handle is
+    // `data-row-key` (window rows, `${server}:${windowId}`) or `data-session-row`
+    // (session rows, `${server}:${name}`) — NOT the bare `data-window-id`.
+    return el.getAttribute("data-row-key") ?? el.getAttribute("data-session-row");
   }
 
   function rovingKeyNow(): string | null {
@@ -467,13 +470,13 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     expect(rovingKeyNow()).toBe("primary:main");
 
     act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); });
-    expect(rovingKeyNow()).toBe("@0");
+    expect(rovingKeyNow()).toBe("primary:@0");
     act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); });
-    expect(rovingKeyNow()).toBe("@1");
+    expect(rovingKeyNow()).toBe("primary:@1");
 
     // ArrowUp moves back.
     act(() => { fireEvent.keyDown(t, { key: "ArrowUp" }); });
-    expect(rovingKeyNow()).toBe("@0");
+    expect(rovingKeyNow()).toBe("primary:@0");
 
     // Up at... walk to the very top and assert it stops (no wrap to the bottom).
     act(() => { fireEvent.keyDown(t, { key: "ArrowUp" }); }); // → main
@@ -486,7 +489,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     renderTree();
     const t = tree();
     act(() => { fireEvent.keyDown(t, { key: "End" }); });
-    expect(rovingKeyNow()).toBe("@2"); // last visible row (other's only window)
+    expect(rovingKeyNow()).toBe("primary:@2"); // last visible row (other's only window)
     act(() => { fireEvent.keyDown(t, { key: "Home" }); });
     expect(rovingKeyNow()).toBe("primary:main");
   });
@@ -510,7 +513,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
 
     // ArrowRight again descends to the first window child.
     act(() => { fireEvent.keyDown(t, { key: "ArrowRight" }); });
-    expect(rovingKeyNow()).toBe("@0");
+    expect(rovingKeyNow()).toBe("primary:@0");
   });
 
   it("ArrowLeft collapses an expanded session and moves a window to its parent", () => {
@@ -518,7 +521,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     const t = tree();
     // Move roving to @0 then ArrowLeft → parent session "main".
     act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); }); // @0
-    expect(rovingKeyNow()).toBe("@0");
+    expect(rovingKeyNow()).toBe("primary:@0");
     act(() => { fireEvent.keyDown(t, { key: "ArrowLeft" }); }); // → parent main
     expect(rovingKeyNow()).toBe("primary:main");
 
@@ -563,11 +566,13 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     renderTree();
     const t = tree();
     act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); }); // → @0
-    expect(rovingKeyNow()).toBe("@0");
+    expect(rovingKeyNow()).toBe("primary:@0");
     const focused = document.activeElement as HTMLElement | null;
     expect(focused).not.toBeNull();
-    // The focused element is the @0 window-row treeitem.
+    // The focused element is the @0 window-row treeitem. (data-window-id stays
+    // the bare tmux id; the globally-unique roving handle is data-row-key.)
     expect(focused!.getAttribute("data-window-id")).toBe("@0");
+    expect(focused!.getAttribute("data-row-key")).toBe("primary:@0");
   });
 
   // T014(a): the SSE-tick invariant (would have caught MF-1). A passive SSE tick
@@ -603,7 +608,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     renderTree();
     const t = tree();
     act(() => { fireEvent.keyDown(t, { key: "End" }); }); // → @2 (other's window)
-    expect(rovingKeyNow()).toBe("@2");
+    expect(rovingKeyNow()).toBe("primary:@2");
     act(() => { fireEvent.keyDown(t, { key: "Enter" }); });
     expect(onSelectWindow).toHaveBeenCalledWith("primary", "other", "@2");
   });
@@ -618,7 +623,8 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     const store = useWindowStore.getState();
     store.setWindowsForSession("primary", "main", KB_SESSIONS[0].windows);
     const ghostId = store.addGhostWindow("primary", "main", "deploying");
-    const ghostKey = `ghost-${ghostId}`;
+    // Roving key is the globally-unique handle: `${server}:ghost-${optimisticId}`.
+    const ghostKey = `primary:ghost-${ghostId}`;
 
     renderTree();
     const t = tree();

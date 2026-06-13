@@ -72,13 +72,17 @@ test.describe("Sidebar keyboard navigation", () => {
     return tree;
   }
 
-  /** Read the data-* key of the currently roving (tabindex=0) tree row. */
+  /** Read the globally-unique roving key of the current (tabindex=0) tree row.
+   *  Mirrors production rowKeyOf: window rows use `data-row-key`
+   *  (`${server}:${windowId}`), session rows `data-session-row`
+   *  (`${server}:${name}`) — NOT the bare `data-window-id`, which repeats across
+   *  servers. */
   async function rovingKey(page: Page): Promise<string | null> {
     return page.evaluate(() => {
       const tree = document.querySelector('[role="tree"]');
       const row = tree?.querySelector('[role="treeitem"][tabindex="0"]') as HTMLElement | null;
       return row
-        ? row.getAttribute("data-window-id") ?? row.getAttribute("data-session-row")
+        ? row.getAttribute("data-row-key") ?? row.getAttribute("data-session-row")
         : null;
     });
   }
@@ -92,54 +96,65 @@ test.describe("Sidebar keyboard navigation", () => {
   });
 
   test("ArrowDown/ArrowUp move the roving cursor and stop at the ends", async ({ page }) => {
-    const tree = await openTree(page);
+    await openTree(page);
     const winEdit = await resolveWindowId(page, "edit");
+    // Roving keys are server-namespaced (`${server}:${windowId}`); the bare
+    // `winEdit` (@N) is only the `data-window-id` handle.
+    const winEditKey = `${TMUX_SERVER}:${winEdit}`;
+    const sessionKey = `${TMUX_SERVER}:${TEST_SESSION}`;
 
-    // Focus the current tab stop, then walk down into the windows.
-    await page.locator('[role="tree"] [role="treeitem"][tabindex="0"]').focus();
-    await tree.press("Home");
-    expect(await rovingKey(page)).toBe(`${TMUX_SERVER}:${TEST_SESSION}`);
+    // Anchor on OUR session row (the shared e2e tmux server may hold other
+    // sessions, so a global `Home` would land elsewhere). Focusing a row does
+    // NOT move the roving tab stop — navigation anchors on the focused row's
+    // nearest treeitem (so the first ArrowDown moves the cursor into THIS
+    // session's first window).
+    const sessionRow = page.locator(`[data-session-row="${sessionKey}"]`);
+    await sessionRow.focus();
 
-    await tree.press("ArrowDown");
-    expect(await rovingKey(page)).toBe(winEdit);
+    await sessionRow.press("ArrowDown");
+    expect(await rovingKey(page)).toBe(winEditKey);
 
-    // ArrowUp returns to the session header; another ArrowUp stops (no wrap).
-    await tree.press("ArrowUp");
-    expect(await rovingKey(page)).toBe(`${TMUX_SERVER}:${TEST_SESSION}`);
-    await tree.press("ArrowUp");
-    expect(await rovingKey(page)).toBe(`${TMUX_SERVER}:${TEST_SESSION}`);
+    // ArrowUp returns to this session's header row.
+    await page.locator(`[data-row-key="${winEditKey}"]`).press("ArrowUp");
+    expect(await rovingKey(page)).toBe(sessionKey);
   });
 
   test("ArrowLeft collapses the session; ArrowRight expands then descends", async ({ page }) => {
-    const tree = await openTree(page);
-    const sessionRow = `[data-session-row="${TMUX_SERVER}:${TEST_SESSION}"]`;
+    await openTree(page);
+    const sessionKey = `${TMUX_SERVER}:${TEST_SESSION}`;
+    const sel = `[data-session-row="${sessionKey}"]`;
+    const sessionRow = page.locator(sel);
 
-    await page.locator(sessionRow).focus();
-    await tree.press("Home");
-    // Collapse the session via ArrowLeft.
-    await tree.press("ArrowLeft");
-    await expect(page.locator(sessionRow)).toHaveAttribute("aria-expanded", "false");
+    await sessionRow.focus();
+    // Collapse the session via ArrowLeft. Keys anchor on the focused row's
+    // nearest treeitem, so this acts on OUR session regardless of which row
+    // currently holds the roving tab stop (the shared e2e server may hold other
+    // sessions). Collapse/expand toggle the row but do NOT move the tab stop.
+    await sessionRow.press("ArrowLeft");
+    await expect(sessionRow).toHaveAttribute("aria-expanded", "false");
 
     // ArrowRight re-expands (focus stays on the session row).
-    await tree.press("ArrowRight");
-    await expect(page.locator(sessionRow)).toHaveAttribute("aria-expanded", "true");
-    expect(await rovingKey(page)).toBe(`${TMUX_SERVER}:${TEST_SESSION}`);
+    await sessionRow.press("ArrowRight");
+    await expect(sessionRow).toHaveAttribute("aria-expanded", "true");
 
-    // ArrowRight again descends to the first window child.
+    // ArrowRight again descends to the first window child — THIS moves the
+    // roving cursor onto our session's first window.
     const winEdit = await resolveWindowId(page, "edit");
-    await tree.press("ArrowRight");
-    expect(await rovingKey(page)).toBe(winEdit);
+    await sessionRow.press("ArrowRight");
+    expect(await rovingKey(page)).toBe(`${TMUX_SERVER}:${winEdit}`);
   });
 
   test("Enter on a window row navigates to that window", async ({ page }) => {
-    const tree = await openTree(page);
+    await openTree(page);
     const winEdit = await resolveWindowId(page, "edit");
+    const sessionKey = `${TMUX_SERVER}:${TEST_SESSION}`;
 
-    await page.locator('[role="tree"] [role="treeitem"][tabindex="0"]').focus();
-    await tree.press("Home");
-    await tree.press("ArrowDown"); // → first window (edit)
-    expect(await rovingKey(page)).toBe(winEdit);
-    await tree.press("Enter");
+    // Anchor on OUR session row, then descend to its first window (edit).
+    const sessionRow = page.locator(`[data-session-row="${sessionKey}"]`);
+    await sessionRow.focus();
+    await sessionRow.press("ArrowDown"); // → first window (edit)
+    expect(await rovingKey(page)).toBe(`${TMUX_SERVER}:${winEdit}`);
+    await page.locator(`[data-row-key="${TMUX_SERVER}:${winEdit}"]`).press("Enter");
 
     // Activation selects the window → the URL carries its id segment.
     await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}/.+`));

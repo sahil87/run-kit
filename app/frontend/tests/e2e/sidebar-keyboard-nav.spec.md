@@ -11,10 +11,14 @@ hijacking rename inputs or the terminal.
 - Session rows are `role="treeitem"` `aria-level="1"`, carry a `data-session-row`
   handle equal to `${server}:${session}`, and `aria-expanded` mirrors their
   collapse state.
-- Window rows are `role="treeitem"` `aria-level="2"` and carry the existing
-  `data-window-id` (`@N`) handle.
+- Window rows are `role="treeitem"` `aria-level="2"` and carry two handles: the
+  existing bare `data-window-id` (`@N`, for tests/automation/pin lookups) and a
+  `data-row-key` equal to `${server}:${windowId}`. The latter is the
+  globally-unique roving key — bare tmux ids (`@N`) repeat across servers, so the
+  roving cursor + Enter/Space activation must key on the namespaced handle.
 - The "roving key" is read off whichever treeitem currently has `tabindex="0"`
-  (its `data-window-id` or `data-session-row`).
+  (its `data-row-key` for windows, `data-session-row` for sessions — never the
+  bare `data-window-id`).
 
 ## Shared setup
 
@@ -23,7 +27,9 @@ hijacking rename inputs or the terminal.
 - `openTree(page)` navigates to `/${TMUX_SERVER}`, waits for `Connected`, asserts
   the `role="tree"` element and the test session's row are visible, and returns
   the tree locator.
-- `rovingKey(page)` returns the `data-*` key of the `treeitem[tabindex="0"]`.
+- `rovingKey(page)` returns the globally-unique roving key of the
+  `treeitem[tabindex="0"]` — `data-row-key` (windows) or `data-session-row`
+  (sessions).
 - `resolveWindowId(page, name)` polls `/api/sessions` to map a window's display
   name to its stable tmux id (`@N`).
 
@@ -46,9 +52,10 @@ invariant — at least 3 treeitems (1 session + 2 windows) and exactly one with
 (no wrap) at the first row.
 
 **Steps:**
-1. `openTree`; resolve the `edit` window id.
+1. `openTree`; resolve the `edit` window id; derive its namespaced roving key
+   `${server}:${editId}`.
 2. Focus the current tab stop; press `Home`; assert roving key is the session row.
-3. Press `ArrowDown`; assert roving key is the `edit` window id.
+3. Press `ArrowDown`; assert roving key is the `edit` window's namespaced key.
 4. Press `ArrowUp`; assert roving key is back on the session row.
 5. Press `ArrowUp` again; assert roving key is unchanged (stop at start, no wrap).
 
@@ -62,7 +69,8 @@ stays on the session) and a second Right descends to its first window child.
 2. Press `ArrowLeft`; assert the session row's `aria-expanded="false"`.
 3. Press `ArrowRight`; assert `aria-expanded="true"` and roving key is still the
    session row.
-4. Resolve the `edit` window id; press `ArrowRight`; assert roving key is that id.
+4. Resolve the `edit` window id; press `ArrowRight`; assert roving key is that
+   window's namespaced key (`${server}:${editId}`).
 
 ### `Enter on a window row navigates to that window`
 
@@ -72,7 +80,7 @@ to that window and marks the row `aria-current="page"`.
 **Steps:**
 1. `openTree`; resolve the `edit` window id.
 2. Focus the tab stop; press `Home` then `ArrowDown` (→ first window); assert
-   roving key is the `edit` id.
+   roving key is the `edit` window's namespaced key (`${server}:${editId}`).
 3. Press `Enter`.
 4. Assert the URL matches `/${TMUX_SERVER}/.+` and the `[data-window-id=edit]`
    row's button shows `aria-current="page"` within 5s.

@@ -78,6 +78,13 @@ type WindowRowProps = {
   ariaLevel?: number;
   ariaSetSize?: number;
   ariaPosInSet?: number;
+  /** Globally-unique roving-tabindex handle for the tree's keyboard model
+   *  (`index.tsx`), exposed as `data-row-key`. Value is `${server}:${windowId}`
+   *  (or `${server}:ghost-${optimisticId}`): bare tmux ids (@N) are only unique
+   *  within one server and would collide across open server groups, so the
+   *  roving cursor + Enter/Space activation key on this namespaced handle.
+   *  `data-window-id` stays the bare id for tests/automation/pin lookups. */
+  rowKey?: string;
 };
 
 function WindowRowInner({
@@ -112,6 +119,7 @@ function WindowRowInner({
   ariaLevel,
   ariaSetSize,
   ariaPosInSet,
+  rowKey,
 }: WindowRowProps) {
   const ghost = isGhostWindow(win);
   const srv = server ?? "";
@@ -208,6 +216,10 @@ function WindowRowInner({
       // unlike the window name or session+index, which are ambiguous or
       // transient. Ghost rows expose their optimistic id until confirmed.
       data-window-id={ghost ? `ghost-${win.optimisticId}` : win.windowId}
+      // Globally-unique roving handle (`${server}:${windowId}`) for the keyboard
+      // model — bare @N collides across servers. Distinct from data-window-id,
+      // which stays the bare id for tests/automation/pin lookups.
+      data-row-key={rowKey}
       // W3C-APG tree leaf. The roving model in index.tsx threads `tabIndex`
       // (0 for the one roving row, -1 otherwise) + level/set/pos metadata.
       role="treeitem"

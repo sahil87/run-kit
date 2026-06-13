@@ -745,9 +745,10 @@ export function Sidebar({
     // SF-4: sync the roving cursor to the row we focus so the `tabIndex=0`
     // tab-stop and the focused row do not desync (which would make the next
     // arrow press jump). The roving treeitem is the `[data-window-id]` wrapper;
-    // its key is that windowId.
+    // its roving handle is the globally-unique `data-row-key` (`${server}:${windowId}`),
+    // NOT the bare `data-window-id` (which collides across open server groups).
     const treeItem = row.closest<HTMLElement>("[data-window-id]");
-    const key = treeItem?.getAttribute("data-window-id") ?? null;
+    const key = treeItem?.getAttribute("data-row-key") ?? null;
     if (key != null) setRovingKey(key);
     const raf = requestAnimationFrame(() => {
       if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
@@ -758,7 +759,9 @@ export function Sidebar({
 
   // ── Roving-tabindex arrow navigation (W3C APG Tree pattern) ───────────────
   // The roving "cursor" is tracked as a stable ROW KEY (a window row's
-  // `data-window-id`, or a session row's `data-session-row` = `${server}:${name}`)
+  // `data-row-key` = `${server}:${windowId}`, or a session row's
+  // `data-session-row` = `${server}:${name}` — both globally unique so the key
+  // is unambiguous across multiple open server groups whose tmux ids (@N) repeat)
   // rather than a numeric index, so it survives the visible-rows list growing or
   // shrinking (expand/collapse, SSE adds/removes) without pointing at the wrong
   // row. Exactly one rendered treeitem gets `tabIndex={0}` (the roving row, or
@@ -813,7 +816,11 @@ export function Sidebar({
   }, []);
 
   const rowKeyOf = useCallback((el: HTMLElement): string | null => {
-    return el.getAttribute("data-window-id") ?? el.getAttribute("data-session-row");
+    // `data-row-key` is the GLOBALLY-unique roving handle (window rows carry
+    // `${server}:${windowId}`; tmux ids like `@1` are only unique within one
+    // server, so the bare `data-window-id` would collide across open groups).
+    // Session rows already use the unique `data-session-row` (`${server}:${name}`).
+    return el.getAttribute("data-row-key") ?? el.getAttribute("data-session-row");
   }, []);
 
   // After any render that changed the visible rows, move DOM focus + scroll to
@@ -828,7 +835,7 @@ export function Sidebar({
     focusMovedRef.current = false;
     const root = treeRef.current;
     if (!root) return;
-    const sel = `[data-window-id="${CSS.escape(rovingKey)}"], [data-session-row="${CSS.escape(rovingKey)}"]`;
+    const sel = `[data-row-key="${CSS.escape(rovingKey)}"], [data-session-row="${CSS.escape(rovingKey)}"]`;
     const row = root.querySelector<HTMLElement>(sel);
     if (!row) return;
     if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
@@ -898,7 +905,14 @@ export function Sidebar({
 
     const rows = getVisibleRows();
     if (rows.length === 0) return;
-    let currentIndex = rows.findIndex((r) => rowKeyOf(r) === rovingKey);
+    // Anchor navigation on the row the user is ACTUALLY in: inner controls
+    // (chevron/name/+) inside a treeitem stay Tab-focusable, so DOM focus can
+    // sit in a different row than the one holding tabIndex=0. Prefer the event
+    // target's nearest treeitem (matched by object identity, robust to
+    // duplicate ids across servers) and fall back to `rovingKey`.
+    const anchorRow = target.closest<HTMLElement>('[role="treeitem"]');
+    let currentIndex = anchorRow ? rows.indexOf(anchorRow) : -1;
+    if (currentIndex === -1) currentIndex = rows.findIndex((r) => rowKeyOf(r) === rovingKey);
     if (currentIndex === -1) currentIndex = 0; // no roving row yet → act from first
     const currentEl = rows[currentIndex];
     const isWindow = currentEl?.hasAttribute("data-window-id") ?? false;
@@ -1228,13 +1242,14 @@ type ServerGroupProps = {
   isConnected: boolean;
   currentSessionName: string | null;
   currentWindowId: string | null;
-  /** Roving-tabindex cursor key (a window row's `data-window-id` or a session
-   *  row's `${server}:${name}`). The single row whose key matches gets
-   *  `tabIndex={0}`; all others `-1`. A single string prop keeps the memo tree
-   *  intact — an arrow press flips `tabIndex` on only the two affected rows. */
+  /** Roving-tabindex cursor key (a window row's `data-row-key` =
+   *  `${server}:${windowId}`, or a session row's `${server}:${name}`). The
+   *  single row whose key matches gets `tabIndex={0}`; all others `-1`. A single
+   *  string prop keeps the memo tree intact — an arrow press flips `tabIndex`
+   *  on only the two affected rows. */
   rovingKey: string | null;
   /** Register this group's visible-row identity slice + a set-signature with the
-   *  parent. Called from a layout effect after each render so the parent's
+   *  parent. Called from an effect after each render so the parent's
    *  union lookup (Enter/Space activation) and the roving-key normalization
    *  effect stay in sync with the MERGED rows actually painted. */
   registerGroupRows: (server: string, signature: string, slice: Map<string, RowIdentity>) => void;
@@ -1397,7 +1412,9 @@ function ServerGroupInner(props: ServerGroupProps) {
         if (!isCollapsed) {
           for (const win of session.windows) {
             const ghost = isGhostWindow(win);
-            const winRowKey = ghost ? `ghost-${win.optimisticId}` : win.windowId;
+            // Globally-unique roving key: tmux ids (@N) collide across servers,
+            // so namespace by server. Mirrors the WindowRow `data-row-key`.
+            const winRowKey = `${server}:${ghost ? `ghost-${win.optimisticId}` : win.windowId}`;
             slice.set(winRowKey, {
               kind: "window",
               server,
@@ -1519,8 +1536,10 @@ function ServerGroupInner(props: ServerGroupProps) {
                     <div className="ml-3" role="group" id={windowGroupId}>
                       {session.windows.map((win, winIdx) => {
                         const ghost = isGhostWindow(win);
-                        // Roving key matches the row's `data-window-id` handle.
-                        const winRowKey = ghost ? `ghost-${win.optimisticId}` : win.windowId;
+                        // Globally-unique roving key — matches the row's
+                        // `data-row-key` handle (namespaced by server because
+                        // tmux ids @N collide across open server groups).
+                        const winRowKey = `${server}:${ghost ? `ghost-${win.optimisticId}` : win.windowId}`;
                         // Exactly ONE row per session may look selected, so
                         // selection keys on a SINGLE source of truth — never
                         // an OR of two, which lights up two rows whenever the
@@ -1572,6 +1591,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
                             isPinnedToBoard={pinnedToBoard}
                             tabIndex={rovingKey === winRowKey ? 0 : -1}
+                            rowKey={winRowKey}
                             ariaLevel={2}
                             ariaSetSize={session.windows.length}
                             ariaPosInSet={winIdx + 1}

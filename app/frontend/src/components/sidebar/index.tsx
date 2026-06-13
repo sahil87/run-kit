@@ -13,6 +13,8 @@ import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useChromeState } from "@/contexts/chrome-context";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useMergedSessions } from "@/contexts/optimistic-context";
 import { BoardsSection } from "./boards-section";
@@ -694,10 +696,39 @@ export function Sidebar({
     setKillTarget(null);
   }
 
+  // Bonus a11y: when the mobile drawer opens, land the keyboard user on their
+  // current context. Reads `isMobile` + chrome `sidebarOpen` directly (no prop
+  // threaded from Shell) and scrolls/focuses the selected window row.
+  // Supersedes the focus trap's first-focusable focus when an
+  // `[aria-current="page"]` row exists; when none does (board route, fresh
+  // session), this is a no-op and the trap's first-focus stands. Mirrors the
+  // ServerPanel mount-scroll pattern (server-panel.tsx:77-82). The focus is
+  // deferred to the next frame so it runs AFTER the trap's mount-focus
+  // (committed in Shell's effect) and wins the same-tick race.
+  const isMobile = useIsMobile();
+  const { sidebarOpen } = useChromeState();
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!isMobile || !sidebarOpen) return;
+    // Scope to a WINDOW row: window rows live under a `[data-window-id]`
+    // wrapper (window-row.tsx) and the selected row's button carries
+    // `aria-current="page"`. The active BoardsSection row also carries
+    // `aria-current="page"` and renders FIRST inside `<nav>`, but it has no
+    // `[data-window-id]` ancestor, so it is excluded — on board routes (no
+    // selected window) this no-ops and the trap's first-focus stands.
+    const row = navRef.current?.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]');
+    if (!row) return; // fallback: trap's first-focusable focus stands
+    const raf = requestAnimationFrame(() => {
+      if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
+      row.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isMobile, sidebarOpen]);
+
   const nowSeconds = Math.floor(Date.now() / 1000);
 
   return (
-    <nav aria-label="Sessions" className="flex flex-col h-full">
+    <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
       {/* Boards — cross-server section, always visible at the top of the
           sidebar (renders an empty-state hint when no boards exist). Boards
           are curated workspaces; placing them above Servers reflects their

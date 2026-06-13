@@ -1,7 +1,8 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 
 /**
  * `Cmd+\` (macOS) / `Ctrl+\` (Linux/Windows) toggles the sidebar. Constitution V
@@ -76,10 +77,18 @@ export function Shell({ children, sidebarChildren }: { children: ReactNode; side
   const { sidebarOpen, sidebarWidth } = useChromeState();
   const { setSidebarOpen } = useChromeDispatch();
   const isMobile = useIsMobile();
+  const drawerRef = useRef<HTMLElement>(null);
 
   // Cmd+\ / Ctrl+\ toggles the sidebar. Cmd captures only — see hook for
   // the input/textarea/contenteditable suppression rules.
   useSidebarKeyboardToggle(() => setSidebarOpen(!sidebarOpen));
+
+  // The mobile drawer is `aria-modal`: trap Tab focus within it and close on
+  // Escape while it is mounted, honoring the `role="dialog" aria-modal="true"`
+  // contract. Active ONLY for the mobile overlay — the desktop sidebar lives in
+  // the grid and is never a modal, so its Tab navigation is unchanged.
+  const drawerActive = isMobile && sidebarOpen && !!sidebarChildren;
+  useFocusTrap(drawerRef, drawerActive, () => setSidebarOpen(false));
 
   // Grid-template-columns on desktop: animate width on collapse via CSS transition.
   // On mobile we use a single column ('1fr') so collapsed/open is purely a function
@@ -128,6 +137,7 @@ export function Shell({ children, sidebarChildren }: { children: ReactNode; side
             onClick={() => setSidebarOpen(false)}
           />
           <aside
+            ref={drawerRef}
             role="dialog"
             aria-modal="true"
             aria-label="Navigation"

@@ -5,6 +5,7 @@ import { Sidebar } from "./index";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { ThemeProvider } from "@/contexts/theme-context";
+import { ChromeProvider } from "@/contexts/chrome-context";
 import { ToastProvider } from "@/components/toast";
 import type { ProjectSession } from "@/types";
 
@@ -91,16 +92,18 @@ function renderSidebar(opts: RenderOpts = {}) {
             }}
           >
             <MetricsProvider value={null}>
-              <Sidebar
-                currentServer={currentServer}
-                currentSession={currentServer ? "main" : null}
-                currentWindowId={currentServer ? "@0" : null}
-                onSelectWindow={vi.fn()}
-                onCreateWindow={vi.fn()}
-                onCreateSession={vi.fn()}
-                onCreateServer={vi.fn()}
-                onKillServer={vi.fn()}
-              />
+              <ChromeProvider>
+                <Sidebar
+                  currentServer={currentServer}
+                  currentSession={currentServer ? "main" : null}
+                  currentWindowId={currentServer ? "@0" : null}
+                  onSelectWindow={vi.fn()}
+                  onCreateWindow={vi.fn()}
+                  onCreateSession={vi.fn()}
+                  onCreateServer={vi.fn()}
+                  onKillServer={vi.fn()}
+                />
+              </ChromeProvider>
             </MetricsProvider>
           </StandaloneSessionContextProvider>
         </OptimisticProvider>
@@ -259,5 +262,74 @@ describe("Sidebar — per-server group toggle under StrictMode (mss7)", () => {
       screen.getByRole("button", { name: /Expand alpha sessions/ }),
     ).toHaveAttribute("aria-expanded", "false");
     expect(localStorage.getItem("runkit-panel-sessions-alpha")).toBe("false");
+  });
+});
+
+describe("Sidebar — mobile drawer current-row focus bonus (R9 / T007)", () => {
+  // The global matchMedia stub (top of file) reports non-mobile, so the bonus
+  // effect never runs in the other suites. Here we force mobile + an open
+  // drawer and drive the deferred (requestAnimationFrame) focus synchronously
+  // to prove the scoped selector focuses the selected WINDOW row — and, by the
+  // selector's construction, would NOT match the active BoardsSection row
+  // (which carries aria-current="page" but has no [data-window-id] ancestor).
+
+  function makeMatchMedia(mobile: boolean) {
+    return vi.fn().mockImplementation((query: string) => ({
+      // ThemeProvider always needs prefers-color-scheme; in mobile mode the
+      // width/coarse queries also match so useIsMobile() reports mobile.
+      matches:
+        query.includes("prefers-color-scheme: dark") ||
+        (mobile && (query.includes("max-width") || query.includes("pointer: coarse"))),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      onchange: null,
+    }));
+  }
+
+  function stubMobileMatchMedia() {
+    vi.stubGlobal("matchMedia", makeMatchMedia(true));
+  }
+
+  // Restore the file-default non-mobile matchMedia stub so this block's mobile
+  // override never leaks into a later-running test (the file's shared afterEach
+  // does not unstub globals).
+  afterEach(() => {
+    vi.stubGlobal("matchMedia", makeMatchMedia(false));
+  });
+
+  it("scroll+focuses the [aria-current=\"page\"] window row when the drawer is open on mobile", () => {
+    stubMobileMatchMedia();
+    // ChromeProvider seeds sidebarOpen from this key — open the drawer.
+    localStorage.setItem("runkit-sidebar-open", "true");
+    // Run the deferred focus synchronously instead of waiting a real frame.
+    const rafSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      });
+
+    try {
+      // currentWindowId "@0" → that window row's button gets aria-current="page".
+      renderSidebar({ currentServer: "primary" });
+
+      const row = document.querySelector<HTMLElement>(
+        '[data-window-id] [aria-current="page"]',
+      );
+      expect(row).not.toBeNull();
+      // The match is the row button, nested under a [data-window-id] wrapper —
+      // i.e. a window row, not the BoardsSection active row (which has no such
+      // ancestor and is therefore excluded by the scoped selector).
+      expect(row!.closest("[data-window-id]")).not.toBeNull();
+      // The bonus moved focus to the selected window row.
+      expect(document.activeElement).toBe(row);
+      expect(rafSpy).toHaveBeenCalled();
+    } finally {
+      rafSpy.mockRestore();
+    }
   });
 });

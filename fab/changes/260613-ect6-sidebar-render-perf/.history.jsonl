@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-13T09:47:21Z"}
+{"args":"ect6: Sidebar improvements WAVE 2 — sidebar-render-perf. Memoize ServerGroup/SessionRow/WindowRow + stabilize per-row closures + lift nowSeconds tick into a leaf useNow() hook so SSE ticks stop re-rendering the entire sidebar tree.","cmd":"fab-new","event":"command","ts":"2026-06-13T09:47:21Z"}
+{"delta":"+3.1","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-06-13T09:48:59Z"}
+{"delta":"+0.0","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-06-13T09:49:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-13T09:52:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-13T09:52:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-13T10:11:57Z"}
+{"event":"review","result":"failed","ts":"2026-06-13T10:16:57Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-13T10:16:57Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-13T10:23:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-13T10:33:11Z"}
+{"event":"review","result":"passed","ts":"2026-06-13T10:33:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-13T10:36:01Z"}

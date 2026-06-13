@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
+import { useNow } from "@/hooks/use-now";
 import { BrailleSnake } from "@/components/braille-snake";
 import { ClockSpinner } from "@/components/clock-spinner";
 import { StarTwinkle } from "@/components/star-twinkle";
@@ -14,7 +15,6 @@ const COPY_FEEDBACK_MS = 1000;
 
 type WindowPanelProps = {
   window: WindowInfo | null;
-  nowSeconds: number;
 };
 
 const HOME_PATTERNS = [/^\/home\/[^/]+/, /^\/Users\/[^/]+/, /^\/root(?=\/|$)/];
@@ -121,7 +121,7 @@ function getPrSegments(win: WindowInfo): PrSegment[] | null {
   return segments;
 }
 
-export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {
+export function WindowPanel({ window: win }: WindowPanelProps) {
   const headerRight = win ? (
     <span className="truncate text-text-secondary font-mono">
       {win.name}
@@ -133,7 +133,7 @@ export function WindowPanel({ window: win, nowSeconds }: WindowPanelProps) {
       {!win ? (
         <span className="text-xs text-text-secondary">No window selected</span>
       ) : (
-        <WindowContent win={win} nowSeconds={nowSeconds} />
+        <WindowContent win={win} />
       )}
     </CollapsiblePanel>
   );
@@ -163,7 +163,12 @@ function CopyableRow({ prefix, copied, onCopy, children, className, title }: {
   );
 }
 
-function WindowContent({ win, nowSeconds }: { win: WindowInfo; nowSeconds: number }) {
+function WindowContent({ win }: { win: WindowInfo }) {
+  // The `run` line's idle duration ticks once per second. Reading the clock
+  // here (the leaf that composes the line) keeps the tick off the sidebar tree
+  // — the bottom panel is a single instance, so its per-second re-render is
+  // negligible and does not touch the memoized ServerGroup/SessionRow/WindowRow.
+  const nowSeconds = useNow();
   const [copiedRow, setCopiedRow] = useState<CopyableRowKey | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

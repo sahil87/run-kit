@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo, useReducer } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
@@ -486,7 +486,7 @@ export function Sidebar({
     }
   }, [editingSession]);
 
-  function handleStartSessionEditing(server: string, sessionName: string) {
+  const handleStartSessionEditing = useCallback((server: string, sessionName: string) => {
     cancelledRef.current = true;
     setEditingWindow(null);
     sessionCancelledRef.current = true;
@@ -494,9 +494,9 @@ export function Sidebar({
     setEditingSessionName(sessionName);
     sessionOriginalNameRef.current = sessionName;
     sessionCancelledRef.current = false;
-  }
+  }, []);
 
-  function handleSessionRenameCommit() {
+  const handleSessionRenameCommit = useCallback(() => {
     if (!editingSession) return;
     const trimmed = editingSessionName.trim();
     const originalName = sessionOriginalNameRef.current;
@@ -505,14 +505,14 @@ export function Sidebar({
     if (trimmed && trimmed !== originalName) {
       executeRenameSession(srv, sessionName, trimmed);
     }
-  }
+  }, [editingSession, editingSessionName, executeRenameSession]);
 
-  function handleSessionRenameCancel() {
+  const handleSessionRenameCancel = useCallback(() => {
     sessionCancelledRef.current = true;
     setEditingSession(null);
-  }
+  }, []);
 
-  function handleSessionRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  const handleSessionRenameKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
       handleSessionRenameCommit();
@@ -520,14 +520,14 @@ export function Sidebar({
       e.preventDefault();
       handleSessionRenameCancel();
     }
-  }
+  }, [handleSessionRenameCommit, handleSessionRenameCancel]);
 
-  function handleSessionRenameBlur() {
+  const handleSessionRenameBlur = useCallback(() => {
     if (sessionCancelledRef.current) return;
     handleSessionRenameCommit();
-  }
+  }, [handleSessionRenameCommit]);
 
-  function handleStartEditing(server: string, session: string, windowId: string, currentName: string) {
+  const handleStartEditing = useCallback((server: string, session: string, windowId: string, currentName: string) => {
     sessionCancelledRef.current = true;
     setEditingSession(null);
     cancelledRef.current = true;
@@ -535,9 +535,9 @@ export function Sidebar({
     setEditingName(currentName);
     originalNameRef.current = currentName;
     cancelledRef.current = false;
-  }
+  }, []);
 
-  function handleRenameCommit() {
+  const handleRenameCommit = useCallback(() => {
     if (!editingWindow) return;
     const trimmed = editingName.trim();
     const originalName = originalNameRef.current;
@@ -546,23 +546,40 @@ export function Sidebar({
     if (trimmed && trimmed !== originalName) {
       executeRenameWindow(srv, session, windowId, trimmed);
     }
-  }
+  }, [editingWindow, editingName, executeRenameWindow]);
 
-  function handleRenameCancel() {
+  const handleRenameCancel = useCallback(() => {
     cancelledRef.current = true;
     setEditingWindow(null);
-  }
+  }, []);
 
-  function handleDragStart(e: React.DragEvent, server: string, sessionName: string, windowIndex: number, windowId: string, windowName: string) {
+  // Window rename key/blur — stable wrappers passed straight to ServerGroup so
+  // the per-row closures inside it don't have to be rebuilt every render.
+  const handleWindowRenameKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleRenameCommit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleRenameCancel();
+    }
+  }, [handleRenameCommit, handleRenameCancel]);
+
+  const handleWindowRenameBlur = useCallback(() => {
+    if (cancelledRef.current) return;
+    handleRenameCommit();
+  }, [handleRenameCommit]);
+
+  const handleDragStart = useCallback((e: React.DragEvent, server: string, sessionName: string, windowIndex: number, windowId: string, windowName: string) => {
     setDragSource({ server, session: sessionName, index: windowIndex });
     e.dataTransfer.setData(
       "application/json",
       JSON.stringify({ server, session: sessionName, index: windowIndex, windowId, name: windowName }),
     );
     e.dataTransfer.effectAllowed = "move";
-  }
+  }, []);
 
-  function handleDragOver(e: React.DragEvent, server: string, sessionName: string, windowIndex: number) {
+  const handleDragOver = useCallback((e: React.DragEvent, server: string, sessionName: string, windowIndex: number) => {
     if (!dragSource) return;
     // Allow dragover only within the same server + same session (existing
     // within-session reorder semantics). Cross-server is rejected at drop.
@@ -573,9 +590,9 @@ export function Sidebar({
       if (prev?.server === server && prev?.session === sessionName && prev?.index === windowIndex) return prev;
       return { server, session: sessionName, index: windowIndex };
     });
-  }
+  }, [dragSource]);
 
-  function handleDrop(e: React.DragEvent, server: string, sessionName: string, windowIndex: number) {
+  const handleDrop = useCallback((e: React.DragEvent, server: string, sessionName: string, windowIndex: number) => {
     e.preventDefault();
     setDropTarget(null);
     setDragSource(null);
@@ -596,15 +613,15 @@ export function Sidebar({
     if (isMovePending) return;
 
     executeMoveWindow(server, data.session, data.windowId, data.index, windowIndex);
-  }
+  }, [isMovePending, executeMoveWindow, addToast]);
 
-  function handleDragEnd() {
+  const handleDragEnd = useCallback(() => {
     setDragSource(null);
     setDropTarget(null);
     setSessionDropTarget(null);
-  }
+  }, []);
 
-  function handleSessionDragOver(e: React.DragEvent, server: string, sessionName: string) {
+  const handleSessionDragOver = useCallback((e: React.DragEvent, server: string, sessionName: string) => {
     if (!dragSource) return;
     // Allow within-server cross-session drag-over preview.
     if (dragSource.server !== server) return;
@@ -612,15 +629,15 @@ export function Sidebar({
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setSessionDropTarget({ server, session: sessionName });
-  }
+  }, [dragSource]);
 
-  function handleSessionDragLeave(_e: React.DragEvent, server: string, sessionName: string) {
+  const handleSessionDragLeave = useCallback((_e: React.DragEvent, server: string, sessionName: string) => {
     if (sessionDropTarget?.server === server && sessionDropTarget?.session === sessionName) {
       setSessionDropTarget(null);
     }
-  }
+  }, [sessionDropTarget]);
 
-  function handleSessionDrop(e: React.DragEvent, server: string, sessionName: string) {
+  const handleSessionDrop = useCallback((e: React.DragEvent, server: string, sessionName: string) => {
     e.preventDefault();
     setSessionDropTarget(null);
     setDropTarget(null);
@@ -642,19 +659,19 @@ export function Sidebar({
     if (isCrossMovePending) return;
 
     executeMoveToSession(server, data.session, data.index, data.windowId, data.name, sessionName);
-  }
+  }, [isCrossMovePending, executeMoveToSession, addToast]);
 
   // Per-server session drag-reorder. Source carries server so the drag is
   // confined to one server's group.
-  function handleSessionReorderStart(e: React.DragEvent, server: string, name: string, orderedNames: string[]) {
+  const handleSessionReorderStart = useCallback((e: React.DragEvent, server: string, name: string, orderedNames: string[]) => {
     setSessionDragSource({ server, name });
     e.dataTransfer.setData("application/x-session-reorder", `${server}:${name}`);
     e.dataTransfer.effectAllowed = "move";
     orderOverrideRef.current[server] = orderedNames;
     forceRender();
-  }
+  }, []);
 
-  function handleSessionReorderOver(e: React.DragEvent, server: string, targetName: string, naturalNames: string[]) {
+  const handleSessionReorderOver = useCallback((e: React.DragEvent, server: string, targetName: string, naturalNames: string[]) => {
     if (!sessionDragSource || sessionDragSource.server !== server || sessionDragSource.name === targetName) return;
     if (!e.dataTransfer.types.includes("application/x-session-reorder")) return;
     e.preventDefault();
@@ -680,11 +697,11 @@ export function Sidebar({
 
     orderOverrideRef.current[server] = next;
     forceRender();
-  }
+  }, [sessionDragSource, addToast]);
 
-  function handleSessionReorderEnd() {
+  const handleSessionReorderEnd = useCallback(() => {
     setSessionDragSource(null);
-  }
+  }, []);
 
   const toggleSession = useCallback((server: string, name: string) => {
     setCollapsed((prev) => ({ ...prev, [`${server}:${name}`]: !prev[`${server}:${name}`] }));
@@ -725,7 +742,42 @@ export function Sidebar({
     return () => cancelAnimationFrame(raf);
   }, [isMobile, sidebarOpen]);
 
-  const nowSeconds = Math.floor(Date.now() / 1000);
+  // Stable per-action callbacks passed to every ServerGroup. Each takes the
+  // server (and other identity) as a leading argument so a single reference
+  // serves all groups — the group binds its own `server`/`session`/`windowId`
+  // when it invokes them. This is what makes the React.memo on ServerGroup
+  // effective: an SSE session tick changes the per-server data Maps but NOT
+  // these handler identities, so unaffected groups skip re-render. (Drag/edit
+  // state IS in some deps — that state is not touched by SSE ticks, so the
+  // several-times-per-second churn never invalidates them; a real drag does,
+  // which is correct and rare.) Follows the existing `toggleSession` pattern.
+  const handleSessionRowKill = useCallback((server: string, name: string, count: number, ctrl: boolean) => {
+    if (ctrl) {
+      executeKillSession(server, name);
+      return;
+    }
+    setKillTarget({ type: "session", server, session: name, windowCount: count });
+  }, [executeKillSession]);
+
+  const handleWindowRowKill = useCallback((server: string, session: string, windowId: string, ctrl: boolean) => {
+    if (ctrl) {
+      executeKillWindow(server, session, windowId);
+      return;
+    }
+    setKillTarget({ type: "window", server, session, windowId, windowCount: 1 });
+  }, [executeKillWindow]);
+
+  const handleSessionColorChange = useCallback((server: string, name: string, c: number | null) => {
+    setSessionColorApi(server, name, c).catch((err) =>
+      addToast(err.message || "Failed to set session color"),
+    );
+  }, [addToast]);
+
+  const handleWindowColorChange = useCallback((server: string, _session: string, windowId: string, c: number | null) => {
+    setWindowColorApi(server, windowId, c).catch((err) =>
+      addToast(err.message || "Failed to set window color"),
+    );
+  }, [addToast]);
 
   return (
     <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
@@ -809,7 +861,7 @@ export function Sidebar({
                 rowTints={rowTints}
                 ansiPalette={ansiPalette}
                 isOpen={serverPaneOpen ? true : readServerOpen(srvInfo.name)}
-                onToggleOpen={() => toggleServerSection(srvInfo.name)}
+                onToggleOpen={toggleServerSection}
                 rawSessions={sessionsByServer.get(srvInfo.name) ?? []}
                 sessionOrder={sseOrder}
                 localOrder={localOrder}
@@ -831,65 +883,22 @@ export function Sidebar({
                 pinnedToBoard={pinnedToBoard}
                 isPinnedToActiveBoardFor={isPinnedToActiveBoardFor}
                 collapsed={collapsed}
-                nowSeconds={nowSeconds}
-                onToggleSession={(name) => toggleSession(srvInfo.name, name)}
+                onToggleSession={toggleSession}
                 onSelectWindow={onSelectWindow}
                 onCreateWindow={onCreateWindow}
                 onCreateSession={onCreateSession}
-                onSessionRowKill={(name, count, ctrl) => {
-                  if (ctrl) {
-                    executeKillSession(srvInfo.name, name);
-                    return;
-                  }
-                  setKillTarget({
-                    type: "session",
-                    server: srvInfo.name,
-                    session: name,
-                    windowCount: count,
-                  });
-                }}
-                onWindowRowKill={(session, windowId, ctrl) => {
-                  if (ctrl) {
-                    executeKillWindow(srvInfo.name, session, windowId);
-                    return;
-                  }
-                  setKillTarget({
-                    type: "window",
-                    server: srvInfo.name,
-                    session,
-                    windowId,
-                    windowCount: 1,
-                  });
-                }}
-                onSessionStartEditing={(name) => handleStartSessionEditing(srvInfo.name, name)}
+                onSessionRowKill={handleSessionRowKill}
+                onWindowRowKill={handleWindowRowKill}
+                onSessionStartEditing={handleStartSessionEditing}
                 onSessionRenameKeyDown={handleSessionRenameKeyDown}
                 onSessionRenameBlur={handleSessionRenameBlur}
                 onSessionNameChange={setEditingSessionName}
-                onWindowStartEditing={(session, windowId, name) => handleStartEditing(srvInfo.name, session, windowId, name)}
+                onWindowStartEditing={handleStartEditing}
                 onWindowNameChange={setEditingName}
-                onWindowRenameKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleRenameCommit();
-                  } else if (e.key === "Escape") {
-                    e.preventDefault();
-                    handleRenameCancel();
-                  }
-                }}
-                onWindowRenameBlur={() => {
-                  if (cancelledRef.current) return;
-                  handleRenameCommit();
-                }}
-                onSessionColorChange={(name, c) => {
-                  setSessionColorApi(srvInfo.name, name, c).catch((err) =>
-                    addToast(err.message || "Failed to set session color"),
-                  );
-                }}
-                onWindowColorChange={(_session, windowId, c) => {
-                  setWindowColorApi(srvInfo.name, windowId, c).catch((err) =>
-                    addToast(err.message || "Failed to set window color"),
-                  );
-                }}
+                onWindowRenameKeyDown={handleWindowRenameKeyDown}
+                onWindowRenameBlur={handleWindowRenameBlur}
+                onSessionColorChange={handleSessionColorChange}
+                onWindowColorChange={handleWindowColorChange}
                 onWindowDragStart={handleDragStart}
                 onWindowDragOver={handleDragOver}
                 onWindowDrop={handleDrop}
@@ -935,7 +944,6 @@ function BottomPanels({
   currentWindowId: string | null;
 }) {
   const ctx = useSessionContext();
-  const nowSeconds = Math.floor(Date.now() / 1000);
   const sessions = currentServer ? ctx.sessionsByServer.get(currentServer) ?? [] : [];
   const isConnected = currentServer ? ctx.isConnectedByServer.get(currentServer) ?? false : false;
   const selectedWindow = currentSessionName && currentWindowId != null
@@ -944,7 +952,7 @@ function BottomPanels({
     : null;
   return (
     <>
-      <WindowPanel window={selectedWindow} nowSeconds={nowSeconds} />
+      <WindowPanel window={selectedWindow} />
       <HostPanel isConnected={isConnected} />
     </>
   );
@@ -960,7 +968,7 @@ type ServerGroupProps = {
   rowTints: Map<number, import("@/themes").RowTint>;
   ansiPalette: readonly string[];
   isOpen: boolean;
-  onToggleOpen: () => void;
+  onToggleOpen: (server: string) => void;
   rawSessions: ProjectSession[];
   sessionOrder: string[];
   localOrder: string[] | null;
@@ -984,24 +992,23 @@ type ServerGroupProps = {
   pinnedToBoard: (board: string, server: string, windowId: string) => boolean;
   isPinnedToActiveBoardFor: (winServer: string, windowId: string) => boolean;
   collapsed: Record<string, boolean>;
-  nowSeconds: number;
 
-  onToggleSession: (name: string) => void;
+  onToggleSession: (server: string, name: string) => void;
   onSelectWindow: (server: string, session: string, windowId: string) => void;
   onCreateWindow: (server: string, session: string) => void;
   onCreateSession: (server: string) => void;
-  onSessionRowKill: (name: string, windowCount: number, ctrl: boolean) => void;
-  onWindowRowKill: (session: string, windowId: string, ctrl: boolean) => void;
-  onSessionStartEditing: (name: string) => void;
+  onSessionRowKill: (server: string, name: string, windowCount: number, ctrl: boolean) => void;
+  onWindowRowKill: (server: string, session: string, windowId: string, ctrl: boolean) => void;
+  onSessionStartEditing: (server: string, name: string) => void;
   onSessionRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onSessionRenameBlur: () => void;
   onSessionNameChange: (value: string) => void;
-  onWindowStartEditing: (session: string, windowId: string, currentName: string) => void;
+  onWindowStartEditing: (server: string, session: string, windowId: string, currentName: string) => void;
   onWindowNameChange: (value: string) => void;
   onWindowRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onWindowRenameBlur: () => void;
-  onSessionColorChange: (name: string, color: number | null) => void;
-  onWindowColorChange: (session: string, windowId: string, color: number | null) => void;
+  onSessionColorChange: (server: string, name: string, color: number | null) => void;
+  onWindowColorChange: (server: string, session: string, windowId: string, color: number | null) => void;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -1014,7 +1021,7 @@ type ServerGroupProps = {
   onSessionReorderEnd: () => void;
 };
 
-function ServerGroup(props: ServerGroupProps) {
+function ServerGroupInner(props: ServerGroupProps) {
   const {
     server,
     isCurrent,
@@ -1043,7 +1050,6 @@ function ServerGroup(props: ServerGroupProps) {
     pinnedToBoard,
     isPinnedToActiveBoardFor,
     collapsed,
-    nowSeconds,
     onToggleSession,
     onSelectWindow,
     onCreateWindow,
@@ -1102,7 +1108,7 @@ function ServerGroup(props: ServerGroupProps) {
     });
   }, [sessions, sessionOrder, localOrder]);
 
-  const naturalNames = orderedSessions.map((s) => s.name);
+  const naturalNames = useMemo(() => orderedSessions.map((s) => s.name), [orderedSessions]);
 
   return (
     <section
@@ -1122,7 +1128,7 @@ function ServerGroup(props: ServerGroupProps) {
         <button
           id={`server-header-${server}`}
           type="button"
-          onClick={onToggleOpen}
+          onClick={() => onToggleOpen(server)}
           aria-expanded={isOpen}
           aria-label={isOpen ? `Collapse ${server} sessions` : `Expand ${server} sessions`}
           className={`flex-1 min-w-0 flex items-center gap-1.5 pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider min-h-[20px] coarse:min-h-[28px] transition-colors hover:bg-bg-card/30 ${
@@ -1165,6 +1171,7 @@ function ServerGroup(props: ServerGroupProps) {
               return (
                 <div key={session.name} className={`mb-2${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
                   <SessionRow
+                    server={server}
                     session={session}
                     sessionColor={session.sessionColor}
                     rowTints={rowTints}
@@ -1175,25 +1182,22 @@ function ServerGroup(props: ServerGroupProps) {
                     sessionInputRef={sessionInputRef}
                     draggable={!isGhostSession}
                     isDragSource={sessionDragSource === session.name}
-                    onDragStart={isGhostSession ? undefined : (e) => onSessionReorderStart(e, server, session.name, naturalNames)}
+                    orderedNames={naturalNames}
+                    onDragStart={isGhostSession ? undefined : onSessionReorderStart}
                     onDragEnd={isGhostSession ? undefined : onSessionReorderEnd}
-                    onToggleCollapse={() => onToggleSession(session.name)}
-                    onSelectFirstWindow={() => onSelectWindow(server, session.name, session.windows[0]?.windowId ?? "")}
-                    onCreateWindow={() => onCreateWindow(server, session.name)}
-                    onKillClick={(e) => {
-                      onSessionRowKill(session.name, session.windows.length, e.ctrlKey || e.metaKey);
-                    }}
-                    onDoubleClickName={() => onSessionStartEditing(session.name)}
+                    onToggleCollapse={onToggleSession}
+                    onSelectFirstWindow={onSelectWindow}
+                    onCreateWindow={onCreateWindow}
+                    onKillClick={onSessionRowKill}
+                    onDoubleClickName={onSessionStartEditing}
                     onSessionNameChange={onSessionNameChange}
                     onSessionRenameKeyDown={onSessionRenameKeyDown}
                     onSessionRenameBlur={onSessionRenameBlur}
-                    onDragOver={(e) => {
-                      onSessionDragOver(e, server, session.name);
-                      onSessionReorderOver(e, server, session.name, naturalNames);
-                    }}
-                    onDragLeave={(e) => onSessionDragLeave(e, server, session.name)}
-                    onDrop={(e) => onSessionDrop(e, server, session.name)}
-                    onColorChange={(c) => onSessionColorChange(session.name, c)}
+                    onDragOver={onSessionDragOver}
+                    onReorderOver={onSessionReorderOver}
+                    onDragLeave={onSessionDragLeave}
+                    onDrop={onSessionDrop}
+                    onColorChange={onSessionColorChange}
                   />
 
                   {!isCollapsed && (
@@ -1239,32 +1243,29 @@ function ServerGroup(props: ServerGroupProps) {
                             session={session.name}
                             isSelected={isSelected}
                             isDragOver={isDragOver}
-                            nowSeconds={nowSeconds}
                             color={win.color}
                             rowTints={rowTints}
                             ansiPalette={ansiPalette}
-                            editingWindow={editingWindow ? { session: editingWindow.session, windowId: editingWindow.windowId } : null}
+                            editingWindow={editingWindow}
                             editingName={editingName}
                             inputRef={inputRef}
                             server={server}
                             boards={allBoards}
                             isPinnedToAny={!ghost && pinnedSet.has(`${server}:${win.windowId}`)}
                             isPinnedToActiveBoard={!ghost && isPinnedToActiveBoardFor(server, win.windowId)}
-                            isPinnedToBoard={(b) => pinnedToBoard(b, server, win.windowId)}
-                            onSelectWindow={() => onSelectWindow(server, session.name, win.windowId)}
-                            onDoubleClickName={() => onWindowStartEditing(session.name, win.windowId, win.name)}
+                            isPinnedToBoard={pinnedToBoard}
+                            onSelectWindow={onSelectWindow}
+                            onStartEditing={onWindowStartEditing}
                             onWindowNameChange={onWindowNameChange}
                             onRenameKeyDown={onWindowRenameKeyDown}
                             onRenameBlur={onWindowRenameBlur}
-                            onKillClick={(e) => {
-                              e.stopPropagation();
-                              if (!ghost) onWindowRowKill(session.name, win.windowId, e.ctrlKey || e.metaKey);
-                            }}
-                            onDragStart={ghost ? undefined : (e) => onWindowDragStart(e, server, session.name, win.index, win.windowId, win.name)}
-                            onDragOver={ghost ? undefined : (e) => onWindowDragOver(e, server, session.name, win.index)}
-                            onDrop={ghost ? undefined : (e) => onWindowDrop(e, server, session.name, win.index)}
+                            onKillClick={onWindowRowKill}
+                            draggable={!ghost}
+                            onDragStart={ghost ? undefined : onWindowDragStart}
+                            onDragOver={ghost ? undefined : onWindowDragOver}
+                            onDrop={ghost ? undefined : onWindowDrop}
                             onDragEnd={ghost ? undefined : onWindowDragEnd}
-                            onColorChange={ghost ? undefined : (c) => onWindowColorChange(session.name, win.windowId, c)}
+                            onColorChange={ghost ? undefined : onWindowColorChange}
                           />
                         );
                       })}
@@ -1299,4 +1300,13 @@ function ServerGroup(props: ServerGroupProps) {
     </section>
   );
 }
+
+/** Memoized per-server group. An SSE session tick rebuilds the per-server data
+ *  Maps in SessionContext, but `Sidebar` now passes every handler as a stable
+ *  identity-arg `useCallback` and the context Map/array props (`rowTints`,
+ *  `ansiPalette`, `allBoards`, `pinnedSet`, `pinnedToBoard`,
+ *  `isPinnedToActiveBoardFor`) are stable refs — so a tick on server B does not
+ *  re-render server A's group at all. The group whose `rawSessions`/order/
+ *  connection actually changed still re-renders (correct). */
+const ServerGroup = memo(ServerGroupInner);
 

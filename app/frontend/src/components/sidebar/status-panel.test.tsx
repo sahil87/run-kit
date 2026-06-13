@@ -18,11 +18,16 @@ function renderCwd(cwd: string) {
     isActiveWindow: false,
     activityTimestamp: 0,
   };
-  render(<StatusPanel window={win} nowSeconds={0} />);
+  render(<StatusPanel window={win} />);
 }
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // Deterministic clock for the leaf `useNow()` inside WindowContent. Most
+  // tests use activityTimestamp: 0 with epoch 0 → elapsed 0 → no idle duration
+  // (the prior `nowSeconds={0}` behavior). The idle-duration tests override
+  // this to 3700s below.
+  vi.setSystemTime(0);
 });
 
 afterEach(() => {
@@ -46,7 +51,7 @@ function makeWindow(overrides: Partial<WindowInfo> = {}): WindowInfo {
 
 describe("StatusPanel", () => {
   it("shows placeholder when no window selected", () => {
-    render(<StatusPanel window={null} nowSeconds={0} />);
+    render(<StatusPanel window={null} />);
     expect(screen.getByText("No window selected")).toBeInTheDocument();
   });
 
@@ -56,19 +61,19 @@ describe("StatusPanel", () => {
         { paneId: "%5", paneIndex: 0, cwd: "/Users/sahil/code/run-kit", command: "zsh", isActive: true },
       ],
     });
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
     expect(screen.getByText("~/code/run-kit")).toBeInTheDocument();
   });
 
   it("falls back to worktreePath when no panes", () => {
     const win = makeWindow({ worktreePath: "/Users/sahil/projects/foo" });
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
     expect(screen.getByText("~/projects/foo")).toBeInTheDocument();
   });
 
   it("shows window name", () => {
     const win = makeWindow({ name: "my-shell" });
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
     expect(screen.getByText("my-shell")).toBeInTheDocument();
   });
 
@@ -80,7 +85,7 @@ describe("StatusPanel", () => {
         { paneId: "%2", paneIndex: 1, cwd: "/home", command: "zsh", isActive: false },
       ],
     });
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
     expect(screen.getByText(/pane 1\/2/)).toBeInTheDocument();
   });
 
@@ -89,7 +94,7 @@ describe("StatusPanel", () => {
       fabChange: "260405-rx38-pane-cwd-tracking",
       fabStage: "apply",
     });
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
     expect(screen.getByText(/rx38/)).toBeInTheDocument();
     expect(screen.getByText(/apply/)).toBeInTheDocument();
   });
@@ -102,7 +107,8 @@ describe("StatusPanel", () => {
         { paneId: "%1", paneIndex: 0, cwd: "/home", command: "zsh", isActive: true },
       ],
     });
-    render(<StatusPanel window={win} nowSeconds={3700} />);
+    vi.setSystemTime(3_700_000);
+    render(<StatusPanel window={win} />);
     expect(screen.getByText(/zsh \u2014 idle 1h/)).toBeInTheDocument();
   });
 
@@ -116,7 +122,8 @@ describe("StatusPanel", () => {
         { paneId: "%1", paneIndex: 0, cwd: "/home", command: "claude", isActive: true },
       ],
     });
-    render(<StatusPanel window={win} nowSeconds={3700} />);
+    vi.setSystemTime(3_700_000);
+    render(<StatusPanel window={win} />);
     expect(screen.getByText(/rx38/)).toBeInTheDocument();
     expect(screen.getByText(/apply/)).toBeInTheDocument();
     expect(screen.getByText(/claude \u2014 idle 1h/)).toBeInTheDocument();
@@ -132,7 +139,8 @@ describe("StatusPanel", () => {
         { paneId: "%1", paneIndex: 0, cwd: "/home", command: "claude", isActive: true },
       ],
     });
-    render(<StatusPanel window={win} nowSeconds={3700} />);
+    vi.setSystemTime(3_700_000);
+    render(<StatusPanel window={win} />);
     expect(screen.getByText(/claude \u2014 idle 1h/)).toBeInTheDocument();
     expect(screen.getByText(/Thinking 2m/)).toBeInTheDocument();
   });
@@ -232,7 +240,7 @@ describe("StatusPanel copy behavior", () => {
   it("clicking cwd row copies full path", async () => {
     const { copyToClipboard } = await import("@/lib/clipboard");
     const win = makeWindowWithPanes();
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
     expect(cwdButton).not.toBeNull();
@@ -246,7 +254,7 @@ describe("StatusPanel copy behavior", () => {
   it("clicking git row copies branch name", async () => {
     const { copyToClipboard } = await import("@/lib/clipboard");
     const win = makeWindowWithPanes();
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     const gitButton = screen.getByRole("button", { name: /main/ });
     fireEvent.click(gitButton);
@@ -257,7 +265,7 @@ describe("StatusPanel copy behavior", () => {
   it("clicking tmx row copies pane ID", async () => {
     const { copyToClipboard } = await import("@/lib/clipboard");
     const win = makeWindowWithPanes();
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     const tmxButton = screen.getByRole("button", { name: /pane 1\/1 %5/ });
     fireEvent.click(tmxButton);
@@ -271,7 +279,7 @@ describe("StatusPanel copy behavior", () => {
       fabChange: "260405-rx38-pane-cwd-tracking",
       fabStage: "apply",
     });
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     const fabButton = screen.getByRole("button", { name: /rx38/ });
     fireEvent.click(fabButton);
@@ -281,7 +289,7 @@ describe("StatusPanel copy behavior", () => {
 
   it("shows 'copied' feedback after click and reverts after 1000ms", async () => {
     const win = makeWindowWithPanes();
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
     fireEvent.click(cwdButton);
@@ -300,7 +308,7 @@ describe("StatusPanel copy behavior", () => {
 
   it("feedback moves between rows — clicking git while cwd shows 'copied' swaps immediately", async () => {
     const win = makeWindowWithPanes();
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     // Click cwd
     const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
@@ -323,7 +331,7 @@ describe("StatusPanel copy behavior", () => {
     vi.mocked(copyToClipboard).mockClear();
 
     const win = makeWindowWithPanes();
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     // Mock active text selection
     const getSelectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
@@ -347,7 +355,7 @@ describe("StatusPanel copy behavior", () => {
         { paneId: "%5", paneIndex: 0, cwd: "/home/user/code/run-kit", command: "zsh", isActive: true },
       ],
     });
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     // The "run" row should be a div, not a button
     const runText = screen.getByText("run");
@@ -361,7 +369,7 @@ describe("StatusPanel copy behavior", () => {
         { paneId: "", paneIndex: 0, cwd: "/home/user/code/run-kit", command: "zsh", isActive: true, gitBranch: "main" },
       ],
     });
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     // The tmx row should be a div, not a button
     const tmxText = screen.getByText("tmx");
@@ -374,7 +382,7 @@ describe("StatusPanel copy behavior", () => {
     vi.mocked(copyToClipboard).mockClear();
 
     const win = makeWindowWithPanes();
-    render(<StatusPanel window={win} nowSeconds={0} />);
+    render(<StatusPanel window={win} />);
 
     const cwdButton = document.querySelector("[title='/home/user/code/run-kit']") as HTMLButtonElement;
     cwdButton.focus();
@@ -396,7 +404,7 @@ describe("StatusPanel copy behavior", () => {
         prChecks: "pass",
         prReview: "approved",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       expect(screen.getByTestId("pr-line")).toHaveTextContent(
         "#241 · open · checks pass · review: approved",
       );
@@ -410,7 +418,7 @@ describe("StatusPanel copy behavior", () => {
         prChecks: "pass",
         prReview: "approved",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       expect(screen.getByText("open").className).toContain("text-accent-green");
       expect(screen.getByText("checks pass").className).toContain("text-accent-green");
       expect(screen.getByText("review: approved").className).toContain("text-accent-green");
@@ -425,7 +433,7 @@ describe("StatusPanel copy behavior", () => {
         prIsDraft: true,
         prChecks: "pending",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       expect(screen.getByText("checks pending").className).toContain("text-yellow-400");
       expect(screen.getByText("open (draft)").className).toContain("text-text-secondary");
     });
@@ -437,13 +445,13 @@ describe("StatusPanel copy behavior", () => {
         prUrl: "https://github.com/sahil87/run-kit/pull/241",
         prState: "open",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       expect(screen.queryByText(/#241/)).toBeNull();
     });
 
     it("hides the pr row when the window is change-bound but has no PR", () => {
       const win = makeWindow({ fabChange: "260610-596o-x", prNumber: undefined });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       expect(screen.queryByText(/^#\d+/)).toBeNull();
     });
 
@@ -457,7 +465,7 @@ describe("StatusPanel copy behavior", () => {
         prUrl: "https://github.com/sahil87/run-kit/pull/241",
         prState: "open",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       const prButton = document.querySelector(
         "[title='https://github.com/sahil87/run-kit/pull/241']",
       ) as HTMLButtonElement;
@@ -476,7 +484,7 @@ describe("StatusPanel copy behavior", () => {
         prChecks: "pass",
         prReview: "approved",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       // Merged PRs show "#247 · merged" only — checks/review are historical
       // once a PR lands, so they're suppressed.
       expect(screen.getByTestId("pr-line")).toHaveTextContent("#247 · merged");
@@ -493,7 +501,7 @@ describe("StatusPanel copy behavior", () => {
         prChecks: "fail",
         prReview: "changes_requested",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       // Closed PRs show "#247 · closed" only — same suppression as merged.
       expect(screen.getByTestId("pr-line")).toHaveTextContent("#247 · closed");
     });
@@ -505,7 +513,7 @@ describe("StatusPanel copy behavior", () => {
         prState: "closed",
         prChecks: "fail",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       // The failure text is suppressed for a terminal-state PR — the red on the
       // state segment refers to "closed" itself (GitHub convention), never to a
       // hidden failure reason, which must not leak into other segments.
@@ -521,7 +529,7 @@ describe("StatusPanel copy behavior", () => {
         prUrl: "https://github.com/sahil87/run-kit/pull/241",
         prState: "open",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       const link = screen.getByRole("link", {
         name: "Open PR #241 in a new tab",
       }) as HTMLAnchorElement;
@@ -540,7 +548,7 @@ describe("StatusPanel copy behavior", () => {
         prUrl: undefined,
         prState: "open",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       expect(screen.queryByRole("link")).toBeNull();
     });
 
@@ -551,7 +559,7 @@ describe("StatusPanel copy behavior", () => {
         prState: "open",
         prChecks: "fail",
       });
-      render(<StatusPanel window={win} nowSeconds={0} />);
+      render(<StatusPanel window={win} />);
       expect(screen.getByTestId("pr-line")).toHaveTextContent("#241 · open · checks fail");
       expect(screen.getByText("checks fail").className).toContain("text-red-400");
       // The failure is scoped to its segment — the still-open state stays green.

@@ -561,15 +561,34 @@ function AppShell() {
     },
   });
 
+  // Freshest-value refs for the instant-create path. `sessions`/`currentWindow`/
+  // `isSessionCreatePending` all churn on every SSE tick; reading them via
+  // render-time-mutated refs (the same pattern as `dialogOpenRef` above) keeps
+  // `handleCreateSessionInstant` referentially stable across ticks, so it (and
+  // the Sidebar/TopBar/palette consumers that receive it) don't defeat the
+  // memoization downstream. The values read are always the latest committed
+  // render's, which is exactly what a click handler wants.
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const currentWindowRef = useRef(currentWindow);
+  currentWindowRef.current = currentWindow;
+  const isSessionCreatePendingRef = useRef(isSessionCreatePending);
+  isSessionCreatePendingRef.current = isSessionCreatePending;
+  // `ctx.sessionsByServer` is a fresh Map every SSE tick; the cross-server
+  // create branch reads it at click time via this ref so the stable
+  // `onCreateSession` callback below doesn't have to depend on it.
+  const sessionsByServerRef = useRef(ctx.sessionsByServer);
+  sessionsByServerRef.current = ctx.sessionsByServer;
+
   const handleCreateSessionInstant = useCallback(() => {
     // Guard against concurrent creates: a second click before the first request
     // settles would overwrite ghostSessionIdRef, causing ghost tracking to break.
-    if (isSessionCreatePending) return;
-    const cwd = currentWindow?.worktreePath;
-    const existingNames = sessions.map((s) => s.name);
+    if (isSessionCreatePendingRef.current) return;
+    const cwd = currentWindowRef.current?.worktreePath;
+    const existingNames = sessionsRef.current.map((s) => s.name);
     const name = deriveInstantSessionName(cwd, existingNames);
     executeCreateSessionInstant(server, name, cwd || undefined);
-  }, [isSessionCreatePending, currentWindow, sessions, server, executeCreateSessionInstant]);
+  }, [server, executeCreateSessionInstant]);
 
   const handleCreateWindow = useCallback(
     (session: string) => {
@@ -1097,6 +1116,52 @@ function AppShell() {
     return <ServerNotFound serverName={server} />;
   }
 
+  // Stable Sidebar handlers (R6a). `AppShell` consumes `useSessionContext()` and
+  // therefore re-renders on every SSE tick; inline arrows here would recreate
+  // these references each tick and defeat `ServerGroup`'s `React.memo` for every
+  // group, including the currently-viewed one. The branching behavior
+  // (current-server vs cross-server) is identical to the prior inline arrows.
+  const handleSidebarSelectWindow = useCallback(
+    (srv: string, _sess: string, windowId: string) => {
+      if (srv === server) {
+        navigateToWindow(windowId);
+      } else {
+        // Cross-server: identity is window-id only on the 2-segment route.
+        navigate({
+          to: "/$server/$window",
+          params: { server: srv, window: windowId },
+        });
+        if (isMobile) setSidebarOpen(false);
+      }
+    },
+    [server, navigateToWindow, navigate, isMobile, setSidebarOpen],
+  );
+  const handleSidebarCreateWindow = useCallback(
+    (srv: string, sess: string) => {
+      if (srv === server) {
+        handleCreateWindow(sess);
+      } else {
+        executeCreateWindow(srv, sess);
+      }
+    },
+    [server, handleCreateWindow, executeCreateWindow],
+  );
+  const handleSidebarCreateSession = useCallback(
+    (srv: string) => {
+      if (srv === server) {
+        handleCreateSessionInstant();
+      } else {
+        // For non-current servers, create with a default name
+        // (no cwd source available). Read the freshest sessions map at click
+        // time so this callback stays stable across SSE ticks.
+        const existingNames = (sessionsByServerRef.current.get(srv) ?? []).map((s) => s.name);
+        const name = deriveInstantSessionName(undefined, existingNames);
+        executeCreateSessionInstant(srv, name, undefined);
+      }
+    },
+    [server, handleCreateSessionInstant, executeCreateSessionInstant],
+  );
+
   // Sidebar element — shared between the desktop grid placement and the
   // mobile overlay (the Shell component renders one or the other).
   const sidebarElement = (
@@ -1104,36 +1169,9 @@ function AppShell() {
       currentServer={server || null}
       currentSession={sessionName ?? null}
       currentWindowId={windowParam ?? null}
-      onSelectWindow={(srv, _sess, windowId) => {
-        if (srv === server) {
-          navigateToWindow(windowId);
-        } else {
-          // Cross-server: identity is window-id only on the 2-segment route.
-          navigate({
-            to: "/$server/$window",
-            params: { server: srv, window: windowId },
-          });
-          if (isMobile) setSidebarOpen(false);
-        }
-      }}
-      onCreateWindow={(srv, sess) => {
-        if (srv === server) {
-          handleCreateWindow(sess);
-        } else {
-          executeCreateWindow(srv, sess);
-        }
-      }}
-      onCreateSession={(srv) => {
-        if (srv === server) {
-          handleCreateSessionInstant();
-        } else {
-          // For non-current servers, create with a default name
-          // (no cwd source available).
-          const existingNames = (ctx.sessionsByServer.get(srv) ?? []).map((s) => s.name);
-          const name = deriveInstantSessionName(undefined, existingNames);
-          executeCreateSessionInstant(srv, name, undefined);
-        }
-      }}
+      onSelectWindow={handleSidebarSelectWindow}
+      onCreateWindow={handleSidebarCreateWindow}
+      onCreateSession={handleSidebarCreateSession}
       onCreateServer={() => setShowCreateServerDialog(true)}
       onKillServer={(name) => setKillServerTarget(name)}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}

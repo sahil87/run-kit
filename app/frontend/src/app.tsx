@@ -1104,23 +1104,16 @@ function AppShell() {
   const displayName = currentWindow?.name ?? windowParam ?? "";
   const displaySession = sessionName ?? "";
 
-  // Three-way route guard. Distinguishes a just-created server (brief waiting
-  // state) from a genuinely-unknown one (not found), keyed on `serversLoaded`
-  // (NOT `servers.length > 0`, which fired not-found prematurely when the user
-  // already had servers and the post-create refresh hadn't landed yet).
-  const serverView = resolveServerView(server, servers, pendingServer, serversLoaded);
-  if (serverView === "waiting") {
-    return <ServerWaiting serverName={server} />;
-  }
-  if (serverView === "not-found") {
-    return <ServerNotFound serverName={server} />;
-  }
-
   // Stable Sidebar handlers (R6a). `AppShell` consumes `useSessionContext()` and
   // therefore re-renders on every SSE tick; inline arrows here would recreate
   // these references each tick and defeat `ServerGroup`'s `React.memo` for every
   // group, including the currently-viewed one. The branching behavior
   // (current-server vs cross-server) is identical to the prior inline arrows.
+  //
+  // These MUST be declared before the three-way route-guard early returns below
+  // — they are hooks, so a conditional/early-returned call site would violate the
+  // Rules of Hooks (the not-found/waiting branches return before reaching them,
+  // changing the hook count between renders).
   const handleSidebarSelectWindow = useCallback(
     (srv: string, _sess: string, windowId: string) => {
       if (srv === server) {
@@ -1161,6 +1154,18 @@ function AppShell() {
     },
     [server, handleCreateSessionInstant, executeCreateSessionInstant],
   );
+
+  // Three-way route guard. Distinguishes a just-created server (brief waiting
+  // state) from a genuinely-unknown one (not found), keyed on `serversLoaded`
+  // (NOT `servers.length > 0`, which fired not-found prematurely when the user
+  // already had servers and the post-create refresh hadn't landed yet).
+  const serverView = resolveServerView(server, servers, pendingServer, serversLoaded);
+  if (serverView === "waiting") {
+    return <ServerWaiting serverName={server} />;
+  }
+  if (serverView === "not-found") {
+    return <ServerNotFound serverName={server} />;
+  }
 
   // Sidebar element — shared between the desktop grid placement and the
   // mobile overlay (the Shell component renders one or the other).

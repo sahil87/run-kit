@@ -1,12 +1,13 @@
 import { StrictMode } from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { Sidebar } from "./index";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { MetricsProvider, StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ToastProvider } from "@/components/toast";
+import { useWindowStore } from "@/store/window-store";
 import type { ProjectSession } from "@/types";
 
 const mockNavigate = vi.fn();
@@ -331,5 +332,314 @@ describe("Sidebar — mobile drawer current-row focus bonus (R9 / T007)", () => 
     } finally {
       rafSpy.mockRestore();
     }
+  });
+});
+
+describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
+  // A single server with one session "main" carrying two windows, plus a second
+  // session "other" with one window — enough to exercise cross-session traversal,
+  // expand/collapse, and end-of-list stops.
+  const KB_SESSIONS: ProjectSession[] = [
+    {
+      name: "main",
+      windows: [
+        { index: 0, windowId: "@0", name: "edit", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+        { index: 1, windowId: "@1", name: "test", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      ],
+    },
+    {
+      name: "other",
+      windows: [
+        { index: 0, windowId: "@2", name: "run", worktreePath: "~/b", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      ],
+    },
+  ];
+
+  const onSelectWindow = vi.fn();
+
+  // Build the provider tree for a given sessions snapshot so a test can
+  // `rerender` with a CHANGED sessions Map (simulating a passive SSE tick).
+  function treeUI(sessions: ProjectSession[]) {
+    const servers = [{ name: "primary", sessionCount: 2 }];
+    const sessionsByServer = new Map([["primary", sessions]]);
+    return (
+      <ThemeProvider>
+        <ToastProvider>
+          <OptimisticProvider>
+            <StandaloneSessionContextProvider
+              value={{
+                sessionsByServer,
+                sessionOrderByServer: new Map([["primary", []]]),
+                isConnectedByServer: new Map([["primary", true]]),
+                metricsByServer: new Map(),
+                currentServer: "primary",
+                servers,
+                refreshServers: vi.fn(),
+              }}
+            >
+              <MetricsProvider value={null}>
+                <ChromeProvider>
+                  <Sidebar
+                    currentServer="primary"
+                    currentSession="main"
+                    currentWindowId={null}
+                    onSelectWindow={onSelectWindow}
+                    onCreateWindow={vi.fn()}
+                    onCreateSession={vi.fn()}
+                    onCreateServer={vi.fn()}
+                    onKillServer={vi.fn()}
+                  />
+                </ChromeProvider>
+              </MetricsProvider>
+            </StandaloneSessionContextProvider>
+          </OptimisticProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    );
+  }
+
+  function renderTree() {
+    return render(treeUI(KB_SESSIONS));
+  }
+
+  function tree(): HTMLElement {
+    return screen.getByRole("tree");
+  }
+
+  function visibleRows(): HTMLElement[] {
+    return Array.from(tree().querySelectorAll<HTMLElement>('[role="treeitem"]'));
+  }
+
+  function rowKey(el: HTMLElement): string | null {
+    // Mirrors production rowKeyOf: the globally-unique roving handle is
+    // `data-row-key` (window rows, `${server}:${windowId}`) or `data-session-row`
+    // (session rows, `${server}:${name}`) — NOT the bare `data-window-id`.
+    return el.getAttribute("data-row-key") ?? el.getAttribute("data-session-row");
+  }
+
+  function rovingKeyNow(): string | null {
+    const tabbable = visibleRows().find((r) => r.getAttribute("tabindex") === "0");
+    return tabbable ? rowKey(tabbable) : null;
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    onSelectWindow.mockClear();
+    useWindowStore.setState({ entries: new Map(), ghosts: [] });
+  });
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+    useWindowStore.setState({ entries: new Map(), ghosts: [] });
+  });
+
+  it("renders a role=tree inside the Sessions nav landmark", () => {
+    renderTree();
+    const nav = screen.getByRole("navigation", { name: "Sessions" });
+    const treeEl = within(nav).getByRole("tree");
+    expect(treeEl).toBeInTheDocument();
+    expect(treeEl).toHaveAttribute("aria-label", "Session tree");
+  });
+
+  it("wires each session row's aria-controls to a role=group window list with the matching id", () => {
+    renderTree();
+    const sessionRows = visibleRows().filter((r) => r.getAttribute("aria-level") === "1");
+    expect(sessionRows.length).toBe(2);
+    for (const sr of sessionRows) {
+      const controls = sr.getAttribute("aria-controls");
+      expect(controls).toBeTruthy();
+      const group = document.getElementById(controls!);
+      expect(group).not.toBeNull();
+      expect(group).toHaveAttribute("role", "group");
+    }
+  });
+
+  it("establishes exactly one tab stop (tabIndex=0) — the first visible row", () => {
+    renderTree();
+    const tabbable = visibleRows().filter((r) => r.getAttribute("tabindex") === "0");
+    expect(tabbable.length).toBe(1);
+    // First visible row is the "main" session header.
+    expect(rowKey(tabbable[0])).toBe("primary:main");
+  });
+
+  it("ArrowDown/ArrowUp move the roving tab stop and stop at the ends (no wrap)", () => {
+    renderTree();
+    const t = tree();
+    // Order: main (session) → @0 → @1 → other (session) → @2
+    expect(rovingKeyNow()).toBe("primary:main");
+
+    act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); });
+    expect(rovingKeyNow()).toBe("primary:@0");
+    act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); });
+    expect(rovingKeyNow()).toBe("primary:@1");
+
+    // ArrowUp moves back.
+    act(() => { fireEvent.keyDown(t, { key: "ArrowUp" }); });
+    expect(rovingKeyNow()).toBe("primary:@0");
+
+    // Up at... walk to the very top and assert it stops (no wrap to the bottom).
+    act(() => { fireEvent.keyDown(t, { key: "ArrowUp" }); }); // → main
+    expect(rovingKeyNow()).toBe("primary:main");
+    act(() => { fireEvent.keyDown(t, { key: "ArrowUp" }); }); // stop
+    expect(rovingKeyNow()).toBe("primary:main");
+  });
+
+  it("Home/End jump to the first/last visible row", () => {
+    renderTree();
+    const t = tree();
+    act(() => { fireEvent.keyDown(t, { key: "End" }); });
+    expect(rovingKeyNow()).toBe("primary:@2"); // last visible row (other's only window)
+    act(() => { fireEvent.keyDown(t, { key: "Home" }); });
+    expect(rovingKeyNow()).toBe("primary:main");
+  });
+
+  it("ArrowRight expands a collapsed session, then descends to its first window", () => {
+    renderTree();
+    const t = tree();
+    // Collapse "main" first via its chevron so we can re-expand by keyboard.
+    const mainChevron = screen.getByRole("button", { name: /Collapse main/ });
+    act(() => { fireEvent.click(mainChevron); });
+    // "main" is collapsed → its windows are gone; roving stays on "main".
+    expect(rovingKeyNow()).toBe("primary:main");
+    let mainRow = visibleRows().find((r) => rowKey(r) === "primary:main")!;
+    expect(mainRow).toHaveAttribute("aria-expanded", "false");
+
+    // ArrowRight expands it (focus stays on the session row).
+    act(() => { fireEvent.keyDown(t, { key: "ArrowRight" }); });
+    mainRow = visibleRows().find((r) => rowKey(r) === "primary:main")!;
+    expect(mainRow).toHaveAttribute("aria-expanded", "true");
+    expect(rovingKeyNow()).toBe("primary:main");
+
+    // ArrowRight again descends to the first window child.
+    act(() => { fireEvent.keyDown(t, { key: "ArrowRight" }); });
+    expect(rovingKeyNow()).toBe("primary:@0");
+  });
+
+  it("ArrowLeft collapses an expanded session and moves a window to its parent", () => {
+    renderTree();
+    const t = tree();
+    // Move roving to @0 then ArrowLeft → parent session "main".
+    act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); }); // @0
+    expect(rovingKeyNow()).toBe("primary:@0");
+    act(() => { fireEvent.keyDown(t, { key: "ArrowLeft" }); }); // → parent main
+    expect(rovingKeyNow()).toBe("primary:main");
+
+    // ArrowLeft on the expanded session collapses it.
+    act(() => { fireEvent.keyDown(t, { key: "ArrowLeft" }); });
+    const mainRow = visibleRows().find((r) => rowKey(r) === "primary:main")!;
+    expect(mainRow).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("Enter on a window row activates onSelectWindow with (server, session, windowId)", () => {
+    renderTree();
+    const t = tree();
+    act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); }); // → @0
+    act(() => { fireEvent.keyDown(t, { key: "Enter" }); });
+    expect(onSelectWindow).toHaveBeenCalledWith("primary", "main", "@0");
+  });
+
+  it("Space on a window row also activates it", () => {
+    renderTree();
+    const t = tree();
+    act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); }); // → @0
+    act(() => { fireEvent.keyDown(t, { key: " " }); });
+    expect(onSelectWindow).toHaveBeenCalledWith("primary", "main", "@0");
+  });
+
+  it("does not hijack arrows originating from a rename input", () => {
+    renderTree();
+    const t = tree();
+    const before = rovingKeyNow();
+    // Enter rename mode on the "main" session via double-click on its name.
+    const nameBtn = screen.getByRole("button", { name: "Navigate to main" });
+    act(() => { fireEvent.doubleClick(nameBtn); });
+    const input = screen.getByLabelText("Rename session") as HTMLInputElement;
+    // An ArrowDown whose target is the input must NOT move the roving cursor.
+    act(() => { fireEvent.keyDown(input, { key: "ArrowDown" }); });
+    expect(rovingKeyNow()).toBe(before);
+  });
+
+  // T014(b): the focus-movement half of R6 — an arrow keypress must move
+  // document.activeElement onto the new roving row's DOM node.
+  it("moves document.activeElement onto the roving row after an arrow keypress", () => {
+    renderTree();
+    const t = tree();
+    act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); }); // → @0
+    expect(rovingKeyNow()).toBe("primary:@0");
+    const focused = document.activeElement as HTMLElement | null;
+    expect(focused).not.toBeNull();
+    // The focused element is the @0 window-row treeitem. (data-window-id stays
+    // the bare tmux id; the globally-unique roving handle is data-row-key.)
+    expect(focused!.getAttribute("data-window-id")).toBe("@0");
+    expect(focused!.getAttribute("data-row-key")).toBe("primary:@0");
+  });
+
+  // T014(a): the SSE-tick invariant (would have caught MF-1). A passive SSE tick
+  // re-renders the tree with a CHANGED sessions Map but the SAME visible-row SET.
+  // It must NOT change the roving row and must NOT pull focus into the tree.
+  it("a passive SSE tick (changed sessions Map, no keypress) does not change roving or steal focus", () => {
+    const { rerender } = renderTree();
+    // Initial roving row is the first visible row ("main"); no keypress yet, so
+    // focus is NOT in the tree.
+    expect(rovingKeyNow()).toBe("primary:main");
+    expect(tree().contains(document.activeElement)).toBe(false);
+
+    // Simulate a passive SSE tick: a NEW sessions Map + new window objects (the
+    // SSE snapshot is always fresh refs) with the SAME windowId set — only an
+    // activity field churns, the visible-row SET is unchanged.
+    const ticked: ProjectSession[] = KB_SESSIONS.map((s) => ({
+      ...s,
+      windows: s.windows.map((w) => ({ ...w, activityTimestamp: w.activityTimestamp + 1 })),
+    }));
+    act(() => { rerender(treeUI(ticked)); });
+
+    // Roving row + the single tabIndex=0 row are unchanged.
+    expect(rovingKeyNow()).toBe("primary:main");
+    expect(visibleRows().filter((r) => r.getAttribute("tabindex") === "0").length).toBe(1);
+    // Focus was NOT pulled into the tree by the passive tick.
+    expect(tree().contains(document.activeElement)).toBe(false);
+  });
+
+  // T015 (SF-2): Enter on a REAL window row calls onSelectWindow with the
+  // (server, session, windowId) derived from the roving identity — a direct
+  // handler call, not a synthesized DOM click.
+  it("Enter on a real window row calls onSelectWindow with the roving identity", () => {
+    renderTree();
+    const t = tree();
+    act(() => { fireEvent.keyDown(t, { key: "End" }); }); // → @2 (other's window)
+    expect(rovingKeyNow()).toBe("primary:@2");
+    act(() => { fireEvent.keyDown(t, { key: "Enter" }); });
+    expect(onSelectWindow).toHaveBeenCalledWith("primary", "other", "@2");
+  });
+
+  // T015 (SF-3): Enter/Space on a ghost/optimistic window row (key `ghost-…`,
+  // empty windowId) is a no-op — no onSelectWindow call.
+  it("Enter/Space on a ghost window row does not call onSelectWindow", () => {
+    // Seed the window store's real "main" windows FIRST, then add the ghost.
+    // The ghost captures @0/@1 in its snapshot, so the mount-time
+    // setWindowsForSession sees NO new windowIds and preserves the ghost
+    // (ghosts are otherwise consumed when an unknown real window arrives).
+    const store = useWindowStore.getState();
+    store.setWindowsForSession("primary", "main", KB_SESSIONS[0].windows);
+    const ghostId = store.addGhostWindow("primary", "main", "deploying");
+    // Roving key is the globally-unique handle: `${server}:ghost-${optimisticId}`.
+    const ghostKey = `primary:ghost-${ghostId}`;
+
+    renderTree();
+    const t = tree();
+    // The ghost row is the last child of "main"'s window group (after @0, @1).
+    const ghostRow = visibleRows().find((r) => rowKey(r) === ghostKey);
+    expect(ghostRow, "ghost window row should be rendered").toBeTruthy();
+
+    // Walk roving onto the ghost row: main → @0 → @1 → ghost.
+    act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); }); // @0
+    act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); }); // @1
+    act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); }); // ghost
+    expect(rovingKeyNow()).toBe(ghostKey);
+
+    act(() => { fireEvent.keyDown(t, { key: "Enter" }); });
+    act(() => { fireEvent.keyDown(t, { key: " " }); });
+    expect(onSelectWindow).not.toHaveBeenCalled();
   });
 });

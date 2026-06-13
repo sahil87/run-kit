@@ -33,6 +33,10 @@ const TEST_SESSION = `e2e-echo-${Date.now()}`;
 // than the interactive `cat`, so it gets its own window to avoid disturbing the
 // echo session.
 const BURST_SESSION = `e2e-burst-${Date.now()}`;
+// Dedicated session for the under-load echo test — it runs a background tick
+// generator alongside `cat`, so it gets its own window to keep the idle echo
+// session's measurements clean.
+const LOAD_SESSION = `e2e-echo-load-${Date.now()}`;
 const port = Number(process.env.RK_PORT ?? "3333");
 const BASE = `http://localhost:${port}`;
 
@@ -40,6 +44,20 @@ const BASE = `http://localhost:${port}`;
 // on a shared CI runner while still yielding a stable-enough distribution.
 const FULL_PATH_TRIALS = 40;
 const BASELINE_TRIALS = 40;
+// Under-load echo trials. Fewer than the idle benchmark: each trial also pays
+// an absence-wait against the tick stream, and 30 samples are plenty to expose
+// a bimodal fast/slow split (the question is the distribution's SHAPE, not a
+// tight p50).
+const UNDER_LOAD_TRIALS = 30;
+// Probe characters for the under-load test, rotated per trial. Excludes every
+// letter of the background stream's `tick` text (t/i/c/k) so detection can be
+// presence-based, and excludes the warmup char `w`. 19 chars means a char is
+// reused only ~19 trials later — by then the tick stream has scrolled the
+// previous occurrence far out of the bottom-of-buffer scan window.
+const LOAD_PROBE_CHARS = "abdefghjmnopqrsuvxy";
+// Rows scanned (from the bottom of the buffer) for under-load echo detection.
+// Bounded so the rAF poll stays cheap regardless of scrollback depth.
+const LOAD_SCAN_ROWS = 8;
 // Per-keystroke echo deadline. Generous — a stalled echo should fail loudly
 // rather than silently skew the distribution toward the poll cap.
 const ECHO_DEADLINE_MS = 5_000;
@@ -102,8 +120,46 @@ function summarize(label: string, values: number[]): string {
   return (
     `  ${label.padEnd(22)} n=${String(values.length).padStart(3)}  ` +
     `p50=${p50.toFixed(1)}ms  p95=${p95.toFixed(1)}ms  p99=${p99.toFixed(1)}ms  ` +
+    `spread(p95−p50)=${(p95 - p50).toFixed(1)}ms  ` +
     `min=${min.toFixed(1)}ms  max=${max.toFixed(1)}ms`
   );
+}
+
+/**
+ * ASCII histogram over fixed-width buckets. Percentiles alone can hide a
+ * bimodal distribution (fast immediate-path echoes vs. echoes bumped to the
+ * next animation frame); the bucket counts make the two modes — or their
+ * absence — visible at a glance. Samples beyond the last bucket collapse into
+ * an overflow row so one outlier can't stretch the chart; trailing empty
+ * buckets are trimmed.
+ */
+function histogram(
+  label: string,
+  values: number[],
+  bucketMs = 4,
+  maxBuckets = 15,
+): string {
+  if (values.length === 0) return "";
+  const buckets = new Array<number>(maxBuckets + 1).fill(0);
+  for (const v of values) {
+    buckets[Math.min(Math.floor(v / bucketMs), maxBuckets)]++;
+  }
+  let last = buckets.length - 1;
+  while (last > 0 && buckets[last] === 0) last--;
+  const peak = Math.max(...buckets);
+  const rows = buckets
+    .slice(0, last + 1)
+    .map((n, i) => {
+      const lo = String(i * bucketMs).padStart(3);
+      const range =
+        i === maxBuckets
+          ? `${lo}+ms    `
+          : `${lo}–${String((i + 1) * bucketMs).padStart(3)}ms`;
+      const bar = "#".repeat(peak === 0 ? 0 : Math.round((n / peak) * 30));
+      return `    ${range} ${bar.padEnd(30)} ${n}`;
+    })
+    .join("\n");
+  return `  ${label} (${bucketMs}ms buckets):\n${rows}`;
 }
 
 /**
@@ -318,6 +374,92 @@ async function measureEcho(
   );
 }
 
+/**
+ * Measure one keystroke's echo latency while a background stream is writing to
+ * the same pane. Returns only the full (send → glyph-visible) time: the
+ * network/render attribution split is meaningless here because the first
+ * inbound frame after the send may be a tick, not the echo.
+ *
+ * Detection is presence-based with rotating probe chars rather than
+ * cursor-row-count-based (`measureEcho`): the tick stream moves the cursor
+ * between snapshot and detection, so anchoring on the cursor row would lose
+ * the echo. Instead the probe char is chosen to share no letters with the
+ * stream text, the helper first WAITS until the char is absent from the
+ * bottom `LOAD_SCAN_ROWS` rows (so the next appearance is unambiguously this
+ * trial's echo), then polls that window on rAF until it appears.
+ */
+async function measureEchoUnderLoad(
+  page: import("@playwright/test").Page,
+  windowId: string,
+  ch: string,
+  deadlineMs: number,
+): Promise<number> {
+  // Wait until the probe char is absent from the scan window, and clear the
+  // send stamp so the wrapper's next single-char stamp is THIS keystroke.
+  // Rotation makes residue unlikely (last use ~19 trials ago); waiting rather
+  // than asserting keeps the detector unambiguous even on a slow run.
+  await page.waitForFunction(
+    ({ windowId, ch, scanRows }) => {
+      const term = window.__rkTerminals?.[windowId];
+      if (!term) return false;
+      (window as unknown as { __rkSendAt?: number }).__rkSendAt = undefined;
+      const buf = term.buffer.active;
+      for (let y = Math.max(0, buf.length - scanRows); y < buf.length; y++) {
+        if ((buf.getLine(y)?.translateToString(true) ?? "").includes(ch)) {
+          return false;
+        }
+      }
+      return true;
+    },
+    { windowId, ch, scanRows: LOAD_SCAN_ROWS },
+    { timeout: deadlineMs },
+  );
+
+  // Real keystroke through the genuine input path (same as measureEcho).
+  await page.keyboard.press(ch);
+
+  return page.evaluate(
+    async ({ windowId, ch, scanRows, deadlineMs }) => {
+      const term = window.__rkTerminals?.[windowId];
+      if (!term) throw new Error(`no registered terminal for ${windowId}`);
+      const w = window as unknown as { __rkSendAt?: number };
+
+      const echoLanded = (): boolean => {
+        const buf = term.buffer.active;
+        for (let y = Math.max(0, buf.length - scanRows); y < buf.length; y++) {
+          if ((buf.getLine(y)?.translateToString(true) ?? "").includes(ch)) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const startWait = performance.now();
+      return await new Promise<number>((resolve, reject) => {
+        const deadline = startWait + deadlineMs;
+        const tick = () => {
+          if (echoLanded()) {
+            const glyphAt = performance.now();
+            if (w.__rkSendAt === undefined) {
+              reject(new Error("keystroke produced no WebSocket send"));
+              return;
+            }
+            resolve(glyphAt - w.__rkSendAt);
+            return;
+          }
+          if (performance.now() > deadline) {
+            reject(new Error(`under-load echo timeout for ${JSON.stringify(ch)}`));
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+    },
+    { windowId, ch, scanRows: LOAD_SCAN_ROWS, deadlineMs },
+  );
+}
+
 test.describe("Echo latency benchmark", () => {
   // The file runs FULL_PATH_TRIALS + BASELINE_TRIALS echo round-trips back to
   // back; give it ample headroom over the default per-test budget.
@@ -343,6 +485,9 @@ test.describe("Echo latency benchmark", () => {
     try {
       tmux(`kill-session -t ${BURST_SESSION}`);
     } catch { /* ok */ }
+    try {
+      tmux(`kill-session -t ${LOAD_SESSION}`);
+    } catch { /* ok */ }
 
     const pick = (label: string) =>
       samples.filter((s) => s.label === label).map((s) => s.ms);
@@ -350,6 +495,7 @@ test.describe("Echo latency benchmark", () => {
     const network = pick("network");
     const render = pick("render");
     const base = pick("baseline");
+    const load = pick("under-load");
     const throughput = pick("throughput");
 
     console.log("\n=== ECHO LATENCY BENCHMARK ===");
@@ -357,6 +503,7 @@ test.describe("Echo latency benchmark", () => {
     if (full.length) console.log(summarize("full-path (browser)", full));
     if (network.length) console.log(summarize("├─ network (send→recv)", network));
     if (render.length) console.log(summarize("└─ render (recv→glyph)", render));
+    if (load.length) console.log(summarize("under-load (ticks)", load));
     if (base.length) console.log(summarize("baseline (tmux only)", base));
     if (full.length && base.length) {
       const tax = percentile(full, 50) - percentile(base, 50);
@@ -374,6 +521,13 @@ test.describe("Echo latency benchmark", () => {
           ` → ${dominant} dominates. Render is the rAF-flush + xterm-parse tail` +
           " (the adaptive-flush target).",
       );
+    }
+    if (full.length || load.length) {
+      console.log(
+        "\n  -- distribution shape (two clusters = a fast/slow split on the echo path) --",
+      );
+      if (full.length) console.log(histogram("idle full-path", full));
+      if (load.length) console.log(histogram("under-load", load));
     }
     if (throughput.length) {
       console.log(
@@ -521,6 +675,127 @@ test.describe("Echo latency benchmark", () => {
     }
     expect(samples.filter((s) => s.label === "baseline").length).toBe(
       BASELINE_TRIALS,
+    );
+  });
+
+  test("under-load keystroke→echo distribution", async ({ page }) => {
+    resetSamples("under-load"); // idempotent across a Playwright retry
+    await page.addInitScript(INSTALL_SEND_STAMP);
+
+    // Dedicated session: a bounded background tick generator writes a short
+    // line every ~50ms to the same pane `cat` echoes into — "typing while an
+    // agent is producing output". Concurrent output splits echo latency into
+    // a fast and a slow mode (measured ~4ms vs ~22ms clusters). Note the
+    // split is NOT primarily the adaptive flush's doing: a controlled
+    // experiment that replaced the flush with a uniform setTimeout(0)
+    // strategy reproduced the same bimodal histogram, so the slow mode
+    // originates upstream (tmux paces client updates while a pane streams;
+    // an echo arriving inside a pacing window waits for the next batch).
+    // This test characterizes the split wherever it comes from, and guards
+    // against a flush change making it worse.
+    //
+    // The generator is bounded (2000 ticks ≈ 100s) so it self-terminates even
+    // if cleanup fails — it can never outlive the run as an orphaned load
+    // loop. Killing the session kills it with the pane in the normal case.
+    // Retry-safe: if a prior attempt failed after creating the session and the
+    // retry runs in the same worker process (same module-level Date.now() name),
+    // the leftover session would make new-session fail with "duplicate session".
+    // Kill any leftover first; on a clean first attempt this is a no-op error.
+    try {
+      tmux(`kill-session -t ${LOAD_SESSION}`);
+    } catch { /* no stale session */ }
+    tmux(`new-session -d -s ${LOAD_SESSION} -x 80 -y 24`);
+    // The attached client renders the tmux status line on the terminal's
+    // bottom row, and it permanently shows the session name (`e2e-echo-load-…`)
+    // and auto-renamed window name (`cat`) — letters that overlap the probe
+    // alphabet. Presence-based detection scans the bottom rows, so the status
+    // line would make the absence-wait unsatisfiable for those chars. Turn it
+    // off for this session; the scan window then sees only pane content.
+    tmux(`set-option -t ${LOAD_SESSION} status off`);
+    tmux(
+      `send-keys -t ${LOAD_SESSION} "seq 1 2000 | while read i; do echo tick; sleep 0.05; done & cat" Enter`,
+    );
+
+    const windowId = await resolveFirstWindowId(page, LOAD_SESSION);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(
+        () => page.evaluate((wid) => Boolean(window.__rkTerminals?.[wid]), windowId),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+
+    // Same renderer confirmation as the idle benchmark — a silent canvas
+    // fallback would make these numbers non-comparable.
+    const renderer = await page.evaluate(
+      (wid) => window.__rkRenderer?.[wid],
+      windowId,
+    );
+    expect(
+      renderer,
+      `expected WebGL renderer to be active (got ${renderer})`,
+    ).toBe("webgl");
+
+    await page.locator("[role='application']").click();
+    await page.locator(".xterm-helper-textarea").focus();
+
+    // Warm up in two stages: (1) the tick stream is visibly flowing through
+    // the relay, (2) a keystroke echoes (`w` — never used as a probe char).
+    // Together these prove both directions of the path before any timing.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            ({ windowId, scanRows }) => {
+              const term = window.__rkTerminals?.[windowId];
+              if (!term) return false;
+              const buf = term.buffer.active;
+              for (let y = Math.max(0, buf.length - scanRows); y < buf.length; y++) {
+                if ((buf.getLine(y)?.translateToString(true) ?? "").includes("tick")) {
+                  return true;
+                }
+              }
+              return false;
+            },
+            { windowId, scanRows: LOAD_SCAN_ROWS },
+          ),
+        { timeout: 15_000, intervals: [250] },
+      )
+      .toBe(true);
+    await expect
+      .poll(
+        async () => {
+          await page.keyboard.press("w");
+          return page.evaluate(
+            ({ windowId, scanRows }) => {
+              const term = window.__rkTerminals?.[windowId];
+              if (!term) return false;
+              const buf = term.buffer.active;
+              for (let y = Math.max(0, buf.length - scanRows); y < buf.length; y++) {
+                if ((buf.getLine(y)?.translateToString(true) ?? "").includes("w")) {
+                  return true;
+                }
+              }
+              return false;
+            },
+            { windowId, scanRows: LOAD_SCAN_ROWS },
+          );
+        },
+        { timeout: 15_000, intervals: [250] },
+      )
+      .toBe(true);
+
+    for (let n = 0; n < UNDER_LOAD_TRIALS; n++) {
+      const ch = LOAD_PROBE_CHARS[n % LOAD_PROBE_CHARS.length];
+      const ms = await measureEchoUnderLoad(page, windowId, ch, ECHO_DEADLINE_MS);
+      samples.push({ label: "under-load", ms });
+      // Space trials out to a human-ish typing cadence so each echo's frame
+      // collision with a tick is roughly independent of the previous trial.
+      await page.waitForTimeout(40);
+    }
+    expect(samples.filter((s) => s.label === "under-load").length).toBe(
+      UNDER_LOAD_TRIALS,
     );
   });
 

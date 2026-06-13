@@ -405,6 +405,98 @@ describe("CmdK Window At-Folder Action", () => {
 });
 
 /**
+ * Tests for the per-window switch palette entries (260613-o20f-palette-window-switch).
+ *
+ * Mirrors the `windowSwitchActions` useMemo in app.tsx (renamed from the old
+ * `terminalActions` "Terminal:" block). Each window across every session yields
+ * one `Window: Switch to <session> › <name>` entry; the entry whose windowId
+ * matches the URL-active window (`windowParam`) gets the `(current)` suffix.
+ * The action-construction logic is kept in sync with app.tsx so the test
+ * catches drift if either side changes the label/grouping rules.
+ */
+
+const NBSP_ANGLE = "›"; // U+203A — the label separator used in app.tsx
+
+/** Build windowSwitchActions matching the pattern in app.tsx. */
+function buildWindowSwitchActions(opts: {
+  flatWindows: { session: string; window: { windowId: string; name: string } }[];
+  windowParam: string | undefined;
+  onSelectWindow?: (windowId: string) => void;
+}): PaletteAction[] {
+  return opts.flatWindows.map((fw) => ({
+    id: `window-switch-${fw.session}-${fw.window.windowId}`,
+    label: `Window: Switch to ${fw.session} ${NBSP_ANGLE} ${fw.window.name}${
+      fw.window.windowId === opts.windowParam ? " (current)" : ""
+    }`,
+    onSelect: () => opts.onSelectWindow?.(fw.window.windowId),
+  }));
+}
+
+describe("CmdK Window Switch Actions", () => {
+  afterEach(cleanup);
+
+  it("renders one Window: Switch to entry per window with the › separator and (current) on the active window", () => {
+    const actions = buildWindowSwitchActions({
+      flatWindows: [
+        { session: "alpha", window: { windowId: "@1", name: "edit" } },
+        { session: "alpha", window: { windowId: "@2", name: "serve" } },
+        { session: "bravo", window: { windowId: "@3", name: "logs" } },
+      ],
+      windowParam: "@2",
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    // Non-active windows: plain `<session> › <name>` label, no suffix.
+    expect(screen.getByText(`Window: Switch to alpha ${NBSP_ANGLE} edit`)).toBeInTheDocument();
+    expect(screen.getByText(`Window: Switch to bravo ${NBSP_ANGLE} logs`)).toBeInTheDocument();
+    // Active window (windowId === windowParam): carries the (current) suffix.
+    expect(screen.getByText(`Window: Switch to alpha ${NBSP_ANGLE} serve (current)`)).toBeInTheDocument();
+    // Only one entry is marked current.
+    expect(screen.getAllByText(/\(current\)/)).toHaveLength(1);
+  });
+
+  it("marks no entry (current) when windowParam matches no window (e.g. dashboard route)", () => {
+    const actions = buildWindowSwitchActions({
+      flatWindows: [
+        { session: "alpha", window: { windowId: "@1", name: "edit" } },
+        { session: "alpha", window: { windowId: "@2", name: "serve" } },
+      ],
+      windowParam: undefined,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText(`Window: Switch to alpha ${NBSP_ANGLE} edit`)).toBeInTheDocument();
+    expect(screen.getByText(`Window: Switch to alpha ${NBSP_ANGLE} serve`)).toBeInTheDocument();
+    expect(screen.queryByText(/\(current\)/)).not.toBeInTheDocument();
+  });
+
+  it("onSelect fires with the window's id", () => {
+    const onSelectWindow = vi.fn();
+    const actions = buildWindowSwitchActions({
+      flatWindows: [
+        { session: "alpha", window: { windowId: "@1", name: "edit" } },
+        { session: "bravo", window: { windowId: "@3", name: "logs" } },
+      ],
+      windowParam: "@1",
+      onSelectWindow,
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "logs" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onSelectWindow).toHaveBeenCalledWith("@3");
+  });
+});
+
+/**
  * Tests for the three-way server route guard (260602-3i5d).
  *
  * `resolveServerView` is the pure decision behind the AppShell guard:

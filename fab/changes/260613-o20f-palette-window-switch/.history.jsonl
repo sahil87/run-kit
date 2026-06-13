@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-13T09:38:52Z"}
+{"args":"Sidebar Wave 1 change C (palette-window-switch) from backlog o20f. Relabel existing terminalActions palette entries to \"Window: Switch to \u003csession › name\u003e\" with (current) suffix; selectWindow plumbing already exists via navigateToWindow. Context: docs/memory/run-kit/ui-patterns.md \"## Sidebar\".","cmd":"fab-new","event":"command","ts":"2026-06-13T09:38:52Z"}
+{"delta":"+3.3","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-06-13T09:40:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-13T09:41:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-13T09:41:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-13T09:45:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-13T09:50:02Z"}
+{"event":"review","result":"passed","ts":"2026-06-13T09:50:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-13T09:51:44Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-13T09:53:21Z"}
+{"event":"review","result":"passed","ts":"2026-06-13T10:00:11Z"}

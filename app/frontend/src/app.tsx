@@ -1060,18 +1060,26 @@ function AppShell() {
     [servers, server, handleSwitchServer],
   );
 
-  const terminalActions: PaletteAction[] = useMemo(
+  // Per-window switch entries — one per window across every session. Grouped
+  // under the "Window:" family (renamed from the old "Terminal:" prefix) to
+  // surface the keyboard switch path (constitution V). Reuses navigateToWindow
+  // (URL nav + selectWindow + mobile-close + pendingClickRef writeback
+  // suppression); the `(current)` suffix marks the URL-active window, mirroring
+  // `Server: Switch to <name> (current)`.
+  const windowSwitchActions: PaletteAction[] = useMemo(
     () => flatWindows.map((fw) => ({
-      id: `terminal-${fw.session}-${fw.window.windowId}`,
-      label: `Terminal: ${fw.session}/${fw.window.name}`,
+      id: `window-switch-${fw.session}-${fw.window.windowId}`,
+      label: `Window: Switch to ${fw.session} › ${fw.window.name}${
+        fw.window.windowId === windowParam ? " (current)" : ""
+      }`,
       onSelect: () => navigateToWindow(fw.window.windowId),
     })),
-    [flatWindows, navigateToWindow],
+    [flatWindows, navigateToWindow, windowParam],
   );
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...terminalActions],
-    [sessionActions, windowActions, boardActions, viewActions, themeActions, configActions, serverActions, terminalActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...themeActions, ...configActions, ...serverActions, ...windowSwitchActions],
+    [sessionActions, windowActions, boardActions, viewActions, themeActions, configActions, serverActions, windowSwitchActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

@@ -1,0 +1,51 @@
+id: ect6
+name: 260613-ect6-sidebar-render-perf
+created: 2026-06-13T09:47:21Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 3
+    confident: 3
+    tentative: 1
+    unresolved: 0
+    score: 3.1
+    fuzzy: true
+    dimensions:
+        signal: 77.1
+        reversibility: 82.1
+        competence: 84.3
+        disambiguation: 79.3
+stage_metrics:
+    intake: {started_at: "2026-06-13T09:47:21Z", driver: fab-new, iterations: 1, completed_at: "2026-06-13T09:52:46Z"}
+    apply: {started_at: "2026-06-13T10:16:57Z", driver: fab-fff, iterations: 2, completed_at: "2026-06-13T10:23:52Z"}
+    review: {started_at: "2026-06-13T10:23:52Z", driver: fab-fff, iterations: 2, completed_at: "2026-06-13T10:33:11Z"}
+    hydrate: {started_at: "2026-06-13T10:33:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-13T10:36:01Z"}
+    ship: {started_at: "2026-06-13T10:36:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-13T10:37:30Z"}
+    review-pr: {started_at: "2026-06-13T10:37:30Z", driver: git-pr, iterations: 1, completed_at: "2026-06-13T10:44:54Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/262
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-13T10:36:01Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-13T10:44:54Z

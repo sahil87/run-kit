@@ -135,9 +135,16 @@ function BoardPageContent({ name }: { name: string }) {
     onError: (err) => addToast(err.message || "Failed to kill server"),
   });
 
+  // `ctx.sessionsByServer` is a fresh Map every SSE tick; read it at click time
+  // via a ref so `handleCreateSession` stays referentially stable across ticks.
+  // On the board route `currentServer === null`, so this handler is threaded
+  // straight into every `ServerGroup` as `onCreateSession` — churning it would
+  // defeat `ServerGroup`'s `React.memo` on the whole board sidebar.
+  const sessionsByServerRef = useRef(ctx.sessionsByServer);
+  sessionsByServerRef.current = ctx.sessionsByServer;
   const handleCreateSession = useCallback(
     (srv: string) => {
-      const existingNames = (ctx.sessionsByServer.get(srv) ?? []).map((s) => s.name);
+      const existingNames = (sessionsByServerRef.current.get(srv) ?? []).map((s) => s.name);
       const base = "session";
       let candidate = base;
       const set = new Set(existingNames);
@@ -148,7 +155,7 @@ function BoardPageContent({ name }: { name: string }) {
       }
       executeCreateSession(srv, candidate, undefined);
     },
-    [ctx.sessionsByServer, executeCreateSession],
+    [executeCreateSession],
   );
 
   const handleCreateWindow = useCallback(
@@ -349,6 +356,22 @@ function BoardPageContent({ name }: { name: string }) {
     focusFocusedPaneRef.current = () => paneRefs.current[focusedIndex]?.focus();
   }, [focusedIndex]);
 
+  // Stable select-window handler (R6a). BoardPage consumes `useSessionContext()`
+  // and re-renders on every SSE tick; an inline arrow here would defeat
+  // `ServerGroup`'s `React.memo`. `navigate`/`isMobile`/`setSidebarOpen` are all
+  // stable across SSE ticks.
+  const handleSelectWindow = useCallback(
+    (srv: string, _sess: string, windowId: string) => {
+      // Identity is window-id only on the 2-segment route.
+      navigate({
+        to: "/$server/$window",
+        params: { server: srv, window: windowId },
+      });
+      if (isMobile) setSidebarOpen(false);
+    },
+    [navigate, isMobile, setSidebarOpen],
+  );
+
   // Sidebar element shared between desktop grid placement and mobile overlay.
   // `currentServer = null` because the board route has no `$server` param —
   // no group is marked current and all server groups follow persisted toggles.
@@ -357,14 +380,7 @@ function BoardPageContent({ name }: { name: string }) {
       currentServer={null}
       currentSession={null}
       currentWindowId={null}
-      onSelectWindow={(srv, _sess, windowId) => {
-        // Identity is window-id only on the 2-segment route.
-        navigate({
-          to: "/$server/$window",
-          params: { server: srv, window: windowId },
-        });
-        if (isMobile) setSidebarOpen(false);
-      }}
+      onSelectWindow={handleSelectWindow}
       onCreateWindow={handleCreateWindow}
       onCreateSession={handleCreateSession}
       onCreateServer={() => setShowCreateServerDialog(true)}

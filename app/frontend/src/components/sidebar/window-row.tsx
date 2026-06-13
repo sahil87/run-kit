@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, memo } from "react";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import { getWindowDuration } from "@/lib/format";
+import { useNow } from "@/hooks/use-now";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
@@ -17,27 +18,39 @@ type WindowRowProps = {
   session: string;
   isSelected: boolean;
   isDragOver: boolean;
-  nowSeconds: number;
   color?: number;
   rowTints?: Map<number, RowTint>;
   ansiPalette?: readonly string[];
   editingWindow: { session: string; windowId: string } | null;
+  // Note: callers may pass an object that also carries a `server` field — the
+  // extra property is ignored (only session + windowId are read), and passing
+  // the reference straight through keeps this prop stable across renders.
   editingName: string;
   inputRef: React.RefObject<HTMLInputElement | null>;
-  onSelectWindow: () => void;
-  onDoubleClickName: () => void;
+  /** Identity-arg handlers. The row binds its own (server, session, win)
+   *  identity when invoking them, so a SINGLE stable reference can be shared by
+   *  every row across the whole sidebar — which is what makes React.memo on
+   *  WindowRow effective (the handler prop identity does not change per row or
+   *  per SSE tick). The internal onClick wrappers the row builds are NOT part
+   *  of the memo comparison, so rebuilding them per row-render is free. */
+  onSelectWindow: (server: string, session: string, windowId: string) => void;
+  onStartEditing: (server: string, session: string, windowId: string, currentName: string) => void;
   onWindowNameChange: (value: string) => void;
   onRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onRenameBlur: () => void;
-  onKillClick: (e: React.MouseEvent) => void;
-  onDragStart?: (e: React.DragEvent) => void;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDrop?: (e: React.DragEvent) => void;
+  onKillClick: (server: string, session: string, windowId: string, ctrl: boolean) => void;
+  /** Whether this row is draggable (ghost rows are not). When false the drag
+   *  handlers are not wired. */
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
+  onDragOver?: (e: React.DragEvent, server: string, session: string, index: number) => void;
+  onDrop?: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onDragEnd?: () => void;
-  onColorChange?: (color: number | null) => void;
-  /** Tmux server name for the pin popover (server-routing contract). When
-   *  omitted the pin icon is hidden — used by tests that render WindowRow
-   *  without the boards system wired up. */
+  onColorChange?: (server: string, session: string, windowId: string, color: number | null) => void;
+  /** Tmux server name for the pin popover (server-routing contract) AND the
+   *  identity bound into the handlers above. When omitted the pin icon is
+   *  hidden and handlers bind an empty server — used by tests that render
+   *  WindowRow without the boards system wired up. */
   server?: string;
   /** Aggregate pin state — if this window is pinned to ANY board, the icon
    *  renders filled. */
@@ -48,17 +61,18 @@ type WindowRowProps = {
   isPinnedToActiveBoard?: boolean;
   /** All known boards (for the pin popover). */
   boards?: BoardSummary[];
-  /** Predicate: is this window pinned to the given board? Used by the pin
-   *  popover to render checkmarks. */
-  isPinnedToBoard?: (board: string) => boolean;
+  /** Predicate: is this window pinned to the given board? Identity-arg form
+   *  (board, server, windowId) so a single stable reference (the context's
+   *  `pinnedToBoard`) serves every row; the row binds its own (server,
+   *  windowId). Used by the pin popover to render checkmarks. */
+  isPinnedToBoard?: (board: string, server: string, windowId: string) => boolean;
 };
 
-export function WindowRow({
+function WindowRowInner({
   win,
   session,
   isSelected,
   isDragOver,
-  nowSeconds,
   color,
   rowTints,
   ansiPalette,
@@ -66,11 +80,12 @@ export function WindowRow({
   editingName,
   inputRef,
   onSelectWindow,
-  onDoubleClickName,
+  onStartEditing,
   onWindowNameChange,
   onRenameKeyDown,
   onRenameBlur,
   onKillClick,
+  draggable = false,
   onDragStart,
   onDragOver,
   onDrop,
@@ -83,7 +98,9 @@ export function WindowRow({
   isPinnedToBoard,
 }: WindowRowProps) {
   const ghost = isGhostWindow(win);
-  const duration = getWindowDuration(win, nowSeconds);
+  const srv = server ?? "";
+  // Drag is wired only for non-ghost rows that opted in via `draggable`.
+  const dragEnabled = draggable && !ghost;
   const isEditing = editingWindow?.session === session && editingWindow.windowId === win.windowId;
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showPinPopover, setShowPinPopover] = useState(false);
@@ -176,18 +193,18 @@ export function WindowRow({
       // transient. Ghost rows expose their optimistic id until confirmed.
       data-window-id={ghost ? `ghost-${win.optimisticId}` : win.windowId}
       className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}`}
-      draggable={!ghost}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
+      draggable={dragEnabled}
+      onDragStart={dragEnabled && onDragStart ? (e) => onDragStart(e, srv, session, win.index, win.windowId, win.name) : undefined}
+      onDragOver={dragEnabled && onDragOver ? (e) => onDragOver(e, srv, session, win.index) : undefined}
+      onDrop={dragEnabled && onDrop ? (e) => onDrop(e, srv, session, win.index) : undefined}
+      onDragEnd={dragEnabled ? onDragEnd : undefined}
       style={isDragOver ? { boxShadow: "0 -2px 0 0 var(--color-accent)" } : undefined}
     >
       <button
-        onClick={onSelectWindow}
+        onClick={() => onSelectWindow(srv, session, win.windowId)}
         onDoubleClick={(e) => {
           e.stopPropagation();
-          if (!ghost) onDoubleClickName();
+          if (!ghost) onStartEditing(srv, session, win.windowId, win.name);
         }}
         className={buttonClass}
         style={buttonStyle}
@@ -250,11 +267,7 @@ export function WindowRow({
               {win.fabStage}
             </span>
           )}
-          {duration && (
-            <span className="text-xs text-text-secondary">
-              {duration}
-            </span>
-          )}
+          <WindowDuration win={win} />
         </span>
       </button>
       {/* Hover-reveal buttons: pin + color swatch + kill. Inert at rest on
@@ -299,7 +312,10 @@ export function WindowRow({
         <button
           type="button"
           aria-label={`Kill window ${win.name}`}
-          onClick={onKillClick}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!ghost) onKillClick(srv, session, win.windowId, e.ctrlKey || e.metaKey);
+          }}
           className="text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-1 min-h-[36px] flex items-center justify-center"
         >
           {"\u2715"}
@@ -310,7 +326,7 @@ export function WindowRow({
           server={server}
           windowId={win.windowId}
           boards={boards}
-          isPinnedTo={(b) => (isPinnedToBoard ? isPinnedToBoard(b) : false)}
+          isPinnedTo={(b) => (isPinnedToBoard ? isPinnedToBoard(b, srv, win.windowId) : false)}
           onClose={() => setShowPinPopover(false)}
         />
       )}
@@ -319,7 +335,7 @@ export function WindowRow({
           <SwatchPopover
             selectedColor={color}
             onSelect={(c) => {
-              onColorChange(c);
+              onColorChange(srv, session, win.windowId, c);
               setShowColorPicker(false);
             }}
             onClose={() => setShowColorPicker(false)}
@@ -328,6 +344,46 @@ export function WindowRow({
       )}
     </div>
   );
+}
+
+/** Memoized window row. Re-renders only when its own props change identity —
+ *  an SSE tick on an unrelated server, or the per-second clock tick (now scoped
+ *  to the `WindowDuration` leaf below), no longer re-renders the whole row.
+ *  Prop stability is the parent's responsibility: `index.tsx` passes
+ *  identity-arg `useCallback`s + stable context refs. */
+export const WindowRow = memo(WindowRowInner);
+
+/** Non-ticking wrapper that decides whether a LIVE clock is needed before any
+ *  `useNow()` interval is spun up. Only the `activityTimestamp` fallback branch
+ *  of `getWindowDuration` depends on `now`; active windows render nothing and
+ *  agent-provided `agentIdleDuration` is a static string. For those two cases we
+ *  render directly (no interval, no per-second re-render). Only the live case
+ *  mounts the ticking leaf below — so a sidebar full of active / agent-idle rows
+ *  spins up zero per-second timers. */
+function WindowDuration({ win }: { win: ProjectWindow | GhostWindow }) {
+  // Active windows never show a duration.
+  if (win.activity === "active") return null;
+  // Agent-provided idle duration is a fixed string — no live clock needed.
+  if (win.agentState === "idle" && win.agentIdleDuration) {
+    return <span className="text-xs text-text-secondary">{win.agentIdleDuration}</span>;
+  }
+  // Remaining case (activityTimestamp fallback) is the only one that ticks.
+  if (win.agentState !== "active" && win.activityTimestamp) {
+    return <TickingDuration win={win} />;
+  }
+  return null;
+}
+
+/** Ticking leaf that owns the per-second `now` tick via `useNow()`. Mounted only
+ *  for windows whose displayed duration is derived from `activityTimestamp` (the
+ *  one branch that changes each second). Isolating the tick here keeps both
+ *  `WindowRow` (static under `React.memo`) and non-ticking duration rows free of
+ *  the interval — only this text node re-renders each second. */
+function TickingDuration({ win }: { win: ProjectWindow | GhostWindow }) {
+  const now = useNow();
+  const duration = getWindowDuration(win, now);
+  if (!duration) return null;
+  return <span className="text-xs text-text-secondary">{duration}</span>;
 }
 
 /** Small pin icon — outline (not pinned) vs filled (pinned to any board).

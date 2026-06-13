@@ -1,6 +1,8 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { useState } from "react";
+import { render, screen, cleanup, act } from "@testing-library/react";
 import { WindowRow } from "./window-row";
+import * as optimisticContext from "@/contexts/optimistic-context";
 import type { WindowInfo } from "@/types";
 import type { MergedWindow } from "@/store/window-store";
 
@@ -29,16 +31,15 @@ function renderRow(win: WindowInfo) {
       session="alpha"
       isSelected={false}
       isDragOver={false}
-      nowSeconds={0}
       editingWindow={null}
       editingName=""
       inputRef={{ current: null }}
       onSelectWindow={noop}
-      onDoubleClickName={noop}
+      onStartEditing={noop}
       onWindowNameChange={noop}
       onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
       onRenameBlur={noop}
-      onKillClick={noop as React.MouseEventHandler}
+      onKillClick={noop}
       onDragStart={noopDrag}
       onDragOver={noopDrag}
       onDrop={noopDrag}
@@ -56,16 +57,15 @@ function renderRowWithIcons(win: WindowInfo) {
       session="alpha"
       isSelected={false}
       isDragOver={false}
-      nowSeconds={0}
       editingWindow={null}
       editingName=""
       inputRef={{ current: null }}
       onSelectWindow={noop}
-      onDoubleClickName={noop}
+      onStartEditing={noop}
       onWindowNameChange={noop}
       onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
       onRenameBlur={noop}
-      onKillClick={noop as React.MouseEventHandler}
+      onKillClick={noop}
       onDragStart={noopDrag}
       onDragOver={noopDrag}
       onDrop={noopDrag}
@@ -98,16 +98,15 @@ function renderGhostRow(win: MergedWindow) {
       session="alpha"
       isSelected={false}
       isDragOver={false}
-      nowSeconds={0}
       editingWindow={null}
       editingName=""
       inputRef={{ current: null }}
       onSelectWindow={noop}
-      onDoubleClickName={noop}
+      onStartEditing={noop}
       onWindowNameChange={noop}
       onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
       onRenameBlur={noop}
-      onKillClick={noop as React.MouseEventHandler}
+      onKillClick={noop}
       onDragStart={noopDrag}
       onDragOver={noopDrag}
       onDrop={noopDrag}
@@ -361,16 +360,15 @@ describe("WindowRow", () => {
           session="alpha"
           isSelected={false}
           isDragOver={false}
-          nowSeconds={0}
           editingWindow={null}
           editingName=""
           inputRef={{ current: null }}
           onSelectWindow={noop}
-          onDoubleClickName={noop}
+          onStartEditing={noop}
           onWindowNameChange={noop}
           onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
           onRenameBlur={noop}
-          onKillClick={noop as React.MouseEventHandler}
+          onKillClick={noop}
           server="srv"
           isPinnedToAny={true}
         />,
@@ -378,6 +376,67 @@ describe("WindowRow", () => {
       const pin = screen.getByLabelText("Pin my-shell to a board");
       expect(pin.className).toContain("opacity-100");
       expect(pin.className).not.toContain("opacity-0 ");
+    });
+  });
+
+  // React.memo only pays off when the parent passes referentially-stable props.
+  // This proves the memo'd WindowRow does NOT re-render its body when its PARENT
+  // re-renders with an identical prop set — the property the whole change depends
+  // on (an unrelated SSE tick re-renders Sidebar but must not churn the row).
+  //
+  // We count the row's OWN render-body executions via a spy on `isGhostWindow`,
+  // which `WindowRowInner` calls at the very top of every render (`const ghost =
+  // isGhostWindow(win)`). The parent (`Harness`) creates a FRESH <WindowRow>
+  // element each render from a hoisted, stable props object, defeating React's
+  // element-identity bailout — so only `React.memo` can stop the body from
+  // re-running. An un-memoized WindowRow would call `isGhostWindow` again and
+  // fail. (A Profiler-commit count would be confounded: a Profiler fires on its
+  // parent's commit even when its memo'd child bails.)
+  describe("React.memo", () => {
+    it("does not re-render the row body when the parent re-renders with stable props", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "stable" });
+      const ghostSpy = vi.spyOn(optimisticContext, "isGhostWindow");
+
+      // Hoisted once — every Harness render passes these identical references.
+      const stableProps = {
+        win,
+        session: "alpha",
+        isSelected: false,
+        isDragOver: false,
+        editingWindow: null,
+        editingName: "",
+        inputRef: { current: null },
+        onSelectWindow: noop,
+        onStartEditing: noop,
+        onWindowNameChange: noop,
+        onRenameKeyDown: noop as React.KeyboardEventHandler<HTMLInputElement>,
+        onRenameBlur: noop,
+        onKillClick: noop,
+        onDragStart: noopDrag,
+        onDragOver: noopDrag,
+        onDrop: noopDrag,
+        onDragEnd: noop,
+      };
+
+      let forceParent: () => void = () => {};
+      function Harness() {
+        const [, setTick] = useState(0);
+        forceParent = () => setTick((n) => n + 1);
+        // Fresh element each render, but identical prop references.
+        return <WindowRow {...stableProps} />;
+      }
+
+      render(<Harness />);
+      const afterMount = ghostSpy.mock.calls.length;
+      expect(afterMount).toBeGreaterThan(0);
+
+      // Force a parent re-render (the SSE-tick analogue). A NEW <WindowRow>
+      // element is created, but its props are the same references, so memo skips
+      // the row body — `isGhostWindow` is not called again.
+      act(() => { forceParent(); });
+      expect(ghostSpy.mock.calls.length).toBe(afterMount);
+
+      ghostSpy.mockRestore();
     });
   });
 });

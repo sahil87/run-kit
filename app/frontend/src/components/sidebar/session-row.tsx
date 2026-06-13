@@ -1,10 +1,14 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, memo } from "react";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 
 type SessionRowProps = {
+  /** Tmux server this session belongs to — bound into the identity-arg
+   *  handlers below so a single stable handler reference serves every row.
+   *  This is what makes React.memo on SessionRow effective across SSE ticks. */
+  server: string;
   session: ProjectSession | MergedSession;
   sessionColor?: number;
   rowTints?: Map<number, RowTint>;
@@ -15,23 +19,30 @@ type SessionRowProps = {
   sessionInputRef: React.RefObject<HTMLInputElement | null>;
   draggable?: boolean;
   isDragSource?: boolean;
-  onDragStart?: (e: React.DragEvent) => void;
+  /** Group-scoped ordered session names — stable (memoized) in ServerGroup;
+   *  passed straight through and bound into the reorder-start/over closures. */
+  orderedNames: string[];
+  onDragStart?: (e: React.DragEvent, server: string, name: string, orderedNames: string[]) => void;
   onDragEnd?: () => void;
-  onToggleCollapse: () => void;
-  onSelectFirstWindow: () => void;
-  onCreateWindow: () => void;
-  onKillClick: (e: React.MouseEvent) => void;
-  onDoubleClickName: () => void;
+  onToggleCollapse: (server: string, name: string) => void;
+  onSelectFirstWindow: (server: string, session: string, windowId: string) => void;
+  onCreateWindow: (server: string, session: string) => void;
+  onKillClick: (server: string, name: string, windowCount: number, ctrl: boolean) => void;
+  onDoubleClickName: (server: string, name: string) => void;
   onSessionNameChange: (value: string) => void;
   onSessionRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onSessionRenameBlur: () => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDragLeave: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent) => void;
-  onColorChange?: (color: number | null) => void;
+  /** Cross-session window drag-over (its own server/name binding) AND session
+   *  reorder-over (needs orderedNames). The row invokes both. */
+  onDragOver: (e: React.DragEvent, server: string, name: string) => void;
+  onReorderOver: (e: React.DragEvent, server: string, targetName: string, naturalNames: string[]) => void;
+  onDragLeave: (e: React.DragEvent, server: string, name: string) => void;
+  onDrop: (e: React.DragEvent, server: string, name: string) => void;
+  onColorChange?: (server: string, name: string, color: number | null) => void;
 };
 
-export function SessionRow({
+function SessionRowInner({
+  server,
   session,
   sessionColor,
   rowTints,
@@ -42,6 +53,7 @@ export function SessionRow({
   sessionInputRef,
   draggable,
   isDragSource,
+  orderedNames,
   onDragStart,
   onDragEnd,
   onToggleCollapse,
@@ -53,10 +65,12 @@ export function SessionRow({
   onSessionRenameKeyDown,
   onSessionRenameBlur,
   onDragOver,
+  onReorderOver,
   onDragLeave,
   onDrop,
   onColorChange,
 }: SessionRowProps) {
+  const name = session.name;
   const [showColorPicker, setShowColorPicker] = useState(false);
   const colorBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -79,18 +93,21 @@ export function SessionRow({
     <div
       className={`flex items-center justify-between group pl-1.5 sm:pl-2 relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors${isDragSource ? " opacity-50" : ""}`}
       draggable={draggable}
-      onDragStart={onDragStart}
+      onDragStart={onDragStart ? (e) => onDragStart(e, server, name, orderedNames) : undefined}
       onDragEnd={onDragEnd}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
+      onDragOver={(e) => {
+        onDragOver(e, server, name);
+        onReorderOver(e, server, name, orderedNames);
+      }}
+      onDragLeave={(e) => onDragLeave(e, server, name)}
+      onDrop={(e) => onDrop(e, server, name)}
       style={rowStyle}
       onMouseEnter={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
       onMouseLeave={tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
     >
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <button
-          onClick={onToggleCollapse}
+          onClick={() => onToggleCollapse(server, name)}
           className="text-xs text-text-secondary hover:text-text-primary transition-colors shrink-0 min-h-[36px] flex items-center justify-center"
           aria-expanded={!isCollapsed}
           aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${session.name}`}
@@ -104,10 +121,10 @@ export function SessionRow({
           </span>
         </button>
         <button
-          onClick={onSelectFirstWindow}
+          onClick={() => onSelectFirstWindow(server, name, session.windows[0]?.windowId ?? "")}
           onDoubleClick={(e) => {
             e.stopPropagation();
-            if (editingSession !== session.name) onDoubleClickName();
+            if (editingSession !== name) onDoubleClickName(server, name);
           }}
           className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[36px] min-w-0 flex-1"
           aria-label={`Navigate to ${session.name}`}
@@ -147,14 +164,14 @@ export function SessionRow({
           </button>
         )}
         <button
-          onClick={onCreateWindow}
+          onClick={() => onCreateWindow(server, name)}
           aria-label={`New window in ${session.name}`}
           className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
         >
           +
         </button>
         <button
-          onClick={onKillClick}
+          onClick={(e) => onKillClick(server, name, session.windows.length, e.ctrlKey || e.metaKey)}
           aria-label={`Kill session ${session.name}`}
           className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
         >
@@ -166,7 +183,7 @@ export function SessionRow({
           <SwatchPopover
             selectedColor={sessionColor}
             onSelect={(c) => {
-              onColorChange(c);
+              onColorChange(server, name, c);
               setShowColorPicker(false);
             }}
             onClose={() => setShowColorPicker(false)}
@@ -176,3 +193,8 @@ export function SessionRow({
     </div>
   );
 }
+
+/** Memoized session row. With the parent passing identity-arg handlers + a
+ *  stable `orderedNames`, an SSE session tick that does not change THIS row's
+ *  inputs no longer re-renders it. */
+export const SessionRow = memo(SessionRowInner);

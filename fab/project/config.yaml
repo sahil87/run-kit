@@ -1,18 +1,40 @@
 agent:
-  spawn_command: claude --dangerously-skip-permissions --effort xhigh -n "$(basename "$(pwd)")"
+    spawn_command: claude --dangerously-skip-permissions --effort xhigh -n "$(basename "$(pwd)")"
+    # agent.tiers — per-stage model override (optional). A "tier" is a named
+    # {model, effort} profile. fab-kit owns the FIXED, non-overridable stage→tier
+    # mapping below; you override only WHAT EACH TIER MEANS (model + effort).
+    # Omit any tier (or the whole tiers: block) to use fab-kit's built-in default.
+    # Resolved per stage by `fab resolve-agent <stage>` at sub-agent dispatch time.
+    # See docs/specs/stage-models.md.
+    #
+    # FIXED stage→tier mapping (fab-owned, NOT overridable — shown for reference):
+    #   thinking: intake, review            (generative judgment)
+    #   doing:    apply, review-pr, hydrate  (execution that must not err)
+    #   fast:     ship                       (speed on near-mechanical work)
+    #
+    # fab-kit's built-in default profiles (today):
+    #   thinking: { model: claude-opus-4-8,   effort: xhigh }
+    #   doing:    { model: claude-opus-4-8,   effort: high  }
+    #   fast:     { model: claude-sonnet-4-6, effort: low   }
+    #
+    # Override shape (uncomment + edit any tier; an omitted field inherits the
+    # default for that tier; an empty model means "inherit the session model";
+    # values are passed through verbatim — fab does no provider validation):
+    # tiers:
+    #   doing: { model: claude-sonnet-4-6, effort: medium }   # example: run doing cheaper
 checklist:
-  extra_categories: []
-fab_version: 2.2.0
+    extra_categories: []
+fab_version: 2.3.0
 project:
-  description: Web based agent orchestration framework
-  name: run-kit
+    description: Web based agent orchestration framework
+    name: run-kit
 review_tools:
-  claude: true
-  codex: true
-  copilot: true
+    claude: true
+    codex: true
+    copilot: true
 source_paths:
-  - app/backend/
-  - app/frontend/src/
+    - app/backend/
+    - app/frontend/src/
 true_impact_exclude:
-  - fab/
-  - docs/
+    - fab/
+    - docs/

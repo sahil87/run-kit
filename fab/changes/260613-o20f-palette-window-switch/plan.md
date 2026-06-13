@@ -75,7 +75,7 @@ A focused unit test SHALL be added to `app/frontend/src/app.test.tsx` asserting 
 
 ## Deletion Candidates
 
-None — this change adds new functionality without making existing code redundant
+None — this change relabels/regroups existing palette entries (rename `terminalActions` → `windowSwitchActions`, reuse `navigateToWindow`); no net-new switching capability and nothing rendered redundant
 
 ## Assumptions
 

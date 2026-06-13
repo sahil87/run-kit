@@ -353,11 +353,33 @@ function WindowRowInner({
  *  identity-arg `useCallback`s + stable context refs. */
 export const WindowRow = memo(WindowRowInner);
 
-/** Leaf that renders the elapsed-duration text node and owns the per-second
- *  `now` tick via `useNow()`. Isolating the tick here keeps `WindowRow` static
- *  under `React.memo` — only this text node re-renders each second. Renders
- *  nothing for active windows (`getWindowDuration` returns ""). */
+/** Non-ticking wrapper that decides whether a LIVE clock is needed before any
+ *  `useNow()` interval is spun up. Only the `activityTimestamp` fallback branch
+ *  of `getWindowDuration` depends on `now`; active windows render nothing and
+ *  agent-provided `agentIdleDuration` is a static string. For those two cases we
+ *  render directly (no interval, no per-second re-render). Only the live case
+ *  mounts the ticking leaf below — so a sidebar full of active / agent-idle rows
+ *  spins up zero per-second timers. */
 function WindowDuration({ win }: { win: ProjectWindow | GhostWindow }) {
+  // Active windows never show a duration.
+  if (win.activity === "active") return null;
+  // Agent-provided idle duration is a fixed string — no live clock needed.
+  if (win.agentState === "idle" && win.agentIdleDuration) {
+    return <span className="text-xs text-text-secondary">{win.agentIdleDuration}</span>;
+  }
+  // Remaining case (activityTimestamp fallback) is the only one that ticks.
+  if (win.agentState !== "active" && win.activityTimestamp) {
+    return <TickingDuration win={win} />;
+  }
+  return null;
+}
+
+/** Ticking leaf that owns the per-second `now` tick via `useNow()`. Mounted only
+ *  for windows whose displayed duration is derived from `activityTimestamp` (the
+ *  one branch that changes each second). Isolating the tick here keeps both
+ *  `WindowRow` (static under `React.memo`) and non-ticking duration rows free of
+ *  the interval — only this text node re-renders each second. */
+function TickingDuration({ win }: { win: ProjectWindow | GhostWindow }) {
   const now = useNow();
   const duration = getWindowDuration(win, now);
   if (!duration) return null;

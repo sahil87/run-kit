@@ -38,5 +38,6 @@ describe("useNow", () => {
     const { unmount } = renderHook(() => useNow());
     unmount();
     expect(clearSpy).toHaveBeenCalled();
+    clearSpy.mockRestore();
   });
 });

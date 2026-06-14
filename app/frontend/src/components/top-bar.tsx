@@ -188,10 +188,13 @@ export function TopBar({
         </nav>
 
         <div className="flex items-center gap-3 text-xs text-text-secondary">
-          <span className="hidden sm:flex">
-            <ThemeToggle />
-          </span>
-
+          {/* Icon ordering minimizes movement between pages: the conditional
+              terminal-only buttons (splits, close, Aa) sit on the LEFT of the
+              cluster, where their absence on non-terminal pages just widens the
+              gap to the breadcrumb. The always-present items (theme, fixed
+              width, connection dot, Run Kit) form a stable block pinned to the
+              right, so none of them shift when the conditional ones appear or
+              disappear. */}
           {currentWindow && (
             <>
               <span className="hidden sm:flex">
@@ -230,9 +233,15 @@ export function TopBar({
             </span>
           )}
 
+          {/* Always-present right block — order pinned to the Run Kit anchor so
+              these never move between pages. */}
+          <span className="hidden sm:flex">
+            <ThemeToggle />
+          </span>
+
           {/* FixedWidthToggle is route-agnostic — fixed-width constrains the
               max-width of any surface including the dashboard, so it stays in
-              all modes. */}
+              all modes. Second button from the right (before the dot). */}
           <span className="hidden sm:flex">
             <FixedWidthToggle />
           </span>

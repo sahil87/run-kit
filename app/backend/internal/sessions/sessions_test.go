@@ -666,5 +666,23 @@ func TestPaneMapDedupChangeStillWinsOverAgent(t *testing.T) {
 	}
 }
 
+func TestResolveCwdMissing(t *testing.T) {
+	existing := t.TempDir()
+	gone := filepath.Join(existing, "deleted-worktree")
+	// `gone` is never created, so it is guaranteed not to exist.
+
+	got := resolveCwdMissing([]string{existing, gone, ""})
+
+	if _, ok := got[existing]; ok {
+		t.Errorf("existing dir %q should not be flagged missing", existing)
+	}
+	if !got[gone] {
+		t.Errorf("nonexistent dir %q should be flagged missing", gone)
+	}
+	if _, ok := got[""]; ok {
+		t.Errorf("empty cwd should be skipped, not flagged")
+	}
+}
+
 // strPtr is a test helper returning a pointer to s.
 func strPtr(s string) *string { return &s }

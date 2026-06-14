@@ -31,6 +31,10 @@ export type PaneInfo = {
   command: string;
   isActive: boolean;
   gitBranch?: string;
+  /** True when `cwd` no longer exists on disk (e.g. an archived worktree
+   *  deleted out from under a still-live pane). The cwd row renders a
+   *  "(deleted)" marker when set. */
+  cwdMissing?: boolean;
 };
 
 /** A tmux session with its windows and optional fab enrichment. */

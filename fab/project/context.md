@@ -92,5 +92,5 @@ Never run `npx playwright test` directly — always use `just test-e2e` or `just
 - Top bar is a single line: breadcrumbs + connection status + FixedWidthToggle + command palette trigger. Session/window creation actions live in breadcrumb dropdown `+ New` items
 - Mobile sidebar drawer is `absolute` inside the main area (not `fixed inset-0`) so the top bar stays visible and the logo toggle can close the drawer
 - The `.app-shell` and terminal column have `overflow: hidden` to prevent horizontal page overflow from xterm.js canvas
-- Terminal font: 11px on mobile (`min-width: 640px` media query), 13px on desktop
+- Terminal font: device default is 11px on mobile / 13px on desktop, set in JS via xterm `options.fontSize` (no CSS media query). Users can override via the terminal-font control (`ChromeContext.terminalFontSize`, persisted to `runkit-terminal-font-size`); the device default applies only when no preference is stored. The mobile/desktop split uses the shared narrow-width-OR-coarse-pointer rule (`isMobileViewport()`), not a width-only query
 - tmux has a hard minimum width (~80 cols) that exceeds most phone screens — horizontal overflow in the terminal area is expected and acceptable

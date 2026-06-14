@@ -1,8 +1,8 @@
-import { useCallback } from "react";
+import { useCallback, useState, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner } from "@/components/logo-spinner";
-import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
+import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
@@ -188,10 +188,13 @@ export function TopBar({
         </nav>
 
         <div className="flex items-center gap-3 text-xs text-text-secondary">
-          <span className="hidden sm:flex">
-            <ThemeToggle />
-          </span>
-
+          {/* Icon ordering minimizes movement between pages: the conditional
+              terminal-only buttons (splits, close, Aa) sit on the LEFT of the
+              cluster, where their absence on non-terminal pages just widens the
+              gap to the breadcrumb. The always-present items (theme, fixed
+              width, connection dot, Run Kit) form a stable block pinned to the
+              right, so none of them shift when the conditional ones appear or
+              disappear. */}
           {currentWindow && (
             <>
               <span className="hidden sm:flex">
@@ -218,12 +221,32 @@ export function TopBar({
             </>
           )}
 
-          {/* FixedWidthToggle is route-agnostic — fixed-width applies to any
-              terminal-bearing surface, including board panes. Lift it out of
-              the `currentWindow` block so board mode (where `currentWindow`
-              is always `null`) still exposes the toggle. */}
+          {/* Terminal font size applies only to terminal-bearing surfaces:
+              the single-window terminal (`terminal`) and board panes (`board`,
+              where `currentWindow` is always `null`). It is gated out of `root`
+              (the dashboard/session-list) where there is no terminal to size.
+              Sits outside the `currentWindow` block so board mode still shows
+              it. */}
+          {mode !== "root" && (
+            <span className="hidden sm:flex">
+              <TerminalFontControl />
+            </span>
+          )}
+
+          {/* Always-present right block — order pinned to the Run Kit anchor so
+              these never move between pages. */}
+
+          {/* FixedWidthToggle is route-agnostic — fixed-width constrains the
+              max-width of any surface including the dashboard, so it stays in
+              all modes. */}
           <span className="hidden sm:flex">
             <FixedWidthToggle />
+          </span>
+
+          {/* Theme is the rightmost icon button (before the connection dot +
+              Run Kit logo). */}
+          <span className="hidden sm:flex">
+            <ThemeToggle />
           </span>
 
           {/* Connection dot — terminal/root modes only (board mode hides it
@@ -507,6 +530,142 @@ function ClosePaneButton({
         </svg>
       )}
     </button>
+  );
+}
+
+/**
+ * Terminal font-size combo: `[−] {size} [+]` plus a reset button. Reads the
+ * effective `terminalFontSize` from ChromeContext and dispatches the global
+ * increase/decrease/reset mutators (the setting applies to every live
+ * terminal). The ± buttons disable at the TERMINAL_FONT_BOUNDS edges. Reset
+ * "forgets" the preference, reverting to the device default.
+ *
+ * Cmd +/- is deliberately NOT intercepted — these controls (plus the matching
+ * command-palette actions) are the only font levers; browser-native zoom stays
+ * available for whole-page scaling.
+ */
+/**
+ * Terminal font size control: a single "Aa" trigger button in the top bar that
+ * opens a popover with the −/value/+ stepper and a reset. Collapsing the
+ * stepper into a popover keeps the top-bar chrome minimal (one slot instead of
+ * four loose buttons) while preserving a visible current value once opened.
+ *
+ * Dismiss semantics mirror `BreadcrumbDropdown`: outside `mousedown` closes,
+ * Escape closes and returns focus to the trigger, and the trigger carries
+ * `aria-haspopup`/`aria-expanded`. The three actions are also reachable from
+ * the command palette (Constitution V — keyboard-first), so the popover is a
+ * convenience surface, not the only path.
+ */
+function TerminalFontControl() {
+  const { terminalFontSize } = useChromeState();
+  const { increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const atMin = terminalFontSize <= TERMINAL_FONT_BOUNDS.min;
+  const atMax = terminalFontSize >= TERMINAL_FONT_BOUNDS.max;
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey, { capture: true });
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey, { capture: true });
+    };
+  }, [open]);
+
+  const stepButtonClass =
+    "min-w-[28px] min-h-[28px] coarse:min-w-[36px] coarse:min-h-[36px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border";
+
+  return (
+    <div ref={containerRef} className="relative inline-flex items-center">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label="Terminal font size"
+        title="Terminal font size"
+        className={`min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] rounded border transition-colors flex items-center justify-center text-xs font-semibold leading-none ${
+          open
+            ? "border-accent text-accent bg-accent/10"
+            : "border-border text-text-secondary hover:border-text-secondary"
+        }`}
+      >
+        {/* "Aa" reads as "text size" without a separate label */}
+        <span aria-hidden="true">Aa</span>
+      </button>
+      {open && (
+        <div
+          role="group"
+          aria-label="Terminal font size"
+          className="absolute top-full right-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl p-2 z-50 flex flex-col gap-2"
+        >
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={decreaseTerminalFont}
+              disabled={atMin}
+              aria-label="Decrease terminal font"
+              title="Decrease terminal font"
+              className={stepButtonClass}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                <line x1="3" y1="7" x2="11" y2="7" />
+              </svg>
+            </button>
+            <span
+              className="min-w-[4ch] text-center text-xs text-text-primary tabular-nums select-none"
+              aria-label={`Terminal font size ${terminalFontSize} pixels`}
+            >
+              {terminalFontSize}px
+            </span>
+            <button
+              type="button"
+              onClick={increaseTerminalFont}
+              disabled={atMax}
+              aria-label="Increase terminal font"
+              title="Increase terminal font"
+              className={stepButtonClass}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                <line x1="3" y1="7" x2="11" y2="7" />
+                <line x1="7" y1="3" x2="7" y2="11" />
+              </svg>
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={resetTerminalFont}
+            aria-label="Reset terminal font"
+            title="Reset terminal font (device default)"
+            className="w-full text-xs text-text-secondary hover:text-text-primary transition-colors py-1 rounded hover:bg-bg-card flex items-center justify-center gap-1.5"
+          >
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {/* circular-arrow reset glyph */}
+              <path d="M11.5 7a4.5 4.5 0 1 1-1.32-3.18" />
+              <polyline points="11.5,1.5 11.5,4 9,4" />
+            </svg>
+            Reset
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

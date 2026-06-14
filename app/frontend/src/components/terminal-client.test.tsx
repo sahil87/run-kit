@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, act, waitFor } from "@testing-library/react";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
+import { ChromeProvider, useChrome } from "@/contexts/chrome-context";
 import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { TerminalClient } from "./terminal-client";
@@ -87,17 +89,19 @@ function createWsRef(): React.MutableRefObject<WebSocket | null> {
 
 function renderTerminalClient(scrollLocked = false) {
   return render(
-    <FocusedTerminalProvider>
-      <TerminalClient
-        sessionName="test-session"
-        windowId="@0"
-        server="default"
-        wsRef={createWsRef()}
-        composeOpen={false}
-        setComposeOpen={vi.fn()}
-        scrollLocked={scrollLocked}
-      />
-    </FocusedTerminalProvider>,
+    <ChromeProvider>
+      <FocusedTerminalProvider>
+        <TerminalClient
+          sessionName="test-session"
+          windowId="@0"
+          server="default"
+          wsRef={createWsRef()}
+          composeOpen={false}
+          setComposeOpen={vi.fn()}
+          scrollLocked={scrollLocked}
+        />
+      </FocusedTerminalProvider>
+    </ChromeProvider>,
   );
 }
 
@@ -451,17 +455,19 @@ describe("TerminalClient deferred reset (reset at first write, not receipt)", ()
     // output.
     const wsRef = createWsRef();
     const renderAt = (sessionName: string, windowId: string) => (
-      <FocusedTerminalProvider>
-        <TerminalClient
-          sessionName={sessionName}
-          windowId={windowId}
-          server="default"
-          wsRef={wsRef}
-          composeOpen={false}
-          setComposeOpen={vi.fn()}
-          scrollLocked={false}
-        />
-      </FocusedTerminalProvider>
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName={sessionName}
+            windowId={windowId}
+            server="default"
+            wsRef={wsRef}
+            composeOpen={false}
+            setComposeOpen={vi.fn()}
+            scrollLocked={false}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>
     );
 
     const view = render(renderAt("session-a", "@0"));
@@ -508,18 +514,20 @@ describe("TerminalClient connection identity — (server, owning session), not w
   function createHarness(initial: Props) {
     const wsRef = createWsRef();
     const renderAt = (p: Props) => (
-      <FocusedTerminalProvider>
-        <TerminalClient
-          sessionName={p.sessionName}
-          windowId={p.windowId}
-          server={p.server ?? "default"}
-          wsRef={wsRef}
-          composeOpen={false}
-          setComposeOpen={vi.fn()}
-          onSessionNotFound={p.onSessionNotFound}
-          scrollLocked={false}
-        />
-      </FocusedTerminalProvider>
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName={p.sessionName}
+            windowId={p.windowId}
+            server={p.server ?? "default"}
+            wsRef={wsRef}
+            composeOpen={false}
+            setComposeOpen={vi.fn()}
+            onSessionNotFound={p.onSessionNotFound}
+            scrollLocked={false}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>
     );
     const view = render(renderAt(initial));
     return { view, renderAt };
@@ -837,5 +845,112 @@ describe("TerminalClient Unicode width init", () => {
       | { unicode: { activeVersion: string } }
       | undefined;
     expect(terminalInstance?.unicode.activeVersion).toBe("15-graphemes");
+  });
+});
+
+describe("TerminalClient terminal-font change syncs the grid to tmux", () => {
+  // A font change resizes the xterm grid but NOT the container, so the
+  // ResizeObserver never fires. The font effect must therefore send the
+  // {type:"resize"} message itself — otherwise tmux keeps rendering at the old
+  // grid (stale columns, dead space) until a remount. This regression guards
+  // that path: the bug shipped with the font feature was a fit() with no sync.
+
+  // Drives a real font change through ChromeContext from inside the tree.
+  function FontStepper() {
+    const { increaseTerminalFont } = useChrome();
+    return (
+      <button data-testid="font-plus" onClick={() => increaseTerminalFont()}>
+        +
+      </button>
+    );
+  }
+
+  beforeEach(() => {
+    stubConnectionEnv();
+    vi.mocked(FitAddon).mockClear();
+    // Start each test from the unset preference so the device default (desktop
+    // 13, since matchMedia is stubbed non-mobile) is deterministic.
+    try { localStorage.removeItem("runkit-terminal-font-size"); } catch { /* noop */ }
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  /** Mount the terminal + a font stepper sharing one ChromeProvider, open the
+   * WebSocket, and return the live mock socket. */
+  async function mountConnected(): Promise<MockWebSocket> {
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName="session-a"
+            windowId="@0"
+            server="default"
+            wsRef={createWsRef()}
+            composeOpen={false}
+            setComposeOpen={vi.fn()}
+            scrollLocked={false}
+          />
+          <FontStepper />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    await act(async () => {});
+    await act(async () => {});
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    // Bring the socket to OPEN so the resize message is actually sent.
+    act(() => {
+      ws.readyState = MockWebSocket.OPEN;
+      ws.onopen?.();
+    });
+    return ws;
+  }
+
+  /** The FitAddon instance THIS test's component created (last result). */
+  function fitSpy() {
+    const results = vi.mocked(FitAddon).mock.results;
+    const inst = results[results.length - 1]?.value as
+      | { fit: ReturnType<typeof vi.fn> }
+      | undefined;
+    expect(inst).toBeTruthy();
+    return inst!.fit;
+  }
+
+  function resizeSends(ws: MockWebSocket): unknown[][] {
+    return ws.send.mock.calls.filter(
+      (c) => typeof c[0] === "string" && c[0].includes('"type":"resize"'),
+    );
+  }
+
+  it("does NOT send an extra resize on mount beyond the connection-open handshake", async () => {
+    const ws = await mountConnected();
+    // onopen sends exactly one resize (the connect-time grid handshake); the
+    // font effect must NOT add a second one on mount (it skips its first run).
+    expect(resizeSends(ws)).toHaveLength(1);
+  });
+
+  it("sends a {type:resize} message with the terminal's cols/rows when the font changes", async () => {
+    const ws = await mountConnected();
+    const fit = fitSpy();
+    const fitCallsBefore = fit.mock.calls.length;
+    const sendsBefore = resizeSends(ws).length;
+
+    act(() => {
+      (document.querySelector('[data-testid="font-plus"]') as HTMLButtonElement)?.click();
+    });
+    // The font effect runs after the state update commits.
+    await act(async () => {});
+
+    // It re-fit the terminal AND told the backend the new grid.
+    expect(fit.mock.calls.length).toBeGreaterThan(fitCallsBefore);
+    const sends = resizeSends(ws);
+    expect(sends.length).toBe(sendsBefore + 1);
+    expect(sends[sends.length - 1][0]).toBe(
+      JSON.stringify({ type: "resize", cols: 80, rows: 24 }),
+    );
   });
 });

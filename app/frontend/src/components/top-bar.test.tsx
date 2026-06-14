@@ -146,6 +146,94 @@ describe("TopBar", () => {
     expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
   });
 
+  describe("TerminalFontControl", () => {
+    const FONT_KEY = "runkit-terminal-font-size";
+
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    /** The stepper lives inside a popover; open it via the "Aa" trigger first. */
+    function openFontPopover() {
+      act(() => fireEvent.click(screen.getByLabelText("Terminal font size")));
+    }
+
+    it("hides the stepper until the Aa trigger is clicked, then reveals all three buttons", () => {
+      localStorage.setItem(FONT_KEY, "13");
+      renderTopBar();
+      // Collapsed: only the trigger is present, no stepper buttons.
+      expect(screen.getByLabelText("Terminal font size")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Decrease terminal font")).not.toBeInTheDocument();
+      openFontPopover();
+      expect(screen.getByLabelText("Decrease terminal font")).toBeInTheDocument();
+      expect(screen.getByLabelText("Increase terminal font")).toBeInTheDocument();
+      expect(screen.getByLabelText("Reset terminal font")).toBeInTheDocument();
+      expect(screen.getByLabelText("Terminal font size 13 pixels")).toHaveTextContent("13px");
+    });
+
+    it("steps and persists on increase / decrease", () => {
+      localStorage.setItem(FONT_KEY, "13");
+      renderTopBar();
+      openFontPopover();
+      act(() => fireEvent.click(screen.getByLabelText("Increase terminal font")));
+      expect(screen.getByLabelText("Terminal font size 14 pixels")).toBeInTheDocument();
+      expect(localStorage.getItem(FONT_KEY)).toBe("14");
+      act(() => fireEvent.click(screen.getByLabelText("Decrease terminal font")));
+      expect(screen.getByLabelText("Terminal font size 13 pixels")).toBeInTheDocument();
+      expect(localStorage.getItem(FONT_KEY)).toBe("13");
+    });
+
+    it("disables the decrease button at the min bound (8)", () => {
+      localStorage.setItem(FONT_KEY, "8");
+      renderTopBar();
+      openFontPopover();
+      expect(screen.getByLabelText("Decrease terminal font")).toBeDisabled();
+      expect(screen.getByLabelText("Increase terminal font")).not.toBeDisabled();
+    });
+
+    it("disables the increase button at the max bound (24)", () => {
+      localStorage.setItem(FONT_KEY, "24");
+      renderTopBar();
+      openFontPopover();
+      expect(screen.getByLabelText("Increase terminal font")).toBeDisabled();
+      expect(screen.getByLabelText("Decrease terminal font")).not.toBeDisabled();
+    });
+
+    it("reset clears the stored preference (forget)", () => {
+      localStorage.setItem(FONT_KEY, "18");
+      renderTopBar();
+      openFontPopover();
+      expect(screen.getByLabelText("Terminal font size 18 pixels")).toBeInTheDocument();
+      act(() => fireEvent.click(screen.getByLabelText("Reset terminal font")));
+      expect(localStorage.getItem(FONT_KEY)).toBeNull();
+    });
+
+    it("closes the popover on Escape and returns focus to the trigger", () => {
+      localStorage.setItem(FONT_KEY, "13");
+      renderTopBar();
+      openFontPopover();
+      expect(screen.getByLabelText("Decrease terminal font")).toBeInTheDocument();
+      act(() => fireEvent.keyDown(document, { key: "Escape" }));
+      expect(screen.queryByLabelText("Decrease terminal font")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Terminal font size")).toHaveFocus();
+    });
+
+    it("is shown in terminal mode (a terminal surface to size)", () => {
+      renderTopBar({ mode: "terminal" });
+      expect(screen.getByLabelText("Terminal font size")).toBeInTheDocument();
+    });
+
+    it("is shown in board mode (board panes are terminals)", () => {
+      renderTopBar({ mode: "board", boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
+      expect(screen.getByLabelText("Terminal font size")).toBeInTheDocument();
+    });
+
+    it("is hidden in root mode (dashboard has no terminal)", () => {
+      renderTopBar({ mode: "root", currentWindow: null });
+      expect(screen.queryByLabelText("Terminal font size")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders hamburger icon (not logo img) as navigation toggle", () => {
     renderTopBar();
     const toggleBtn = screen.getByLabelText("Toggle navigation");

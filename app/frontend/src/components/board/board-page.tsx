@@ -282,13 +282,20 @@ function BoardPageContent({ name }: { name: string }) {
 
   const showEmptyState = !isLoading && entries.length === 0;
 
+  // Chrome dispatch for the sidebar toggle (below) and the terminal-font palette
+  // actions. Lifted here (above boardRouteActions) so the font mutators are in
+  // scope for the palette memo.
+  const { sidebarOpen } = useChromeState();
+  const { setSidebarOpen, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
+
   // Board-route-scoped command palette actions. Constitution V (Keyboard-First)
   // requires the palette be reachable on every route — AppShell's palette is
   // not mounted here (the board route does not render AppShell, see DD-8), so
   // BoardPage owns its own palette mount with the entries that are meaningful
-  // on a board route: switch to other boards, leave the board view, and cycle
-  // pane focus. Pin/Unpin Current Window are AppShell-only (no current window
-  // exists in single-window sense on a board route).
+  // on a board route: switch to other boards, leave the board view, cycle pane
+  // focus, and the global terminal-font controls (the board's panes are live
+  // terminals; the setting is global). Pin/Unpin Current Window are AppShell-only
+  // (no current window exists in single-window sense on a board route).
   const boardRouteActions: PaletteAction[] = useMemo(() => {
     const switchEntries: PaletteAction[] = boards.map((b) => ({
       id: `board-switch-${b.name}`,
@@ -302,6 +309,13 @@ function BoardPageContent({ name }: { name: string }) {
         label: "Board: Leave Board View",
         onSelect: () => navigate({ to: "/" }),
       },
+    ];
+
+    const fontEntries: PaletteAction[] = [
+      // No `shortcut` — Cmd +/- is deliberately not intercepted.
+      { id: "terminal-font-increase", label: "Increase terminal font", onSelect: increaseTerminalFont },
+      { id: "terminal-font-decrease", label: "Decrease terminal font", onSelect: decreaseTerminalFont },
+      { id: "terminal-font-reset", label: "Reset terminal font", onSelect: resetTerminalFont },
     ];
 
     if (entries.length > 0) {
@@ -321,8 +335,8 @@ function BoardPageContent({ name }: { name: string }) {
       });
     }
 
-    return [...switchEntries, ...conditional];
-  }, [boards, name, entries.length, navigate]);
+    return [...switchEntries, ...conditional, ...fontEntries];
+  }, [boards, name, entries.length, navigate, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {
@@ -331,11 +345,10 @@ function BoardPageContent({ name }: { name: string }) {
     return set.size;
   }, [entries]);
 
-  // Derive sidebarOpen for the hamburger animation; setSidebarOpen for toggle
-  // and mobile destination-tap auto-close. Lifted to ChromeContext so AppShell
-  // and BoardPage share one toggle target.
-  const { sidebarOpen } = useChromeState();
-  const { setSidebarOpen } = useChromeDispatch();
+  // sidebarOpen drives the hamburger animation; setSidebarOpen handles the
+  // toggle and mobile destination-tap auto-close. Both are destructured above
+  // (alongside the terminal-font mutators) so AppShell and BoardPage share one
+  // ChromeContext toggle target.
 
   // Compose / focus / scroll-lock plumbing for the shell-level BottomBar.
   // BottomBar is byte-identical across routes per spec § Behavioral

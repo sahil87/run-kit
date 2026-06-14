@@ -136,6 +136,23 @@ export function TerminalClient({
     };
   }, [registerFocus, setFocused, wsRef, server, sessionName, windowId]);
 
+  // Refit the terminal to its container and tell tmux the new grid size. The
+  // resize message is the ONLY way the backend learns the new cols/rows, so
+  // every fit() must be paired with it — otherwise tmux keeps rendering at the
+  // old grid (stale columns, dead space) until a remount. Used by both the
+  // container ResizeObserver and the font-size effect.
+  const fitAndSync = useCallback(() => {
+    fitAddonRef.current?.fit();
+    xtermRef.current?.scrollToBottom();
+    const term = xtermRef.current;
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN && term) {
+      ws.send(
+        JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }),
+      );
+    }
+  }, [wsRef]);
+
   const openComposeWithUploads = useCallback(
     (uploads: UploadedFile[]) => {
       if (uploads.length === 0) return;
@@ -322,17 +339,7 @@ export function TerminalClient({
         resizeRafId = requestAnimationFrame(() => {
           if (cancelled) return;
           resizeRafId = null;
-          fitAddonRef.current?.fit();
-          xtermRef.current?.scrollToBottom();
-          if (wsRef.current?.readyState === WebSocket.OPEN && xtermRef.current) {
-            wsRef.current.send(
-              JSON.stringify({
-                type: "resize",
-                cols: xtermRef.current.cols,
-                rows: xtermRef.current.rows,
-              }),
-            );
-          }
+          fitAndSync();
         });
       });
 
@@ -373,19 +380,28 @@ export function TerminalClient({
     };
   }, [wsRef, focusRef]);
 
-  // Apply terminal-font changes to the live xterm instance. The font size lives
+  // Apply terminal-font CHANGES to the live xterm instance. The font size lives
   // in ChromeContext (global, all terminals react), so when the user steps or
-  // resets it, set the option and refit so xterm recomputes rows×cols — which
-  // resizes the underlying PTY (the ResizeObserver in the init effect emits the
-  // resulting cols/rows over the WebSocket). Guarded against the not-yet-
-  // initialized terminal: if xtermRef is null the effect is a no-op, and the
-  // init effect already constructs with the current size.
+  // resets it, set the option then fitAndSync so xterm recomputes rows×cols AND
+  // tells tmux the new grid — a font change does NOT resize the container, so
+  // the ResizeObserver never fires; without the explicit sync tmux would keep
+  // rendering at the old grid (stale columns, dead space) until a remount.
+  //
+  // Skips the first run after (re)mount: the init effect already constructs the
+  // terminal at the current size and fits it, so re-fitting + re-sending resize
+  // here would be redundant (and would fire before the WebSocket is open). Only
+  // an actual post-mount change of `terminalFontSize` needs this path.
+  const lastAppliedFontSize = useRef<number | null>(null);
   useEffect(() => {
     const term = xtermRef.current;
     if (!term) return;
+    if (lastAppliedFontSize.current === terminalFontSize) return;
+    const isFirstRun = lastAppliedFontSize.current === null;
+    lastAppliedFontSize.current = terminalFontSize;
+    if (isFirstRun) return; // init effect already applied the mount-time size
     term.options.fontSize = terminalFontSize;
-    fitAddonRef.current?.fit();
-  }, [terminalFontSize, terminalReady]);
+    fitAndSync();
+  }, [terminalFontSize, terminalReady, fitAndSync]);
 
   // Test-only registry, keyed on the CURRENT windowId. The init effect runs
   // mount-only (deps [wsRef, focusRef]), but `windowId` can change while this

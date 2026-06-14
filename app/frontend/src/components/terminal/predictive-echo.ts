@@ -380,7 +380,12 @@ export interface InputContext {
 /** Snapshot of engine state for the DEV-gated `__rkPredictions` test handle. */
 export interface PredictionDebugState {
   state: ConfidenceState;
-  /** Predictions painted but not yet confirmed. */
+  /**
+   * Queued (unconfirmed) predictions — the current `queue.length`. While ACTIVE
+   * every queued prediction is painted, so this equals the painted-but-unconfirmed
+   * count; while PASSIVE the queue also holds observe-only (unpainted) bootstrap
+   * entries, so this is queued-not-yet-reconciled, not strictly painted.
+   */
   unconfirmed: number;
   /** Cumulative mispredictions (divergence events) since construction. */
   mispredictions: number;

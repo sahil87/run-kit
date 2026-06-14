@@ -512,9 +512,20 @@ export function TerminalClient({
   // persists, exactly mirroring the same-session "ride the socket" contract.
   const lastResetWindowIdRef = useRef(windowId);
   useEffect(() => {
-    if (lastResetWindowIdRef.current === windowId) return; // initial mount / no change
+    const previousWindowId = lastResetWindowIdRef.current;
+    if (previousWindowId === windowId) return; // initial mount / no change
     lastResetWindowIdRef.current = windowId;
-    predictionRef.current?.reset();
+    const engine = predictionRef.current;
+    if (!engine) return;
+    engine.reset();
+    // Re-key the DEV test registry alongside the reset. The engine instance
+    // survives a same-session switch (it rides the socket), but the
+    // `__rkPredictions` handle was registered once under the connect-time
+    // windowId. Without re-keying, the handle stays under the OLD id, leaving a
+    // stale entry and an inconsistent harness/debug view after a switch. Drop
+    // the old id and register the surviving engine under the current one.
+    unregisterTestPrediction(previousWindowId);
+    registerTestPrediction(windowId, engine);
   }, [windowId]);
 
   // Scroll-lock: prevent xterm textarea from gaining focus when locked.
@@ -1074,7 +1085,13 @@ export function TerminalClient({
       // successor connection arms its own.
       prediction.reset();
       if (predictionRef.current === prediction) predictionRef.current = null;
+      // Unregister BOTH the connect-time id and the current windowId. The reset
+      // effect re-keys `__rkPredictions` to the live windowId on same-session
+      // switches, so the entry to remove may no longer be under
+      // `predictionWindowId`. Deleting both keys (double-delete is a safe no-op)
+      // guarantees no DEV registry entry survives teardown.
       unregisterTestPrediction(predictionWindowId);
+      unregisterTestPrediction(windowIdRef.current);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;

@@ -582,7 +582,6 @@ test.describe("Echo latency benchmark", () => {
     const base = pick("baseline");
     const load = pick("under-load");
     const throughput = pick("throughput");
-    const perceivedIdle = pick("perceived-idle");
     const perceivedLoad = pick("perceived-load");
 
     console.log("\n=== ECHO LATENCY BENCHMARK ===");
@@ -592,8 +591,6 @@ test.describe("Echo latency benchmark", () => {
     if (render.length) console.log(summarize("└─ render (recv→glyph)", render));
     if (load.length) console.log(summarize("under-load (ticks)", load));
     if (base.length) console.log(summarize("baseline (tmux only)", base));
-    if (perceivedIdle.length)
-      console.log(summarize("perceived idle (pred.)", perceivedIdle));
     if (perceivedLoad.length)
       console.log(summarize("perceived load (pred.)", perceivedLoad));
     if (full.length && base.length) {
@@ -620,14 +617,11 @@ test.describe("Echo latency benchmark", () => {
       if (full.length) console.log(histogram("idle full-path", full));
       if (load.length) console.log(histogram("under-load", load));
     }
-    if (perceivedIdle.length || perceivedLoad.length) {
+    if (perceivedLoad.length) {
       console.log(
         "\n  -- perceived echo (keystroke → PREDICTED glyph painted) — the predictive-echo win --",
       );
-      if (perceivedIdle.length)
-        console.log(histogram("perceived idle", perceivedIdle, 2));
-      if (perceivedLoad.length)
-        console.log(histogram("perceived under-load", perceivedLoad, 2));
+      console.log(histogram("perceived under-load", perceivedLoad, 2));
       console.log(
         "  (a single tight cluster near-0ms is the goal — perceived latency should be" +
           " independent of pane load, unlike the server-echo distributions above.)",
@@ -907,7 +901,6 @@ test.describe("Echo latency benchmark", () => {
     page,
   }) => {
     // Idempotent across a Playwright retry.
-    resetSamples("perceived-idle");
     resetSamples("perceived-load");
     await page.addInitScript(INSTALL_SEND_STAMP);
 

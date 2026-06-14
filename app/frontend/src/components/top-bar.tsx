@@ -218,14 +218,21 @@ export function TopBar({
             </>
           )}
 
-          {/* FixedWidthToggle is route-agnostic — fixed-width applies to any
-              terminal-bearing surface, including board panes. Lift it out of
-              the `currentWindow` block so board mode (where `currentWindow`
-              is always `null`) still exposes the toggle. */}
-          <span className="hidden sm:flex">
-            <TerminalFontControl />
-          </span>
+          {/* Terminal font size applies only to terminal-bearing surfaces:
+              the single-window terminal (`terminal`) and board panes (`board`,
+              where `currentWindow` is always `null`). It is gated out of `root`
+              (the dashboard/session-list) where there is no terminal to size.
+              Sits outside the `currentWindow` block so board mode still shows
+              it. */}
+          {mode !== "root" && (
+            <span className="hidden sm:flex">
+              <TerminalFontControl />
+            </span>
+          )}
 
+          {/* FixedWidthToggle is route-agnostic — fixed-width constrains the
+              max-width of any surface including the dashboard, so it stays in
+              all modes. */}
           <span className="hidden sm:flex">
             <FixedWidthToggle />
           </span>

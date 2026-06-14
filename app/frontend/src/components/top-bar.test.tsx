@@ -217,6 +217,21 @@ describe("TopBar", () => {
       expect(screen.queryByLabelText("Decrease terminal font")).not.toBeInTheDocument();
       expect(screen.getByLabelText("Terminal font size")).toHaveFocus();
     });
+
+    it("is shown in terminal mode (a terminal surface to size)", () => {
+      renderTopBar({ mode: "terminal" });
+      expect(screen.getByLabelText("Terminal font size")).toBeInTheDocument();
+    });
+
+    it("is shown in board mode (board panes are terminals)", () => {
+      renderTopBar({ mode: "board", boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
+      expect(screen.getByLabelText("Terminal font size")).toBeInTheDocument();
+    });
+
+    it("is hidden in root mode (dashboard has no terminal)", () => {
+      renderTopBar({ mode: "root", currentWindow: null });
+      expect(screen.queryByLabelText("Terminal font size")).not.toBeInTheDocument();
+    });
   });
 
   it("renders hamburger icon (not logo img) as navigation toggle", () => {

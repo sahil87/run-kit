@@ -71,6 +71,28 @@ describe("StatusPanel", () => {
     expect(screen.getByText("~/projects/foo")).toBeInTheDocument();
   });
 
+  it("marks the cwd as deleted when the active pane's cwd is missing", () => {
+    const win = makeWindow({
+      panes: [
+        { paneId: "%5", paneIndex: 0, cwd: "/home/sahil/wt/gone", command: "zsh", isActive: true, cwdMissing: true },
+      ],
+    });
+    render(<StatusPanel window={win} />);
+    // Stale path is kept as a breadcrumb alongside the "(deleted)" tag.
+    expect(screen.getByText("~/wt/gone", { exact: false })).toBeInTheDocument();
+    expect(screen.getByTestId("cwd-deleted")).toHaveTextContent("(deleted)");
+  });
+
+  it("does not mark the cwd as deleted when the active pane's cwd exists", () => {
+    const win = makeWindow({
+      panes: [
+        { paneId: "%5", paneIndex: 0, cwd: "/home/sahil/wt/here", command: "zsh", isActive: true },
+      ],
+    });
+    render(<StatusPanel window={win} />);
+    expect(screen.queryByTestId("cwd-deleted")).not.toBeInTheDocument();
+  });
+
   it("shows window name", () => {
     const win = makeWindow({ name: "my-shell" });
     render(<StatusPanel window={win} />);

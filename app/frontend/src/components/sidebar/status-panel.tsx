@@ -195,6 +195,9 @@ function WindowContent({ win }: { win: WindowInfo }) {
   const activePane = win.panes?.find((p) => p.isActive);
   const activePaneCwd = activePane?.cwd ?? win.worktreePath;
   const cwd = shortenPath(activePaneCwd);
+  // The active pane's cwd was deleted on disk (e.g. an archived worktree). Keep
+  // the stale path as a breadcrumb but recolor the row and tag it "(deleted)".
+  const cwdMissing = activePane?.cwdMissing ?? false;
   const paneCount = win.panes?.length ?? 0;
   const activePaneIndex = activePane?.paneIndex ?? 0;
   const paneId = activePane?.paneId ?? "";
@@ -233,10 +236,21 @@ function WindowContent({ win }: { win: WindowInfo }) {
       )}
 
       {/* cwd */}
-      <CopyableRow prefix="cwd" copied={copiedRow === "cwd"} onCopy={() => handleCopy("cwd", activePaneCwd)} title={activePaneCwd}>
+      <CopyableRow
+        prefix="cwd"
+        copied={copiedRow === "cwd"}
+        onCopy={() => handleCopy("cwd", activePaneCwd)}
+        title={cwdMissing ? `${activePaneCwd} (no longer exists)` : activePaneCwd}
+      >
         <span className={ICON_CLASS} aria-hidden="true">{"\uF413"}</span>
         {" "}
-        <span className="text-text-secondary group-hover:text-accent">{cwd}</span>
+        {cwdMissing ? (
+          <span className="text-red-400">
+            {cwd} <span data-testid="cwd-deleted">(deleted)</span>
+          </span>
+        ) : (
+          <span className="text-text-secondary group-hover:text-accent">{cwd}</span>
+        )}
       </CopyableRow>
 
       {/* git */}

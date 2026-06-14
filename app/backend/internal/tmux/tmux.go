@@ -202,6 +202,11 @@ type PaneInfo struct {
 	Command   string `json:"command"`
 	IsActive  bool   `json:"isActive"`
 	GitBranch string `json:"gitBranch,omitempty"`
+	// CwdMissing is true when Cwd is non-empty but no longer exists on disk —
+	// e.g. a worktree that was deleted (archived) out from under a still-live
+	// tmux pane. tmux keeps reporting the stale path until the shell's cwd
+	// recovers, so the UI surfaces this as a "(deleted)" marker.
+	CwdMissing bool `json:"cwdMissing,omitempty"`
 }
 
 // WindowInfo describes a single tmux window within a session.

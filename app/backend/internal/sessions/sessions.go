@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -230,6 +232,78 @@ var (
 	gitBranchCache   = make(map[string]gitBranchCacheEntry)
 )
 
+type cwdExistsCacheEntry struct {
+	missing   bool
+	expiresAt time.Time
+}
+
+const (
+	// A deleted worktree stays deleted, so the positive ("exists") result can
+	// be cached longer; the negative ("missing") result is the interesting,
+	// changeable one, but it too rarely flips back, so both use one short TTL
+	// that keeps the SSE tick from stat-storming while staying responsive.
+	cwdExistsTTL = 10 * time.Second
+)
+
+var (
+	cwdExistsCacheMu sync.RWMutex
+	cwdExistsCache   = make(map[string]cwdExistsCacheEntry)
+)
+
+// resolveCwdMissing reports, for each unique non-empty cwd, whether the path no
+// longer exists on disk (true == missing). It follows the same TTL-cache pattern
+// as resolveGitBranches: a per-entry TTL cache fronts a cheap os.Stat so the SSE
+// hub's periodic refresh doesn't stat every pane on every tick. (It omits that
+// function's per-call resolve limit and ctx-cancellation checks — an os.Stat is
+// cheaper than git resolution and the loop is bounded by the distinct pane cwds.)
+// A cwd that exists (or whose stat fails for any reason other than not-existing)
+// is treated as present — we only flag the unambiguous fs.ErrNotExist case to
+// avoid false "(deleted)" markers on transient errors (permissions, races).
+func resolveCwdMissing(cwds []string) map[string]bool {
+	now := time.Now()
+	result := make(map[string]bool)
+	seen := make(map[string]bool)
+	var misses []string
+
+	cwdExistsCacheMu.RLock()
+	for _, cwd := range cwds {
+		if cwd == "" || seen[cwd] {
+			continue
+		}
+		seen[cwd] = true
+		if entry, ok := cwdExistsCache[cwd]; ok && now.Before(entry.expiresAt) {
+			if entry.missing {
+				result[cwd] = true
+			}
+			continue
+		}
+		misses = append(misses, cwd)
+	}
+	cwdExistsCacheMu.RUnlock()
+
+	if len(misses) == 0 {
+		return result
+	}
+
+	updates := make(map[string]cwdExistsCacheEntry, len(misses))
+	for _, cwd := range misses {
+		_, err := os.Stat(cwd)
+		missing := errors.Is(err, fs.ErrNotExist)
+		if missing {
+			result[cwd] = true
+		}
+		updates[cwd] = cwdExistsCacheEntry{missing: missing, expiresAt: now.Add(cwdExistsTTL)}
+	}
+
+	cwdExistsCacheMu.Lock()
+	for cwd, entry := range updates {
+		cwdExistsCache[cwd] = entry
+	}
+	cwdExistsCacheMu.Unlock()
+
+	return result
+}
+
 // resolveGitBranchFromHead reads .git/HEAD directly (no subprocess).
 // Handles both normal repos and worktrees (where .git is a file pointing to the real gitdir).
 func resolveGitBranchFromHead(cwd string) (string, bool) {
@@ -414,6 +488,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 		}
 	}
 	gitBranches := resolveGitBranches(ctx, allCwds)
+	cwdMissing := resolveCwdMissing(allCwds)
 
 	// Re-key the pane-map enrichment by stable window ID. The external
 	// `fab pane map` tool (wrapped, not reimplemented — constitution §III) emits
@@ -446,8 +521,12 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 				sd.windows[j].PrNumber = entry.PrNumber
 			}
 			for k := range sd.windows[j].Panes {
-				if branch, ok := gitBranches[sd.windows[j].Panes[k].Cwd]; ok {
+				cwd := sd.windows[j].Panes[k].Cwd
+				if branch, ok := gitBranches[cwd]; ok {
 					sd.windows[j].Panes[k].GitBranch = branch
+				}
+				if cwdMissing[cwd] {
+					sd.windows[j].Panes[k].CwdMissing = true
 				}
 			}
 		}

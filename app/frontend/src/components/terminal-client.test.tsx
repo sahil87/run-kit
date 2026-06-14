@@ -6,11 +6,34 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { PredictiveEcho } from "@/components/terminal/predictive-echo";
 import { TerminalClient } from "./terminal-client";
 
 // Mock all xterm-related modules to avoid actual terminal initialization
 vi.mock("@xterm/xterm", () => ({
   Terminal: vi.fn().mockImplementation(function () {
+    // Minimal buffer stub so the predictive-echo binding (createPredictiveEcho)
+    // can read cursor/baseY/cell/alt-screen during onInput. A normal-screen
+    // buffer at the origin with blank, default-styled cells.
+    const blankCell = {
+      getChars: () => "",
+      isBold: () => 0,
+      isDim: () => 0,
+      isItalic: () => 0,
+      isUnderline: () => 0,
+      isBlink: () => 0,
+      isInverse: () => 0,
+      isInvisible: () => 0,
+      isStrikethrough: () => 0,
+      isFgDefault: () => 1,
+      isBgDefault: () => 1,
+      isFgRGB: () => 0,
+      isBgRGB: () => 0,
+      isFgPalette: () => 0,
+      isBgPalette: () => 0,
+      getFgColor: () => 0,
+      getBgColor: () => 0,
+    };
     return {
       loadAddon: vi.fn(),
       open: vi.fn(),
@@ -26,6 +49,15 @@ vi.mock("@xterm/xterm", () => ({
       options: { fontSize: 13 },
       unicode: { activeVersion: "6" },
       hasSelection: vi.fn().mockReturnValue(false),
+      buffer: {
+        active: {
+          type: "normal",
+          baseY: 0,
+          cursorX: 0,
+          cursorY: 0,
+          getLine: () => ({ getCell: () => blankCell }),
+        },
+      },
     };
   }),
 }));
@@ -774,6 +806,296 @@ describe("TerminalClient connection identity — (server, owning session), not w
     expect(onSessionNotFound).toHaveBeenCalledTimes(1);
     // 4004 must not schedule a reconnect — the probe stays the last socket.
     expect(MockWebSocket.instances.length).toBe(instanceCount + 1);
+  });
+});
+
+describe("TerminalClient predictive-echo window-switch reset — clears the engine while the socket persists (M3)", () => {
+  type Props = { sessionName: string; windowId: string; server?: string };
+
+  function createHarness(initial: Props) {
+    const wsRef = createWsRef();
+    const renderAt = (p: Props) => (
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName={p.sessionName}
+            windowId={p.windowId}
+            server={p.server ?? "default"}
+            wsRef={wsRef}
+            composeOpen={false}
+            setComposeOpen={vi.fn()}
+            scrollLocked={false}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>
+    );
+    const view = render(renderAt(initial));
+    return { view, renderAt };
+  }
+
+  function lastSocket(): MockWebSocket {
+    expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    return MockWebSocket.instances[MockWebSocket.instances.length - 1];
+  }
+
+  async function flushInit() {
+    await act(async () => {});
+    await act(async () => {});
+  }
+
+  beforeEach(stubConnectionEnv);
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("resets the engine on a same-session windowId change WITHOUT tearing down the socket", async () => {
+    // The engine is created per-CONNECTION; a same-session windowId switch rides
+    // the existing socket (windowId is not a connect-effect dep), so the engine
+    // straddles the switch. The dedicated windowId-keyed effect must reset it in
+    // place — stale queue/snapshots/ACTIVE state would otherwise paint the OLD
+    // window's coordinates into the newly-attached window (M3).
+    const resetSpy = vi.spyOn(PredictiveEcho.prototype, "reset");
+    const { view, renderAt } = createHarness({ sessionName: "sess", windowId: "@0" });
+    await flushInit();
+    const ws1 = lastSocket();
+    const instanceCount = MockWebSocket.instances.length;
+    const resetsAfterMount = resetSpy.mock.calls.length; // no reset on initial mount
+
+    // Same-session window switch: rides the socket, but the engine MUST reset.
+    view.rerender(renderAt({ sessionName: "sess", windowId: "@1" }));
+    await act(async () => {});
+
+    // Socket persists (no reconnect from the reset effect).
+    expect(ws1.close).not.toHaveBeenCalled();
+    expect(MockWebSocket.instances.length).toBe(instanceCount);
+    expect(lastSocket()).toBe(ws1);
+    // The engine was reset exactly once by the windowId-keyed effect.
+    expect(resetSpy.mock.calls.length).toBe(resetsAfterMount + 1);
+  });
+
+  it("does not fire the windowId-keyed reset on initial mount (only the connect-time SF-reconnect reset runs once)", async () => {
+    const resetSpy = vi.spyOn(PredictiveEcho.prototype, "reset");
+    createHarness({ sessionName: "sess", windowId: "@0" });
+    await flushInit();
+    // connect() resets the engine once when it arms its deferred buffer reset
+    // (SF-reconnect: engine clears whenever the buffer is wiped). The
+    // windowId-keyed effect must NOT add a second reset on initial mount — it is
+    // ref-gated to fire only on a real windowId CHANGE. So mount = exactly one
+    // reset (from connect), never two.
+    expect(resetSpy.mock.calls.length).toBe(1);
+  });
+
+  it("resets the engine in connect() on a transient reconnect so stale predictions never survive the buffer wipe (SF-reconnect)", async () => {
+    // A non-4004 drop re-runs connect() in place: same effect, same engine,
+    // windowId unchanged (so the windowId-keyed reset does NOT fire) and no
+    // effect-cleanup teardown. connect() arms pendingReset → terminal.reset()
+    // wipes the buffer at first write, invalidating queued cell snapshots, so
+    // the engine MUST reset in lockstep — which connect() now does.
+    const resetSpy = vi.spyOn(PredictiveEcho.prototype, "reset");
+    createHarness({ sessionName: "sess", windowId: "@0" });
+    await flushInit();
+    const ws1 = lastSocket();
+    expect(resetSpy.mock.calls.length).toBe(1); // initial connect
+
+    // Transient drop → reconnect timer → connect() re-runs in place.
+    vi.useFakeTimers();
+    act(() => {
+      ws1.onclose?.({ code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    const ws2 = lastSocket();
+    expect(ws2).not.toBe(ws1);
+
+    // The reconnect's connect() reset the engine again (no windowId change, no
+    // teardown — this is the SF-reconnect path that previously left predictions
+    // straddling a buffer wipe).
+    expect(resetSpy.mock.calls.length).toBe(2);
+  });
+});
+
+describe("TerminalClient predictive-echo BINARY reconciliation (NMF-1)", () => {
+  function createHarness(windowId = "@0") {
+    const wsRef = createWsRef();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName="sess"
+            windowId={windowId}
+            server="default"
+            wsRef={wsRef}
+            composeOpen={false}
+            setComposeOpen={vi.fn()}
+            scrollLocked={false}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+  }
+
+  function lastSocket(): MockWebSocket {
+    expect(MockWebSocket.instances.length).toBeGreaterThan(0);
+    return MockWebSocket.instances[MockWebSocket.instances.length - 1];
+  }
+
+  async function flushInit() {
+    await act(async () => {});
+    await act(async () => {});
+  }
+
+  /** Encode a string to an ArrayBuffer, exactly as the relay frames PTY output. */
+  function binaryFrame(text: string): ArrayBuffer {
+    const bytes = new TextEncoder().encode(text);
+    return bytes.buffer.slice(0, bytes.byteLength);
+  }
+
+  /**
+   * Capture the live engine instance without relying on the component's (mocked)
+   * onData. The connect() reconnect-reset (SF-reconnect) calls
+   * `prediction.reset()` on the real engine at first connect, so spying on
+   * `reset` with a call-through captures `this`. Returns a getter resolved after
+   * mount/flushInit.
+   */
+  function captureEngine() {
+    let instance: PredictiveEcho | undefined;
+    const original = PredictiveEcho.prototype.reset;
+    vi.spyOn(PredictiveEcho.prototype, "reset").mockImplementation(function (
+      this: PredictiveEcho,
+    ) {
+      instance = this;
+      return Reflect.apply(original, this, []);
+    });
+    return { get: () => instance };
+  }
+
+  beforeEach(stubConnectionEnv);
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("feeds a BINARY echo frame to the engine's reconcile (the relay frames ALL output as binary)", async () => {
+    // The engine only reconciles a chunk when it has a prediction queued
+    // (hasPending() gate). Queue one via the real onInput, then deliver the
+    // echo as a BINARY frame and assert reconcile saw the DECODED text. This is
+    // the regression that made the feature inert: reconcile was wired to the
+    // STRING branch only, but every server echo arrives binary.
+    const reconcileSpy = vi.spyOn(PredictiveEcho.prototype, "reconcile");
+    const engine = captureEngine();
+
+    createHarness();
+    await flushInit();
+    const ws = lastSocket();
+    expect(engine.get()).toBeTruthy();
+
+    // Queue an observe-only prediction (PASSIVE bootstrap) so hasPending() is true.
+    act(() => {
+      engine.get()!.onInput("a", { composing: false, pasting: false });
+    });
+    expect(engine.get()!.hasPending()).toBe(true);
+    reconcileSpy.mockClear();
+
+    // Deliver the echo as a BINARY frame (≤ 64 bytes → immediate path).
+    act(() => {
+      ws.onmessage?.({ data: binaryFrame("a") });
+    });
+
+    // reconcile was called with the DECODED string — the binary transport
+    // reached the engine end-to-end.
+    expect(reconcileSpy).toHaveBeenCalledWith("a");
+  });
+
+  it("leaves PASSIVE → ACTIVE driven ONLY by binary echo frames (end-to-end transport proof)", async () => {
+    // Strongest end-to-end proof: with NO string frames at all, the engine must
+    // still learn the pane echoes printables and promote to ACTIVE purely from
+    // binary echoes — exactly what the running app delivers. Before the fix the
+    // engine never observed a server byte and stayed PASSIVE forever.
+    const engine = captureEngine();
+
+    createHarness();
+    await flushInit();
+    const ws = lastSocket();
+    expect(engine.get()).toBeTruthy();
+
+    // PASSIVE bootstrap: for each typed printable, enqueue then deliver its echo
+    // as a BINARY frame. ACTIVATION_SAMPLES in-window confirmations → ACTIVE.
+    const probe = "qrs"; // 3 chars == ACTIVATION_SAMPLES
+    for (const ch of probe) {
+      act(() => {
+        engine.get()!.onInput(ch, { composing: false, pasting: false });
+      });
+      act(() => {
+        ws.onmessage?.({ data: binaryFrame(ch) });
+      });
+      // Drain the rAF queue so the one-shot frame-reset fires (clearing
+      // wroteImmediatelyThisFrame) and any coalesced binary buffer flushes —
+      // otherwise the 2nd/3rd echoes would stay buffered in the same frame.
+      act(() => {
+        runRafCallbacks();
+      });
+    }
+
+    expect(engine.get()!.debugState().state).toBe("active");
+  });
+
+  it("skips decoding a binary chunk when the engine has nothing queued (allocation-light gate)", async () => {
+    // The hasPending() gate must short-circuit BEFORE decoding so a normal flood
+    // (no predictions in flight) pays nothing. Spy on reconcile: with an empty
+    // queue it must not even be called.
+    const reconcileSpy = vi.spyOn(PredictiveEcho.prototype, "reconcile");
+
+    createHarness();
+    await flushInit();
+    const ws = lastSocket();
+
+    act(() => {
+      ws.onmessage?.({ data: binaryFrame("flood output") });
+    });
+
+    // Nothing queued → reconcile is skipped entirely (the decode never runs).
+    expect(reconcileSpy).not.toHaveBeenCalled();
+  });
+
+  it("reconciles binary on the coalesced (rAF) flush path too, before the write", async () => {
+    const reconcileSpy = vi.spyOn(PredictiveEcho.prototype, "reconcile");
+    const engine = captureEngine();
+
+    createHarness();
+    await flushInit();
+    const ws = lastSocket();
+    const term = terminalSpies();
+    expect(engine.get()).toBeTruthy();
+
+    act(() => {
+      engine.get()!.onInput("z", { composing: false, pasting: false });
+    });
+    reconcileSpy.mockClear();
+
+    // A large binary chunk takes the coalesced path (buffered, flushed on rAF).
+    const big = new Uint8Array(128).fill(122); // 122 = 'z'
+    act(() => {
+      ws.onmessage?.({ data: big.buffer });
+    });
+    // Not yet reconciled/written — it is buffered for the rAF flush.
+    expect(reconcileSpy).not.toHaveBeenCalled();
+
+    act(() => {
+      runRafCallbacks();
+    });
+
+    // Flush time: reconciled, and ordered before the buffered binary write.
+    expect(reconcileSpy).toHaveBeenCalled();
+    const reconcileOrder = reconcileSpy.mock.invocationCallOrder[0];
+    expect(reconcileOrder).toBeLessThan(writeOrderOf(term, big));
   });
 });
 

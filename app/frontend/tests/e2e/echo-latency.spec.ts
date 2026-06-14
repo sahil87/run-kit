@@ -37,6 +37,10 @@ const BURST_SESSION = `e2e-burst-${Date.now()}`;
 // generator alongside `cat`, so it gets its own window to keep the idle echo
 // session's measurements clean.
 const LOAD_SESSION = `e2e-echo-load-${Date.now()}`;
+// Dedicated session for the alternate-screen (predictive-echo suppression) test
+// — it runs `vim`, which switches the terminal to its alternate-screen buffer
+// where predictions MUST stay off.
+const ALT_SESSION = `e2e-echo-alt-${Date.now()}`;
 const port = Number(process.env.RK_PORT ?? "3333");
 const BASE = `http://localhost:${port}`;
 
@@ -460,10 +464,88 @@ async function measureEchoUnderLoad(
   );
 }
 
+/**
+ * Shape of the DEV-gated predictive-echo debug handle (`window.__rkPredictions`)
+ * the harness reads. Mirrors `PredictionDebugState` in `predictive-echo.ts`;
+ * the inline literal is required because page.evaluate callbacks run in the
+ * browser realm where the module's compile-time types don't exist.
+ */
+interface PredictionDebug {
+  state: "passive" | "active";
+  unconfirmed: number;
+  mispredictions: number;
+  painted: number;
+  confirmWindowMs: number;
+}
+
+/** Read the predictive-echo debug state for `windowId`, or null if absent. */
+async function readPrediction(
+  page: import("@playwright/test").Page,
+  windowId: string,
+): Promise<PredictionDebug | null> {
+  return page.evaluate((wid) => {
+    const reg = (window as unknown as {
+      __rkPredictions?: Record<string, { debug: () => PredictionDebug }>;
+    }).__rkPredictions;
+    return reg?.[wid]?.debug() ?? null;
+  }, windowId);
+}
+
+/**
+ * Measure one keystroke's PERCEIVED echo latency: keystroke dispatch → the
+ * PREDICTED glyph becomes visible. Distinct from `measureEcho` (which times the
+ * SERVER echo): here the clock stops when the engine's `painted` counter
+ * increments, which under Approach A is the moment the tentatively-styled
+ * predicted cell is written. Returns the latency in ms, or `null` if no
+ * prediction was painted within the deadline (e.g. the engine is still PASSIVE).
+ */
+async function measurePerceivedEcho(
+  page: import("@playwright/test").Page,
+  windowId: string,
+  ch: string,
+  deadlineMs: number,
+): Promise<number | null> {
+  const before = await readPrediction(page, windowId);
+  const paintedBefore = before?.painted ?? 0;
+  await page.evaluate(() => {
+    (window as unknown as { __rkSendAt?: number }).__rkSendAt = undefined;
+  });
+  await page.keyboard.press(ch);
+  return page.evaluate(
+    async ({ wid, paintedBefore, deadlineMs }) => {
+      const reg = (window as unknown as {
+        __rkPredictions?: Record<string, { debug: () => PredictionDebug }>;
+        __rkSendAt?: number;
+      });
+      const start = performance.now();
+      const deadline = start + deadlineMs;
+      return await new Promise<number | null>((resolve) => {
+        const tick = () => {
+          const dbg = reg.__rkPredictions?.[wid]?.debug();
+          if (dbg && dbg.painted > paintedBefore) {
+            const sendAt = (window as unknown as { __rkSendAt?: number }).__rkSendAt;
+            resolve(performance.now() - (sendAt ?? start));
+            return;
+          }
+          if (performance.now() > deadline) {
+            resolve(null); // no prediction painted (PASSIVE / suppressed)
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+    },
+    { wid: windowId, paintedBefore, deadlineMs },
+  ) as Promise<number | null>;
+}
+
 test.describe("Echo latency benchmark", () => {
-  // The file runs FULL_PATH_TRIALS + BASELINE_TRIALS echo round-trips back to
-  // back; give it ample headroom over the default per-test budget.
-  test.setTimeout(process.env.CI ? 120_000 : 90_000);
+  // The file runs FULL_PATH_TRIALS + BASELINE_TRIALS + UNDER_LOAD_TRIALS echo
+  // round-trips plus the perceived-echo (activation + 20 trials) and
+  // alternate-screen suppression tests back to back; give it ample headroom over
+  // the default per-test budget.
+  test.setTimeout(process.env.CI ? 150_000 : 120_000);
 
   test.beforeAll(() => {
     tmux(`new-session -d -s ${TEST_SESSION} -x 80 -y 24`);
@@ -488,6 +570,9 @@ test.describe("Echo latency benchmark", () => {
     try {
       tmux(`kill-session -t ${LOAD_SESSION}`);
     } catch { /* ok */ }
+    try {
+      tmux(`kill-session -t ${ALT_SESSION}`);
+    } catch { /* ok */ }
 
     const pick = (label: string) =>
       samples.filter((s) => s.label === label).map((s) => s.ms);
@@ -497,6 +582,8 @@ test.describe("Echo latency benchmark", () => {
     const base = pick("baseline");
     const load = pick("under-load");
     const throughput = pick("throughput");
+    const perceivedIdle = pick("perceived-idle");
+    const perceivedLoad = pick("perceived-load");
 
     console.log("\n=== ECHO LATENCY BENCHMARK ===");
     console.log("  keystroke → glyph-visible, p50/p95/p99\n");
@@ -505,6 +592,10 @@ test.describe("Echo latency benchmark", () => {
     if (render.length) console.log(summarize("└─ render (recv→glyph)", render));
     if (load.length) console.log(summarize("under-load (ticks)", load));
     if (base.length) console.log(summarize("baseline (tmux only)", base));
+    if (perceivedIdle.length)
+      console.log(summarize("perceived idle (pred.)", perceivedIdle));
+    if (perceivedLoad.length)
+      console.log(summarize("perceived load (pred.)", perceivedLoad));
     if (full.length && base.length) {
       const tax = percentile(full, 50) - percentile(base, 50);
       console.log(
@@ -528,6 +619,19 @@ test.describe("Echo latency benchmark", () => {
       );
       if (full.length) console.log(histogram("idle full-path", full));
       if (load.length) console.log(histogram("under-load", load));
+    }
+    if (perceivedIdle.length || perceivedLoad.length) {
+      console.log(
+        "\n  -- perceived echo (keystroke → PREDICTED glyph painted) — the predictive-echo win --",
+      );
+      if (perceivedIdle.length)
+        console.log(histogram("perceived idle", perceivedIdle, 2));
+      if (perceivedLoad.length)
+        console.log(histogram("perceived under-load", perceivedLoad, 2));
+      console.log(
+        "  (a single tight cluster near-0ms is the goal — perceived latency should be" +
+          " independent of pane load, unlike the server-echo distributions above.)",
+      );
     }
     if (throughput.length) {
       console.log(
@@ -797,6 +901,163 @@ test.describe("Echo latency benchmark", () => {
     expect(samples.filter((s) => s.label === "under-load").length).toBe(
       UNDER_LOAD_TRIALS,
     );
+  });
+
+  test("perceived-echo — predicted glyph paints near-instantly (idle + under-load)", async ({
+    page,
+  }) => {
+    // Idempotent across a Playwright retry.
+    resetSamples("perceived-idle");
+    resetSamples("perceived-load");
+    await page.addInitScript(INSTALL_SEND_STAMP);
+
+    // Reuse the under-load session shape: a background tick stream + cat, so we
+    // can measure perceived latency BOTH idle (before activation matters) and
+    // while the pane is streaming — the case where prediction earns its keep.
+    try {
+      tmux(`kill-session -t ${LOAD_SESSION}`);
+    } catch { /* no stale session */ }
+    tmux(`new-session -d -s ${LOAD_SESSION} -x 80 -y 24`);
+    tmux(`set-option -t ${LOAD_SESSION} status off`);
+    tmux(
+      `send-keys -t ${LOAD_SESSION} "seq 1 2000 | while read i; do echo tick; sleep 0.05; done & cat" Enter`,
+    );
+
+    const windowId = await resolveFirstWindowId(page, LOAD_SESSION);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(
+        () => page.evaluate((wid) => Boolean(window.__rkTerminals?.[wid]), windowId),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+    // The prediction engine handle must exist (the connection armed it).
+    await expect
+      .poll(() => readPrediction(page, windowId).then((p) => p !== null), {
+        timeout: 10_000,
+      })
+      .toBe(true);
+
+    await page.locator("[role='application']").click();
+    await page.locator(".xterm-helper-textarea").focus();
+
+    // Warm up the input path, then type printables until the engine promotes to
+    // ACTIVE (it observes a few in-window echo round-trips first — the PASSIVE
+    // bootstrap is the safety reflex, not a delay we can skip). Poll the debug
+    // state rather than guessing a fixed count.
+    await expect
+      .poll(
+        async () => {
+          await page.keyboard.press("a");
+          await page.waitForTimeout(40);
+          const dbg = await readPrediction(page, windowId);
+          return dbg?.state ?? "passive";
+        },
+        { timeout: 20_000, intervals: [100] },
+      )
+      .toBe("active");
+
+    // Now measure perceived latency. Idle-ish trials (between ticks) and
+    // under-load trials are both recorded; the histograms in afterAll show
+    // whether perceived latency is load-independent (the goal).
+    const CHARS = "bdefghjmnopqrsuvxy";
+    let mispredictions = 0;
+    for (let n = 0; n < 20; n++) {
+      const ch = CHARS[n % CHARS.length];
+      const ms = await measurePerceivedEcho(page, windowId, ch, 2_000);
+      if (ms !== null) samples.push({ label: "perceived-load", ms });
+      await page.waitForTimeout(40);
+    }
+    const final = await readPrediction(page, windowId);
+    mispredictions = final?.mispredictions ?? 0;
+
+    // Perceived latency, when a prediction IS painted, is sub-frame by
+    // construction (the glyph is written synchronously in onData). Assert a
+    // generous bound rather than a tight budget (audit-style): every recorded
+    // perceived sample must be well under a server round-trip.
+    const perceived = samples
+      .filter((s) => s.label === "perceived-load")
+      .map((s) => s.ms);
+    expect(perceived.length, "at least some predictions were painted").toBeGreaterThan(0);
+    for (const ms of perceived) {
+      expect(ms, "a painted prediction is near-instant").toBeLessThan(50);
+    }
+    console.log(
+      `\n  perceived-echo: ${perceived.length} predictions painted, ` +
+        `${mispredictions} mispredictions over the run.`,
+    );
+  });
+
+  test("alternate-screen pane — NO predictions painted (vim)", async ({ page }) => {
+    // The hard exclusion: in the alternate-screen buffer (vim/less/htop) the
+    // engine MUST never paint — full-screen apps echo cursor motions, not the
+    // typed glyph, so a prediction would flash garbage. This asserts the painted
+    // counter stays at zero across a burst of printable keystrokes inside vim.
+    await page.addInitScript(INSTALL_SEND_STAMP);
+
+    try {
+      tmux(`kill-session -t ${ALT_SESSION}`);
+    } catch { /* no stale session */ }
+    tmux(`new-session -d -s ${ALT_SESSION} -x 80 -y 24`);
+    tmux(`set-option -t ${ALT_SESSION} status off`);
+    // Launch vim on a scratch file — it switches to the alternate screen.
+    tmux(`send-keys -t ${ALT_SESSION} "vim /tmp/rk-echo-alt-${Date.now()}.txt" Enter`);
+
+    const windowId = await resolveFirstWindowId(page, ALT_SESSION);
+    await page.goto(`${BASE}/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 10_000 });
+    await expect
+      .poll(
+        () => page.evaluate((wid) => Boolean(window.__rkTerminals?.[wid]), windowId),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+    await expect
+      .poll(() => readPrediction(page, windowId).then((p) => p !== null), {
+        timeout: 10_000,
+      })
+      .toBe(true);
+
+    await page.locator("[role='application']").click();
+    await page.locator(".xterm-helper-textarea").focus();
+
+    // Wait until xterm reports the alternate-screen buffer is active (vim has
+    // taken over the screen).
+    await expect
+      .poll(
+        () =>
+          page.evaluate((wid) => {
+            const term = window.__rkTerminals?.[wid];
+            return term?.buffer.active.type === "alternate";
+          }, windowId),
+        { timeout: 15_000, intervals: [200] },
+      )
+      .toBe(true);
+
+    // Enter insert mode and type printables that WOULD be predicted in a normal
+    // pane. The engine must paint NONE of them.
+    await page.keyboard.press("i"); // vim insert mode
+    await page.waitForTimeout(100);
+    for (const ch of "hello world".split("")) {
+      await page.keyboard.press(ch === " " ? "Space" : ch);
+      await page.waitForTimeout(20);
+    }
+
+    const dbg = await readPrediction(page, windowId);
+    expect(dbg, "prediction engine handle present").not.toBeNull();
+    expect(
+      dbg!.painted,
+      "no predictions may be painted in the alternate-screen buffer",
+    ).toBe(0);
+    expect(dbg!.state, "engine stays PASSIVE in the alternate screen").toBe(
+      "passive",
+    );
+
+    // Cleanly exit vim so the session can be killed without a swap-file prompt.
+    await page.keyboard.press("Escape");
+    await page.keyboard.type(":q!");
+    await page.keyboard.press("Enter");
   });
 
   test("throughput guard — burst output renders fully and fast", async ({ page }) => {

@@ -30,6 +30,30 @@ a test-only registry: `terminal-client.tsx` registers each terminal on
 `window.__rkTerminals` (keyed by windowId) on mount and unregisters it on
 dispose. The registry is inert unless a test reads it.
 
+## Perceived echo vs. server echo (predictive local echo)
+
+Two latencies are now measured, and they are different things:
+
+- **Server echo** (`measureEcho` / `measureEchoUnderLoad`) — keystroke → the
+  glyph the SERVER sent appears in `term.buffer.active`. This is the round-trip
+  the user used to wait for on every keystroke.
+- **Perceived echo** (`measurePerceivedEcho`) — keystroke → the **predicted**
+  glyph is painted locally. Under the predictive-local-echo engine (Approach A:
+  the predicted glyph is written into the xterm buffer as a real cell with
+  tentative styling, undone via self-authored VT on misprediction), the painted
+  glyph appears within the same `onData` tick, independent of pane load or
+  network RTT. This is what the user actually feels once prediction is ACTIVE.
+
+To distinguish a *predicted* cell from a *server-echoed* one — and to read the
+misprediction counter — the harness uses a second DEV-gated registry,
+`window.__rkPredictions` (keyed by windowId, mirroring `__rkTerminals`). It
+exposes a `debug()` reader returning `{ state, unconfirmed, mispredictions,
+painted, confirmWindowMs }`. `measurePerceivedEcho` snapshots `painted` before
+the keystroke and stops the clock when it increments. The engine starts PASSIVE
+and only goes ACTIVE after it observes a few in-window echo round-trips (the
+mosh-style safety reflex), so the perceived test first polls `debug().state`
+until it is `"active"` before timing.
+
 **Renderer confirmation.** The WebGL addon loads in a try/catch with a silent
 canvas fallback, and a live WebGL context can also be lost at runtime (tab
 backgrounding, GPU reset). Either way the renderer would be slower — making the
@@ -117,21 +141,24 @@ therefore reports, per label:
 
 ## Shared setup
 
-- Per-file timeout raised to 90s (120s on CI) via `test.setTimeout` — the file
+- Per-file timeout raised to 120s (150s on CI) via `test.setTimeout` — the file
   runs `FULL_PATH_TRIALS` + `BASELINE_TRIALS` + `UNDER_LOAD_TRIALS`
-  (40 + 40 + 30) echo round-trips back to back.
+  (40 + 40 + 30) echo round-trips plus the perceived-echo (activation + 20
+  trials) and alternate-screen suppression tests back to back.
 - `beforeAll` creates session `e2e-echo-<ts>` (80×24) and starts `cat` in it
   (`send-keys 'cat' Enter`). `cat` echoes every line of stdin verbatim — the
   cleanest echo source, with no prompt / completion / PS1 noise.
 - The throughput guard uses its own `BURST_SESSION` (`e2e-burst-<ts>`) so its
-  flood doesn't disturb the echo session; the under-load test likewise uses its
-  own `LOAD_SESSION` (`e2e-echo-load-<ts>`) so its tick stream doesn't pollute
-  the idle measurements.
-- `afterAll` sends `C-c` to break out of `cat`, kills all three sessions
-  (`TEST_SESSION`, `BURST_SESSION`, `LOAD_SESSION`), then prints the summary
-  table: full-path / network / render / under-load / baseline p50/p95/p99, the
-  computed run-kit tax, the attribution verdict, the distribution histograms,
-  and the throughput time.
+  flood doesn't disturb the echo session; the under-load and perceived-echo
+  tests use their own `LOAD_SESSION` (`e2e-echo-load-<ts>`) so the tick stream
+  doesn't pollute the idle measurements; the alternate-screen test uses its own
+  `ALT_SESSION` (`e2e-echo-alt-<ts>`) running `vim`.
+- `afterAll` sends `C-c` to break out of `cat`, kills all four sessions
+  (`TEST_SESSION`, `BURST_SESSION`, `LOAD_SESSION`, `ALT_SESSION`), then prints
+  the summary table: full-path / network / render / under-load / baseline /
+  perceived p50/p95/p99, the computed run-kit tax, the attribution verdict, the
+  distribution histograms (including the perceived-echo histograms), and the
+  throughput time.
 - `resolveFirstWindowId(page, session?)` polls `/api/sessions` for the named
   session's first window's stable `@N` id (the terminal route is keyed by window
   id, not index), mirroring `mobile-touch-scroll.spec.ts`. Defaults to the echo
@@ -243,6 +270,55 @@ change making it worse.
    b. Push `{ label: "under-load", ms }`; settle 40ms so trials approximate a
       human typing cadence and collide with ticks independently.
 6. Assert 30 under-load samples were collected.
+
+### `perceived-echo — predicted glyph paints near-instantly (idle + under-load)`
+
+**What it proves:** Once the predictive-echo engine is ACTIVE, a keystroke's
+**predicted** glyph is painted locally within the same `onData` tick — sub-frame
+and independent of pane load — even while the pane is streaming a background tick
+stream (the case where the server echo is slow/bimodal). This is the perceived
+latency the user actually feels with prediction on. It also records the
+misprediction count over the run.
+
+**Steps:**
+1. `page.addInitScript(INSTALL_SEND_STAMP)` so perceived latency is measured from
+   the real send time.
+2. Create `LOAD_SESSION` with `status off` and start the bounded tick generator +
+   `cat` (same load shape as the under-load test).
+3. Navigate to the window; wait for `.xterm-screen`, the registered terminal, and
+   a non-null `window.__rkPredictions[windowId]` handle; focus the terminal.
+4. **Activation poll**: press printable chars (40ms cadence, up to 20s) until
+   `__rkPredictions[windowId].debug().state === "active"` — the engine's
+   PASSIVE→ACTIVE bootstrap is the mosh-style safety reflex and cannot be skipped.
+5. For 20 trials (probe char rotates through an alphabet sharing no letter with
+   `tick`): `measurePerceivedEcho` snapshots the `painted` counter, presses the
+   key, and stops the clock when `painted` increments (the predicted cell was
+   written). `null` (no prediction painted) trials are skipped.
+6. Read `debug().mispredictions` for the run total.
+7. Assert at least some predictions were painted and that **every** recorded
+   perceived sample is under 50ms (a generous near-instant bound — audit-style,
+   not a tight budget). Log the painted/misprediction tallies.
+
+### `alternate-screen pane — NO predictions painted (vim)`
+
+**What it proves:** The hard exclusion — in the alternate-screen buffer
+(vim/less/htop) the engine MUST never paint, because full-screen apps echo cursor
+motions rather than the typed glyph and a prediction would flash garbage. The
+test types printables inside `vim` and asserts the `painted` counter stays at zero
+and the engine stays PASSIVE.
+
+**Steps:**
+1. `page.addInitScript(INSTALL_SEND_STAMP)`.
+2. Create `ALT_SESSION` with `status off` and launch `vim` on a scratch file
+   (vim switches the terminal to the alternate screen).
+3. Navigate, wait for `.xterm-screen`, the registered terminal, and the
+   `__rkPredictions` handle; focus the terminal.
+4. Poll `term.buffer.active.type` until it is `"alternate"` (vim has taken over).
+5. Press `i` (vim insert mode), then type `hello world` one printable at a time.
+6. Assert `debug().painted === 0` (no predictions painted in the alternate
+   screen) and `debug().state === "passive"` (the engine never activated).
+7. Exit vim cleanly (`Esc` `:q!` `Enter`) so the session can be killed without a
+   swap-file prompt.
 
 ### `throughput guard — burst output renders fully and fast`
 

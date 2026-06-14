@@ -14,6 +14,9 @@ import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { deriveXtermTheme } from "@/themes";
 import { ComposeBuffer } from "@/components/compose-buffer";
 import { copyToClipboard } from "@/lib/clipboard";
+import { PredictiveEcho, isPrintableAscii } from "@/components/terminal/predictive-echo";
+import type { PredictionDebugState } from "@/components/terminal/predictive-echo";
+import { createPredictiveEcho } from "@/components/terminal/predictive-echo-binding";
 
 /**
  * Custom ClipboardProvider for the xterm.js ClipboardAddon.
@@ -49,6 +52,14 @@ declare global {
     __rkTerminals?: Record<string, import("@xterm/xterm").Terminal>;
     /** Active renderer per windowId — "webgl" until a context-loss demotes it. */
     __rkRenderer?: Record<string, "webgl" | "canvas">;
+    /**
+     * Predictive-echo state per windowId, for the echo-latency harness. Exposes
+     * a `debug()` reader so the perceived-echo metric can distinguish a
+     * predicted cell from a server-echoed one (via the painted/unconfirmed
+     * counters) and read the misprediction counter. Mirrors `__rkTerminals`:
+     * DEV-gated, register on engine create, unregister on dispose.
+     */
+    __rkPredictions?: Record<string, { debug: () => PredictionDebugState }>;
   }
 }
 
@@ -62,9 +73,28 @@ function unregisterTestTerminal(windowId: string) {
   delete window.__rkTerminals[windowId];
 }
 
+function registerTestPrediction(windowId: string, engine: PredictiveEcho) {
+  if (!import.meta.env.DEV || typeof window === "undefined") return;
+  (window.__rkPredictions ??= {})[windowId] = { debug: () => engine.debugState() };
+}
+
+function unregisterTestPrediction(windowId: string) {
+  if (!import.meta.env.DEV || typeof window === "undefined" || !window.__rkPredictions) return;
+  delete window.__rkPredictions[windowId];
+}
+
 // Shared encoder for measuring UTF-8 byte length on the inbound flush path
 // (allocated once, not per message).
 const textEncoder = new TextEncoder();
+
+// Shared decoder for reconciling BINARY inbound frames against the predictive-
+// echo engine (allocated once, mirroring textEncoder). The relay frames ALL PTY
+// output as binary (websocket.BinaryMessage), so every server echo arrives on
+// the binary path — reconciliation must decode these bytes to feed the engine
+// (NMF-1). Decoding with `{ stream: true }` carries any trailing partial UTF-8
+// sequence across chunk boundaries so a multi-byte glyph split between two relay
+// frames decodes correctly rather than emitting a replacement char.
+const textDecoder = new TextDecoder();
 
 /** Record which renderer is live for `windowId` (read by the latency harness). */
 function setActiveRenderer(windowId: string, renderer: "webgl" | "canvas") {
@@ -112,6 +142,14 @@ export function TerminalClient({
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
+  // Predictive-echo engine. Created per-connection in the WS effect (so its
+  // adaptive RTT estimate and confidence state are per-connection), but read by
+  // the mount-only `onData` handler — hence a ref. Null until the first
+  // connection arms it; the onData handler no-ops while null.
+  const predictionRef = useRef<PredictiveEcho | null>(null);
+  // True while an IME composition is active — predictions are suppressed during
+  // composition (the composed text is committed as one onData event afterward).
+  const composingRef = useRef(false);
   const [terminalReady, setTerminalReady] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [composeInitialText, setComposeInitialText] = useState<string | undefined>();
@@ -212,6 +250,13 @@ export function TerminalClient({
     let terminal: import("@xterm/xterm").Terminal | null = null;
     let resizeRafId: number | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let composingTeardown: (() => void) | null = null;
+    const onCompositionStart = () => {
+      composingRef.current = true;
+    };
+    const onCompositionEnd = () => {
+      composingRef.current = false;
+    };
 
     async function init() {
       if (!terminalRef.current) return;
@@ -307,10 +352,25 @@ export function TerminalClient({
         setActiveRenderer(windowId, "canvas");
       }
 
-      // Keyboard input → current WebSocket (wsRef always points to latest)
+      // Keyboard input → current WebSocket (wsRef always points to latest).
+      // The send is UNCONDITIONAL and UNMODIFIED — prediction is layered AFTER
+      // it, additively, and never gates or alters the keystroke that goes to the
+      // server. xterm's onData payload for a paste is the whole pasted blob in
+      // one event (length > 1), so the predictability gate's single-printable
+      // check naturally excludes pastes; bracketed-paste markers (if enabled)
+      // are control sequences and are excluded for the same reason.
       terminal.onData((data) => {
         if (wsRef.current?.readyState === WebSocket.OPEN)
           wsRef.current.send(data);
+        // Additive predictive local echo. The engine itself enforces every
+        // exclusion (alternate-screen, control chars, Enter-effects, IME via
+        // the composing flag, non-printable, PASSIVE/ACTIVE) — passing `pasting`
+        // as a multi-char-payload signal keeps a multi-char paste out of the
+        // single-glyph prediction path even when bracketed paste is off.
+        predictionRef.current?.onInput(data, {
+          composing: composingRef.current,
+          pasting: data.length > 1 && !isPrintableAscii(data),
+        });
       });
 
       // Cmd+C / Ctrl+C: copy selection instead of sending SIGINT
@@ -332,6 +392,21 @@ export function TerminalClient({
         }
         return true;
       });
+
+      // Track IME composition so predictive echo is suppressed while composing
+      // (the composed glyph is committed as one onData event afterward). xterm's
+      // hidden helper textarea is where composition fires; listen there.
+      const helperTextarea = terminalRef.current.querySelector<HTMLTextAreaElement>(
+        ".xterm-helper-textarea",
+      );
+      if (helperTextarea) {
+        helperTextarea.addEventListener("compositionstart", onCompositionStart);
+        helperTextarea.addEventListener("compositionend", onCompositionEnd);
+        composingTeardown = () => {
+          helperTextarea.removeEventListener("compositionstart", onCompositionStart);
+          helperTextarea.removeEventListener("compositionend", onCompositionEnd);
+        };
+      }
 
       resizeObserver = new ResizeObserver(() => {
         if (cancelled) return;
@@ -361,6 +436,8 @@ export function TerminalClient({
 
     return () => {
       cancelled = true;
+      composingTeardown?.();
+      composingRef.current = false;
       resizeObserver?.disconnect();
       if (resizeRafId) cancelAnimationFrame(resizeRafId);
       // Close any active WS on true unmount
@@ -417,6 +494,28 @@ export function TerminalClient({
     registerTestTerminal(windowId, xtermRef.current);
     return () => unregisterTestTerminal(windowId);
   }, [terminalReady, windowId]);
+
+  // Reset the predictive-echo engine on a windowId CHANGE, independent of the
+  // connection effect. This is load-bearing (review M3): the engine is created
+  // per-CONNECTION, but a SAME-SESSION window switch deliberately RIDES the
+  // existing socket — windowId is NOT a connection-effect dep (see the comment
+  // block on the connect effect and ui-patterns.md / 260610-9umy), so that
+  // effect does NOT re-run and the engine survives the switch. Without a reset,
+  // its stale pending queue, per-row cell snapshots (captured against the OLD
+  // window's buffer), and ACTIVE confidence state would straddle the switch and
+  // write the old window's coordinates into the NEWLY-attached window's buffer.
+  //
+  // Keyed on windowId alone and gated on a ref so it fires ONLY on a real change
+  // (not initial mount, where the connection effect already armed a fresh
+  // engine). It touches NO connection-effect dependency, so it cannot trigger a
+  // spurious reconnect — it clears engine state in place while the socket
+  // persists, exactly mirroring the same-session "ride the socket" contract.
+  const lastResetWindowIdRef = useRef(windowId);
+  useEffect(() => {
+    if (lastResetWindowIdRef.current === windowId) return; // initial mount / no change
+    lastResetWindowIdRef.current = windowId;
+    predictionRef.current?.reset();
+  }, [windowId]);
 
   // Scroll-lock: prevent xterm textarea from gaining focus when locked.
   // Instead of reactively blurring on focusin (which disrupts active touch
@@ -669,6 +768,16 @@ export function TerminalClient({
 
     const terminal = xtermRef.current;
 
+    // Predictive local echo: one engine per connection (its adaptive RTT
+    // estimate and PASSIVE/ACTIVE confidence are per-connection). Held in a ref
+    // so the mount-only onData handler reaches the latest engine; reconciliation
+    // (below) feeds it the same inbound bytes the terminal writes. DEV-gated
+    // test handle mirrors __rkTerminals.
+    const prediction = createPredictiveEcho(terminal);
+    predictionRef.current = prediction;
+    registerTestPrediction(windowIdRef.current, prediction);
+    const predictionWindowId = windowIdRef.current;
+
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectDelay = 1000;
@@ -743,6 +852,43 @@ export function TerminalClient({
       terminal.reset();
     }
 
+    /**
+     * Feed an inbound TEXT chunk to the predictive-echo engine for
+     * reconciliation, BEFORE the chunk is written to the terminal so any
+     * confirm-restyle / rollback VT sequences land ahead of the server's
+     * authoritative bytes. Hot-path safe: the engine early-returns when its
+     * queue is empty (the idle/PASSIVE common case), so a normal flood pays
+     * essentially nothing here.
+     */
+    function reconcileInbound(text: string) {
+      predictionRef.current?.reconcile(text);
+    }
+
+    /**
+     * Feed an inbound BINARY chunk to the engine for reconciliation (NMF-1).
+     * The relay frames ALL PTY output — including interactive keystroke echoes —
+     * as binary (websocket.BinaryMessage), and the client sets
+     * `ws.binaryType = "arraybuffer"`, so EVERY echo arrives here, never on the
+     * string path. Without this the engine would never observe a server byte,
+     * never leave PASSIVE, and never paint — the feature would be inert in the
+     * running app (the string-path-only reconcile passed unit tests that call
+     * reconcile() with strings, bypassing the transport).
+     *
+     * Allocation-light gate (R10/A-025): when the engine has nothing queued the
+     * decode is a guaranteed no-op (reconcile early-returns on an empty queue),
+     * so skip even constructing the decoded string — `hasPending()` is a cheap
+     * queue-length check. This keeps a normal flood (the common idle case, no
+     * predictions in flight) from paying for a TextDecoder per chunk. Decoding
+     * uses `{ stream: true }` so a multi-byte UTF-8 glyph split across two relay
+     * frames reconciles correctly. The decoded string is used ONLY for matching;
+     * xterm still receives the raw bytes, and the write ordering is unchanged.
+     */
+    function reconcileInboundBinary(chunk: Uint8Array) {
+      const engine = predictionRef.current;
+      if (!engine || !engine.hasPending()) return;
+      engine.reconcile(textDecoder.decode(chunk, { stream: true }));
+    }
+
     function flushToTerminal() {
       flushRafId = null;
       // An empty flush (e.g. a zero-message connection's close-time drain)
@@ -750,10 +896,12 @@ export function TerminalClient({
       if (!textBuffer && binaryBuffers.length === 0) return;
       consumePendingReset();
       if (textBuffer) {
+        reconcileInbound(textBuffer);
         terminal.write(textBuffer);
         textBuffer = "";
       }
       for (const buf of binaryBuffers) {
+        reconcileInboundBinary(buf);
         terminal.write(buf);
       }
       binaryBuffers = [];
@@ -808,6 +956,17 @@ export function TerminalClient({
       // Arm the deferred reset for this connection (consumed at first-write
       // time by both write paths — see pendingReset above).
       pendingReset = true;
+      // Clear the predictive-echo engine whenever the buffer is about to be
+      // wiped (SF-reconnect). A transient (non-4004) drop re-runs connect() IN
+      // PLACE: the same effect, the same engine instance (windowId unchanged →
+      // the windowId-keyed reset does NOT fire; the effect-cleanup teardown does
+      // NOT run on an in-place reconnect). The armed pendingReset will
+      // terminal.reset() the buffer at first write, invalidating every queued
+      // prediction's cell snapshot — so the engine MUST clear in lockstep, or
+      // painted/queued predictions would reconcile stale snapshots against the
+      // post-reset redraw. On the FIRST connect() of a fresh effect this is a
+      // harmless no-op (the engine was just constructed empty + PASSIVE).
+      prediction.reset();
       const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(windowIdRef.current)}?server=${server}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -838,6 +997,7 @@ export function TerminalClient({
           // tiny ASCII echo stays allocation-free.
           if (canWriteImmediately(textByteLength(event.data))) {
             consumePendingReset();
+            reconcileInbound(event.data);
             terminal.write(event.data);
             markImmediateWrite();
             return;
@@ -848,6 +1008,7 @@ export function TerminalClient({
           const chunk = new Uint8Array(event.data);
           if (canWriteImmediately(chunk.length)) {
             consumePendingReset();
+            reconcileInboundBinary(chunk);
             terminal.write(chunk);
             markImmediateWrite();
             return;
@@ -908,6 +1069,12 @@ export function TerminalClient({
       if (flushRafId) cancelAnimationFrame(flushRafId);
       if (frameResetRafId) cancelAnimationFrame(frameResetRafId);
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      // Tear down the predictive-echo engine for this connection (drop queued
+      // predictions, clear the ref, remove the DEV test handle) before the
+      // successor connection arms its own.
+      prediction.reset();
+      if (predictionRef.current === prediction) predictionRef.current = null;
+      unregisterTestPrediction(predictionWindowId);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;

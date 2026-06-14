@@ -1,0 +1,49 @@
+id: dxqh
+name: 260613-dxqh-predictive-local-echo
+created: 2026-06-13T15:00:54Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 25
+    acceptance_completed: 25
+confidence:
+    certain: 5
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 3.2
+    fuzzy: true
+    dimensions:
+        signal: 88.0
+        reversibility: 76.7
+        competence: 87.1
+        disambiguation: 88.3
+stage_metrics:
+    intake: {started_at: "2026-06-13T15:00:54Z", driver: fab-new, iterations: 1, completed_at: "2026-06-14T00:51:50Z"}
+    apply: {started_at: "2026-06-14T01:43:03Z", driver: fab-fff, iterations: 3, completed_at: "2026-06-14T01:55:33Z"}
+    review: {started_at: "2026-06-14T01:55:33Z", driver: fab-fff, iterations: 3, completed_at: "2026-06-14T02:02:23Z"}
+    hydrate: {started_at: "2026-06-14T02:02:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-14T02:05:58Z"}
+    ship: {started_at: "2026-06-14T02:05:58Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-14T02:05:58Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-14T02:05:58Z

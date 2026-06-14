@@ -251,12 +251,14 @@ var (
 )
 
 // resolveCwdMissing reports, for each unique non-empty cwd, whether the path no
-// longer exists on disk (true == missing). It mirrors resolveGitBranches: a
-// per-entry TTL cache fronts a cheap os.Stat so the SSE hub's periodic refresh
-// doesn't stat every pane on every tick. A cwd that exists (or whose stat fails
-// for any reason other than not-existing) is treated as present — we only flag
-// the unambiguous os.IsNotExist case to avoid false "(deleted)" markers on
-// transient errors (permissions, races).
+// longer exists on disk (true == missing). It follows the same TTL-cache pattern
+// as resolveGitBranches: a per-entry TTL cache fronts a cheap os.Stat so the SSE
+// hub's periodic refresh doesn't stat every pane on every tick. (It omits that
+// function's per-call resolve limit and ctx-cancellation checks — an os.Stat is
+// cheaper than git resolution and the loop is bounded by the distinct pane cwds.)
+// A cwd that exists (or whose stat fails for any reason other than not-existing)
+// is treated as present — we only flag the unambiguous fs.ErrNotExist case to
+// avoid false "(deleted)" markers on transient errors (permissions, races).
 func resolveCwdMissing(cwds []string) map[string]bool {
 	now := time.Now()
 	result := make(map[string]bool)

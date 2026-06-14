@@ -235,15 +235,18 @@ export function TopBar({
 
           {/* Always-present right block — order pinned to the Run Kit anchor so
               these never move between pages. */}
-          <span className="hidden sm:flex">
-            <ThemeToggle />
-          </span>
 
           {/* FixedWidthToggle is route-agnostic — fixed-width constrains the
               max-width of any surface including the dashboard, so it stays in
-              all modes. Second button from the right (before the dot). */}
+              all modes. */}
           <span className="hidden sm:flex">
             <FixedWidthToggle />
+          </span>
+
+          {/* Theme is the rightmost icon button (before the connection dot +
+              Run Kit logo). */}
+          <span className="hidden sm:flex">
+            <ThemeToggle />
           </span>
 
           {/* Connection dot — terminal/root modes only (board mode hides it

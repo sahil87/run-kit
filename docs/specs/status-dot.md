@@ -60,9 +60,9 @@ ONE shape vocabulary across **all** phases (fab stages AND PR):
 | `done` (PR: merged) | rounded square | filled rounded square (`rounded-[1px]`) in phase hue |
 | `skipped` (PR: closed unmerged) | gray ring | hollow ring forced to gray (`text-text-secondary`) |
 
-The `failed` and `done` shapes render slightly larger (8px vs the 6px ring/solid) so the dashed
-border shows enough dashes (with a clearly visible red center) and the square reads unambiguously as
-a square next to the circles.
+All shapes render at one uniform 7px footprint, so the filled square and the hollow circles read as
+the same size in the dense sidebar — the square is distinguished by its shape (`rounded-[1px]`), not
+by being larger. (A filled square at a larger box-size visually dominates the hollow rings.)
 
 ### tmux fallback
 

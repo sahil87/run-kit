@@ -96,8 +96,10 @@ const PR_REVIEW_COLORS: Record<string, string> = {
  * carries a `prNumber` — the same gate the sidebar/dashboard PR surface uses.
  * For a merged/closed PR the checks and review parts are suppressed (they're
  * historical once the PR is no longer open); only the terminal state is shown.
- * A draft PR keeps the neutral token for its state — draft is "not ready",
- * not a healthy green.
+ * A draft PR's state follows the same health logic as every other PR — green
+ * means HEALTHY, not merge-ready, so an open draft shows green like any open PR.
+ * This keeps all three PR surfaces (sidebar dot, these segments, PrStatusLine)
+ * telling one color story.
  */
 function getPrSegments(win: WindowInfo): PrSegment[] | null {
   if (!win.fabChange || !win.prNumber) return null;
@@ -105,7 +107,7 @@ function getPrSegments(win: WindowInfo): PrSegment[] | null {
   if (win.prState) {
     segments.push({
       text: `${win.prState}${win.prIsDraft ? " (draft)" : ""}`,
-      color: win.prIsDraft ? "text-text-secondary" : PR_STATE_COLORS[win.prState],
+      color: PR_STATE_COLORS[win.prState],
     });
   }
   const isOpen = !win.prState || win.prState === "open";

@@ -260,69 +260,168 @@ describe("WindowRow", () => {
       expect(dot.className).not.toContain("text-text-secondary");
     });
 
-    it("renders the PR-fail glyph when prChecks is fail", () => {
+    const FAIL_LABEL = "PR needs attention — checks failing or changes requested";
+
+    it("renders a purple merged dot for a merged PR (first match wins over historical checks)", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
         fabChange: "260613-o20f-x",
         prNumber: 386,
+        prState: "merged",
+        prChecks: "fail", // historical — must be ignored, merged is first
+      });
+      renderRow(win);
+      const dot = screen.getByLabelText("PR merged");
+      expect(dot).toBeInTheDocument();
+      expect(dot.className).toContain("text-purple-400");
+    });
+
+    it("renders a red fail dot when prChecks is fail", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260613-o20f-x",
+        prNumber: 386,
+        prState: "open",
         prChecks: "fail",
       });
       renderRow(win);
-      const glyph = screen.getByLabelText("PR needs attention");
-      expect(glyph).toBeInTheDocument();
-      expect(glyph.className).toContain("text-red-400");
+      const dot = screen.getByLabelText(FAIL_LABEL);
+      expect(dot).toBeInTheDocument();
+      expect(dot.className).toContain("text-red-400");
     });
 
-    it("renders the PR-fail glyph when prReview is changes_requested", () => {
+    it("renders a red fail dot when prReview is changes_requested (fail beats healthy)", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
         fabChange: "260613-o20f-x",
         prNumber: 386,
-        prChecks: "pass",
+        prState: "open",
+        prChecks: "pass", // would be healthy, but changes_requested wins
         prReview: "changes_requested",
       });
       renderRow(win);
-      expect(screen.getByLabelText("PR needs attention")).toBeInTheDocument();
+      const dot = screen.getByLabelText(FAIL_LABEL);
+      expect(dot).toBeInTheDocument();
+      expect(dot.className).toContain("text-red-400");
     });
 
-    it("does not render the PR-fail glyph when checks pass and review is clean", () => {
+    it("renders a yellow pending dot when checks are running", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
         fabChange: "260613-o20f-x",
         prNumber: 386,
+        prState: "open",
+        prChecks: "pending",
+      });
+      renderRow(win);
+      const dot = screen.getByLabelText("PR checks running");
+      expect(dot).toBeInTheDocument();
+      expect(dot.className).toContain("text-yellow-400");
+    });
+
+    it("renders a green healthy dot when checks pass and review is clean", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260613-o20f-x",
+        prNumber: 386,
+        prState: "open",
         prChecks: "pass",
         prReview: "approved",
       });
       renderRow(win);
-      expect(screen.queryByLabelText("PR needs attention")).toBeNull();
+      const dot = screen.getByLabelText("PR checks passing");
+      expect(dot).toBeInTheDocument();
+      expect(dot.className).toContain("text-accent-green");
     });
 
-    it("does not render the PR-fail glyph when the window has no PR", () => {
+    it("renders a green healthy dot for a draft with passing checks (green = health, not readiness)", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
+        fabChange: "260613-o20f-x",
+        prNumber: 386,
+        prState: "open",
+        prIsDraft: true,
+        prChecks: "pass",
+      });
+      renderRow(win);
+      const dot = screen.getByLabelText("PR checks passing");
+      expect(dot).toBeInTheDocument();
+      expect(dot.className).toContain("text-accent-green");
+    });
+
+    it("renders a dim/hollow neutral dot for an open PR with no decisive checks signal", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260613-o20f-x",
+        prNumber: 386,
+        prState: "open",
+      });
+      renderRow(win);
+      const dot = screen.getByLabelText("PR open");
+      expect(dot).toBeInTheDocument();
+      expect(dot.className).toContain("text-text-secondary");
+      // Neutral is the hollow-ring rendering (border + transparent fill), like
+      // the activity dot — NOT the solid ● glyph the live states use. Assert on
+      // the inline style attribute (jsdom normalizes `transparent` to
+      // rgba(0,0,0,0), which trips toHaveStyle's literal comparison).
+      expect(dot.getAttribute("style")).toContain("border");
+      expect(dot.getAttribute("style")).toContain("transparent");
+      expect(dot.textContent).toBe(""); // no glyph
+    });
+
+    it("renders a neutral dot for a closed-unmerged PR (not red, not purple)", () => {
+      // A closed PR with no failing checks flows past merged/fail/pending/healthy
+      // to neutral — closed has no early-return of its own (only merged does).
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260613-o20f-x",
+        prNumber: 386,
+        prState: "closed",
+      });
+      renderRow(win);
+      const dot = screen.getByLabelText("PR open");
+      expect(dot).toBeInTheDocument();
+      expect(dot.className).toContain("text-text-secondary");
+    });
+
+    it("does not render any PR dot when the window has no PR", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260613-o20f-x",
         prChecks: "fail",
       });
       renderRow(win);
-      expect(screen.queryByLabelText("PR needs attention")).toBeNull();
+      expect(screen.queryByLabelText("PR merged")).toBeNull();
+      expect(screen.queryByLabelText(FAIL_LABEL)).toBeNull();
+      expect(screen.queryByLabelText("PR checks running")).toBeNull();
+      expect(screen.queryByLabelText("PR checks passing")).toBeNull();
+      expect(screen.queryByLabelText("PR open")).toBeNull();
     });
 
-    it("does not render the PR-fail glyph when the window is not change-bound (no fabChange)", () => {
+    it("does not render any PR dot when the window is not change-bound (no fabChange)", () => {
       // A non-change-bound window with a populated prNumber and failing checks
-      // must NOT show the triage glyph — the gate mirrors PrStatusLine's
+      // must NOT show any dot — the gate mirrors PrStatusLine's
       // `if (!win.fabChange || !win.prNumber) return null`.
       const win = makeWindow({
         windowId: "@0",
         index: 0,
         prNumber: 386,
+        prState: "open",
         prChecks: "fail",
         prReview: "changes_requested",
       });
       renderRow(win);
-      expect(screen.queryByLabelText("PR needs attention")).toBeNull();
+      expect(screen.queryByLabelText(FAIL_LABEL)).toBeNull();
+      expect(screen.queryByLabelText("PR open")).toBeNull();
     });
   });
 

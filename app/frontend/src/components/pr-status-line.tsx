@@ -31,6 +31,64 @@ export function isFailish(win: WindowInfo): boolean {
 }
 
 /**
+ * The five "traffic-light" states for the sidebar PR dot, generalizing the old
+ * single red triage dot. GREEN MEANS HEALTH, NOT MERGE-READINESS — a draft with
+ * passing checks is `healthy` (green), just not flipped to ready.
+ */
+export type PrDotState = "merged" | "fail" | "pending" | "healthy" | "neutral";
+
+/**
+ * Derive the PR dot state from the live PR fields on a window. First match wins
+ * — the precedence order IS the design:
+ *   1. `merged` first — a landed PR; historical checks/review are noise (mirrors
+ *      status-panel suppressing checks/review once `!open`). `closed` is NOT
+ *      here, so it falls through to `neutral`. Transient by design (Constitution
+ *      II): an aged-out merge resets to `neutral`, never persisted.
+ *   2. `fail` BEFORE `healthy` — an approved PR with a freshly-pushed failing
+ *      commit MUST read red, never green. This branch IS `isFailish` (single
+ *      source of truth shared with PrStatusLine).
+ *   3. `pending` — checks still running.
+ *   4. `healthy` — checks pass (draft included; green = health, so no draft
+ *      contradiction and deliberately NO `&& approved` requirement).
+ *   5. `neutral` — open with no decisive signal yet, closed-unmerged, or an
+ *      aged-out merge. Renders as a dim/hollow dot.
+ */
+export function prDotState(win: WindowInfo): PrDotState {
+  if (win.prState === "merged") return "merged";
+  if (isFailish(win)) return "fail";
+  if (win.prChecks === "pending") return "pending";
+  if (win.prChecks === "pass") return "healthy";
+  return "neutral";
+}
+
+/**
+ * Per-state color token for the sidebar PR dot. Reuses the EXACT existing PR
+ * color vocabulary from status-panel.tsx (no new hex). `text-accent-green` is
+ * the established theme token (themes.ts), not raw `text-green-400`.
+ */
+export const PR_DOT_COLOR: Record<PrDotState, string> = {
+  merged: "text-purple-400",
+  fail: "text-red-400",
+  pending: "text-yellow-400",
+  healthy: "text-accent-green",
+  neutral: "text-text-secondary",
+};
+
+/**
+ * Per-state accessible name for the dot. Color cannot be the only channel
+ * (colorblind a11y + Constitution V), and the dot always renders for a
+ * change-bound PR window, so even `neutral` carries a label. `healthy` is
+ * deliberately "checks passing", NOT "ready to merge" — health, not readiness.
+ */
+export const PR_DOT_LABEL: Record<PrDotState, string> = {
+  merged: "PR merged",
+  fail: "PR needs attention — checks failing or changes requested",
+  pending: "PR checks running",
+  healthy: "PR checks passing",
+  neutral: "PR open",
+};
+
+/**
  * One-line live PR status for a change-bound window. Renders ONLY when the
  * window is change-bound (`fabChange`) AND has a `prNumber` — returns null
  * otherwise. Shared by the sidebar WindowRow and the dashboard window cards so

@@ -15,6 +15,7 @@ import {
   parseColorValue,
   formatColorValue,
   colorValueToHex,
+  saturateHex,
   hexToOklab,
   oklabToHex,
   relativeLuminance,
@@ -273,18 +274,19 @@ describe("computeRowTints", () => {
     expect(PICKER_COLOR_VALUES).toEqual(["1", "2", "3", "4", "5", "6", "1+3", "1+4", "3+4", "1+2"]);
   });
 
-  it("no-regression: single-index tint matches the legacy pipeline for the 6", () => {
+  it("no-regression: single-index tint matches the documented saturate→blend pipeline", () => {
     const p = DEFAULT_DARK_THEME.palette;
     const tints = computeRowTints(p);
+    // The documented single-index pipeline (themes.ts): the source hue is
+    // saturated ×1.5, then blended into the background at the per-state ratio.
+    const SATURATE = 1.5;
+    const RATIOS = { base: 0.14, hover: 0.22, selected: 0.32 } as const;
     for (const idx of PICKER_ANSI_INDICES) {
-      const fg = blendHex(p.ansi[idx], p.background, 0); // placeholder to assert structure
-      void fg;
+      const fg = saturateHex(p.ansi[idx], SATURATE);
       const tint = tints.get(`${idx}`)!;
-      // Recompute via the documented pipeline: saturate(1.5) → blend.
-      // We can't import saturateHex's private path, so just assert it is a
-      // valid muted blend distinct across states.
-      expect(tint.base).toMatch(HEX_RE);
-      expect(tint.base).not.toBe(tint.selected);
+      expect(tint.base).toBe(blendHex(fg, p.background, RATIOS.base));
+      expect(tint.hover).toBe(blendHex(fg, p.background, RATIOS.hover));
+      expect(tint.selected).toBe(blendHex(fg, p.background, RATIOS.selected));
     }
   });
 
@@ -384,13 +386,19 @@ describe("computeRowBorders", () => {
     }
   });
 
-  it("every border clears the min contrast (or best-effort cap) across all themes", () => {
+  it("every border clears the min contrast (or improves on the raw source) across all themes", () => {
     for (const theme of THEMES) {
+      const bg = theme.palette.background;
       const borders = computeRowBorders(theme.palette, theme.category);
-      for (const [, hex] of borders) {
-        // Best-effort cap may not reach 3.0 on pathological themes; assert it is
-        // at least as good as the raw color would be (i.e. a valid hex result).
+      for (const [value, hex] of borders) {
         expect(hex).toMatch(HEX_RE);
+        // The guardrail either lifts the border to the min, or — when the cap is
+        // hit on a pathological theme — leaves it no worse than the raw source.
+        const raw = colorValueToHex(value, theme.palette) ?? theme.palette.ansi[8];
+        const cleared = contrastRatio(hex, bg) >= BORDER_MIN_CONTRAST;
+        const improvedOrEqual =
+          contrastRatio(hex, bg) >= contrastRatio(raw, bg) - 1e-9;
+        expect(cleared || improvedOrEqual).toBe(true);
       }
     }
   });

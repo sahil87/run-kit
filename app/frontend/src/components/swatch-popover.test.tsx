@@ -119,6 +119,44 @@ describe("SwatchPopover", () => {
     expect(onSelect).toHaveBeenLastCalledWith(null);
   });
 
+  it("ArrowDown from the bottom swatch row lands on Clear; Enter clears", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    // Focus starts on the first blend (slot 6, "1+3") via selectedColor.
+    renderWithTheme(<SwatchPopover selectedColor="1+3" onSelect={onSelect} onClose={onClose} />);
+
+    const listbox = screen.getByRole("listbox");
+    // In the 4-col grid, slot 6 ("o") + ArrowDown → Clear (no real swatch below it).
+    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    fireEvent.keyDown(listbox, { key: "Enter" });
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it("ArrowUp from Clear returns to the swatch above its left edge (orange)", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+
+    const listbox = screen.getByRole("listbox");
+    // Walk to Clear (10 ArrowRights from slot 0), then ArrowUp → slot 6 ("1+3"), Enter selects it.
+    for (let i = 0; i < PICKER_COLOR_VALUES.length; i++) {
+      fireEvent.keyDown(listbox, { key: "ArrowRight" });
+    }
+    fireEvent.keyDown(listbox, { key: "ArrowUp" });
+    fireEvent.keyDown(listbox, { key: "Enter" });
+    expect(onSelect).toHaveBeenLastCalledWith("1+3");
+  });
+
+  it("Clear renders inside the grid (col-span cell), still reachable by label", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    renderWithTheme(<SwatchPopover selectedColor="4" onSelect={onSelect} onClose={onClose} />);
+    const clear = screen.getByText("Clear");
+    expect(clear.className).toContain("col-span-2");
+    fireEvent.click(clear);
+    expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
   it("Space selects the focused blend swatch", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();

@@ -388,9 +388,10 @@ describe("WindowRow", () => {
       expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
     });
 
-    it("renders a purple solid for a closed-unmerged PR (neutral→solid, still the purple phase)", () => {
+    it("renders a gray skipped ring for a closed-unmerged PR (labelled 'PR — closed')", () => {
       // A closed PR with no failing checks flows past merged/fail/pending/healthy
-      // to neutral, which maps to a solid shape in the purple PR phase.
+      // to neutral; prShape maps the closed-neutral case to the gray `skipped`
+      // ring (docs/specs/status-dot.md line 61/82), NOT a purple solid.
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -399,9 +400,10 @@ describe("WindowRow", () => {
         prState: "closed",
       });
       renderRow(win);
-      const dot = screen.getByLabelText("PR — open");
+      const dot = screen.getByLabelText("PR — closed");
       expect(dot).toBeInTheDocument();
-      expect(dot.className).toContain("text-purple-400");
+      expect(dot.className).toContain("text-text-secondary");
+      expect(dot.className).not.toContain("text-purple-400");
     });
 
     it("does not render the PR phase when the window has no PR (fab phase instead)", () => {

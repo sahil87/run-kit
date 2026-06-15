@@ -93,8 +93,10 @@ describe("prShape — reuses prDotState semantics", () => {
     expect(prShape(makeWindow({ prState: "open", prChecks: "pass" }))).toBe("solid"));
   it("maps an open PR with no decisive signal (neutral) → solid", () =>
     expect(prShape(makeWindow({ prState: "open" }))).toBe("solid"));
-  it("maps a closed-unmerged PR (neutral) → solid", () =>
-    expect(prShape(makeWindow({ prState: "closed" }))).toBe("solid"));
+  it("maps a closed-unmerged PR (neutral) → skipped (gray ring)", () =>
+    expect(prShape(makeWindow({ prState: "closed" }))).toBe("skipped"));
+  it("a closed PR with failing checks still reads failed (isFailish wins)", () =>
+    expect(prShape(makeWindow({ prState: "closed", prChecks: "fail" }))).toBe("failed"));
 });
 
 describe("StatusDot — rendering shapes", () => {
@@ -194,6 +196,17 @@ describe("StatusDot — PR phase (purple, same shape language)", () => {
     expect(dot.className).toContain("text-purple-400");
     expect(dot.getAttribute("style")).toContain("dashed");
     expect(dot.querySelector("span")!.className).toContain("bg-red-400");
+  });
+
+  it("closed-unmerged → gray skipped ring labelled 'PR — closed'", () => {
+    render(<StatusDot win={prWin({ prState: "closed" })} />);
+    const dot = screen.getByLabelText("PR — closed");
+    // `skipped` forces gray regardless of the purple PR phase, rendered as a
+    // hollow ring (transparent fill + border), matching docs/specs/status-dot.md.
+    expect(dot.className).toContain("text-text-secondary");
+    expect(dot.className).not.toContain("text-purple-400");
+    expect(dot.getAttribute("style")).toContain("border");
+    expect(dot.getAttribute("style")).toContain("transparent");
   });
 
   it("PR wins over a failed fab stage (no whole-dot red, reads purple)", () => {

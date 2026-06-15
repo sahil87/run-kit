@@ -58,11 +58,19 @@ const PR_SHAPE_LABEL: Record<DotShape, string> = {
  * Compose the accessible label. The fab branch uses the real stage word
  * ("apply — active"); the PR branch uses PR-native words ("PR — merged"); the
  * tmux fallback uses the bare activity word ("active"/"idle"), no journey.
+ *
+ * The tmux fallback is gated on `!win.fabChange`, NOT on `phase === "none"`: a
+ * fab-bound window whose `fabStage` is unknown/absent maps to `phase: "none"`
+ * via `fabPhase` (and may carry a `failed`/`done` shape), yet it still
+ * represents fab state — so it gets a `{stage} — {status}` label (the raw
+ * `fabStage`, or the literal "fab" when the stage word is absent), never the
+ * bare tmux activity word. Only a window with no `fabChange` is a true tmux
+ * fallback.
  */
 function dotLabel(win: WindowInfo, state: StatusDotState): string {
   if (state.phase === "pr") return `PR — ${PR_SHAPE_LABEL[state.shape]}`;
-  if (state.phase === "none") return win.activity; // "active" | "idle"
-  return `${win.fabStage ?? state.phase} — ${SHAPE_LABEL[state.shape]}`;
+  if (!win.fabChange) return win.activity; // tmux fallback: "active" | "idle"
+  return `${win.fabStage ?? "fab"} — ${SHAPE_LABEL[state.shape]}`;
 }
 
 export function StatusDot({ win }: { win: WindowInfo }) {

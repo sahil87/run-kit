@@ -71,7 +71,7 @@ Every dot SHALL carry `role="img"`, `aria-label`, and `title` composed from phas
 ### Status Dot: Out of scope (preserved)
 
 #### R9: Preserve prDotState / PR_* exports and PrStatusLine unchanged
-The existing `prDotState`, `PR_DOT_COLOR`, `PR_DOT_LABEL`, `PR_STATE_COLORS`, `PR_CHECKS_COLORS`, `PR_REVIEW_COLORS`, `isFailish`, and `PrStatusLine` exports SHALL remain unchanged in behavior. They serve the dashboard PR line and the pane-panel PR segments, which are out of scope for this change.
+The existing `prDotState`, `PR_STATE_COLORS`, `PR_CHECKS_COLORS`, `PR_REVIEW_COLORS`, `isFailish`, and `PrStatusLine` exports SHALL remain unchanged in behavior. They serve the dashboard PR line and the pane-panel PR segments, which are out of scope for this change. **`PR_DOT_COLOR` and `PR_DOT_LABEL` are NOT preserved — this change DELETES both** (they became zero-call-site once the redesigned dot stopped consuming them; `status-dot.tsx` was their sole consumer, and the dot now resolves color via `PHASE_HUE` and labels via `SHAPE_LABEL`/`PR_SHAPE_LABEL`). See A-012 below.
 
 - **GIVEN** the existing `prDotState` / `PrStatusLine` tests, **WHEN** this change lands, **THEN** they continue to pass unmodified
 
@@ -138,7 +138,7 @@ A new `docs/specs/status-dot.md` SHALL document the precedence rule, the hue=pha
 
 ### Removal Verification
 
-- [ ] A-012 R9: `prDotState`, `PR_DOT_COLOR`, `PR_DOT_LABEL`, `PR_STATE_COLORS`, `PR_CHECKS_COLORS`, `PR_REVIEW_COLORS`, `isFailish`, and `PrStatusLine` remain exported and unchanged; `pr-status-line.test.tsx` passes unmodified.
+- [ ] A-012 R9: `prDotState`, `PR_STATE_COLORS`, `PR_CHECKS_COLORS`, `PR_REVIEW_COLORS`, `isFailish`, and `PrStatusLine` remain exported and unchanged (`pr-status-line.test.tsx` passes unmodified); `PR_DOT_COLOR` and `PR_DOT_LABEL` are DELETED (zero-call-site after the redesign — verified by a repo-wide grep finding no remaining references).
 
 ### Scenario Coverage
 

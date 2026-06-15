@@ -172,8 +172,17 @@ export function fabShape(displayState: string | undefined): DotShape {
 /**
  * PR fields → shape, reusing the existing `prDotState` semantics so the PR
  * surfaces stay in lock-step: merged→done, fail→failed, pending→ring,
- * healthy→solid, neutral(open or closed-unmerged)→solid. The PR is the purple
- * `phase`; this maps only its status to a shape.
+ * healthy→solid. The PR is the purple `phase`; this maps only its status to a
+ * shape.
+ *
+ * `neutral` splits by `prState`: a **closed-unmerged** PR maps to `skipped`
+ * (the gray hollow ring, labelled "PR — closed" — matching docs/specs/status-dot.md
+ * line 61/82 and `PR_SHAPE_LABEL.skipped`), while an open / aged-out-merge
+ * neutral maps to `solid` (purple, "PR — open"). The closed check runs only on
+ * the `neutral` fall-through, AFTER `prDotState`'s precedence — so a CLOSED PR
+ * with failing checks still reads `failed` (`isFailish` wins inside
+ * `prDotState`). `prDotState`'s own behavior is UNCHANGED (R9): the
+ * closed→skipped mapping lives here in `prShape`, not in `prDotState`.
  */
 export function prShape(win: WindowInfo): DotShape {
   switch (prDotState(win)) {
@@ -184,9 +193,11 @@ export function prShape(win: WindowInfo): DotShape {
     case "pending":
       return "ring";
     case "healthy":
+      return "solid";
     case "neutral":
     default:
-      return "solid";
+      // Closed-unmerged → the gray `skipped` ring; open / aged-out-merge → solid.
+      return win.prState === "closed" ? "skipped" : "solid";
   }
 }
 

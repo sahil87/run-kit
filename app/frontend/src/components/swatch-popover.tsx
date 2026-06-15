@@ -75,7 +75,7 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
           const next = i + GRID_COLS;
           if (next < colorCount) return next; // lands on a real swatch
           // Past the last swatch row: any downward move lands on Clear, which
-          // occupies the right half of the final row (cols CLEAR_COL..3).
+          // occupies the right half of the final row (cols `colorCount % GRID_COLS`..3).
           return clearIndex;
         });
       } else if (e.key === "ArrowUp") {
@@ -86,7 +86,7 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
             // Step up one row, same column → the swatch directly above Clear's left edge.
             const clearCol = colorCount % GRID_COLS;
             const clearRow = Math.floor(colorCount / GRID_COLS);
-            return (clearRow - 1) * GRID_COLS + clearCol; // 10 swatches → slot 6 ("o")
+            return (clearRow - 1) * GRID_COLS + clearCol; // 10 swatches → slot 6 ("1+3", orange)
           }
           const prev = i - GRID_COLS;
           return prev >= 0 ? prev : i;

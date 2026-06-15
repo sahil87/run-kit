@@ -126,7 +126,7 @@ describe("SwatchPopover", () => {
     renderWithTheme(<SwatchPopover selectedColor="1+3" onSelect={onSelect} onClose={onClose} />);
 
     const listbox = screen.getByRole("listbox");
-    // In the 4-col grid, slot 6 ("o") + ArrowDown → Clear (no real swatch below it).
+    // In the 4-col grid, slot 6 ("1+3") + ArrowDown → Clear (no real swatch below it).
     fireEvent.keyDown(listbox, { key: "ArrowDown" });
     fireEvent.keyDown(listbox, { key: "Enter" });
     expect(onSelect).toHaveBeenLastCalledWith(null);

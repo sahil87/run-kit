@@ -40,7 +40,8 @@ export type PaneInfo = {
 /** A tmux session with its windows and optional fab enrichment. */
 export type ProjectSession = {
   name: string;
-  sessionColor?: number;
+  /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
+  sessionColor?: string;
   windows: WindowInfo[];
 };
 
@@ -54,7 +55,8 @@ export type WindowInfo = {
   isActiveWindow: boolean;
   paneCommand?: string;
   activityTimestamp: number;
-  color?: number;
+  /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
+  color?: string;
   agentState?: string;
   agentIdleDuration?: string;
   fabChange?: string;

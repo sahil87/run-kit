@@ -3,20 +3,22 @@ import { createPortal } from "react-dom";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { SwatchPopover } from "@/components/swatch-popover";
-import { UNCOLORED_SELECTED_ANSI, type RowTint } from "@/themes";
+import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
 import type { ServerInfo } from "@/api/client";
 
 type ServerPanelProps = {
   server: string;
   servers: ServerInfo[];
-  serverColors: Record<string, number>;
-  rowTints?: Map<number, RowTint>;
-  ansiPalette?: readonly string[];
+  /** server name → color value descriptor ("4" / "1+3"). */
+  serverColors: Record<string, string>;
+  rowTints?: Map<string, RowTint>;
+  /** Contrast-adjusted full-saturation border color per color value. */
+  rowBorders?: Map<string, string>;
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
   onRefreshServers: () => void;
-  onServerColorChange?: (server: string, color: number | null) => void;
+  onServerColorChange?: (server: string, color: string | null) => void;
   /** Forwarded to CollapsiblePanel's corner affordance. When supplied, a corner
    *  element renders at the bottom-right of the drag handle and initiates a
    *  sidebar-width drag in addition to the panel's vertical resize. */
@@ -50,7 +52,7 @@ export function ServerPanel({
   servers,
   serverColors,
   rowTints,
-  ansiPalette,
+  rowBorders,
   onSwitchServer,
   onCreateServer,
   onKillServer,
@@ -135,16 +137,17 @@ export function ServerPanel({
           {servers.map(({ name, sessionCount }) => {
             const color = serverColors[name];
             const tint = color != null && rowTints ? rowTints.get(color) ?? null : null;
-            const uncoloredSelectedTint = rowTints?.get(UNCOLORED_SELECTED_ANSI) ?? null;
+            const uncoloredSelectedTint = rowTints?.get(UNCOLORED_SELECTED_KEY) ?? null;
             const isActive = name === server;
             // Stripe mirrors window-row's left-border treatment: colored only when active;
             // transparent otherwise (height reserved to avoid text shift between states).
+            // Border color is the contrast-adjusted full-saturation hex from rowBorders.
             const stripeBg = !isActive
               ? "transparent"
-              : color != null && ansiPalette
-              ? ansiPalette[color]
-              : ansiPalette
-              ? ansiPalette[UNCOLORED_SELECTED_ANSI]
+              : color != null && rowBorders
+              ? rowBorders.get(color) ?? "var(--color-border)"
+              : rowBorders
+              ? rowBorders.get(UNCOLORED_SELECTED_KEY) ?? "var(--color-border)"
               : "var(--color-border)";
             return (
               <ServerTile

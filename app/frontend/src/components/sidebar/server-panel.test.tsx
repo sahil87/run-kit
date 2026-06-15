@@ -20,12 +20,12 @@ vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
 function renderPanel(overrides: {
   server?: string;
   servers?: ServerInfo[];
-  serverColors?: Record<string, number>;
+  serverColors?: Record<string, string>;
   onSwitchServer?: (name: string) => void;
   onKillServer?: (name: string) => void;
   onCreateServer?: () => void;
   onRefreshServers?: () => void;
-  onServerColorChange?: (server: string, color: number | null) => void;
+  onServerColorChange?: (server: string, color: string | null) => void;
 } = {}) {
   const props = {
     server: overrides.server ?? "default",

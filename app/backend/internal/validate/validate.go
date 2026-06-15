@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -30,6 +31,65 @@ func ValidateName(name, label string) string {
 		return fmt.Sprintf("%s cannot contain colons or periods", label)
 	}
 	return ""
+}
+
+// ValidateColorValue validates a swatch color-value descriptor: a single ANSI
+// index ("4") or a two-hue blend of two indices joined by '+' ("1+3"). Every
+// index must be an integer in [0, 15]. Returns empty string if valid, an error
+// message otherwise. This is the single shared color-value rule reused by the
+// window, session, and server color handlers (constitution §I — input validated
+// before it ever reaches `tmux set-option` or the settings file).
+func ValidateColorValue(value string) string {
+	_, msg := parseColorIndices(value)
+	return msg
+}
+
+// parseColorIndices splits a color-value descriptor into its 1–2 ANSI indices,
+// validating each. Returns the parsed indices and an empty message on success,
+// or nil and an error message otherwise. Surrounding/internal whitespace around
+// each index is tolerated so the rule matches the frontend parser
+// (themes.ts parseColorValue), which trims each part; empty parts are rejected
+// explicitly rather than relying on strconv error shapes.
+func parseColorIndices(value string) ([]int, string) {
+	parts := strings.Split(value, "+")
+	if len(parts) < 1 || len(parts) > 2 {
+		return nil, "Color must be a single index (0-15) or a blend (a+b)"
+	}
+	indices := make([]int, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return nil, "Color must be a single index (0-15) or a blend (a+b)"
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, "Color must be a single index (0-15) or a blend (a+b)"
+		}
+		if n < 0 || n > 15 {
+			return nil, "Color indices must be between 0 and 15"
+		}
+		indices = append(indices, n)
+	}
+	return indices, ""
+}
+
+// NormalizeColorValue parses a stored color value (which may be a legacy bare
+// integer or the string descriptor) and returns its canonical string form, or
+// ("", false) when malformed. The canonical form re-serializes the parsed
+// indices ("4" or "a+b"), so equivalent-but-noisy inputs ("01", " 1 + 3 ")
+// collapse to a single representation. Used by tolerant-read storage paths
+// (settings, run-kit.yaml) to accept int-or-string on read and always normalize
+// to the canonical string.
+func NormalizeColorValue(value string) (string, bool) {
+	indices, msg := parseColorIndices(value)
+	if msg != "" {
+		return "", false
+	}
+	parts := make([]string, len(indices))
+	for i, n := range indices {
+		parts[i] = strconv.Itoa(n)
+	}
+	return strings.Join(parts, "+"), true
 }
 
 // windowIDPattern matches a tmux window ID: an '@' followed by one or more digits

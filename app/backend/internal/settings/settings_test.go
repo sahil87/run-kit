@@ -179,27 +179,45 @@ func TestSerialize(t *testing.T) {
 }
 
 func TestParseServerColors(t *testing.T) {
-	s := parse("theme: system\nserver_colors:\n  default: 4\n  dev: 10\n")
-	if len(s.ServerColors) != 2 {
-		t.Fatalf("expected 2 server colors, got %d", len(s.ServerColors))
+	// Tolerant read: legacy bare integers, quoted strings, and blends all parse.
+	s := parse("theme: system\nserver_colors:\n  default: 4\n  dev: \"10\"\n  blend: \"1+3\"\n  bad: \"99\"\n")
+	if len(s.ServerColors) != 3 {
+		t.Fatalf("expected 3 valid server colors (malformed dropped), got %d: %v", len(s.ServerColors), s.ServerColors)
 	}
-	if s.ServerColors["default"] != 4 {
-		t.Errorf("ServerColors[default] = %d, want 4", s.ServerColors["default"])
+	if s.ServerColors["default"] != "4" {
+		t.Errorf("ServerColors[default] = %q, want \"4\"", s.ServerColors["default"])
 	}
-	if s.ServerColors["dev"] != 10 {
-		t.Errorf("ServerColors[dev] = %d, want 10", s.ServerColors["dev"])
+	if s.ServerColors["dev"] != "10" {
+		t.Errorf("ServerColors[dev] = %q, want \"10\"", s.ServerColors["dev"])
+	}
+	if s.ServerColors["blend"] != "1+3" {
+		t.Errorf("ServerColors[blend] = %q, want \"1+3\"", s.ServerColors["blend"])
+	}
+	if _, ok := s.ServerColors["bad"]; ok {
+		t.Errorf("malformed value 99 should have been dropped, got %q", s.ServerColors["bad"])
 	}
 }
 
 func TestSerializeServerColors(t *testing.T) {
 	s := Settings{
 		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
-		ServerColors: map[string]int{"default": 4, "dev": 10},
+		ServerColors: map[string]string{"default": "4", "dev": "1+3"},
 	}
 	got := serialize(s)
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nserver_colors:\n  default: 4\n  dev: 10\n"
+	// Values are always written quoted so a blend ("1+3") round-trips.
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nserver_colors:\n  default: \"4\"\n  dev: \"1+3\"\n"
 	if got != want {
 		t.Errorf("serialize = %q, want %q", got, want)
+	}
+}
+
+// TestParseServerColors_legacyIntBackCompat verifies a pre-change settings file
+// holding bare integer server colors (the old format) still loads after the
+// int→string type change, with no migration code path.
+func TestParseServerColors_legacyIntBackCompat(t *testing.T) {
+	s := parse("server_colors:\n  default: 4\n  dev: 10\n")
+	if s.ServerColors["default"] != "4" || s.ServerColors["dev"] != "10" {
+		t.Errorf("legacy integer server colors did not load: %v", s.ServerColors)
 	}
 }
 
@@ -207,14 +225,24 @@ func TestServerColorRoundTrip(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	color := 6
+	color := "6"
 	if err := SetServerColor("default", &color); err != nil {
 		t.Fatalf("SetServerColor: %v", err)
 	}
 
 	got := GetServerColor("default")
-	if got == nil || *got != 6 {
-		t.Errorf("GetServerColor(default) = %v, want 6", got)
+	if got == nil || *got != "6" {
+		t.Errorf("GetServerColor(default) = %v, want \"6\"", got)
+	}
+
+	// Blend round-trips through write→read as a string.
+	blend := "1+3"
+	if err := SetServerColor("default", &blend); err != nil {
+		t.Fatalf("SetServerColor blend: %v", err)
+	}
+	got = GetServerColor("default")
+	if got == nil || *got != "1+3" {
+		t.Errorf("GetServerColor(default) = %v, want \"1+3\"", got)
 	}
 
 	// Unset server should return nil

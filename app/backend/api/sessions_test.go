@@ -99,7 +99,7 @@ type mockTmuxOps struct {
 
 	setSessionColorCalled  bool
 	setSessionColorSession string
-	setSessionColorColor   int
+	setSessionColorColor   string
 	setSessionColorErr     error
 	unsetSessionColorCalled  bool
 	unsetSessionColorSession string
@@ -107,7 +107,7 @@ type mockTmuxOps struct {
 
 	setWindowColorCalled   bool
 	setWindowColorWindowID string
-	setWindowColorColor    int
+	setWindowColorColor    string
 	setWindowColorErr      error
 	unsetWindowColorCalled   bool
 	unsetWindowColorWindowID string
@@ -285,7 +285,7 @@ func (m *mockTmuxOps) KillActivePane(windowID, server string) error {
 	m.killActivePaneWindowID = windowID
 	return m.err
 }
-func (m *mockTmuxOps) SetSessionColor(session string, color int, server string) error {
+func (m *mockTmuxOps) SetSessionColor(session string, color string, server string) error {
 	m.setSessionColorCalled = true
 	m.setSessionColorSession = session
 	m.setSessionColorColor = color
@@ -302,7 +302,7 @@ func (m *mockTmuxOps) UnsetSessionColor(session string, server string) error {
 	}
 	return m.err
 }
-func (m *mockTmuxOps) SetWindowColor(windowID string, color int, server string) error {
+func (m *mockTmuxOps) SetWindowColor(windowID string, color string, server string) error {
 	m.setWindowColorCalled = true
 	m.setWindowColorWindowID = windowID
 	m.setWindowColorColor = color
@@ -649,7 +649,7 @@ func TestSessionColorSet(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
-	body := `{"color":6}`
+	body := `{"color":"6"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -664,8 +664,43 @@ func TestSessionColorSet(t *testing.T) {
 	if ops.setSessionColorSession != "myproject" {
 		t.Errorf("session = %q, want %q", ops.setSessionColorSession, "myproject")
 	}
-	if ops.setSessionColorColor != 6 {
-		t.Errorf("color = %d, want %d", ops.setSessionColorColor, 6)
+	if ops.setSessionColorColor != "6" {
+		t.Errorf("color = %q, want %q", ops.setSessionColorColor, "6")
+	}
+}
+
+func TestSessionColorSetBlend(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"color":"1+3"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if ops.setSessionColorColor != "1+3" {
+		t.Errorf("color = %q, want %q", ops.setSessionColorColor, "1+3")
+	}
+}
+
+func TestSessionColorRejectsMalformed(t *testing.T) {
+	for _, bad := range []string{`{"color":"99"}`, `{"color":"1+"}`, `{"color":"x"}`, `{"color":"1+2+3"}`} {
+		ops := &mockTmuxOps{}
+		router := newTestRouter(&mockSessionFetcher{}, ops)
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(bad))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d, want %d", bad, rec.Code, http.StatusBadRequest)
+		}
+		if ops.setSessionColorCalled {
+			t.Errorf("body %s: SetSessionColor should not be called on invalid input", bad)
+		}
 	}
 }
 
@@ -693,7 +728,7 @@ func TestSessionColorClear(t *testing.T) {
 func TestSessionColorInvalidValue(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	body := `{"color":20}`
+	body := `{"color":"20"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -722,7 +757,7 @@ func TestSessionColorTmuxError(t *testing.T) {
 	ops := &mockTmuxOps{setSessionColorErr: fmt.Errorf("tmux error")}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
-	body := `{"color":4}`
+	body := `{"color":"4"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

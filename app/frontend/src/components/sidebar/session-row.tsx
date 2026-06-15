@@ -10,8 +10,9 @@ type SessionRowProps = {
    *  This is what makes React.memo on SessionRow effective across SSE ticks. */
   server: string;
   session: ProjectSession | MergedSession;
-  sessionColor?: number;
-  rowTints?: Map<number, RowTint>;
+  /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
+  sessionColor?: string;
+  rowTints?: Map<string, RowTint>;
   isCollapsed: boolean;
   isSessionDropTarget: boolean;
   editingSession: string | null;
@@ -38,7 +39,7 @@ type SessionRowProps = {
   onReorderOver: (e: React.DragEvent, server: string, targetName: string, naturalNames: string[]) => void;
   onDragLeave: (e: React.DragEvent, server: string, name: string) => void;
   onDrop: (e: React.DragEvent, server: string, name: string) => void;
-  onColorChange?: (server: string, name: string, color: number | null) => void;
+  onColorChange?: (server: string, name: string, color: string | null) => void;
   /** Roving-tabindex value: `0` for the single roving-focused tree row, `-1`
    *  otherwise. Defaults to `-1`. Only the two affected rows change this per
    *  arrow keypress, preserving the Wave-2 memo tree. */

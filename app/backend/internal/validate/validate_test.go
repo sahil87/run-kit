@@ -237,3 +237,47 @@ func containsStr(s, sub string) bool {
 	}
 	return false
 }
+
+func TestValidateColorValue(t *testing.T) {
+	// Canonical and whitespace-tolerant forms (parts are trimmed, matching the
+	// frontend parseColorValue), plus leading-zero indices.
+	valid := []string{"0", "4", "15", "1+3", "0+15", "1+2", " 4 ", " 1 + 3 ", "01"}
+	for _, v := range valid {
+		if msg := ValidateColorValue(v); msg != "" {
+			t.Errorf("ValidateColorValue(%q) = %q, want valid", v, msg)
+		}
+	}
+	// Empty parts are rejected explicitly; "1 3" (space, no '+') is one part and
+	// fails strconv after trimming.
+	invalid := []string{"", "99", "-1", "16", "x", "1+", "+3", "1+2+3", "1.5", "1 3", "  +  ", "1 + "}
+	for _, v := range invalid {
+		if msg := ValidateColorValue(v); msg == "" {
+			t.Errorf("ValidateColorValue(%q) = valid, want error", v)
+		}
+	}
+}
+
+func TestNormalizeColorValue(t *testing.T) {
+	cases := map[string]struct {
+		want string
+		ok   bool
+	}{
+		"4":      {"4", true},
+		" 4 ":    {"4", true},
+		"1+3":    {"1+3", true},
+		" 1 + 3 ": {"1+3", true}, // internal whitespace collapses to canonical form
+		"01":     {"1", true},    // leading zeros re-serialized
+		"0+15":   {"0+15", true},
+		"":       {"", false},
+		"  ":     {"", false},
+		"99":     {"", false},
+		"1+2+3":  {"", false},
+		"x":      {"", false},
+	}
+	for in, exp := range cases {
+		got, ok := NormalizeColorValue(in)
+		if got != exp.want || ok != exp.ok {
+			t.Errorf("NormalizeColorValue(%q) = (%q, %v), want (%q, %v)", in, got, ok, exp.want, exp.ok)
+		}
+	}
+}

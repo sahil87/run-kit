@@ -354,19 +354,19 @@ export async function uploadFile(
 export async function setWindowColor(
   server: string,
   windowId: string,
-  color: number | null,
+  color: string | null,
 ): Promise<{ ok: boolean }> {
-  // @color is carried as a string on the unified /options contract (one map
-  // can't mix native int + string values); null clears it.
+  // @color is a color-value descriptor string ("4" / "1+3") on the unified
+  // /options contract; null clears it.
   return setWindowOptions(server, windowId, {
-    "@color": color === null ? null : String(color),
+    "@color": color,
   });
 }
 
 export async function setSessionColor(
   server: string,
   session: string,
-  color: number | null,
+  color: string | null,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
     withServer(`/api/sessions/${encodeURIComponent(session)}/color`, server),
@@ -463,21 +463,21 @@ export async function setThemePreference(prefs: {
 
 // --- Server color settings (global, not per-server) ---
 
-export async function getServerColor(server: string): Promise<number | null> {
+export async function getServerColor(server: string): Promise<string | null> {
   const res = await deduplicatedFetch(`/api/settings/server-color?server=${encodeURIComponent(server)}`);
   if (!res.ok) await throwOnError(res);
-  const data: { color: number | null } = await res.json();
+  const data: { color: string | null } = await res.json();
   return data.color;
 }
 
-export async function getAllServerColors(): Promise<Record<string, number>> {
+export async function getAllServerColors(): Promise<Record<string, string>> {
   const res = await deduplicatedFetch("/api/settings/server-color");
   if (!res.ok) await throwOnError(res);
-  const data: { colors: Record<string, number> } = await res.json();
+  const data: { colors: Record<string, string> } = await res.json();
   return data.colors;
 }
 
-export async function setServerColor(server: string, color: number | null): Promise<void> {
+export async function setServerColor(server: string, color: string | null): Promise<void> {
   const res = await fetch("/api/settings/server-color", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

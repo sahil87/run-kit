@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -344,14 +343,10 @@ func validateWindowOption(key string, value *string) string {
 	}
 	switch key {
 	case optKeyColor:
-		// Preserve the old Color *int 0–15 contract: the wire value is now a
-		// string, integer-parsed and range-checked server-side.
-		n, err := strconv.Atoi(*value)
-		if err != nil {
-			return "Color must be an integer between 0 and 15"
-		}
-		if n < 0 || n > 15 {
-			return "Color must be between 0 and 15"
+		// Color value descriptor: a single index ("4", 0–15) or a two-hue
+		// blend ("1+3", each component 0–15). Validated via the shared rule.
+		if errMsg := validate.ValidateColorValue(*value); errMsg != "" {
+			return errMsg
 		}
 	case optKeyRkURL:
 		if strings.TrimSpace(*value) == "" {

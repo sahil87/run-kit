@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"rk/internal/settings"
+	"rk/internal/validate"
 )
 
 // handleGetTheme returns the current theme preferences.
@@ -90,7 +91,7 @@ func (s *Server) handleGetServerColor(w http.ResponseWriter, r *http.Request) {
 		current := settings.Load()
 		colors := current.ServerColors
 		if colors == nil {
-			colors = map[string]int{}
+			colors = map[string]string{}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"colors": colors})
 		return
@@ -103,8 +104,8 @@ func (s *Server) handleGetServerColor(w http.ResponseWriter, r *http.Request) {
 // POST /api/settings/server-color ← {"server": "...", "color": 4} or {"server": "...", "color": null}
 func (s *Server) handleSetServerColor(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Server string `json:"server"`
-		Color  *int   `json:"color"`
+		Server string  `json:"server"`
+		Color  *string `json:"color"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -114,9 +115,11 @@ func (s *Server) handleSetServerColor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "server is required")
 		return
 	}
-	if body.Color != nil && (*body.Color < 0 || *body.Color > 15) {
-		writeError(w, http.StatusBadRequest, "Color must be between 0 and 15")
-		return
+	if body.Color != nil {
+		if errMsg := validate.ValidateColorValue(*body.Color); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
 	}
 
 	if err := settings.SetServerColor(body.Server, body.Color); err != nil {

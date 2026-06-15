@@ -33,6 +33,7 @@ import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-c
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
+import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { useWindowStore } from "@/store/window-store";
 
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
@@ -1109,9 +1110,11 @@ function AppShell() {
     [flatWindows, navigateToWindow, windowParam],
   );
 
+  const { actions: pushActions } = usePushSubscription();
+
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...serverActions, ...windowSwitchActions],
-    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, serverActions, windowSwitchActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...serverActions, ...pushActions, ...windowSwitchActions],
+    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, serverActions, pushActions, windowSwitchActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

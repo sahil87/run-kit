@@ -485,3 +485,23 @@ export async function setServerColor(server: string, color: number | null): Prom
   });
   if (!res.ok) await throwOnError(res);
 }
+
+// --- Web Push ---
+
+/** Fetch the server's VAPID public key (base64url) for pushManager.subscribe. */
+export async function getVapidPublicKey(): Promise<string> {
+  const res = await deduplicatedFetch("/api/push/vapid-public-key");
+  if (!res.ok) await throwOnError(res);
+  const data: { key: string } = await res.json();
+  return data.key;
+}
+
+/** POST a browser PushSubscription (its JSON form) to the server's store. */
+export async function subscribePush(subscription: PushSubscriptionJSON): Promise<void> {
+  const res = await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(subscription),
+  });
+  if (!res.ok) await throwOnError(res);
+}

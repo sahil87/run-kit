@@ -130,6 +130,35 @@ Some browser features (clipboard, secure context) require HTTPS. Accessing rk fr
 
 For a stable custom hostname or public access via Funnel, see the [Tailscale guide](docs/site/install.md).
 
+## Push notifications
+
+Any process on the box can push a real OS-level notification to your phone or
+desktop — even when the RunKit PWA tab is **closed** — via Web Push:
+
+```sh
+rk notify "deploy finished" --title "CI"
+```
+
+`rk notify` POSTs to the local server, which fans the message out to every
+subscribed browser using the Web Push protocol (signed with a server-side VAPID
+key persisted under `~/.rk/`). It is **fail-silent**: if the server is
+unreachable or returns an error it exits 0 and prints nothing, so it never
+stalls a calling script or agent loop.
+
+**Opt in from the browser**: open the command palette (`Cmd+K`) and run
+**Notifications: Enable push**. This requests notification permission and
+subscribes the current device. There is no settings page — the palette is the
+opt-in gesture.
+
+> **Secure-context requirement**: Web Push (service worker + `PushManager`)
+> only works in a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) —
+> that means **HTTPS or `localhost`**. Hitting rk on `localhost:3000` or behind
+> a TLS reverse proxy (e.g. `tailscale serve`, see
+> [Drive it from your phone](#drive-it-from-your-phone-https-over-tailscale))
+> both qualify. Over plain HTTP to a remote host, the browser silently refuses
+> to register the service worker and the **Enable push** command will report
+> that a secure context is required.
+
 ## Shell completion
 
 `rk shell-init <shell>` emits eval-safe tab-completion for your shell. Add this line to your rc file:
@@ -151,6 +180,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — rk has no 
 | `rk serve` | Start the HTTP server (foreground or daemon). |
 | `rk status` | Show a tmux session summary. |
 | `rk context` | Print agent-optimized environment info (server URL, ports, etc.) — designed to be read by AI agents inside an rk-spawned workspace. |
+| `rk notify` | Send a Web Push notification to your subscribed devices (see [Push notifications](#push-notifications)). Fail-silent. |
 | `rk doctor` | Check runtime dependencies. Run this first when something breaks. |
 | `rk init-conf` | Scaffold default `tmux.conf` and `tmux.d/` drop-in directory to `~/.rk/`. Optional. |
 | `rk update` | Upgrade via Homebrew and restart the daemon. |

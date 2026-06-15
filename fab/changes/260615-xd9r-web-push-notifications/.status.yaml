@@ -1,0 +1,51 @@
+id: xd9r
+name: 260615-xd9r-web-push-notifications
+created: 2026-06-15T17:59:20Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 18
+    acceptance_count: 20
+    acceptance_completed: 0
+confidence:
+    certain: 6
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 84.6
+        reversibility: 75.9
+        competence: 90.7
+        disambiguation: 87.8
+stage_metrics:
+    intake: {started_at: "2026-06-15T17:59:20Z", driver: fab-new, iterations: 1, completed_at: "2026-06-15T18:09:07Z"}
+    apply: {started_at: "2026-06-15T18:09:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-15T18:21:55Z"}
+    review: {started_at: "2026-06-15T18:21:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-15T18:28:51Z"}
+    hydrate: {started_at: "2026-06-15T18:28:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-15T18:35:15Z"}
+    ship: {started_at: "2026-06-15T18:35:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-15T18:37:05Z"}
+    review-pr: {started_at: "2026-06-15T18:37:05Z", driver: git-pr, iterations: 1, completed_at: "2026-06-15T18:46:37Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/270
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-15T18:35:15Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-15T18:46:37Z

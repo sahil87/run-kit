@@ -385,6 +385,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/settings/server-color", s.handleGetServerColor)
 	r.Post("/api/settings/server-color", s.handleSetServerColor)
 
+	// Web Push: VAPID key (read), subscribe + notify (mutations, POST per §IX)
+	r.Get("/api/push/vapid-public-key", s.handlePushVAPIDPublicKey)
+	r.Post("/api/push/subscribe", s.handlePushSubscribe)
+	r.Post("/api/notify", s.handleNotify)
+
 	// Reverse proxy for iframe windows
 	r.HandleFunc("/proxy/{port}/*", s.handleProxy)
 	r.HandleFunc("/proxy/{port}", s.handleProxy)

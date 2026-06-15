@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { getWindowDuration, parseFabChange } from "@/lib/format";
 import { PrStatusLine } from "@/components/pr-status-line";
+import { StatusDot } from "@/components/status-dot";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
@@ -125,19 +126,14 @@ export function Dashboard({
                           {win.paneCommand && (
                             <span className="truncate">{win.paneCommand}</span>
                           )}
+                          {/* Unified status dot — same StatusDot as the sidebar
+                              and pane panel, so a window's status (PR-or-activity)
+                              reads identically across surfaces. The "active"/"idle"
+                              word is dropped (the dot's title/aria-label carries
+                              it); only the distinct idle duration remains. */}
                           <span className="flex items-center gap-1 shrink-0">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                win.activity === "active"
-                                  ? "bg-accent-green"
-                                  : "bg-text-secondary/40"
-                              }`}
-                              aria-hidden="true"
-                            />
-                            <span>
-                              {win.activity}
-                              {duration && ` \u00B7 ${duration}`}
-                            </span>
+                            <StatusDot win={win} />
+                            {duration && <span>{duration}</span>}
                           </span>
                         </div>
                         {fabInfo && (

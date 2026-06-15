@@ -7,7 +7,7 @@ import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
 import { UNCOLORED_SELECTED_ANSI, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
-import { prDotState, PR_DOT_COLOR, PR_DOT_LABEL } from "@/components/pr-status-line";
+import { StatusDot } from "@/components/status-dot";
 import { PinPopover } from "./pin-popover";
 
 type ProjectWindow = ProjectSession["windows"][number];
@@ -248,14 +248,12 @@ function WindowRowInner({
         onMouseLeave={tint && !isSelected ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
       >
         <span className="flex items-center gap-1.5 truncate min-w-0">
-          <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${win.fabDisplayState === "failed" ? "text-red-400" : "text-text-secondary"}`}
-            aria-label={win.activity}
-            style={{
-              border: win.activity === "active" ? "none" : "1.5px solid currentColor",
-              backgroundColor: win.activity === "active" ? "currentColor" : "transparent",
-            }}
-          />
+          {/* Unified status dot: PR status when the window is change-bound with
+              a PR (purple/red/yellow/green/hollow per prDotState), else
+              monochrome terminal activity (filled=active, hollow ring=idle). One
+              dot in the leading position — the high-value PR signal now lands in
+              the primary scan anchor. See StatusDot / statusDotState. */}
+          <StatusDot win={win} />
           {isEditing ? (
             <input
               ref={inputRef}
@@ -274,36 +272,10 @@ function WindowRowInner({
           )}
         </span>
         <span className="flex items-center gap-1.5 shrink-0">
-          {/* PR traffic-light dot: a 5-state colored signal for change-bound
-              windows with a PR. Gated on fabChange && prNumber (mirrors
-              PrStatusLine's own `if (!win.fabChange || !win.prNumber) return
-              null` gate) so a non-change-bound window never shows a stray dot —
-              but unlike the old fail-only dot, EVERY change-bound PR window now
-              shows a dot. The state, color token, and accessible name all come
-              from prDotState / PR_DOT_COLOR / PR_DOT_LABEL (single source of
-              truth shared with PrStatusLine via isFailish). The four "live"
-              states (merged/fail/pending/healthy) render the solid ● glyph in
-              their token; `neutral` renders as a dim hollow ring (the same
-              border + transparent-fill technique as the activity dot above) so
-              "has a PR, no news" is distinguishable from "no PR" (no dot). A
-              bare dot needs an accessible name, hence aria-label + title. */}
-          {win.fabChange && win.prNumber && (() => {
-            const dot = prDotState(win);
-            const color = PR_DOT_COLOR[dot];
-            const label = PR_DOT_LABEL[dot];
-            return dot === "neutral" ? (
-              <span
-                className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`}
-                aria-label={label}
-                title={label}
-                style={{ border: "1.5px solid currentColor", backgroundColor: "transparent" }}
-              />
-            ) : (
-              <span className={`text-xs shrink-0 ${color}`} aria-label={label} title={label}>
-                &#x25CF;
-              </span>
-            );
-          })()}
+          {/* The window's status signal (PR-or-activity) now renders as the
+              single leading StatusDot above — the separate right-side PR dot was
+              collapsed into it. This cluster carries only the stage text and
+              duration. */}
           {/* Quiet parked rows: a change whose displayed stage is fully done
               (fab pane map display_state === "done") is parked, not active —
               suppress the stale stage text and let the duration stand alone.

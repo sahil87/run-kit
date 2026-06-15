@@ -99,6 +99,23 @@ export function prDotState(win: WindowInfo): PrDotState {
 }
 
 /**
+ * The unified status-dot state: PR status wins when the window is change-bound
+ * AND has a PR; otherwise the dot falls back to the window's terminal activity.
+ * One dot, one meaning at a time — durable PR lifecycle dominates transient
+ * activity. The PR gate (`fabChange && prNumber`) is identical to the gate used
+ * by `prDotState` callers and the backend attach gate (`sse.go`) — single
+ * source of truth.
+ */
+export type StatusDotState =
+  | { kind: "pr"; pr: PrDotState } // merged | fail | pending | healthy | neutral
+  | { kind: "activity"; active: boolean }; // active=filled, idle=hollow ring
+
+export function statusDotState(win: WindowInfo): StatusDotState {
+  if (win.fabChange && win.prNumber) return { kind: "pr", pr: prDotState(win) };
+  return { kind: "activity", active: win.activity === "active" };
+}
+
+/**
  * Per-state color token for the sidebar PR dot. Reuses the EXACT existing PR
  * color vocabulary from status-panel.tsx (no new hex). `text-accent-green` is
  * the established theme token (themes.ts), not raw `text-green-400`.

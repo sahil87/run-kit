@@ -8,6 +8,7 @@ import { ICON_CLASS } from "./icons";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatDuration, parseFabChange } from "@/lib/format";
 import { PR_STATE_COLORS, PR_CHECKS_COLORS, PR_REVIEW_COLORS } from "@/components/pr-status-line";
+import { StatusDot } from "@/components/status-dot";
 import type { WindowInfo } from "@/types";
 
 type CopyableRowKey = "tmx" | "cwd" | "git" | "fab" | "pr";
@@ -114,7 +115,8 @@ function getPrSegments(win: WindowInfo): PrSegment[] | null {
 
 export function WindowPanel({ window: win }: WindowPanelProps) {
   const headerRight = win ? (
-    <span className="truncate text-text-secondary font-mono">
+    <span className="flex items-center gap-1.5 truncate text-text-secondary font-mono">
+      <StatusDot win={win} />
       {win.name}
     </span>
   ) : null;

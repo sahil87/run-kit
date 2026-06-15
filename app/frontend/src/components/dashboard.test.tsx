@@ -135,15 +135,22 @@ describe("Dashboard", () => {
     expect(screen.getByText(/txna/)).toBeInTheDocument();
   });
 
-  it("shows activity dot and label on window cards", () => {
+  it("shows the unified StatusDot (with active/idle a11y label) on window cards", () => {
+    // The in-card "active"/"idle" WORD was dropped — the StatusDot carries the
+    // state via its aria-label/title instead (the dot is the same component used
+    // on the sidebar and pane panel). The "main" window is active, "scratch" idle.
     renderDashboard();
     fireEvent.click(screen.getByLabelText("Expand run-kit"));
-    // "active" appears in window card activity label and session summary
-    const activeTexts = screen.getAllByText(/active/);
-    expect(activeTexts.length).toBeGreaterThanOrEqual(1);
-    // "idle" appears in window card and session summaries
-    const idleTexts = screen.getAllByText(/idle/);
-    expect(idleTexts.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByLabelText("active")).toBeInTheDocument();
+    expect(screen.getByLabelText("idle")).toBeInTheDocument();
+  });
+
+  it("keeps the idle duration text on window cards but drops the activity word", () => {
+    // The distinct idle-duration info stays; the redundant activity word is gone.
+    renderDashboard();
+    fireEvent.click(screen.getByLabelText("Expand ao-server"));
+    // ao-server/dev is idle for ~1h — the duration renders; assert it is present.
+    expect(screen.getByText(/^1h/)).toBeInTheDocument();
   });
 
   it("calls onCreateSession when New Session button is clicked", () => {

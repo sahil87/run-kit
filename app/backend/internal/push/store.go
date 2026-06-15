@@ -57,9 +57,43 @@ func subscriptionsPath() (string, error) {
 	return filepath.Join(dir, "push-subscriptions.json"), nil
 }
 
+// writeFileAtomic writes data to path via a temp file in the same directory
+// followed by an atomic rename, so a crash mid-write can never leave a
+// partially-written/corrupt file at path — readers see either the old contents
+// or the complete new contents. The temp file is created with perm; on rename
+// failure it is removed.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
 // LoadOrCreateVAPIDKeys returns the persisted VAPID keypair, generating and
-// persisting a new one (private key file mode 0600) on first need. The keypair
-// is reused on every subsequent call — it is never regenerated once written.
+// persisting a new one (private key file mode 0600, written atomically) on
+// first need. The keypair is reused on every subsequent call — it is never
+// regenerated once written.
 func LoadOrCreateVAPIDKeys() (VAPIDKeys, error) {
 	p, err := vapidPath()
 	if err != nil {
@@ -84,7 +118,7 @@ func LoadOrCreateVAPIDKeys() (VAPIDKeys, error) {
 		return VAPIDKeys{}, err
 	}
 	// 0600: the private key must not be world-readable.
-	if err := os.WriteFile(p, data, 0600); err != nil {
+	if err := writeFileAtomic(p, data, 0600); err != nil {
 		return VAPIDKeys{}, err
 	}
 	return k, nil
@@ -110,6 +144,8 @@ func LoadSubscriptions() []Subscription {
 }
 
 // SaveSubscriptions writes the subscription list atomically as a JSON array.
+// The store holds endpoints and per-subscription encryption keys, so it is
+// written 0600 — not world-readable on multi-user hosts.
 func SaveSubscriptions(subs []Subscription) error {
 	p, err := subscriptionsPath()
 	if err != nil {
@@ -122,7 +158,7 @@ func SaveSubscriptions(subs []Subscription) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, data, 0644)
+	return writeFileAtomic(p, data, 0600)
 }
 
 // AddSubscription stores a subscription, de-duplicating by endpoint: a

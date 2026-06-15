@@ -9,12 +9,20 @@ import { getVapidPublicKey, subscribePush } from "@/api/client";
 /** Subscription state for the terminal-themed palette indicator. */
 export type PushState = "unsupported" | "denied" | "default" | "subscribed";
 
-/** True when the browser supports the APIs Web Push needs in a secure context. */
+/**
+ * True when the browser supports the APIs Web Push needs AND the page is a
+ * secure context. Service-worker registration and push subscription require a
+ * secure context (HTTPS or localhost); over plain HTTP on a remote host the
+ * APIs may be present yet registration/subscription will fail, so we gate on
+ * `window.isSecureContext` to surface the requirement up front rather than
+ * failing silently mid-flow.
+ */
 export function isPushSupported(): boolean {
   return (
+    typeof window !== "undefined" &&
+    window.isSecureContext === true &&
     typeof navigator !== "undefined" &&
     "serviceWorker" in navigator &&
-    typeof window !== "undefined" &&
     "PushManager" in window &&
     typeof Notification !== "undefined"
   );
@@ -86,8 +94,14 @@ export async function enablePushSubscription(): Promise<PushState> {
   }
 
   try {
-    const reg = (await navigator.serviceWorker.ready) ?? (await registerServiceWorker());
+    // Register first so a service worker exists to activate — awaiting
+    // `navigator.serviceWorker.ready` before any registration can hang forever
+    // (it only resolves once a worker is active). `register()` resolves with a
+    // usable registration immediately; `ready` then guarantees it has activated
+    // before we touch pushManager.
+    const reg = await registerServiceWorker();
     if (!reg) return "default";
+    await navigator.serviceWorker.ready;
 
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {

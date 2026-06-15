@@ -26,10 +26,20 @@ function setNotificationPermission(perm: NotificationPermission) {
   return stub;
 }
 
+function setSecureContext(secure: boolean) {
+  Object.defineProperty(globalThis, "isSecureContext", {
+    value: secure,
+    writable: true,
+    configurable: true,
+  });
+}
+
 function installServiceWorker(opts: {
   existingSub?: unknown;
   subscribeResult?: unknown;
 } = {}) {
+  // isPushSupported() gates on a secure context; install one for the happy path.
+  setSecureContext(true);
   const pushManager = {
     getSubscription: vi.fn().mockResolvedValue(opts.existingSub ?? null),
     subscribe: vi.fn().mockResolvedValue(
@@ -60,6 +70,7 @@ function removeServiceWorker() {
     writable: true,
     configurable: true,
   });
+  setSecureContext(false);
 }
 
 describe("registerServiceWorker", () => {
@@ -110,6 +121,14 @@ describe("enablePushSubscription", () => {
     expect(subscribePush).not.toHaveBeenCalled();
   });
 
+  it("returns 'unsupported' in an insecure context even when the APIs exist", async () => {
+    installServiceWorker();
+    setNotificationPermission("granted");
+    setSecureContext(false); // APIs present, but not a secure context.
+    expect(await enablePushSubscription()).toBe("unsupported");
+    expect(subscribePush).not.toHaveBeenCalled();
+  });
+
   it("subscribes and POSTs the subscription when permission is granted", async () => {
     const { pushManager } = installServiceWorker();
     setNotificationPermission("granted");
@@ -117,6 +136,9 @@ describe("enablePushSubscription", () => {
     const result = await enablePushSubscription();
 
     expect(result).toBe("subscribed");
+    // Registers a worker before awaiting readiness (awaiting `ready` first
+    // would hang forever when no worker has been registered yet).
+    expect(navigator.serviceWorker.register).toHaveBeenCalledWith("/sw.js");
     expect(getVapidPublicKey).toHaveBeenCalledTimes(1);
     expect(pushManager.subscribe).toHaveBeenCalledWith(
       expect.objectContaining({ userVisibleOnly: true }),

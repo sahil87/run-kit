@@ -39,6 +39,7 @@ func init() {
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(initConfCmd)
 	rootCmd.AddCommand(contextCmd)
+	rootCmd.AddCommand(notifyCmd)
 	rootCmd.AddCommand(riffCmd)
 	rootCmd.AddCommand(reaperCmd)
 	rootCmd.AddCommand(newShellInitCmd())

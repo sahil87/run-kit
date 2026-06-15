@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-15T17:59:20Z"}
+{"args":"Web Push notifications for the run-kit web UI: service worker + PushManager subscribe (frontend), VAPID keypair + push send via webpush-go (backend), 'rk notify' CLI subcommand, docs + rk context discoverability. Channel for fab-kit operator escalation [mmmt].","cmd":"fab-new","event":"command","ts":"2026-06-15T17:59:20Z"}
+{"delta":"+2.8","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-06-15T18:00:45Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-06-15T18:00:49Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-06-15T18:04:23Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-06-15T18:04:27Z"}
+{"delta":"+0.7","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-06-15T18:04:33Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-06-15T18:04:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-15T18:09:07Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-15T18:09:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-15T18:21:55Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-15T18:22:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-15T18:28:51Z"}
+{"event":"review","result":"passed","ts":"2026-06-15T18:28:51Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-15T18:29:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-15T18:35:15Z"}

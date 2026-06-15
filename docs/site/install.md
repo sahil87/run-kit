@@ -56,7 +56,14 @@ just prod      # run from built binary
 
 ## Tailscale HTTPS
 
-run-kit binds to `127.0.0.1` by default. Some browser features (e.g., copy to clipboard) require HTTPS, and accessing run-kit from other machines on your tailnet does too. Tailscale Serve handles both with zero TLS config.
+run-kit binds to `127.0.0.1` by default. Some browser features (e.g., copy to clipboard, and Web Push notifications — see below) require a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts), and accessing run-kit from other machines on your tailnet does too. Tailscale Serve handles both with zero TLS config.
+
+> **Web Push & secure contexts**: the `rk notify` command pushes OS-level
+> notifications to subscribed browsers (opt in via the `Cmd+K` palette →
+> **Notifications: Enable push**). Web Push requires a secure context — **HTTPS
+> or `localhost`**. Reaching run-kit on `localhost:3000` directly, or over the
+> Tailscale HTTPS endpoint below, both qualify; plain HTTP to a remote host does
+> not, and the browser will silently refuse to register the service worker.
 
 ### Prerequisites
 

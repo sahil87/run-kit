@@ -6,7 +6,7 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import { useTheme } from "@/contexts/theme-context";
-import { computeRowTints } from "@/themes";
+import { computeRowTints, computeRowBorders } from "@/themes";
 import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
@@ -80,10 +80,13 @@ export function Sidebar({
 }: SidebarProps) {
   const ctx = useSessionContext();
   const { servers, sessionsByServer, isConnectedByServer, refreshServers, attachServer } = ctx;
-  // Pre-compute row tints from the active theme palette.
+  // Pre-compute row tints + contrast-adjusted borders from the active theme.
   const { theme } = useTheme();
   const rowTints = useMemo(() => computeRowTints(theme.palette), [theme.palette]);
-  const ansiPalette = theme.palette.ansi;
+  const rowBorders = useMemo(
+    () => computeRowBorders(theme.palette, theme.category),
+    [theme.palette, theme.category],
+  );
   const navigate = useNavigate();
   const { addToast } = useToast();
 
@@ -95,8 +98,9 @@ export function Sidebar({
   // empty-state hint replaces the group list.
   const [serverPaneOpen] = useLocalStorageBoolean("runkit-panel-server", false);
 
-  // Server colors from settings.yaml (all servers)
-  const [serverColors, setServerColors] = useState<Record<string, number>>({});
+  // Server colors from settings.yaml (all servers) — color value descriptors
+  // ("4" / "1+3").
+  const [serverColors, setServerColors] = useState<Record<string, string>>({});
   useEffect(() => {
     getAllServerColors().then(setServerColors).catch(() => {});
   }, []);
@@ -1026,13 +1030,13 @@ export function Sidebar({
     setKillTarget({ type: "window", server, session, windowId, windowCount: 1 });
   }, [executeKillWindow]);
 
-  const handleSessionColorChange = useCallback((server: string, name: string, c: number | null) => {
+  const handleSessionColorChange = useCallback((server: string, name: string, c: string | null) => {
     setSessionColorApi(server, name, c).catch((err) =>
       addToast(err.message || "Failed to set session color"),
     );
   }, [addToast]);
 
-  const handleWindowColorChange = useCallback((server: string, _session: string, windowId: string, c: number | null) => {
+  const handleWindowColorChange = useCallback((server: string, _session: string, windowId: string, c: string | null) => {
     setWindowColorApi(server, windowId, c).catch((err) =>
       addToast(err.message || "Failed to set window color"),
     );
@@ -1053,7 +1057,7 @@ export function Sidebar({
         servers={servers}
         serverColors={serverColors}
         rowTints={rowTints}
-        ansiPalette={ansiPalette}
+        rowBorders={rowBorders}
         onSwitchServer={handleSwitchServer}
         onCreateServer={onCreateServer}
         onKillServer={onKillServer}
@@ -1124,7 +1128,7 @@ export function Sidebar({
                 isCurrent={srvInfo.name === currentServer}
                 serverColor={serverColors[srvInfo.name]}
                 rowTints={rowTints}
-                ansiPalette={ansiPalette}
+                rowBorders={rowBorders}
                 isOpen={serverPaneOpen ? true : readServerOpen(srvInfo.name)}
                 onToggleOpen={toggleServerSection}
                 rawSessions={sessionsByServer.get(srvInfo.name) ?? []}
@@ -1231,9 +1235,9 @@ function BottomPanels({
 type ServerGroupProps = {
   server: string;
   isCurrent: boolean;
-  serverColor: number | undefined;
-  rowTints: Map<number, import("@/themes").RowTint>;
-  ansiPalette: readonly string[];
+  serverColor: string | undefined;
+  rowTints: Map<string, import("@/themes").RowTint>;
+  rowBorders: Map<string, string>;
   isOpen: boolean;
   onToggleOpen: (server: string) => void;
   rawSessions: ProjectSession[];
@@ -1285,8 +1289,8 @@ type ServerGroupProps = {
   onWindowNameChange: (value: string) => void;
   onWindowRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onWindowRenameBlur: () => void;
-  onSessionColorChange: (server: string, name: string, color: number | null) => void;
-  onWindowColorChange: (server: string, session: string, windowId: string, color: number | null) => void;
+  onSessionColorChange: (server: string, name: string, color: string | null) => void;
+  onWindowColorChange: (server: string, session: string, windowId: string, color: string | null) => void;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -1305,7 +1309,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     isCurrent,
     serverColor,
     rowTints,
-    ansiPalette,
+    rowBorders,
     isOpen,
     onToggleOpen,
     rawSessions,
@@ -1581,7 +1585,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             isDragOver={isDragOver}
                             color={win.color}
                             rowTints={rowTints}
-                            ansiPalette={ansiPalette}
+                            rowBorders={rowBorders}
                             editingWindow={editingWindow}
                             editingName={editingName}
                             inputRef={inputRef}
@@ -1645,7 +1649,7 @@ function ServerGroupInner(props: ServerGroupProps) {
 /** Memoized per-server group. An SSE session tick rebuilds the per-server data
  *  Maps in SessionContext, but `Sidebar` now passes every handler as a stable
  *  identity-arg `useCallback` and the context Map/array props (`rowTints`,
- *  `ansiPalette`, `allBoards`, `pinnedSet`, `pinnedToBoard`,
+ *  `rowBorders`, `allBoards`, `pinnedSet`, `pinnedToBoard`,
  *  `isPinnedToActiveBoardFor`) are stable refs — so a tick on server B does not
  *  re-render server A's group at all. The group whose `rawSessions`/order/
  *  connection actually changed still re-renders (correct). */

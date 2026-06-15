@@ -237,3 +237,40 @@ func containsStr(s, sub string) bool {
 	}
 	return false
 }
+
+func TestValidateColorValue(t *testing.T) {
+	valid := []string{"0", "4", "15", "1+3", "0+15", "1+2"}
+	for _, v := range valid {
+		if msg := ValidateColorValue(v); msg != "" {
+			t.Errorf("ValidateColorValue(%q) = %q, want valid", v, msg)
+		}
+	}
+	invalid := []string{"", "99", "-1", "16", "x", "1+", "+3", "1+2+3", "1.5", "1 3"}
+	for _, v := range invalid {
+		if msg := ValidateColorValue(v); msg == "" {
+			t.Errorf("ValidateColorValue(%q) = valid, want error", v)
+		}
+	}
+}
+
+func TestNormalizeColorValue(t *testing.T) {
+	cases := map[string]struct {
+		want string
+		ok   bool
+	}{
+		"4":     {"4", true},
+		" 4 ":   {"4", true},
+		"1+3":   {"1+3", true},
+		"":      {"", false},
+		"  ":    {"", false},
+		"99":    {"", false},
+		"1+2+3": {"", false},
+		"x":     {"", false},
+	}
+	for in, exp := range cases {
+		got, ok := NormalizeColorValue(in)
+		if got != exp.want || ok != exp.ok {
+			t.Errorf("NormalizeColorValue(%q) = (%q, %v), want (%q, %v)", in, got, ok, exp.want, exp.ok)
+		}
+	}
+}

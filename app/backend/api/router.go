@@ -42,9 +42,9 @@ type TmuxOps interface {
 	ResolveWindowSession(ctx context.Context, server, windowID string) (string, error)
 	SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error)
 	KillActivePane(windowID, server string) error
-	SetSessionColor(session string, color int, server string) error
+	SetSessionColor(session string, colorValue string, server string) error
 	UnsetSessionColor(session string, server string) error
-	SetWindowColor(windowID string, color int, server string) error
+	SetWindowColor(windowID string, colorValue string, server string) error
 	UnsetWindowColor(windowID, server string) error
 	ListServers(ctx context.Context) ([]string, error)
 	ListSessions(ctx context.Context, server string) ([]tmux.SessionInfo, error)
@@ -165,14 +165,14 @@ func (p *prodTmuxOps) SplitWindow(windowID string, horizontal bool, cwd string, 
 func (p *prodTmuxOps) KillActivePane(windowID, server string) error {
 	return tmux.KillActivePane(windowID, server)
 }
-func (p *prodTmuxOps) SetSessionColor(session string, color int, server string) error {
-	return tmux.SetSessionColor(session, color, server)
+func (p *prodTmuxOps) SetSessionColor(session string, colorValue string, server string) error {
+	return tmux.SetSessionColor(session, colorValue, server)
 }
 func (p *prodTmuxOps) UnsetSessionColor(session string, server string) error {
 	return tmux.UnsetSessionColor(session, server)
 }
-func (p *prodTmuxOps) SetWindowColor(windowID string, color int, server string) error {
-	return tmux.SetWindowColor(windowID, color, server)
+func (p *prodTmuxOps) SetWindowColor(windowID string, colorValue string, server string) error {
+	return tmux.SetWindowColor(windowID, colorValue, server)
 }
 func (p *prodTmuxOps) UnsetWindowColor(windowID, server string) error {
 	return tmux.UnsetWindowColor(windowID, server)

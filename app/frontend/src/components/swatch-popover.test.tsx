@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { SwatchPopover } from "./swatch-popover";
-import { PICKER_ANSI_INDICES } from "@/themes";
+import { PICKER_ANSI_INDICES, PICKER_COLOR_VALUES } from "@/themes";
 
 // Minimal ThemeProvider wrapper for tests
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -33,50 +33,63 @@ describe("SwatchPopover", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders 6 color swatches", () => {
+  it("renders 10 color swatches (6 single + 4 blends)", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
     const options = screen.getAllByRole("option");
-    // 6 color swatches + 1 Clear button
-    expect(options).toHaveLength(7);
+    // 10 color swatches + 1 Clear button
+    expect(options).toHaveLength(11);
   });
 
-  it("shows checkmark on selected color", () => {
+  it("renders a swatch for every picker color value, including the 4 blends", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+    for (const value of PICKER_COLOR_VALUES) {
+      expect(screen.getByRole("option", { name: `Color ${value}` })).toBeTruthy();
+    }
+  });
+
+  it("shows checkmark on selected color (blend)", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(
-      <SwatchPopover selectedColor={4} onSelect={onSelect} onClose={onClose} />,
+      <SwatchPopover selectedColor="1+3" onSelect={onSelect} onClose={onClose} />,
     );
 
-    const selected = screen.getByRole("option", { name: "Color 4" });
+    const selected = screen.getByRole("option", { name: "Color 1+3" });
     expect(selected.getAttribute("aria-selected")).toBe("true");
-    // Check for checkmark character
-    expect(selected.textContent).toContain("\u2713");
+    expect(selected.textContent).toContain("✓");
   });
 
-  it("calls onSelect with color index when swatch clicked", () => {
+  it("calls onSelect with color value string when a single swatch is clicked", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
-    const swatch = screen.getByRole("option", { name: "Color 2" });
-    fireEvent.click(swatch);
+    fireEvent.click(screen.getByRole("option", { name: "Color 2" }));
+    expect(onSelect).toHaveBeenCalledWith("2");
+  });
 
-    expect(onSelect).toHaveBeenCalledWith(2);
+  it("calls onSelect with a blend value when a blend swatch is clicked", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole("option", { name: "Color 1+3" }));
+    expect(onSelect).toHaveBeenCalledWith("1+3");
   });
 
   it("calls onSelect with null when Clear clicked", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(
-      <SwatchPopover selectedColor={4} onSelect={onSelect} onClose={onClose} />,
+      <SwatchPopover selectedColor="4" onSelect={onSelect} onClose={onClose} />,
     );
 
-    const clearBtn = screen.getByText("Clear");
-    fireEvent.click(clearBtn);
-
+    fireEvent.click(screen.getByText("Clear"));
     expect(onSelect).toHaveBeenCalledWith(null);
   });
 
@@ -86,11 +99,38 @@ describe("SwatchPopover", () => {
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
     fireEvent.keyDown(document, { key: "Escape" });
-
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("excludes ANSI indices 0, 7, 8, 9-15", () => {
+  it("ArrowRight reaches every swatch (including blends) then Clear; Enter selects", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
+
+    const listbox = screen.getByRole("listbox");
+    // Step through all 10 swatches; on each, Enter must select that color value.
+    for (let i = 0; i < PICKER_COLOR_VALUES.length; i++) {
+      fireEvent.keyDown(listbox, { key: "Enter" });
+      expect(onSelect).toHaveBeenLastCalledWith(PICKER_COLOR_VALUES[i]);
+      fireEvent.keyDown(listbox, { key: "ArrowRight" });
+    }
+    // After 10 ArrowRights from index 0 we are on Clear (index 10); Enter clears.
+    fireEvent.keyDown(listbox, { key: "Enter" });
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it("Space selects the focused blend swatch", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    // Start focused on the first blend (orange, "1+3" — index 6).
+    renderWithTheme(<SwatchPopover selectedColor="1+3" onSelect={onSelect} onClose={onClose} />);
+
+    const listbox = screen.getByRole("listbox");
+    fireEvent.keyDown(listbox, { key: " " });
+    expect(onSelect).toHaveBeenCalledWith("1+3");
+  });
+
+  it("excludes ANSI single indices 0, 7, 8, 9-15", () => {
     expect(PICKER_ANSI_INDICES).not.toContain(0);
     expect(PICKER_ANSI_INDICES).not.toContain(7);
     expect(PICKER_ANSI_INDICES).not.toContain(8);

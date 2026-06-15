@@ -5,7 +5,7 @@ import { useNow } from "@/hooks/use-now";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
-import { UNCOLORED_SELECTED_ANSI, type RowTint } from "@/themes";
+import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { StatusDot } from "@/components/status-dot";
 import { PinPopover } from "./pin-popover";
@@ -18,9 +18,11 @@ type WindowRowProps = {
   session: string;
   isSelected: boolean;
   isDragOver: boolean;
-  color?: number;
-  rowTints?: Map<number, RowTint>;
-  ansiPalette?: readonly string[];
+  /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
+  color?: string;
+  rowTints?: Map<string, RowTint>;
+  /** Contrast-adjusted full-saturation left-border color per color value. */
+  rowBorders?: Map<string, string>;
   editingWindow: { session: string; windowId: string } | null;
   // Note: callers may pass an object that also carries a `server` field — the
   // extra property is ignored (only session + windowId are read), and passing
@@ -46,7 +48,7 @@ type WindowRowProps = {
   onDragOver?: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onDrop?: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onDragEnd?: () => void;
-  onColorChange?: (server: string, session: string, windowId: string, color: number | null) => void;
+  onColorChange?: (server: string, session: string, windowId: string, color: string | null) => void;
   /** Tmux server name for the pin popover (server-routing contract) AND the
    *  identity bound into the handlers above. When omitted the pin icon is
    *  hidden and handlers bind an empty server — used by tests that render
@@ -94,7 +96,7 @@ function WindowRowInner({
   isDragOver,
   color,
   rowTints,
-  ansiPalette,
+  rowBorders,
   editingWindow,
   editingName,
   inputRef,
@@ -157,16 +159,18 @@ function WindowRowInner({
   // Uncolored rows borrow the gray tint only in the selected state.
   const uncoloredSelectedTint = useMemo(() => {
     if (color != null || !rowTints || !isSelected) return null;
-    return rowTints.get(UNCOLORED_SELECTED_ANSI) ?? null;
+    return rowTints.get(UNCOLORED_SELECTED_KEY) ?? null;
   }, [color, rowTints, isSelected]);
 
-  // Full-saturation ANSI color for the left border on selected rows.
+  // Contrast-adjusted full-saturation color for the left border on selected
+  // rows (a blend resolves to blendHex(ansi[a], ansi[b], 0.5), then the WCAG
+  // guardrail nudges its lightness — both baked into rowBorders).
   const borderColor = useMemo(() => {
-    if (!ansiPalette) return undefined;
-    if (color != null) return ansiPalette[color];
-    if (isSelected) return ansiPalette[UNCOLORED_SELECTED_ANSI];
+    if (!rowBorders) return undefined;
+    if (color != null) return rowBorders.get(color);
+    if (isSelected) return rowBorders.get(UNCOLORED_SELECTED_KEY);
     return undefined;
-  }, [color, ansiPalette, isSelected]);
+  }, [color, rowBorders, isSelected]);
 
   // Compute inline style for the button (background + left accent border)
   const buttonStyle = useMemo(() => {

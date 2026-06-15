@@ -27,7 +27,7 @@ func sessionLineColor(name, grouped, group, color string) string {
 	return strings.Join([]string{name, grouped, group, "0", color}, listDelim)
 }
 
-func intPtr(n int) *int { return &n }
+func strPtr(s string) *string { return &s }
 
 func windowLine(windowID string, index int, name, path string, activityTs int64, active int, paneCmd string) string {
 	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s",
@@ -123,7 +123,7 @@ func TestParseSessions(t *testing.T) {
 			lines: []string{
 				strings.Join([]string{"renamed-sess", "1", "old-sess", "1", "7"}, listDelim),
 			},
-			want: []SessionInfo{{Name: "renamed-sess", Color: intPtr(7)}},
+			want: []SessionInfo{{Name: "renamed-sess", Color: strPtr("7")}},
 		},
 		{
 			name:  "empty input returns nil",
@@ -175,7 +175,7 @@ func TestParseSessions(t *testing.T) {
 				sessionLineColor("alpha", "0", "alpha", "4"),
 				sessionLineColor("beta", "0", "beta", ""),
 			},
-			want: []SessionInfo{{Name: "alpha", Color: intPtr(4)}, {Name: "beta"}},
+			want: []SessionInfo{{Name: "alpha", Color: strPtr("4")}, {Name: "beta"}},
 		},
 		{
 			name: "filters _rk-pin-* board pin-sessions from user-facing list",

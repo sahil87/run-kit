@@ -426,7 +426,7 @@ describe("API request deduplication", () => {
 // --- Verb migration + unified /options contract (this change) ---
 
 describe("POST verb migration + /options contract", () => {
-  it("setWindowColor POSTs /options with @color as a string", async () => {
+  it("setWindowColor POSTs /options with @color as a single-index string", async () => {
     let capturedUrl = "";
     let capturedMethod = "";
     let capturedBody: { options?: Record<string, string | null> } = {};
@@ -438,10 +438,22 @@ describe("POST verb migration + /options contract", () => {
         return HttpResponse.json({ ok: true });
       }),
     );
-    await setWindowColor("default", "@2", 5);
+    await setWindowColor("default", "@2", "5");
     expect(capturedMethod).toBe("POST");
     expect(capturedUrl).toMatch(/\/api\/windows\/%402\/options\?server=default$/);
     expect(capturedBody.options).toEqual({ "@color": "5" });
+  });
+
+  it("setWindowColor POSTs /options with @color as a blend string", async () => {
+    let capturedBody: { options?: Record<string, string | null> } = {};
+    mswServer.use(
+      http.post("/api/windows/:windowId/options", async ({ request }) => {
+        capturedBody = (await request.json()) as typeof capturedBody;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await setWindowColor("default", "@2", "1+3");
+    expect(capturedBody.options).toEqual({ "@color": "1+3" });
   });
 
   it("setWindowColor sends @color: null to clear", async () => {
@@ -494,9 +506,9 @@ describe("POST verb migration + /options contract", () => {
     expect(capturedMethod).toBe("POST");
   });
 
-  it("setServerColor issues POST (not PUT)", async () => {
+  it("setServerColor issues POST (not PUT) with a string color value", async () => {
     let capturedMethod = "";
-    let capturedBody: { server?: string; color?: number | null } = {};
+    let capturedBody: { server?: string; color?: string | null } = {};
     mswServer.use(
       http.post("/api/settings/server-color", async ({ request }) => {
         capturedMethod = request.method;
@@ -504,8 +516,20 @@ describe("POST verb migration + /options contract", () => {
         return HttpResponse.json({ status: "ok" });
       }),
     );
-    await setServerColor("default", 7);
+    await setServerColor("default", "7");
     expect(capturedMethod).toBe("POST");
-    expect(capturedBody).toEqual({ server: "default", color: 7 });
+    expect(capturedBody).toEqual({ server: "default", color: "7" });
+  });
+
+  it("setServerColor sends a blend color value", async () => {
+    let capturedBody: { server?: string; color?: string | null } = {};
+    mswServer.use(
+      http.post("/api/settings/server-color", async ({ request }) => {
+        capturedBody = (await request.json()) as typeof capturedBody;
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+    await setServerColor("default", "1+3");
+    expect(capturedBody).toEqual({ server: "default", color: "1+3" });
   });
 });

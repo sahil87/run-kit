@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"rk/internal/validate"
 )
 
 // SessionOrderOption is the tmux server-scoped user option that stores the
@@ -218,9 +220,9 @@ type WindowInfo struct {
 	Activity          string `json:"activity"` // "active" or "idle"
 	IsActiveWindow    bool   `json:"isActiveWindow"`
 	PaneCommand       string `json:"paneCommand,omitempty"`
-	ActivityTimestamp int64  `json:"activityTimestamp"`
-	Color             *int   `json:"color,omitempty"`
-	AgentState        string `json:"agentState,omitempty"`
+	ActivityTimestamp int64   `json:"activityTimestamp"`
+	Color             *string `json:"color,omitempty"`
+	AgentState        string  `json:"agentState,omitempty"`
 	AgentIdleDuration string `json:"agentIdleDuration,omitempty"`
 	FabChange         string `json:"fabChange,omitempty"`
 	FabStage          string `json:"fabStage,omitempty"`
@@ -289,8 +291,8 @@ func withTimeout() (context.Context, context.CancelFunc) {
 
 // SessionInfo describes a tmux session.
 type SessionInfo struct {
-	Name  string `json:"name"`
-	Color *int   `json:"color,omitempty"`
+	Name  string  `json:"name"`
+	Color *string `json:"color,omitempty"`
 }
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
@@ -373,10 +375,10 @@ func parseSessions(lines []string) []SessionInfo {
 		}
 		if keep {
 			si := SessionInfo{Name: e.name}
-			if e.colorStr != "" {
-				if n, err := strconv.Atoi(e.colorStr); err == nil {
-					si.Color = &n
-				}
+			// Color is a value descriptor ("4" / "1+3"); normalize the raw
+			// option token, dropping anything malformed.
+			if normalized, ok := validate.NormalizeColorValue(e.colorStr); ok {
+				si.Color = &normalized
 			}
 			sessions = append(sessions, si)
 		}
@@ -500,11 +502,11 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		isActive := strings.TrimSpace(parts[5]) == "1"
 		paneCmd := strings.TrimSpace(parts[6])
 
-		var color *int
-		if colorStr := strings.TrimSpace(parts[7]); colorStr != "" {
-			if c, err := strconv.Atoi(colorStr); err == nil {
-				color = &c
-			}
+		// Color is a value descriptor ("4" / "1+3"); normalize the raw option
+		// token, dropping anything malformed.
+		var color *string
+		if normalized, ok := validate.NormalizeColorValue(parts[7]); ok {
+			color = &normalized
 		}
 
 		var rkType, rkUrl string
@@ -1202,13 +1204,16 @@ func SendKeys(windowID string, keys string, server string) error {
 	return err
 }
 
-// SetSessionColor sets the @session_color user option on a session.
+// SetSessionColor sets the @session_color user option on a session. The value
+// is a color-value descriptor ("4" / "1+3"), validated by the caller before it
+// reaches this function. Passed as a discrete arg (no shell string) so a '+' in
+// a blend value is safe (constitution §I).
 // Uses a distinct name from window @color to avoid tmux option inheritance.
-func SetSessionColor(session string, color int, server string) error {
+func SetSessionColor(session string, colorValue string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-t", session, "@session_color", strconv.Itoa(color))
+	_, err := tmuxExecServer(ctx, server, "set-option", "-t", session, "@session_color", colorValue)
 	return err
 }
 
@@ -1221,12 +1226,15 @@ func UnsetSessionColor(session string, server string) error {
 	return err
 }
 
-// SetWindowColor sets the @color user option on a window by its window ID.
-func SetWindowColor(windowID string, color int, server string) error {
+// SetWindowColor sets the @color user option on a window by its window ID. The
+// value is a color-value descriptor ("4" / "1+3"), validated by the caller. In
+// practice window color now flows through SetWindowOptions; this remains for
+// interface symmetry. Passed as a discrete arg (no shell string) per §I.
+func SetWindowColor(windowID string, colorValue string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", windowID, "@color", strconv.Itoa(color))
+	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", windowID, "@color", colorValue)
 	return err
 }
 

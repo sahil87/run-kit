@@ -91,16 +91,19 @@ func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Color *int `json:"color"`
+		Color *string `json:"color"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
-	if body.Color != nil && (*body.Color < 0 || *body.Color > 15) {
-		writeError(w, http.StatusBadRequest, "Color must be between 0 and 15")
-		return
+	// Color value descriptor: a single index ("4", 0–15) or a blend ("1+3").
+	if body.Color != nil {
+		if errMsg := validate.ValidateColorValue(*body.Color); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
 	}
 
 	server := serverFromRequest(r)

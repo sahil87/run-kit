@@ -4,16 +4,20 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
+
+	"rk/internal/validate"
 )
 
 // Settings holds user preferences persisted at ~/.rk/settings.yaml.
 type Settings struct {
-	Theme        string
-	ThemeDark    string
-	ThemeLight   string
-	ServerColors map[string]int // server name → ANSI palette index (0-15)
+	Theme      string
+	ThemeDark  string
+	ThemeLight string
+	// server name → color value descriptor ("4" for a single ANSI index,
+	// "1+3" for a two-hue blend). Stored as a string so a blend can round-trip;
+	// reads tolerate a legacy bare integer (normalized on load).
+	ServerColors map[string]string
 }
 
 // Default returns the default settings.
@@ -84,14 +88,17 @@ func parse(data string) Settings {
 				continue
 			}
 			serverName := strings.TrimSpace(key)
-			colorStr := strings.TrimSpace(value)
-			if serverName != "" && colorStr != "" {
-				n, err := strconv.Atoi(colorStr)
-				if err == nil && n >= 0 && n <= 15 {
+			// Strip optional surrounding double quotes (the serializer quotes
+			// values; legacy bare-integer values are unquoted).
+			colorStr := strings.Trim(strings.TrimSpace(value), "\"")
+			// Tolerant read: accept a legacy bare integer OR the string
+			// descriptor ("1+3"); normalize and drop anything malformed.
+			if serverName != "" {
+				if normalized, ok := validate.NormalizeColorValue(colorStr); ok {
 					if s.ServerColors == nil {
-						s.ServerColors = make(map[string]int)
+						s.ServerColors = make(map[string]string)
 					}
-					s.ServerColors[serverName] = n
+					s.ServerColors[serverName] = normalized
 				}
 			}
 			continue
@@ -142,29 +149,31 @@ func serialize(s Settings) string {
 		}
 		sort.Strings(names)
 		for _, name := range names {
-			out += "  " + name + ": " + strconv.Itoa(s.ServerColors[name]) + "\n"
+			// Always written as a string descriptor (quoted so a bare "1+3"
+			// or numeric value parses back unambiguously and round-trips).
+			out += "  " + name + ": \"" + s.ServerColors[name] + "\"\n"
 		}
 	}
 	return out
 }
 
-// GetServerColor returns the ANSI color index for the named server, or nil.
-func GetServerColor(server string) *int {
+// GetServerColor returns the color-value descriptor for the named server, or nil.
+func GetServerColor(server string) *string {
 	s := Load()
-	if n, ok := s.ServerColors[server]; ok {
-		return &n
+	if v, ok := s.ServerColors[server]; ok {
+		return &v
 	}
 	return nil
 }
 
-// SetServerColor sets or clears the ANSI color for the named server.
-func SetServerColor(server string, color *int) error {
+// SetServerColor sets or clears the color-value descriptor for the named server.
+func SetServerColor(server string, color *string) error {
 	s := Load()
 	if color == nil {
 		delete(s.ServerColors, server)
 	} else {
 		if s.ServerColors == nil {
-			s.ServerColors = make(map[string]int)
+			s.ServerColors = make(map[string]string)
 		}
 		s.ServerColors[server] = *color
 	}

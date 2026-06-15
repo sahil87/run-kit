@@ -1,64 +1,121 @@
-import { statusDotState, PR_DOT_COLOR, PR_DOT_LABEL } from "@/components/pr-status-line";
+import { statusDotState, PHASE_HUE, type DotShape, type StatusDotState } from "@/components/pr-status-line";
 import type { WindowInfo } from "@/types";
 
 /**
- * Unified status dot reused on the sidebar window row, the dashboard window
- * cards, and the pane-panel header. It renders a single signal per window via
- * the `statusDotState` precedence (PR-wins-else-activity):
+ * Unified lifecycle status dot reused on the sidebar window row, the dashboard
+ * window cards, and the pane-panel header. It renders a single signal per
+ * window via the `statusDotState` three-way precedence (PR > fab > tmux), using
+ * TWO orthogonal visual channels:
  *
- *   - PR branch (change-bound window WITH a PR): renders exactly as the former
- *     sidebar PR dot — the four "live" states (merged/fail/pending/healthy)
- *     render a solid ● glyph in their `PR_DOT_COLOR` token (purple/red/yellow/
- *     green); `neutral` renders a dim hollow ring (border + transparent fill).
- *   - Activity branch (every other window): MONOCHROME fill-vs-ring (NO green) —
- *     `active` is a gray (`text-text-secondary`) filled dot, `idle` a gray
- *     hollow ring. All color is reserved for PR meaning so green/purple/red/
- *     yellow are never ambiguous (color = PR; activity = shape-only).
+ *   - HUE = phase (where in the lifecycle journey): blue (intake) → amber
+ *     (apply/review/hydrate) → green (ship/review-pr) → purple (the live PR).
+ *     A plain window (no fab change, no PR) is gray — color is reserved for the
+ *     fab/PR journey.
+ *   - SHAPE = status (health), ONE vocabulary across fab stages AND PR:
+ *       ring          → pending (PR: checks running)
+ *       solid         → active / ready (PR: open / healthy)
+ *       failed        → dashed ring in phase hue + a small RED center dot
+ *                       (PR: checks fail / changes requested)
+ *       done          → filled rounded square in phase hue (PR: merged)
+ *       skipped       → gray hollow ring (PR: closed unmerged)
  *
- * The `fabDisplayState === "failed"` red tint (from the old activity dot) is
- * preserved on the ACTIVITY branch only — a window whose fab change failed shows
- * its activity dot in `text-red-400`. PR-branch dots already carry their own
- * color token, so the override never applies there.
+ * Red is used in exactly ONE way across the whole system: the small center dot
+ * inside a `failed` dashed ring — never as a whole-dot color (this removes the
+ * old `fabDisplayState === "failed"` red tint and the old solid-red PR fail).
  *
- * The dot always carries an `aria-label` + `title` (color is never the sole
- * channel — colorblind a11y + keyboard-first constitution): PR states reuse
- * `PR_DOT_LABEL`; activity states use "active" / "idle".
+ * `failed` and `done` render slightly larger (8px vs the 6px ring/solid) so the
+ * dashed border shows enough dashes (with a clearly visible red center) and the
+ * rounded square reads unambiguously as a square next to the circles.
+ *
+ * The dot always carries `role="img"` + `aria-label` + `title` composed from
+ * phase + status (e.g. "apply — active", "PR — merged", "review — failed",
+ * "intake — pending"), or "active"/"idle" for the tmux fallback — color is
+ * never the sole channel (colorblind a11y + keyboard-first constitution).
  */
+
+/** Human word for the SHAPE/status axis used in the accessible label. */
+const SHAPE_LABEL: Record<DotShape, string> = {
+  ring: "pending",
+  solid: "active",
+  failed: "failed",
+  done: "done",
+  skipped: "skipped",
+};
+
+// PR-phase status words. The shared SHAPE_LABEL vocabulary is fab-stage language
+// ("active"/"done"); for a PR those read unnaturally, so the PR branch maps the
+// same shapes onto PR-native words — a PR is "open", "merged", "failing", not
+// "active"/"done"/"failed".
+const PR_SHAPE_LABEL: Record<DotShape, string> = {
+  ring: "checks running",
+  solid: "open",
+  failed: "failing",
+  done: "merged",
+  skipped: "closed",
+};
+
+/**
+ * Compose the accessible label. The fab branch uses the real stage word
+ * ("apply — active"); the PR branch uses PR-native words ("PR — merged"); the
+ * tmux fallback uses the bare activity word ("active"/"idle"), no journey.
+ */
+function dotLabel(win: WindowInfo, state: StatusDotState): string {
+  if (state.phase === "pr") return `PR — ${PR_SHAPE_LABEL[state.shape]}`;
+  if (state.phase === "none") return win.activity; // "active" | "idle"
+  return `${win.fabStage ?? state.phase} — ${SHAPE_LABEL[state.shape]}`;
+}
+
 export function StatusDot({ win }: { win: WindowInfo }) {
   const state = statusDotState(win);
+  const label = dotLabel(win, state);
+  // `skipped` forces the gray token regardless of phase (a closed/skipped item
+  // has left its journey hue behind); every other shape uses the phase hue.
+  const color = state.shape === "skipped" ? "text-text-secondary" : PHASE_HUE[state.phase];
 
-  if (state.kind === "pr") {
-    const color = PR_DOT_COLOR[state.pr];
-    const label = PR_DOT_LABEL[state.pr];
-    return state.pr === "neutral" ? (
+  const common = { role: "img" as const, "aria-label": label, title: label };
+
+  if (state.shape === "done") {
+    // Rounded square — slightly larger so it reads as a square vs the circles.
+    return (
       <span
-        role="img"
-        className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`}
-        aria-label={label}
-        title={label}
-        style={{ border: "1.5px solid currentColor", backgroundColor: "transparent" }}
+        {...common}
+        className={`w-2 h-2 rounded-[3px] shrink-0 ${color}`}
+        style={{ backgroundColor: "currentColor" }}
       />
-    ) : (
-      <span role="img" className={`text-xs shrink-0 ${color}`} aria-label={label} title={label}>
-        &#x25CF;
+    );
+  }
+
+  if (state.shape === "failed") {
+    // Dashed ring in the phase hue with a small red center dot. Larger (8px) so
+    // the dashed border shows enough dashes and the red center is legible.
+    return (
+      <span
+        {...common}
+        className={`relative inline-flex items-center justify-center w-2 h-2 rounded-full shrink-0 ${color}`}
+        style={{ border: "1.8px dashed currentColor", backgroundColor: "transparent" }}
+      >
+        <span aria-hidden="true" className="w-1 h-1 rounded-full bg-red-400" />
       </span>
     );
   }
 
-  // Activity fallback — monochrome fill (active) vs. hollow ring (idle). A failed
-  // fab change recolors the dot red (preserved from the old activity dot).
-  const label = win.activity;
-  const color = win.fabDisplayState === "failed" ? "text-red-400" : "text-text-secondary";
+  if (state.shape === "solid") {
+    return (
+      <span
+        {...common}
+        className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`}
+        style={{ border: "none", backgroundColor: "currentColor" }}
+      />
+    );
+  }
+
+  // `ring` (pending) and `skipped` both render as a hollow ring; `skipped`
+  // differs only in the forced gray `color` resolved above.
   return (
     <span
-      role="img"
+      {...common}
       className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`}
-      aria-label={label}
-      title={label}
-      style={{
-        border: state.active ? "none" : "1.5px solid currentColor",
-        backgroundColor: state.active ? "currentColor" : "transparent",
-      }}
+      style={{ border: "1.8px solid currentColor", backgroundColor: "transparent" }}
     />
   );
 }

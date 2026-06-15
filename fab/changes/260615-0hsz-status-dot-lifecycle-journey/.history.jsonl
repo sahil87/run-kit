@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-15T19:38:00Z"}
+{"args":"Redesign the unified StatusDot into a lifecycle color-journey: add fab pipeline status as a third input with precedence PR \u003e fab \u003e tmux; encode hue=phase (blue intake / amber apply-review-hydrate / green ship-review-pr / purple PR) and shape=status (ring=pending, solid=active, dashed-ring+red-center=failed, rounded-square=done, gray-ring=skipped/closed). PR becomes a proper purple phase using the same shape language. tmux stays monochrome gray. Plus a docs/specs/status-dot.md spec page with a committed SVG matrix.","cmd":"fab-new","event":"command","ts":"2026-06-15T19:38:00Z"}
+{"delta":"+3.4","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-15T19:39:42Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-15T19:39:50Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-15T19:42:46Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-15T19:43:04Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-15T19:43:11Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-15T19:43:24Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-15T19:43:30Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-15T19:43:35Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-15T19:48:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-15T19:48:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-15T19:57:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-15T20:07:56Z"}
+{"event":"review","result":"passed","ts":"2026-06-15T20:07:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-15T20:14:47Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-15T20:15:19Z"}

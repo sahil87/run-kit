@@ -40,10 +40,11 @@ export function isFailish(win: WindowInfo): boolean {
 }
 
 /**
- * Per-segment PR color vocabulary, shared by ALL three PR surfaces — the sidebar
- * dot (via prDotState/PR_DOT_COLOR), the dashboard line (PrStatusLine, below),
- * and the Pane panel segments (status-panel.tsx getPrSegments, which imports
- * these). GitHub-style: open=green, merged=purple, closed=red; checks/review
+ * Per-segment PR color vocabulary, shared by the PR text surfaces — the
+ * dashboard line (PrStatusLine, below) and the Pane panel segments
+ * (status-panel.tsx getPrSegments, which imports these). (The sidebar StatusDot
+ * no longer uses these — it renders from the lifecycle PHASE_HUE/SHAPE maps; see
+ * status-dot.tsx.) GitHub-style: open=green, merged=purple, closed=red; checks/review
  * pass/approved=green, fail/changes_requested=red, pending/review_required=
  * yellow. No new hex — `text-accent-green` is the theme token (themes.ts); the
  * other four are the established PR Tailwind tokens. This is the single source
@@ -99,48 +100,117 @@ export function prDotState(win: WindowInfo): PrDotState {
 }
 
 /**
- * The unified status-dot state: PR status wins when the window is change-bound
- * AND has a PR; otherwise the dot falls back to the window's terminal activity.
- * One dot, one meaning at a time — durable PR lifecycle dominates transient
- * activity. The PR gate (`fabChange && prNumber`) is identical to the gate used
- * by `prDotState` callers and the backend attach gate (`sse.go`) — single
- * source of truth.
+ * Lifecycle status-dot model — TWO orthogonal axes:
+ *   - `phase` → HUE (where in the lifecycle journey: blue → amber → green → purple)
+ *   - `shape` → STATUS (health, using ONE shape vocabulary across fab AND PR)
+ *
+ * The single dot is driven by a three-way precedence (PR > fab > tmux):
+ * PR drives when the window is change-bound AND has a PR; else fab drives when
+ * the window has a fab change; else terminal activity drives a monochrome
+ * fallback. Color is reserved for the fab/PR journey — tmux stays gray.
  */
-export type StatusDotState =
-  | { kind: "pr"; pr: PrDotState } // merged | fail | pending | healthy | neutral
-  | { kind: "activity"; active: boolean }; // active=filled, idle=hollow ring
+export type DotShape = "ring" | "solid" | "failed" | "done" | "skipped";
 
-export function statusDotState(win: WindowInfo): StatusDotState {
-  if (win.fabChange && win.prNumber) return { kind: "pr", pr: prDotState(win) };
-  return { kind: "activity", active: win.activity === "active" };
+/**
+ * 4-phase model matching the fab-kit README grouping (Intake / Execution /
+ * Completion / Shipping), plus `pr` and `none`. Execution and Completion both
+ * map to amber in PHASE_HUE — the README *grouping* is kept (hydrate stays its
+ * own "completion" phase) but the *palette* is shared, so apply/review/hydrate
+ * render an identical amber dot. Purple is reserved for the live PR phase.
+ */
+export type DotPhase = "intake" | "execution" | "completion" | "shipping" | "pr" | "none";
+
+export type StatusDotState = {
+  phase: DotPhase; // → hue
+  shape: DotShape; // → shape
+};
+
+/**
+ * fabStage → phase, using the README 4-phase grouping:
+ *   intake→intake; apply,review→execution; hydrate→completion;
+ *   ship,review-pr→shipping. Unknown/absent → none (gray, no journey).
+ */
+export function fabPhase(stage: string | undefined): DotPhase {
+  switch (stage) {
+    case "intake":
+      return "intake";
+    case "apply":
+    case "review":
+      return "execution";
+    case "hydrate":
+      return "completion";
+    case "ship":
+    case "review-pr":
+      return "shipping";
+    default:
+      return "none";
+  }
 }
 
 /**
- * Per-state color token for the sidebar PR dot. Reuses the EXACT existing PR
- * color vocabulary from status-panel.tsx (no new hex). `text-accent-green` is
- * the established theme token (themes.ts), not raw `text-green-400`.
+ * fabDisplayState → shape (the unified shape vocabulary). An unknown/absent
+ * display-state on a fab window defaults to `solid` — a live fab window with a
+ * future/unrecognized state should still read as a live dot, not vanish.
  */
-export const PR_DOT_COLOR: Record<PrDotState, string> = {
-  merged: "text-purple-400",
-  fail: "text-red-400",
-  pending: "text-yellow-400",
-  healthy: "text-accent-green",
-  neutral: "text-text-secondary",
-};
+export function fabShape(displayState: string | undefined): DotShape {
+  switch (displayState) {
+    case "pending":
+      return "ring";
+    case "failed":
+      return "failed";
+    case "done":
+      return "done";
+    case "skipped":
+      return "skipped";
+    case "active":
+    case "ready":
+    default:
+      return "solid";
+  }
+}
 
 /**
- * Per-state accessible name for the dot. Color cannot be the only channel
- * (colorblind a11y + Constitution V), and the dot always renders for a
- * change-bound PR window, so even `neutral` carries a label. `healthy` is
- * deliberately "checks passing", NOT "ready to merge" — health, not readiness.
+ * PR fields → shape, reusing the existing `prDotState` semantics so the PR
+ * surfaces stay in lock-step: merged→done, fail→failed, pending→ring,
+ * healthy→solid, neutral(open or closed-unmerged)→solid. The PR is the purple
+ * `phase`; this maps only its status to a shape.
  */
-export const PR_DOT_LABEL: Record<PrDotState, string> = {
-  merged: "PR merged",
-  fail: "PR needs attention — checks failing or changes requested",
-  pending: "PR checks running",
-  healthy: "PR checks passing",
-  neutral: "PR open",
+export function prShape(win: WindowInfo): DotShape {
+  switch (prDotState(win)) {
+    case "merged":
+      return "done";
+    case "fail":
+      return "failed";
+    case "pending":
+      return "ring";
+    case "healthy":
+    case "neutral":
+    default:
+      return "solid";
+  }
+}
+
+/**
+ * phase → hue token. Execution and Completion BOTH map to amber (README
+ * grouping kept, palette shared) so apply/review/hydrate render identically;
+ * purple is reserved for the live PR phase. No raw hex — `text-blue-400` and
+ * `text-amber-400` are standard Tailwind classes (used like the existing
+ * `text-yellow-400`); the rest are the established shared tokens.
+ */
+export const PHASE_HUE: Record<DotPhase, string> = {
+  intake: "text-blue-400",
+  execution: "text-amber-400",
+  completion: "text-amber-400",
+  shipping: "text-accent-green",
+  pr: "text-purple-400",
+  none: "text-text-secondary",
 };
+
+export function statusDotState(win: WindowInfo): StatusDotState {
+  if (win.fabChange && win.prNumber) return { phase: "pr", shape: prShape(win) }; // PR wins
+  if (win.fabChange) return { phase: fabPhase(win.fabStage), shape: fabShape(win.fabDisplayState) }; // then fab
+  return { phase: "none", shape: win.activity === "active" ? "solid" : "ring" }; // then tmux
+}
 
 /**
  * One-line live PR status for a change-bound window. Renders ONLY when the

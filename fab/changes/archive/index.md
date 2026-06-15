@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260615-yg7f-unified-status-dot** — Unified Status Dot
 - **260609-enic-restore-display-message-resolve-window** — Restore O(1) display-message lookup in ResolveWindowSession
 - **260609-ebks-derive-sidebar-order** — Derive sidebar session display-order instead of storing localOrderByServer in state
 - **260608-j6bs-shllai-readme-extraction-contract** — Conform repo to shll.ai README-extraction contract

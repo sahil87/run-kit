@@ -23,15 +23,21 @@ import type { WindowInfo } from "@/types";
  * inside a `failed` dashed ring — never as a whole-dot color (this removes the
  * old `fabDisplayState === "failed"` red tint and the old solid-red PR fail).
  *
- * `failed` and `done` render slightly larger (8px vs the 6px ring/solid) so the
- * dashed border shows enough dashes (with a clearly visible red center) and the
- * rounded square reads unambiguously as a square next to the circles.
+ * Every shape renders at one uniform 7px footprint (`DOT_SIZE`) so the filled
+ * square and the hollow circles read as the same size in the dense sidebar; the
+ * square is distinguished by its shape (`rounded-[1px]`), not by being bigger.
  *
  * The dot always carries `role="img"` + `aria-label` + `title` composed from
  * phase + status (e.g. "apply — active", "PR — merged", "review — failed",
  * "intake — pending"), or "active"/"idle" for the tmux fallback — color is
  * never the sole channel (colorblind a11y + keyboard-first constitution).
  */
+
+// Every shape renders at one uniform footprint so the filled square and the
+// hollow circles read as the same size in the dense sidebar (a filled 8px
+// square next to a hollow 6px ring looks much bigger). 7px is the middle ground
+// that still leaves the dashed failed-ring + red center legible.
+const DOT_SIZE = "w-[7px] h-[7px]";
 
 /** Human word for the SHAPE/status axis used in the accessible label. */
 const SHAPE_LABEL: Record<DotShape, string> = {
@@ -83,25 +89,26 @@ export function StatusDot({ win }: { win: WindowInfo }) {
   const common = { role: "img" as const, "aria-label": label, title: label };
 
   if (state.shape === "done") {
-    // Square (barely-softened corners) — slightly larger so it reads clearly as
-    // a square next to the circles. A larger radius (e.g. 3px on this ~8px box)
-    // rounds the corners enough to look like a circle, so keep it ~1px.
+    // Square (barely-softened corners). A larger radius (e.g. 3px on this 7px
+    // box) rounds the corners enough to look like a circle, so keep it ~1px.
+    // Same DOT_SIZE as every other shape so the square doesn't visually dominate
+    // the circles in the dense sidebar.
     return (
       <span
         {...common}
-        className={`w-2 h-2 rounded-[1px] shrink-0 ${color}`}
+        className={`${DOT_SIZE} rounded-[1px] shrink-0 ${color}`}
         style={{ backgroundColor: "currentColor" }}
       />
     );
   }
 
   if (state.shape === "failed") {
-    // Dashed ring in the phase hue with a small red center dot. Larger (8px) so
-    // the dashed border shows enough dashes and the red center is legible.
+    // Dashed ring in the phase hue with a small red center dot. Same DOT_SIZE as
+    // the other shapes; the red center (`w-1 h-1`) reads inside the 7px ring.
     return (
       <span
         {...common}
-        className={`relative inline-flex items-center justify-center w-2 h-2 rounded-full shrink-0 ${color}`}
+        className={`relative inline-flex items-center justify-center ${DOT_SIZE} rounded-full shrink-0 ${color}`}
         style={{ border: "1.8px dashed currentColor", backgroundColor: "transparent" }}
       >
         <span aria-hidden="true" className="w-1 h-1 rounded-full bg-red-400" />
@@ -113,7 +120,7 @@ export function StatusDot({ win }: { win: WindowInfo }) {
     return (
       <span
         {...common}
-        className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`}
+        className={`${DOT_SIZE} rounded-full shrink-0 ${color}`}
         style={{ border: "none", backgroundColor: "currentColor" }}
       />
     );
@@ -124,7 +131,7 @@ export function StatusDot({ win }: { win: WindowInfo }) {
   return (
     <span
       {...common}
-      className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`}
+      className={`${DOT_SIZE} rounded-full shrink-0 ${color}`}
       style={{ border: "1.8px solid currentColor", backgroundColor: "transparent" }}
     />
   );

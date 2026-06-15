@@ -16,7 +16,7 @@ import type { WindowInfo } from "@/types";
  *       solid         → active / ready (PR: open / healthy)
  *       failed        → dashed ring in phase hue + a small RED center dot
  *                       (PR: checks fail / changes requested)
- *       done          → filled rounded square in phase hue (PR: merged)
+ *       done          → filled sharp-cornered square in phase hue (PR: merged)
  *       skipped       → gray hollow ring (PR: closed unmerged)
  *
  * Red is used in exactly ONE way across the whole system: the small center dot
@@ -25,7 +25,7 @@ import type { WindowInfo } from "@/types";
  *
  * Every shape renders at one uniform 7px footprint (`DOT_SIZE`) so the filled
  * square and the hollow circles read as the same size in the dense sidebar; the
- * square is distinguished by its shape (`rounded-[1px]`), not by being bigger.
+ * square is distinguished by its sharp (`rounded-none`) corners, not by being bigger.
  *
  * The dot always carries `role="img"` + `aria-label` + `title` composed from
  * phase + status (e.g. "apply — active", "PR — merged", "review — failed",
@@ -89,14 +89,14 @@ export function StatusDot({ win }: { win: WindowInfo }) {
   const common = { role: "img" as const, "aria-label": label, title: label };
 
   if (state.shape === "done") {
-    // Square (barely-softened corners). A larger radius (e.g. 3px on this 7px
-    // box) rounds the corners enough to look like a circle, so keep it ~1px.
-    // Same DOT_SIZE as every other shape so the square doesn't visually dominate
-    // the circles in the dense sidebar.
+    // Sharp-cornered square (no rounding). At 7px even a 1px radius softens the
+    // corners enough to blur the square-vs-circle distinction, so render fully
+    // square (`rounded-none`) to keep `done` visually distinct from the round
+    // shapes. Same DOT_SIZE as every other shape so it doesn't dominate.
     return (
       <span
         {...common}
-        className={`${DOT_SIZE} rounded-[1px] shrink-0 ${color}`}
+        className={`${DOT_SIZE} rounded-none shrink-0 ${color}`}
         style={{ backgroundColor: "currentColor" }}
       />
     );

@@ -149,7 +149,7 @@ describe("StatusDot — rendering shapes", () => {
   it("renders a rounded square (not a circle) for a done stage", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "ship", fabDisplayState: "done" })} />);
     const dot = screen.getByLabelText("ship — done");
-    expect(dot.className).toContain("rounded-[1px]");
+    expect(dot.className).toContain("rounded-none");
     expect(dot.className).not.toContain("rounded-full");
     expect(dot.className).toContain("text-accent-green");
     expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
@@ -173,7 +173,7 @@ describe("StatusDot — PR phase (purple, same shape language)", () => {
     render(<StatusDot win={prWin({ prState: "merged", prChecks: "fail" })} />);
     const dot = screen.getByLabelText("PR — merged");
     expect(dot.className).toContain("text-purple-400");
-    expect(dot.className).toContain("rounded-[1px]");
+    expect(dot.className).toContain("rounded-none");
   });
 
   it("open/healthy → purple solid circle", () => {

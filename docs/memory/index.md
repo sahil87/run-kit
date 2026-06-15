@@ -1,3 +1,6 @@
+---
+fkf_version: "0.1"
+---
 # Memory Index
 
 > **Memory files are post-implementation artifacts** — what actually *happened*. They are the

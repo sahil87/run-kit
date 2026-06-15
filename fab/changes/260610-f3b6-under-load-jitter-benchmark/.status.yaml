@@ -35,4 +35,5 @@ stage_metrics:
 prs:
     - https://github.com/sahil87/run-kit/pull/255
 # true_impact: lazily created on first apply-finish (no placeholder here).
+summary: ""
 last_updated: 2026-06-11T06:28:54Z

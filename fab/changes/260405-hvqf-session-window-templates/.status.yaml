@@ -33,4 +33,5 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-04-05T18:41:12Z", driver: fab-new, iterations: 1}
 prs: []
+summary: ""
 last_updated: 2026-06-02T07:28:42Z

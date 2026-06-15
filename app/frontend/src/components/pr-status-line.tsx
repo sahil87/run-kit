@@ -151,7 +151,7 @@ export function PrStatusLine({ win }: { win: WindowInfo }) {
 
   return (
     <div
-      className="flex items-center gap-1 text-xs text-text-secondary truncate"
+      className="flex items-center gap-1 text-xs text-text-secondary min-w-0 truncate"
       data-testid="pr-status-line"
       // Clicking the line (but not the link) kicks an on-demand refresh. This
       // is a best-effort progressive enhancement, NOT a semantic control — the
@@ -181,13 +181,16 @@ export function PrStatusLine({ win }: { win: WindowInfo }) {
         <span className="shrink-0">PR #{win.prNumber}</span>
       )}
       {win.prState && (
-        <span className={`shrink-0 ${PR_STATE_COLORS[win.prState]}`} aria-hidden="true">
-          {stateGlyph(win.prState)} {win.prState}
+        <span className={`shrink-0 ${PR_STATE_COLORS[win.prState]}`}>
+          {/* Glyph is decorative — the state word carries the meaning, so only
+              the glyph is hidden from screen readers (the line is the sole PR
+              signal on the dashboard, which has no accompanying dot). */}
+          <span aria-hidden="true">{stateGlyph(win.prState)}</span> {win.prState}
           {draftSuffix}
         </span>
       )}
       {summary.map((seg) => (
-        <span key={seg.text} className={`truncate ${seg.color}`}>
+        <span key={seg.text} className={`min-w-0 truncate ${seg.color}`}>
           {"·"} {seg.text}
         </span>
       ))}

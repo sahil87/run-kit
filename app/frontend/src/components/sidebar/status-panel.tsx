@@ -301,7 +301,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
       {processLine && (
         <div className="truncate">
           <span className="text-text-secondary">run </span>
-          <BrailleSnake className={ICON_CLASS} />{" "}
+          <BrailleSnake className={`${ICON_CLASS} font-normal`} />{" "}
           <span className="text-text-secondary">{processLine}</span>
         </div>
       )}
@@ -310,7 +310,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
       {agentLine && (
         <div className="truncate">
           <span className="text-text-secondary">agt </span>
-          <StarTwinkle className={ICON_CLASS} />{" "}
+          <StarTwinkle className={`${ICON_CLASS} font-normal`} />{" "}
           <span className="text-text-secondary">{agentLine}</span>
         </div>
       )}
@@ -318,7 +318,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
       {/* fab */}
       {fabLine && (
         <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
-          <ClockSpinner className={ICON_CLASS} />{" "}
+          <ClockSpinner className={`${ICON_CLASS} font-normal`} />{" "}
           <span className="text-text-primary group-hover:text-accent">{fabLine}</span>
         </CopyableRow>
       )}

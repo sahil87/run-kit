@@ -83,11 +83,13 @@ export function StatusDot({ win }: { win: WindowInfo }) {
   const common = { role: "img" as const, "aria-label": label, title: label };
 
   if (state.shape === "done") {
-    // Rounded square — slightly larger so it reads as a square vs the circles.
+    // Square (barely-softened corners) — slightly larger so it reads clearly as
+    // a square next to the circles. A larger radius (e.g. 3px on this ~8px box)
+    // rounds the corners enough to look like a circle, so keep it ~1px.
     return (
       <span
         {...common}
-        className={`w-2 h-2 rounded-[3px] shrink-0 ${color}`}
+        className={`w-2 h-2 rounded-[1px] shrink-0 ${color}`}
         style={{ backgroundColor: "currentColor" }}
       />
     );

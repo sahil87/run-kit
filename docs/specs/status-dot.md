@@ -57,7 +57,7 @@ ONE shape vocabulary across **all** phases (fab stages AND PR):
 | `pending` (PR: checks running) | ring | hollow circle, 1.8px solid border in phase hue, transparent fill |
 | `active` / `ready` (PR: open / healthy) | solid circle | filled circle in phase hue |
 | `failed` (PR: checks fail / changes requested) | **dashed ring + red center** | dashed 1.8px border in phase hue, transparent fill, with a small **red** (`bg-red-400`) dot centered inside |
-| `done` (PR: merged) | rounded square | filled rounded square (`rounded-[3px]`) in phase hue |
+| `done` (PR: merged) | rounded square | filled rounded square (`rounded-[1px]`) in phase hue |
 | `skipped` (PR: closed unmerged) | gray ring | hollow ring forced to gray (`text-text-secondary`) |
 
 The `failed` and `done` shapes render slightly larger (8px vs the 6px ring/solid) so the dashed

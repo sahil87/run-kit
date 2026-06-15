@@ -289,7 +289,7 @@ describe("WindowRow", () => {
       const dot = screen.getByLabelText("PR — merged");
       expect(dot).toBeInTheDocument();
       expect(dot.className).toContain("text-purple-400");
-      expect(dot.className).toContain("rounded-[3px]");
+      expect(dot.className).toContain("rounded-[1px]");
     });
 
     it("renders a purple dashed-ring + red center when prChecks is fail", () => {

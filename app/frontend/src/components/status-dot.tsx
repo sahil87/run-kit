@@ -32,13 +32,14 @@ export function StatusDot({ win }: { win: WindowInfo }) {
     const label = PR_DOT_LABEL[state.pr];
     return state.pr === "neutral" ? (
       <span
+        role="img"
         className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`}
         aria-label={label}
         title={label}
         style={{ border: "1.5px solid currentColor", backgroundColor: "transparent" }}
       />
     ) : (
-      <span className={`text-xs shrink-0 ${color}`} aria-label={label} title={label}>
+      <span role="img" className={`text-xs shrink-0 ${color}`} aria-label={label} title={label}>
         &#x25CF;
       </span>
     );
@@ -50,6 +51,7 @@ export function StatusDot({ win }: { win: WindowInfo }) {
   const color = win.fabDisplayState === "failed" ? "text-red-400" : "text-text-secondary";
   return (
     <span
+      role="img"
       className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`}
       aria-label={label}
       title={label}

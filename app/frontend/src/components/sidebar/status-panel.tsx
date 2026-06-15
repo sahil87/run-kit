@@ -115,9 +115,9 @@ function getPrSegments(win: WindowInfo): PrSegment[] | null {
 
 export function WindowPanel({ window: win }: WindowPanelProps) {
   const headerRight = win ? (
-    <span className="flex items-center gap-1.5 truncate text-text-secondary font-mono">
+    <span className="flex min-w-0 items-center gap-1.5 text-text-secondary font-mono">
       <StatusDot win={win} />
-      {win.name}
+      <span className="truncate">{win.name}</span>
     </span>
   ) : null;
 

@@ -147,10 +147,10 @@ A copyable metadata row appended after `fab` in `WindowPanel`, following the sam
 | `ring` | `pending` (PR: checks running) | hollow circle, `1.8px solid currentColor` border in phase hue, transparent fill |
 | `solid` | `active`/`ready` (PR: open/healthy) | filled circle (`backgroundColor: currentColor`, `border: none`) in phase hue |
 | `failed` | `failed` (PR: checks fail / changes requested) | **dashed ring** (`1.8px dashed currentColor`, transparent) in phase hue + a centered small **red** `bg-red-400` dot (`w-1 h-1`) |
-| `done` | `done` (PR: merged) | filled **rounded square** (`rounded-[1px]`, `backgroundColor: currentColor`) in phase hue |
+| `done` | `done` (PR: merged) | filled **sharp-cornered square** (`rounded-none`, `backgroundColor: currentColor`) in phase hue |
 | `skipped` | `skipped` (PR: closed unmerged) | gray hollow ring (hue FORCED to `text-text-secondary`) |
 
-All shapes render at one uniform 7px footprint (`DOT_SIZE = "w-[7px] h-[7px]"`), so the filled square and the hollow circles read as the same size in the dense sidebar — the square is distinguished by its `rounded-[1px]` shape, not by being larger (a filled square at a bigger box-size visually dominates the hollow rings). The `failed` red center stays `w-1 h-1` inside the 7px ring.
+All shapes render at one uniform 7px footprint (`DOT_SIZE = "w-[7px] h-[7px]"`), so the filled square and the hollow circles read as the same size in the dense sidebar — the square is distinguished by its sharp `rounded-none` corners, not by being larger (at 7px even a 1px radius blurs the square-vs-circle distinction; a filled square at a bigger box-size visually dominates the hollow rings). The `failed` red center stays `w-1 h-1` inside the 7px ring.
 
 **Shape mappings**:
 - `fabShape(displayState)`: `pending`→`ring`; `active`,`ready`→`solid`; `failed`→`failed`; `done`→`done`; `skipped`→`skipped`; unknown/absent→`solid` (a live fab window with a future/unrecognized state still reads as a live dot, not gone).

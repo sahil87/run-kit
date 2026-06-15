@@ -9,8 +9,11 @@ type SwatchPopoverProps = {
   onClose: () => void;
 };
 
-/** Grid columns — must match the Tailwind `grid-cols-3` below for nav math. */
-const GRID_COLS = 3;
+/** Grid columns — must match the Tailwind `grid-cols-4` below for nav math.
+ *  Layout: 10 swatches fill rows 0-1 (cols 0-3) + row 2 cols 0-1; Clear is the
+ *  11th item, occupying the remaining cells of the final row as a `col-span`
+ *  cell (bottom-right). With 10 swatches that's row 2, cols 2-3. */
+const GRID_COLS = 4;
 
 export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopoverProps) {
   const { theme } = useTheme();
@@ -68,17 +71,22 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         setFocusIndex((i) => {
-          if (i >= clearIndex) return i; // already on Clear
+          if (i >= clearIndex) return i; // already on Clear (last row)
           const next = i + GRID_COLS;
-          // Drop past the last grid row → land on Clear.
-          return next < colorCount ? next : clearIndex;
+          if (next < colorCount) return next; // lands on a real swatch
+          // Past the last swatch row: any downward move lands on Clear, which
+          // occupies the right half of the final row (cols `colorCount % GRID_COLS`..3).
+          return clearIndex;
         });
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setFocusIndex((i) => {
           if (i >= clearIndex) {
-            // From Clear, jump back into the last occupied swatch in the grid.
-            return colorCount - 1;
+            // Clear occupies the final row starting at column `colorCount % GRID_COLS`.
+            // Step up one row, same column → the swatch directly above Clear's left edge.
+            const clearCol = colorCount % GRID_COLS;
+            const clearRow = Math.floor(colorCount / GRID_COLS);
+            return (clearRow - 1) * GRID_COLS + clearCol; // 10 swatches → slot 6 ("1+3", orange)
           }
           const prev = i - GRID_COLS;
           return prev >= 0 ? prev : i;
@@ -104,7 +112,7 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
       onKeyDown={handleKeyDown}
       className="bg-bg-primary border border-border rounded-md shadow-lg p-1.5 z-50 w-max"
     >
-      <div className="grid grid-cols-3 gap-1">
+      <div className="grid grid-cols-4 gap-1">
         {PICKER_COLOR_VALUES.map((value, i) => {
           const tint = rowTints.get(value);
           const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;
@@ -134,17 +142,18 @@ export function SwatchPopover({ selectedColor, onSelect, onClose }: SwatchPopove
             </button>
           );
         })}
+        {/* Clear — bottom-right, spanning the final row's remaining cells. */}
+        <button
+          role="option"
+          aria-selected={selectedColor == null}
+          onClick={() => onSelect(null)}
+          className={`col-span-2 h-5 text-[10px] text-text-secondary hover:text-text-primary rounded-sm transition-colors flex items-center justify-center ${
+            focusIndex === clearIndex ? "ring-1 ring-text-secondary" : ""
+          }`}
+        >
+          Clear
+        </button>
       </div>
-      <button
-        role="option"
-        aria-selected={selectedColor == null}
-        onClick={() => onSelect(null)}
-        className={`mt-1 w-full text-[10px] text-text-secondary hover:text-text-primary py-0.5 rounded-sm transition-colors ${
-          focusIndex === clearIndex ? "ring-1 ring-text-secondary" : ""
-        }`}
-      >
-        Clear
-      </button>
     </div>
   );
 }

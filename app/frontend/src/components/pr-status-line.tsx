@@ -13,22 +13,59 @@ function stateGlyph(state: WindowInfo["prState"]): string {
   }
 }
 
-/** Human-readable checks/review summary, e.g. "checks pass" or "review: changes requested". */
-function summaryText(win: WindowInfo): string {
-  const parts: string[] = [];
+/**
+ * Colored checks/review segments for the live PR line, e.g. a green "checks
+ * pass" and a red "review: changes requested". Each segment carries its own
+ * color token from the shared vocabulary so the dashboard line matches the Pane
+ * panel segment-by-segment. Mirrors getPrSegments' rule: checks/review are
+ * historical once the PR is no longer open, so they're suppressed for a
+ * merged/closed PR (only the terminal state shows). `none`/absent is dropped.
+ */
+function summarySegments(win: WindowInfo): { text: string; color: string }[] {
+  const isOpen = !win.prState || win.prState === "open";
+  if (!isOpen) return [];
+  const parts: { text: string; color: string }[] = [];
   if (win.prChecks && win.prChecks !== "none") {
-    parts.push(`checks ${win.prChecks}`);
+    parts.push({ text: `checks ${win.prChecks}`, color: PR_CHECKS_COLORS[win.prChecks] });
   }
   if (win.prReview && win.prReview !== "none") {
-    parts.push(`review: ${win.prReview.replace(/_/g, " ")}`);
+    parts.push({ text: `review: ${win.prReview.replace(/_/g, " ")}`, color: PR_REVIEW_COLORS[win.prReview] });
   }
-  return parts.join(" · ");
+  return parts;
 }
 
 /** Fail-ish states get the red token; everything else uses the secondary token. */
 export function isFailish(win: WindowInfo): boolean {
   return win.prChecks === "fail" || win.prReview === "changes_requested";
 }
+
+/**
+ * Per-segment PR color vocabulary, shared by ALL three PR surfaces — the sidebar
+ * dot (via prDotState/PR_DOT_COLOR), the dashboard line (PrStatusLine, below),
+ * and the Pane panel segments (status-panel.tsx getPrSegments, which imports
+ * these). GitHub-style: open=green, merged=purple, closed=red; checks/review
+ * pass/approved=green, fail/changes_requested=red, pending/review_required=
+ * yellow. No new hex — `text-accent-green` is the theme token (themes.ts); the
+ * other four are the established PR Tailwind tokens. This is the single source
+ * of truth so a token rename touches one place and every surface stays in step.
+ */
+export const PR_STATE_COLORS: Record<NonNullable<WindowInfo["prState"]>, string> = {
+  open: "text-accent-green",
+  merged: "text-purple-400",
+  closed: "text-red-400",
+};
+
+export const PR_CHECKS_COLORS: Record<string, string> = {
+  pass: "text-accent-green",
+  fail: "text-red-400",
+  pending: "text-yellow-400",
+};
+
+export const PR_REVIEW_COLORS: Record<string, string> = {
+  approved: "text-accent-green",
+  changes_requested: "text-red-400",
+  review_required: "text-yellow-400",
+};
 
 /**
  * The five "traffic-light" states for the sidebar PR dot, generalizing the old
@@ -98,18 +135,23 @@ export const PR_DOT_LABEL: Record<PrDotState, string> = {
  * external link (new tab) whose click is stopped from bubbling so it never
  * selects/navigates the window. Clicking the rest of the line triggers a
  * best-effort `refreshPrStatus()` (the refreshed status arrives via SSE).
+ *
+ * Each segment is colored from the shared PR vocabulary (PR_STATE_COLORS /
+ * PR_CHECKS_COLORS / PR_REVIEW_COLORS) — the SAME tokens the sidebar dot and the
+ * Pane panel use — so a merged PR reads purple, a passing check green, a failing
+ * one red, on every surface. The container itself stays `text-text-secondary`
+ * (the default for `PR #<n>`, glyph, and separators); only the state and
+ * checks/review words take a state color.
  */
 export function PrStatusLine({ win }: { win: WindowInfo }) {
   if (!win.fabChange || !win.prNumber) return null;
 
-  const failish = isFailish(win);
-  const colorClass = failish ? "text-red-400" : "text-text-secondary";
-  const summary = summaryText(win);
+  const summary = summarySegments(win);
   const draftSuffix = win.prIsDraft ? " (draft)" : "";
 
   return (
     <div
-      className={`flex items-center gap-1 text-xs ${colorClass} truncate`}
+      className="flex items-center gap-1 text-xs text-text-secondary truncate"
       data-testid="pr-status-line"
       // Clicking the line (but not the link) kicks an on-demand refresh. This
       // is a best-effort progressive enhancement, NOT a semantic control — the
@@ -139,12 +181,16 @@ export function PrStatusLine({ win }: { win: WindowInfo }) {
         <span className="shrink-0">PR #{win.prNumber}</span>
       )}
       {win.prState && (
-        <span className="shrink-0" aria-hidden="true">
+        <span className={`shrink-0 ${PR_STATE_COLORS[win.prState]}`} aria-hidden="true">
           {stateGlyph(win.prState)} {win.prState}
           {draftSuffix}
         </span>
       )}
-      {summary && <span className="truncate">{"·"} {summary}</span>}
+      {summary.map((seg) => (
+        <span key={seg.text} className={`truncate ${seg.color}`}>
+          {"·"} {seg.text}
+        </span>
+      ))}
     </div>
   );
 }

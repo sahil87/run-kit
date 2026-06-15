@@ -7,6 +7,7 @@ import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatDuration, parseFabChange } from "@/lib/format";
+import { PR_STATE_COLORS, PR_CHECKS_COLORS, PR_REVIEW_COLORS } from "@/components/pr-status-line";
 import type { WindowInfo } from "@/types";
 
 type CopyableRowKey = "tmx" | "cwd" | "git" | "fab" | "pr";
@@ -70,24 +71,9 @@ function getAgentLine(win: WindowInfo): string | null {
 
 type PrSegment = { text: string; color: string };
 
-/** GitHub-style state colors: open=green, merged=purple, closed=red. */
-const PR_STATE_COLORS: Record<NonNullable<WindowInfo["prState"]>, string> = {
-  open: "text-accent-green",
-  merged: "text-purple-400",
-  closed: "text-red-400",
-};
-
-const PR_CHECKS_COLORS: Record<string, string> = {
-  pass: "text-accent-green",
-  fail: "text-red-400",
-  pending: "text-yellow-400",
-};
-
-const PR_REVIEW_COLORS: Record<string, string> = {
-  approved: "text-accent-green",
-  changes_requested: "text-red-400",
-  review_required: "text-yellow-400",
-};
+// PR segment color vocabulary (PR_STATE_COLORS / PR_CHECKS_COLORS /
+// PR_REVIEW_COLORS) is imported from pr-status-line.tsx — the single source of
+// truth shared with the sidebar dot and the dashboard PR line.
 
 /**
  * Build the PR status line for the pane panel as colored segments, e.g.

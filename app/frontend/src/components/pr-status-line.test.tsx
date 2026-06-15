@@ -83,16 +83,18 @@ describe("PrStatusLine", () => {
     expect(line).toHaveTextContent("closed");
   });
 
-  it("uses the red token for failing checks", () => {
+  it("colors the failing-checks segment red (per-segment, not the whole line)", () => {
     render(
       <PrStatusLine
         win={makeWindow({ fabChange: "x", prNumber: 9, prState: "open", prChecks: "fail" })}
       />,
     );
-    expect(screen.getByTestId("pr-status-line").className).toContain("text-red-400");
+    // Container stays neutral; only the checks segment takes the red token.
+    expect(screen.getByTestId("pr-status-line").className).toContain("text-text-secondary");
+    expect(screen.getByText(/checks fail/).className).toContain("text-red-400");
   });
 
-  it("uses the red token when changes are requested", () => {
+  it("colors the changes-requested review segment red", () => {
     render(
       <PrStatusLine
         win={makeWindow({
@@ -103,7 +105,26 @@ describe("PrStatusLine", () => {
         })}
       />,
     );
-    expect(screen.getByTestId("pr-status-line").className).toContain("text-red-400");
+    expect(screen.getByText(/review: changes requested/).className).toContain("text-red-400");
+  });
+
+  it("colors the state word by GitHub state — merged is purple, matching the dot and panel", () => {
+    render(
+      <PrStatusLine
+        win={makeWindow({ fabChange: "x", prNumber: 9, prState: "merged", prChecks: "pass" })}
+      />,
+    );
+    expect(screen.getByText(/merged/).className).toContain("text-purple-400");
+  });
+
+  it("colors a passing-checks segment green on an open PR", () => {
+    render(
+      <PrStatusLine
+        win={makeWindow({ fabChange: "x", prNumber: 9, prState: "open", prChecks: "pass" })}
+      />,
+    );
+    expect(screen.getByText(/open/).className).toContain("text-accent-green");
+    expect(screen.getByText(/checks pass/).className).toContain("text-accent-green");
   });
 
   it("triggers refresh when the line (not the link) is clicked", () => {

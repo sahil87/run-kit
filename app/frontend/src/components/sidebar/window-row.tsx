@@ -7,7 +7,7 @@ import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
 import { UNCOLORED_SELECTED_ANSI, type RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
-import { isFailish } from "@/components/pr-status-line";
+import { prDotState, PR_DOT_COLOR, PR_DOT_LABEL } from "@/components/pr-status-line";
 import { PinPopover } from "./pin-popover";
 
 type ProjectWindow = ProjectSession["windows"][number];
@@ -274,22 +274,36 @@ function WindowRowInner({
           )}
         </span>
         <span className="flex items-center gap-1.5 shrink-0">
-          {/* PR-fail signal: a small red bullet for change-bound windows whose
-              PR needs attention (checks failing or changes requested). Reuses
-              the shared isFailish predicate so the row stays in lockstep with
-              PrStatusLine. Gated on fabChange && prNumber (mirrors
+          {/* PR traffic-light dot: a 5-state colored signal for change-bound
+              windows with a PR. Gated on fabChange && prNumber (mirrors
               PrStatusLine's own `if (!win.fabChange || !win.prNumber) return
-              null` gate) so a non-change-bound window never shows a stray glyph.
-              A bare glyph needs an accessible name, hence aria-label + title. */}
-          {win.fabChange && win.prNumber && isFailish(win) && (
-            <span
-              className="text-xs text-red-400 shrink-0"
-              aria-label="PR needs attention"
-              title="PR checks failing or changes requested"
-            >
-              &#x25CF;
-            </span>
-          )}
+              null` gate) so a non-change-bound window never shows a stray dot —
+              but unlike the old fail-only dot, EVERY change-bound PR window now
+              shows a dot. The state, color token, and accessible name all come
+              from prDotState / PR_DOT_COLOR / PR_DOT_LABEL (single source of
+              truth shared with PrStatusLine via isFailish). The four "live"
+              states (merged/fail/pending/healthy) render the solid ● glyph in
+              their token; `neutral` renders as a dim hollow ring (the same
+              border + transparent-fill technique as the activity dot above) so
+              "has a PR, no news" is distinguishable from "no PR" (no dot). A
+              bare dot needs an accessible name, hence aria-label + title. */}
+          {win.fabChange && win.prNumber && (() => {
+            const dot = prDotState(win);
+            const color = PR_DOT_COLOR[dot];
+            const label = PR_DOT_LABEL[dot];
+            return dot === "neutral" ? (
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`}
+                aria-label={label}
+                title={label}
+                style={{ border: "1.5px solid currentColor", backgroundColor: "transparent" }}
+              />
+            ) : (
+              <span className={`text-xs shrink-0 ${color}`} aria-label={label} title={label}>
+                &#x25CF;
+              </span>
+            );
+          })()}
           {/* Quiet parked rows: a change whose displayed stage is fully done
               (fab pane map display_state === "done") is parked, not active —
               suppress the stale stage text and let the duration stand alone.

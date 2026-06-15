@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-15T12:05:00Z"}
+{"args":"Multi-color PR status dot in the sidebar window row (PR traffic-light): generalize the single red dot into a 5-state colored status dot (merged/fail/pending/healthy/neutral) reusing existing WindowInfo PR fields. green=health not merge-readiness. Frontend-only presentation, no backend/SSE/gh change. Align status-panel draft coloring.","cmd":"fab-new","event":"command","ts":"2026-06-15T12:05:00Z"}
+{"delta":"+3.7","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-06-15T12:06:42Z"}
+{"delta":"+0.0","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-06-15T12:06:46Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-06-15T12:07:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-15T12:09:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-15T12:15:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-15T12:21:07Z"}
+{"event":"review","result":"passed","ts":"2026-06-15T12:21:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-15T12:25:08Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-15T12:25:41Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-15T12:26:37Z"}
+{"event":"review","result":"passed","ts":"2026-06-15T12:33:05Z"}

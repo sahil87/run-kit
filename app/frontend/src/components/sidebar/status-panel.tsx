@@ -96,8 +96,13 @@ const PR_REVIEW_COLORS: Record<string, string> = {
  * carries a `prNumber` — the same gate the sidebar/dashboard PR surface uses.
  * For a merged/closed PR the checks and review parts are suppressed (they're
  * historical once the PR is no longer open); only the terminal state is shown.
- * A draft PR keeps the neutral token for its state — draft is "not ready",
- * not a healthy green.
+ * The state segment color is purely the GitHub state (open→green via
+ * PR_STATE_COLORS), NOT a health verdict — health is conveyed by the checks and
+ * review segments here plus the sidebar dot. A draft is not dimmed: its state
+ * follows PR_STATE_COLORS like any open PR, so an open draft shows green. This
+ * reflects the project's "green = health, not merge-readiness" story (a draft
+ * with passing checks is healthy, just not flipped to ready) and keeps all
+ * three PR surfaces (sidebar dot, these segments, PrStatusLine) consistent.
  */
 function getPrSegments(win: WindowInfo): PrSegment[] | null {
   if (!win.fabChange || !win.prNumber) return null;
@@ -105,7 +110,7 @@ function getPrSegments(win: WindowInfo): PrSegment[] | null {
   if (win.prState) {
     segments.push({
       text: `${win.prState}${win.prIsDraft ? " (draft)" : ""}`,
-      color: win.prIsDraft ? "text-text-secondary" : PR_STATE_COLORS[win.prState],
+      color: PR_STATE_COLORS[win.prState],
     });
   }
   const isOpen = !win.prState || win.prState === "open";

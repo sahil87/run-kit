@@ -447,7 +447,20 @@ describe("StatusPanel copy behavior", () => {
       expect(screen.getByText("#241").className).toContain("text-text-primary");
     });
 
-    it("colors pending checks yellow and a draft state neutral", () => {
+    it("colors pending checks yellow", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-pr-status-sidebar",
+        prNumber: 241,
+        prState: "open",
+        prChecks: "pending",
+      });
+      render(<StatusPanel window={win} />);
+      expect(screen.getByText("checks pending").className).toContain("text-yellow-400");
+    });
+
+    it("colors a draft's open state green (green = health, not readiness)", () => {
+      // Under the health-not-readiness color story, a draft follows the same
+      // state color as any open PR — green — so all three PR surfaces agree.
       const win = makeWindow({
         fabChange: "260610-596o-pr-status-sidebar",
         prNumber: 241,
@@ -456,8 +469,7 @@ describe("StatusPanel copy behavior", () => {
         prChecks: "pending",
       });
       render(<StatusPanel window={win} />);
-      expect(screen.getByText("checks pending").className).toContain("text-yellow-400");
-      expect(screen.getByText("open (draft)").className).toContain("text-text-secondary");
+      expect(screen.getByText("open (draft)").className).toContain("text-accent-green");
     });
 
     it("hides the pr row when the window is not change-bound", () => {

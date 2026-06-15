@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 18
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-06-15T18:21:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-15T18:28:51Z"}
     hydrate: {started_at: "2026-06-15T18:28:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-15T18:35:15Z"}
     ship: {started_at: "2026-06-15T18:35:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-15T18:37:05Z"}
-    review-pr: {started_at: "2026-06-15T18:37:05Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-06-15T18:37:05Z", driver: git-pr, iterations: 1, completed_at: "2026-06-15T18:46:37Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/270
 true_impact:
@@ -48,4 +48,4 @@ true_impact:
     computed_at: "2026-06-15T18:35:15Z"
     computed_at_stage: hydrate
 # true_impact: lazily created on first apply-finish (no placeholder here).
-last_updated: 2026-06-15T18:37:05Z
+last_updated: 2026-06-15T18:46:37Z

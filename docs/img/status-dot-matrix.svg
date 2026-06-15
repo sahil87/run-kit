@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="520" viewBox="0 0 760 520" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <defs>
+    <!-- hue tokens -->
+    <style>
+      .bg     { fill: #1a1b26; }
+      .card   { fill: #1e2030; }
+      .txt    { fill: #c0caf5; }
+      .sub    { fill: #787c99; }
+      .dim    { fill: #565a73; }
+      .h-blue   { color: #60a5fa; }  /* intake */
+      .h-amber  { color: #fbbf24; }  /* apply / review / hydrate */
+      .h-green  { color: #9ece6a; }  /* ship / review-pr */
+      .h-purple { color: #c084fc; }  /* PR */
+      .h-gray   { color: #787c99; }  /* none / skipped */
+      .colhdr { fill: #787c99; font-size: 10px; letter-spacing: .04em; }
+      .stage  { fill: #c0caf5; font-size: 12px; }
+      .phase  { fill: #787c99; font-size: 10px; letter-spacing: .05em; }
+      .grid   { stroke: #2f3549; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="760" height="520"/>
+
+  <!-- title -->
+  <text class="txt" x="24" y="30" font-size="16" font-weight="700">StatusDot — stage × status matrix</text>
+  <text class="sub" x="24" y="48" font-size="11">Hue = phase (blue→amber→green→purple) · Shape = status · Precedence: PR &gt; fab &gt; tmux · red only as a failed-ring center dot</text>
+
+  <!-- column headers -->
+  <text class="colhdr" x="60"  y="80">STAGE \ STATUS</text>
+  <text class="colhdr" x="300" y="80" text-anchor="middle">PENDING</text>
+  <text class="colhdr" x="400" y="80" text-anchor="middle">ACTIVE / READY</text>
+  <text class="colhdr" x="500" y="80" text-anchor="middle">FAILED</text>
+  <text class="colhdr" x="600" y="80" text-anchor="middle">DONE</text>
+  <text class="colhdr" x="700" y="80" text-anchor="middle">SKIPPED</text>
+  <line class="grid" x1="24" y1="90" x2="740" y2="90"/>
+
+  <!-- ============ helper symbol definitions (one per shape, parameterized by stroke/fill via use+color) ============ -->
+  <!-- We inline each cell directly because SVG <use> can't inherit currentColor across the explicit color set here. -->
+
+  <!-- Row: intake (blue) -->
+  <text class="phase" x="24" y="112">FAB · INTAKE — blue</text>
+  <text class="stage" x="60" y="138">intake</text>
+  <!-- pending: ring -->
+  <circle cx="300" cy="133" r="5" fill="none" stroke="#60a5fa" stroke-width="1.8"/>
+  <!-- active: solid -->
+  <circle cx="400" cy="133" r="5" fill="#60a5fa"/>
+  <!-- failed: dashed ring + red center -->
+  <circle cx="500" cy="133" r="6" fill="none" stroke="#60a5fa" stroke-width="1.8" stroke-dasharray="3 2"/>
+  <circle cx="500" cy="133" r="2.2" fill="#f87171"/>
+  <!-- done: rounded square -->
+  <rect x="594" y="127" width="12" height="12" rx="3" fill="#60a5fa"/>
+  <!-- skipped: gray ring -->
+  <circle cx="700" cy="133" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <line class="grid" x1="24" y1="152" x2="740" y2="152"/>
+
+  <!-- Row: apply / review / hydrate (amber) -->
+  <text class="phase" x="24" y="176">FAB · EXECUTION + COMPLETION — amber (apply / review / hydrate render identically)</text>
+  <text class="stage" x="60" y="202">apply · review · hydrate</text>
+  <circle cx="300" cy="197" r="5" fill="none" stroke="#fbbf24" stroke-width="1.8"/>
+  <circle cx="400" cy="197" r="5" fill="#fbbf24"/>
+  <circle cx="500" cy="197" r="6" fill="none" stroke="#fbbf24" stroke-width="1.8" stroke-dasharray="3 2"/>
+  <circle cx="500" cy="197" r="2.2" fill="#f87171"/>
+  <rect x="594" y="191" width="12" height="12" rx="3" fill="#fbbf24"/>
+  <circle cx="700" cy="197" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <line class="grid" x1="24" y1="216" x2="740" y2="216"/>
+
+  <!-- Row: ship / review-pr (green) -->
+  <text class="phase" x="24" y="240">FAB · SHIPPING — green (hands off to PR)</text>
+  <text class="stage" x="60" y="266">ship · review-pr</text>
+  <circle cx="300" cy="261" r="5" fill="none" stroke="#9ece6a" stroke-width="1.8"/>
+  <circle cx="400" cy="261" r="5" fill="#9ece6a"/>
+  <circle cx="500" cy="261" r="6" fill="none" stroke="#9ece6a" stroke-width="1.8" stroke-dasharray="3 2"/>
+  <circle cx="500" cy="261" r="2.2" fill="#f87171"/>
+  <rect x="594" y="255" width="12" height="12" rx="3" fill="#9ece6a"/>
+  <circle cx="700" cy="261" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <line class="grid" x1="24" y1="280" x2="740" y2="280"/>
+
+  <!-- Row: PR (purple) -->
+  <text class="phase" x="24" y="304">PR PHASE — purple (same shape language)</text>
+  <text class="stage" x="60" y="330">PR</text>
+  <circle cx="300" cy="325" r="5" fill="none" stroke="#c084fc" stroke-width="1.8"/>
+  <circle cx="400" cy="325" r="5" fill="#c084fc"/>
+  <circle cx="500" cy="325" r="6" fill="none" stroke="#c084fc" stroke-width="1.8" stroke-dasharray="3 2"/>
+  <circle cx="500" cy="325" r="2.2" fill="#f87171"/>
+  <rect x="594" y="319" width="12" height="12" rx="3" fill="#c084fc"/>
+  <circle cx="700" cy="325" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <!-- PR column sub-labels -->
+  <text class="dim" x="300" y="345" font-size="8.5" text-anchor="middle">checks running</text>
+  <text class="dim" x="400" y="345" font-size="8.5" text-anchor="middle">open / healthy</text>
+  <text class="dim" x="500" y="345" font-size="8.5" text-anchor="middle">checks fail</text>
+  <text class="dim" x="600" y="345" font-size="8.5" text-anchor="middle">merged</text>
+  <text class="dim" x="700" y="345" font-size="8.5" text-anchor="middle">closed</text>
+  <line class="grid" x1="24" y1="356" x2="740" y2="356"/>
+
+  <!-- Row: plain window (gray, tmux fallback) -->
+  <text class="phase" x="24" y="380">TMUX — fallback only, monochrome (no fab change, no PR)</text>
+  <text class="stage" x="60" y="406">plain window</text>
+  <text class="dim" x="300" y="410" font-size="9" text-anchor="middle">— color reserved for the journey —</text>
+  <!-- active: gray solid -->
+  <circle cx="400" cy="401" r="5" fill="#787c99"/>
+  <text class="dim" x="400" y="421" font-size="8.5" text-anchor="middle">active</text>
+  <!-- idle column sits under SKIPPED visually as the second tmux state; render gray ring under DONE col for spacing -->
+  <circle cx="500" cy="401" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <text class="dim" x="500" y="421" font-size="8.5" text-anchor="middle">idle</text>
+  <line class="grid" x1="24" y1="432" x2="740" y2="432"/>
+
+  <!-- legend -->
+  <text class="sub" x="24" y="460" font-size="11" font-weight="700">One shape language, four hues:</text>
+  <circle cx="34" cy="478" r="5" fill="none" stroke="#787c99" stroke-width="1.8"/>
+  <text class="sub" x="46" y="482" font-size="10.5">ring = pending</text>
+  <circle cx="174" cy="478" r="5" fill="#787c99"/>
+  <text class="sub" x="186" y="482" font-size="10.5">solid = active / ready</text>
+  <circle cx="350" cy="478" r="6" fill="none" stroke="#787c99" stroke-width="1.8" stroke-dasharray="3 2"/>
+  <circle cx="350" cy="478" r="2.2" fill="#f87171"/>
+  <text class="sub" x="362" y="482" font-size="10.5">dashed ring + red center = failed</text>
+  <rect x="574" y="472" width="12" height="12" rx="3" fill="#787c99"/>
+  <text class="sub" x="592" y="482" font-size="10.5">rounded square = done</text>
+
+  <text class="dim" x="24" y="504" font-size="10">Red appears only as the small center dot of a failed ring — never as a whole dot.</text>
+</svg>

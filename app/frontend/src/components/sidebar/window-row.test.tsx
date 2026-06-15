@@ -216,10 +216,10 @@ describe("WindowRow", () => {
     });
   });
 
-  // Triage signals: a failed fab stage colors the stage text and activity dot
-  // red; a PR in trouble (checks failing or changes requested) surfaces a small
-  // red glyph. These reuse the existing red token (text-red-400) and the shared
-  // isFailish predicate — pure presentation over already-transmitted fields.
+  // Triage signals: a failed fab stage colors the separate stage TEXT red
+  // (window-row's own text, unchanged by the lifecycle dot). The DOT now follows
+  // the lifecycle journey (hue=phase, shape=status) — a failed stage/PR renders
+  // a dashed ring in the phase hue + a red CENTER dot, never a whole-dot red.
   describe("triage signals", () => {
     it("colors the stage text red when fabDisplayState is failed", () => {
       const win = makeWindow({
@@ -247,22 +247,36 @@ describe("WindowRow", () => {
       expect(stage.className).not.toContain("text-red-400");
     });
 
-    it("colors the activity dot red when fabDisplayState is failed", () => {
+    it("renders a failed fab stage as a dashed ring + red CENTER dot (no whole-dot red)", () => {
+      // The lifecycle dot replaces the old whole-dot red tint: a failed stage
+      // keeps its phase hue (review→amber) with a dashed border and only a small
+      // red center child. Requires a fabChange (else it's the tmux fallback).
       const win = makeWindow({
         windowId: "@0",
         index: 0,
-        activity: "idle",
+        fabChange: "260613-o20f-x",
+        fabStage: "review",
         fabDisplayState: "failed",
       });
       renderRow(win);
-      const dot = screen.getByLabelText("idle");
-      expect(dot.className).toContain("text-red-400");
-      expect(dot.className).not.toContain("text-text-secondary");
+      const dot = screen.getByLabelText("review — failed");
+      expect(dot.className).toContain("text-amber-400");
+      expect(dot.className).not.toContain("text-red-400"); // whole-dot red is gone
+      expect(dot.getAttribute("style")).toContain("dashed");
+      expect(dot.querySelector("span")!.className).toContain("bg-red-400"); // red center only
     });
 
-    const FAIL_LABEL = "PR needs attention — checks failing or changes requested";
+    it("renders a plain (non-fab, non-PR) window via the monochrome tmux fallback", () => {
+      // No fabChange + no PR → gray, NOT a red tint even with a stray
+      // fabDisplayState (which a non-change-bound window would never carry).
+      const win = makeWindow({ windowId: "@0", index: 0, activity: "idle" });
+      renderRow(win);
+      const dot = screen.getByLabelText("idle");
+      expect(dot.className).toContain("text-text-secondary");
+      expect(dot.className).not.toContain("text-red-400");
+    });
 
-    it("renders a purple merged dot for a merged PR (first match wins over historical checks)", () => {
+    it("renders a purple square (done) for a merged PR (first match wins over historical checks)", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -272,12 +286,13 @@ describe("WindowRow", () => {
         prChecks: "fail", // historical — must be ignored, merged is first
       });
       renderRow(win);
-      const dot = screen.getByLabelText("PR merged");
+      const dot = screen.getByLabelText("PR — merged");
       expect(dot).toBeInTheDocument();
       expect(dot.className).toContain("text-purple-400");
+      expect(dot.className).toContain("rounded-[3px]");
     });
 
-    it("renders a red fail dot when prChecks is fail", () => {
+    it("renders a purple dashed-ring + red center when prChecks is fail", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -287,12 +302,14 @@ describe("WindowRow", () => {
         prChecks: "fail",
       });
       renderRow(win);
-      const dot = screen.getByLabelText(FAIL_LABEL);
+      const dot = screen.getByLabelText("PR — failing");
       expect(dot).toBeInTheDocument();
-      expect(dot.className).toContain("text-red-400");
+      expect(dot.className).toContain("text-purple-400");
+      expect(dot.getAttribute("style")).toContain("dashed");
+      expect(dot.querySelector("span")!.className).toContain("bg-red-400");
     });
 
-    it("renders a red fail dot when prReview is changes_requested (fail beats healthy)", () => {
+    it("renders a failed dot when prReview is changes_requested (fail beats healthy)", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -303,12 +320,12 @@ describe("WindowRow", () => {
         prReview: "changes_requested",
       });
       renderRow(win);
-      const dot = screen.getByLabelText(FAIL_LABEL);
+      const dot = screen.getByLabelText("PR — failing");
       expect(dot).toBeInTheDocument();
-      expect(dot.className).toContain("text-red-400");
+      expect(dot.className).toContain("text-purple-400");
     });
 
-    it("renders a yellow pending dot when checks are running", () => {
+    it("renders a purple ring (pending) when checks are running", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -318,12 +335,13 @@ describe("WindowRow", () => {
         prChecks: "pending",
       });
       renderRow(win);
-      const dot = screen.getByLabelText("PR checks running");
+      const dot = screen.getByLabelText("PR — checks running");
       expect(dot).toBeInTheDocument();
-      expect(dot.className).toContain("text-yellow-400");
+      expect(dot.className).toContain("text-purple-400");
+      expect(dot.getAttribute("style")).toContain("transparent");
     });
 
-    it("renders a green healthy dot when checks pass and review is clean", () => {
+    it("renders a purple solid (active) when checks pass and review is clean", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -334,12 +352,12 @@ describe("WindowRow", () => {
         prReview: "approved",
       });
       renderRow(win);
-      const dot = screen.getByLabelText("PR checks passing");
+      const dot = screen.getByLabelText("PR — open");
       expect(dot).toBeInTheDocument();
-      expect(dot.className).toContain("text-accent-green");
+      expect(dot.className).toContain("text-purple-400");
     });
 
-    it("renders a green healthy dot for a draft with passing checks (green = health, not readiness)", () => {
+    it("renders a purple solid for a draft with passing checks (green=health → solid)", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -350,12 +368,12 @@ describe("WindowRow", () => {
         prChecks: "pass",
       });
       renderRow(win);
-      const dot = screen.getByLabelText("PR checks passing");
+      const dot = screen.getByLabelText("PR — open");
       expect(dot).toBeInTheDocument();
-      expect(dot.className).toContain("text-accent-green");
+      expect(dot.className).toContain("text-purple-400");
     });
 
-    it("renders a dim/hollow neutral dot for an open PR with no decisive checks signal", () => {
+    it("renders a purple solid (neutral→solid) for an open PR with no decisive checks signal", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -364,21 +382,16 @@ describe("WindowRow", () => {
         prState: "open",
       });
       renderRow(win);
-      const dot = screen.getByLabelText("PR open");
+      const dot = screen.getByLabelText("PR — open");
       expect(dot).toBeInTheDocument();
-      expect(dot.className).toContain("text-text-secondary");
-      // Neutral is the hollow-ring rendering (border + transparent fill), like
-      // the activity dot — NOT the solid ● glyph the live states use. Assert on
-      // the inline style attribute (jsdom normalizes `transparent` to
-      // rgba(0,0,0,0), which trips toHaveStyle's literal comparison).
-      expect(dot.getAttribute("style")).toContain("border");
-      expect(dot.getAttribute("style")).toContain("transparent");
-      expect(dot.textContent).toBe(""); // no glyph
+      expect(dot.className).toContain("text-purple-400");
+      expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
     });
 
-    it("renders a neutral dot for a closed-unmerged PR (not red, not purple)", () => {
+    it("renders a gray skipped ring for a closed-unmerged PR (labelled 'PR — closed')", () => {
       // A closed PR with no failing checks flows past merged/fail/pending/healthy
-      // to neutral — closed has no early-return of its own (only merged does).
+      // to neutral; prShape maps the closed-neutral case to the gray `skipped`
+      // ring (docs/specs/status-dot.md line 61/82), NOT a purple solid.
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -387,41 +400,45 @@ describe("WindowRow", () => {
         prState: "closed",
       });
       renderRow(win);
-      const dot = screen.getByLabelText("PR open");
+      const dot = screen.getByLabelText("PR — closed");
       expect(dot).toBeInTheDocument();
       expect(dot.className).toContain("text-text-secondary");
+      expect(dot.className).not.toContain("text-purple-400");
     });
 
-    it("does not render any PR dot when the window has no PR", () => {
+    it("does not render the PR phase when the window has no PR (fab phase instead)", () => {
+      // fabChange but no prNumber → fab drives the dot, not PR.
       const win = makeWindow({
         windowId: "@0",
         index: 0,
         fabChange: "260613-o20f-x",
+        fabStage: "apply",
+        fabDisplayState: "active",
         prChecks: "fail",
       });
       renderRow(win);
-      expect(screen.queryByLabelText("PR merged")).toBeNull();
-      expect(screen.queryByLabelText(FAIL_LABEL)).toBeNull();
-      expect(screen.queryByLabelText("PR checks running")).toBeNull();
-      expect(screen.queryByLabelText("PR checks passing")).toBeNull();
-      expect(screen.queryByLabelText("PR open")).toBeNull();
+      expect(screen.queryByLabelText("PR — merged")).toBeNull();
+      expect(screen.queryByLabelText("PR — failing")).toBeNull();
+      expect(screen.queryByLabelText("PR — open")).toBeNull();
+      expect(screen.getByLabelText("apply — active")).toBeInTheDocument();
     });
 
-    it("does not render any PR dot when the window is not change-bound (no fabChange)", () => {
-      // A non-change-bound window with a populated prNumber and failing checks
-      // must NOT show any dot — the gate mirrors PrStatusLine's
-      // `if (!win.fabChange || !win.prNumber) return null`.
+    it("does not render the PR phase when the window is not change-bound (no fabChange)", () => {
+      // A non-change-bound window with a populated prNumber falls to the tmux
+      // fallback — the PR gate is `fabChange && prNumber`.
       const win = makeWindow({
         windowId: "@0",
         index: 0,
+        activity: "idle",
         prNumber: 386,
         prState: "open",
         prChecks: "fail",
         prReview: "changes_requested",
       });
       renderRow(win);
-      expect(screen.queryByLabelText(FAIL_LABEL)).toBeNull();
-      expect(screen.queryByLabelText("PR open")).toBeNull();
+      expect(screen.queryByLabelText("PR — failing")).toBeNull();
+      expect(screen.queryByLabelText("PR — open")).toBeNull();
+      expect(screen.getByLabelText("idle")).toBeInTheDocument();
     });
   });
 

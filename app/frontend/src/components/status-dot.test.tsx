@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { StatusDot } from "./status-dot";
-import { statusDotState } from "./pr-status-line";
+import { statusDotState, fabPhase, fabShape, prShape } from "./pr-status-line";
 import type { WindowInfo } from "@/types";
 
 afterEach(() => {
@@ -21,107 +21,213 @@ function makeWindow(overrides: Partial<WindowInfo> = {}): WindowInfo {
   };
 }
 
-describe("statusDotState precedence", () => {
-  it("returns the pr kind when the window is change-bound AND has a PR", () => {
+describe("statusDotState precedence (PR > fab > tmux)", () => {
+  it("PR wins: change-bound window WITH a PR renders the purple PR phase", () => {
     const state = statusDotState(
-      makeWindow({ fabChange: "260615-x", prNumber: 7, prState: "merged" }),
+      makeWindow({ fabChange: "260615-x", fabStage: "apply", prNumber: 7, prState: "merged" }),
     );
-    expect(state.kind).toBe("pr");
-    if (state.kind === "pr") expect(state.pr).toBe("merged");
+    expect(state).toEqual({ phase: "pr", shape: "done" });
   });
 
-  it("falls back to activity when there is no prNumber", () => {
-    const state = statusDotState(makeWindow({ fabChange: "260615-x", activity: "active" }));
-    expect(state).toEqual({ kind: "activity", active: true });
+  it("fab drives when there is a fab change but no PR", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "apply", fabDisplayState: "active" }),
+    );
+    expect(state).toEqual({ phase: "execution", shape: "solid" });
   });
 
-  it("falls back to activity when not change-bound (even with a prNumber)", () => {
+  it("tmux drives when not change-bound (solid for active)", () => {
+    const state = statusDotState(makeWindow({ activity: "active" }));
+    expect(state).toEqual({ phase: "none", shape: "solid" });
+  });
+
+  it("tmux drives when not change-bound (ring for idle)", () => {
+    const state = statusDotState(makeWindow({ activity: "idle" }));
+    expect(state).toEqual({ phase: "none", shape: "ring" });
+  });
+
+  it("a prNumber without a fabChange does NOT trigger the PR phase (falls to tmux)", () => {
     const state = statusDotState(makeWindow({ prNumber: 7, activity: "idle" }));
-    expect(state).toEqual({ kind: "activity", active: false });
+    expect(state).toEqual({ phase: "none", shape: "ring" });
   });
 });
 
-describe("StatusDot — PR branch", () => {
-  const prWin = (overrides: Partial<WindowInfo>) =>
-    makeWindow({ fabChange: "260615-x", prNumber: 386, ...overrides });
+describe("fabPhase — README 4-phase grouping", () => {
+  it("maps intake → intake", () => expect(fabPhase("intake")).toBe("intake"));
+  it("maps apply → execution", () => expect(fabPhase("apply")).toBe("execution"));
+  it("maps review → execution", () => expect(fabPhase("review")).toBe("execution"));
+  it("maps hydrate → completion", () => expect(fabPhase("hydrate")).toBe("completion"));
+  it("maps ship → shipping", () => expect(fabPhase("ship")).toBe("shipping"));
+  it("maps review-pr → shipping", () => expect(fabPhase("review-pr")).toBe("shipping"));
+  it("maps unknown/absent → none", () => {
+    expect(fabPhase("paused")).toBe("none");
+    expect(fabPhase(undefined)).toBe("none");
+  });
+});
 
-  it("renders a purple solid merged dot (first match wins over historical checks)", () => {
-    render(<StatusDot win={prWin({ prState: "merged", prChecks: "fail" })} />);
-    const dot = screen.getByLabelText("PR merged");
-    expect(dot.className).toContain("text-purple-400");
-    expect(dot.textContent).toBe("●"); // ● solid glyph
+describe("fabShape — display-state → shape vocabulary", () => {
+  it("maps pending → ring", () => expect(fabShape("pending")).toBe("ring"));
+  it("maps active → solid", () => expect(fabShape("active")).toBe("solid"));
+  it("maps ready → solid", () => expect(fabShape("ready")).toBe("solid"));
+  it("maps failed → failed", () => expect(fabShape("failed")).toBe("failed"));
+  it("maps done → done", () => expect(fabShape("done")).toBe("done"));
+  it("maps skipped → skipped", () => expect(fabShape("skipped")).toBe("skipped"));
+  it("defaults unknown/absent → solid (a live fab window still reads live)", () => {
+    expect(fabShape("paused")).toBe("solid");
+    expect(fabShape(undefined)).toBe("solid");
+  });
+});
+
+describe("prShape — reuses prDotState semantics", () => {
+  it("maps merged → done", () =>
+    expect(prShape(makeWindow({ prState: "merged" }))).toBe("done"));
+  it("maps failing checks → failed", () =>
+    expect(prShape(makeWindow({ prState: "open", prChecks: "fail" }))).toBe("failed"));
+  it("maps changes_requested → failed (fail beats healthy)", () =>
+    expect(
+      prShape(makeWindow({ prState: "open", prChecks: "pass", prReview: "changes_requested" })),
+    ).toBe("failed"));
+  it("maps pending checks → ring", () =>
+    expect(prShape(makeWindow({ prState: "open", prChecks: "pending" }))).toBe("ring"));
+  it("maps passing checks (healthy) → solid", () =>
+    expect(prShape(makeWindow({ prState: "open", prChecks: "pass" }))).toBe("solid"));
+  it("maps an open PR with no decisive signal (neutral) → solid", () =>
+    expect(prShape(makeWindow({ prState: "open" }))).toBe("solid"));
+  it("maps a closed-unmerged PR (neutral) → skipped (gray ring)", () =>
+    expect(prShape(makeWindow({ prState: "closed" }))).toBe("skipped"));
+  it("a closed PR with failing checks still reads failed (isFailish wins)", () =>
+    expect(prShape(makeWindow({ prState: "closed", prChecks: "fail" }))).toBe("failed"));
+});
+
+describe("StatusDot — rendering shapes", () => {
+  it("renders a solid filled circle in the phase hue for an active fab stage", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "active" })} />);
+    const dot = screen.getByLabelText("apply — active");
+    expect(dot.className).toContain("text-amber-400");
+    expect(dot.className).toContain("rounded-full");
+    expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
   });
 
-  it("renders a red solid fail dot when checks fail", () => {
-    render(<StatusDot win={prWin({ prState: "open", prChecks: "fail" })} />);
-    const dot = screen.getByLabelText(
-      "PR needs attention — checks failing or changes requested",
-    );
-    expect(dot.className).toContain("text-red-400");
-    expect(dot.textContent).toBe("●");
+  it("renders intake in blue", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "intake", fabDisplayState: "active" })} />);
+    expect(screen.getByLabelText("intake — active").className).toContain("text-blue-400");
   });
 
-  it("renders a red fail dot when review is changes_requested (fail beats healthy)", () => {
-    render(
-      <StatusDot win={prWin({ prState: "open", prChecks: "pass", prReview: "changes_requested" })} />,
-    );
-    const dot = screen.getByLabelText(
-      "PR needs attention — checks failing or changes requested",
-    );
-    expect(dot.className).toContain("text-red-400");
+  it("renders shipping (ship) in green", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "ship", fabDisplayState: "active" })} />);
+    expect(screen.getByLabelText("ship — active").className).toContain("text-accent-green");
   });
 
-  it("renders a yellow pending dot when checks are running", () => {
-    render(<StatusDot win={prWin({ prState: "open", prChecks: "pending" })} />);
-    const dot = screen.getByLabelText("PR checks running");
-    expect(dot.className).toContain("text-yellow-400");
-    expect(dot.textContent).toBe("●");
+  it("renders hydrate (completion) in the SAME amber as execution", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "hydrate", fabDisplayState: "active" })} />);
+    expect(screen.getByLabelText("hydrate — active").className).toContain("text-amber-400");
   });
 
-  it("renders a green solid healthy dot when checks pass", () => {
-    render(<StatusDot win={prWin({ prState: "open", prChecks: "pass" })} />);
-    const dot = screen.getByLabelText("PR checks passing");
-    expect(dot.className).toContain("text-accent-green");
-    expect(dot.textContent).toBe("●");
-  });
-
-  it("renders a dim hollow neutral ring for an open PR with no decisive signal", () => {
-    render(<StatusDot win={prWin({ prState: "open" })} />);
-    const dot = screen.getByLabelText("PR open");
-    expect(dot.className).toContain("text-text-secondary");
-    // Hollow ring (border + transparent fill), no glyph — distinct from the
-    // solid ● the live states use. jsdom normalizes `transparent`, so assert on
-    // the raw style attribute string.
+  it("renders a hollow ring (transparent fill + border) for a pending stage", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "pending" })} />);
+    const dot = screen.getByLabelText("apply — pending");
+    expect(dot.className).toContain("text-amber-400");
     expect(dot.getAttribute("style")).toContain("border");
     expect(dot.getAttribute("style")).toContain("transparent");
     expect(dot.textContent).toBe("");
   });
 
-  it("keeps the PR_DOT_COLOR token even when the fab change failed (no red override on PR branch)", () => {
-    // A PR window whose fab stage failed must still read its PR color, not red.
-    render(
-      <StatusDot win={prWin({ prState: "open", prChecks: "pass", fabDisplayState: "failed" })} />,
-    );
-    const dot = screen.getByLabelText("PR checks passing");
+  it("renders a dashed ring + a red center dot for a failed stage (NOT a whole-dot red)", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed" })} />);
+    const dot = screen.getByLabelText("review — failed");
+    // Outer ring stays in the phase hue (amber), dashed border, transparent fill.
+    expect(dot.className).toContain("text-amber-400");
+    expect(dot.className).not.toContain("text-red-400");
+    expect(dot.getAttribute("style")).toContain("dashed");
+    expect(dot.getAttribute("style")).toContain("transparent");
+    // The ONLY red is the small center child dot.
+    const center = dot.querySelector("span");
+    expect(center).not.toBeNull();
+    expect(center!.className).toContain("bg-red-400");
+  });
+
+  it("renders a rounded square (not a circle) for a done stage", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "ship", fabDisplayState: "done" })} />);
+    const dot = screen.getByLabelText("ship — done");
+    expect(dot.className).toContain("rounded-[3px]");
+    expect(dot.className).not.toContain("rounded-full");
     expect(dot.className).toContain("text-accent-green");
+    expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
+  });
+
+  it("renders a gray hollow ring for a skipped stage regardless of phase", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "skipped" })} />);
+    const dot = screen.getByLabelText("apply — skipped");
+    expect(dot.className).toContain("text-text-secondary");
+    expect(dot.className).not.toContain("text-amber-400");
+    expect(dot.getAttribute("style")).toContain("border");
+    expect(dot.getAttribute("style")).toContain("transparent");
+  });
+});
+
+describe("StatusDot — PR phase (purple, same shape language)", () => {
+  const prWin = (overrides: Partial<WindowInfo>) =>
+    makeWindow({ fabChange: "260615-x", prNumber: 386, ...overrides });
+
+  it("merged → purple rounded square (done)", () => {
+    render(<StatusDot win={prWin({ prState: "merged", prChecks: "fail" })} />);
+    const dot = screen.getByLabelText("PR — merged");
+    expect(dot.className).toContain("text-purple-400");
+    expect(dot.className).toContain("rounded-[3px]");
+  });
+
+  it("open/healthy → purple solid circle", () => {
+    render(<StatusDot win={prWin({ prState: "open", prChecks: "pass" })} />);
+    const dot = screen.getByLabelText("PR — open");
+    expect(dot.className).toContain("text-purple-400");
+    expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
+  });
+
+  it("checks pending → purple ring", () => {
+    render(<StatusDot win={prWin({ prState: "open", prChecks: "pending" })} />);
+    const dot = screen.getByLabelText("PR — checks running");
+    expect(dot.className).toContain("text-purple-400");
+    expect(dot.getAttribute("style")).toContain("transparent");
+  });
+
+  it("failing → purple dashed ring + red center", () => {
+    render(<StatusDot win={prWin({ prState: "open", prChecks: "fail" })} />);
+    const dot = screen.getByLabelText("PR — failing");
+    expect(dot.className).toContain("text-purple-400");
+    expect(dot.getAttribute("style")).toContain("dashed");
+    expect(dot.querySelector("span")!.className).toContain("bg-red-400");
+  });
+
+  it("closed-unmerged → gray skipped ring labelled 'PR — closed'", () => {
+    render(<StatusDot win={prWin({ prState: "closed" })} />);
+    const dot = screen.getByLabelText("PR — closed");
+    // `skipped` forces gray regardless of the purple PR phase, rendered as a
+    // hollow ring (transparent fill + border), matching docs/specs/status-dot.md.
+    expect(dot.className).toContain("text-text-secondary");
+    expect(dot.className).not.toContain("text-purple-400");
+    expect(dot.getAttribute("style")).toContain("border");
+    expect(dot.getAttribute("style")).toContain("transparent");
+  });
+
+  it("PR wins over a failed fab stage (no whole-dot red, reads purple)", () => {
+    render(<StatusDot win={prWin({ prState: "open", prChecks: "pass", fabStage: "review", fabDisplayState: "failed" })} />);
+    const dot = screen.getByLabelText("PR — open");
+    expect(dot.className).toContain("text-purple-400");
     expect(dot.className).not.toContain("text-red-400");
   });
 });
 
-describe("StatusDot — activity fallback", () => {
-  it("renders a gray filled dot for an active non-PR window (no green)", () => {
+describe("StatusDot — tmux fallback (monochrome)", () => {
+  it("renders a gray filled dot for an active plain window (no color)", () => {
     render(<StatusDot win={makeWindow({ activity: "active" })} />);
     const dot = screen.getByLabelText("active");
     expect(dot.className).toContain("text-text-secondary");
     expect(dot.className).not.toContain("accent-green");
-    // Filled: currentColor background, no transparent-fill ring (jsdom
-    // serializes `border: none` as `border: medium`, so assert on the fill
-    // distinction rather than the literal border string).
     expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
     expect(dot.getAttribute("style")).not.toContain("transparent");
   });
 
-  it("renders a gray hollow ring for an idle non-PR window", () => {
+  it("renders a gray hollow ring for an idle plain window", () => {
     render(<StatusDot win={makeWindow({ activity: "idle" })} />);
     const dot = screen.getByLabelText("idle");
     expect(dot.className).toContain("text-text-secondary");
@@ -129,16 +235,24 @@ describe("StatusDot — activity fallback", () => {
     expect(dot.getAttribute("style")).toContain("transparent");
   });
 
-  it("colors the activity dot red when fabDisplayState is failed", () => {
-    render(<StatusDot win={makeWindow({ activity: "idle", fabDisplayState: "failed" })} />);
-    const dot = screen.getByLabelText("idle");
-    expect(dot.className).toContain("text-red-400");
-    expect(dot.className).not.toContain("text-text-secondary");
+  it("uses the bare activity word as the label (no journey)", () => {
+    render(<StatusDot win={makeWindow({ activity: "active" })} />);
+    expect(screen.queryByLabelText(/—/)).toBeNull(); // no "phase — status" composition
+    expect(screen.getByLabelText("active")).toBeInTheDocument();
+  });
+});
+
+describe("StatusDot — accessibility label composition", () => {
+  it("composes '{stage} — {status}' for fab windows", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "pending" })} />);
+    const dot = screen.getByLabelText("apply — pending");
+    expect(dot.getAttribute("title")).toBe("apply — pending");
+    expect(dot.getAttribute("role")).toBe("img");
   });
 
-  it("does not render any PR label for an activity-fallback window", () => {
-    render(<StatusDot win={makeWindow({ activity: "active" })} />);
-    expect(screen.queryByLabelText("PR open")).toBeNull();
-    expect(screen.queryByLabelText("PR merged")).toBeNull();
+  it("composes 'PR — {status}' for the PR phase (PR-native words)", () => {
+    render(<StatusDot win={makeWindow({ fabChange: "x", prNumber: 9, prState: "merged" })} />);
+    const dot = screen.getByLabelText("PR — merged");
+    expect(dot.getAttribute("title")).toBe("PR — merged");
   });
 });

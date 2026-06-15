@@ -135,13 +135,15 @@ describe("Dashboard", () => {
     expect(screen.getByText(/txna/)).toBeInTheDocument();
   });
 
-  it("shows the unified StatusDot (with active/idle a11y label) on window cards", () => {
+  it("shows the unified StatusDot (with lifecycle a11y label) on window cards", () => {
     // The in-card "active"/"idle" WORD was dropped — the StatusDot carries the
     // state via its aria-label/title instead (the dot is the same component used
-    // on the sidebar and pane panel). The "main" window is active, "scratch" idle.
+    // on the sidebar and pane panel). "main" is a fab window mid-apply (its label
+    // composes phase + status → "apply — active"); "scratch" is a plain idle
+    // window (the bare "idle" tmux-fallback label).
     renderDashboard();
     fireEvent.click(screen.getByLabelText("Expand run-kit"));
-    expect(screen.getByLabelText("active")).toBeInTheDocument();
+    expect(screen.getByLabelText("apply — active")).toBeInTheDocument();
     expect(screen.getByLabelText("idle")).toBeInTheDocument();
   });
 

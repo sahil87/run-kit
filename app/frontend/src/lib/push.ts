@@ -59,17 +59,69 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-/** Report the current push subscription state without prompting the user. */
+/**
+ * Resolve to the ready (active) service-worker registration, or null if no
+ * worker activates within `timeoutMs`. `navigator.serviceWorker.ready` never
+ * rejects and never resolves until a worker is active — so on a page where the
+ * worker never registers/activates (e.g. a subpath where `/sw.js` isn't
+ * reachable) it would hang forever. The timeout guards every caller that only
+ * needs a best-effort read of the current state.
+ */
+async function readyRegistration(
+  timeoutMs = 3000,
+): Promise<ServiceWorkerRegistration | null> {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+    return null;
+  }
+  return Promise.race([
+    navigator.serviceWorker.ready.catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+  ]);
+}
+
+/**
+ * Report the current push subscription state without prompting the user. The
+ * `serviceWorker.ready` wait is timeout-guarded so this can never hang the
+ * caller (e.g. a top-bar indicator querying state on mount).
+ */
 export async function getPushState(): Promise<PushState> {
   if (!isPushSupported()) return "unsupported";
   if (Notification.permission === "denied") return "denied";
   if (Notification.permission !== "granted") return "default";
+  const reg = await readyRegistration();
+  if (!reg) return "default";
   try {
-    const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     return sub ? "subscribed" : "default";
   } catch {
     return "default";
+  }
+}
+
+/**
+ * Show a local test notification straight from the active service worker,
+ * bypassing the server and the browser's push service entirely. This isolates
+ * the OS-delivery leg: if a real `rk notify` reports `sent:N` but nothing
+ * appears, a successful test here proves the SW + OS path works and the gap is
+ * push-delivery-specific; a failing test points at an OS-level notification
+ * block (macOS Focus / blocked site permission) instead.
+ *
+ * Returns true if `showNotification` was invoked, false if a prerequisite was
+ * missing (unsupported, permission not granted, no active worker). Never throws.
+ */
+export async function sendTestNotification(): Promise<boolean> {
+  if (!isPushSupported()) return false;
+  if (Notification.permission !== "granted") return false;
+  const reg = await readyRegistration();
+  if (!reg) return false;
+  try {
+    await reg.showNotification("RunKit", {
+      body: "Test notification — if you can see this, delivery works.",
+      icon: "/generated-icons/icon-192.png",
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -101,7 +153,9 @@ export async function enablePushSubscription(): Promise<PushState> {
     // before we touch pushManager.
     const reg = await registerServiceWorker();
     if (!reg) return "default";
-    await navigator.serviceWorker.ready;
+    // Guard the activation wait — a worker that never activates would otherwise
+    // hang the opt-in flow indefinitely. `reg` is still usable for subscribe.
+    await readyRegistration();
 
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {

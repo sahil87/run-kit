@@ -6,6 +6,7 @@ import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/conte
 import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
+import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { splitWindow, closePane } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
@@ -241,6 +242,13 @@ export function TopBar({
               all modes. */}
           <span className="hidden sm:flex">
             <FixedWidthToggle />
+          </span>
+
+          {/* Notification control — bell button + dropdown (enable / send test).
+              Route-agnostic; hides itself when push is unsupported (insecure
+              context / no SW support). */}
+          <span className="hidden sm:flex">
+            <NotificationControl />
           </span>
 
           {/* Theme is the rightmost icon button (before the connection dot +
@@ -663,6 +671,131 @@ function TerminalFontControl() {
             </svg>
             Reset
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Nerd Font bell glyphs (same icon system as the sidebar status panel):
+// U+F0F3 bell (notifications on), U+F1F6 bell-slash (off / available).
+const BELL_ON = "\uF0F3";
+const BELL_OFF = "\uF1F6";
+
+/**
+ * Top-bar notification control: a bell icon button (filled when subscribed,
+ * bell-slash otherwise) opening a small dropdown to enable push and send a
+ * local test notification. Self-contained — calls `usePushSubscription`
+ * directly (no props threaded through TopBar), mirroring TerminalFontControl /
+ * ThemeToggle. Renders nothing when push is unsupported (insecure context or no
+ * service-worker support) so the bell never appears where it can't work.
+ */
+function NotificationControl() {
+  const { state, enable, sendTest } = usePushSubscription();
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey, { capture: true });
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey, { capture: true });
+    };
+  }, [open]);
+
+  // No bell at all where push can't work — keeps the affordance honest.
+  if (state === "unsupported") return null;
+
+  const subscribed = state === "subscribed";
+  const denied = state === "denied";
+
+  const statusLabel = subscribed
+    ? "Notifications: on"
+    : denied
+      ? "Blocked in browser settings"
+      : "Notifications: off";
+  const ariaLabel = subscribed ? "Notifications on" : "Notifications off";
+
+  const menuItemClass =
+    "w-full text-left text-xs text-text-secondary hover:text-text-primary transition-colors py-1.5 px-2 rounded hover:bg-bg-card disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
+
+  return (
+    <div ref={containerRef} className="relative inline-flex items-center">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        title={statusLabel}
+        className={`min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] rounded border transition-colors flex items-center justify-center leading-none ${
+          open
+            ? "border-accent text-accent bg-accent/10"
+            : subscribed
+              ? "border-border text-accent-bright hover:border-text-secondary"
+              : "border-border text-text-secondary hover:border-text-secondary"
+        }`}
+      >
+        <span aria-hidden="true" className="text-[13px] font-bold">
+          {subscribed ? BELL_ON : BELL_OFF}
+        </span>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Notifications"
+          className="absolute top-full right-0 mt-1 min-w-[180px] bg-bg-primary border border-border rounded-lg shadow-2xl p-1.5 z-50 flex flex-col gap-0.5"
+        >
+          <div className="px-2 py-1 text-[11px] text-text-secondary select-none">
+            {statusLabel}
+          </div>
+          {!subscribed && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                void enable();
+              }}
+              className={menuItemClass}
+            >
+              Enable notifications
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              void sendTest();
+            }}
+            disabled={!subscribed}
+            title={subscribed ? "Send a local test notification" : "Enable notifications first"}
+            className={menuItemClass}
+          >
+            Send test notification
+          </button>
+          {denied && (
+            <div className="px-2 py-1 text-[11px] text-text-secondary select-none border-t border-border mt-0.5 pt-1.5">
+              Re-allow notifications for this site in your browser/OS settings.
+            </div>
+          )}
         </div>
       )}
     </div>

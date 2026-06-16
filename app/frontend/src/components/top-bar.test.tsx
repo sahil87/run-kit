@@ -15,6 +15,17 @@ vi.mock("@/api/client", async () => {
   };
 });
 
+// Drive the NotificationControl deterministically: mock the push lib so each
+// test picks the reported state without touching real serviceWorker / Notification.
+const getPushState = vi.fn();
+const enablePushSubscription = vi.fn();
+const sendTestNotification = vi.fn();
+vi.mock("@/lib/push", () => ({
+  getPushState: (...a: unknown[]) => getPushState(...a),
+  enablePushSubscription: (...a: unknown[]) => enablePushSubscription(...a),
+  sendTestNotification: (...a: unknown[]) => sendTestNotification(...a),
+}));
+
 const nowSeconds = Math.floor(Date.now() / 1000);
 
 const fabWindow: WindowInfo = {
@@ -81,6 +92,13 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
 
 describe("TopBar", () => {
   beforeEach(() => {
+    // NotificationControl's hook calls getPushState() on mount; default it to a
+    // resolved promise so every render is safe even in tests that don't touch
+    // notifications (afterEach's restoreAllMocks would otherwise leave it
+    // returning undefined → `undefined.then` on the next render).
+    getPushState.mockResolvedValue("default");
+    enablePushSubscription.mockResolvedValue("subscribed");
+    sendTestNotification.mockResolvedValue(true);
     // ThemeProvider needs matchMedia
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
       matches: true,
@@ -396,5 +414,83 @@ describe("TopBar", () => {
     });
     expect(btn).not.toBeDisabled();
     expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
+  });
+
+  describe("NotificationControl", () => {
+    beforeEach(() => {
+      getPushState.mockReset().mockResolvedValue("default");
+      enablePushSubscription.mockReset().mockResolvedValue("subscribed");
+      sendTestNotification.mockReset().mockResolvedValue(true);
+    });
+
+    /** Render and flush the mount-time getPushState() promise. */
+    async function renderWithState(state: string) {
+      getPushState.mockResolvedValue(state);
+      let utils!: ReturnType<typeof renderTopBar>;
+      await act(async () => {
+        utils = renderTopBar();
+        await Promise.resolve();
+      });
+      return utils;
+    }
+
+    it("renders the bell trigger labeled 'off' when not subscribed", async () => {
+      await renderWithState("default");
+      expect(screen.getByLabelText("Notifications off")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Notifications on")).not.toBeInTheDocument();
+    });
+
+    it("renders the bell labeled 'on' when subscribed", async () => {
+      await renderWithState("subscribed");
+      expect(screen.getByLabelText("Notifications on")).toBeInTheDocument();
+    });
+
+    it("hides itself entirely when push is unsupported", async () => {
+      await renderWithState("unsupported");
+      expect(screen.queryByLabelText("Notifications off")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Notifications on")).not.toBeInTheDocument();
+    });
+
+    it("opens a dropdown with Enable + (disabled) Test when not subscribed", async () => {
+      await renderWithState("default");
+      act(() => fireEvent.click(screen.getByLabelText("Notifications off")));
+      expect(screen.getByText("Enable notifications")).toBeInTheDocument();
+      // Test is present but disabled until subscribed.
+      expect(screen.getByText("Send test notification").closest("button")).toBeDisabled();
+    });
+
+    it("calls enablePushSubscription when Enable is clicked", async () => {
+      await renderWithState("default");
+      act(() => fireEvent.click(screen.getByLabelText("Notifications off")));
+      await act(async () => {
+        fireEvent.click(screen.getByText("Enable notifications"));
+        await Promise.resolve();
+      });
+      expect(enablePushSubscription).toHaveBeenCalledTimes(1);
+    });
+
+    it("enables the Test action and calls sendTestNotification when subscribed", async () => {
+      await renderWithState("subscribed");
+      act(() => fireEvent.click(screen.getByLabelText("Notifications on")));
+      // No Enable item when already subscribed.
+      expect(screen.queryByText("Enable notifications")).not.toBeInTheDocument();
+      const testBtn = screen.getByText("Send test notification").closest("button")!;
+      expect(testBtn).not.toBeDisabled();
+      await act(async () => {
+        fireEvent.click(testBtn);
+        await Promise.resolve();
+      });
+      expect(sendTestNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it("closes the dropdown on Escape and returns focus to the bell", async () => {
+      await renderWithState("subscribed");
+      const trigger = screen.getByLabelText("Notifications on");
+      act(() => fireEvent.click(trigger));
+      expect(screen.getByText("Send test notification")).toBeInTheDocument();
+      act(() => fireEvent.keyDown(document, { key: "Escape" }));
+      expect(screen.queryByText("Send test notification")).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+    });
   });
 });

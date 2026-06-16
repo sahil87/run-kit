@@ -1,5 +1,7 @@
 # Status Dot — Lifecycle Color Journey
 
+> [← Back to the README](../../README.md#status-dots--read-every-window-at-a-glance)
+
 > The single status dot reused on the sidebar window row, the dashboard window cards, and the
 > pane-panel header. It encodes a window's place in the fab → PR lifecycle using **two orthogonal
 > visual channels**: **hue = phase** (where in the journey) and **shape = status** (health). One

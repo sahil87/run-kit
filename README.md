@@ -101,6 +101,19 @@ rk serve --stop                         # graceful shutdown
 
 The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separate from your agent sessions. Restart the daemon and your agents keep running — the dashboard reconnects automatically.
 
+## Status dots — read every window at a glance
+
+Each window in the sidebar, dashboard, and pane panel carries a single **status dot** that tells you where it sits in the fab → PR lifecycle and how healthy it is — using two orthogonal channels:
+
+- **Hue = phase** (where in the journey): ![](https://img.shields.io/badge/intake-60a5fa?label=) intake → ![](https://img.shields.io/badge/exec-fbbf24?label=) execution (apply/review) + completion (hydrate) → ![](https://img.shields.io/badge/ship-9ece6a?label=) shipping (ship/review-pr) → ![](https://img.shields.io/badge/pr-c084fc?label=) the live PR. A plain window with no fab change is gray — color is reserved for the journey.
+- **Shape = status** (health), one vocabulary across every phase: **ring** = pending · **solid circle** = active/ready · **dashed ring + red center** = failed · **square** = done/merged · **gray ring** = skipped/closed.
+
+Exactly one signal drives the dot, in precedence order **PR > fab > tmux**.
+
+![StatusDot stage × status matrix](docs/img/status-dot-matrix.svg)
+
+See the [status dot reference](docs/site/status-dot.md) for the full matrix, the per-state rendering, and the design rationale.
+
 ## Boards — watch many panes at once
 
 A **board** is a named, cross-server pane dashboard. Pin any tmux window from any server into a board, and the board renders all pinned panes side-by-side in a horizontally-scrollable layout — perfect for watching three parallel agent sessions, or comparing a `just dev` server's output against the agent that's editing it.

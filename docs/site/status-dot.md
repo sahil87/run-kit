@@ -58,7 +58,7 @@ ONE shape vocabulary across **all** phases (fab stages AND PR):
 |--------------------------------------------|-------|-----------|
 | `pending` (PR: checks running) | ring | hollow circle, 1.8px solid border in phase hue, transparent fill |
 | `active` / `ready` (PR: open / healthy) | solid circle | filled circle in phase hue |
-| `failed` (PR: checks fail / changes requested) | **dashed ring + red center** | dashed 1.8px border in phase hue, transparent fill, with a small **red** (`bg-red-400`) dot centered inside |
+| `failed` (PR: checks fail / changes requested) | **dotted ring + red center** | dotted 1.2px border in phase hue on a slightly larger 9px footprint, transparent fill, with a small **red** (`bg-red-400`) dot centered inside |
 | `done` (PR: merged) | square | filled sharp-cornered square (`rounded-none`) in phase hue |
 | `skipped` (PR: closed unmerged) | gray ring | hollow ring forced to gray (`text-text-secondary`) |
 
@@ -79,21 +79,21 @@ journey:
 
 | Stage (hue) | pending | active/ready | failed | done | skipped |
 |-------------|---------|--------------|--------|------|---------|
-| intake (blue) | blue ring | blue solid | blue dashed-ring + red center | blue square | gray ring |
-| apply/review/hydrate (amber) | amber ring | amber solid | amber dashed-ring + red center | amber square | gray ring |
-| ship/review-pr (green) | green ring | green solid | green dashed-ring + red center | green square | gray ring |
-| PR (purple) | purple ring (checks pending) | purple solid (open/healthy) | purple dashed-ring + red center (failing) | purple square (merged) | gray ring (closed) |
+| intake (blue) | blue ring | blue solid | blue dotted-ring + red center | blue square | gray ring |
+| apply/review/hydrate (amber) | amber ring | amber solid | amber dotted-ring + red center | amber square | gray ring |
+| ship/review-pr (green) | green ring | green solid | green dotted-ring + red center | green square | gray ring |
+| PR (purple) | purple ring (checks pending) | purple solid (open/healthy) | purple dotted-ring + red center (failing) | purple square (merged) | gray ring (closed) |
 | plain (gray) | — | gray solid (active) | — | — | gray ring (idle) |
 
 ## Red is used in exactly one way
 
-Across the entire system, **red appears only as the small center dot inside a `failed` dashed
+Across the entire system, **red appears only as the small center dot inside a `failed` dotted
 ring** — never as a whole-dot color. This deliberately removes two earlier special cases:
 
 - the merged `StatusDot`'s `fabDisplayState === "failed"` whole-dot red tint, and
 - the old PR dot's solid-red `fail` state.
 
-Both now render as a **dashed ring in their phase hue + a red center dot**.
+Both now render as a **dotted ring in their phase hue + a red center dot**.
 
 ## Accessibility
 

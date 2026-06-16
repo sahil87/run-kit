@@ -132,13 +132,13 @@ describe("StatusDot — rendering shapes", () => {
     expect(dot.textContent).toBe("");
   });
 
-  it("renders a dashed ring + a red center dot for a failed stage (NOT a whole-dot red)", () => {
+  it("renders a dotted ring + a red center dot for a failed stage (NOT a whole-dot red)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed" })} />);
     const dot = screen.getByLabelText("review — failed");
-    // Outer ring stays in the phase hue (amber), dashed border, transparent fill.
+    // Outer ring stays in the phase hue (amber), dotted border, transparent fill.
     expect(dot.className).toContain("text-amber-400");
     expect(dot.className).not.toContain("text-red-400");
-    expect(dot.getAttribute("style")).toContain("dashed");
+    expect(dot.getAttribute("style")).toContain("dotted");
     expect(dot.getAttribute("style")).toContain("transparent");
     // The ONLY red is the small center child dot.
     const center = dot.querySelector("span");
@@ -190,11 +190,11 @@ describe("StatusDot — PR phase (purple, same shape language)", () => {
     expect(dot.getAttribute("style")).toContain("transparent");
   });
 
-  it("failing → purple dashed ring + red center", () => {
+  it("failing → purple dotted ring + red center", () => {
     render(<StatusDot win={prWin({ prState: "open", prChecks: "fail" })} />);
     const dot = screen.getByLabelText("PR — failing");
     expect(dot.className).toContain("text-purple-400");
-    expect(dot.getAttribute("style")).toContain("dashed");
+    expect(dot.getAttribute("style")).toContain("dotted");
     expect(dot.querySelector("span")!.className).toContain("bg-red-400");
   });
 

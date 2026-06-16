@@ -27,5 +27,4 @@
 | [Project Plan](project-plan.md) | 4-phase reimplementation plan: scaffold → backend → frontend → cleanup |
 | [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |
 | [Short-Term Goal](short-term-goal.md) | Minimum viable product requirements and priorities |
-| [Status Dot](status-dot.md) | Lifecycle color journey: PR > fab > tmux precedence, hue=phase / shape=status two-axis model, full stage×status matrix |
 | [Themes](themes.md) | Theme system architecture: ANSI palettes, derivation, tmux integration, import script |

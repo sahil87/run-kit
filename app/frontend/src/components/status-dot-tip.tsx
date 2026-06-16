@@ -55,8 +55,31 @@ export function dotTipContent(win: WindowInfo, state: StatusDotState): DotTipCon
   return { label, links };
 }
 
-/** "Open in new window" glyph (Nerd Font external-link), purely decorative. */
-const DOCS_GLYPH = "";
+/**
+ * Circled-"i" info glyph for the docs affordance — an inline SVG (matching the
+ * codebase's hand-built SVG icons, e.g. window-row's pin) rather than a Nerd
+ * Font glyph, so it renders crisply at any size, themes via `currentColor`, and
+ * doesn't depend on the user's terminal font being patched. "info" intent reads
+ * as "know more" without competing with the "Open PR" external-link affordance.
+ */
+function InfoIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      className="shrink-0"
+    >
+      <circle cx="8" cy="8" r="6.5" />
+      <line x1="8" y1="7.25" x2="8" y2="11" strokeLinecap="round" />
+      <circle cx="8" cy="4.75" r="0.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
 
 /**
  * Shared link styling for the card's interactive rows. Click is stopped from
@@ -139,7 +162,25 @@ export function StatusDotTip({ win, state, renderDot }: StatusDotTipProps) {
             data-testid="status-dot-tip"
             className="z-50 flex flex-col gap-1 bg-bg-primary border border-border rounded-md shadow-lg px-2 py-1.5 text-xs font-mono w-max max-w-xs"
           >
-            <span className="text-text-primary whitespace-nowrap">{label}</span>
+            {/* Label row: status text on the left, a quiet circled-(i) docs
+                affordance pinned top-right. No visible copy — the icon's
+                "info / know more" convention plus its aria-label/title carry
+                the meaning, keeping the card terse and matching its register. */}
+            <div className="flex items-start gap-3">
+              <span className="text-text-primary whitespace-nowrap">{label}</span>
+              <a
+                href={STATUS_DOT_DOCS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="ml-auto mt-px text-text-secondary hover:text-text-primary coarse:p-1"
+                aria-label="What do status dots mean? (opens docs)"
+                title="What do status dots mean?"
+                data-testid="dot-tip-docs-link"
+              >
+                <InfoIcon />
+              </a>
+            </div>
             {links.map((link) => (
               <a
                 key={link.testid}
@@ -153,16 +194,6 @@ export function StatusDotTip({ win, state, renderDot }: StatusDotTipProps) {
                 {link.label}
               </a>
             ))}
-            <a
-              href={STATUS_DOT_DOCS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className={`${LINK_CLASS} inline-flex items-center gap-1`}
-              data-testid="dot-tip-docs-link"
-            >
-              <span aria-hidden="true">{DOCS_GLYPH}</span> What do dots mean?
-            </a>
           </div>
         </FloatingPortal>
       )}

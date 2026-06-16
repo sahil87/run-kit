@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { registerServiceWorker, enablePushSubscription, getPushState } from "./push";
+import {
+  registerServiceWorker,
+  enablePushSubscription,
+  getPushState,
+  sendTestNotification,
+} from "./push";
 
 // Mock the API client so the subscribe flow does not hit the network.
 const getVapidPublicKey = vi.fn();
@@ -46,7 +51,8 @@ function installServiceWorker(opts: {
       opts.subscribeResult ?? { toJSON: () => ({ endpoint: "https://e", keys: {} }) },
     ),
   };
-  const registration = { pushManager };
+  const showNotification = vi.fn().mockResolvedValue(undefined);
+  const registration = { pushManager, showNotification };
   Object.defineProperty(globalThis.navigator, "serviceWorker", {
     value: {
       register: vi.fn().mockResolvedValue(registration),
@@ -61,7 +67,7 @@ function installServiceWorker(opts: {
     writable: true,
     configurable: true,
   });
-  return { registration, pushManager };
+  return { registration, pushManager, showNotification };
 }
 
 function removeServiceWorker() {
@@ -181,5 +187,35 @@ describe("getPushState", () => {
     installServiceWorker({ existingSub: { toJSON: () => ({}) } });
     setNotificationPermission("granted");
     expect(await getPushState()).toBe("subscribed");
+  });
+});
+
+describe("sendTestNotification", () => {
+  afterEach(() => {
+    removeServiceWorker();
+  });
+
+  it("returns false (no-op) when push is unsupported", async () => {
+    removeServiceWorker();
+    Object.defineProperty(globalThis, "Notification", { value: undefined, writable: true, configurable: true });
+    expect(await sendTestNotification()).toBe(false);
+  });
+
+  it("returns false without calling showNotification when permission is not granted", async () => {
+    const { showNotification } = installServiceWorker();
+    setNotificationPermission("default");
+    expect(await sendTestNotification()).toBe(false);
+    expect(showNotification).not.toHaveBeenCalled();
+  });
+
+  it("calls registration.showNotification and returns true when granted", async () => {
+    const { showNotification } = installServiceWorker();
+    setNotificationPermission("granted");
+    expect(await sendTestNotification()).toBe(true);
+    expect(showNotification).toHaveBeenCalledTimes(1);
+    expect(showNotification).toHaveBeenCalledWith(
+      "RunKit",
+      expect.objectContaining({ body: expect.any(String) }),
+    );
   });
 });

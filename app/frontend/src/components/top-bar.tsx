@@ -734,7 +734,11 @@ function NotificationControl() {
     : denied
       ? "Blocked in browser settings"
       : "Notifications: off";
-  const ariaLabel = subscribed ? "Notifications on" : "Notifications off";
+  const ariaLabel = subscribed
+    ? "Notifications on"
+    : denied
+      ? "Notifications blocked"
+      : "Notifications off";
 
   const menuItemClass =
     "w-full text-left text-xs text-text-secondary hover:text-text-primary transition-colors py-1.5 px-2 rounded hover:bg-bg-card disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";

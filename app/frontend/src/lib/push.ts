@@ -73,10 +73,20 @@ async function readyRegistration(
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
     return null;
   }
-  return Promise.race([
-    navigator.serviceWorker.ready.catch(() => null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      navigator.serviceWorker.ready.catch(() => null),
+      timeout,
+    ]);
+  } finally {
+    // Clear the timer when readiness wins so the common (fast) path doesn't
+    // leave a dangling 3s timeout on every call (e.g. mount-time polling).
+    clearTimeout(timer);
+  }
 }
 
 /**

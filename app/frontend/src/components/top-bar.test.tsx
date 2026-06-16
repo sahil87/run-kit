@@ -445,6 +445,12 @@ describe("TopBar", () => {
       expect(screen.getByLabelText("Notifications on")).toBeInTheDocument();
     });
 
+    it("announces the blocked state distinctly to screen readers when denied", async () => {
+      await renderWithState("denied");
+      expect(screen.getByLabelText("Notifications blocked")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Notifications off")).not.toBeInTheDocument();
+    });
+
     it("hides itself entirely when push is unsupported", async () => {
       await renderWithState("unsupported");
       expect(screen.queryByLabelText("Notifications off")).not.toBeInTheDocument();

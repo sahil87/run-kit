@@ -12,7 +12,7 @@ import {
   safePolygon,
   autoUpdate,
 } from "@floating-ui/react";
-import { dotLabel } from "@/components/status-dot";
+import { dotLabel } from "@/components/status-dot-label";
 import type { StatusDotState } from "@/components/pr-status-line";
 import type { WindowInfo } from "@/types";
 

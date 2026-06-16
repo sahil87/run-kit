@@ -110,7 +110,7 @@ Each window in the sidebar, dashboard, and pane panel carries a single **status 
 
 Exactly one signal drives the dot, in precedence order **PR > fab > tmux**.
 
-![StatusDot stage × status matrix](docs/img/status-dot-matrix.svg)
+![StatusDot stage × status matrix](https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/status-dot-matrix.svg)
 
 See the [status dot reference](docs/site/status-dot.md) for the full matrix, the per-state rendering, and the design rationale.
 

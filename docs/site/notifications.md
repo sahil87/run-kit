@@ -1,6 +1,6 @@
 # Notifications — Setup & Troubleshooting
 
-> [← Back to the README](../../README.md)
+> [← Back to the README](https://github.com/sahil87/run-kit/blob/main/README.md)
 
 RunKit can send **Web Push** notifications — real OS-level banners that reach you
 even when the RunKit tab is closed. They're delivered by the browser's push

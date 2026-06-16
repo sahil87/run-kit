@@ -1,6 +1,6 @@
 # Status Dot — Lifecycle Color Journey
 
-> [← Back to the README](../../README.md#status-dots--read-every-window-at-a-glance)
+> [← Back to the README](https://github.com/sahil87/run-kit/blob/main/README.md#status-dots--read-every-window-at-a-glance)
 
 > The single status dot reused on the sidebar window row, the dashboard window cards, and the
 > pane-panel header. It encodes a window's place in the fab → PR lifecycle using **two orthogonal
@@ -26,7 +26,7 @@ PR  >  fab  >  tmux
 
 ## Two axes — hue = phase, shape = status
 
-![StatusDot stage × status matrix](../img/status-dot-matrix.svg)
+![StatusDot stage × status matrix](https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/status-dot-matrix.svg)
 
 ### Hue = phase
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
-import { StatusDot } from "./status-dot";
+import { StatusDot, dotLabel } from "./status-dot";
+import { dotTipContent } from "./status-dot-tip";
 import { statusDotState, fabPhase, fabShape, prShape } from "./pr-status-line";
 import type { WindowInfo } from "@/types";
 
@@ -243,16 +244,70 @@ describe("StatusDot — tmux fallback (monochrome)", () => {
 });
 
 describe("StatusDot — accessibility label composition", () => {
-  it("composes '{stage} — {status}' for fab windows", () => {
+  it("composes '{stage} — {status}' for fab windows (aria-label, no native title)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", fabStage: "apply", fabDisplayState: "pending" })} />);
     const dot = screen.getByLabelText("apply — pending");
-    expect(dot.getAttribute("title")).toBe("apply — pending");
+    expect(dot.getAttribute("aria-label")).toBe("apply — pending");
     expect(dot.getAttribute("role")).toBe("img");
+    // The native `title` tooltip is replaced by the custom StatusDotTip card.
+    expect(dot.getAttribute("title")).toBeNull();
   });
 
-  it("composes 'PR — {status}' for the PR phase (PR-native words)", () => {
+  it("composes 'PR — {status}' for the PR phase (PR-native words, no native title)", () => {
     render(<StatusDot win={makeWindow({ fabChange: "x", prNumber: 9, prState: "merged" })} />);
     const dot = screen.getByLabelText("PR — merged");
-    expect(dot.getAttribute("title")).toBe("PR — merged");
+    expect(dot.getAttribute("aria-label")).toBe("PR — merged");
+    expect(dot.getAttribute("title")).toBeNull();
+  });
+});
+
+describe("dotTipContent — hover-card content resolution", () => {
+  it("PR-phase dot with a prUrl yields one 'Open PR #N' link to prUrl", () => {
+    const win = makeWindow({
+      fabChange: "260615-x",
+      prNumber: 386,
+      prState: "open",
+      prChecks: "pass",
+      prUrl: "https://github.com/o/r/pull/386",
+    });
+    const state = statusDotState(win);
+    expect(state.phase).toBe("pr");
+    const content = dotTipContent(win, state);
+    expect(content.label).toBe(dotLabel(win, state));
+    expect(content.links).toEqual([
+      {
+        label: "Open PR #386",
+        href: "https://github.com/o/r/pull/386",
+        testid: "dot-tip-pr-link",
+      },
+    ]);
+  });
+
+  it("PR-phase dot WITHOUT a prUrl yields no links (only label)", () => {
+    const win = makeWindow({ fabChange: "260615-x", prNumber: 7, prState: "open", prChecks: "pass" });
+    const state = statusDotState(win);
+    expect(state.phase).toBe("pr");
+    const content = dotTipContent(win, state);
+    expect(content.links).toHaveLength(0);
+    expect(content.label).toBe(dotLabel(win, state));
+  });
+
+  it("fab-phase dot (change-bound, no PR) yields no links and the unchanged label", () => {
+    const win = makeWindow({ fabChange: "260615-x", fabStage: "apply", fabDisplayState: "active" });
+    const state = statusDotState(win);
+    expect(state.phase).toBe("execution");
+    const content = dotTipContent(win, state);
+    expect(content.links).toHaveLength(0);
+    expect(content.label).toBe(dotLabel(win, state));
+    expect(content.label).toBe("apply — active");
+  });
+
+  it("tmux-fallback dot (no fab change) yields no links and the bare activity label", () => {
+    const win = makeWindow({ activity: "active" });
+    const state = statusDotState(win);
+    expect(state.phase).toBe("none");
+    const content = dotTipContent(win, state);
+    expect(content.links).toHaveLength(0);
+    expect(content.label).toBe("active");
   });
 });

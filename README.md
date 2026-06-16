@@ -158,10 +158,16 @@ key persisted under `~/.rk/`). It is **fail-silent**: if the server is
 unreachable or returns an error it exits 0 and prints nothing, so it never
 stalls a calling script or agent loop.
 
-**Opt in from the browser**: open the command palette (`Cmd+K`) and run
-**Notifications: Enable push**. This requests notification permission and
-subscribes the current device. There is no settings page — the palette is the
-opt-in gesture.
+**Opt in from the browser**: click the **bell icon** in the top bar (or open the
+command palette with `Cmd+K` and run **Notifications: Enable push**). This
+requests notification permission and subscribes the current device. There is no
+settings page — the bell dropdown and the palette are the opt-in gestures. The
+bell dropdown also offers **Send test notification** (a local test that bypasses
+the server) and a **Notifications help** link.
+
+See the [notifications guide](docs/site/notifications.md) for setup and the
+common "it says sent but nothing appears" troubleshooting (almost always an
+OS-level notification block — e.g. macOS Focus mode).
 
 > **Secure-context requirement**: Web Push (service worker + `PushManager`)
 > only works in a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) —

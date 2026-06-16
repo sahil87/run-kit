@@ -483,6 +483,15 @@ describe("TopBar", () => {
       expect(sendTestNotification).toHaveBeenCalledTimes(1);
     });
 
+    it("includes a Notifications help link to the GitHub guide (new tab)", async () => {
+      await renderWithState("default");
+      act(() => fireEvent.click(screen.getByLabelText("Notifications off")));
+      const help = screen.getByText("Notifications help…").closest("a")!;
+      expect(help).toHaveAttribute("href", expect.stringContaining("docs/site/notifications.md"));
+      expect(help).toHaveAttribute("target", "_blank");
+      expect(help).toHaveAttribute("rel", "noopener noreferrer");
+    });
+
     it("closes the dropdown on Escape and returns focus to the bell", async () => {
       await renderWithState("subscribed");
       const trigger = screen.getByLabelText("Notifications on");

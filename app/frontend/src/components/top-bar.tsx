@@ -682,6 +682,11 @@ function TerminalFontControl() {
 const BELL_ON = "\uF0F3";
 const BELL_OFF = "\uF1F6";
 
+// Notifications help page (rendered by GitHub). Opens in a new tab from the
+// bell dropdown \u2014 the canonical "it says sent but nothing shows" guide.
+const NOTIFICATIONS_HELP_URL =
+  "https://github.com/sahil87/run-kit/blob/main/docs/site/notifications.md";
+
 /**
  * Top-bar notification control: a bell icon button (filled when subscribed,
  * bell-slash otherwise) opening a small dropdown to enable push and send a
@@ -792,10 +797,21 @@ function NotificationControl() {
             Send test notification
           </button>
           {denied && (
-            <div className="px-2 py-1 text-[11px] text-text-secondary select-none border-t border-border mt-0.5 pt-1.5">
+            <div className="px-2 py-1 text-[11px] text-text-secondary select-none">
               Re-allow notifications for this site in your browser/OS settings.
             </div>
           )}
+          <a
+            href={NOTIFICATIONS_HELP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            title="Open the notifications setup & troubleshooting guide on GitHub"
+            className={`${menuItemClass} border-t border-border mt-0.5 pt-1.5`}
+          >
+            Notifications help…
+          </a>
         </div>
       )}
     </div>

@@ -1,5 +1,25 @@
 # Archived Changes
 
+- **260615-xd9r-web-push-notifications** — Web Push Notifications for the run-kit Web UI
+- **260615-6rnr-expand-swatch-palette-blends** — Expand Swatch Palette with Two-Hue Blends + Contrast Guardrail
+- **260615-2olv-pr-status-dot-traffic-light** — Multi-color PR status dot in the sidebar window row (PR traffic-light)
+- **260615-0hsz-status-dot-lifecycle-journey** — Status Dot Lifecycle Journey
+- **260614-nj74-sidebar-cwd-deleted-marker** — Sidebar cwd "(deleted)" marker
+- **260613-wt1v-sidebar-keyboard-nav** — Sidebar Keyboard Navigation (Wave 3)
+- **260613-oo89-terminal-font-size-control** — Terminal Font Size Control
+- **260613-o20f-sidebar-triage-signal** — Sidebar Triage Signal
+- **260613-o20f-sidebar-drawer-a11y** — Sidebar Drawer Accessibility (Focus Trap + Escape)
+- **260613-o20f-palette-window-switch** — Palette Window Switch
+- **260613-ect6-sidebar-render-perf** — Sidebar Render Performance (memoize tree + leaf-scope the now-tick)
+- **260612-epqk-display-state-quiet-rows** — Consume fab pane map display_state; quiet parked sidebar rows; harden hover-icon cluster
+- **260610-ziut-panemap-version-independent** — panemap version independent
+- **260610-qf25-defer-terminal-reset-flicker** — Defer Terminal Reset to First Write (Window-Switch Flicker Fix)
+- **260610-obky-pr-status-to-pane-panel** — pr status to pane panel
+- **260610-nls0-pr-status-merged-closed** — pr status merged closed
+- **260610-g2rq-pr-row-open-link** — pr row open link
+- **260610-9umy-skip-same-session-reconnect** — Skip Redundant Same-Session Relay Reconnect (Window-Switch Flicker, Part 2)
+- **260610-8zn1-daemon-stop-graceful-shutdown** — Fix daemon restart aborting on healthy graceful shutdown
+- **260610-596o-pr-status-sidebar** — Live PR Status in Sidebar
 - **260615-yg7f-unified-status-dot** — Unified Status Dot
 - **260609-enic-restore-display-message-resolve-window** — Restore O(1) display-message lookup in ResolveWindowSession
 - **260609-ebks-derive-sidebar-order** — Derive sidebar session display-order instead of storing localOrderByServer in state

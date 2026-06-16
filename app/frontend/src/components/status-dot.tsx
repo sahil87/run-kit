@@ -14,18 +14,20 @@ import type { WindowInfo } from "@/types";
  *   - SHAPE = status (health), ONE vocabulary across fab stages AND PR:
  *       ring          → pending (PR: checks running)
  *       solid         → active / ready (PR: open / healthy)
- *       failed        → dashed ring in phase hue + a small RED center dot
+ *       failed        → dotted ring in phase hue + a small RED center dot
  *                       (PR: checks fail / changes requested)
  *       done          → filled sharp-cornered square in phase hue (PR: merged)
  *       skipped       → gray hollow ring (PR: closed unmerged)
  *
  * Red is used in exactly ONE way across the whole system: the small center dot
- * inside a `failed` dashed ring — never as a whole-dot color (this removes the
+ * inside a `failed` dotted ring — never as a whole-dot color (this removes the
  * old `fabDisplayState === "failed"` red tint and the old solid-red PR fail).
  *
- * Every shape renders at one uniform 7px footprint (`DOT_SIZE`) so the filled
- * square and the hollow circles read as the same size in the dense sidebar; the
- * square is distinguished by its sharp (`rounded-none`) corners, not by being bigger.
+ * Every shape EXCEPT `failed` renders at one uniform 7px footprint (`DOT_SIZE`)
+ * so the filled square and the hollow circles read as the same size in the dense
+ * sidebar; the square is distinguished by its sharp (`rounded-none`) corners, not
+ * by being bigger. The `failed` dot is the lone exception — a slightly larger 9px
+ * footprint so its dotted bead-ring stays legible (see the failed branch below).
  *
  * The dot always carries `role="img"` + `aria-label` + `title` composed from
  * phase + status (e.g. "apply — active", "PR — merged", "review — failed",
@@ -33,10 +35,11 @@ import type { WindowInfo } from "@/types";
  * never the sole channel (colorblind a11y + keyboard-first constitution).
  */
 
-// Every shape renders at one uniform footprint so the filled square and the
-// hollow circles read as the same size in the dense sidebar (a filled 8px
-// square next to a hollow 6px ring looks much bigger). 7px is the middle ground
-// that still leaves the dashed failed-ring + red center legible.
+// Every shape EXCEPT `failed` renders at one uniform footprint so the filled
+// square and the hollow circles read as the same size in the dense sidebar (a
+// filled 8px square next to a hollow 6px ring looks much bigger). The `failed`
+// dot is the one exception — it uses a slightly larger 9px footprint so its
+// dotted bead-ring has room to read (see the failed branch below).
 const DOT_SIZE = "w-[7px] h-[7px]";
 
 /** Human word for the SHAPE/status axis used in the accessible label. */
@@ -103,15 +106,22 @@ export function StatusDot({ win }: { win: WindowInfo }) {
   }
 
   if (state.shape === "failed") {
-    // Dashed ring in the phase hue with a small red center dot. Same DOT_SIZE as
-    // the other shapes; the red center (`w-1 h-1`) reads inside the 7px ring.
+    // Dotted ring in the phase hue with a small red center dot. A CSS `dashed`
+    // border can't control its dash count — at the 7px DOT_SIZE a browser fits
+    // only ~4 dashes, which read as flower petals rather than the intended fine
+    // dashed ring. A `dotted` border at a slightly larger 9px footprint with a
+    // thin 1.2px stroke renders as a delicate bead ring instead. The failed dot
+    // is the ONE shape that breaks the uniform DOT_SIZE — the extra ~2px buys a
+    // legible bead count; every other shape stays at 7px. The 3px red center
+    // sits inside the 9px ring's ~6.6px hole (vs the old 4px center, which
+    // overflowed the 7px ring).
     return (
       <span
         {...common}
-        className={`relative inline-flex items-center justify-center ${DOT_SIZE} rounded-full shrink-0 ${color}`}
-        style={{ border: "1.8px dashed currentColor", backgroundColor: "transparent" }}
+        className={`relative inline-flex items-center justify-center w-[9px] h-[9px] rounded-full shrink-0 ${color}`}
+        style={{ border: "1.2px dotted currentColor", backgroundColor: "transparent" }}
       >
-        <span aria-hidden="true" className="w-1 h-1 rounded-full bg-red-400" />
+        <span aria-hidden="true" className="w-[3px] h-[3px] rounded-full bg-red-400" />
       </span>
     );
   }

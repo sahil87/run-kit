@@ -219,7 +219,7 @@ describe("WindowRow", () => {
   // Triage signals: a failed fab stage colors the separate stage TEXT red
   // (window-row's own text, unchanged by the lifecycle dot). The DOT now follows
   // the lifecycle journey (hue=phase, shape=status) — a failed stage/PR renders
-  // a dashed ring in the phase hue + a red CENTER dot, never a whole-dot red.
+  // a dotted ring in the phase hue + a red CENTER dot, never a whole-dot red.
   describe("triage signals", () => {
     it("colors the stage text red when fabDisplayState is failed", () => {
       const win = makeWindow({
@@ -247,9 +247,9 @@ describe("WindowRow", () => {
       expect(stage.className).not.toContain("text-red-400");
     });
 
-    it("renders a failed fab stage as a dashed ring + red CENTER dot (no whole-dot red)", () => {
+    it("renders a failed fab stage as a dotted ring + red CENTER dot (no whole-dot red)", () => {
       // The lifecycle dot replaces the old whole-dot red tint: a failed stage
-      // keeps its phase hue (review→amber) with a dashed border and only a small
+      // keeps its phase hue (review→amber) with a dotted border and only a small
       // red center child. Requires a fabChange (else it's the tmux fallback).
       const win = makeWindow({
         windowId: "@0",
@@ -262,7 +262,7 @@ describe("WindowRow", () => {
       const dot = screen.getByLabelText("review — failed");
       expect(dot.className).toContain("text-amber-400");
       expect(dot.className).not.toContain("text-red-400"); // whole-dot red is gone
-      expect(dot.getAttribute("style")).toContain("dashed");
+      expect(dot.getAttribute("style")).toContain("dotted");
       expect(dot.querySelector("span")!.className).toContain("bg-red-400"); // red center only
     });
 
@@ -292,7 +292,7 @@ describe("WindowRow", () => {
       expect(dot.className).toContain("rounded-none");
     });
 
-    it("renders a purple dashed-ring + red center when prChecks is fail", () => {
+    it("renders a purple dotted-ring + red center when prChecks is fail", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -305,7 +305,7 @@ describe("WindowRow", () => {
       const dot = screen.getByLabelText("PR — failing");
       expect(dot).toBeInTheDocument();
       expect(dot.className).toContain("text-purple-400");
-      expect(dot.getAttribute("style")).toContain("dashed");
+      expect(dot.getAttribute("style")).toContain("dotted");
       expect(dot.querySelector("span")!.className).toContain("bg-red-400");
     });
 

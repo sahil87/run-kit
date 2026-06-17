@@ -396,7 +396,7 @@ function ThemeToggle() {
       type="button"
       onClick={handleClick}
       aria-label={label}
-      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
       title={label}
     >
       {mode === "system" ? (
@@ -456,7 +456,7 @@ function SplitButton({
       onClick={() => execute()}
       disabled={isPending}
       aria-label={label}
-      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
       title={label}
     >
       {isPending ? (
@@ -516,7 +516,7 @@ function ClosePaneButton({
       onClick={() => execute()}
       disabled={isPending}
       aria-label="Close pane"
-      className="min-w-[24px] min-h-[24px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
       title="Close pane"
     >
       {isPending ? (
@@ -609,7 +609,7 @@ function TerminalFontControl() {
         aria-expanded={open}
         aria-label="Terminal font size"
         title="Terminal font size"
-        className={`min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] rounded border transition-colors flex items-center justify-center text-xs font-semibold leading-none ${
+        className={`min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center text-xs font-semibold leading-none ${
           open
             ? "border-accent text-accent bg-accent/10"
             : "border-border text-text-secondary hover:border-text-secondary"
@@ -753,7 +753,7 @@ function NotificationControl() {
         aria-expanded={open}
         aria-label={ariaLabel}
         title={statusLabel}
-        className={`min-w-[24px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] rounded border transition-colors flex items-center justify-center leading-none ${
+        className={`min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center leading-none ${
           open
             ? "border-accent text-accent bg-accent/10"
             : subscribed
@@ -831,7 +831,7 @@ function FixedWidthToggle() {
       onClick={toggleFixedWidth}
       aria-label="Toggle fixed terminal width"
       aria-pressed={fixedWidth}
-      className={`min-w-[24px] min-h-[24px] rounded border transition-colors flex items-center justify-center ${
+      className={`min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center ${
         fixedWidth
           ? "border-accent text-accent bg-accent/10"
           : "border-border text-text-secondary hover:border-text-secondary"

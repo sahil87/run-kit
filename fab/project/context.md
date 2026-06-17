@@ -87,7 +87,7 @@ Never run `npx playwright test` directly — always use `just test-e2e` or `just
 ## Mobile Responsive Design
 
 - Touch targets use the `coarse:` custom Tailwind variant (`@media (pointer: coarse)`) for touch devices
-- Touch targets: `coarse:min-h-[36px] coarse:min-w-[28px]` (taller than wide, not square) for bottom bar buttons; `coarse:36px` square for top bar/breadcrumb buttons
+- Touch targets: `coarse:min-h-[36px] coarse:min-w-[28px]` (taller than wide, not square) for bottom bar buttons; `coarse:30px` square for top-bar button controls (24px on fine pointers), applied uniformly across the whole right-side cluster — splits, close, Aa, bell, theme, fixed-width — so they don't diverge in size on touch devices
 - Bottom bar toolbar fits all buttons in a single row at 375px — no wrapping, no horizontal scroll
 - Top bar is a single line: breadcrumbs + connection status + FixedWidthToggle + command palette trigger. Session/window creation actions live in breadcrumb dropdown `+ New` items
 - Mobile sidebar drawer is `absolute` inside the main area (not `fixed inset-0`) so the top bar stays visible and the logo toggle can close the drawer

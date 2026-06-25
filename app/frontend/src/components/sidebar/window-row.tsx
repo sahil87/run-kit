@@ -329,9 +329,9 @@ function WindowRowInner({
               e.stopPropagation();
               setShowColorPicker((v) => !v);
             }}
-            className="text-[12px] text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-h-[36px] flex items-center justify-center"
+            className="text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-h-[36px] flex items-center justify-center"
           >
-            &#x25A0;
+            <PaletteIcon />
           </button>
         )}
         <button
@@ -445,6 +445,40 @@ function PinIcon({ filled }: { filled: boolean }) {
       />
       {/* Needle — centered vertical from flange to tip */}
       <path d="M8 9.5 V14" />
+    </svg>
+  );
+}
+
+/** Small palette icon for the color-picker trigger — an artist's palette
+ *  silhouette with four paint blobs. Line-art to match PinIcon's stroke style;
+ *  rendered at 13px so the blobs stay legible at sidebar scale. Replaces the
+ *  former U+25A0 glyph, which read as a media "stop" button rather than a color
+ *  control. Blobs are pure fills (stroke="none") so they read as dots, not
+ *  stroked rings.
+ *
+ *  strokeWidth is 2 (not the lucide-default 1.7) so the *effective* stroke
+ *  weight matches PinIcon: 2 ÷ 24-viewBox × 13px ≈ 1.08px, vs the pin's
+ *  1.5 ÷ 16 × 12 ≈ 1.125px. A thinner stroke reads as a lighter color even
+ *  though both inherit the same `currentColor` token, so weight parity is what
+ *  makes the two icons look like the same color in the cluster. */
+function PaletteIcon() {
+  return (
+    <svg
+      width={13}
+      height={13}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="13.5" cy="6.5" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="17.5" cy="10.5" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="8.5" cy="7.5" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="6.5" cy="12.5" r="1.4" fill="currentColor" stroke="none" />
+      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.83-.44-1.12-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.56-2.5 5.56-5.55C21.96 6.01 17.46 2 12 2z" />
     </svg>
   );
 }

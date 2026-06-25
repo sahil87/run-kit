@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { SwatchPopover } from "@/components/swatch-popover";
+import { PaletteIcon } from "./icons";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
 import type { ServerInfo } from "@/api/client";
 
@@ -291,9 +292,9 @@ function ServerTile({
               type="button"
               aria-label={`Set color for server ${name}`}
               onClick={onColorClick}
-              className="text-text-secondary hover:text-text-primary text-[11px] leading-none px-0.5 py-0.5"
+              className="text-text-secondary hover:text-text-primary leading-none px-0.5 py-0.5 flex items-center justify-center"
             >
-              &#x25A0;
+              <PaletteIcon size={12} />
             </button>
           )}
           {onKill && (

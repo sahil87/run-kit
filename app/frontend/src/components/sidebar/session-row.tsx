@@ -3,6 +3,7 @@ import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
+import { PaletteIcon } from "./icons";
 
 type SessionRowProps = {
   /** Tmux server this session belongs to — bound into the identity-arg
@@ -194,9 +195,9 @@ function SessionRowInner({
               setShowColorPicker((v) => !v);
             }}
             aria-label={`Set color for ${session.name}`}
-            className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 text-[12px] px-0.5 min-h-[36px] flex items-center justify-center"
+            className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[36px] flex items-center justify-center"
           >
-            &#x25A0;
+            <PaletteIcon />
           </button>
         )}
         <button

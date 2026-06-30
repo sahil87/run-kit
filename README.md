@@ -4,15 +4,25 @@
 
 [![Latest release](https://img.shields.io/github/v/release/sahil87/run-kit)](https://github.com/sahil87/run-kit/releases) [![Downloads](https://img.shields.io/github/downloads/sahil87/run-kit/total)](https://github.com/sahil87/run-kit/releases) [![Stars](https://img.shields.io/github/stars/sahil87/run-kit?style=social)](https://github.com/sahil87/run-kit/stargazers)
 
-`rk riff` spawns AI coding agents in parallel [git worktrees](https://github.com/sahil87/wt). The browser dashboard lets you watch them all — from your desk or your phone.
+**Your tmux, in the browser and on your phone.** run-kit is a remote console for the machine you actually work on — every tmux session and pane as a live terminal, in a sidebar, from your desk or your couch. It's the modern, terminal-native answer to the old server web-console: nothing to configure, no database, state read straight from tmux.
+
+What makes it sing in 2026 is what you tend to run in those panes: **AI coding agents, many at once.** `rk riff` spawns each one in its own [git worktree](https://github.com/sahil87/wt), and the dashboard lets you watch the whole fleet. But run-kit never wraps the agent — a pane is just a pane. It's equally a build, a REPL, an ssh session, `htop`. **The agent is one of the things you run, not the thing run-kit is.** That's the point: when the agent tooling churns underneath you (and it does, monthly), the terminal layer stays put.
+
+## What run-kit is (and isn't)
+
+|  | run-kit |
+|--|---------|
+| **It is** | A remote, phone-first **console for your tmux** — agent-agnostic, no database, state derived from tmux + filesystem. A spawner (`rk riff`) and a dashboard (`rk serve`) that compose. |
+| **It isn't** | An agent wrapper. It doesn't speak any agent's protocol, parse any agent's output, or care what's in the pane. That's deliberate — it's what makes it outlive whichever agent you run. |
 
 ## Why run-kit?
 
-- **One command per parallel agent** — `rk riff` creates a worktree, opens a tmux window in it, and launches Claude Code. `rk riff -N 3` spawns three workspaces in parallel; failures roll back cleanly.
-- **Browser dashboard for tmux** — every tmux session and pane shows up in a sidebar. Click a pane for a live terminal in the browser; open the same dashboard on your phone over Tailscale.
-- **Mobile-first, keyboard-first** — `Cmd+K` command palette is the primary discovery surface. Touch targets are tuned for mobile so you can drive an agent session from your phone while away from your desk.
-- **No database, no daemon magic** — state is derived from tmux and the filesystem. Agent sessions survive `rk` restarts because the daemon never touches them.
-- **The dashboard layer over [`fab-kit`](https://github.com/sahil87/fab-kit) and [`wt`](https://github.com/sahil87/wt)** — `rk riff --skill /fab-fff` launches a full fab-kit pipeline in an isolated worktree. Use rk when you have more parallel changes than you can watch in a single terminal.
+- **A remote terminal console, not an agent wrapper** — run-kit exposes your tmux, full stop. Drive an agent in one pane, a dev server in the next, an ssh session in a third. Because it's agent-agnostic, it outlives whatever coding agent you're running this month.
+- **One command per parallel agent** — `rk riff` creates a worktree, opens a tmux window in it, and launches your agent. `rk riff -N 3` spawns three workspaces in parallel; failures roll back cleanly.
+- **Watch a whole fleet, from anywhere** — every tmux session and pane shows up in a sidebar. Click for a live browser terminal; pin several into a [board](#boards--watch-many-panes-at-once) to watch three agents side-by-side; open the same dashboard on your phone over Tailscale.
+- **Mobile-first, keyboard-first** — `Cmd+K` command palette is the primary discovery surface. Touch targets are tuned for mobile so you can steer a session from your phone while away from your desk.
+- **No database, no daemon magic** — state is derived from tmux and the filesystem, the way a good console mirrors the system it manages. Sessions survive `rk` restarts because the daemon never touches them.
+- **The dashboard layer over [`fab-kit`](https://github.com/sahil87/fab-kit) and [`wt`](https://github.com/sahil87/wt)** — `rk riff --skill /fab-fff` launches a full fab-kit pipeline in an isolated worktree. Reach for rk when you have more parallel changes than one terminal can hold.
 
 ## Screenshots
 
@@ -51,7 +61,7 @@ open http://localhost:3000      # open the dashboard in your browser
 rk riff --skill /fab-discuss    # spawn an agent workspace
 ```
 
-The new workspace appears in the dashboard's sidebar; click into it to drive the agent from the browser.
+The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the browser.
 
 To upgrade later, run `rk update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
 
@@ -59,9 +69,9 @@ See the [install & access guide](docs/site/install.md) for prerequisites, `rk do
 
 ## `rk riff` — the spawner
 
-The headline command. One invocation gives you a git worktree, a tmux window inside it, and one or more Claude Code panes ready to go.
+One invocation gives you a git worktree, a tmux window inside it, and one or more panes ready to go. The default pane runs your coding agent, but a pane can run anything — `rk riff` is a workspace launcher, not an agent launcher.
 
-**Pane array model.** `--skill` and `--cmd` are repeatable. Each occurrence adds one pane; argv order (left to right) becomes pane order. Bare `--skill` opens a blank Claude session; bare `--cmd` drops into `$SHELL`.
+**Pane array model.** `--skill` and `--cmd` are repeatable. Each occurrence adds one pane; argv order (left to right) becomes pane order. Bare `--skill` opens a blank agent session; bare `--cmd` drops into `$SHELL`.
 
 **Layouts.** `auto` (default), `tiled`, `even-horizontal`, `even-vertical`, `main-horizontal`, `main-vertical`. Set with `--layout`.
 
@@ -83,11 +93,11 @@ rk riff ship -N 3                                    # 3 parallel ship workspace
 rk riff -- --worktree-name pacing-canyon             # name the worktree
 ```
 
-**Prerequisites:** must be inside a tmux session, [`wt`](https://github.com/sahil87/wt) on `PATH`, and the launcher (default `claude --dangerously-skip-permissions`) available. Override the launcher per-project via `agent.spawn_command` in `fab/project/config.yaml`.
+**Prerequisites:** must be inside a tmux session, [`wt`](https://github.com/sahil87/wt) on `PATH`, and the launcher (default `claude --dangerously-skip-permissions`) available. Override the launcher per-project via `agent.spawn_command` in `fab/project/config.yaml` — point it at any agent CLI, or any command at all.
 
 See the [riff guide](docs/site/workflows.md) for the full reference.
 
-## `rk serve` — the dashboard daemon
+## `rk serve` — the console daemon
 
 Start the HTTP server. Configurable via `RK_HOST` (default `127.0.0.1`) and `RK_PORT` (default `3000`).
 
@@ -99,7 +109,7 @@ rk serve --restart                      # idempotent restart
 rk serve --stop                         # graceful shutdown
 ```
 
-The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separate from your agent sessions. Restart the daemon and your agents keep running — the dashboard reconnects automatically.
+The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separate from your sessions. Restart the daemon and everything you're running keeps running — the console reconnects automatically.
 
 ## Status dots — read every window at a glance
 
@@ -195,7 +205,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — rk has no 
 
 | Command | What it does |
 |---------|--------------|
-| `rk riff` | Create a worktree + tmux window + Claude Code pane(s). |
+| `rk riff` | Create a worktree + tmux window + agent/command pane(s). |
 | `rk serve` | Start the HTTP server (foreground or daemon). |
 | `rk status` | Show a tmux session summary. |
 | `rk context` | Print agent-optimized environment info (server URL, ports, etc.) — designed to be read by AI agents inside an rk-spawned workspace. |
@@ -216,4 +226,4 @@ Run `rk <command> --help` for full flag details, or see the [full command refere
 
 ## Architecture
 
-rk's daemon runs in a dedicated tmux server (`rk-daemon`), separate from agent sessions (`runkit`). Restarts use kill-and-restart (no polling loop or signal files), are idempotent (`--restart` works whether or not a daemon is running), and never touch agent tmux sessions — agents survive daemon restarts unaffected.
+rk's daemon runs in a dedicated tmux server (`rk-daemon`), separate from your sessions (`runkit`). Restarts use kill-and-restart (no polling loop or signal files), are idempotent (`--restart` works whether or not a daemon is running), and never touch your tmux sessions — everything you're running survives daemon restarts unaffected.

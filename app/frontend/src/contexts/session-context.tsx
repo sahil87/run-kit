@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
-import { listServers, type ServerInfo } from "@/api/client";
+import { listServers, setPreviewScope as apiSetPreviewScope, type ServerInfo } from "@/api/client";
 import type { MetricsSnapshot, ProjectSession } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
@@ -31,6 +31,14 @@ export type SessionContextType = {
   sessionOrderByServer: Map<string, string[]>;
   isConnectedByServer: Map<string, boolean>;
   metricsByServer: Map<string, MetricsSnapshot | null>;
+  /** Per-server map of `windowId → pane-text preview` for the tile grid. Only
+   *  windows in sessions the client declared expanded (via `setPreviewScope`)
+   *  are populated; delivered over the SSE `event: preview`. */
+  previewsByServer: Map<string, Record<string, string>>;
+  /** Declare which sessions the tile grid has expanded for a server, so the
+   *  backend captures previews only for those windows. Posts to
+   *  `/api/preview-scope` with the server's SSE connection id. */
+  setPreviewScope: (server: string, expanded: string[]) => void;
   currentServer: string | null;
   servers: ServerInfo[];
   refreshServers: () => void;
@@ -86,6 +94,7 @@ type ServerSlice = {
   sessionOrder: string[];
   isConnected: boolean;
   metrics: MetricsSnapshot | null;
+  previews: Record<string, string>;
 };
 
 const EMPTY_SLICE: ServerSlice = {
@@ -93,6 +102,7 @@ const EMPTY_SLICE: ServerSlice = {
   sessionOrder: [],
   isConnected: false,
   metrics: null,
+  previews: {},
 };
 
 /** Read `currentServer` from the matched route. Returns the server param when
@@ -263,9 +273,17 @@ export function SessionProvider({ children }: SessionProviderProps) {
     es: EventSource;
     prevSseData: string;
     disconnectTimer: ReturnType<typeof setTimeout> | null;
+    /** Client-generated id for THIS SSE connection, passed as `&conn=` on the
+     *  stream URL and reused in `setPreviewScope` POSTs so the backend keys the
+     *  per-connection preview-scope state to the right stream. */
+    connId: string;
   };
   type Pool = Map<string, PoolEntry>;
   const poolRef = useRef<Pool>(new Map());
+
+  // Per-server SSE connection id, mirrored out of the pool so `setPreviewScope`
+  // (a context method, not inside the pool effect) can read the current id.
+  const connIdByServerRef = useRef<Map<string, string>>(new Map());
 
   // Single combined effect that maintains the pool diff-style. The cleanup
   // closes ALL pooled EventSources — important for Strict Mode dev where the
@@ -282,15 +300,18 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // Open EventSources for newly-attached servers.
     for (const name of desired) {
       if (pool.has(name)) continue;
+      const connId = crypto.randomUUID();
       const es = new EventSource(
-        `/api/sessions/stream?server=${encodeURIComponent(name)}`,
+        `/api/sessions/stream?server=${encodeURIComponent(name)}&conn=${encodeURIComponent(connId)}`,
       );
       const entry: PoolEntry = {
         es,
         prevSseData: "",
         disconnectTimer: null,
+        connId,
       };
       pool.set(name, entry);
+      connIdByServerRef.current.set(name, connId);
 
       // Initialize the slice so consumers see a stable empty value before
       // the first event arrives. Use updateSlice with a known-empty shape;
@@ -373,6 +394,23 @@ export function SessionProvider({ children }: SessionProviderProps) {
         }
       });
 
+      // preview — pane-text snapshots for the tile grid, keyed by windowId.
+      // Bounded server-side to the sessions this connection declared expanded
+      // (setPreviewScope). Merged into the slice so a preview for one window
+      // doesn't clobber previews for the others in the same expanded set.
+      es.addEventListener("preview", (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data) as Record<string, string>;
+          updateSlice(
+            name,
+            { previews: data },
+            true,
+          );
+        } catch {
+          // Malformed preview event — skip
+        }
+      });
+
       // board-changed — re-broadcast to any registered subscriber.
       // useBoards / useWindowPins consume this instead of opening their own
       // per-server EventSources, which would otherwise multiply connections
@@ -396,6 +434,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
         if (entry.disconnectTimer) clearTimeout(entry.disconnectTimer);
         entry.es.close();
         pool.delete(name);
+        connIdByServerRef.current.delete(name);
         setSlicesByServer((prev) => {
           if (!prev.has(name)) return prev;
           const next = new Map(prev);
@@ -424,6 +463,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       if (entry.disconnectTimer) clearTimeout(entry.disconnectTimer);
       entry.es.close();
       pool.delete(name);
+      connIdByServerRef.current.delete(name);
       setSlicesByServer((prev) => {
         if (!prev.has(name)) return prev;
         const next = new Map(prev);
@@ -521,12 +561,30 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return m;
   }, [slicesByServer]);
 
+  const previewsByServer = useMemo(() => {
+    const m = new Map<string, Record<string, string>>();
+    for (const [name, slice] of slicesByServer) m.set(name, slice.previews);
+    return m;
+  }, [slicesByServer]);
+
+  // Declare the tile grid's expanded-session set for a server. Best-effort —
+  // reads the server's current SSE connection id and POSTs it; a missing id
+  // (stream not yet open) simply skips (the next tick after connect + a
+  // re-declare covers it). Errors are swallowed (a preview is a nicety).
+  const setPreviewScope = useCallback((server: string, expanded: string[]) => {
+    const conn = connIdByServerRef.current.get(server);
+    if (!conn) return;
+    void apiSetPreviewScope(server, conn, expanded).catch(() => {});
+  }, []);
+
   const value = useMemo<SessionContextType>(
     () => ({
       sessionsByServer,
       sessionOrderByServer,
       isConnectedByServer,
       metricsByServer,
+      previewsByServer,
+      setPreviewScope,
       currentServer,
       servers,
       refreshServers: fetchServers,
@@ -541,6 +599,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
       sessionOrderByServer,
       isConnectedByServer,
       metricsByServer,
+      previewsByServer,
+      setPreviewScope,
       currentServer,
       servers,
       fetchServers,
@@ -618,6 +678,8 @@ export function StandaloneSessionContextProvider({
     sessionOrderByServer: value.sessionOrderByServer ?? new Map(),
     isConnectedByServer: value.isConnectedByServer ?? new Map(),
     metricsByServer: value.metricsByServer ?? new Map(),
+    previewsByServer: value.previewsByServer ?? new Map(),
+    setPreviewScope: value.setPreviewScope ?? (() => {}),
     currentServer: value.currentServer ?? null,
     servers: value.servers ?? [],
     refreshServers: value.refreshServers ?? (() => {}),

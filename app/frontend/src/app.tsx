@@ -17,7 +17,7 @@ import { IframeWindow } from "@/components/iframe-window";
 import { BottomBar } from "@/components/bottom-bar";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
-import { Dashboard } from "@/components/dashboard";
+import { SessionTiles } from "@/components/session-tiles/session-tiles";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
@@ -1302,7 +1302,8 @@ function AppShell() {
               </>
             )
           ) : (
-            <Dashboard
+            <SessionTiles
+              server={server}
               sessions={sessions}
               onNavigate={navigateToWindow}
               onCreateSession={handleCreateSessionInstant}

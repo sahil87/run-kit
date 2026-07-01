@@ -61,7 +61,14 @@ class MockEventSource {
     MockEventSource.all = [];
   }
   static forServer(server: string): MockEventSource | undefined {
-    return MockEventSource.byUrl.get(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
+    // Match by the `server=` query param. The stream URL now also carries a
+    // per-connection `&conn=<uuid>` (preview-scope correlation), so an exact
+    // full-URL lookup no longer works — scan for the matching server param.
+    const want = `server=${encodeURIComponent(server)}`;
+    return MockEventSource.all.find((es) => {
+      const q = es.url.split("?")[1] ?? "";
+      return q.split("&").includes(want);
+    });
   }
   // The dedicated server-independent host-metrics stream opens at the
   // metrics-only endpoint (`?metrics=1`, no `server` query param).

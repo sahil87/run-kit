@@ -408,10 +408,13 @@ describe("SessionProvider — server-independent host metrics", () => {
     ]);
     setMockMatches([{ params: { server: "runkit" } }]);
     let hostRenders = 0;
-    let latestHost: MetricsSnapshot | null = null;
+    // Mutable holder: assigning through an object property (rather than a bare
+    // `let`) keeps TS control-flow analysis from narrowing the value to `null`
+    // at the assertion sites below, where CFA can't see the closure runs later.
+    const host: { latest: MetricsSnapshot | null } = { latest: null };
     function HostProbe() {
       hostRenders += 1;
-      latestHost = useHostMetrics();
+      host.latest = useHostMetrics();
       return null;
     }
     const { result } = renderHook(() => useSessionContext(), {
@@ -431,7 +434,7 @@ describe("SessionProvider — server-independent host metrics", () => {
     act(() => {
       MockEventSource.forServer("runkit")!.emit("metrics", FAKE_METRICS);
     });
-    expect(latestHost?.hostname).toBe("test-box");
+    expect(host.latest?.hostname).toBe("test-box");
     const rendersAfterFirst = hostRenders;
 
     // The SAME payload arrives from `work` in the same tick. Deduped on the raw
@@ -441,13 +444,13 @@ describe("SessionProvider — server-independent host metrics", () => {
       MockEventSource.forServer("work")!.emit("metrics", FAKE_METRICS);
     });
     expect(hostRenders).toBe(rendersAfterFirst);
-    expect(latestHost?.hostname).toBe("test-box");
+    expect(host.latest?.hostname).toBe("test-box");
 
     // A genuinely different payload DOES update the host-metrics consumer.
     act(() => {
       MockEventSource.forServer("work")!.emit("metrics", { ...FAKE_METRICS, hostname: "other-box" });
     });
-    expect(latestHost?.hostname).toBe("other-box");
+    expect(host.latest?.hostname).toBe("other-box");
     expect(hostRenders).toBeGreaterThan(rendersAfterFirst);
   });
 

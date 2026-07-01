@@ -4,9 +4,12 @@ import type { ReactNode } from "react";
 import {
   SessionProvider,
   useSessionContext,
+  useHostMetrics,
+  useMetrics,
   StandaloneSessionContextProvider,
 } from "./session-context";
 import { ChromeProvider } from "./chrome-context";
+import type { MetricsSnapshot } from "@/types";
 
 vi.mock("@/api/client", () => ({
   listServers: vi.fn().mockResolvedValue([]),
@@ -60,7 +63,21 @@ class MockEventSource {
   static forServer(server: string): MockEventSource | undefined {
     return MockEventSource.byUrl.get(`/api/sessions/stream?server=${encodeURIComponent(server)}`);
   }
+  // The dedicated server-independent host-metrics stream opens at the
+  // metrics-only endpoint (`?metrics=1`, no `server` query param).
+  static forHostMetrics(): MockEventSource | undefined {
+    return MockEventSource.byUrl.get("/api/sessions/stream?metrics=1");
+  }
 }
+
+const FAKE_METRICS: MetricsSnapshot = {
+  hostname: "test-box",
+  cpu: { samples: [10, 20, 30], current: 42, cores: 8 },
+  memory: { used: 4 * 1024 ** 3, total: 16 * 1024 ** 3 },
+  load: { avg1: 1.5, avg5: 1.0, avg15: 0.5, cpus: 8 },
+  disk: { used: 100 * 1024 ** 3, total: 500 * 1024 ** 3 },
+  uptime: 90000,
+};
 
 function Wrapper({ children }: { children: ReactNode }) {
   return (
@@ -311,6 +328,148 @@ describe("SessionProvider — serversLoaded flag", () => {
     // Settled to an empty list — still counts as "loaded".
     expect(result.current.serversLoaded).toBe(true);
     expect(result.current.servers).toEqual([]);
+  });
+});
+
+describe("SessionProvider — server-independent host metrics", () => {
+  it("opens a dedicated host-metrics EventSource on mount with no currentServer", async () => {
+    // No route match → currentServer null (the `/` case). No servers attached.
+    setMockMatches([{ params: {} }]);
+    renderHook(() => useHostMetrics(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // The bare (server-less) stream is open even though nothing is attached.
+    expect(MockEventSource.forHostMetrics()).toBeDefined();
+  });
+
+  it("useHostMetrics() returns the broadcast snapshot; useMetrics() stays null on /", async () => {
+    setMockMatches([{ params: {} }]); // `/` — no currentServer
+    const { result } = renderHook(
+      () => ({ host: useHostMetrics(), current: useMetrics() }),
+      { wrapper: Wrapper },
+    );
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // Before the first tick both are null.
+    expect(result.current.host).toBeNull();
+    expect(result.current.current).toBeNull();
+
+    act(() => {
+      MockEventSource.forHostMetrics()!.emit("metrics", FAKE_METRICS);
+    });
+
+    // Host metrics populate on `/`; the current-server-scoped hook stays null.
+    expect(result.current.host?.hostname).toBe("test-box");
+    expect(result.current.host?.cpu.current).toBe(42);
+    expect(result.current.current).toBeNull();
+  });
+
+  it("does not open the dedicated host-metrics stream while a server is attached; host metrics come from the per-server fan-out", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useHostMetrics(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // With a per-server stream open, the dedicated `?metrics=1` stream is
+    // redundant (the `event: metrics` broadcast fans out to every per-server
+    // stream) and must NOT be left open — it would cost a permanent +1 against
+    // the browser's 6-per-origin connection budget on the fragile board route.
+    // A dedicated stream may briefly open during the mount-time window before
+    // the server list resolves; once `runkit` attaches it MUST be closed. So
+    // assert that no dedicated `?metrics=1` stream is currently live.
+    const liveBare = MockEventSource.all.filter(
+      (es) => es.url === "/api/sessions/stream?metrics=1" && !es.closed,
+    );
+    expect(liveBare.length).toBe(0);
+    expect(MockEventSource.forServer("runkit")).toBeDefined();
+
+    // useHostMetrics() still returns live metrics — sourced from the per-server
+    // stream's metrics fan-out rather than the (absent) dedicated stream.
+    act(() => {
+      MockEventSource.forServer("runkit")!.emit("metrics", FAKE_METRICS);
+    });
+    expect(result.current?.hostname).toBe("test-box");
+  });
+
+  it("dedupes identical host-metrics payloads across multiple attached servers", async () => {
+    // On a multi-server route the same server-global `metrics` payload arrives
+    // once per attached server per tick. The host-metrics fan-out must set state
+    // (and re-render HostMetricsContext consumers) only once per distinct
+    // payload — not once per server — so a second server delivering the same
+    // snapshot in the same tick does not re-render a host-metrics-only consumer.
+    //
+    // The probe reads ONLY useHostMetrics() (not useSessionContext), so its
+    // render count reflects HostMetricsContext updates alone — a per-server
+    // slice update from the duplicate metrics event does not touch it. A
+    // separate hook holds the context handle used to attach the second server.
+    vi.mocked(listServers).mockResolvedValue([
+      { name: "runkit", sessionCount: 0 },
+      { name: "work", sessionCount: 0 },
+    ]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    let hostRenders = 0;
+    // Mutable holder: assigning through an object property (rather than a bare
+    // `let`) keeps TS control-flow analysis from narrowing the value to `null`
+    // at the assertion sites below, where CFA can't see the closure runs later.
+    const host: { latest: MetricsSnapshot | null } = { latest: null };
+    function HostProbe() {
+      hostRenders += 1;
+      host.latest = useHostMetrics();
+      return null;
+    }
+    const { result } = renderHook(() => useSessionContext(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <Wrapper>
+          <HostProbe />
+          {children}
+        </Wrapper>
+      ),
+    });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    // Attach the second server so both per-server streams are open.
+    await act(async () => { result.current.attachServer("work"); });
+    await act(async () => { await Promise.resolve(); });
+
+    // First payload from runkit → host metrics populate (one state update).
+    act(() => {
+      MockEventSource.forServer("runkit")!.emit("metrics", FAKE_METRICS);
+    });
+    expect(host.latest?.hostname).toBe("test-box");
+    const rendersAfterFirst = hostRenders;
+
+    // The SAME payload arrives from `work` in the same tick. Deduped on the raw
+    // string → no new state update, so the host-metrics-only consumer does not
+    // re-render again for the duplicate.
+    act(() => {
+      MockEventSource.forServer("work")!.emit("metrics", FAKE_METRICS);
+    });
+    expect(hostRenders).toBe(rendersAfterFirst);
+    expect(host.latest?.hostname).toBe("test-box");
+
+    // A genuinely different payload DOES update the host-metrics consumer.
+    act(() => {
+      MockEventSource.forServer("work")!.emit("metrics", { ...FAKE_METRICS, hostname: "other-box" });
+    });
+    expect(host.latest?.hostname).toBe("other-box");
+    expect(hostRenders).toBeGreaterThan(rendersAfterFirst);
+  });
+
+  it("opens the dedicated stream on / then closes it once a server attaches", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: {} }]); // `/` — no currentServer, nothing attached
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // No server attached → the dedicated stream carries host metrics.
+    const dedicated = MockEventSource.forHostMetrics();
+    expect(dedicated).toBeDefined();
+    expect(dedicated!.closed).toBe(false);
+
+    // Attach a server → the per-server fan-out takes over and the dedicated
+    // stream is closed to free its connection slot.
+    await act(async () => { result.current.attachServer("runkit"); });
+    expect(dedicated!.closed).toBe(true);
+    expect(MockEventSource.forServer("runkit")).toBeDefined();
   });
 });
 

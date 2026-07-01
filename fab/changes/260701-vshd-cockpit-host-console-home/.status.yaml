@@ -1,0 +1,57 @@
+id: vshd
+name: 260701-vshd-cockpit-host-console-home
+created: 2026-07-01T06:10:04Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 17
+    acceptance_completed: 0
+confidence:
+    certain: 5
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 83.8
+        reversibility: 76.9
+        competence: 90.6
+        disambiguation: 85.6
+stage_metrics:
+    intake: {started_at: "2026-07-01T06:10:04Z", driver: fab-new, iterations: 1, completed_at: "2026-07-01T06:17:45Z"}
+    apply: {started_at: "2026-07-01T06:40:43Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-01T06:49:06Z"}
+    review: {started_at: "2026-07-01T06:49:06Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-01T06:57:15Z"}
+    hydrate: {started_at: "2026-07-01T06:57:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T07:01:41Z"}
+    ship: {started_at: "2026-07-01T07:01:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T07:06:49Z"}
+    review-pr: {started_at: "2026-07-01T07:06:49Z", driver: git-pr, iterations: 1, completed_at: "2026-07-01T07:20:23Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/290
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-01T07:01:41Z"
+    computed_at_stage: hydrate
+summary: Add a HOST HEALTH zone to the / home route (ServerListPage) rendering live host metrics via a new server-independent useHostMetrics() hook backed by a dedicated ?metrics=1 SSE stream (mutually exclusive with the per-server pool) and a metricsOnlyServer backend sentinel excluded from session-poll/reap and the safety-interval coverage gate; extract a shared HostMetrics presentational component consumed by both HostPanel and the / zone.
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-07-01T07:20:23Z

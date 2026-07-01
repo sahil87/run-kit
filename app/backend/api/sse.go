@@ -57,6 +57,17 @@ type PRStatusSnapshotter interface {
 // the kebab-case convention established by `event: session-order`.
 const boardEventName = "board-changed"
 
+// metricsOnlyServer is the reserved client key for a server-neutral,
+// metrics-only SSE stream (opened with `?metrics=1`, no `server`). Such a
+// client wants ONLY the server-independent `event: metrics` broadcast — it has
+// no associated tmux server, so the poll loop skips session-fetching and
+// reaping for it (there is no socket to poll or reap) while the metrics
+// broadcast, which fans out to every registered client, still reaches it. This
+// backs the Cockpit host-console home (`/`), which shows host health with zero
+// attached servers. The leading NUL makes it impossible to collide with a real
+// tmux server name (validated to a safe charset by ValidateServerName).
+const metricsOnlyServer = "\x00metrics-only"
+
 // boardChangedPayload is the body of `event: board-changed` for explicit
 // pin/unpin/reorder mutations. Board membership changes only through these
 // mutations (each handler emits its own event), so there is no synthetic
@@ -186,6 +197,25 @@ type sseHub struct {
 // otherwise an external change on it takes up to 12s to surface (the SSE-sync
 // e2e failures: tests assert at 5s but the test server was uncovered yet still
 // got the 12s interval). A per-hub override (h.safetyInterval) wins when set.
+//
+// The metricsOnlyServer sentinel is EXCLUDED from the coverage gate: it has no
+// tmux server to poll and is never session-fetched (see the poll loop skip), so
+// it needs no freshness cadence of its own. It can never be Covers()-ed (no
+// control-mode Client for a non-server key), so counting it would always force
+// the fast legacy cadence whenever a metrics-only client is present (~always,
+// since the Cockpit home holds one open) — needlessly ~5x-ing FetchSessions
+// calls for co-attached real servers. Skipping it lets the covered real servers
+// keep the long safety interval.
+//
+// One exception: when the sentinel is the ONLY thing present (the bare `/`
+// Cockpit home with zero attached servers), skipping it would fall through to
+// the 12s safety backstop — but the sentinel's Wait channel never fires (it is
+// never Covers()-ed), so the loop would block the full 12s between metrics
+// broadcasts, making host health on `/` update ~12s apart instead of the
+// intended ~2.5s tick. A sentinel-only slice does zero session-fetching, so the
+// fast legacy cadence costs nothing but the metrics marshal/broadcast — exactly
+// the freshness we want. So a slice containing NO real (non-sentinel) server
+// runs at legacyPollInterval.
 func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 	if h.safetyInterval > 0 {
 		return h.safetyInterval
@@ -193,10 +223,22 @@ func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 	if h.subscriber == nil {
 		return legacyPollInterval
 	}
+	sawRealServer := false
 	for _, server := range servers {
+		if server == metricsOnlyServer {
+			continue
+		}
+		sawRealServer = true
 		if !h.subscriber.Covers(server) {
 			return legacyPollInterval
 		}
+	}
+	// No real server in the slice (only the metrics-only sentinel, or empty):
+	// use the fast cadence so the metrics broadcast ticks at ~2.5s for the
+	// Cockpit home. With a real, fully-covered server present, keep the long
+	// safety interval.
+	if !sawRealServer {
+		return legacyPollInterval
 	}
 	return safetyPollInterval
 }
@@ -454,6 +496,13 @@ func (h *sseHub) poll() {
 		dataChanged := false
 		var deadServers []string
 		for _, server := range servers {
+			// Metrics-only clients (server-neutral, `?metrics=1`) have no tmux
+			// server — skip all session-fetch / order / reap work for them. They
+			// still receive the server-independent metrics broadcast at the
+			// bottom of the loop, which fans out to every registered client.
+			if server == metricsOnlyServer {
+				continue
+			}
 			// Check session fetch cache (500ms TTL). If the prior
 			// waitForNext call observed a control-mode notification
 			// for this server, invalidate the cache so we observe the
@@ -782,9 +831,17 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// A metrics-only stream (`?metrics=1`) is server-neutral: it wants only the
+	// server-independent `event: metrics` broadcast and has no tmux server to
+	// poll. Route it to the reserved sentinel key so the poll loop never fetches
+	// sessions or reaps it. Any other request resolves its server as usual.
+	server := serverFromRequest(r)
+	if r.URL.Query().Get("metrics") == "1" {
+		server = metricsOnlyServer
+	}
 	client := &sseClient{
 		ch:     make(chan []byte, 32),
-		server: serverFromRequest(r),
+		server: server,
 	}
 
 	// Lazy-init the hub on first SSE connection

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/metrics"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 )
@@ -174,6 +175,50 @@ func TestSSEHubReapsDeadServer(t *testing.T) {
 	}
 	if _, ok := hub.previousOrderJSON["dead"]; ok {
 		t.Error("previousOrderJSON not cleared for reaped server")
+	}
+}
+
+// TestSSEHubMetricsOnlyClientNotReaped proves the server-neutral, metrics-only
+// client (key = metricsOnlyServer) receives the server-independent metrics
+// broadcast and is NEVER session-polled or reaped — even when every real server
+// the fetcher knows about is IsServerGone. This backs the Cockpit host-console
+// home (`/`), which must show host health with zero attached tmux servers.
+func TestSSEHubMetricsOnlyClientNotReaped(t *testing.T) {
+	// Any real server would be reaped, but the metrics-only key must survive.
+	sf := &goneSessionFetcher{goneServers: map[string]bool{"anything": true}}
+	mc := metrics.NewCollector(2500 * time.Millisecond) // pre-fills a valid zero snapshot
+	hub := newSSEHub(sf, mc, nil)
+	hub.safetyInterval = 50 * time.Millisecond // cycle the poll loop quickly
+
+	client := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(client) // starts the poll goroutine
+
+	// The client must receive an `event: metrics` and must NOT receive a
+	// `server-gone` (it has no server to reap).
+	gotMetrics := false
+	deadline := time.After(2 * time.Second)
+	for !gotMetrics {
+		select {
+		case ev := <-client.ch:
+			s := string(ev)
+			if strings.HasPrefix(s, "event: server-gone") {
+				t.Fatal("metrics-only client received server-gone (was wrongly reaped)")
+			}
+			if strings.HasPrefix(s, "event: metrics") {
+				gotMetrics = true
+			}
+		case <-deadline:
+			t.Fatal("metrics-only client did not receive an event: metrics")
+		}
+	}
+
+	// The metrics-only key must remain registered (not reaped) and polling
+	// continues (the client is still connected).
+	hub.mu.RLock()
+	_, present := hub.clients[metricsOnlyServer]
+	hub.mu.RUnlock()
+	if !present {
+		t.Error("metrics-only client was reaped from h.clients")
 	}
 }
 

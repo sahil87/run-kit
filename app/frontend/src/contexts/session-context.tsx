@@ -64,6 +64,17 @@ export const SessionContext = createContext<SessionContextType | null>(null);
 // "outside provider" (throw) from the valid "no metrics yet" state (`null`).
 const MetricsContext = createContext<MetricsSnapshot | null | undefined>(undefined);
 
+// Host metrics live in their OWN context, fed by a dedicated server-independent
+// EventSource (see the host-metrics effect below). Unlike `MetricsContext`
+// (which carries the current server's slice and is `null` on `/`), this context
+// carries the host-global `event: metrics` broadcast and is available on EVERY
+// route — including `/`, where there is no `currentServer`. The `event: metrics`
+// broadcast is server-independent server-side (see api/sse.go poll loop), so a
+// single stream suffices regardless of how many servers are attached. Same
+// `undefined` sentinel idiom as `MetricsContext` — distinguishes
+// "outside provider" (throw) from "no metrics yet" (`null`).
+const HostMetricsContext = createContext<MetricsSnapshot | null | undefined>(undefined);
+
 type SessionProviderProps = {
   children: React.ReactNode;
 };
@@ -116,8 +127,27 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // `SessionContextType` doc for why eager-attach blows past the browser's
   // 6-connection-per-origin cap.
   const [attachedNonCurrent, setAttachedNonCurrent] = useState<Set<string>>(() => new Set());
+  // Latest host-global metrics snapshot from the dedicated server-independent
+  // stream (see the host-metrics effect below). `null` until the first tick.
+  const [hostMetrics, setHostMetrics] = useState<MetricsSnapshot | null>(null);
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
   const currentServer = useCurrentServerFromRoute();
+
+  // Last raw host-metrics event payload applied to `hostMetrics`, shared across
+  // ALL sources (every per-server stream's `metrics` fan-out + the dedicated
+  // `?metrics=1` stream). The `event: metrics` broadcast is server-global —
+  // identical on every stream — so on multi-server routes (boards) the same
+  // payload arrives once per attached server per tick. Without this guard, each
+  // arrival would call `setHostMetrics` with a freshly-parsed (referentially-
+  // new) object, forcing a redundant HostMetricsContext re-render per attached
+  // server per tick. Deduping on the raw event string collapses those to one
+  // state update per distinct payload.
+  const hostMetricsPrevRef = useRef<string>("");
+  const applyHostMetrics = useCallback((raw: string, snap: MetricsSnapshot) => {
+    if (raw === hostMetricsPrevRef.current) return;
+    hostMetricsPrevRef.current = raw;
+    setHostMetrics(snap);
+  }, []);
 
   const attachServer = useCallback((name: string) => {
     setAttachedNonCurrent((prev) => {
@@ -311,6 +341,16 @@ export function SessionProvider({ children }: SessionProviderProps) {
         try {
           const data = JSON.parse(e.data) as MetricsSnapshot;
           updateSlice(name, { metrics: data }, true);
+          // The `event: metrics` broadcast is server-global (identical payload
+          // on every per-server stream — see api/sse.go poll loop), so any
+          // attached server's metrics event is a valid host-metrics source.
+          // Feed it into hostMetrics too, so `useHostMetrics()` stays live
+          // WITHOUT the dedicated `?metrics=1` stream: that stream is closed
+          // whenever a per-server stream is open (see the host-metrics effect
+          // below), and this fan-out supplies host metrics in its place.
+          // Dedupe on the raw payload so multiple attached servers delivering
+          // the same server-global snapshot in one tick set state only once.
+          applyHostMetrics(e.data, data);
         } catch {
           // Malformed metrics event — skip
         }
@@ -396,7 +436,61 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // cycles in Strict Mode dev. Real cleanup happens implicitly when the
     // window unloads. The pool dedupes via `pool.has(name)` so re-runs are
     // safe without close-then-reopen.
-  }, [attachedSet, updateSlice, fetchServers]);
+  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics]);
+
+  // Dedicated server-independent host-metrics stream, opened ONLY when no
+  // per-server stream is open (`attachedSet` empty — the bare `/` case with
+  // zero attached servers). It exists purely to receive the server-global
+  // `event: metrics` broadcast so host health is available on `/`, where there
+  // is no `currentServer` and no per-server stream to carry metrics.
+  //
+  // Whenever ANY server is attached the dedicated stream is REDUNDANT — the
+  // per-server `metrics` listener above already fans the same server-global
+  // payload into `hostMetrics` — and it would only cost a permanent +1 against
+  // the browser's HTTP/1.1 6-per-origin connection budget on EVERY route,
+  // including the connection-starvation-fragile board route (which attaches all
+  // known servers). So we CLOSE it once `attachedSet` is non-empty and REOPEN
+  // it if the attached set drains back to empty. `useHostMetrics()` stays live
+  // across the switch: dedicated stream when nothing is attached, per-server
+  // fan-out otherwise.
+  //
+  // We pass `?metrics=1` (and no `server`): the backend routes this to a
+  // server-neutral, metrics-only client that is never session-polled or reaped,
+  // so it keeps receiving the broadcast with zero attached servers.
+  const hostMetricsESRef = useRef<EventSource | null>(null);
+  const hostMetricsWanted = attachedSet.size === 0;
+  useEffect(() => {
+    if (!hostMetricsWanted) {
+      // A per-server stream now carries host metrics (via the fan-out above) —
+      // close the redundant dedicated stream to free its connection slot.
+      if (hostMetricsESRef.current) {
+        hostMetricsESRef.current.close();
+        hostMetricsESRef.current = null;
+      }
+      return;
+    }
+    // Wanted (no server attached). StrictMode-safe: the ref survives the dev
+    // cleanup→re-run cycle, so a second run reuses the existing connection
+    // instead of opening a duplicate.
+    if (hostMetricsESRef.current) return;
+    const es = new EventSource("/api/sessions/stream?metrics=1");
+    hostMetricsESRef.current = es;
+    es.addEventListener("metrics", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data) as MetricsSnapshot;
+        // Shared dedup with the per-server fan-out above — routing both sources
+        // through applyHostMetrics keeps the guard authoritative across the
+        // dedicated-stream ↔ per-server-fan-out switch.
+        applyHostMetrics(e.data, data);
+      } catch {
+        // Malformed metrics event — skip
+      }
+    });
+    // No cleanup close() here — the open/close is driven by `hostMetricsWanted`
+    // (the effect body closes the stream when it flips false), not by effect
+    // teardown. A cleanup close() would tear down the connection on every
+    // StrictMode remount and orphan the ref-guarded reopen.
+  }, [hostMetricsWanted, applyHostMetrics]);
 
   // Derive per-field Maps from the slice Map. Memoized so unrelated re-renders
   // don't churn consumer references. Each Map is a fresh reference whenever
@@ -465,7 +559,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
   return (
     <SessionContext.Provider value={value}>
       <MetricsContext.Provider value={currentMetrics}>
-        {children}
+        <HostMetricsContext.Provider value={hostMetrics}>
+          {children}
+        </HostMetricsContext.Provider>
       </MetricsContext.Provider>
     </SessionContext.Provider>
   );
@@ -480,6 +576,16 @@ export function useSessionContext(): SessionContextType {
 export function useMetrics(): MetricsSnapshot | null {
   const ctx = useContext(MetricsContext);
   if (ctx === undefined) throw new Error("useMetrics must be used within SessionProvider");
+  return ctx;
+}
+
+/** Host-global metrics from the dedicated server-independent stream. Unlike
+ *  `useMetrics()` (current-server-scoped, `null` on `/`), this is available on
+ *  EVERY route — the Cockpit host-console home (`/`) consumes it. `null` before
+ *  the first metrics tick. */
+export function useHostMetrics(): MetricsSnapshot | null {
+  const ctx = useContext(HostMetricsContext);
+  if (ctx === undefined) throw new Error("useHostMetrics must be used within SessionProvider");
   return ctx;
 }
 

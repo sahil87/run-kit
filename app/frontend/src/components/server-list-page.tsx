@@ -48,9 +48,11 @@ export function ServerListPage() {
         ghostNameRef.current = null;
       }
     },
-    onError: (err) => {
-      addToast(err.message || "Failed to create server");
-    },
+    // No `onError` toast here (unlike AppShell.handleCreateServer, whose hook
+    // stays mounted): this page unmounts on navigate, so the mount-guarded
+    // `onError` would be skipped on the common post-navigate failure path AND
+    // would double-toast on the rare still-mounted failure. The failure toast
+    // lives solely in the unmount-safe `onAlwaysRollback` below.
     onSettled: () => {
       ghostNameRef.current = null;
     },
@@ -65,8 +67,14 @@ export function ServerListPage() {
     // A failed create must not strand the UI on the waiting state — clear the
     // pending marker (empty string clears to null) on the rollback path (also
     // unmount-safe, root-context only). Mirrors AppShell.handleCreateServer.
+    // Also surface the failure here: `handleCreate` navigates away from `/`
+    // synchronously, so this page unmounts before the create resolves and the
+    // mount-guarded `onError` toast is skipped — the user would otherwise land
+    // on "Server not found" with no explanation. `addToast` reaches the
+    // root-level ToastProvider, which stays mounted across the navigation.
     onAlwaysRollback: () => {
       markServerPending("");
+      addToast("Failed to create server");
     },
   });
 

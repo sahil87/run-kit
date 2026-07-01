@@ -11,7 +11,7 @@ import {
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
 import { listServers, setPreviewScope as apiSetPreviewScope, type ServerInfo } from "@/api/client";
-import type { MetricsSnapshot, ProjectSession } from "@/types";
+import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
 
@@ -83,6 +83,15 @@ const MetricsContext = createContext<MetricsSnapshot | null | undefined>(undefin
 // "outside provider" (throw) from "no metrics yet" (`null`).
 const HostMetricsContext = createContext<MetricsSnapshot | null | undefined>(undefined);
 
+// Host listening-services live in their OWN context, fed by the same
+// server-independent broadcast as host metrics (the `event: services` frame
+// rides every stream — the dedicated `?metrics=1` stream and each per-server
+// stream — exactly like `event: metrics`). Separated from HostMetricsContext so
+// the ~2.5s services stream does not cascade re-renders into metrics-only
+// consumers. The `undefined` sentinel distinguishes "outside provider" (throw)
+// from the valid "no services yet" state (`[]`).
+const HostServicesContext = createContext<Service[] | undefined>(undefined);
+
 type SessionProviderProps = {
   children: React.ReactNode;
 };
@@ -140,6 +149,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // Latest host-global metrics snapshot from the dedicated server-independent
   // stream (see the host-metrics effect below). `null` until the first tick.
   const [hostMetrics, setHostMetrics] = useState<MetricsSnapshot | null>(null);
+  // Latest host-global listening services from the same server-independent
+  // broadcast (`event: services`). Empty array until the first tick — never
+  // null, so `/` consumers can map over it unconditionally.
+  const [hostServices, setHostServices] = useState<Service[]>([]);
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
   const currentServer = useCurrentServerFromRoute();
 
@@ -157,6 +170,17 @@ export function SessionProvider({ children }: SessionProviderProps) {
     if (raw === hostMetricsPrevRef.current) return;
     hostMetricsPrevRef.current = raw;
     setHostMetrics(snap);
+  }, []);
+
+  // Same raw-payload dedup as `applyHostMetrics`, for `event: services`. The
+  // services broadcast is server-global (identical on every stream), so on
+  // multi-server routes the same payload arrives once per attached server per
+  // tick; deduping on the raw string collapses those to one state update.
+  const hostServicesPrevRef = useRef<string>("");
+  const applyHostServices = useCallback((raw: string, services: Service[]) => {
+    if (raw === hostServicesPrevRef.current) return;
+    hostServicesPrevRef.current = raw;
+    setHostServices(services);
   }, []);
 
   const attachServer = useCallback((name: string) => {
@@ -377,6 +401,21 @@ export function SessionProvider({ children }: SessionProviderProps) {
         }
       });
 
+      // `event: services` is server-global too (same payload on every stream —
+      // see api/sse.go poll loop), so any attached server's stream is a valid
+      // host-services source. Feed it into hostServices via the shared dedup so
+      // `useHostServices()` stays live WITHOUT the dedicated `?metrics=1` stream
+      // (which is closed whenever a per-server stream is open). Mirrors the
+      // metrics fan-out above.
+      es.addEventListener("services", (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data) as ServicesSnapshot;
+          applyHostServices(e.data, Array.isArray(data.services) ? data.services : []);
+        } catch {
+          // Malformed services event — skip
+        }
+      });
+
       es.addEventListener("session-order", (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data) as { server?: string; order?: string[] };
@@ -485,7 +524,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // cycles in Strict Mode dev. Real cleanup happens implicitly when the
     // window unloads. The pool dedupes via `pool.has(name)` so re-runs are
     // safe without close-then-reopen.
-  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics]);
+  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices]);
 
   // Dedicated server-independent host-metrics stream, opened ONLY when no
   // per-server stream is open (`attachedSet` empty — the bare `/` case with
@@ -535,11 +574,22 @@ export function SessionProvider({ children }: SessionProviderProps) {
         // Malformed metrics event — skip
       }
     });
+    // `event: services` rides the same dedicated stream (it fans out to every
+    // client). Add the listener here too so host services stay live on the bare
+    // `/` route with zero attached servers, mirroring the metrics listener.
+    es.addEventListener("services", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data) as ServicesSnapshot;
+        applyHostServices(e.data, Array.isArray(data.services) ? data.services : []);
+      } catch {
+        // Malformed services event — skip
+      }
+    });
     // No cleanup close() here — the open/close is driven by `hostMetricsWanted`
     // (the effect body closes the stream when it flips false), not by effect
     // teardown. A cleanup close() would tear down the connection on every
     // StrictMode remount and orphan the ref-guarded reopen.
-  }, [hostMetricsWanted, applyHostMetrics]);
+  }, [hostMetricsWanted, applyHostMetrics, applyHostServices]);
 
   // Derive per-field Maps from the slice Map. Memoized so unrelated re-renders
   // don't churn consumer references. Each Map is a fresh reference whenever
@@ -629,7 +679,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
     <SessionContext.Provider value={value}>
       <MetricsContext.Provider value={currentMetrics}>
         <HostMetricsContext.Provider value={hostMetrics}>
-          {children}
+          <HostServicesContext.Provider value={hostServices}>
+            {children}
+          </HostServicesContext.Provider>
         </HostMetricsContext.Provider>
       </MetricsContext.Provider>
     </SessionContext.Provider>
@@ -655,6 +707,16 @@ export function useMetrics(): MetricsSnapshot | null {
 export function useHostMetrics(): MetricsSnapshot | null {
   const ctx = useContext(HostMetricsContext);
   if (ctx === undefined) throw new Error("useHostMetrics must be used within SessionProvider");
+  return ctx;
+}
+
+/** Host-global listening services from the server-independent broadcast.
+ *  Available on EVERY route — the Cockpit host-console home (`/`) consumes it
+ *  for the SERVICES zone. Returns `[]` before the first services tick (never
+ *  null), so consumers can map over it unconditionally. */
+export function useHostServices(): Service[] {
+  const ctx = useContext(HostServicesContext);
+  if (ctx === undefined) throw new Error("useHostServices must be used within SessionProvider");
   return ctx;
 }
 

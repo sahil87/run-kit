@@ -1,0 +1,22 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-01T08:49:37Z"}
+{"args":"Service tiles on the Cockpit host console — zone 3 of / — expose the machine's listening TCP ports as tiles on the server dashboard; click Open in window to open a port's UI in an iframe window via the existing /proxy/{port}/ reverse proxy. Depends on [vshd] host-console shell.","cmd":"fab-new","event":"command","ts":"2026-07-01T08:49:37Z"}
+{"delta":"+2.7","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-07-01T08:51:38Z"}
+{"delta":"+0.0","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-07-01T08:51:55Z"}
+{"delta":"+0.0","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-07-01T08:52:06Z"}
+{"delta":"+0.0","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-07-01T08:52:15Z"}
+{"delta":"+0.0","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-07-01T08:52:20Z"}
+{"delta":"-0.3","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-07-01T08:52:37Z"}
+{"delta":"+0.0","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-07-01T08:52:44Z"}
+{"delta":"+0.0","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-07-01T08:53:03Z"}
+{"delta":"+0.0","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-07-01T08:53:07Z"}
+{"delta":"+0.0","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-07-01T08:53:14Z"}
+{"delta":"+0.0","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-07-01T08:55:18Z"}
+{"delta":"+0.0","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-07-01T08:55:31Z"}
+{"delta":"+1.8","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-07-01T08:55:41Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-07-01T08:55:47Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-01T08:57:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-01T08:58:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-01T09:15:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-01T09:22:07Z"}
+{"event":"review","result":"passed","ts":"2026-07-01T09:22:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-01T09:26:17Z"}

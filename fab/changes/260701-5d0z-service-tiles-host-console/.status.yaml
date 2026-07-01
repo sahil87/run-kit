@@ -1,0 +1,55 @@
+id: 5d0z
+name: 260701-5d0z-service-tiles-host-console
+created: 2026-07-01T08:49:37Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 5
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 79.0
+        reversibility: 74.5
+        competence: 84.0
+        disambiguation: 79.5
+stage_metrics:
+    intake: {started_at: "2026-07-01T08:49:37Z", driver: fab-new, iterations: 1, completed_at: "2026-07-01T08:58:14Z"}
+    apply: {started_at: "2026-07-01T08:58:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T09:15:51Z"}
+    review: {started_at: "2026-07-01T09:15:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T09:22:07Z"}
+    hydrate: {started_at: "2026-07-01T09:22:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T09:26:17Z"}
+    ship: {started_at: "2026-07-01T09:26:17Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 1112
+    deleted: 139
+    net: 973
+    excluding:
+        added: 701
+        deleted: 125
+        net: 576
+    tests:
+        added: 123
+        deleted: 0
+        net: 123
+    computed_at: "2026-07-01T09:26:17Z"
+    computed_at_stage: hydrate
+summary: 'Add internal/ports listening-TCP-port collector + server-independent event: services SSE broadcast + useHostServices() hook + SERVICES zone (zone 3) with Open-in-window iframe-proxy action on the Cockpit host-console home'
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-07-01T09:26:17Z

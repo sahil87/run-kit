@@ -5,6 +5,7 @@ import {
   SessionProvider,
   useSessionContext,
   useHostMetrics,
+  useHostServices,
   useMetrics,
   StandaloneSessionContextProvider,
 } from "./session-context";
@@ -477,6 +478,105 @@ describe("SessionProvider — server-independent host metrics", () => {
     await act(async () => { result.current.attachServer("runkit"); });
     expect(dedicated!.closed).toBe(true);
     expect(MockEventSource.forServer("runkit")).toBeDefined();
+  });
+});
+
+describe("SessionProvider — server-independent host services", () => {
+  const FAKE_SERVICES = { services: [{ port: 5173 }, { port: 8080, process: "api" }] };
+
+  it("returns [] before the first services tick", async () => {
+    setMockMatches([{ params: {} }]); // `/` — dedicated stream, no servers
+    const { result } = renderHook(() => useHostServices(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(result.current).toEqual([]);
+  });
+
+  it("populates from the dedicated `?metrics=1` stream on /", async () => {
+    setMockMatches([{ params: {} }]); // `/` — no currentServer, nothing attached
+    const { result } = renderHook(() => useHostServices(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    act(() => {
+      MockEventSource.forHostMetrics()!.emit("services", FAKE_SERVICES);
+    });
+
+    expect(result.current.map((s) => s.port)).toEqual([5173, 8080]);
+    expect(result.current[1].process).toBe("api");
+  });
+
+  it("populates from the per-server fan-out when a server is attached", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useHostServices(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // The dedicated stream is closed with a server attached; the per-server
+    // stream carries `event: services`.
+    act(() => {
+      MockEventSource.forServer("runkit")!.emit("services", FAKE_SERVICES);
+    });
+
+    expect(result.current.map((s) => s.port)).toEqual([5173, 8080]);
+  });
+
+  it("dedupes identical services payloads across multiple attached servers", async () => {
+    vi.mocked(listServers).mockResolvedValue([
+      { name: "runkit", sessionCount: 0 },
+      { name: "work", sessionCount: 0 },
+    ]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    let renders = 0;
+    let latest: ReturnType<typeof useHostServices> = [];
+    function Probe() {
+      renders += 1;
+      latest = useHostServices();
+      return null;
+    }
+    const { result } = renderHook(() => useSessionContext(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <Wrapper>
+          <Probe />
+          {children}
+        </Wrapper>
+      ),
+    });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await act(async () => { result.current.attachServer("work"); });
+    await act(async () => { await Promise.resolve(); });
+
+    act(() => {
+      MockEventSource.forServer("runkit")!.emit("services", FAKE_SERVICES);
+    });
+    expect(latest.map((s) => s.port)).toEqual([5173, 8080]);
+    const rendersAfterFirst = renders;
+
+    // Same payload from `work` in the same tick — deduped, no extra render.
+    act(() => {
+      MockEventSource.forServer("work")!.emit("services", FAKE_SERVICES);
+    });
+    expect(renders).toBe(rendersAfterFirst);
+
+    // A different payload updates the consumer.
+    act(() => {
+      MockEventSource.forServer("work")!.emit("services", { services: [{ port: 3000 }] });
+    });
+    expect(latest.map((s) => s.port)).toEqual([3000]);
+    expect(renders).toBeGreaterThan(rendersAfterFirst);
+  });
+
+  it("skips a malformed services event without throwing", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useHostServices(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    act(() => {
+      // emit raw non-JSON by driving the handler directly with a bad payload.
+      const handler = MockEventSource.forHostMetrics()!.listeners.get("services");
+      handler?.({ data: "not json" } as MessageEvent);
+    });
+
+    // No throw, still the empty default.
+    expect(result.current).toEqual([]);
   });
 });
 

@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"rk/internal/metrics"
+	"rk/internal/ports"
 	"rk/internal/prstatus"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
@@ -71,6 +72,7 @@ type Server struct {
 	tmux     TmuxOps
 	hostname string
 	metrics  *metrics.Collector
+	services *ports.Collector
 	prStatus *prstatus.Collector
 	sseHub   *sseHub
 	sseOnce  sync.Once
@@ -85,7 +87,7 @@ func (s *Server) initSSEHub() {
 		if s.prStatus != nil {
 			pc = s.prStatus
 		}
-		s.sseHub = newSSEHub(s.sessions, s.metrics, pc)
+		s.sseHub = newSSEHub(s.sessions, s.metrics, s.services, pc)
 	})
 }
 
@@ -301,6 +303,9 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	mc := metrics.NewCollector(metricsPollInterval)
 	mc.Start(ctx)
 
+	svc := ports.NewCollector(servicesPollInterval)
+	svc.Start(ctx)
+
 	pc := prstatus.NewCollector(prStatusPollInterval)
 	pc.Start(ctx)
 
@@ -310,6 +315,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		tmux:     &prodTmuxOps{},
 		hostname: hostname,
 		metrics:  mc,
+		services: svc,
 		prStatus: pc,
 	}
 	return s.buildRouter(), s

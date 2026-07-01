@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { createServer } from "@/api/client";
+import { createServer, createSession, createWindow } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
-import { useHostMetrics, useSessionContext } from "@/contexts/session-context";
+import { useHostMetrics, useHostServices, useSessionContext } from "@/contexts/session-context";
 import { HostMetrics } from "@/components/host-metrics";
 
 export function ServerListPage() {
@@ -28,7 +28,11 @@ export function ServerListPage() {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const hostMetrics = useHostMetrics();
+  const hostServices = useHostServices();
+  const { sessionsByServer } = useSessionContext();
   const ghostNameRef = useRef<string | null>(null);
+  // Guards against a double-click firing two create flows for the same port.
+  const openingRef = useRef(false);
 
   // Reconcile ghost tiles against SessionContext's list: drop any ghost whose
   // real server has appeared. Computed at render time (no effect/local fetch).
@@ -95,6 +99,48 @@ export function ServerListPage() {
     setCreateName("");
   }, [createName, navigate, executeCreateServer, markServerPending]);
 
+  // "Open in window" — open a listening service's UI in an @rk_type=iframe tmux
+  // window via the existing /proxy/{port}/ reverse proxy. `/` is server-less, so
+  // resolve a target (server, session): the first-listed server, reusing its
+  // first known session or creating an instant one, then create the iframe
+  // window there and navigate to the server (the window surfaces via SSE).
+  // Disabled when no servers exist (see the tile's disabled state).
+  const handleOpenInWindow = useCallback(
+    async (port: number) => {
+      if (openingRef.current) return;
+      const target = servers[0];
+      if (!target) return; // action is disabled in this state; defensive guard
+      openingRef.current = true;
+      try {
+        const server = target.name;
+        const existing = sessionsByServer.get(server) ?? [];
+        let session = existing[0]?.name;
+        if (!session) {
+          // No known session on the target — create an instant one to host the
+          // iframe window (reuses the createSession machinery the app uses).
+          session = "services";
+          await createSession(server, session);
+        }
+        await createWindow(
+          server,
+          session,
+          `:${port}`,
+          undefined,
+          "iframe",
+          `/proxy/${port}/`,
+        );
+        navigate({ to: "/$server", params: { server } });
+      } catch (err) {
+        addToast(
+          err instanceof Error ? err.message : "Failed to open service in window",
+        );
+      } finally {
+        openingRef.current = false;
+      }
+    },
+    [servers, sessionsByServer, navigate, addToast],
+  );
+
   return (
     <div className="flex flex-col h-screen bg-bg-primary">
       {/* Minimal header */}
@@ -124,6 +170,51 @@ export function ServerListPage() {
             <HostMetrics metrics={hostMetrics} />
           ) : (
             <div className="text-xs text-text-secondary">No metrics</div>
+          )}
+        </section>
+
+        {/* SERVICES zone (Cockpit host-console home). A listening TCP port is a
+            HOST property (not owned by any tmux window/session), so `/` — the
+            box-level console — is its home. Each tile opens that port's UI in an
+            @rk_type=iframe tmux window via the existing /proxy/{port}/ proxy. */}
+        <section aria-label="Services" className="mb-6 max-w-md">
+          <h2 className="text-xs uppercase tracking-wide text-text-secondary mb-2">
+            Services
+          </h2>
+          {hostServices.length === 0 ? (
+            <div className="text-xs text-text-secondary">No services</div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {hostServices.map((svc) => (
+                <div
+                  key={svc.port}
+                  className="flex items-center justify-between gap-3 bg-bg-card border border-border rounded px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <span className="text-text-primary font-mono text-sm">
+                      :{svc.port}
+                    </span>
+                    {svc.process && (
+                      <span className="text-text-secondary text-xs ml-2 truncate">
+                        {svc.process}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleOpenInWindow(svc.port)}
+                    disabled={servers.length === 0}
+                    title={
+                      servers.length === 0
+                        ? "Create a server first"
+                        : undefined
+                    }
+                    className="shrink-0 text-xs px-2 py-1 border border-border rounded text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary disabled:hover:border-border"
+                  >
+                    Open in window
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </section>
 

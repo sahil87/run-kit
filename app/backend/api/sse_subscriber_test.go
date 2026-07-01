@@ -387,6 +387,19 @@ func TestSafetyIntervalEffective(t *testing.T) {
 			t.Fatalf("got %v, want %v (the metrics-only sentinel must not force the fast cadence)", got, safetyPollInterval)
 		}
 	})
+	t.Run("metrics-only sentinel alone -> legacy fast", func(t *testing.T) {
+		// The bare `/` Cockpit home holds ONLY the metrics-only sentinel (zero
+		// attached servers). The sentinel is never Covers()-ed and its Wait
+		// channel never fires, so falling through to the 12s safety backstop
+		// would make host health on `/` update ~12s apart instead of the
+		// intended ~2.5s tick. A sentinel-only slice does no session-fetching,
+		// so the fast legacy cadence is correct and free.
+		h := newSSEHub(&fetchTracker{}, nil, nil)
+		h.subscriber = coverageSubscriber{covered: map[string]bool{}}
+		if got := h.safetyIntervalEffective([]string{metricsOnlyServer}); got != legacyPollInterval {
+			t.Fatalf("got %v, want %v (a sentinel-only slice must tick fast so `/` host metrics stay ~2.5s fresh)", got, legacyPollInterval)
+		}
+	})
 }
 
 // Silence unused-import warning if the kit changes shape.

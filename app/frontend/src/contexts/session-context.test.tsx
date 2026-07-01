@@ -391,6 +391,66 @@ describe("SessionProvider — server-independent host metrics", () => {
     expect(result.current?.hostname).toBe("test-box");
   });
 
+  it("dedupes identical host-metrics payloads across multiple attached servers", async () => {
+    // On a multi-server route the same server-global `metrics` payload arrives
+    // once per attached server per tick. The host-metrics fan-out must set state
+    // (and re-render HostMetricsContext consumers) only once per distinct
+    // payload — not once per server — so a second server delivering the same
+    // snapshot in the same tick does not re-render a host-metrics-only consumer.
+    //
+    // The probe reads ONLY useHostMetrics() (not useSessionContext), so its
+    // render count reflects HostMetricsContext updates alone — a per-server
+    // slice update from the duplicate metrics event does not touch it. A
+    // separate hook holds the context handle used to attach the second server.
+    vi.mocked(listServers).mockResolvedValue([
+      { name: "runkit", sessionCount: 0 },
+      { name: "work", sessionCount: 0 },
+    ]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    let hostRenders = 0;
+    let latestHost: MetricsSnapshot | null = null;
+    function HostProbe() {
+      hostRenders += 1;
+      latestHost = useHostMetrics();
+      return null;
+    }
+    const { result } = renderHook(() => useSessionContext(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <Wrapper>
+          <HostProbe />
+          {children}
+        </Wrapper>
+      ),
+    });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    // Attach the second server so both per-server streams are open.
+    await act(async () => { result.current.attachServer("work"); });
+    await act(async () => { await Promise.resolve(); });
+
+    // First payload from runkit → host metrics populate (one state update).
+    act(() => {
+      MockEventSource.forServer("runkit")!.emit("metrics", FAKE_METRICS);
+    });
+    expect(latestHost?.hostname).toBe("test-box");
+    const rendersAfterFirst = hostRenders;
+
+    // The SAME payload arrives from `work` in the same tick. Deduped on the raw
+    // string → no new state update, so the host-metrics-only consumer does not
+    // re-render again for the duplicate.
+    act(() => {
+      MockEventSource.forServer("work")!.emit("metrics", FAKE_METRICS);
+    });
+    expect(hostRenders).toBe(rendersAfterFirst);
+    expect(latestHost?.hostname).toBe("test-box");
+
+    // A genuinely different payload DOES update the host-metrics consumer.
+    act(() => {
+      MockEventSource.forServer("work")!.emit("metrics", { ...FAKE_METRICS, hostname: "other-box" });
+    });
+    expect(latestHost?.hostname).toBe("other-box");
+    expect(hostRenders).toBeGreaterThan(rendersAfterFirst);
+  });
+
   it("opens the dedicated stream on / then closes it once a server attaches", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: {} }]); // `/` — no currentServer, nothing attached

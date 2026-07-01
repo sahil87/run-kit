@@ -133,6 +133,22 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
   const currentServer = useCurrentServerFromRoute();
 
+  // Last raw host-metrics event payload applied to `hostMetrics`, shared across
+  // ALL sources (every per-server stream's `metrics` fan-out + the dedicated
+  // `?metrics=1` stream). The `event: metrics` broadcast is server-global —
+  // identical on every stream — so on multi-server routes (boards) the same
+  // payload arrives once per attached server per tick. Without this guard, each
+  // arrival would call `setHostMetrics` with a freshly-parsed (referentially-
+  // new) object, forcing a redundant HostMetricsContext re-render per attached
+  // server per tick. Deduping on the raw event string collapses those to one
+  // state update per distinct payload.
+  const hostMetricsPrevRef = useRef<string>("");
+  const applyHostMetrics = useCallback((raw: string, snap: MetricsSnapshot) => {
+    if (raw === hostMetricsPrevRef.current) return;
+    hostMetricsPrevRef.current = raw;
+    setHostMetrics(snap);
+  }, []);
+
   const attachServer = useCallback((name: string) => {
     setAttachedNonCurrent((prev) => {
       if (prev.has(name)) return prev;
@@ -332,7 +348,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
           // WITHOUT the dedicated `?metrics=1` stream: that stream is closed
           // whenever a per-server stream is open (see the host-metrics effect
           // below), and this fan-out supplies host metrics in its place.
-          setHostMetrics(data);
+          // Dedupe on the raw payload so multiple attached servers delivering
+          // the same server-global snapshot in one tick set state only once.
+          applyHostMetrics(e.data, data);
         } catch {
           // Malformed metrics event — skip
         }
@@ -418,7 +436,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // cycles in Strict Mode dev. Real cleanup happens implicitly when the
     // window unloads. The pool dedupes via `pool.has(name)` so re-runs are
     // safe without close-then-reopen.
-  }, [attachedSet, updateSlice, fetchServers]);
+  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics]);
 
   // Dedicated server-independent host-metrics stream, opened ONLY when no
   // per-server stream is open (`attachedSet` empty — the bare `/` case with
@@ -460,7 +478,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
     es.addEventListener("metrics", (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data) as MetricsSnapshot;
-        setHostMetrics(data);
+        // Shared dedup with the per-server fan-out above — routing both sources
+        // through applyHostMetrics keeps the guard authoritative across the
+        // dedicated-stream ↔ per-server-fan-out switch.
+        applyHostMetrics(e.data, data);
       } catch {
         // Malformed metrics event — skip
       }
@@ -469,7 +490,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // (the effect body closes the stream when it flips false), not by effect
     // teardown. A cleanup close() would tear down the connection on every
     // StrictMode remount and orphan the ref-guarded reopen.
-  }, [hostMetricsWanted]);
+  }, [hostMetricsWanted, applyHostMetrics]);
 
   // Derive per-field Maps from the slice Map. Memoized so unrelated re-renders
   // don't churn consumer references. Each Map is a fresh reference whenever

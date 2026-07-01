@@ -206,6 +206,16 @@ type sseHub struct {
 // since the Cockpit home holds one open) — needlessly ~5x-ing FetchSessions
 // calls for co-attached real servers. Skipping it lets the covered real servers
 // keep the long safety interval.
+//
+// One exception: when the sentinel is the ONLY thing present (the bare `/`
+// Cockpit home with zero attached servers), skipping it would fall through to
+// the 12s safety backstop — but the sentinel's Wait channel never fires (it is
+// never Covers()-ed), so the loop would block the full 12s between metrics
+// broadcasts, making host health on `/` update ~12s apart instead of the
+// intended ~2.5s tick. A sentinel-only slice does zero session-fetching, so the
+// fast legacy cadence costs nothing but the metrics marshal/broadcast — exactly
+// the freshness we want. So a slice containing NO real (non-sentinel) server
+// runs at legacyPollInterval.
 func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 	if h.safetyInterval > 0 {
 		return h.safetyInterval
@@ -213,13 +223,22 @@ func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 	if h.subscriber == nil {
 		return legacyPollInterval
 	}
+	sawRealServer := false
 	for _, server := range servers {
 		if server == metricsOnlyServer {
 			continue
 		}
+		sawRealServer = true
 		if !h.subscriber.Covers(server) {
 			return legacyPollInterval
 		}
+	}
+	// No real server in the slice (only the metrics-only sentinel, or empty):
+	// use the fast cadence so the metrics broadcast ticks at ~2.5s for the
+	// Cockpit home. With a real, fully-covered server present, keep the long
+	// safety interval.
+	if !sawRealServer {
+		return legacyPollInterval
 	}
 	return safetyPollInterval
 }

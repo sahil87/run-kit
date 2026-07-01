@@ -396,16 +396,25 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
       // preview — pane-text snapshots for the tile grid, keyed by windowId.
       // Bounded server-side to the sessions this connection declared expanded
-      // (setPreviewScope). Merged into the slice so a preview for one window
-      // doesn't clobber previews for the others in the same expanded set.
+      // (setPreviewScope).
       es.addEventListener("preview", (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data) as Record<string, string>;
-          updateSlice(
-            name,
-            { previews: data },
-            true,
-          );
+          // Merge into the existing previews rather than replacing: a preview
+          // event carries only the subset of windows captured this tick (a
+          // window omitted due to a capture error is absent from `data`), so a
+          // wholesale replace would clobber previously-received previews for
+          // the other windows in the expanded set.
+          setSlicesByServer((prev) => {
+            const existing = prev.get(name);
+            if (!existing) return prev;
+            const next = new Map(prev);
+            next.set(name, {
+              ...existing,
+              previews: { ...existing.previews, ...data },
+            });
+            return next;
+          });
         } catch {
           // Malformed preview event — skip
         }

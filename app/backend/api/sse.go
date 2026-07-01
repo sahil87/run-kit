@@ -159,6 +159,25 @@ type sseClient struct {
 	expanded map[string]bool
 }
 
+// maxConnIDLen bounds the client-supplied `conn` query param. A legitimate id
+// is a UUID (36 chars); anything longer is rejected so an oversized value can't
+// waste memory as a map key. Over-cap ids fall back to empty (capture-nothing).
+const maxConnIDLen = 128
+
+// normalizeConnID trims surrounding whitespace from a client-supplied conn id
+// and rejects over-long values. Since connID is the lookup key for POST
+// /api/preview-scope, an untrimmed or absurdly long value would make the
+// connection effectively unaddressable (a scope POST could never match it) and
+// waste memory. Invalid input falls back to "" (empty = capture-nothing), the
+// same as opening the stream without a conn id.
+func normalizeConnID(raw string) string {
+	id := strings.TrimSpace(raw)
+	if len(id) > maxConnIDLen {
+		return ""
+	}
+	return id
+}
+
 // orderBootstrapMaxAttempts caps how many times poll() will try to read
 // @rk_session_order from tmux when previous reads errored. Limits the blast
 // radius of a hung or misbehaving tmux while still recovering from transient
@@ -1043,7 +1062,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	client := &sseClient{
 		ch:       make(chan []byte, 32),
 		server:   server,
-		connID:   r.URL.Query().Get("conn"),
+		connID:   normalizeConnID(r.URL.Query().Get("conn")),
 		expanded: make(map[string]bool),
 	}
 

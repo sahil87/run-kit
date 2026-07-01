@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 13
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-01T09:15:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T09:22:07Z"}
     hydrate: {started_at: "2026-07-01T09:22:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T09:26:17Z"}
     ship: {started_at: "2026-07-01T09:26:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T09:28:07Z"}
-    review-pr: {started_at: "2026-07-01T09:28:07Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-01T09:28:07Z", driver: git-pr, iterations: 1, completed_at: "2026-07-01T09:39:24Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/292
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: hydrate
 summary: 'Add internal/ports listening-TCP-port collector + server-independent event: services SSE broadcast + useHostServices() hook + SERVICES zone (zone 3) with Open-in-window iframe-proxy action on the Cockpit host-console home'
 # true_impact: lazily created on first apply-finish (no placeholder here).
-last_updated: 2026-07-01T09:28:07Z
+last_updated: 2026-07-01T09:39:24Z

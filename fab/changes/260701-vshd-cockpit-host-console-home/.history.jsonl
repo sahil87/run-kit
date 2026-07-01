@@ -1,0 +1,22 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-01T06:10:04Z"}
+{"args":"[vshd] Cockpit host-console home — turn the server-list route (/, ServerListPage, no sidebar) into a machine console with a HOST HEALTH zone rendering live metrics above the existing tmux-server tiles","cmd":"fab-new","event":"command","ts":"2026-07-01T06:10:04Z"}
+{"delta":"+2.8","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-07-01T06:11:31Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-07-01T06:11:36Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-07-01T06:13:10Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-07-01T06:13:20Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-07-01T06:13:25Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-07-01T06:13:33Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-07-01T06:13:41Z"}
+{"delta":"+2.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-01T06:13:52Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-01T06:14:01Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-01T06:17:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-01T06:17:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-01T06:33:23Z"}
+{"event":"review","result":"failed","ts":"2026-07-01T06:40:43Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-01T06:40:43Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-01T06:42:18Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-01T06:49:06Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-01T06:49:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-01T06:57:15Z"}
+{"event":"review","result":"passed","ts":"2026-07-01T06:57:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-01T07:01:41Z"}

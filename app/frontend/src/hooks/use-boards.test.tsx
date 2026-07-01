@@ -33,6 +33,11 @@ class FakeEventSource {
   public onerror: ((ev: Event) => void) | null = null;
   public onopen: ((ev: Event) => void) | null = null;
   private listeners = new Map<string, Listener>();
+  // The server key this ES registered a `board-changed` listener under, if any.
+  // Only a per-server stream (`?server=<name>`) registers one; the dedicated
+  // metrics-only stream (`?metrics=1`, no `server`) does not — so on close it
+  // must NOT clobber a real server's entry (it has none of its own).
+  private boardServer: string | null = null;
   constructor(url: string) {
     this.url = url;
   }
@@ -41,14 +46,18 @@ class FakeEventSource {
     if (type === "board-changed") {
       const u = new URL(this.url, "http://localhost");
       const server = u.searchParams.get("server") ?? "default";
+      this.boardServer = server;
       listenersByServer.set(server, listener);
     }
   }
   removeEventListener() {}
   close() {
-    const u = new URL(this.url, "http://localhost");
-    const server = u.searchParams.get("server") ?? "default";
-    listenersByServer.delete(server);
+    // Only remove the entry this ES actually registered. A metrics-only stream
+    // never registered a `board-changed` listener, so it removes nothing —
+    // closing it must not evict a real per-server stream's listener.
+    if (this.boardServer !== null) {
+      listenersByServer.delete(this.boardServer);
+    }
   }
 }
 

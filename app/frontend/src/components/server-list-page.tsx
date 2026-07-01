@@ -4,6 +4,8 @@ import { listServers, createServer, type ServerInfo } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
+import { useHostMetrics } from "@/contexts/session-context";
+import { HostMetrics } from "@/components/host-metrics";
 
 export function ServerListPage() {
   const [servers, setServers] = useState<ServerInfo[]>([]);
@@ -13,6 +15,7 @@ export function ServerListPage() {
   const [createName, setCreateName] = useState("");
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const hostMetrics = useHostMetrics();
   const ghostNameRef = useRef<string | null>(null);
 
   const fetchServers = useCallback(async () => {
@@ -76,6 +79,28 @@ export function ServerListPage() {
 
       {/* Server list */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 pb-6">
+        {/* HOST HEALTH zone (Cockpit host-console home). Renders host-global
+            metrics from the server-independent `useHostMetrics()` stream, above
+            the tmux-server tiles. `/` is the only surface that is about the BOX,
+            not a session, so host health belongs here. */}
+        <section aria-label="Host health" className="mb-6 max-w-md">
+          <div className="flex items-center gap-2 mb-2">
+            <h2 className="text-xs uppercase tracking-wide text-text-secondary">
+              Host Health
+            </h2>
+            {hostMetrics && (
+              <span className="text-xs text-text-primary font-mono truncate">
+                {hostMetrics.hostname}
+              </span>
+            )}
+          </div>
+          {hostMetrics ? (
+            <HostMetrics metrics={hostMetrics} />
+          ) : (
+            <div className="text-xs text-text-secondary">No metrics</div>
+          )}
+        </section>
+
         <div className="text-sm text-text-secondary mb-4">
           {loading
             ? "Loading servers..."

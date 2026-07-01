@@ -374,6 +374,19 @@ func TestSafetyIntervalEffective(t *testing.T) {
 			t.Fatalf("got %v, want explicit override 99ms", got)
 		}
 	})
+	t.Run("metrics-only sentinel is excluded from coverage gate", func(t *testing.T) {
+		// The always-open metrics-only sentinel can never be Covers()-ed (no
+		// control-mode Client for a non-server key). It must NOT drag the whole
+		// slice down to the fast legacy cadence: a co-attached covered real
+		// server keeps the long safety interval. This is the cost-regression
+		// fix — without the sentinel exclusion, one metrics-only client (held
+		// open by the Cockpit home ~always) would 5x FetchSessions calls.
+		h := newSSEHub(&fetchTracker{}, nil, nil)
+		h.subscriber = coverageSubscriber{covered: map[string]bool{"real": true}}
+		if got := h.safetyIntervalEffective([]string{"real", metricsOnlyServer}); got != safetyPollInterval {
+			t.Fatalf("got %v, want %v (the metrics-only sentinel must not force the fast cadence)", got, safetyPollInterval)
+		}
+	})
 }
 
 // Silence unused-import warning if the kit changes shape.

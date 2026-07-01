@@ -13,6 +13,7 @@ review_tools:
 source_paths:
     - app/backend/
     - app/frontend/src/
+    - app/frontend/tests/
 # Glob/pathspec patterns identifying test files. Used by the true-impact
 # breakdown to attribute lines to tests vs. implementation (impl = total − tests).
 # Language-specific — no kit default. Patterns are :(glob) magic pathspecs, so

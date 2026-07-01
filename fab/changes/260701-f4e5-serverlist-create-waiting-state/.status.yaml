@@ -1,0 +1,54 @@
+id: f4e5
+name: 260701-f4e5-serverlist-create-waiting-state
+created: 2026-07-01T14:57:07Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 3
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 85.0
+        reversibility: 78.0
+        competence: 91.0
+        disambiguation: 83.0
+stage_metrics:
+    intake: {started_at: "2026-07-01T14:57:07Z", driver: fab-new, iterations: 1, completed_at: "2026-07-01T15:03:18Z"}
+    apply: {started_at: "2026-07-01T15:03:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T15:07:30Z"}
+    review: {started_at: "2026-07-01T15:07:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T15:12:03Z"}
+    hydrate: {started_at: "2026-07-01T15:12:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T15:13:58Z"}
+    ship: {started_at: "2026-07-01T15:13:58Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-01T15:13:58Z"
+    computed_at_stage: hydrate
+summary: Wire ServerListPage /-home create into the existing pendingServer→ServerWaiting→auto-swap lifecycle so both create entry points show the Creating-server spinner (not Server not found) while tmux starts
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-07-01T15:13:58Z

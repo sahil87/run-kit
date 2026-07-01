@@ -1,16 +1,28 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { listServers, createServer, type ServerInfo } from "@/api/client";
+import { createServer } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
-import { useHostMetrics } from "@/contexts/session-context";
+import { useHostMetrics, useSessionContext } from "@/contexts/session-context";
 import { HostMetrics } from "@/components/host-metrics";
 
 export function ServerListPage() {
-  const [servers, setServers] = useState<ServerInfo[]>([]);
+  // Read the server list from SessionContext — the SAME source the AppShell
+  // route guard (`resolveServerView`) reads. Keeping a separate local
+  // `listServers()` fetch here was the root of this change's bug class: the
+  // page showed one list while the guard checked another, so a just-created
+  // server the guard hadn't seen yet flashed "Server not found".
+  const {
+    servers,
+    serversLoaded,
+    refreshServers,
+    markServerPending,
+  } = useSessionContext();
+  // Local optimistic pulsing tiles for a create in flight. Self-contained and
+  // unrelated to the guard (the OptimisticContext server-level ghosts are
+  // rendered nowhere), so this stays local.
   const [ghostServers, setGhostServers] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createName, setCreateName] = useState("");
   const navigate = useNavigate();
@@ -18,23 +30,10 @@ export function ServerListPage() {
   const hostMetrics = useHostMetrics();
   const ghostNameRef = useRef<string | null>(null);
 
-  const fetchServers = useCallback(async () => {
-    try {
-      const data = await listServers();
-      setServers(data);
-      // Reconcile: remove ghost servers that now exist in real data
-      const realNames = new Set(data.map((s) => s.name));
-      setGhostServers((prev) => prev.filter((g) => !realNames.has(g)));
-    } catch {
-      setServers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchServers();
-  }, [fetchServers]);
+  // Reconcile ghost tiles against SessionContext's list: drop any ghost whose
+  // real server has appeared. Computed at render time (no effect/local fetch).
+  const realNames = new Set(servers.map((s) => s.name));
+  const visibleGhosts = ghostServers.filter((g) => !realNames.has(g));
 
   const { execute: executeCreateServer } = useOptimisticAction<[string]>({
     action: (name) => createServer(name),
@@ -55,19 +54,38 @@ export function ServerListPage() {
     onSettled: () => {
       ghostNameRef.current = null;
     },
+    // Refresh SessionContext's server list once the create resolves so the new
+    // server appears and the route guard swaps the waiting state → the view.
+    // `onAlwaysSettled` runs even though the create dialog has unmounted on
+    // navigation — it only touches root-level SessionContext, which stays
+    // mounted. Mirrors AppShell.handleCreateServer.
+    onAlwaysSettled: () => {
+      refreshServers();
+    },
+    // A failed create must not strand the UI on the waiting state — clear the
+    // pending marker (empty string clears to null) on the rollback path (also
+    // unmount-safe, root-context only). Mirrors AppShell.handleCreateServer.
+    onAlwaysRollback: () => {
+      markServerPending("");
+    },
   });
 
   const handleCreate = useCallback(() => {
     const trimmed = createName.trim();
     if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
     executeCreateServer(trimmed);
+    // Mark the just-created server pending BEFORE navigating so the route guard
+    // shows the "Creating server…" waiting state (not "Server not found") until
+    // the refreshed list includes it. Cleared automatically by SessionContext
+    // once it appears. Mirrors AppShell.handleCreateServer.
+    markServerPending(trimmed);
     navigate({
       to: "/$server",
       params: { server: trimmed },
     });
     setShowCreateDialog(false);
     setCreateName("");
-  }, [createName, navigate, executeCreateServer]);
+  }, [createName, navigate, executeCreateServer, markServerPending]);
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary">
@@ -102,7 +120,7 @@ export function ServerListPage() {
         </section>
 
         <div className="text-sm text-text-secondary mb-4">
-          {loading
+          {!serversLoaded
             ? "Loading servers..."
             : `${servers.length} server${servers.length !== 1 ? "s" : ""}`}
         </div>
@@ -126,7 +144,7 @@ export function ServerListPage() {
           ))}
 
           {/* Ghost server cards */}
-          {ghostServers.map((name) => (
+          {visibleGhosts.map((name) => (
             <div
               key={`ghost-${name}`}
               className="bg-bg-card border border-border rounded p-4 text-left min-h-[60px] opacity-50 animate-pulse"

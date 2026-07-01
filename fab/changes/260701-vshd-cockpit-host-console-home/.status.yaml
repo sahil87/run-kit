@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 8
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-01T06:49:06Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-01T06:57:15Z"}
     hydrate: {started_at: "2026-07-01T06:57:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T07:01:41Z"}
     ship: {started_at: "2026-07-01T07:01:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T07:06:49Z"}
-    review-pr: {started_at: "2026-07-01T07:06:49Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-01T07:06:49Z", driver: git-pr, iterations: 1, completed_at: "2026-07-01T07:20:23Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/290
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: hydrate
 summary: Add a HOST HEALTH zone to the / home route (ServerListPage) rendering live host metrics via a new server-independent useHostMetrics() hook backed by a dedicated ?metrics=1 SSE stream (mutually exclusive with the per-server pool) and a metricsOnlyServer backend sentinel excluded from session-poll/reap and the safety-interval coverage gate; extract a shared HostMetrics presentational component consumed by both HostPanel and the / zone.
 # true_impact: lazily created on first apply-finish (no placeholder here).
-last_updated: 2026-07-01T07:06:49Z
+last_updated: 2026-07-01T07:20:23Z

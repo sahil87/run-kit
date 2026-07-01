@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 13
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-01T08:17:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T08:24:41Z"}
     hydrate: {started_at: "2026-07-01T08:24:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T08:33:32Z"}
     ship: {started_at: "2026-07-01T08:33:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-01T08:35:44Z"}
-    review-pr: {started_at: "2026-07-01T08:35:44Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-01T08:35:44Z", driver: git-pr, iterations: 1, completed_at: "2026-07-01T08:43:53Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/291
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: hydrate
 summary: 'Add SessionTiles density view on /$server: session→window tile grid with static capture-pane text previews via dedicated SSE event: preview + per-connection preview-scope POST; delete the old Dashboard component'
 # true_impact: lazily created on first apply-finish (no placeholder here).
-last_updated: 2026-07-01T08:35:44Z
+last_updated: 2026-07-01T08:43:53Z

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { createServer, createSession, createWindow } from "@/api/client";
+import { createServer, createSession, createWindow, getSessions } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
@@ -18,6 +18,7 @@ export function ServerListPage() {
     serversLoaded,
     refreshServers,
     markServerPending,
+    sessionsByServer,
   } = useSessionContext();
   // Local optimistic pulsing tiles for a create in flight. Self-contained and
   // unrelated to the guard (the OptimisticContext server-level ghosts are
@@ -29,7 +30,6 @@ export function ServerListPage() {
   const { addToast } = useToast();
   const hostMetrics = useHostMetrics();
   const hostServices = useHostServices();
-  const { sessionsByServer } = useSessionContext();
   const ghostNameRef = useRef<string | null>(null);
   // Guards against a double-click firing two create flows for the same port.
   const openingRef = useRef(false);
@@ -113,11 +113,20 @@ export function ServerListPage() {
       openingRef.current = true;
       try {
         const server = target.name;
-        const existing = sessionsByServer.get(server) ?? [];
-        let session = existing[0]?.name;
+        // Prefer the SSE-cached sessions, but on a fresh `/` load the per-server
+        // stream is usually not attached yet, so `sessionsByServer` can be empty
+        // even when the server HAS sessions. Fall back to an authoritative fetch
+        // before creating anything — otherwise we'd try to create a "services"
+        // session that may already exist, and tmux new-session 500s on a
+        // duplicate name.
+        let session = (sessionsByServer.get(server) ?? [])[0]?.name;
         if (!session) {
-          // No known session on the target — create an instant one to host the
-          // iframe window (reuses the createSession machinery the app uses).
+          const fetched = await getSessions(server).catch(() => []);
+          session = fetched[0]?.name;
+        }
+        if (!session) {
+          // The server genuinely has no session — create an instant one to host
+          // the iframe window (reuses the createSession machinery the app uses).
           session = "services";
           await createSession(server, session);
         }

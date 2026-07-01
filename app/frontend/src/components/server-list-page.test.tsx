@@ -14,6 +14,7 @@ vi.mock("@/api/client", () => ({
   createServer: vi.fn().mockResolvedValue({ ok: true }),
   createSession: vi.fn().mockResolvedValue({ ok: true }),
   createWindow: vi.fn().mockResolvedValue({ ok: true }),
+  getSessions: vi.fn().mockResolvedValue([]),
 }));
 
 // --- Toast mock. ---
@@ -38,7 +39,7 @@ vi.mock("@/components/host-metrics", () => ({
 }));
 
 import { ServerListPage } from "./server-list-page";
-import { listServers, createSession, createWindow } from "@/api/client";
+import { listServers, createSession, createWindow, getSessions } from "@/api/client";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -77,9 +78,11 @@ describe("ServerListPage — Services zone", () => {
     expect(btn.title).toBe("Create a server first");
   });
 
-  it("creates an instant session + iframe window and navigates when a server has no sessions", async () => {
+  it("creates an instant session + iframe window and navigates when a server genuinely has no sessions", async () => {
     mockServices = [{ port: 5173 }];
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    // SSE cache empty AND the authoritative fetch confirms no sessions.
+    vi.mocked(getSessions).mockResolvedValue([]);
     render(<ServerListPage />);
     await waitFor(() => expect(screen.getByText(":5173")).toBeTruthy());
 
@@ -89,7 +92,9 @@ describe("ServerListPage — Services zone", () => {
     fireEvent.click(btn);
 
     await waitFor(() => expect(vi.mocked(createWindow)).toHaveBeenCalled());
-    // A session was created first (server had none known).
+    // The authoritative fetch was consulted before creating anything.
+    expect(vi.mocked(getSessions)).toHaveBeenCalledWith("runkit");
+    // Then a session was created (server had none, confirmed by the fetch).
     expect(vi.mocked(createSession)).toHaveBeenCalledWith("runkit", "services");
     // The iframe window points at the proxy for that port.
     expect(vi.mocked(createWindow)).toHaveBeenCalledWith(
@@ -103,7 +108,35 @@ describe("ServerListPage — Services zone", () => {
     expect(navigateMock).toHaveBeenCalledWith({ to: "/$server", params: { server: "runkit" } });
   });
 
-  it("reuses an existing session (no createSession) when the target server has one", async () => {
+  it("fetches an existing session (no createSession) when the SSE cache is empty on a fresh load", async () => {
+    // The bug: on a fresh `/` load no per-server stream is attached, so
+    // `sessionsByServer` is empty even though the server HAS a session. The old
+    // code would then createSession("services"), which 500s if it already
+    // exists. The fix falls back to an authoritative getSessions() fetch.
+    mockServices = [{ port: 3000 }];
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 1 }]);
+    mockSessionsByServer = new Map(); // SSE cache not yet populated
+    vi.mocked(getSessions).mockResolvedValue([{ name: "existing", windows: [] }]);
+    render(<ServerListPage />);
+    await waitFor(() => expect(screen.getByText(":3000")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Open in window" }));
+
+    await waitFor(() => expect(vi.mocked(createWindow)).toHaveBeenCalled());
+    expect(vi.mocked(getSessions)).toHaveBeenCalledWith("runkit");
+    // No session created — the fetch surfaced the existing one.
+    expect(vi.mocked(createSession)).not.toHaveBeenCalled();
+    expect(vi.mocked(createWindow)).toHaveBeenCalledWith(
+      "runkit",
+      "existing",
+      ":3000",
+      undefined,
+      "iframe",
+      "/proxy/3000/",
+    );
+  });
+
+  it("reuses the SSE-cached session (no fetch, no createSession) when the target server has one", async () => {
     mockServices = [{ port: 8080 }];
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 1 }]);
     mockSessionsByServer = new Map([["runkit", [{ name: "main", windows: [] }]]]);
@@ -113,6 +146,8 @@ describe("ServerListPage — Services zone", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open in window" }));
 
     await waitFor(() => expect(vi.mocked(createWindow)).toHaveBeenCalled());
+    // Cache hit short-circuits the fallback fetch entirely.
+    expect(vi.mocked(getSessions)).not.toHaveBeenCalled();
     expect(vi.mocked(createSession)).not.toHaveBeenCalled();
     expect(vi.mocked(createWindow)).toHaveBeenCalledWith(
       "runkit",

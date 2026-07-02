@@ -8,3 +8,9 @@
 {"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:36:00Z"}
 {"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:36:12Z"}
 {"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:36:33Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-02T09:45:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-02T09:46:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-02T09:49:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-02T09:53:24Z"}
+{"event":"review","result":"passed","ts":"2026-07-02T09:53:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-02T09:55:14Z"}

@@ -12,7 +12,7 @@ State MUST be derived from tmux and the filesystem at request time. run-kit SHAL
 Existing fab-kit utilities (`wt-create`, `wt-list`, `wt-delete`, `idea`, `changeman.sh`, `statusman.sh`) MUST be used via wrapper functions in `internal/` (Go). run-kit SHALL NOT reimplement worktree management, change management, or backlog management. When a fab-kit script does what you need, call it.
 
 ### IV. Minimal Surface Area
-The UI MUST stay minimal — two routes (`/` redirect, `/$session/$window`), no settings pages, no admin panels. Configuration lives in environment variables (`.env` committed, `.env.local` for overrides). New pages SHOULD only be added when an existing page genuinely cannot accommodate the functionality. Resist feature creep.
+The UI MUST stay minimal — a small fixed route set (Cockpit `/`, Server Cabin `/$server`, Terminal `/$server/$window`, Board `/board/$name`, plus the Not Found fallback), no settings pages, no admin panels. Configuration lives in environment variables (`.env` committed, `.env.local` for overrides). New pages SHOULD only be added when an existing page genuinely cannot accommodate the functionality. Resist feature creep.
 
 ### V. Keyboard-First
 Every user-facing action MUST be reachable via keyboard. Mouse interaction is supported but secondary. The command palette (`Cmd+K`) SHALL be the primary discovery mechanism for actions.
@@ -45,4 +45,4 @@ The restart mechanism uses tmux-based kill-and-restart: `run-kit serve --restart
 
 ## Governance
 
-**Version**: 1.3.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-05-29
+**Version**: 1.3.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-07-02

@@ -62,6 +62,12 @@ const boardRoute = createRoute({
   component: BoardPage,
 });
 
+// Canonical page names (spoken/doc vocabulary — see docs/memory/run-kit/ui-patterns.md):
+//   /                  → Cockpit      (ServerListPage — global home / server list)
+//   /$server           → Server Cabin (ServerShell — a single server's view)
+//   /$server/$window   → Terminal     (inherited layout — a specific window @N)
+//   /board/$name       → Board        (BoardPage — cross-server pane board)
+//   not-found fallback → Not Found    (NotFoundPage — root notFoundComponent catch-all)
 const routeTree = rootRoute.addChildren([
   indexRoute,
   boardRoute,

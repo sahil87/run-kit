@@ -158,4 +158,33 @@ describe("ServerListPage — Services zone", () => {
       "/proxy/8080/",
     );
   });
+
+  it("disables 'Open in window' with a 'Not a web service' hint for a well-known non-HTTP port, even when a server exists", async () => {
+    mockServices = [{ port: 5432 }]; // PostgreSQL — in the non-HTTP denylist
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 1 }]);
+    mockSessionsByServer = new Map([["runkit", [{ name: "main", windows: [] }]]]);
+    render(<ServerListPage />);
+    await waitFor(() => expect(screen.getByText(":5432")).toBeTruthy());
+
+    const btn = screen.getByRole("button", { name: "Open in window" }) as HTMLButtonElement;
+    // A server exists, but the port is non-HTTP → click is gated with the port hint.
+    expect(btn.disabled).toBe(true);
+    expect(btn.title).toBe("Not a web service");
+  });
+
+  it("gates only the non-HTTP tile, leaving HTTP-likely ports clickable", async () => {
+    mockServices = [{ port: 5173 }, { port: 6379 }]; // vite (clickable) + redis (gated)
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 1 }]);
+    mockSessionsByServer = new Map([["runkit", [{ name: "main", windows: [] }]]]);
+    render(<ServerListPage />);
+    await waitFor(() => expect(screen.getByText(":5173")).toBeTruthy());
+
+    const buttons = screen.getAllByRole("button", { name: "Open in window" }) as HTMLButtonElement[];
+    // Tiles render in service order: 5173 first (enabled), 6379 second (disabled).
+    expect(buttons[0].disabled).toBe(false);
+    expect(buttons[1].disabled).toBe(true);
+    expect(buttons[1].title).toBe("Not a web service");
+    // Both ports still SHOW as tiles — only the click is gated.
+    expect(screen.getByText(":6379")).toBeTruthy();
+  });
 });

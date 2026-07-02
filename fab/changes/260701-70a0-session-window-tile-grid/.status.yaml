@@ -39,18 +39,18 @@ prs:
     - https://github.com/sahil87/run-kit/pull/291
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1842
+    deleted: 426
+    net: 1416
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1255
+        deleted: 390
+        net: 865
     tests:
-        added: 0
+        added: 346
         deleted: 0
-        net: 0
-    computed_at: "2026-07-01T08:33:32Z"
+        net: 346
+    computed_at: "2026-07-02T06:11:01Z"
     computed_at_stage: hydrate
 summary: 'Add SessionTiles density view on /$server: session→window tile grid with static capture-pane text previews via dedicated SSE event: preview + per-connection preview-scope POST; delete the old Dashboard component'
 # true_impact: lazily created on first apply-finish (no placeholder here).

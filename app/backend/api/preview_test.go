@@ -113,7 +113,7 @@ func TestPreviewSubsetFor(t *testing.T) {
 }
 
 func TestSetPreviewScope(t *testing.T) {
-	hub := newSSEHub(&mockSessionFetcher{}, nil, nil)
+	hub := newSSEHub(&mockSessionFetcher{}, nil, nil, nil)
 	c := &sseClient{ch: make(chan []byte, 8), server: "srv", connID: "abc", expanded: map[string]bool{}}
 	hub.clients["srv"] = []*sseClient{c}
 
@@ -148,7 +148,7 @@ func TestPollEmitsPreviewEvent(t *testing.T) {
 			{WindowID: "@9", Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true}}},
 		}},
 	}}
-	hub := newSSEHub(sf, nil, nil)
+	hub := newSSEHub(sf, nil, nil, nil)
 	hub.safetyInterval = 25 * time.Millisecond
 	hub.captureFn = func(w tmux.WindowInfo, server string) (string, bool) {
 		return "PREVIEW " + w.WindowID, true

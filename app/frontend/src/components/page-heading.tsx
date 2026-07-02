@@ -33,7 +33,9 @@ export function PageHeading({
 }) {
   return (
     <div className={`flex items-center gap-3 min-w-0 ${className ?? ""}`}>
-      <span className="flex items-center gap-1.5 min-w-0 shrink-0 max-w-[60%]">
+      {/* div, not span: this wrapper contains the <h1>, and a span may not
+          contain flow content like headings (invalid HTML). */}
+      <div className="flex items-center gap-1.5 min-w-0 shrink-0 max-w-[60%]">
         <span className="text-text-secondary select-none" aria-hidden="true">
           {"["}
         </span>
@@ -68,7 +70,7 @@ export function PageHeading({
         <span className="text-text-secondary select-none" aria-hidden="true">
           {"]"}
         </span>
-      </span>
+      </div>
       <span className="flex-1 min-w-4 border-t border-border" aria-hidden="true" />
       {side != null && (
         <span className="text-sm text-text-secondary truncate">{side}</span>

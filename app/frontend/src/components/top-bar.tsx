@@ -238,7 +238,7 @@ export function TopBar({
                     <BreadcrumbSeparator />
                     <span
                       aria-current="page"
-                      className="text-text-primary font-medium truncate"
+                      className="min-w-0 text-text-primary font-medium truncate"
                     >
                       {server}
                     </span>

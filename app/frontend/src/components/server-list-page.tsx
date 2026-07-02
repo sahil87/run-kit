@@ -197,7 +197,8 @@ export function ServerListPage() {
           per-server SSE stream here). Pinned above the scrollable content —
           same `flex-col h-screen` pinning the ad-hoc header used, so it stays
           fixed while the list below scrolls. Session/server-dependent props are
-          passed empty (board-mode precedent). No in-content "Cockpit" heading. */}
+          passed empty (board-mode precedent). The page identity is carried by
+          the retro PageHeading rendered at the top of the scroll content. */}
       <TopBar
         mode="cockpit"
         sessions={[]}

@@ -146,6 +146,36 @@ type sseClient struct {
 	ch      chan []byte
 	server  string
 	dropped bool
+	// connID is the client-supplied connection identifier (the `conn` query
+	// param on the stream URL), consistent with the per-connection relay
+	// identity model. It is how POST /api/preview-scope addresses this exact
+	// connection. Empty when the client opened the stream without a conn id
+	// (then its expanded set can never be set — it captures nothing).
+	connID string
+	// expanded is the set of session names this connection currently has
+	// expanded in the tile grid. Preview capture is bounded to windows in
+	// these sessions. In-memory only (Constitution II); dropped on disconnect.
+	// Guarded by sseHub.mu.
+	expanded map[string]bool
+}
+
+// maxConnIDLen bounds the client-supplied `conn` query param. A legitimate id
+// is a UUID (36 chars); anything longer is rejected so an oversized value can't
+// waste memory as a map key. Over-cap ids fall back to empty (capture-nothing).
+const maxConnIDLen = 128
+
+// normalizeConnID trims surrounding whitespace from a client-supplied conn id
+// and rejects over-long values. Since connID is the lookup key for POST
+// /api/preview-scope, an untrimmed or absurdly long value would make the
+// connection effectively unaddressable (a scope POST could never match it) and
+// waste memory. Invalid input falls back to "" (empty = capture-nothing), the
+// same as opening the stream without a conn id.
+func normalizeConnID(raw string) string {
+	id := strings.TrimSpace(raw)
+	if len(id) > maxConnIDLen {
+		return ""
+	}
+	return id
 }
 
 // orderBootstrapMaxAttempts caps how many times poll() will try to read
@@ -163,6 +193,7 @@ type sseHub struct {
 	previousOrderJSON      map[string]string          // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
 	orderBootstrapAttempts map[string]int             // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
 	previousRealSessions   map[string]map[string]bool // per-server prior-tick real (non-anchor) session names for disappearance logging
+	previousPreviewJSON    map[string]map[string]string // per-server latest {windowId → preview text} snapshot (union of all clients' expanded windows); seeds cached-on-connect delivery
 	cache                  map[string]*cachedResult   // per-server session fetch cache (500ms TTL)
 	polling                bool
 	fetcher                SessionFetcher
@@ -185,6 +216,11 @@ type sseHub struct {
 	// existing time-based assertions remain valid; production callers
 	// leave it zero.
 	safetyInterval time.Duration
+
+	// captureFn captures a window's pane-text preview. Defaults to the real
+	// capturePreviewForWindow (tmux exec); tests override it to exercise the
+	// preview-broadcast path without a live tmux server.
+	captureFn captureFunc
 }
 
 // safetyIntervalEffective returns the safety-net interval for a poll cycle
@@ -250,11 +286,13 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, pc PRStatusSnapsho
 		previousOrderJSON:      make(map[string]string),
 		orderBootstrapAttempts: make(map[string]int),
 		previousRealSessions:   make(map[string]map[string]bool),
+		previousPreviewJSON:    make(map[string]map[string]string),
 		cache:                  make(map[string]*cachedResult),
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
 		metrics:                mc,
 		prStatus:               pc,
+		captureFn:              capturePreviewForWindow,
 	}
 }
 
@@ -287,6 +325,12 @@ func (h *sseHub) addClient(c *sseClient) {
 		default:
 		}
 	}
+
+	// Send cached preview snapshot immediately, filtered to this connection's
+	// expanded windows (mirrors the sessions/order/metrics cached-on-connect
+	// delivery). A brand-new connection has nothing expanded yet, so this is a
+	// no-op until its scope POST lands — at which point setPreviewScope emits.
+	h.sendCachedPreviewLocked(c)
 
 	if !h.polling {
 		h.polling = true
@@ -378,6 +422,144 @@ func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayloa
 			}
 		}
 	}
+}
+
+// setPreviewScope replaces the expanded-session set for the connection on the
+// given server whose connID matches. A miss (no live connection with that id)
+// is a silent no-op — the connection may have disconnected between the client's
+// last SSE read and this POST. In-memory only (Constitution II); the set is
+// dropped when the connection is removed (removeClient drops the whole client).
+func (h *sseHub) setPreviewScope(server, connID string, expanded []string) {
+	if connID == "" {
+		return
+	}
+	set := make(map[string]bool, len(expanded))
+	for _, s := range expanded {
+		if s != "" {
+			set[s] = true
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, c := range h.clients[server] {
+		if c.connID == connID {
+			c.expanded = set
+			// Emit the cached preview subset immediately so a just-expanded
+			// tile is not blank until the next poll tick (R7 intent). No-op
+			// when the new set is empty or no preview is cached yet.
+			h.sendCachedPreviewLocked(c)
+			return
+		}
+	}
+}
+
+// sendCachedPreviewLocked delivers the cached preview subset for the client's
+// current expanded set over `event: preview`. Caller MUST hold h.mu (write —
+// it reads shared maps and writes to the client channel). Best-effort: a full
+// client channel drops the event silently (the next poll tick retries).
+func (h *sseHub) sendCachedPreviewLocked(c *sseClient) {
+	full := h.previousPreviewJSON[c.server]
+	if len(full) == 0 || len(c.expanded) == 0 {
+		return
+	}
+	var byWindow map[string][]string
+	if cached, ok := h.cache[c.server]; ok {
+		byWindow = windowsBySession(cached.data)
+	} else {
+		return
+	}
+	subset := previewSubsetFor(c, full, byWindow)
+	if subset == nil {
+		return
+	}
+	payload, err := json.Marshal(subset)
+	if err != nil {
+		return
+	}
+	select {
+	case c.ch <- []byte(fmt.Sprintf("event: preview\ndata: %s\n\n", string(payload))):
+	default:
+	}
+}
+
+// expandedUnionLocked returns the union of expanded session names across every
+// client on the given server. Caller MUST hold h.mu (read or write).
+func expandedUnionLocked(clients []*sseClient) map[string]bool {
+	union := map[string]bool{}
+	for _, c := range clients {
+		for name := range c.expanded {
+			union[name] = true
+		}
+	}
+	return union
+}
+
+// capturePreviews captures pane-text previews for every window belonging to a
+// session in the expanded union, deduped by window ID (a window is captured
+// once per tick regardless of how many clients expanded its session). Returns
+// a {windowId → text} map. Runs the tmux captures WITHOUT the hub lock held —
+// each CapturePane is an exec with its own timeout (Constitution I). Returns an
+// empty map when the union is empty (capture-nothing default).
+func capturePreviews(sess []sessions.ProjectSession, union map[string]bool, server string, capture captureFunc) map[string]string {
+	previews := map[string]string{}
+	if len(union) == 0 {
+		return previews
+	}
+	for si := range sess {
+		if !union[sess[si].Name] {
+			continue
+		}
+		for wi := range sess[si].Windows {
+			w := sess[si].Windows[wi]
+			if _, done := previews[w.WindowID]; done {
+				continue
+			}
+			if text, ok := capture(w, server); ok {
+				previews[w.WindowID] = text
+			}
+		}
+	}
+	return previews
+}
+
+// captureFunc captures one window's pane-text preview on a server. Production
+// uses capturePreviewForWindow (a real tmux exec); tests inject a stub so the
+// preview-broadcast path is exercisable without a live tmux server.
+type captureFunc func(w tmux.WindowInfo, server string) (string, bool)
+
+// windowsBySession maps each session name to its window IDs, used to filter the
+// server-wide preview union down to a single connection's expanded windows.
+func windowsBySession(sess []sessions.ProjectSession) map[string][]string {
+	m := make(map[string][]string, len(sess))
+	for si := range sess {
+		ids := make([]string, 0, len(sess[si].Windows))
+		for wi := range sess[si].Windows {
+			ids = append(ids, sess[si].Windows[wi].WindowID)
+		}
+		m[sess[si].Name] = ids
+	}
+	return m
+}
+
+// previewSubsetFor returns the {windowId → text} subset of the server-wide
+// preview map that covers the windows in the client's expanded sessions.
+// Returns nil when the client has nothing expanded (nothing to send).
+func previewSubsetFor(c *sseClient, full map[string]string, byWindow map[string][]string) map[string]string {
+	if len(c.expanded) == 0 || len(full) == 0 {
+		return nil
+	}
+	subset := map[string]string{}
+	for name := range c.expanded {
+		for _, wid := range byWindow[name] {
+			if text, ok := full[wid]; ok {
+				subset[wid] = text
+			}
+		}
+	}
+	if len(subset) == 0 {
+		return nil
+	}
+	return subset
 }
 
 // attachPRStatus joins live PR status onto change-bound windows from the
@@ -572,6 +754,43 @@ func (h *sseHub) poll() {
 			}
 			h.mu.Unlock()
 
+			// Pane-text previews (tile grid). Bounded to the union of sessions
+			// any client on this server has expanded — capture-nothing when the
+			// union is empty (opt-in per expansion). Rides this existing poll
+			// tick: no new goroutine, no new loop. The tmux captures run OUTSIDE
+			// the hub lock (each is an exec with its own timeout), then a
+			// re-lock delivers each client a per-connection-filtered subset over
+			// a dedicated `event: preview`. The sessions payload above is
+			// unchanged — preview text never bloats the sessions dedup cache.
+			h.mu.RLock()
+			union := expandedUnionLocked(h.clients[server])
+			h.mu.RUnlock()
+			if len(union) > 0 {
+				previews := capturePreviews(result, union, server, h.captureFn)
+				byWindow := windowsBySession(result)
+				h.mu.Lock()
+				h.previousPreviewJSON[server] = previews
+				for _, c := range h.clients[server] {
+					subset := previewSubsetFor(c, previews, byWindow)
+					if subset == nil {
+						continue
+					}
+					if payload, perr := json.Marshal(subset); perr == nil {
+						event := []byte(fmt.Sprintf("event: preview\ndata: %s\n\n", string(payload)))
+						select {
+						case c.ch <- event:
+						default:
+							if !c.dropped {
+								slog.Warn("SSE event dropped", "server", server, "event", "preview")
+								c.dropped = true
+							}
+						}
+					}
+				}
+				h.mu.Unlock()
+				dataChanged = true
+			}
+
 			// Bootstrap: on first poll per server, seed the order cache from
 			// tmux. Closes the gap when rk-go restarts but tmux survives —
 			// connecting clients otherwise see no order until the next POST.
@@ -668,6 +887,7 @@ func (h *sseHub) poll() {
 				delete(h.previousRealSessions, server)
 				delete(h.orderBootstrapAttempts, server)
 				delete(h.previousOrderJSON, server)
+				delete(h.previousPreviewJSON, server)
 				delete(perServerGen, server)
 				delete(eventDrivenServers, server)
 			}
@@ -840,8 +1060,10 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		server = metricsOnlyServer
 	}
 	client := &sseClient{
-		ch:     make(chan []byte, 32),
-		server: server,
+		ch:       make(chan []byte, 32),
+		server:   server,
+		connID:   normalizeConnID(r.URL.Query().Get("conn")),
+		expanded: make(map[string]bool),
 	}
 
 	// Lazy-init the hub on first SSE connection

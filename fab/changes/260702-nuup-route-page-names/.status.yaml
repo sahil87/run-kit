@@ -1,0 +1,36 @@
+id: nuup
+name: 260702-nuup-route-page-names
+created: 2026-07-02T04:30:35Z
+created_by: sahil-noon
+change_type: docs
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 4
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 84.2
+        reversibility: 80.8
+        competence: 87.5
+        disambiguation: 82.5
+stage_metrics:
+    intake: {started_at: "2026-07-02T04:30:35Z", driver: fab-new, iterations: 1}
+prs: []
+change_type_source: explicit
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-07-02T04:36:33Z

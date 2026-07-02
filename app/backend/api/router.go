@@ -367,6 +367,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)
+	r.Post("/api/preview-scope", s.handlePreviewScope)
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
 	r.Post("/api/pr-status/refresh", s.handlePRStatusRefresh)

@@ -63,6 +63,23 @@ export async function setSessionOrder(server: string, order: string[]): Promise<
   if (!res.ok) await throwOnError(res);
 }
 
+/** Declare which sessions an SSE connection has expanded, so the backend
+ *  captures pane-text previews only for those sessions' windows (the tile
+ *  grid density view). `conn` addresses the specific SSE connection; an empty
+ *  `expanded` array clears the scope (capture-nothing). */
+export async function setPreviewScope(
+  server: string,
+  conn: string,
+  expanded: string[],
+): Promise<void> {
+  const res = await fetch(withServer("/api/preview-scope", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conn, expanded }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
 export async function createSession(
   server: string,
   name: string,

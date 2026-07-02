@@ -1,11 +1,12 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package ports
 
-// readListeningPorts returns an empty slice on non-Linux hosts (graceful zero,
-// exactly like metrics/collector_darwin.go's degraded returns). Listening-port
-// enumeration is Linux-only in v1; other platforms surface no services rather
-// than crashing or erroring.
+// readListeningPorts returns an empty slice on platforms with no port-discovery
+// implementation (Windows, *BSD, etc.). Linux reads procfs (collector_linux.go);
+// macOS shells out to lsof (collector_darwin.go). Everywhere else surfaces no
+// services rather than crashing or erroring — graceful zero, matching the
+// collector's zero-on-error discipline.
 func readListeningPorts() []Service {
 	return []Service{}
 }

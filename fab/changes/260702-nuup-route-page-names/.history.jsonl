@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-02T04:30:35Z"}
+{"args":"Establish canonical page names for the app's routes: / = Cockpit, /$server = Server Cabin, /$server/$window = Terminal, /board/$name = Board, not-found = Not Found. Document in run-kit/ui-patterns memory and a router.tsx glossary comment.","cmd":"fab-new","event":"command","ts":"2026-07-02T04:30:35Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:31:19Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:31:33Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:35:32Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:35:40Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:35:49Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:36:00Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:36:12Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-02T04:36:33Z"}

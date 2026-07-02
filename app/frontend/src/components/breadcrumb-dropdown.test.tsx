@@ -21,9 +21,9 @@ describe("BreadcrumbDropdown", () => {
     expect(screen.getByRole("button", { name: /switch/i })).toBeInTheDocument();
   });
 
-  it("renders icon as button content", () => {
+  it("renders icon as button content with a persistent caret", () => {
     render(<BreadcrumbDropdown items={items} icon={"\u276F"} />);
-    expect(screen.getByRole("button", { name: /switch/i }).textContent).toBe("\u276F");
+    expect(screen.getByRole("button", { name: /switch/i }).textContent).toBe("\u276F\u25BE");
   });
 
   it("falls back to default when icon is omitted", () => {

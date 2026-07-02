@@ -68,16 +68,19 @@ describe("Shell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders desktop grid with sidebar/topbar/content/bottombar areas when sidebarOpen", () => {
+  it("renders desktop grid with a full-width topbar spanning both columns above the sidebar", () => {
     renderShell({ open: true, mobile: false });
     const root = screen.getByTestId("topbar").parentElement!;
-    // Inline style assertions — ensure the topology matches spec § Grid template areas (desktop)
+    // Inline style assertions — ensure the topology matches spec § Grid template areas (desktop).
+    // The topbar spans BOTH columns (full-width chrome); the sidebar occupies rows 2–3 only.
     expect(root.style.display).toBe("grid");
     expect(root.style.gridTemplateRows).toBe("auto 1fr auto");
     // grid-template-areas comes back with each row quoted; assert each row appears
-    expect(root.style.gridTemplateAreas).toContain('"sidebar topbar"');
+    expect(root.style.gridTemplateAreas).toContain('"topbar topbar"');
     expect(root.style.gridTemplateAreas).toContain('"sidebar content"');
     expect(root.style.gridTemplateAreas).toContain('"sidebar bottombar"');
+    // The pre-change "sidebar topbar" row (sidebar full-height beside the topbar) is gone.
+    expect(root.style.gridTemplateAreas).not.toContain('"sidebar topbar"');
   });
 
   it("collapses to '0 1fr' columns when sidebarOpen is false", () => {

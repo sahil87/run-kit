@@ -274,7 +274,7 @@ function AppShell() {
   const handleDragStart = useCallback((startX: number) => {
     isDraggingRef.current = true;
     // Force the drag cursor at the document level so it persists when the pointer
-    // leaves the 5px handle mid-drag (implicit pointer-capture workaround). Cleared
+    // leaves the 3px handle mid-drag (implicit pointer-capture workaround). Cleared
     // in handleEnd below. The corner affordance in CollapsiblePanel may overwrite
     // this to `nwse-resize` after this write — that's intended (last write wins).
     document.body.style.cursor = "col-resize";
@@ -1215,9 +1215,15 @@ function AppShell() {
           className="relative flex flex-row overflow-hidden"
         >
           <div className="flex-1 min-w-0 overflow-hidden">{sidebarElement}</div>
-          {/* Drag handle — hidden when collapsed (column is 0-width anyway). */}
+          {/* Drag handle — hidden when collapsed (column is 0-width anyway).
+              Visual bar is 3px (the seam width), but the grabbable area is
+              extended ~8px into the sidebar via the invisible `before:`
+              pseudo-element (pointer events on a pseudo hit its element, so
+              the drag/hover handlers fire unchanged). It cannot extend RIGHT
+              over the terminal: the aside's `overflow-hidden` clips anything
+              past its edge. */}
           <div
-            className="w-[5px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary transition-colors"
+            className="relative w-[3px] shrink-0 cursor-col-resize bg-border hover:bg-text-secondary transition-colors before:content-[''] before:absolute before:inset-y-0 before:-left-2 before:right-0"
             onPointerDown={handleDragHandlePointerDown}
             style={{ touchAction: "none" }}
             role="separator"
@@ -1317,7 +1323,7 @@ function AppShell() {
           FocusedTerminalContext (TerminalClient registered itself on mount). */}
       <footer
         style={{ gridArea: "bottombar" }}
-        className="border-t border-border px-1.5 h-[48px]"
+        className="border-t-[3px] border-border px-1.5 h-[48px]"
       >
         <BottomBar
           onOpenCompose={() => setComposeOpen(!composeOpen)}

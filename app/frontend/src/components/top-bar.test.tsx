@@ -117,16 +117,25 @@ describe("TopBar", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows Dashboard text when no session is selected", () => {
-    renderTopBar({ sessionName: "", windowName: "", currentSession: null, currentWindow: null });
-    expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    // Should not show session/window breadcrumbs
-    expect(screen.queryByText("run-kit")).not.toBeInTheDocument();
+  it("shows the server name as the current-page leaf on the Server Cabin (no window), not 'Dashboard'", () => {
+    // root mode, no window \u2192 the server crumb IS the leaf.
+    renderTopBar({ mode: "root", sessionName: "", windowName: "", currentSession: null, currentWindow: null, server: "runkit" });
+    // The literal "Dashboard" label is gone in every mode.
+    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
+    // The server name renders as a non-link current-page leaf.
+    const leaf = screen.getByText("runkit");
+    expect(leaf).toHaveAttribute("aria-current", "page");
+    expect(leaf.tagName).not.toBe("A");
+    // No session/window breadcrumbs.
     expect(screen.queryByLabelText("Switch session")).not.toBeInTheDocument();
   });
 
-  it("shows breadcrumbs when session is selected (not Dashboard)", () => {
+  it("shows the server crumb as a link to /$server plus session/window breadcrumbs on a terminal route", () => {
     renderTopBar();
+    // Server crumb is a link back to the Server Cabin.
+    const serverLink = screen.getByText("runkit").closest("a")!;
+    expect(serverLink).toHaveAttribute("href", "/runkit");
+    // Session + window crumbs present; no "Dashboard".
     expect(screen.getByText("run-kit")).toBeInTheDocument();
     expect(screen.getByText("main")).toBeInTheDocument();
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
@@ -138,11 +147,27 @@ describe("TopBar", () => {
     expect(screen.getByText("main")).toBeInTheDocument();
   });
 
-  it("uses / as breadcrumb separator (not chevron)", () => {
+  it("uses \u203A (U+203A) as the breadcrumb separator (not / or the old chevron)", () => {
     renderTopBar();
-    expect(screen.getByText("/")).toBeInTheDocument();
-    // No chevron separators
+    // The new separator appears between crumb levels.
+    expect(screen.getAllByText("\u203A").length).toBeGreaterThan(0);
+    // No `/` text separator and no old \u276F chevron remain.
+    expect(screen.queryByText("/")).not.toBeInTheDocument();
     expect(screen.queryByText("\u276F")).not.toBeInTheDocument();
+  });
+
+  it("renders the brand as the left-most root crumb linking to / (and no right-side Run Kit anchor)", () => {
+    const { container } = renderTopBar();
+    const brand = screen.getByLabelText("Run Kit home");
+    expect(brand.tagName).toBe("A");
+    expect(brand).toHaveAttribute("href", "/");
+    // The brand is the FIRST element inside the breadcrumb nav.
+    const nav = container.querySelector('nav[aria-label="Breadcrumb"]')!;
+    expect(nav.firstElementChild).toBe(brand);
+    // There is exactly ONE anchor to "/" (the left brand) \u2014 the old right-side
+    // Run Kit anchor is gone.
+    const homeAnchors = Array.from(container.querySelectorAll('a[href="/"]'));
+    expect(homeAnchors).toHaveLength(1);
   });
 
   it("does not show 'live' or 'disconnected' text", () => {
@@ -162,6 +187,64 @@ describe("TopBar", () => {
   it("renders FixedWidthToggle", () => {
     renderTopBar();
     expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
+  });
+
+  it("renders the hamburger toggle on terminal/root/board but NOT on the cockpit", () => {
+    renderTopBar();
+    expect(screen.getByLabelText("Toggle navigation")).toBeInTheDocument();
+    cleanup();
+    // Cockpit has no sidebar, so no hamburger.
+    renderTopBar({ mode: "cockpit", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
+    expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
+  });
+
+  it("renders the connection dot as the right-most element on terminal/root, hidden on board and cockpit", () => {
+    const { container } = renderTopBar();
+    // The dot's status wrapper is the LAST child of the right-hand control cluster.
+    const dotStatus = container.querySelector('[role="status"]')!;
+    expect(dotStatus).toBeInTheDocument();
+    const cluster = dotStatus.parentElement!;
+    expect(cluster.lastElementChild).toBe(dotStatus);
+    cleanup();
+    renderTopBar({ mode: "board", boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    cleanup();
+    renderTopBar({ mode: "cockpit", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  describe("cockpit mode (Server List home)", () => {
+    /** Cockpit passes tolerant-empty session/server props (board-mode shape). */
+    function renderCockpit() {
+      return renderTopBar({
+        mode: "cockpit",
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        server: "",
+      });
+    }
+
+    it("renders the brand link and the route-agnostic controls, without erroring on empty props", () => {
+      renderCockpit();
+      // Brand root crumb links home.
+      expect(screen.getByLabelText("Run Kit home")).toHaveAttribute("href", "/");
+      // Route-agnostic controls stay.
+      expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
+      expect(screen.getByLabelText(/theme/i)).toBeInTheDocument();
+    });
+
+    it("renders no hamburger, no connection dot, no terminal-font control, no split/close buttons", () => {
+      renderCockpit();
+      expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Terminal font size")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Close pane")).not.toBeInTheDocument();
+    });
   });
 
   describe("TerminalFontControl", () => {

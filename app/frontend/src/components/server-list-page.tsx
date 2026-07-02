@@ -163,7 +163,9 @@ export function ServerListPage() {
         await createWindow(
           server,
           session,
-          `:${port}`,
+          // Window name, NOT a display label: tmux rejects colons and periods
+          // (validate.ValidateName), so `:${port}` fails — use `port-${port}`.
+          `port-${port}`,
           undefined,
           "iframe",
           `/proxy/${port}/`,

@@ -111,7 +111,7 @@ describe("ServerListPage — Services zone", () => {
     expect(vi.mocked(createWindow)).toHaveBeenCalledWith(
       "runkit",
       "services",
-      ":5173",
+      "port-5173",
       undefined,
       "iframe",
       "/proxy/5173/",
@@ -140,7 +140,7 @@ describe("ServerListPage — Services zone", () => {
     expect(vi.mocked(createWindow)).toHaveBeenCalledWith(
       "runkit",
       "existing",
-      ":3000",
+      "port-3000",
       undefined,
       "iframe",
       "/proxy/3000/",
@@ -163,7 +163,7 @@ describe("ServerListPage — Services zone", () => {
     expect(vi.mocked(createWindow)).toHaveBeenCalledWith(
       "runkit",
       "main",
-      ":8080",
+      "port-8080",
       undefined,
       "iframe",
       "/proxy/8080/",
@@ -197,5 +197,23 @@ describe("ServerListPage — Services zone", () => {
     expect(buttons[1].title).toBe("Not a web service");
     // Both ports still SHOW as tiles — only the click is gated.
     expect(screen.getByText(":6379")).toBeTruthy();
+  });
+
+  it("names the iframe window without colons or periods (tmux ValidateName rejects them)", async () => {
+    // Regression: the window name was `:${port}`, which tmux rejects ("Window
+    // name cannot contain colons or periods"). It must be a valid tmux name.
+    mockServices = [{ port: 5173 }];
+    mockServers = [{ name: "runkit", sessionCount: 1 }];
+    mockSessionsByServer = new Map([["runkit", [{ name: "main", windows: [] }]]]);
+    render(<ServerListPage />);
+    expect(screen.getByText(":5173")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open in window" }));
+
+    await waitFor(() => expect(vi.mocked(createWindow)).toHaveBeenCalled());
+    const windowName = vi.mocked(createWindow).mock.calls[0][2];
+    expect(windowName).toBe("port-5173");
+    expect(windowName).not.toContain(":");
+    expect(windowName).not.toContain(".");
   });
 });

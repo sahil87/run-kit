@@ -203,45 +203,45 @@ The Cockpit MUST render a BOARDS section between HOST HEALTH and TMUX SERVERS, l
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Desktop Shell grid `gridTemplateAreas` spans the topbar across both columns (`"topbar topbar" "sidebar content" "sidebar bottombar"`); columns/rows/transition and mobile branch unchanged.
-- [ ] A-002 R2: The `shell.tsx` topology comment and `grid-template-areas` doc line match the implemented full-width topbar.
-- [ ] A-003 R3: The brand renders as the left-most `<a href="/">` (icon always, wordmark `hidden sm:inline`); no right-side "Run Kit" anchor remains.
-- [ ] A-004 R4: The hamburger renders between brand and crumbs on terminal/root/board and is absent in cockpit mode.
-- [ ] A-005 R5: The server crumb is a link to `/$server` on terminal and a non-link `aria-current="page"` leaf on server-cabin; the literal "Dashboard" text is gone in all modes.
-- [ ] A-006 R6: Session/window dropdowns and their `+ New Session` / `+ New Window` actions behave exactly as before.
-- [ ] A-007 R7: The separator is `›` (U+203A, aria-hidden); no `/` text separator remains.
-- [ ] A-008 R8: Board mode renders brand + hamburger + `›` + the unchanged `BoardModeBreadcrumb` and still hides the connection dot.
-- [ ] A-009 R9: At `< sm` only brand icon + leaf crumb render (intermediate crumbs hidden) and the topbar stays a single line.
-- [ ] A-010 R10: The connection dot is the right-most right-cluster element and is excluded in board AND cockpit modes; the ordering comment is rewritten.
-- [ ] A-011 R11: `TopBarMode` includes `"cockpit"`; cockpit mode renders brand + FixedWidth/Notification/Theme only (no hamburger/dot/font/split/close) without errors on empty session/server props.
-- [ ] A-012 R12: `ServerListPage` renders `<TopBar mode="cockpit">` pinned above scrollable content, the ad-hoc header is removed, and no "Cockpit" heading is added.
+- [x] A-001 R1: Desktop Shell grid `gridTemplateAreas` spans the topbar across both columns (`"topbar topbar" "sidebar content" "sidebar bottombar"`); columns/rows/transition and mobile branch unchanged.
+- [x] A-002 R2: The `shell.tsx` topology comment and `grid-template-areas` doc line match the implemented full-width topbar.
+- [x] A-003 R3: The brand renders as the left-most `<a href="/">` (icon always, wordmark `hidden sm:inline`); no right-side "Run Kit" anchor remains.
+- [x] A-004 R4: The hamburger renders between brand and crumbs on terminal/root/board and is absent in cockpit mode.
+- [x] A-005 R5: The server crumb is a link to `/$server` on terminal and a non-link `aria-current="page"` leaf on server-cabin; the literal "Dashboard" text is gone in all modes.
+- [x] A-006 R6: Session/window dropdowns and their `+ New Session` / `+ New Window` actions behave exactly as before.
+- [x] A-007 R7: The separator is `›` (U+203A, aria-hidden); no `/` text separator remains.
+- [x] A-008 R8: Board mode renders brand + hamburger + `›` + the unchanged `BoardModeBreadcrumb` and still hides the connection dot.
+- [x] A-009 R9: At `< sm` only brand icon + leaf crumb render (intermediate crumbs hidden) and the topbar stays a single line.
+- [x] A-010 R10: The connection dot is the right-most right-cluster element and is excluded in board AND cockpit modes; the ordering comment is rewritten.
+- [x] A-011 R11: `TopBarMode` includes `"cockpit"`; cockpit mode renders brand + FixedWidth/Notification/Theme only (no hamburger/dot/font/split/close) without errors on empty session/server props.
+- [x] A-012 R12: `ServerListPage` renders `<TopBar mode="cockpit">` pinned above scrollable content, the ad-hoc header is removed, and no "Cockpit" heading is added.
 
 ### Behavioral Correctness
 
-- [ ] A-013 R5: On the server-cabin route the server-name leaf replaces what was formerly the "Dashboard" label, and clicking a terminal-route server crumb navigates to `/$server`.
-- [ ] A-014 R10: Removing the brand anchor does not shift the remaining right-cluster controls' order (FixedWidth → Notification → Theme → dot).
+- [x] A-013 R5: On the server-cabin route the server-name leaf replaces what was formerly the "Dashboard" label, and clicking a terminal-route server crumb navigates to `/$server`.
+- [x] A-014 R10: Removing the brand anchor does not shift the remaining right-cluster controls' order (FixedWidth → Notification → Theme → dot).
 
 ### Scenario Coverage
 
-- [ ] A-015 R3 R5 R7 R11: `top-bar.test.tsx` covers brand-as-root-crumb, server crumb link vs. leaf `aria-current`, `›` separator, "Dashboard" removal, and cockpit-mode rendering.
-- [ ] A-016 R12: `server-list-page.test.tsx` covers TopBar presence and absence of hamburger + connection dot in the Cockpit.
-- [ ] A-017 R1: `shell.test.tsx` covers the new full-width-topbar desktop grid areas.
+- [x] A-015 R3 R5 R7 R11: `top-bar.test.tsx` covers brand-as-root-crumb, server crumb link vs. leaf `aria-current`, `›` separator, "Dashboard" removal, and cockpit-mode rendering.
+- [x] A-016 R12: `server-list-page.test.tsx` covers TopBar presence and absence of hamburger + connection dot in the Cockpit.
+- [x] A-017 R1: `shell.test.tsx` covers the new full-width-topbar desktop grid areas.
 
 ### Edge Cases & Error Handling
 
-- [ ] A-018 R11: Cockpit mode with empty `sessions`/`server`/null `currentSession`/`currentWindow` renders without throwing (dropdown/branch guards tolerate empties).
-- [ ] A-019 R9: A long server name does not break the single-line 375px topbar because intermediate crumbs are hidden `< sm`.
+- [x] A-018 R11: Cockpit mode with empty `sessions`/`server`/null `currentSession`/`currentWindow` renders without throwing (dropdown/branch guards tolerate empties).
+- [x] A-019 R9: A long server name does not break the single-line 375px topbar because intermediate crumbs are hidden `< sm`.
 
 ### Code Quality
 
-- [ ] A-020 Pattern consistency: New TopBar crumb/mode code follows the existing responsive `hidden sm:*` idioms, the `mode`-switch structure, and the `BreadcrumbDropdown` usage patterns of surrounding code.
-- [ ] A-021 No unnecessary duplication: Reuses the existing responsive image pair, `BreadcrumbDropdown`, and the `mode` prop rather than adding new components or props where a derived value suffices.
-- [ ] A-022 Type narrowing over assertions: The new `cockpit` mode is handled via discriminated `mode` checks and guarded optional props — no `as` casts introduced (code-quality § Frontend).
-- [ ] A-023 Keyboard-first (Constitution V): Every new interactive element (brand link, server-crumb link) is a native anchor/button and keyboard-reachable; server switching remains in the command palette.
-- [ ] A-024 No new routes (Constitution IV): Cockpit is a TopBar mode; the route set is unchanged.
-- [ ] A-025 R13: Dropdown crumb triggers (session, window, board) display a persistent `▾` caret without hover; the brand and server link crumbs display the active `LINK_CRUMB_CLASS` affordance; the `aria-current` leaf crumb displays neither.
-- [ ] A-026 R14: Both page-like surfaces render the shared `PageHeading` (Cockpit: `[ cockpit ]`; Server Cabin: `[ server cabin · {server} ]` with right-aligned stats) as a one-line `<h1>` whose accessible name is word-separated and free of decorative brackets/separator/rule; Terminal and Board render no page heading.
-- [ ] A-027 R15: The Cockpit renders the BOARDS zone between HOST HEALTH and TMUX SERVERS — board tiles navigate to `/board/$name`, the count side-text follows the shared heading idiom, and the zero-boards state shows the pin-to-start hint without hiding the section; no new HTTP endpoint is introduced (reuses `useBoards`).
+- [x] A-020 Pattern consistency: New TopBar crumb/mode code follows the existing responsive `hidden sm:*` idioms, the `mode`-switch structure, and the `BreadcrumbDropdown` usage patterns of surrounding code.
+- [x] A-021 No unnecessary duplication: Reuses the existing responsive image pair, `BreadcrumbDropdown`, and the `mode` prop rather than adding new components or props where a derived value suffices.
+- [x] A-022 Type narrowing over assertions: The new `cockpit` mode is handled via discriminated `mode` checks and guarded optional props — no `as` casts introduced (code-quality § Frontend).
+- [x] A-023 Keyboard-first (Constitution V): Every new interactive element (brand link, server-crumb link) is a native anchor/button and keyboard-reachable; server switching remains in the command palette.
+- [x] A-024 No new routes (Constitution IV): Cockpit is a TopBar mode; the route set is unchanged.
+- [x] A-025 R13: Dropdown crumb triggers (session, window, board) display a persistent `▾` caret without hover; the brand and server link crumbs display the active `LINK_CRUMB_CLASS` affordance; the `aria-current` leaf crumb displays neither.
+- [x] A-026 R14: Both page-like surfaces render the shared `PageHeading` (Cockpit: `[ cockpit ]`; Server Cabin: `[ server cabin · {server} ]` with right-aligned stats) as a one-line `<h1>` whose accessible name is word-separated and free of decorative brackets/separator/rule; Terminal and Board render no page heading.
+- [x] A-027 R15: The Cockpit renders the BOARDS zone between HOST HEALTH and TMUX SERVERS — board tiles navigate to `/board/$name`, the count side-text follows the shared heading idiom, and the zero-boards state shows the pin-to-start hint without hiding the section; no new HTTP endpoint is introduced (reuses `useBoards`).
 
 ## Notes
 

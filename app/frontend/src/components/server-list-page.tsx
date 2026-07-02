@@ -214,10 +214,64 @@ export function ServerListPage() {
           )}
         </section>
 
-        {/* SERVICES zone (Cockpit host-console home). A listening TCP port is a
-            HOST property (not owned by any tmux window/session), so `/` — the
-            box-level console — is its home. Each tile opens that port's UI in an
-            @rk_type=iframe tmux window via the existing /proxy/{port}/ proxy. */}
+        {/* TMUX SERVERS zone (zone 2) — the tmux-server tile grid. */}
+        <section aria-label="Tmux servers" className="mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <h2 className="text-xs uppercase tracking-wide text-text-secondary">
+              Tmux Servers
+            </h2>
+            <span className="text-xs text-text-secondary font-mono">
+              {!serversLoaded
+                ? "loading…"
+                : `${servers.length} server${servers.length !== 1 ? "s" : ""}`}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {servers.map(({ name, sessionCount }) => (
+              <button
+                key={name}
+                onClick={() =>
+                  navigate({ to: "/$server", params: { server: name } })
+                }
+                className="bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]"
+              >
+                <div className="text-text-primary font-medium text-sm">
+                  {name}
+                </div>
+                <div className="text-text-secondary text-xs mt-1">
+                  {sessionCount} sess
+                </div>
+              </button>
+            ))}
+
+            {/* Ghost server cards */}
+            {visibleGhosts.map((name) => (
+              <div
+                key={`ghost-${name}`}
+                className="bg-bg-card border border-border rounded p-4 text-left min-h-[60px] opacity-50 animate-pulse"
+              >
+                <div className="text-text-primary font-medium text-sm">
+                  {name}
+                </div>
+              </div>
+            ))}
+
+            {/* New Server button */}
+            <button
+              onClick={() => setShowCreateDialog(true)}
+              className="border border-dashed border-border rounded p-4 text-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors min-h-[60px] flex items-center justify-center"
+            >
+              + New Server
+            </button>
+          </div>
+        </section>
+
+        {/* SERVICES zone (zone 3, Cockpit host-console home). A listening TCP
+            port is a HOST property (not owned by any tmux window/session), so
+            `/` — the box-level console — is its home. Each tile opens that
+            port's UI in an @rk_type=iframe tmux window via the /proxy/{port}/
+            proxy. Placed last, after the tmux-server tiles. */}
         <section aria-label="Services" className="mb-6 max-w-md">
           <h2 className="text-xs uppercase tracking-wide text-text-secondary mb-2">
             Services
@@ -260,51 +314,6 @@ export function ServerListPage() {
             </div>
           )}
         </section>
-
-        <div className="text-sm text-text-secondary mb-4">
-          {!serversLoaded
-            ? "Loading servers..."
-            : `${servers.length} server${servers.length !== 1 ? "s" : ""}`}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {servers.map(({ name, sessionCount }) => (
-            <button
-              key={name}
-              onClick={() =>
-                navigate({ to: "/$server", params: { server: name } })
-              }
-              className="bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]"
-            >
-              <div className="text-text-primary font-medium text-sm">
-                {name}
-              </div>
-              <div className="text-text-secondary text-xs mt-1">
-                {sessionCount} sess
-              </div>
-            </button>
-          ))}
-
-          {/* Ghost server cards */}
-          {visibleGhosts.map((name) => (
-            <div
-              key={`ghost-${name}`}
-              className="bg-bg-card border border-border rounded p-4 text-left min-h-[60px] opacity-50 animate-pulse"
-            >
-              <div className="text-text-primary font-medium text-sm">
-                {name}
-              </div>
-            </div>
-          ))}
-
-          {/* New Server button */}
-          <button
-            onClick={() => setShowCreateDialog(true)}
-            className="border border-dashed border-border rounded p-4 text-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors min-h-[60px] flex items-center justify-center"
-          >
-            + New Server
-          </button>
-        </div>
       </div>
 
       {showCreateDialog && (

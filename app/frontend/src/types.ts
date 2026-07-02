@@ -23,6 +23,20 @@ export type MetricsSnapshot = {
   uptime: number; // seconds
 };
 
+/** A single listening TCP service on the host (from the `event: services` SSE
+ *  broadcast). v1 is port-only; `process`/`pid` are best-effort and absent when
+ *  attribution is unavailable. */
+export type Service = {
+  port: number;
+  process?: string;
+  pid?: number;
+};
+
+/** Host listening-services snapshot from the backend SSE stream. */
+export type ServicesSnapshot = {
+  services: Service[];
+};
+
 /** A single tmux pane within a window. */
 export type PaneInfo = {
   paneId: string;

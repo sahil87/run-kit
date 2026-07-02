@@ -95,7 +95,7 @@ func TestSSE_EventDrivenWakesOnSubscriberBump(t *testing.T) {
 			}},
 		},
 	}
-	hub := newSSEHub(tracker, nil, nil)
+	hub := newSSEHub(tracker, nil, nil, nil)
 	hub.subscriber = sub
 	hub.safetyInterval = 5 * time.Second // long enough that the test
 	// would clearly fail if it had to wait for the timer.
@@ -173,7 +173,7 @@ func TestSSE_SafetyTickerFiresWithoutSubscriber(t *testing.T) {
 			"kits": {{Name: "s1"}},
 		},
 	}
-	hub := newSSEHub(tracker, nil, nil)
+	hub := newSSEHub(tracker, nil, nil, nil)
 	hub.safetyInterval = 50 * time.Millisecond
 
 	client := &sseClient{ch: make(chan []byte, 16), server: "kits"}
@@ -234,7 +234,7 @@ func TestSSE_PTYUnavailableDoesNotBusyLoop(t *testing.T) {
 			"kits": {{Name: "s1"}},
 		},
 	}
-	hub := newSSEHub(tracker, nil, nil)
+	hub := newSSEHub(tracker, nil, nil, nil)
 	hub.subscriber = neverSubscriber{}
 	// 200ms safety interval so a healthy loop ticks ~5 times per second;
 	// a busy-loop would call FetchSessions hundreds of times in 250ms.
@@ -276,7 +276,7 @@ func TestSSE_WaitForNextDoesNotLeakGoroutines(t *testing.T) {
 			"kits": {{Name: "s1"}},
 		},
 	}
-	hub := newSSEHub(tracker, nil, nil)
+	hub := newSSEHub(tracker, nil, nil, nil)
 	hub.subscriber = sub
 	hub.safetyInterval = 5 * time.Second // safety timer never wins.
 
@@ -347,27 +347,27 @@ func (c coverageSubscriber) Covers(server string) bool        { return c.covered
 // surface within the test timeout instead of waiting for the 12s backstop.
 func TestSafetyIntervalEffective(t *testing.T) {
 	t.Run("no subscriber -> legacy fast", func(t *testing.T) {
-		h := newSSEHub(&fetchTracker{}, nil, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
 		if got := h.safetyIntervalEffective([]string{"any"}); got != legacyPollInterval {
 			t.Fatalf("got %v, want %v", got, legacyPollInterval)
 		}
 	})
 	t.Run("all covered -> long safety interval", func(t *testing.T) {
-		h := newSSEHub(&fetchTracker{}, nil, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
 		h.subscriber = coverageSubscriber{covered: map[string]bool{"a": true, "b": true}}
 		if got := h.safetyIntervalEffective([]string{"a", "b"}); got != safetyPollInterval {
 			t.Fatalf("got %v, want %v", got, safetyPollInterval)
 		}
 	})
 	t.Run("any uncovered -> legacy fast", func(t *testing.T) {
-		h := newSSEHub(&fetchTracker{}, nil, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
 		h.subscriber = coverageSubscriber{covered: map[string]bool{"a": true, "rk-test-e2e": false}}
 		if got := h.safetyIntervalEffective([]string{"a", "rk-test-e2e"}); got != legacyPollInterval {
 			t.Fatalf("got %v, want %v (an uncovered server must force the fast cadence)", got, legacyPollInterval)
 		}
 	})
 	t.Run("explicit override wins", func(t *testing.T) {
-		h := newSSEHub(&fetchTracker{}, nil, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
 		h.subscriber = coverageSubscriber{covered: map[string]bool{}}
 		h.safetyInterval = 99 * time.Millisecond
 		if got := h.safetyIntervalEffective([]string{"uncovered"}); got != 99*time.Millisecond {
@@ -381,7 +381,7 @@ func TestSafetyIntervalEffective(t *testing.T) {
 		// server keeps the long safety interval. This is the cost-regression
 		// fix — without the sentinel exclusion, one metrics-only client (held
 		// open by the Cockpit home ~always) would 5x FetchSessions calls.
-		h := newSSEHub(&fetchTracker{}, nil, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
 		h.subscriber = coverageSubscriber{covered: map[string]bool{"real": true}}
 		if got := h.safetyIntervalEffective([]string{"real", metricsOnlyServer}); got != safetyPollInterval {
 			t.Fatalf("got %v, want %v (the metrics-only sentinel must not force the fast cadence)", got, safetyPollInterval)
@@ -394,7 +394,7 @@ func TestSafetyIntervalEffective(t *testing.T) {
 		// would make host health on `/` update ~12s apart instead of the
 		// intended ~2.5s tick. A sentinel-only slice does no session-fetching,
 		// so the fast legacy cadence is correct and free.
-		h := newSSEHub(&fetchTracker{}, nil, nil)
+		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
 		h.subscriber = coverageSubscriber{covered: map[string]bool{}}
 		if got := h.safetyIntervalEffective([]string{metricsOnlyServer}); got != legacyPollInterval {
 			t.Fatalf("got %v, want %v (a sentinel-only slice must tick fast so `/` host metrics stay ~2.5s fresh)", got, legacyPollInterval)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"rk/internal/metrics"
+	"rk/internal/ports"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 )
@@ -114,7 +115,7 @@ func (f *goneSessionFetcher) FetchSessions(ctx context.Context, server string) (
 
 func TestSSEHubReapsDeadServer(t *testing.T) {
 	sf := &goneSessionFetcher{goneServers: map[string]bool{"dead": true}}
-	hub := newSSEHub(sf, nil, nil)
+	hub := newSSEHub(sf, nil, nil, nil)
 	// Short safety interval so the poll loop cycles quickly for the test.
 	hub.safetyInterval = 50 * time.Millisecond
 
@@ -187,7 +188,7 @@ func TestSSEHubMetricsOnlyClientNotReaped(t *testing.T) {
 	// Any real server would be reaped, but the metrics-only key must survive.
 	sf := &goneSessionFetcher{goneServers: map[string]bool{"anything": true}}
 	mc := metrics.NewCollector(2500 * time.Millisecond) // pre-fills a valid zero snapshot
-	hub := newSSEHub(sf, mc, nil)
+	hub := newSSEHub(sf, mc, nil, nil)
 	hub.safetyInterval = 50 * time.Millisecond // cycle the poll loop quickly
 
 	client := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
@@ -222,6 +223,39 @@ func TestSSEHubMetricsOnlyClientNotReaped(t *testing.T) {
 	}
 }
 
+// TestSSEHubServicesBroadcast proves the server-neutral, metrics-only client
+// (key = metricsOnlyServer) receives the server-independent `event: services`
+// broadcast that carries the host's listening ports — the discovery half of the
+// Cockpit host-console services zone.
+func TestSSEHubServicesBroadcast(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	svc := ports.NewCollector(2500 * time.Millisecond) // pre-fills a valid snapshot
+	hub := newSSEHub(sf, nil, svc, nil)
+	hub.safetyInterval = 50 * time.Millisecond // cycle the poll loop quickly
+
+	client := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(client) // starts the poll goroutine
+
+	gotServices := false
+	deadline := time.After(2 * time.Second)
+	for !gotServices {
+		select {
+		case ev := <-client.ch:
+			s := string(ev)
+			if strings.HasPrefix(s, "event: services") {
+				// The payload must carry a JSON object with a (possibly empty)
+				// services array — never `null`.
+				if !strings.Contains(s, `"services"`) {
+					t.Fatalf("services event missing services field: %q", s)
+				}
+				gotServices = true
+			}
+		case <-deadline:
+			t.Fatal("metrics-only client did not receive an event: services")
+		}
+	}
+}
+
 func TestSSEHubDeduplication(t *testing.T) {
 	sf := &slowSessionFetcher{
 		result: []sessions.ProjectSession{
@@ -229,7 +263,7 @@ func TestSSEHubDeduplication(t *testing.T) {
 		},
 	}
 
-	hub := newSSEHub(sf, nil, nil)
+	hub := newSSEHub(sf, nil, nil, nil)
 	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
 
 	hub.addClient(client)
@@ -270,7 +304,7 @@ func TestSSEHubStopsPollingWhenNoClients(t *testing.T) {
 		result: []sessions.ProjectSession{},
 	}
 
-	hub := newSSEHub(sf, nil, nil)
+	hub := newSSEHub(sf, nil, nil, nil)
 	client := &sseClient{ch: make(chan []byte, 8), server: "default"}
 
 	hub.addClient(client)
@@ -315,7 +349,7 @@ func (f *countingSessionFetcher) FetchSessions(ctx context.Context, server strin
 
 func TestSSEHubDropLogging(t *testing.T) {
 	sf := &countingSessionFetcher{}
-	hub := newSSEHub(sf, nil, nil)
+	hub := newSSEHub(sf, nil, nil, nil)
 
 	// Use a buffer of 1 so it fills immediately
 	client := &sseClient{ch: make(chan []byte, 1), server: "default"}
@@ -370,7 +404,7 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 		},
 	}
 
-	hub := newSSEHub(sf, nil, nil)
+	hub := newSSEHub(sf, nil, nil, nil)
 	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
 	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
 
@@ -453,7 +487,7 @@ func filterSSEEvents(events []string, name string) []string {
 
 func TestSSEHubRemoveClientSwapDelete(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
-	hub := newSSEHub(sf, nil, nil)
+	hub := newSSEHub(sf, nil, nil, nil)
 
 	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
 	c2 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
@@ -500,7 +534,7 @@ func TestSSEHubRemoveClientSwapDelete(t *testing.T) {
 
 func TestSSEHubRemoveLastClientDeletesKey(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
-	hub := newSSEHub(sf, nil, nil)
+	hub := newSSEHub(sf, nil, nil, nil)
 
 	c1 := &sseClient{ch: make(chan []byte, 8), server: "runkit"}
 	c2 := &sseClient{ch: make(chan []byte, 8), server: "default"}
@@ -537,7 +571,7 @@ func TestSSEHubConcurrentAddRemove(t *testing.T) {
 		},
 	}
 
-	hub := newSSEHub(sf, nil, nil)
+	hub := newSSEHub(sf, nil, nil, nil)
 
 	// Seed one client to start polling
 	seed := &sseClient{ch: make(chan []byte, 32), server: "default"}
@@ -611,7 +645,7 @@ func (s *stubOrderFetcher) GetSessionOrder(ctx context.Context, server string) (
 }
 
 func TestSSE_BroadcastSessionOrderReachesMatchingClients(t *testing.T) {
-	hub := newSSEHub(&slowSessionFetcher{}, nil, nil)
+	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
 	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
 
 	cDefault := &sseClient{ch: make(chan []byte, 32), server: "default"}
@@ -646,7 +680,7 @@ func TestSSE_BroadcastSessionOrderReachesMatchingClients(t *testing.T) {
 }
 
 func TestSSE_SessionOrderCachedOnConnect(t *testing.T) {
-	hub := newSSEHub(&slowSessionFetcher{}, nil, nil)
+	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
 	hub.orderFetcher = &stubOrderFetcher{orders: map[string][]string{}}
 
 	// Broadcast before any client connects — the payload should be cached.
@@ -679,7 +713,7 @@ func TestSSE_HubBootstrapReadsOrderOnFirstPoll(t *testing.T) {
 	stub := &stubOrderFetcher{orders: map[string][]string{
 		"default": {"alpha", "beta"},
 	}}
-	hub := newSSEHub(&slowSessionFetcher{}, nil, nil)
+	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
 	hub.orderFetcher = stub
 
 	c := &sseClient{ch: make(chan []byte, 32), server: "default"}

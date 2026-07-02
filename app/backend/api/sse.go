@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"rk/internal/metrics"
+	"rk/internal/ports"
 	"rk/internal/prstatus"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
@@ -98,6 +99,11 @@ const (
 	// metrics sampling frequency is not coupled to the SSE event/safety
 	// cadences — both have independent freshness requirements.
 	metricsPollInterval = 2500 * time.Millisecond
+	// servicesPollInterval is the cadence at which ports.Collector re-reads
+	// the host's listening TCP ports from procfs. Same cadence as metrics —
+	// both are host-global broadcasts riding the server-neutral stream — but
+	// kept as its own constant so the two can diverge later.
+	servicesPollInterval = 2500 * time.Millisecond
 	// prStatusPollInterval is the cadence at which prstatus.Collector makes
 	// its single batched `gh` call. Deliberately slow (~40 calls/hr vs. the
 	// 5000/hr authenticated limit) — the SSE hot path reads the cached
@@ -200,6 +206,8 @@ type sseHub struct {
 	orderFetcher           SessionOrderFetcher
 	metrics                *metrics.Collector
 	cachedMetricsJSON      string // latest metrics JSON for new clients
+	services               *ports.Collector
+	cachedServicesJSON     string // latest listening-services JSON for new clients
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
 	// poll path joins onto change-bound windows. nil degrades gracefully (no
 	// PR fields attached) — used by tests and when no collector is wired.
@@ -279,7 +287,7 @@ func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 	return safetyPollInterval
 }
 
-func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, pc PRStatusSnapshotter) *sseHub {
+func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collector, pc PRStatusSnapshotter) *sseHub {
 	return &sseHub{
 		clients:                make(map[string][]*sseClient),
 		previousJSON:           make(map[string]string),
@@ -291,6 +299,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, pc PRStatusSnapsho
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
 		metrics:                mc,
+		services:               svc,
 		prStatus:               pc,
 		captureFn:              capturePreviewForWindow,
 	}
@@ -331,6 +340,15 @@ func (h *sseHub) addClient(c *sseClient) {
 	// delivery). A brand-new connection has nothing expanded yet, so this is a
 	// no-op until its scope POST lands — at which point setPreviewScope emits.
 	h.sendCachedPreviewLocked(c)
+
+	// Send cached services snapshot immediately (server-independent), so a
+	// client opening `/` sees service tiles without waiting for the next tick.
+	if h.cachedServicesJSON != "" {
+		select {
+		case c.ch <- []byte(fmt.Sprintf("event: services\ndata: %s\n\n", h.cachedServicesJSON)):
+		default:
+		}
+	}
 
 	if !h.polling {
 		h.polling = true
@@ -908,6 +926,32 @@ func (h *sseHub) poll() {
 					for _, c := range cs {
 						select {
 						case c.ch <- metricsEvent:
+						default:
+						}
+					}
+				}
+				h.mu.Unlock()
+				dataChanged = true
+			}
+		}
+
+		// Broadcast listening services to all clients (server-independent,
+		// every tick) — mirrors the metrics broadcast above. Rides the same
+		// server-neutral stream, so the `?metrics=1` Cockpit client receives it
+		// with zero attached servers.
+		if h.services != nil {
+			snap := h.services.Snapshot()
+			servicesJSON, err := json.Marshal(snap)
+			if err == nil {
+				servicesStr := string(servicesJSON)
+				servicesEvent := []byte(fmt.Sprintf("event: services\ndata: %s\n\n", servicesStr))
+
+				h.mu.Lock()
+				h.cachedServicesJSON = servicesStr
+				for _, cs := range h.clients {
+					for _, c := range cs {
+						select {
+						case c.ch <- servicesEvent:
 						default:
 						}
 					}

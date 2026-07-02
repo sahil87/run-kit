@@ -193,6 +193,7 @@ export function TopBar({
           <a
             href="/"
             aria-label="Run Kit home"
+            title="Cockpit"
             className={`flex items-center gap-2 shrink-0 ${LINK_CRUMB_CLASS}`}
           >
             <img src="/icon.svg" alt="Run Kit" width={20} height={20} />
@@ -238,6 +239,7 @@ export function TopBar({
                     <BreadcrumbSeparator />
                     <span
                       aria-current="page"
+                      title="Server Cabin"
                       className="min-w-0 text-text-primary font-medium truncate"
                     >
                       {server}
@@ -248,6 +250,7 @@ export function TopBar({
                     <BreadcrumbSeparator />
                     <a
                       href={serverHref}
+                      title="Server Cabin"
                       className={`truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
                     >
                       {server}
@@ -264,9 +267,10 @@ export function TopBar({
                       items={sessionItems}
                       label="session"
                       icon={sessionName}
+                      title="Session"
                       onNavigate={handleDropdownNavigate}
                       action={{ label: "+ New Session", onAction: onCreateSession }}
-                      triggerClassName="max-w-[7ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
+                      triggerClassName="max-w-[16ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
                     />
                   </span>
 
@@ -277,6 +281,7 @@ export function TopBar({
                         items={windowItems}
                         label="window"
                         icon={windowName}
+                        title="Window"
                         onNavigate={handleDropdownNavigate}
                         action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
                         triggerClassName="text-text-primary font-medium hover:text-text-primary transition-colors text-sm"

@@ -156,6 +156,19 @@ describe("TopBar", () => {
     expect(screen.queryByText("\u276F")).not.toBeInTheDocument();
   });
 
+  it("names each crumb's level via a native title tooltip (Cockpit / Server Cabin / Session / Window)", () => {
+    renderTopBar();
+    expect(screen.getByLabelText("Run Kit home")).toHaveAttribute("title", "Cockpit");
+    expect(screen.getByText("runkit").closest("a")).toHaveAttribute("title", "Server Cabin");
+    expect(screen.getByLabelText("Switch session")).toHaveAttribute("title", "Session");
+    expect(screen.getByLabelText("Switch window")).toHaveAttribute("title", "Window");
+  });
+
+  it("keeps the Server Cabin tooltip on the leaf server crumb (root mode, no window)", () => {
+    renderTopBar({ mode: "root", sessionName: "", windowName: "", currentSession: null, currentWindow: null });
+    expect(screen.getByText("runkit")).toHaveAttribute("title", "Server Cabin");
+  });
+
   it("renders the brand as the left-most root crumb linking to / (and no right-side Run Kit anchor)", () => {
     const { container } = renderTopBar();
     const brand = screen.getByLabelText("Run Kit home");

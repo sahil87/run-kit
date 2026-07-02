@@ -8,9 +8,11 @@ type Props = {
   onNavigate?: (href: string) => void;
   action?: { label: string; onAction: () => void };
   triggerClassName?: string;
+  /** Native tooltip on the trigger — names the crumb's level (e.g. "Session"). */
+  title?: string;
 };
 
-export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, triggerClassName }: Props) {
+export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, triggerClassName, title }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,6 +94,7 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, tri
         aria-haspopup="true"
         aria-expanded={open}
         aria-label={label ? `Switch ${label}` : "Switch"}
+        title={title}
         onClick={toggle}
         className={`min-w-[24px] min-h-[24px] flex items-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
       >

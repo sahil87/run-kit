@@ -6,6 +6,9 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useHostMetrics, useHostServices, useSessionContext } from "@/contexts/session-context";
 import { HostMetrics } from "@/components/host-metrics";
+import { PageHeading } from "@/components/page-heading";
+import { useBoards } from "@/hooks/use-boards";
+import { TopBar } from "@/components/top-bar";
 
 // Well-known non-HTTP listening ports. A listening TCP port carries no protocol
 // label (we read it from /proc/net/tcp), so we can't KNOW a port speaks HTTP
@@ -56,6 +59,10 @@ export function ServerListPage() {
   const { addToast } = useToast();
   const hostMetrics = useHostMetrics();
   const hostServices = useHostServices();
+  // Cross-server pane boards for the BOARDS zone. useBoards is self-contained
+  // (plain /api/boards fetch + the shared SSE pool) and boards aggregate
+  // windows across servers, so the box-level Cockpit is their natural home.
+  const { boards, isLoading: boardsLoading } = useBoards();
   const ghostNameRef = useRef<string | null>(null);
   // Guards against a double-click firing two create flows for the same port.
   const openingRef = useRef(false);
@@ -184,25 +191,51 @@ export function ServerListPage() {
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary">
-      {/* Minimal header */}
-      <header className="shrink-0 px-4 sm:px-6 pt-6 pb-2 flex items-center gap-3">
-        <img src="/icon.svg" alt="Run Kit" width={24} height={24} />
-        <span className="text-sm text-text-secondary">Run Kit</span>
-      </header>
+      {/* Shared full-width TopBar in cockpit mode: brand root crumb + the
+          route-agnostic controls (FixedWidth / Notification / Theme). No
+          hamburger (the Cockpit has no sidebar) and no connection dot (no
+          per-server SSE stream here). Pinned above the scrollable content —
+          same `flex-col h-screen` pinning the ad-hoc header used, so it stays
+          fixed while the list below scrolls. Session/server-dependent props are
+          passed empty (board-mode precedent). The page identity is carried by
+          the retro PageHeading rendered at the top of the scroll content. */}
+      <TopBar
+        mode="cockpit"
+        sessions={[]}
+        currentSession={null}
+        currentWindow={null}
+        sessionName=""
+        windowName=""
+        isConnected={false}
+        sidebarOpen={false}
+        server=""
+        onNavigate={() => {}}
+        onToggleSidebar={() => {}}
+        onCreateSession={() => {}}
+        onCreateWindow={() => {}}
+      />
 
-      {/* Server list */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 pb-6">
+      {/* Server list. `pt-6` matches the `mb-6` inter-section rhythm so the
+          gap below the TopBar equals the gap between sections. */}
+      <div className="flex-1 min-h-0 overflow-y-auto pt-6 px-4 sm:px-6 pb-6">
+        {/* Retro page heading (tmux pane-title rule) — the Cockpit's page
+            identity. Lowercase per the terminal idiom. Supersedes the earlier
+            no-heading decision (intake assumption #11), revised by the user
+            during the visual pass. */}
+        <PageHeading page="cockpit" className="mb-6" />
         {/* HOST HEALTH zone (Cockpit host-console home). Renders host-global
             metrics from the server-independent `useHostMetrics()` stream, above
             the tmux-server tiles. `/` is the only surface that is about the BOX,
             not a session, so host health belongs here. */}
         <section aria-label="Host health" className="mb-6 max-w-md">
-          <div className="flex items-center gap-2 mb-2">
+          {/* Heading row idiom (shared with TMUX SERVERS): `gap-3` between the
+              uppercase heading and its side-text; side-text is secondary mono. */}
+          <div className="flex items-center gap-3 mb-2">
             <h2 className="text-xs uppercase tracking-wide text-text-secondary">
               Host Health
             </h2>
             {hostMetrics && (
-              <span className="text-xs text-text-primary font-mono truncate">
+              <span className="text-xs text-text-secondary font-mono truncate">
                 {hostMetrics.hostname}
               </span>
             )}
@@ -214,9 +247,53 @@ export function ServerListPage() {
           )}
         </section>
 
+        {/* BOARDS zone — cross-server pane boards. A board aggregates windows
+            across tmux servers, so the box-level Cockpit (not any single
+            Server Cabin) is its list's natural home. Sits above TMUX SERVERS
+            per the page's general→specific flow. Always visible: when zero
+            boards exist the body shows the same "pin to start" hint as the
+            sidebar BoardsSection, instead of the section appearing/vanishing
+            with the first/last board. */}
+        <section aria-label="Boards" className="mb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <h2 className="text-xs uppercase tracking-wide text-text-secondary">
+              Boards
+            </h2>
+            <span className="text-xs text-text-secondary font-mono">
+              {boardsLoading
+                ? "loading…"
+                : `${boards.length} board${boards.length !== 1 ? "s" : ""}`}
+            </span>
+          </div>
+          {!boardsLoading && boards.length === 0 ? (
+            <div className="text-xs text-text-secondary">
+              Pin a window to start a board
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {boards.map((b) => (
+                <button
+                  key={b.name}
+                  onClick={() =>
+                    navigate({ to: "/board/$name", params: { name: b.name } })
+                  }
+                  className="bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]"
+                >
+                  <div className="text-text-primary font-medium text-sm">
+                    {b.name}
+                  </div>
+                  <div className="text-text-secondary text-xs mt-1">
+                    {b.pinCount} pin{b.pinCount !== 1 ? "s" : ""}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
         {/* TMUX SERVERS zone (zone 2) — the tmux-server tile grid. */}
         <section aria-label="Tmux servers" className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-3 mb-2">
             <h2 className="text-xs uppercase tracking-wide text-text-secondary">
               Tmux Servers
             </h2>

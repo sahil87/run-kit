@@ -95,7 +95,19 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, tri
         onClick={toggle}
         className={`min-w-[24px] min-h-[24px] flex items-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
       >
-        {icon ?? "\u25BE"}
+        <span className="min-w-0 truncate">{icon ?? "\u25BE"}</span>
+        {/* Persistent caret: the always-visible "opens a menu" affordance,
+            distinguishing dropdown crumbs from link crumbs (which navigate).
+            Only rendered alongside a label \u2014 a label-less trigger already IS
+            a bare caret. */}
+        {icon != null && (
+          <span
+            aria-hidden="true"
+            className="ml-1 shrink-0 text-base leading-none text-text-secondary"
+          >
+            {"\u25BE"}
+          </span>
+        )}
       </button>
       {open && (
         <div

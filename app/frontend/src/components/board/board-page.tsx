@@ -501,7 +501,7 @@ function BoardPageContent({ name }: { name: string }) {
             scroll-lock affordance is inert. */}
         <footer
           style={{ gridArea: "bottombar" }}
-          className="border-t border-border px-1.5 h-[48px]"
+          className="border-t-[3px] border-border px-1.5 h-[48px]"
         >
           <BottomBar
             onOpenCompose={() => setComposeOpen(true)}

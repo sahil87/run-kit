@@ -1,0 +1,57 @@
+id: 6m46
+name: 260702-6m46-full-width-topbar-navbar
+created: 2026-07-02T15:41:06Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 22
+    acceptance_count: 27
+    acceptance_completed: 27
+confidence:
+    certain: 8
+    confident: 3
+    tentative: 1
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 78.3
+        reversibility: 86.7
+        competence: 82.9
+        disambiguation: 76.3
+stage_metrics:
+    intake: {started_at: "2026-07-02T15:41:06Z", driver: fab-new, iterations: 1, completed_at: "2026-07-02T15:44:38Z"}
+    apply: {started_at: "2026-07-02T15:44:38Z", driver: fab-continue, iterations: 1, completed_at: "2026-07-02T15:59:03Z"}
+    review: {started_at: "2026-07-02T15:59:03Z", driver: fab-continue, iterations: 1, completed_at: "2026-07-02T19:00:29Z"}
+    hydrate: {started_at: "2026-07-02T19:00:29Z", driver: fab-continue, iterations: 1, completed_at: "2026-07-02T19:27:44Z"}
+    ship: {started_at: "2026-07-02T19:27:44Z", driver: fab-continue, iterations: 1, completed_at: "2026-07-02T19:39:19Z"}
+    review-pr: {started_at: "2026-07-02T19:39:19Z", driver: git-pr, iterations: 1, completed_at: "2026-07-02T19:57:13Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/295
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-02T19:27:44Z"
+    computed_at_stage: hydrate
+summary: 'Full-width-topbar navbar: brand-as-root-crumb + cockpit TopBar mode + › separator, crumb-affordance vocab, retro PageHeading (vocabulary split), Cockpit BOARDS zone, 1/3/8px border system'
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-07-02T19:57:13Z

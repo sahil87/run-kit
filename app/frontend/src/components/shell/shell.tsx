@@ -46,15 +46,17 @@ function useSidebarKeyboardToggle(toggle: () => void) {
  * Shell — shared layout wrapper for `AppShell` and `BoardPage`.
  *
  * Topology (desktop, viewport ≥ 640px):
- *   ┌──────────┬───────────────┐
- *   │          │   topbar      │
- *   │ sidebar  ├───────────────┤
- *   │          │   content     │
+ *   ┌──────────────────────────┐
+ *   │          topbar          │
+ *   ├──────────┬───────────────┤
+ *   │ sidebar  │   content     │
  *   │          ├───────────────┤
  *   │          │   bottombar   │
  *   └──────────┴───────────────┘
  *
- * - `grid-template-areas`: `"sidebar topbar" / "sidebar content" / "sidebar bottombar"`
+ * - `grid-template-areas`: `"topbar topbar" / "sidebar content" / "sidebar bottombar"`
+ *   (the topbar spans BOTH columns as full-width app chrome; the sidebar
+ *   occupies rows 2–3 only, below the topbar).
  * - `grid-template-rows`: `auto 1fr auto`
  * - `grid-template-columns`: `${sidebarWidth}px 1fr` when `sidebarOpen` is `true`,
  *   else `0 1fr`. CSS transition (~150ms ease-out) animates collapse.
@@ -108,7 +110,7 @@ export function Shell({ children, sidebarChildren }: { children: ReactNode; side
         gridTemplateColumns: sidebarOpen ? `${sidebarWidth}px 1fr` : "0 1fr",
         gridTemplateRows: "auto 1fr auto",
         gridTemplateAreas:
-          '"sidebar topbar" "sidebar content" "sidebar bottombar"',
+          '"topbar topbar" "sidebar content" "sidebar bottombar"',
         transition: "grid-template-columns 150ms ease-out",
       };
 

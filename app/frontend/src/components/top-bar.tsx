@@ -11,15 +11,25 @@ import { splitWindow, closePane } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
-export type TopBarMode = "terminal" | "board" | "root";
+export type TopBarMode = "terminal" | "board" | "root" | "cockpit";
 
 type TopBarProps = {
   /**
-   * Mode controls the breadcrumb / informational region. `terminal` renders
-   * session/window breadcrumbs (default — covers `/$server/$window`).
-   * `root` renders the dashboard label (covers `/$server` with no window).
-   * `board` renders the board breadcrumb dropdown plus pane/server counts and
-   * the cycle hint (covers `/board/$name`).
+   * Mode controls the breadcrumb / informational region:
+   * - `terminal` (default, `/$server/$window`) — brand + hamburger + server
+   *   link + session/window breadcrumb dropdowns.
+   * - `root` (`/$server` with no window, the Server Cabin) — brand + hamburger +
+   *   the server name as the current-page leaf (replaces the old "Dashboard"
+   *   label). No session/window crumbs.
+   * - `board` (`/board/$name`) — brand + hamburger + the board breadcrumb
+   *   dropdown plus pane/server counts and the cycle hint. Connection dot hidden.
+   * - `cockpit` (`/`, the Server List home) — brand crumb ONLY. No hamburger
+   *   (the Cockpit has no sidebar), no connection dot (no per-server SSE stream),
+   *   no terminal-font control, no split/close buttons. The route-agnostic
+   *   controls (FixedWidthToggle, NotificationControl, ThemeToggle) still render.
+   *   Session/server-dependent props are passed empty (`sessions=[]`,
+   *   `currentSession=null`, `currentWindow=null`, `sessionName=""`, `server=""`,
+   *   no-op callbacks) — the same tolerant-empty shape board mode already uses.
    */
   mode?: TopBarMode;
   sessions: ProjectSession[];
@@ -81,6 +91,30 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
   );
 }
 
+/**
+ * Breadcrumb separator `›` (U+203A) — the established palette-label convention
+ * (`<session> › <name>`), replacing the old `/` separator. Decorative, so it is
+ * `aria-hidden`; the crumb hierarchy is conveyed by position and each crumb's
+ * own role/`aria-current`.
+ */
+function BreadcrumbSeparator() {
+  return (
+    <span className="text-text-secondary select-none shrink-0" aria-hidden="true">
+      {"›"}
+    </span>
+  );
+}
+
+/**
+ * Link-crumb affordance — the always-visible "this navigates" cue on the two
+ * link crumbs (brand, server): a bordered chip, reusing the right-cluster's
+ * "bordered = clickable" visual language. Dropdown crumbs signal differently
+ * (persistent ▾ caret inside BreadcrumbDropdown); non-interactive leaf crumbs
+ * carry neither — the absence of affordance marks the current page.
+ */
+const LINK_CRUMB_CLASS =
+  "rounded border border-border hover:border-text-secondary px-1.5 py-0.5 text-text-secondary hover:text-text-primary transition-colors";
+
 export function TopBar({
   mode = "terminal",
   sessions,
@@ -136,66 +170,134 @@ export function TopBar({
   // (grid column) and mobile (overlay) collapse to the same boolean state.
   const hamburgerOpen = sidebarOpen;
 
+  // Cockpit (`/`) has no sidebar, so it renders no hamburger. Every other mode
+  // (terminal / root / board) has a Shell sidebar and shows the toggle.
+  const hasSidebar = mode !== "cockpit";
+
+  // The server crumb renders on the server routes only (terminal + root, the
+  // Server Cabin). When a window is present (terminal) it is a plain link back
+  // to `/$server`; when it is the current page (root, no window) it is a
+  // non-link `aria-current="page"` leaf. Cockpit and board have no server crumb.
+  const showServerCrumb = (mode === "terminal" || mode === "root") && !!server;
+  const serverIsLeaf = !windowName; // no window selected → server IS the leaf
+  const serverHref = `/${encodeURIComponent(server)}`;
+
   return (
-    <header className="px-3 border-b-2 border-border">
+    <header className="px-3 border-b-[3px] border-border">
       <div className="flex items-center justify-between py-2">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
-          {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
-              desktop grid column and mobile overlay). */}
-          <button
-            onClick={onToggleSidebar}
-            aria-label="Toggle navigation"
-            className="text-text-primary transition-colors min-w-[24px] min-h-[24px] flex items-center justify-center"
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm min-w-0">
+          {/* Brand root crumb — logo + wordmark, links to `/`. Left-most on
+              every route; IS the home affordance (no separate "Cockpit" crumb).
+              Wordmark collapses to the bare icon below `sm` so long crumbs still
+              fit the single-line 375px topbar. */}
+          <a
+            href="/"
+            aria-label="Run Kit home"
+            className={`flex items-center gap-2 shrink-0 ${LINK_CRUMB_CLASS}`}
           >
-            <HamburgerIcon isOpen={hamburgerOpen} />
-          </button>
+            <img src="/icon.svg" alt="Run Kit" width={20} height={20} />
+            {/* [text-decoration:inherit] — the anchor is a flex container and
+                text-decoration does not propagate into flex items, so an
+                underline-based LINK_CRUMB_CLASS would silently skip the
+                wordmark without it. No-op for non-underline variants. */}
+            <span className="hidden sm:inline text-xs [text-decoration:inherit]">Run Kit</span>
+          </a>
+
+          {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
+              desktop grid column and mobile overlay). Sits between the brand and
+              the crumbs. Not rendered on the Cockpit, which has no sidebar. */}
+          {hasSidebar && (
+            <button
+              onClick={onToggleSidebar}
+              aria-label="Toggle navigation"
+              className="text-text-primary transition-colors min-w-[24px] min-h-[24px] flex items-center justify-center shrink-0"
+            >
+              <HamburgerIcon isOpen={hamburgerOpen} />
+            </button>
+          )}
 
           {mode === "board" && boardName ? (
-            <BoardModeBreadcrumb
-              boardName={boardName}
-              paneCount={paneCount ?? 0}
-              serverCount={serverCount ?? 0}
-              boards={boards ?? []}
-            />
-          ) : sessionName ? (
             <>
-              <BreadcrumbDropdown
-                items={sessionItems}
-                label="session"
-                icon={sessionName}
-                onNavigate={handleDropdownNavigate}
-                action={{ label: "+ New Session", onAction: onCreateSession }}
-                triggerClassName="max-w-[7ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
+              <BreadcrumbSeparator />
+              <BoardModeBreadcrumb
+                boardName={boardName}
+                paneCount={paneCount ?? 0}
+                serverCount={serverCount ?? 0}
+                boards={boards ?? []}
               />
-
-              {windowName && (
-                <span className="text-text-secondary select-none" aria-hidden="true">/</span>
-              )}
-
-              {windowName && (
-                <BreadcrumbDropdown
-                  items={windowItems}
-                  label="window"
-                  icon={windowName}
-                  onNavigate={handleDropdownNavigate}
-                  action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
-                  triggerClassName="text-text-primary font-medium hover:text-text-primary transition-colors text-sm"
-                />
-              )}
             </>
           ) : (
-            <span className="text-text-primary font-medium ml-1.5">Dashboard</span>
+            <>
+              {/* Server crumb (terminal + root). Intermediate crumbs (server,
+                  session, and their separators) hide below `sm` so mobile shows
+                  only brand icon + leaf crumb. When the server is itself the leaf
+                  (root, no window) it stays visible on mobile. */}
+              {showServerCrumb &&
+                (serverIsLeaf ? (
+                  <>
+                    <BreadcrumbSeparator />
+                    <span
+                      aria-current="page"
+                      className="min-w-0 text-text-primary font-medium truncate"
+                    >
+                      {server}
+                    </span>
+                  </>
+                ) : (
+                  <span className="hidden sm:flex items-center gap-1.5">
+                    <BreadcrumbSeparator />
+                    <a
+                      href={serverHref}
+                      className={`truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
+                    >
+                      {server}
+                    </a>
+                  </span>
+                ))}
+
+              {sessionName && (
+                <>
+                  {/* Session crumb — hidden below `sm` (intermediate). */}
+                  <span className="hidden sm:flex items-center gap-1.5">
+                    <BreadcrumbSeparator />
+                    <BreadcrumbDropdown
+                      items={sessionItems}
+                      label="session"
+                      icon={sessionName}
+                      onNavigate={handleDropdownNavigate}
+                      action={{ label: "+ New Session", onAction: onCreateSession }}
+                      triggerClassName="max-w-[7ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
+                    />
+                  </span>
+
+                  {windowName && (
+                    <>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbDropdown
+                        items={windowItems}
+                        label="window"
+                        icon={windowName}
+                        onNavigate={handleDropdownNavigate}
+                        action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
+                        triggerClassName="text-text-primary font-medium hover:text-text-primary transition-colors text-sm"
+                      />
+                    </>
+                  )}
+                </>
+              )}
+            </>
           )}
         </nav>
 
-        <div className="flex items-center gap-3 text-xs text-text-secondary">
+        <div className="flex items-center gap-3 text-xs text-text-secondary shrink-0">
           {/* Icon ordering minimizes movement between pages: the conditional
               terminal-only buttons (splits, close, Aa) sit on the LEFT of the
               cluster, where their absence on non-terminal pages just widens the
               gap to the breadcrumb. The always-present items (theme, fixed
-              width, connection dot, Run Kit) form a stable block pinned to the
-              right, so none of them shift when the conditional ones appear or
-              disappear. */}
+              width) form a stable block, followed by the connection dot as the
+              right-most element (the brand anchor moved to the left nav as the
+              root crumb, so there is no longer a Run Kit anchor pinning this
+              cluster's right edge). */}
           {currentWindow && (
             <>
               <span className="hidden sm:flex">
@@ -225,20 +327,21 @@ export function TopBar({
           {/* Terminal font size applies only to terminal-bearing surfaces:
               the single-window terminal (`terminal`) and board panes (`board`,
               where `currentWindow` is always `null`). It is gated out of `root`
-              (the dashboard/session-list) where there is no terminal to size.
-              Sits outside the `currentWindow` block so board mode still shows
-              it. */}
-          {mode !== "root" && (
+              (the Server Cabin tile view) and `cockpit` (the server list) —
+              neither has a terminal to size. Sits outside the `currentWindow`
+              block so board mode still shows it. */}
+          {mode !== "root" && mode !== "cockpit" && (
             <span className="hidden sm:flex">
               <TerminalFontControl />
             </span>
           )}
 
-          {/* Always-present right block — order pinned to the Run Kit anchor so
-              these never move between pages. */}
+          {/* Route-agnostic controls — these render in every mode (including
+              cockpit) and keep a stable left-to-right order:
+              FixedWidth → Notification → Theme → connection dot. */}
 
           {/* FixedWidthToggle is route-agnostic — fixed-width constrains the
-              max-width of any surface including the dashboard, so it stays in
+              max-width of any surface including the server list, so it stays in
               all modes. */}
           <span className="hidden sm:flex">
             <FixedWidthToggle />
@@ -251,16 +354,16 @@ export function TopBar({
             <NotificationControl />
           </span>
 
-          {/* Theme is the rightmost icon button (before the connection dot +
-              Run Kit logo). */}
+          {/* Theme toggle — route-agnostic. */}
           <span className="hidden sm:flex">
             <ThemeToggle />
           </span>
 
-          {/* Connection dot — terminal/root modes only (board mode hides it
-              because connection state is per-server and a board may span
-              servers). */}
-          {mode !== "board" && (
+          {/* Connection dot — the right-most element. Rendered in terminal/root
+              modes only: board mode spans servers (connection state is
+              per-server) and cockpit has no per-server SSE stream, so both hide
+              it. */}
+          {mode !== "board" && mode !== "cockpit" && (
             <span role="status" aria-live="polite" className="hidden sm:inline">
               <span
                 className={`block w-2 h-2 rounded-full ${
@@ -270,25 +373,6 @@ export function TopBar({
               />
             </span>
           )}
-
-          {/* "Run Kit" + Logo — links to dashboard */}
-          <a href="/" className="flex items-center gap-3 text-text-secondary hover:text-text-primary transition-colors">
-            <span className="hidden sm:inline text-xs">Run Kit</span>
-            <img
-              src="/icon.svg"
-              alt="Run Kit"
-              width={20}
-              height={20}
-              className="hidden sm:block"
-            />
-            <img
-              src="/icon.svg"
-              alt="Run Kit"
-              width={30}
-              height={30}
-              className="sm:hidden"
-            />
-          </a>
         </div>
       </div>
     </header>

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,36 @@ func TestActivePaneID(t *testing.T) {
 	// No panes → not ok.
 	if id, ok := activePaneID(tmux.WindowInfo{}); ok || id != "" {
 		t.Errorf("activePaneID empty = (%q, %v), want (\"\", false)", id, ok)
+	}
+}
+
+func TestTailLines(t *testing.T) {
+	// capture-pane returns ~n+pane_height lines; tailLines must keep only the
+	// newest n so the preview shows current output, not the top of the block.
+	twenty := make([]string, 0, 20)
+	for i := 1; i <= 20; i++ {
+		twenty = append(twenty, "line"+strconv.Itoa(i))
+	}
+	got := tailLines(strings.Join(twenty, "\n"), 5)
+	if want := "line16\nline17\nline18\nline19\nline20"; got != want {
+		t.Errorf("tailLines keep-last = %q, want %q", got, want)
+	}
+
+	// Trailing blank lines (idle-pane bottom padding) are dropped BEFORE taking
+	// the tail, so real output is not pushed out of view.
+	got = tailLines("a\nb\nc\n\n\n", 2)
+	if want := "b\nc"; got != want {
+		t.Errorf("tailLines trailing-blank = %q, want %q", got, want)
+	}
+
+	// Fewer lines than n → return all of them (no negative slice index).
+	if got := tailLines("only\ntwo", 10); got != "only\ntwo" {
+		t.Errorf("tailLines short = %q, want %q", got, "only\ntwo")
+	}
+
+	// Interior blank lines are preserved (blank-line fidelity, per CapturePane).
+	if got := tailLines("x\n\ny", 5); got != "x\n\ny" {
+		t.Errorf("tailLines interior-blank = %q, want %q", got, "x\n\ny")
 	}
 }
 

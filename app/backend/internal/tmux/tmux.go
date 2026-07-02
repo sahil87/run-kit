@@ -1316,13 +1316,17 @@ func KillActivePane(windowID string, server string) error {
 	return nil
 }
 
-// CapturePane captures pane content (last N lines) on the specified server. Preserves blank lines.
+// CapturePane captures pane content (last N lines) on the specified server.
+// Preserves blank lines. The -e flag preserves ANSI escape sequences (color +
+// text attributes) so callers can render the pane in color rather than as flat
+// monochrome text; the sole caller (the tile-grid preview) parses these with a
+// client-side SGR renderer. Non-color callers can strip the escapes downstream.
 func CapturePane(paneID string, lines int, server string) (string, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
 	start := -lines
-	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", paneID, "-p", "-S", strconv.Itoa(start))
+	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", paneID, "-e", "-p", "-S", strconv.Itoa(start))
 }
 
 // IsTestServerName reports whether name belongs to the unified test-socket

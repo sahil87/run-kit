@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"rk/internal/tmux"
 )
@@ -34,11 +35,38 @@ func activePaneID(w tmux.WindowInfo) (string, bool) {
 	return w.Panes[0].PaneID, true
 }
 
+// tailLines returns the last n content lines of s: it first drops trailing
+// blank (whitespace-only) lines — an idle pane's visible screen is padded with
+// empty rows at the bottom, which would otherwise push the real output out of
+// the window — then keeps the last n of what remains. This is what makes the
+// preview show "what is this agent doing right now" (the newest output) rather
+// than the top of a larger capture.
+//
+// It is needed because tmux `capture-pane -S -n` (no -E) starts n lines above
+// the VISIBLE TOP and ends at the visible bottom, so it returns ~n+pane_height
+// lines, not n. Trimming here makes previewCaptureLines mean exactly n lines of
+// tail, independent of the pane's height.
+func tailLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	// Drop trailing blank lines (idle-pane bottom padding).
+	end := len(lines)
+	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	start := end - n
+	if start < 0 {
+		start = 0
+	}
+	return strings.Join(lines[start:end], "\n")
+}
+
 // capturePreviewForWindow captures the trailing text of a window's active pane
 // via the existing tmux.CapturePane primitive (Constitution I — exec.Command-
 // Context + timeout, arg slices). Returns (text, true) on success; (\"\", false)
 // when the window has no pane to capture or the capture errors (best-effort —
-// a preview is a nicety, never a hard failure).
+// a preview is a nicety, never a hard failure). The raw capture is trimmed to
+// the last previewCaptureLines content lines (see tailLines) so the preview
+// shows the newest output, not the top of a taller capture.
 func capturePreviewForWindow(w tmux.WindowInfo, server string) (string, bool) {
 	paneID, ok := activePaneID(w)
 	if !ok {
@@ -48,7 +76,7 @@ func capturePreviewForWindow(w tmux.WindowInfo, server string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return text, true
+	return tailLines(text, previewCaptureLines), true
 }
 
 // previewScopeRequest is the body of POST /api/preview-scope. `Conn` addresses a

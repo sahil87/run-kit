@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { SessionTiles } from "./session-tiles";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { ThemeProvider } from "@/contexts/theme-context";
 import type { ProjectSession } from "@/types";
 
 const nowSeconds = Math.floor(Date.now() / 1000);
@@ -52,25 +53,45 @@ function renderTiles(opts: {
 } = {}) {
   const previewsByServer = new Map<string, Record<string, string>>();
   previewsByServer.set(SERVER, opts.previews ?? {});
+  // ThemeProvider: the window-tile preview renders ANSI color via AnsiText,
+  // which reads the active theme's palette through useTheme().
   return render(
-    <StandaloneSessionContextProvider
-      value={{
-        previewsByServer,
-        setPreviewScope: opts.setPreviewScope ?? vi.fn(),
-      }}
-    >
-      <SessionTiles
-        server={SERVER}
-        sessions={sessions}
-        onNavigate={opts.onNavigate ?? vi.fn()}
-        onCreateSession={opts.onCreateSession ?? vi.fn()}
-        onCreateWindow={opts.onCreateWindow ?? vi.fn()}
-      />
-    </StandaloneSessionContextProvider>,
+    <ThemeProvider>
+      <StandaloneSessionContextProvider
+        value={{
+          previewsByServer,
+          setPreviewScope: opts.setPreviewScope ?? vi.fn(),
+        }}
+      >
+        <SessionTiles
+          server={SERVER}
+          sessions={sessions}
+          onNavigate={opts.onNavigate ?? vi.fn()}
+          onCreateSession={opts.onCreateSession ?? vi.fn()}
+          onCreateWindow={opts.onCreateWindow ?? vi.fn()}
+        />
+      </StandaloneSessionContextProvider>
+    </ThemeProvider>,
   );
 }
 
 describe("SessionTiles", () => {
+  beforeEach(() => {
+    // ThemeProvider reads prefers-color-scheme on mount.
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: true,
+        media: "(prefers-color-scheme: dark)",
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }),
+    );
+  });
   afterEach(cleanup);
 
   it("renders one tile per session with the stats line", () => {
@@ -97,11 +118,30 @@ describe("SessionTiles", () => {
     const preview = screen.getByTestId("window-tile-preview-@0");
     expect(preview).toHaveTextContent("line one");
     expect(preview).toHaveTextContent("$ claude");
-    // The preview is a <pre>, not a terminal canvas.
-    expect(preview.tagName).toBe("PRE");
+    // Static text container, not a terminal canvas.
+    expect(preview.tagName).toBe("DIV");
     // No xterm instance is mounted anywhere in the tiles view.
     expect(document.querySelector(".xterm")).toBeNull();
     expect(document.querySelector("canvas")).toBeNull();
+  });
+
+  it("renders ANSI color in the preview as styled spans (not raw escapes)", () => {
+    // A red word wrapped in SGR codes, as `capture-pane -e` delivers it.
+    const RED = "\x1b[31mERROR\x1b[0m ok";
+    renderTiles({ previews: { "@0": RED } });
+    fireEvent.click(screen.getByLabelText("Expand run-kit"));
+
+    const preview = screen.getByTestId("window-tile-preview-@0");
+    // The visible text is the content, with escape bytes stripped.
+    expect(preview).toHaveTextContent("ERROR ok");
+    expect(preview.textContent).not.toContain("\x1b");
+    expect(preview.textContent).not.toContain("[31m");
+    // The colored run is a span carrying an inline color (from the palette).
+    const colored = Array.from(preview.querySelectorAll("span")).find(
+      (s) => s.textContent === "ERROR",
+    );
+    expect(colored).toBeDefined();
+    expect(colored?.style.color).not.toBe("");
   });
 
   it("navigates to the live terminal when a window tile is clicked", () => {

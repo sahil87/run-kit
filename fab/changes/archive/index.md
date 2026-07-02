@@ -1,5 +1,12 @@
 # Archived Changes
 
+- **260702-nuup-route-page-names** — Canonical Route Page Names
+- **260702-6m46-full-width-topbar-navbar** — Full-Width Topbar as Navbar
+- **260701-vshd-cockpit-host-console-home** — Cockpit Host-Console Home
+- **260701-f4e5-serverlist-create-waiting-state** — ServerListPage Create-Flow Waiting State
+- **260701-70a0-session-window-tile-grid** — Session/Window Tile Grid on /$server with Live Pane Previews
+- **260701-5d0z-service-tiles-host-console** — Service Tiles on the Cockpit Host Console
+- **260616-37ub-status-dot-tooltip** — Custom Status-Dot Tooltip / Hover-Card
 - **260615-xd9r-web-push-notifications** — Web Push Notifications for the run-kit Web UI
 - **260615-6rnr-expand-swatch-palette-blends** — Expand Swatch Palette with Two-Hue Blends + Contrast Guardrail
 - **260615-2olv-pr-status-dot-traffic-light** — Multi-color PR status dot in the sidebar window row (PR traffic-light)

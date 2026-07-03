@@ -14,10 +14,11 @@ function escapeRegExp(s: string): string {
 /**
  * Resolve a window's stable identifiers from the backend snapshot by its
  * (transient) display name. Returns the tmux window id (`@N`, unique for the
- * window's lifetime — both the handle for DOM selection AND the segment the
- * router now carries in `/$server/$window`) and the tmux window index
- * (retained for diagnostics; addressing is by id). Polls because the window is
- * created via the tmux CLI and surfaces in the snapshot asynchronously.
+ * window's lifetime — the handle for DOM selection; the router carries its
+ * numeric part `N` (`@N` sans `@`) as the `/$server/$window` segment and parse
+ * restores `@N`) and the tmux window index (retained for diagnostics;
+ * addressing is by id). Polls because the window is created via the tmux CLI
+ * and surfaces in the snapshot asynchronously.
  */
 async function resolveWindow(
   page: Page,
@@ -158,8 +159,9 @@ test.describe("Sidebar Window Sync", () => {
     const sidebar = page.locator("nav[aria-label='Sessions']");
     // Resolve the window's stable identifiers (tmux @id + index) from the API
     // snapshot rather than matching on the display name, which is neither
-    // unique nor stable. We select by data-window-id and assert the URL by
-    // index (the segment the router actually carries).
+    // unique nor stable. We select by data-window-id and assert the URL by the
+    // window id's numeric part (`@N` sans `@`, i.e. `windowId.slice(1)` — the
+    // segment the router carries; parse restores `@N`), NOT the mutable index.
     const target = await resolveWindow(page, winName);
     const row = sidebar.locator(`[data-window-id="${target.windowId}"]`);
     const windowButton = row.getByRole("button").first();
@@ -168,22 +170,19 @@ test.describe("Sidebar Window Sync", () => {
     // Before the click we are on the dashboard: URL has no window segment.
     // (Regression guard for #198, where clicks were pure tmux mutations and
     // the URL writeback could not introduce a window, leaving the dashboard
-    // up forever.)
-    expect(page.url()).not.toContain(
-      `/${encodeURIComponent(target.windowId)}`,
-    );
+    // up forever.) The URL segment is the window id's numeric part (@N sans @).
+    expect(page.url()).not.toContain(`/${target.windowId.slice(1)}`);
 
     await windowButton.click();
 
-    // The URL must now carry the clicked window ID (@N) on the 2-segment route
+    // The URL must now carry the clicked window ID on the 2-segment route
     // /$server/$window — this is the core of the fix: the optimistic navigate
     // introduces the window so the terminal route mounts at all. The session is
-    // no longer in the URL (derived from the SSE snapshot). The router
-    // percent-encodes the `@` in the path segment (`@2` → `%402`), so the
-    // assertion matches the encoded form that appears in the address bar.
+    // no longer in the URL (derived from the SSE snapshot). The URL segment is
+    // the window id's numeric part (`@2` → `2`); parse restores `@N`.
     await expect(page).toHaveURL(
       new RegExp(
-        `/${TMUX_SERVER}/${escapeRegExp(encodeURIComponent(target.windowId))}(?:$|[/?#])`,
+        `/${TMUX_SERVER}/${escapeRegExp(target.windowId.slice(1))}(?:$|[/?#])`,
       ),
       { timeout: 5_000 },
     );
@@ -243,10 +242,11 @@ test.describe("Sidebar Window Sync", () => {
     await page.waitForTimeout(1_500);
     await expect(buttonB).toHaveAttribute("aria-current", "page");
     await expect(buttonA).not.toHaveAttribute("aria-current", "page");
-    // The 2-segment URL must carry B's window id (@N), not the session.
+    // The 2-segment URL must carry B's window id numeric part (@N sans @), not
+    // the session.
     await expect(page).toHaveURL(
       new RegExp(
-        `/${TMUX_SERVER}/${escapeRegExp(encodeURIComponent(targetB.windowId))}(?:$|[/?#])`,
+        `/${TMUX_SERVER}/${escapeRegExp(targetB.windowId.slice(1))}(?:$|[/?#])`,
       ),
     );
   });

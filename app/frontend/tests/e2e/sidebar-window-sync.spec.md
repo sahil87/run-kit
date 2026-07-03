@@ -16,10 +16,10 @@ clicking a window in the UI renders its terminal (the user-driven direction).
   name — `@N` is unique for the window's lifetime, whereas names collide and
   indices are reused. The window id is the router's terminal URL segment on
   the 2-segment route `/$server/$window` (the session is no longer in the URL —
-  it is derived from the SSE snapshot). The router percent-encodes the `@` in
-  the path segment (`@2` → `%402`), so URL assertions match
-  `encodeURIComponent(windowId)` (then regex-escaped via `escapeRegExp`); the
-  index is retained only for diagnostics.
+  it is derived from the SSE snapshot). The URL segment is the window id's
+  numeric part (`@2` → `2`; parse restores `@N`), so URL assertions match
+  `windowId.slice(1)` (regex-escaped via `escapeRegExp`); the index is retained
+  only for diagnostics.
 
 ## Tests
 
@@ -68,10 +68,11 @@ slower concern.
    `Connected`.
 3. `resolveWindow` the created window to get its `@id` and index.
 4. Assert the row (`data-window-id="@id"`) button is visible and the URL does
-   not yet contain the window's `encodeURIComponent(@id)` segment.
+   not yet contain the window's numeric segment (`@id` sans `@`).
 5. Click the window button.
-6. Assert the URL now matches `/${TMUX_SERVER}/<@id>` (the 2-segment route; the
-   stable window id, regex-escaped) and the clicked button has
+6. Assert the URL now matches `/${TMUX_SERVER}/<N>` (the 2-segment route; the
+   window id's numeric part — `@id` sans `@`, i.e. `windowId.slice(1)` —
+   regex-escaped; parse restores `@N`) and the clicked button has
    `aria-current="page"`.
 
 ### `clicking a different window switches selection without bounce-back`
@@ -89,7 +90,8 @@ the selection back to A before tmux confirms the switch.
 5. Click B; assert B's button is `aria-current="page"`.
 6. Wait 1.5s (a window in which a stale-snapshot bounce would manifest), then
    re-assert B is still current, A is not, and the 2-segment URL still carries
-   B's window id (`/${TMUX_SERVER}/<@id-B>`).
+   B's window id's numeric part (`/${TMUX_SERVER}/<N-B>` — `@id-B` sans `@`,
+   i.e. `windowId.slice(1)`; parse restores `@N`).
 
 ### `kill-then-create at same index does not suppress new window`
 

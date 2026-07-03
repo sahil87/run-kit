@@ -89,8 +89,8 @@ test.describe("Multi-server sidebar", () => {
     await sessionLink.first().click();
 
     // 2-segment route /$server/$window: the URL carries server B and the
-    // session's first window id (@N, percent-encoded as %40N) — no session
+    // session's first window id's numeric part (@N rendered as N) — no session
     // segment (the session is derived from the SSE snapshot).
-    await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER_B}/%40\\d+(?:$|[/?#])`));
+    await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER_B}/\\d+(?:$|[/?#])`));
   });
 });

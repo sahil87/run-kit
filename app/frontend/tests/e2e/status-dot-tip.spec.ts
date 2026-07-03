@@ -140,7 +140,7 @@ test.describe("Status-dot hover-card", () => {
     await prLink.evaluate((a) => a.removeAttribute("href"));
     await prLink.click();
     // The click did not bubble to the row → still on the server route, not a
-    // window route (/default/%401).
+    // window route (/default/1).
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
   });
 

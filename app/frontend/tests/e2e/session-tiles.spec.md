@@ -43,4 +43,6 @@ path end to end.
    `event: preview` once the expanded scope is declared). Assert `.xterm` has
    count 0 — the tiles view mounts no live terminal.
 7. Click the window tile; assert the URL becomes
-   `/{TMUX_SERVER}/{encoded @N}` — the tile upgraded to the live terminal route.
+   `/{TMUX_SERVER}/{N}` — the URL segment is the window id's numeric part (`@N`
+   sans `@`; parse restores `@N` for consumers) — the tile upgraded to the live
+   terminal route.

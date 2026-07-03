@@ -289,8 +289,9 @@ func runRiff(cmd *cobra.Command, args []string) error {
 
 	// Step 5: launcher resolution via `fab agent --print`. Never errors —
 	// falls back to the built-in default when fab is absent / fails / prints
-	// nothing usable.
-	launcher := resolveLauncher()
+	// nothing usable. Threads the signal ctx so Ctrl-C / SIGTERM cancels the
+	// `fab agent --print` subprocess too (Step 3 propagation invariant).
+	launcher := resolveLauncher(ctx)
 
 	// Step 6: preset resolution. Determines whether args[0] is a preset name
 	// (positional form) vs a pass-through token. --preset and positional
@@ -362,8 +363,13 @@ func checkPreconditions() error {
 // exit, timeout, empty/whitespace-only stdout, or multi-line stdout) it falls
 // back silently to defaultLauncher with no stderr noise, preserving the
 // documented never-errors posture of runRiff Step 5.
-func resolveLauncher() string {
-	ctx, cancel := context.WithTimeout(context.Background(), fabTimeout)
+//
+// parent is the caller's signal context (runRiff Step 3) so a Ctrl-C / SIGTERM
+// cancels the `fab agent --print` subprocess rather than leaving the user
+// waiting up to fabTimeout after an interrupt — matching the propagation of
+// every other subprocess (runWtCreate, the tmux calls).
+func resolveLauncher(parent context.Context) string {
+	ctx, cancel := context.WithTimeout(parent, fabTimeout)
 	defer cancel()
 
 	// Output() (not CombinedOutput()) so stderr can't pollute the launcher.

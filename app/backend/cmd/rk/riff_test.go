@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -400,7 +401,7 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 		want := "stub-launcher --effort xhigh"
 		dir := stubFab(t, "#!/bin/sh\nprintf '%s\\n' '"+want+"'\n")
 		t.Setenv("PATH", dir)
-		if got := resolveLauncher(); got != want {
+		if got := resolveLauncher(context.Background()); got != want {
 			t.Errorf("resolveLauncher() = %q, want %q", got, want)
 		}
 	})
@@ -408,7 +409,7 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 	t.Run("stub fab exits non-zero falls back", func(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\necho boom >&2\nexit 1\n")
 		t.Setenv("PATH", dir)
-		if got := resolveLauncher(); got != defaultLauncher {
+		if got := resolveLauncher(context.Background()); got != defaultLauncher {
 			t.Errorf("resolveLauncher() = %q, want %q (fallback)", got, defaultLauncher)
 		}
 	})
@@ -416,7 +417,7 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 	t.Run("fab absent from PATH falls back", func(t *testing.T) {
 		// An empty temp dir on PATH — no `fab` executable present.
 		t.Setenv("PATH", t.TempDir())
-		if got := resolveLauncher(); got != defaultLauncher {
+		if got := resolveLauncher(context.Background()); got != defaultLauncher {
 			t.Errorf("resolveLauncher() = %q, want %q (fallback)", got, defaultLauncher)
 		}
 	})

@@ -106,32 +106,36 @@ shows scrambled text.
    window, and assert `.rk-glint` is still attached.
 4. In the reduced-motion context, click the heading and assert the inline input
    value equals the real window name (no scrambled text leaks into edit).
+5. Still in the reduced context, hover a sidebar section label and wait longer
+   than one full sweep (~450ms): assert no `.rk-typed-cursor` cell appears and
+   the label never gains `rk-typed-done` — the typed sweep is JS-gated on the
+   same media query, and the rest state IS the reduced-motion state.
 
-### `section-label caret (rk-label-caret) actually appears on hover`
+### `section labels type themselves out on hover (typed sweep)`
 
 *(Lives in the separate "animated path" describe block, which opts back into
 motion via `test.use({ contextOptions: { reducedMotion: "no-preference" } })` —
-under the config's global reduce emulation the vocabulary correctly hides the
-caret, so this paint assertion needs real motion.)*
+under the config's global reduce emulation the typed sweep never starts, so
+asserting it needs real motion.)*
 
-**What it proves:** The shared caret-only treatment (`rk-label-caret`) actually
-renders its `▊` caret (accent-green) on hover, not just carries the class. This is a
-behavioral guard against the shipped no-op where `.rk-label-caret::after` had
-`width: 0; overflow: hidden`, which clipped the glyph entirely so it never
-became visible — a bug that class-presence and `opacity` checks alone did not
-catch (opacity read `1` even while the glyph was clipped).
+**What it proves:** The shared section-label treatment (`TypedLabel`,
+`.rk-typed-label`) actually runs its invisible-hand typing sweep on hover: the
+label fades, an inverse-video cursor (accent-green cell OVER the character)
+sweeps from the first cell brightening characters as it passes, the label lands
+bright (`rk-typed-done`) with its text intact, and unhover restores the rest
+state. All assertions are DOM-observable frame states — no pixel diffs
+(honoring the "NO pixel assertions" e2e constraint).
 
 **Steps:**
-1. Create + navigate to a window; locate the sidebar `SESSIONS` heading (it
-   carries `rk-label-caret`) and confirm it is visible.
-2. Read the `::after` computed style at rest: assert `opacity` is `0` and the
-   `content` contains the `▊` glyph (caret present, not removed).
-3. Hover the label; wait into the visible half of the blink; assert `::after`
-   `opacity` is `1`.
-4. Assert `::after` `overflow` is NOT `hidden` — a DOM-observable, non-pixel
-   discriminator (no screenshot diff, honoring the "NO pixel assertions" e2e
-   constraint). This catches the shipped no-op directly at its root cause:
-   under `width: 0; overflow: hidden` the glyph was clipped inside the 0-width
-   box and never painted, so `overflow` read `hidden` (opacity alone read `1`
-   in the buggy version, so it would not have caught it); the fix removed
-   `overflow: hidden`, so it reads the default `visible`.
+1. Create + navigate to a window; locate the sidebar `Sessions` heading (a
+   `TypedLabel`, class `rk-typed-label`) and confirm it is visible with its
+   text and no `rk-typed-done` class at rest.
+2. Hover the label: assert an `.rk-typed-cursor` cell attaches (the sweep
+   started — the cursor renders synchronously on the first character, and the
+   ~350ms pass outlasts Playwright's first assertion poll, so this is
+   race-free).
+3. Assert the label gains `rk-typed-done` (the pass completed), the cursor
+   cell is gone (frame spans collapse back to plain text), and the text is
+   fully intact.
+4. Move the mouse away: assert `rk-typed-done` is removed and the text is
+   unchanged (rest state restored).

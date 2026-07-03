@@ -9,6 +9,7 @@ import { useToast } from "@/components/toast";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
+import { prefersReducedMotion } from "@/lib/motion";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -421,16 +422,6 @@ const DECODE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234
 
 function randomGlyph(): string {
   return DECODE_GLYPHS[Math.floor(Math.random() * DECODE_GLYPHS.length)];
-}
-
-function prefersReducedMotion(): boolean {
-  // This only runs from browser event handlers / effects (never SSR), so
-  // `window` is always defined here — but jsdom lacks matchMedia, so keep the
-  // capability guard for the unit-test environment.
-  return (
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
 }
 
 /**

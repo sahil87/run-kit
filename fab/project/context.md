@@ -53,7 +53,7 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 - State derived from tmux + filesystem at request time — no database, no in-memory caches
 - All Go subprocess calls use `exec.CommandContext` with timeouts — never shell strings
 - Three-mode theme (system/light/dark), monospace everywhere
-- Hover-animation vocabulary: one treatment per element category — glitch=brand, decode=window heading, brackets+caret=page titles, caret-only=section labels, CRT glint=buttons — animated elements turn accent-green; `rk-*` utility classes in `globals.css`, all disabled under `prefers-reduced-motion`
+- Hover-animation vocabulary: one treatment per element category — glitch=brand, decode=window heading, brackets+caret=page titles, typed-sweep=section labels (TypedLabel — an inverse-video cursor types the label out in ~350ms), CRT glint=buttons — animated elements turn accent-green; `rk-*` utility classes in `globals.css`, all disabled under `prefers-reduced-motion`
 - Keyboard-first — command palette (`Cmd+K`) is primary discovery mechanism
 - SSE for real-time session state, WebSocket for terminal I/O
 - Dev workflow: `just dev` (runs Go backend with air live-reload + Vite dev server concurrently)

@@ -228,65 +228,78 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     await expect(
       reducedPage.getByRole("textbox", { name: "Window name" }),
     ).toHaveValue(name);
+
+    // The typed-label sweep is JS-gated on the same media query: hovering a
+    // section label in the reduced context must never start a sweep (no
+    // cursor cell, no bright done state) — the rest state IS the reduced
+    // state.
+    const reducedLabel = reducedPage
+      .locator("nav[aria-label='Sessions'] .rk-typed-label", {
+        hasText: /^Sessions$/,
+      })
+      .first();
+    await reducedLabel.hover();
+    await reducedPage.waitForTimeout(450); // longer than one full ~350ms pass
+    await expect(reducedLabel.locator(".rk-typed-cursor")).not.toBeAttached();
+    await expect(reducedLabel).not.toHaveClass(/rk-typed-done/);
+
     await reducedCtx.close();
   });
 });
 
 /**
  * Animated-path block. `playwright.config.ts` emulates `reducedMotion:
- * "reduce"` globally (window-switch transition stabilization) and the hover
- * vocabulary honors that gate by hiding the caret entirely — so the paint
- * assertion below needs real motion. Opt back in per the convention
+ * "reduce"` globally (window-switch transition stabilization) and the
+ * typed-label sweep honors that gate by never starting — so asserting the
+ * sweep needs real motion. Opt back in per the convention
  * `window-switch-transition.spec.ts` documents: `contextOptions` is the only
  * seam that reaches the browser context in this Playwright version.
  */
 test.describe("Window heading — animated path (motion opted back in)", () => {
   test.use({ contextOptions: { reducedMotion: "no-preference" } });
 
-  test("section-label caret (rk-label-caret) actually appears on hover", async ({
+  test("section labels type themselves out on hover (typed sweep)", async ({
     page,
   }) => {
-    const name = `head-caret-${Date.now()}`;
+    const name = `head-typed-${Date.now()}`;
     execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
       stdio: "ignore",
     });
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
-    // The sidebar "SESSIONS" heading carries the shared caret-only treatment.
-    // This regression guard would have caught the shipped no-op where
-    // `.rk-label-caret::after` had `width: 0; overflow: hidden`, clipping the
-    // ▊ glyph entirely so it never became visible on hover.
+    // The sidebar "Sessions" heading carries the shared typed-sweep treatment
+    // (TypedLabel). All assertions are DOM-observable (no pixel diffs, per the
+    // PR's "NO pixel assertions" e2e constraint): the sweep manifests as real
+    // frame-state spans and a terminal `rk-typed-done` class.
+    // The sidebar nav holds several TypedLabels (panel titles like "Boards"
+    // render before the region heading), so pin the target by its exact text.
     const label = page
-      .locator("nav[aria-label='Sessions'] .rk-label-caret")
+      .locator("nav[aria-label='Sessions'] .rk-typed-label", {
+        hasText: /^Sessions$/,
+      })
       .first();
     await expect(label).toBeVisible({ timeout: 10_000 });
+    await expect(label).toHaveText("Sessions");
+    await expect(label).not.toHaveClass(/rk-typed-done/);
 
-    const afterStyle = (el: Element) => {
-      const s = getComputedStyle(el, "::after");
-      return { opacity: s.opacity, content: s.content, overflow: s.overflow };
-    };
-
-    // At rest the caret is transparent.
-    const rest = await label.evaluate(afterStyle);
-    expect(rest.opacity).toBe("0");
-    // The ▊ glyph is present (not `none` / removed).
-    expect(rest.content).toContain("▊");
-
-    // On hover the caret turns opaque AND is unclipped, so the glyph actually
-    // PAINTS. Opacity alone does NOT catch the original bug (opacity was `1`
-    // there too — the glyph was just clipped). The bug's exact signature was
-    // `width: 0; overflow: hidden` on the pseudo-element, which clipped the
-    // ▊ inside its 0-width box. The fix removed `overflow: hidden` so the glyph
-    // overflows the box and paints. Assert the pseudo-element is NOT clipped —
-    // a DOM-observable, non-pixel discriminator (no flaky screenshot diff, per
-    // the PR's "NO pixel assertions" e2e constraint): under the no-op it reads
-    // `hidden`; on the fix it reads the default (`visible`).
+    // Hover starts the sweep: an inverse-video cursor cell appears
+    // synchronously on the first character (the ~350ms pass is longer than
+    // Playwright's first assertion poll, so this is race-free).
     await label.hover();
-    // Land inside the caret's visible half of the 1.06s steps(1) blink.
-    await page.waitForTimeout(60);
-    const hoverStyle = await label.evaluate(afterStyle);
-    expect(hoverStyle.opacity).toBe("1");
-    expect(hoverStyle.overflow).not.toBe("hidden");
+    await expect(label.locator(".rk-typed-cursor")).toBeAttached({
+      timeout: 2_000,
+    });
+
+    // The pass completes: frame spans collapse back to plain text, held
+    // bright via rk-typed-done, with the label text fully intact.
+    await expect(label).toHaveClass(/rk-typed-done/, { timeout: 2_000 });
+    await expect(label.locator(".rk-typed-cursor")).not.toBeAttached();
+    await expect(label).toHaveText("Sessions");
+
+    // Unhover resets to the rest state.
+    await page.mouse.move(0, 0);
+    await expect(label).not.toHaveClass(/rk-typed-done/);
+    await expect(label).toHaveText("Sessions");
   });
 });

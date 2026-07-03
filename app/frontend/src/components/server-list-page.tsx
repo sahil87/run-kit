@@ -9,6 +9,7 @@ import { HostMetrics } from "@/components/host-metrics";
 import { PageHeading } from "@/components/page-heading";
 import { useBoards } from "@/hooks/use-boards";
 import { TopBar } from "@/components/top-bar";
+import { TypedLabel } from "@/components/typed-label";
 
 export function ServerListPage() {
   // Read the server list from SessionContext — the SAME source the AppShell
@@ -201,8 +202,8 @@ export function ServerListPage() {
           {/* Heading row idiom (shared with TMUX SERVERS): `gap-3` between the
               uppercase heading and its side-text; side-text is secondary mono. */}
           <div className="flex items-center gap-3 mb-2">
-            <h2 className="rk-label-caret text-xs uppercase tracking-wide text-text-secondary">
-              Host Health
+            <h2 className="text-xs uppercase tracking-wide text-text-secondary">
+              <TypedLabel text="Host Health" />
             </h2>
             {hostMetrics && (
               <span className="text-xs text-text-secondary font-mono truncate">
@@ -226,8 +227,8 @@ export function ServerListPage() {
             with the first/last board. */}
         <section aria-label="Boards" className="mb-6">
           <div className="flex items-center gap-3 mb-2">
-            <h2 className="rk-label-caret text-xs uppercase tracking-wide text-text-secondary">
-              Boards
+            <h2 className="text-xs uppercase tracking-wide text-text-secondary">
+              <TypedLabel text="Boards" />
             </h2>
             <span className="text-xs text-text-secondary font-mono">
               {boardsLoading
@@ -264,8 +265,8 @@ export function ServerListPage() {
         {/* TMUX SERVERS zone (zone 2) — the tmux-server tile grid. */}
         <section aria-label="Tmux servers" className="mb-6">
           <div className="flex items-center gap-3 mb-2">
-            <h2 className="rk-label-caret text-xs uppercase tracking-wide text-text-secondary">
-              Tmux Servers
+            <h2 className="text-xs uppercase tracking-wide text-text-secondary">
+              <TypedLabel text="Tmux Servers" />
             </h2>
             <span className="text-xs text-text-secondary font-mono">
               {!serversLoaded
@@ -324,8 +325,8 @@ export function ServerListPage() {
             that port's UI in an @rk_type=iframe tmux window via the /proxy/{port}/
             proxy. Placed last, after the tmux-server tiles. */}
         <section aria-label="Services" className="mb-6 max-w-md">
-          <h2 className="rk-label-caret text-xs uppercase tracking-wide text-text-secondary mb-2">
-            Services
+          <h2 className="text-xs uppercase tracking-wide text-text-secondary mb-2">
+            <TypedLabel text="Services" />
           </h2>
           {hostServices.length === 0 ? (
             <div className="text-xs text-text-secondary">No services</div>

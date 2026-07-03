@@ -19,12 +19,25 @@ const probeTimeout = 750 * time.Millisecond
 // ports then cost ~one timeout instead of N sequential timeouts.
 const probeConcurrency = 10
 
+// probeTransport is the transport for the default probe. It clones the stdlib
+// default transport (retaining its tuned dial/keepalive defaults) but disables
+// proxy use: these probes target 127.0.0.1 only, and routing loopback requests
+// through an HTTP_PROXY/HTTPS_PROXY (which http.DefaultTransport honors unless
+// NO_PROXY covers loopback) would leak local port metadata and yield incorrect
+// verdicts. A nil Proxy makes every probe a direct connection.
+var probeTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	return t
+}()
+
 // probeClient is the shared client used by the default probe. It does NOT follow
 // redirects (a 3xx is itself a well-formed HTTP response that proves the listener
 // speaks HTTP) and applies the per-request timeout. Idle connections are not
 // pooled aggressively — each probe hits a distinct loopback port.
 var probeClient = &http.Client{
-	Timeout: probeTimeout,
+	Timeout:   probeTimeout,
+	Transport: probeTransport,
 	CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	},

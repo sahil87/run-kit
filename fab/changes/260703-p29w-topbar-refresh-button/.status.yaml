@@ -1,0 +1,57 @@
+id: p29w
+name: 260703-p29w-topbar-refresh-button
+created: 2026-07-03T10:02:22Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 7
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 6
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 69.4
+        reversibility: 91.7
+        competence: 87.2
+        disambiguation: 80.6
+stage_metrics:
+    intake: {started_at: "2026-07-03T10:02:22Z", driver: fab-new, iterations: 1, completed_at: "2026-07-03T10:07:19Z"}
+    apply: {started_at: "2026-07-03T10:55:53Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-03T11:02:26Z"}
+    review: {started_at: "2026-07-03T11:02:26Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-03T11:15:11Z"}
+    hydrate: {started_at: "2026-07-03T11:15:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T11:19:31Z"}
+    ship: {started_at: "2026-07-03T11:19:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T11:20:48Z"}
+    review-pr: {started_at: "2026-07-03T11:20:48Z", driver: git-pr, iterations: 1, completed_at: "2026-07-03T11:26:51Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/301
+change_type_source: explicit
+true_impact:
+    added: 839
+    deleted: 16
+    net: 823
+    excluding:
+        added: 477
+        deleted: 11
+        net: 466
+    tests:
+        added: 175
+        deleted: 0
+        net: 175
+    computed_at: "2026-07-03T11:20:48Z"
+    computed_at_stage: ship
+summary: 'Documented the top-bar full-page RefreshButton (terminal-only cluster group, after ClosePaneButton) and the dual-mounted ''View: Refresh Page'' palette action (AppShell viewActions + board boardRouteActions; Cockpit mounts no palette) in docs/memory/run-kit/ui-patterns.md'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-03T11:26:51Z

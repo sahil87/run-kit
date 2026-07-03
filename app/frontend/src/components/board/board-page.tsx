@@ -289,13 +289,15 @@ function BoardPageContent({ name }: { name: string }) {
   const { setSidebarOpen, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
 
   // Board-route-scoped command palette actions. Constitution V (Keyboard-First)
-  // requires the palette be reachable on every route — AppShell's palette is
-  // not mounted here (the board route does not render AppShell, see DD-8), so
+  // requires every action be keyboard-reachable — AppShell's palette is not
+  // mounted here (the board route does not render AppShell, see DD-8), so
   // BoardPage owns its own palette mount with the entries that are meaningful
   // on a board route: switch to other boards, leave the board view, cycle pane
-  // focus, and the global terminal-font controls (the board's panes are live
-  // terminals; the setting is global). Pin/Unpin Current Window are AppShell-only
-  // (no current window exists in single-window sense on a board route).
+  // focus, the global terminal-font controls (the board's panes are live
+  // terminals; the setting is global), and "View: Refresh Page" (duplicated
+  // from AppShell's viewActions — see refreshEntry below). Pin/Unpin Current
+  // Window are AppShell-only (no current window exists in single-window sense
+  // on a board route).
   const boardRouteActions: PaletteAction[] = useMemo(() => {
     const switchEntries: PaletteAction[] = boards.map((b) => ({
       id: `board-switch-${b.name}`,
@@ -318,6 +320,18 @@ function BoardPageContent({ name }: { name: string }) {
       { id: "terminal-font-reset", label: "Reset terminal font", onSelect: resetTerminalFont },
     ];
 
+    // Full-page reload — duplicated from AppShell's `viewActions` because the
+    // board route mounts its OWN palette (this one) and does NOT render AppShell
+    // (DD-8), so AppShell's "View: Refresh Page" is unreachable here. The board
+    // is the intake's core degraded-relay recovery scenario (N live relay
+    // WebSockets, no top-bar RefreshButton since `currentWindow` is null on a
+    // board route), so keyboard-reachable reload matters most here (DD-4).
+    const refreshEntry: PaletteAction = {
+      id: "refresh-page",
+      label: "View: Refresh Page",
+      onSelect: () => window.location.reload(),
+    };
+
     if (entries.length > 0) {
       conditional.push({
         id: "board-cycle-next",
@@ -335,7 +349,7 @@ function BoardPageContent({ name }: { name: string }) {
       });
     }
 
-    return [...switchEntries, ...conditional, ...fontEntries];
+    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry];
   }, [boards, name, entries.length, navigate, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.

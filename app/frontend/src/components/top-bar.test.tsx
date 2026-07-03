@@ -445,6 +445,111 @@ describe("TopBar", () => {
     expect(closePane).toHaveBeenCalledWith("runkit", "@0");
   });
 
+  describe("RefreshButton", () => {
+    // jsdom's window.location.reload is a non-configurable own property, so
+    // vi.spyOn(window.location, "reload") throws "Cannot redefine property".
+    // Instead replace window.location wholesale with a plain object exposing a
+    // mock reload. The original location is restored in afterEach.
+    let originalLocation: Location;
+    let reloadMock: ReturnType<typeof vi.fn>;
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      originalLocation = window.location;
+      reloadMock = vi.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: { ...originalLocation, reload: reloadMock },
+      });
+      // forceReload's cache-busting fetch; jsdom has no fetch, so stub it.
+      // (Safe alongside the suite's matchMedia stub: that one is re-stubbed in
+      // the outer beforeEach on every test, so unstubAllGlobals below cannot
+      // strand a later test without it.)
+      fetchMock = vi.fn(() => Promise.resolve());
+      vi.stubGlobal("fetch", fetchMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: originalLocation,
+      });
+    });
+
+    it("renders the refresh button when a window is selected", () => {
+      renderTopBar();
+      expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
+    });
+
+    it("does not render the refresh button on dashboard (no window)", () => {
+      renderTopBar({ currentWindow: null, windowName: "" });
+      expect(screen.queryByLabelText("Refresh page")).not.toBeInTheDocument();
+    });
+
+    it("has no disabled state and no spinner (synchronous, non-destructive action)", () => {
+      renderTopBar();
+      const btn = screen.getByLabelText("Refresh page");
+      expect(btn).not.toBeDisabled();
+      // No LogoSpinner (its viewBox is the tell used by the Split/Close tests).
+      expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
+    });
+
+    // The stub also sees unrelated app fetches (e.g. ThemeProvider's
+    // /api/settings/theme on mount), so assertions filter to forceReload's
+    // signature call — second arg { cache: "reload" } — not total counts.
+    const forceCalls = () =>
+      fetchMock.mock.calls.filter((c) => c[1]?.cache === "reload");
+
+    it("calls window.location.reload() when clicked (no cache-busting fetch)", () => {
+      renderTopBar();
+      fireEvent.click(screen.getByLabelText("Refresh page"));
+      expect(reloadMock).toHaveBeenCalledTimes(1);
+      expect(forceCalls()).toHaveLength(0);
+    });
+
+    it("Shift+click force-reloads: cache-busting fetch settles, then reload", async () => {
+      renderTopBar();
+      fireEvent.click(screen.getByLabelText("Refresh page"), { shiftKey: true });
+      expect(forceCalls()).toHaveLength(1);
+      // The reload rides the fetch promise's .finally — not yet fired…
+      expect(reloadMock).not.toHaveBeenCalled();
+      await act(async () => {});
+      expect(reloadMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("Shift+click still reloads when the cache-busting fetch rejects", async () => {
+      fetchMock.mockReturnValueOnce(Promise.reject(new Error("offline")));
+      renderTopBar();
+      fireEvent.click(screen.getByLabelText("Refresh page"), { shiftKey: true });
+      await act(async () => {});
+      expect(reloadMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("Shift+click still reloads when the fetch hangs (timeout wins the race)", async () => {
+      // A stalled socket: the fetch promise never resolves nor rejects. The
+      // reload must still fire — via forceReload's timeout branch — exactly
+      // once, honoring the "never blocked by a failing network" contract.
+      vi.useFakeTimers();
+      try {
+        fetchMock.mockReturnValueOnce(new Promise(() => {})); // never settles
+        renderTopBar();
+        fireEvent.click(screen.getByLabelText("Refresh page"), {
+          shiftKey: true,
+        });
+        expect(reloadMock).not.toHaveBeenCalled();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3000);
+        });
+        expect(reloadMock).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it("renders SplitButton (vertical and horizontal) when window is selected", () => {
     renderTopBar();
     expect(screen.getByLabelText("Split vertically")).toBeInTheDocument();

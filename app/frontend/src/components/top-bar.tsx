@@ -326,6 +326,9 @@ export function TopBar({
                   windowId={currentWindow.windowId}
                 />
               </span>
+              <span className="hidden sm:flex">
+                <RefreshButton />
+              </span>
             </>
           )}
 
@@ -626,6 +629,76 @@ function ClosePaneButton({
           <line x1="6" y1="6" x2="18" y2="18" />
         </svg>
       )}
+    </button>
+  );
+}
+
+/**
+ * Best-effort hard reload, Chrome Shift+reload style: a `cache: "reload"`
+ * fetch of the current document forces a network round-trip that overwrites
+ * the HTTP cache entry, so the follow-up `location.reload()` serves the fresh
+ * copy (hashed Vite assets self-bust; the document is the only cacheable
+ * stale-able resource). `location.reload(true)` is not an option — the
+ * forceGet flag is dead in modern browsers. Reloads regardless of fetch
+ * outcome: a force-refresh must never be blocked by a failing network — so the
+ * fetch races a short timeout (`fetch` can hang indefinitely on a stalled
+ * socket that never resolves *or* rejects, and `.catch` alone would not cover
+ * that), and `reload()` fires exactly once whichever settles first.
+ */
+export function forceReload() {
+  const FORCE_RELOAD_TIMEOUT_MS = 3000;
+  let timer: ReturnType<typeof setTimeout>;
+  Promise.race([
+    fetch(window.location.href, { cache: "reload" }).catch(() => {}),
+    new Promise((resolve) => {
+      timer = setTimeout(resolve, FORCE_RELOAD_TIMEOUT_MS);
+    }),
+  ]).finally(() => {
+    clearTimeout(timer);
+    window.location.reload();
+  });
+}
+
+/**
+ * Full-page refresh button — a plain `window.location.reload()` recovery
+ * affordance in the top-bar cluster, next to ClosePaneButton. Shift+click
+ * force-reloads (bypasses the HTTP cache via `forceReload`), mirroring
+ * Chrome's Shift+reload. Unlike Split / Close there is NO async action to
+ * await (the page unloads synchronously), so it deliberately carries no
+ * `useOptimisticAction`/`isPending`/`LogoSpinner` and no `disabled` state — a
+ * spinner would never meaningfully render. The reload is non-destructive by
+ * design (constitution II/VI: state re-derives on load; tmux is unaffected),
+ * so no confirmation dialog either. The same action is also reachable from
+ * the command palette as "View: Refresh Page" — in AppShell's palette
+ * (app.tsx `viewActions`) and, duplicated, in the board route's own palette
+ * (board-page.tsx `refreshEntry`); the Cockpit `/` mounts no palette — a
+ * pre-existing, out-of-scope limitation (mounting one to add this entry would
+ * grow UI surface against constitution IV, Minimal Surface Area).
+ */
+function RefreshButton() {
+  return (
+    <button
+      type="button"
+      onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
+      aria-label="Refresh page"
+      title="Refresh page (Shift+click: force reload)"
+      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {/* lucide rotate-cw: circular arrow with a top-right arrowhead */}
+        <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+        <path d="M21 3v5h-5" />
+      </svg>
     </button>
   );
 }

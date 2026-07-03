@@ -1022,6 +1022,18 @@ function AppShell() {
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
+      // Ungated within viewActions — a full-page reload is meaningful on every
+      // AppShell route (Server Cabin `/$server`, Terminal `/$server/$window`),
+      // unlike the top-bar RefreshButton which lives in the terminal-only
+      // cluster. Reachable via THIS palette (AppShell's); the board route mounts
+      // its own palette and carries a duplicate entry (board-page.tsx
+      // `refreshEntry`), while the Cockpit `/` mounts no palette at all. A
+      // keyboard-reachable recovery affordance (constitution V).
+      {
+        id: "refresh-page",
+        label: "View: Refresh Page",
+        onSelect: () => window.location.reload(),
+      },
     ],
     [sessionName, fixedWidth, toggleFixedWidth],
   );

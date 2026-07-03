@@ -53,6 +53,7 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 - State derived from tmux + filesystem at request time — no database, no in-memory caches
 - All Go subprocess calls use `exec.CommandContext` with timeouts — never shell strings
 - Three-mode theme (system/light/dark), monospace everywhere
+- Hover-animation vocabulary: one treatment per element category — glitch=brand, decode=window heading, brackets+caret=page titles, caret-only=section labels, CRT glint=buttons — animated elements turn accent-green; `rk-*` utility classes in `globals.css`, all disabled under `prefers-reduced-motion`
 - Keyboard-first — command palette (`Cmd+K`) is primary discovery mechanism
 - SSE for real-time session state, WebSocket for terminal I/O
 - Dev workflow: `just dev` (runs Go backend with air live-reload + Vite dev server concurrently)
@@ -87,9 +88,9 @@ Never run `npx playwright test` directly — always use `just test-e2e` or `just
 ## Mobile Responsive Design
 
 - Touch targets use the `coarse:` custom Tailwind variant (`@media (pointer: coarse)`) for touch devices
-- Touch targets: `coarse:min-h-[36px] coarse:min-w-[28px]` (taller than wide, not square) for bottom bar buttons; `coarse:30px` square for top-bar button controls (24px on fine pointers), applied uniformly across the whole right-side cluster — splits, close, Aa, bell, theme, fixed-width — so they don't diverge in size on touch devices
+- Touch targets: `coarse:min-h-[36px] coarse:min-w-[28px]` (taller than wide, not square) for bottom bar buttons; `coarse:30px` square for top-bar button controls (24px on fine pointers), applied uniformly across the whole right-side cluster — splits, close, refresh, Aa, bell, theme, fixed-width — so they don't diverge in size on touch devices. The centered window heading also carries `coarse:min-h-[30px]` (it is the mobile leaf and the primary rename affordance there)
 - Bottom bar toolbar fits all buttons in a single row at 375px — no wrapping, no horizontal scroll
-- Top bar is a single line: breadcrumbs + connection status + FixedWidthToggle + command palette trigger. Session/window creation actions live in breadcrumb dropdown `+ New` items
+- Top bar is a single-line 3-column grid (`grid-cols-[1fr_auto_1fr]`): breadcrumbs ending at the session crumb (left) · centered editable window heading + bare-`▾` window switcher on terminal routes (center) · button cluster + connection dot (right). Session creation lives in the session crumb's `+ New Session`, window creation in the `▾` switcher's `+ New Window`. Window rename is the heading itself — click for inline edit (Enter/blur commit, Escape cancels) or the palette's `Window: Rename`; there is no rename dialog
 - Mobile sidebar drawer is `absolute` inside the main area (not `fixed inset-0`) so the top bar stays visible and the logo toggle can close the drawer
 - The `.app-shell` and terminal column have `overflow: hidden` to prevent horizontal page overflow from xterm.js canvas
 - Terminal font: device default is 11px on mobile / 13px on desktop, set in JS via xterm `options.fontSize` (no CSS media query). Users can override via the terminal-font control (`ChromeContext.terminalFontSize`, persisted to `runkit-terminal-font-size`); the device default applies only when no preference is stored. The mobile/desktop split uses the shared narrow-width-OR-coarse-pointer rule (`isMobileViewport()`), not a width-only query

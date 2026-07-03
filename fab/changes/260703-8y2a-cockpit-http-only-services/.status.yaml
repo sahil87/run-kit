@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 6
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-03T09:24:33Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-03T09:28:46Z"}
     review: {started_at: "2026-07-03T09:28:46Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-03T09:37:39Z"}
     hydrate: {started_at: "2026-07-03T09:37:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T09:41:55Z"}
-    ship: {started_at: "2026-07-03T09:41:55Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-03T09:41:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T09:43:17Z"}
+    review-pr: {started_at: "2026-07-03T09:43:17Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/299
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 880
+    deleted: 84
+    net: 796
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 532
+        deleted: 75
+        net: 457
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-03T09:41:55Z"
-    computed_at_stage: hydrate
+        added: 323
+        deleted: 1
+        net: 322
+    computed_at: "2026-07-03T09:43:17Z"
+    computed_at_stage: ship
 summary: 'Cockpit SERVICES zone is now probe-backed: internal/ports collector HTTP-probes each listening port (GET http://127.0.0.1:{port}/, 750ms, redirects unfollowed, any well-formed response counts) via a probePort package-var seam under a 10s per-port TTL cache + cap-10 semaphore pool; snapshot filtered to HTTP-only, NewCollector seeds empty; frontend NON_HTTP_PORTS/isLikelyHttpPort denylist deleted, Open-in-window gated only on server existence'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-03T09:41:55Z
+last_updated: 2026-07-03T09:43:17Z

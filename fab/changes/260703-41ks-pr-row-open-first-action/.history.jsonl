@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-03T09:13:08Z"}
+{"args":"Pane panel pr row: default action becomes open (row body = real anchor to prUrl, inline always-visible ↗ after text); copy role-swaps to a hover-revealed right-side icon keeping copied-feedback; no-URL fallback stays CopyableRow","cmd":"fab-new","event":"command","ts":"2026-07-03T09:13:08Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-07-03T09:14:34Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-03T09:15:34Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-03T09:17:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-03T09:17:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-03T09:28:51Z"}
+{"event":"review","result":"failed","ts":"2026-07-03T09:45:36Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-03T09:45:36Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-03T09:59:39Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-03T10:01:48Z"}
+{"event":"review","result":"failed","ts":"2026-07-03T10:14:31Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-03T10:14:31Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-03T10:15:50Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-03T10:20:12Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-03T10:21:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-03T10:29:47Z"}
+{"event":"review","result":"passed","ts":"2026-07-03T10:29:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-03T10:32:49Z"}

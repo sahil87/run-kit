@@ -445,6 +445,57 @@ describe("TopBar", () => {
     expect(closePane).toHaveBeenCalledWith("runkit", "@0");
   });
 
+  describe("RefreshButton", () => {
+    // jsdom's window.location.reload is not directly spyable, so replace
+    // window.location with a plain object exposing a mock reload. The original
+    // location is restored in afterEach by re-defining the property with the
+    // saved descriptor value (the explicit restore below does all the work).
+    let originalLocation: Location;
+    let reloadMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      originalLocation = window.location;
+      reloadMock = vi.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: { ...originalLocation, reload: reloadMock },
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: originalLocation,
+      });
+    });
+
+    it("renders the refresh button when a window is selected", () => {
+      renderTopBar();
+      expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
+    });
+
+    it("does not render the refresh button on dashboard (no window)", () => {
+      renderTopBar({ currentWindow: null, windowName: "" });
+      expect(screen.queryByLabelText("Refresh page")).not.toBeInTheDocument();
+    });
+
+    it("has no disabled state and no spinner (synchronous, non-destructive action)", () => {
+      renderTopBar();
+      const btn = screen.getByLabelText("Refresh page");
+      expect(btn).not.toBeDisabled();
+      // No LogoSpinner (its viewBox is the tell used by the Split/Close tests).
+      expect(btn.querySelector("svg[viewBox='7 10 50 44']")).toBeFalsy();
+    });
+
+    it("calls window.location.reload() when clicked", () => {
+      renderTopBar();
+      fireEvent.click(screen.getByLabelText("Refresh page"));
+      expect(reloadMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("renders SplitButton (vertical and horizontal) when window is selected", () => {
     renderTopBar();
     expect(screen.getByLabelText("Split vertically")).toBeInTheDocument();

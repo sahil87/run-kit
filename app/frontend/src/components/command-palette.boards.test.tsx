@@ -3,11 +3,27 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "./command-palette";
 
 /**
- * Tests for the `Board:` palette entries — covers the conditional visibility
- * rules and selection actions defined in `app.tsx`'s `boardActions` block.
+ * Tests for the board-related palette entries — covers conditional visibility
+ * rules and selection actions. The `buildBoardActions` helper below is a hand-
+ * written mirror that draws from TWO distinct production sources, not one:
+ *   - `boardRouteActions` in `components/board/board-page.tsx` — the palette the
+ *     board route mounts (it does not render AppShell — DD-8). Source of the
+ *     Switch/Leave/Cycle entries and the unconditional "View: Refresh Page"
+ *     entry (R4).
+ *   - `boardActions` in `app.tsx` — the AppShell-mounted palette's board block.
+ *     Source of the Pin/Unpin Current Window entries (gated on
+ *     `hasCurrentWindow`/`isCurrentWindowPinned`), which do NOT exist in
+ *     `boardRouteActions`, and of the "hides Leave/Cycle when not on a board
+ *     route" rule (`boardRouteActions` renders Leave unconditionally).
  *
- * The action-construction logic mirrored here is intentionally kept in sync
- * with `app.tsx` so the test catches drift if either side changes the rules.
+ * The mirror is deliberately partial and does NOT reproduce production 1:1: it
+ * omits `boardRouteActions`' `fontEntries` (terminal-font trio) and positions
+ * `refreshEntry` right after `conditional` rather than after `fontEntries` as
+ * production does. It also never executes either production `onSelect` (the
+ * mirror wires its own stubs). So these tests verify the entry-shape and
+ * visibility RULES the mirror reproduces — not full parity, and not the
+ * production selection wiring; treat them as rule checks, not a drift alarm for
+ * the parts left out.
  */
 
 function openPalette() {
@@ -26,6 +42,7 @@ interface BuildOpts {
   onLeaveBoardView?: () => void;
   onCycleNext?: () => void;
   onCyclePrev?: () => void;
+  onRefresh?: () => void;
 }
 
 function buildBoardActions(opts: BuildOpts): PaletteAction[] {
@@ -71,7 +88,16 @@ function buildBoardActions(opts: BuildOpts): PaletteAction[] {
     });
   }
 
-  return [...switchEntries, ...conditional];
+  // Always-present in boardRouteActions (unconditional refreshEntry) — the board
+  // route mounts its own palette, so the AppShell "View: Refresh Page" entry is
+  // unreachable here and is duplicated in (R4).
+  const refreshEntry: PaletteAction = {
+    id: "refresh-page",
+    label: "View: Refresh Page",
+    onSelect: () => opts.onRefresh?.(),
+  };
+
+  return [...switchEntries, ...conditional, refreshEntry];
 }
 
 describe("CmdK Board Actions", () => {
@@ -183,5 +209,30 @@ describe("CmdK Board Actions", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
     expect(screen.queryByText(/Board: Reorder Pane/)).not.toBeInTheDocument();
+  });
+
+  it("always renders the 'View: Refresh Page' entry (R4)", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      isOnBoardRoute: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("View: Refresh Page")).toBeInTheDocument();
+  });
+
+  it("invokes reload when 'View: Refresh Page' is selected (R4)", () => {
+    const onRefresh = vi.fn();
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      isOnBoardRoute: true,
+      onRefresh,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Refresh Page" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onRefresh).toHaveBeenCalledOnce();
   });
 });

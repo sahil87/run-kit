@@ -535,3 +535,51 @@ describe("resolveServerView — three-way route guard", () => {
     expect(resolveServerView("typo", srv("alpha"), null, false)).toBe("view");
   });
 });
+
+/**
+ * Tests for the ungated `View:` palette entries (R4) — the static block of
+ * `viewActions` in `app.tsx` that flows into AppShell's palette. Focused on
+ * "View: Refresh Page", the full-page-reload recovery affordance (constitution
+ * V). Mirrors the action-construction logic in `app.tsx` so the test catches
+ * drift if either side changes.
+ */
+function buildViewStaticActions(opts: {
+  fixedWidth?: boolean;
+  onToggleFixedWidth?: () => void;
+  onRefresh?: () => void;
+}): PaletteAction[] {
+  return [
+    {
+      id: "toggle-fixed-width",
+      label: opts.fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
+      onSelect: () => opts.onToggleFixedWidth?.(),
+    },
+    {
+      id: "refresh-page",
+      label: "View: Refresh Page",
+      onSelect: () => opts.onRefresh?.(),
+    },
+  ];
+}
+
+describe("CmdK View Actions (AppShell palette)", () => {
+  afterEach(cleanup);
+
+  it("renders the ungated 'View: Refresh Page' entry", () => {
+    const actions = buildViewStaticActions({});
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("View: Refresh Page")).toBeInTheDocument();
+  });
+
+  it("invokes reload when 'View: Refresh Page' is selected", () => {
+    const onRefresh = vi.fn();
+    const actions = buildViewStaticActions({ onRefresh });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Refresh Page" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+});

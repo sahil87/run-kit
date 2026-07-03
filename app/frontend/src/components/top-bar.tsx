@@ -326,6 +326,9 @@ export function TopBar({
                   windowId={currentWindow.windowId}
                 />
               </span>
+              <span className="hidden sm:flex">
+                <RefreshButton />
+              </span>
             </>
           )}
 
@@ -626,6 +629,47 @@ function ClosePaneButton({
           <line x1="6" y1="6" x2="18" y2="18" />
         </svg>
       )}
+    </button>
+  );
+}
+
+/**
+ * Full-page refresh button — a plain `window.location.reload()` recovery
+ * affordance in the top-bar cluster, next to ClosePaneButton. Unlike Split /
+ * Close there is NO async action to await (the page unloads synchronously), so
+ * it deliberately carries no `useOptimisticAction`/`isPending`/`LogoSpinner`
+ * and no `disabled` state — a spinner would never meaningfully render. The
+ * reload is non-destructive by design (constitution II/VI: state re-derives on
+ * load; tmux is unaffected), so no confirmation dialog either. The same action
+ * is also reachable from the command palette as "View: Refresh Page" — in
+ * AppShell's palette (app.tsx `viewActions`) and, duplicated, in the board
+ * route's own palette (board-page.tsx `refreshEntry`); the Cockpit `/` mounts
+ * no palette (constitution V).
+ */
+function RefreshButton() {
+  return (
+    <button
+      type="button"
+      onClick={() => window.location.reload()}
+      aria-label="Refresh page"
+      title="Refresh page"
+      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {/* lucide rotate-cw: circular arrow with a top-right arrowhead */}
+        <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+        <path d="M21 3v5h-5" />
+      </svg>
     </button>
   );
 }

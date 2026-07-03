@@ -128,3 +128,88 @@ html.fullbleed .app-shell {
 .xterm .xterm-viewport {
   overscroll-behavior: none;
 }
+
+/* ── Window-switch slide transition (260703-l4nf) ──────────────────────────
+   A same-server window switch animates the terminal surface as a vertical
+   slide via the View Transitions API. `navigateToWindow` (app.tsx) wraps its
+   body in `document.startViewTransition` and sets
+   `:root[data-window-switch-direction]` to "up" | "down"; the terminal content
+   container carries `view-transition-name: terminal-surface`, so ONLY that
+   region slides. Pure `translateY` transforms — no layout property is
+   animated, so the terminal's ResizeObserver/fitAndSync never fires and tmux
+   sees no resize churn (hard constraint). Direction from the two windows'
+   positions in the flattened sidebar order:
+     "up"   → target sits below → new content enters from the bottom
+     "down" → target sits above → new content enters from the top
+   Progressive enhancement: browsers without View Transitions, and users with
+   `prefers-reduced-motion: reduce` (the wrapper short-circuits before ever
+   calling startViewTransition), get today's instant switch — these rules never
+   apply because no ::view-transition pseudo-elements are generated. */
+
+/* Disable the default cross-fade so only our transforms animate. */
+::view-transition-old(terminal-surface),
+::view-transition-new(terminal-surface) {
+  animation: none;
+}
+
+/* Swap the ROOT snapshot pair instantly. Without this the root pseudo-elements
+   run the UA default ~250ms cross-fade, which cross-fades the chrome that
+   changes across the nav (sidebar highlight, breadcrumb) instead of leaving it
+   static. `animation: none` makes the root snapshots swap instantly so ONLY the
+   180ms terminal-surface slide is visible. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+/* Neutralize the UA default GROUP animations so the 180ms terminal slide
+   governs the transition's LIFETIME, not just its visuals. Disabling only the
+   old/new snapshot cross-fades above does NOT shorten the transition: the UA
+   still runs a default ~250ms animation on every `::view-transition-group(*)`,
+   and those group animations keep the whole ::view-transition pseudo-tree — and
+   with it the snapshot that hit-tests to <html> (the pointer-dead window) and
+   the `transition.finished` promise — alive ~250-290ms past the slide
+   (probe-measured; cycle-2 review). Setting the group animations to `none`
+   collapses the transition's duration to the 180ms slide, so the pointer-dead
+   window and `finished` resolve on the slide's timeline. */
+::view-transition-group(root),
+::view-transition-group(terminal-surface) {
+  animation: none;
+}
+
+/* Clip the sliding snapshots to the terminal region. The UA stylesheet puts NO
+   clipping on the ::view-transition pseudo tree, so the translating old/new
+   snapshots would otherwise escape the `terminal-surface` group and paint over
+   the top bar, bottom bar, and sidebar mid-slide (probe-verified in headless
+   Chromium). `overflow: clip` on the image-pair confines the slide to the
+   captured terminal region — the hard "only the terminal region animates"
+   constraint. */
+::view-transition-image-pair(terminal-surface) {
+  overflow: clip;
+}
+
+@keyframes window-switch-old-up {
+  to { transform: translateY(-100%); }
+}
+@keyframes window-switch-new-up {
+  from { transform: translateY(100%); }
+}
+@keyframes window-switch-old-down {
+  to { transform: translateY(100%); }
+}
+@keyframes window-switch-new-down {
+  from { transform: translateY(-100%); }
+}
+
+:root[data-window-switch-direction="up"]::view-transition-old(terminal-surface) {
+  animation: window-switch-old-up 180ms ease-out both;
+}
+:root[data-window-switch-direction="up"]::view-transition-new(terminal-surface) {
+  animation: window-switch-new-up 180ms ease-out both;
+}
+:root[data-window-switch-direction="down"]::view-transition-old(terminal-surface) {
+  animation: window-switch-old-down 180ms ease-out both;
+}
+:root[data-window-switch-direction="down"]::view-transition-new(terminal-surface) {
+  animation: window-switch-new-down 180ms ease-out both;
+}

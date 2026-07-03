@@ -14,6 +14,7 @@ import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { deriveXtermTheme } from "@/themes";
 import { ComposeBuffer } from "@/components/compose-buffer";
 import { copyToClipboard } from "@/lib/clipboard";
+import { notifyFirstWrite } from "@/lib/window-transition";
 
 /**
  * Custom ClipboardProvider for the xterm.js ClipboardAddon.
@@ -823,6 +824,20 @@ export function TerminalClient({
 
       ws.onmessage = (event) => {
         if (cancelled) return;
+
+        // First inbound bytes of the incoming window RECEIVED — release any
+        // in-flight window-switch view-transition awaiting the incoming first
+        // paint (260703-l4nf). Fired here, at message-receipt time and BEFORE
+        // the write/coalesce decision, because `startViewTransition` suppresses
+        // rendering while its update callback runs and rAF callbacks DO NOT fire
+        // during that suppression — so a write-time release (the coalesced flush
+        // is rAF-only, and a redraw's first chunk far exceeds the immediate-write
+        // byte threshold) would be structurally unreleasable and every animated
+        // switch would eat the full timeout. `ws.onmessage` is a macrotask that
+        // runs during suppression, and the pending flush still paints these
+        // bytes at the first rendering opportunity — the same rendering update
+        // in which the new state is captured. No-op when no transition is armed.
+        notifyFirstWrite();
 
         if (typeof event.data === "string") {
           // Idle + small + first-this-frame → write now so an echo paints this

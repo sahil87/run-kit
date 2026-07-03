@@ -22,6 +22,17 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${port}`,
     trace: "on-first-retry",
+    // Emulate reduced motion so the window-switch slide transition
+    // (260703-l4nf) is disabled via its own progressive-enhancement fallback.
+    // Animations are a known Playwright flake source; the product honors
+    // `prefers-reduced-motion: reduce` by short-circuiting to an instant
+    // switch, so existing window-switch specs run against instant switches.
+    // `reducedMotion` is not a top-level `use` fixture in this Playwright
+    // version — it only reaches the browser context via `contextOptions`
+    // (spread into the context options at creation), so set it there. The one
+    // spec that exercises the animated path opts back in with
+    // `test.use({ contextOptions: { reducedMotion: "no-preference" } })`.
+    contextOptions: { reducedMotion: "reduce" },
   },
   projects: [
     {

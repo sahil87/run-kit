@@ -31,7 +31,7 @@ project:
 #     pipes the prompt to stdin, which gemini reads as the prompt in non-TTY mode.
 providers:
     claude:
-        session_command: claude --dangerously-skip-permissions --effort xhigh -n "$(basename "$(pwd)")"
+        session_command: claude --dangerously-skip-permissions --model {model} --effort {effort} -n "$(basename "$(pwd)")"
         # dispatch_command: 'claude -p --dangerously-skip-permissions --model {model} --effort {effort}'
     # codex:
     #     session_command: 'codex -m {model} -c model_reasoning_effort={effort}'

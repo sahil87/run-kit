@@ -1,0 +1,2 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-03T09:12:38Z"}
+{"args":"Delegate rk riff launcher resolution to fab agent --print — resolveLauncher reads dead agent.spawn_command key after fab-kit 2.13.3 schema migration (launcher now at providers.\u003cname\u003e.session_command), silently falling back to hardcoded default; replace fabconfig.ReadSpawnCommand with exec of fab agent --print","cmd":"fab-new","event":"command","ts":"2026-07-03T09:12:38Z"}

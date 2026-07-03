@@ -527,6 +527,27 @@ describe("TopBar", () => {
       await act(async () => {});
       expect(reloadMock).toHaveBeenCalledTimes(1);
     });
+
+    it("Shift+click still reloads when the fetch hangs (timeout wins the race)", async () => {
+      // A stalled socket: the fetch promise never resolves nor rejects. The
+      // reload must still fire — via forceReload's timeout branch — exactly
+      // once, honoring the "never blocked by a failing network" contract.
+      vi.useFakeTimers();
+      try {
+        fetchMock.mockReturnValueOnce(new Promise(() => {})); // never settles
+        renderTopBar();
+        fireEvent.click(screen.getByLabelText("Refresh page"), {
+          shiftKey: true,
+        });
+        expect(reloadMock).not.toHaveBeenCalled();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3000);
+        });
+        expect(reloadMock).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("renders SplitButton (vertical and horizontal) when window is selected", () => {

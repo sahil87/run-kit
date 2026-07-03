@@ -640,12 +640,23 @@ function ClosePaneButton({
  * copy (hashed Vite assets self-bust; the document is the only cacheable
  * stale-able resource). `location.reload(true)` is not an option — the
  * forceGet flag is dead in modern browsers. Reloads regardless of fetch
- * outcome: a force-refresh must never be blocked by a failing network.
+ * outcome: a force-refresh must never be blocked by a failing network — so the
+ * fetch races a short timeout (`fetch` can hang indefinitely on a stalled
+ * socket that never resolves *or* rejects, and `.catch` alone would not cover
+ * that), and `reload()` fires exactly once whichever settles first.
  */
 export function forceReload() {
-  fetch(window.location.href, { cache: "reload" })
-    .catch(() => {})
-    .finally(() => window.location.reload());
+  const FORCE_RELOAD_TIMEOUT_MS = 3000;
+  let timer: ReturnType<typeof setTimeout>;
+  Promise.race([
+    fetch(window.location.href, { cache: "reload" }).catch(() => {}),
+    new Promise((resolve) => {
+      timer = setTimeout(resolve, FORCE_RELOAD_TIMEOUT_MS);
+    }),
+  ]).finally(() => {
+    clearTimeout(timer);
+    window.location.reload();
+  });
 }
 
 /**
@@ -660,8 +671,9 @@ export function forceReload() {
  * so no confirmation dialog either. The same action is also reachable from
  * the command palette as "View: Refresh Page" — in AppShell's palette
  * (app.tsx `viewActions`) and, duplicated, in the board route's own palette
- * (board-page.tsx `refreshEntry`); the Cockpit `/` mounts no palette
- * (constitution V).
+ * (board-page.tsx `refreshEntry`); the Cockpit `/` mounts no palette — a
+ * pre-existing, out-of-scope limitation (mounting one to add this entry would
+ * grow UI surface against constitution IV, Minimal Surface Area).
  */
 function RefreshButton() {
   return (

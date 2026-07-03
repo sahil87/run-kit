@@ -446,10 +446,10 @@ describe("TopBar", () => {
   });
 
   describe("RefreshButton", () => {
-    // jsdom's window.location.reload is not directly spyable, so replace
-    // window.location with a plain object exposing a mock reload. The original
-    // location is restored in afterEach by re-defining the property with the
-    // saved descriptor value (the explicit restore below does all the work).
+    // jsdom's window.location.reload is a non-configurable own property, so
+    // vi.spyOn(window.location, "reload") throws "Cannot redefine property".
+    // Instead replace window.location wholesale with a plain object exposing a
+    // mock reload. The original location is restored in afterEach.
     let originalLocation: Location;
     let reloadMock: ReturnType<typeof vi.fn>;
 

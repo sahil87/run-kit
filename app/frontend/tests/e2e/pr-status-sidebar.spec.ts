@@ -50,9 +50,10 @@ const sessionsPayload = JSON.stringify([
 ]);
 
 // The Pane panel renders the *selected* window (URL `/$server/$window`), so the
-// tests navigate to the window route. `@` is percent-encoded in the path.
-const BOUND_WINDOW_URL = `/${SERVER}/%401`; // @1 — change-bound window with a PR
-const SCRATCH_WINDOW_URL = `/${SERVER}/%402`; // @2 — scratch window, no PR
+// tests navigate to the window route. The URL segment is the window id's numeric
+// part (`@N` sans `@`); parse restores `@N`.
+const BOUND_WINDOW_URL = `/${SERVER}/1`; // @1 — change-bound window with a PR
+const SCRATCH_WINDOW_URL = `/${SERVER}/2`; // @2 — scratch window, no PR
 
 /** Install routes that fully mock the server list and the SSE sessions stream. */
 async function mockBackend(page: Page) {

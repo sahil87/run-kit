@@ -97,11 +97,12 @@ test.describe("Session tiles density view", () => {
     // No live terminal (xterm canvas) is mounted in the tiles view.
     await expect(page.locator(".xterm")).toHaveCount(0);
 
-    // 5. Clicking the window tile navigates to the live terminal route.
+    // 5. Clicking the window tile navigates to the live terminal route. The URL
+    //    segment is the window id's numeric part (@N sans @).
     await windowTile.click();
     await expect(page).toHaveURL(
       new RegExp(
-        `/${TMUX_SERVER}/${escapeRegExp(encodeURIComponent(windowId))}(?:$|[/?#])`,
+        `/${TMUX_SERVER}/${escapeRegExp(windowId.slice(1))}(?:$|[/?#])`,
       ),
       { timeout: 10_000 },
     );

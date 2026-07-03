@@ -1,5 +1,10 @@
 # Archived Changes
 
+- **260703-w884-riff-launcher-fab-agent-print** — Delegate `rk riff` launcher resolution to `fab agent --print`
+- **260703-p29w-topbar-refresh-button** — Top-Bar Refresh Button
+- **260703-8y2a-cockpit-http-only-services** — Cockpit HTTP-Only Services
+- **260703-8mpy-numeric-window-url** — Numeric Window URL — Drop the `%40` from Terminal Route URLs
+- **260703-41ks-pr-row-open-first-action** — Pane-Panel PR Row Open-First Action
 - **260702-nuup-route-page-names** — Canonical Route Page Names
 - **260702-6m46-full-width-topbar-navbar** — Full-Width Topbar as Navbar
 - **260701-vshd-cockpit-host-console-home** — Cockpit Host-Console Home

@@ -3,6 +3,14 @@ import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { computeKillRedirect } from "@/lib/navigation";
+import {
+  windowSwitchDirection,
+  viewTransitionSupported,
+  shouldAnimateWindowSwitch,
+  beginWindowSwitchGate,
+  nextDirectionToken,
+  isLatestDirectionToken,
+} from "@/lib/window-transition";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
 import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
@@ -351,6 +359,20 @@ function AppShell() {
   // this is NOT the removed 3s wall-clock debounce).
   const pendingClickRef = useRef<{ windowId: string } | null>(null);
 
+  // Latest flattened window order + current window id, for the window-switch
+  // slide transition (260703-l4nf). Held in a ref (synced at render time,
+  // below) so `navigateToWindow` can read the current order WITHOUT taking
+  // `flatWindows`/`windowParam` as deps — those churn every SSE tick and would
+  // recreate the callback (and defeat the sidebar-handler memoization) each
+  // tick. `order` is the flattened window-id list (sidebar order); `iframeIds`
+  // marks which targets are iframe windows (the first-paint gate is
+  // terminal-only). Read only on a click, after render, so no TDZ concern.
+  const switchTransitionRef = useRef<{
+    order: string[];
+    iframeIds: Set<string>;
+    currentWindowId: string;
+  }>({ order: [], iframeIds: new Set(), currentWindowId: "" });
+
   useEffect(() => {
     setCurrentSession(currentSession);
     setCurrentWindow(currentWindow);
@@ -479,14 +501,111 @@ function AppShell() {
   // On mobile, close the overlay sidebar after a destination tap.
   const navigateToWindow = useCallback(
     (windowId: string) => {
-      pendingClickRef.current = { windowId };
-      navigate({
-        to: "/$server/$window",
-        params: { server, window: windowId },
-        replace: true,
+      // Today's instant switch — the byte-identical body wrapped (or not)
+      // below. Returns the `selectWindow` POST so the gated path can wait for
+      // tmux to be told to switch before it starts counting incoming writes.
+      const runSwitch = (): Promise<unknown> => {
+        pendingClickRef.current = { windowId };
+        navigate({
+          to: "/$server/$window",
+          params: { server, window: windowId },
+          replace: true,
+        });
+        const posted = selectWindow(server, windowId).catch(() => {});
+        if (isMobile) setSidebarOpen(false);
+        return posted;
+      };
+
+      // Window-switch slide transition (260703-l4nf). Gate on: View Transitions
+      // support, motion not reduced, an outgoing window in view, and a slide
+      // direction resolvable from the flattened sidebar order. Any failure →
+      // the instant switch above (progressive enhancement).
+      const { order, iframeIds, currentWindowId } = switchTransitionRef.current;
+      const direction = windowSwitchDirection(order, currentWindowId, windowId);
+      // Guard `matchMedia` for non-browser/test envs (jsdom variants, older
+      // WebViews) where it may be missing — same pattern as `use-is-mobile.ts`
+      // and `chrome-context.tsx`'s `isMobileViewport`.
+      const reducedMotion =
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const animate = shouldAnimateWindowSwitch({
+        hasVTSupport: viewTransitionSupported(),
+        reducedMotion,
+        hasOutgoingWindow: !!currentWindowId,
+        direction,
       });
-      selectWindow(server, windowId).catch(() => {});
-      if (isMobile) setSidebarOpen(false);
+
+      // Single narrowed guard: `shouldAnimateWindowSwitch` already returns false
+      // when `direction === null`, so `!animate` alone covers the fallback; the
+      // `!direction` half is the TypeScript narrowing that lets the assignment
+      // below treat `direction` as non-null.
+      if (!animate || !direction) {
+        runSwitch();
+        return;
+      }
+
+      // The new-state capture is gated on the incoming window's first paint,
+      // with a timeout (the polished variant). Terminal targets open the gate
+      // AFTER the selectWindow POST resolves — so a busy outgoing window's
+      // still-streaming bytes (a same-session switch rides the existing socket)
+      // can't release the gate before tmux has run select-window — then await
+      // the first-write signal fired from the terminal write seams. iframe
+      // targets have no such seam, so they use the ungated capture.
+      //
+      // Trade-off (accepted): during the ~180ms slide the View Transitions API
+      // paints a snapshot pseudo-element that hit-tests to <html>, so a click
+      // that lands on the terminal region mid-transition is lost (the app has a
+      // brief pointer-input dead window). Keyboard input is unaffected — it
+      // targets the focused element, not a hit-tested point — so the
+      // keyboard-first flows (constitution V) never lose input.
+      //
+      // Fire-and-forget: `beginWindowSwitchGate` fires any prior in-flight gate
+      // so a rapid second switch doesn't stall behind the first's timeout (the
+      // VT spec queues the second callback behind the first's returned promise).
+      // NOTE: this call is load-bearing on BOTH paths, including the iframe path
+      // below — it fires a prior PENDING terminal gate (a terminal→iframe switch
+      // supersedes an in-flight terminal gate), so it must run before we branch
+      // on `targetIsIframe`.
+      const targetIsIframe = iframeIds.has(windowId);
+      const gate = beginWindowSwitchGate();
+      // Capture a monotonic token so only the LATEST switch's cleanup may clear
+      // the direction attribute (a superseded transition's `finished` still
+      // fulfills — see below).
+      const directionToken = nextDirectionToken();
+      document.documentElement.dataset.windowSwitchDirection = direction;
+      const transition = document.startViewTransition(async () => {
+        const posted = runSwitch();
+        if (!targetIsIframe) {
+          // Race-at-entry: arm the ~300ms budget at callback ENTRY. Do NOT await
+          // the POST — CHAIN `openForNotify` off it (fire-and-forget) and await
+          // only the gate wait, whose timeout clock starts here. This hard-caps
+          // the callback (and thus the document-wide render suppression) at the
+          // timeout regardless of the POST's fate: `selectWindow` has no client
+          // fetch timeout, so awaiting it directly could freeze the document up
+          // to Chromium's ~4s VT deadline and serialize a rapid second switch
+          // behind the stall. Chaining still filters outgoing writes — only
+          // writes after the POST resolves count (openForNotify runs post-POST).
+          void posted.then(() => gate.openForNotify()).catch(() => {});
+          await gate.waitForFirstWrite();
+        }
+      });
+      // Clear the direction attribute once the transition settles. `finished`
+      // FULFILLS both on completion AND when the transition is SKIPPED (a rapid
+      // second switch supersedes this one — the path we now enable); it does not
+      // reject on skip. So without a guard a superseded transition's cleanup
+      // would delete the attribute its SUCCESSOR already set, dropping the
+      // successor slide's direction CSS. Latest-wins guard: clear only when this
+      // switch is still the latest to have set the attribute — mirroring the
+      // gate's still-points-at-itself pattern. The trailing `.catch` swallows
+      // any rejection (defensive) to avoid an unhandled-rejection warning.
+      transition.finished
+        .finally(() => {
+          if (isLatestDirectionToken(directionToken)) {
+            delete document.documentElement.dataset.windowSwitchDirection;
+          }
+        })
+        .catch(() => {});
     },
     [server, navigate, isMobile, setSidebarOpen],
   );
@@ -517,6 +636,25 @@ function AppShell() {
       s.windows.map((w) => ({ session: s.name, window: w })),
     );
   }, [sessions]);
+
+  // Sync the window-switch transition ref (read on click by `navigateToWindow`)
+  // with the latest flattened order + current window. Render-time assignment is
+  // cheap and keeps the callback deps stable — see `switchTransitionRef` above.
+  switchTransitionRef.current = {
+    order: flatWindows.map((fw) => fw.window.windowId),
+    // A target counts as "iframe" (ungated capture, no first-write seam) only
+    // when it actually renders the IframeWindow branch — which requires BOTH
+    // `rkType === "iframe"` AND `rkUrl` (app.tsx render gate). An iframe-typed
+    // window with no `rkUrl` renders a TerminalClient, so it must stay on the
+    // gated (first-write) path; keeping the predicate aligned prevents that
+    // window from silently skipping the gate.
+    iframeIds: new Set(
+      flatWindows
+        .filter((fw) => fw.window.rkType === "iframe" && fw.window.rkUrl)
+        .map((fw) => fw.window.windowId),
+    ),
+    currentWindowId: windowParam ?? "",
+  };
 
   // Create a new window in a session (from sidebar "+" button)
   const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
@@ -1272,9 +1410,18 @@ function AppShell() {
         style={{ gridArea: "content" }}
         className={`min-w-0 flex flex-col overflow-hidden ${fixedWidth ? "bg-bg-inset" : ""}`}
       >
+        {/* The terminal content surface. `viewTransitionName` scopes the
+            window-switch slide (260703-l4nf) to this region only — sidebar,
+            top bar, and bottom bar (outside <main>) stay static. Pure
+            transforms on the ::view-transition pseudo-elements (globals.css)
+            mean no layout change, so the terminal's ResizeObserver/fitAndSync
+            never fires and tmux sees no resize churn. */}
         <div
           className={`flex-1 min-h-0 flex flex-col ${fixedWidth ? "bg-bg-primary" : ""}`}
-          style={fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : undefined}
+          style={{
+            viewTransitionName: "terminal-surface",
+            ...(fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : {}),
+          }}
         >
           {/* Render gate keys on `windowParam` (the URL's @N) ALONE, not the
               SSE-derived `sessionName`. The session name is only needed for the

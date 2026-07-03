@@ -39,13 +39,16 @@ describe("PageHeading", () => {
     expect(screen.getByText("3 sessions, 9 windows")).toBeInTheDocument();
   });
 
-  it("keeps brackets, separator, and rule decorative — heading name is clean", () => {
+  it("keeps brackets, separator, caret, and rule decorative — heading name is clean", () => {
     const { container } = render(
       <PageHeading page="server cabin" name="testServer" />,
     );
-    // `[` + `]` + `·` + trailing rule.
+    // `[` + reserved `▊` caret cell + `]` + `·` + trailing rule.
+    // The reserved caret cell (260703-5ilm brackets+caret vocabulary) is
+    // aria-hidden and transparent at rest, so it does not appear in the
+    // accessible heading name.
     const decorations = container.querySelectorAll("span[aria-hidden='true']");
-    expect(decorations.length).toBe(4);
+    expect(decorations.length).toBe(5);
     expect(
       screen.getByRole("heading", { level: 1, name: "server cabin testServer" }),
     ).toBeInTheDocument();

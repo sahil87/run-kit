@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameWindow, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, getAllServerColors, setServerColor as setServerColorApi, setSessionOrder, type ServerInfo } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
@@ -11,6 +11,7 @@ import type { ProjectSession } from "@/types";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import { useWindowStore } from "@/store/window-store";
+import { useWindowRename } from "@/hooks/use-window-rename";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -392,29 +393,9 @@ export function Sidebar({
     },
   });
 
-  // Inline rename window (optimistic) — finds windowId via editingWindow state
-  const lastRenameWindowRef = useRef<{ server: string; session: string; windowId: string } | null>(null);
-  const renameWindowStore = useWindowStore((state) => state.renameWindow);
-  const clearRename = useWindowStore((state) => state.clearRename);
-  const { execute: executeRenameWindow } = useOptimisticAction<[string, string, string, string]>({
-    action: (srv, _session, windowId, newName) => renameWindow(srv, windowId, newName),
-    onOptimistic: (srv, session, windowId, newName) => {
-      lastRenameWindowRef.current = { server: srv, session, windowId };
-      renameWindowStore(srv, session, windowId, newName);
-    },
-    onRollback: () => {
-      const last = lastRenameWindowRef.current;
-      if (last) clearRename(last.server, last.session, last.windowId);
-    },
-    onError: (err) => {
-      addToast(err.message || "Failed to rename window");
-    },
-    onSettled: () => {
-      const last = lastRenameWindowRef.current;
-      if (last) clearRename(last.server, last.session, last.windowId);
-      lastRenameWindowRef.current = null;
-    },
-  });
+  // Inline rename window (optimistic) — finds windowId via editingWindow state.
+  // Shared with the top-bar WindowHeading via useWindowRename (change 5ilm).
+  const { execute: executeRenameWindow } = useWindowRename();
 
   // Optimistic move for drag-drop window reorder (insert-before semantics).
   // Snapshot is keyed by the store's composite key (`${server}:${windowId}`)
@@ -1078,7 +1059,7 @@ export function Sidebar({
       {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}
       <div className="border-t-[3px] border-border flex flex-col flex-1 min-h-0">
         <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
-          <span className="font-bold uppercase tracking-wide">Sessions</span>
+          <span className="rk-label-caret font-bold uppercase tracking-wide">Sessions</span>
           {currentServer && currentSession && (
             <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
               <span className="truncate text-text-primary font-mono">{currentSession}</span>

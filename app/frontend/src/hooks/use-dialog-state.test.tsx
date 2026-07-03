@@ -50,7 +50,7 @@ afterEach(() => {
 
 describe("useDialogState — server capture at handler time", () => {
   it(
-    "regression: rerendering SessionProvider with a changed server between openRenameDialog and handleRenameSession uses the new server",
+    "regression: rerendering SessionProvider with a changed server between openRenameSessionDialog and handleRenameSession uses the new server",
     async () => {
       // Build a dynamic wrapper whose `server` prop we can flip between renders.
       let currentServer = "server-A";

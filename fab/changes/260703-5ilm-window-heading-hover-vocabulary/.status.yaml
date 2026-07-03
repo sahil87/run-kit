@@ -1,0 +1,54 @@
+id: 5ilm
+name: 260703-5ilm-window-heading-hover-vocabulary
+created: 2026-07-03T12:37:58Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 14
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 78.9
+        reversibility: 87.7
+        competence: 85.9
+        disambiguation: 80.7
+stage_metrics:
+    intake: {started_at: "2026-07-03T12:37:58Z", driver: fab-new, iterations: 1, completed_at: "2026-07-03T12:44:06Z"}
+    apply: {started_at: "2026-07-03T13:21:01Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-03T13:37:03Z"}
+    review: {started_at: "2026-07-03T13:37:03Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-03T13:51:23Z"}
+    hydrate: {started_at: "2026-07-03T13:51:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T13:59:31Z"}
+    ship: {started_at: "2026-07-03T13:59:31Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-03T13:59:31Z"
+    computed_at_stage: hydrate
+summary: Centered editable top-bar WindowHeading (grid 1fr/auto/1fr, breadcrumb ends at session, bare-▾ switcher, shared useWindowRename hook) + site-wide hover-animation vocabulary (glitch/decode/brackets+caret/caret/glint, prefers-reduced-motion gated); retired the window rename dialog
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-03T13:59:31Z

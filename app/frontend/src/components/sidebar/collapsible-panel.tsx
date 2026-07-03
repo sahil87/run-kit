@@ -284,7 +284,7 @@ export function CollapsiblePanel({
           >
             &#x25BC;
           </span>
-          <span className="font-bold uppercase tracking-wide">{title}</span>
+          <span className="rk-label-caret font-bold uppercase tracking-wide">{title}</span>
           {headerRight && (
             <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
               {headerRight}

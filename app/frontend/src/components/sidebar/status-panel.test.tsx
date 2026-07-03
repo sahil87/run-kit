@@ -489,7 +489,7 @@ describe("StatusPanel copy behavior", () => {
       expect(screen.queryByText(/^#\d+/)).toBeNull();
     });
 
-    it("copies the PR URL on click", async () => {
+    it("copies the PR URL from the hover copy icon (and does not navigate)", async () => {
       const { copyToClipboard } = await import("@/lib/clipboard");
       vi.mocked(copyToClipboard).mockClear();
 
@@ -500,13 +500,58 @@ describe("StatusPanel copy behavior", () => {
         prState: "open",
       });
       render(<StatusPanel window={win} />);
-      const prButton = document.querySelector(
-        "[title='https://github.com/sahil87/run-kit/pull/241']",
-      ) as HTMLButtonElement;
-      fireEvent.click(prButton);
+
+      // The row body is now a link (open-first); copy lives on a hover-revealed
+      // icon button that is a SIBLING of the anchor (not nested inside it). Its
+      // handler still calls preventDefault() as belt-and-suspenders, which we
+      // assert below via fireEvent.click's boolean return.
+      const copyButton = screen.getByRole("button", { name: "Copy PR URL" });
+      // fireEvent.click wraps the dispatch in act() and returns false when the
+      // event's default was prevented — so a false return proves the handler
+      // called preventDefault() (the click would not navigate).
+      const notDefaultPrevented = fireEvent.click(copyButton);
+
       expect(copyToClipboard).toHaveBeenCalledWith(
         "https://github.com/sahil87/run-kit/pull/241",
       );
+      expect(notDefaultPrevented).toBe(false);
+    });
+
+    it("renders an always-visible inline ↗ that is not hover-gated", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-x",
+        prNumber: 241,
+        prUrl: "https://github.com/sahil87/run-kit/pull/241",
+        prState: "open",
+      });
+      render(<StatusPanel window={win} />);
+      const arrow = screen.getByText("↗");
+      expect(arrow).toBeInTheDocument();
+      // The arrow signals "opens" — it must be always VISIBLE, never opacity-gated
+      // like the hover-revealed copy icon. (It may still carry the shared
+      // group-hover:text-accent COLOR treatment — that is affordance, not gating.)
+      expect(arrow.className).not.toContain("opacity-0");
+      expect(arrow.className).not.toContain("group-hover:opacity");
+      expect(arrow.className).toContain("shrink-0");
+    });
+
+    it("shows 'copied' feedback via the copy icon on the link row", () => {
+      const win = makeWindow({
+        fabChange: "260610-596o-x",
+        prNumber: 241,
+        prUrl: "https://github.com/sahil87/run-kit/pull/241",
+        prState: "open",
+      });
+      render(<StatusPanel window={win} />);
+
+      const copyButton = screen.getByRole("button", { name: "Copy PR URL" });
+      fireEvent.click(copyButton);
+      expect(screen.getByText(/copied ✓/)).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.queryByText(/copied ✓/)).not.toBeInTheDocument();
     });
 
     it("shows the terminal state and suppresses checks/review for a merged PR", () => {
@@ -556,7 +601,7 @@ describe("StatusPanel copy behavior", () => {
       expect(screen.getByText("#247").className).not.toContain("text-red-400");
     });
 
-    it("renders an open-in-new-tab link to the PR URL", () => {
+    it("renders the row body itself as an open-in-new-tab link to the PR URL", () => {
       const win = makeWindow({
         fabChange: "260610-596o-x",
         prNumber: 241,
@@ -564,6 +609,9 @@ describe("StatusPanel copy behavior", () => {
         prState: "open",
       });
       render(<StatusPanel window={win} />);
+      // Open-first: the ROW BODY is the anchor (spanning the PR text), not a
+      // separate right-aligned ↗ link. It carries the title (keeping the e2e
+      // [title] locator) and the PR segment text.
       const link = screen.getByRole("link", {
         name: "Open PR #241 in a new tab",
       }) as HTMLAnchorElement;
@@ -573,17 +621,37 @@ describe("StatusPanel copy behavior", () => {
       );
       expect(link).toHaveAttribute("target", "_blank");
       expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      expect(link).toHaveAttribute(
+        "title",
+        "https://github.com/sahil87/run-kit/pull/241",
+      );
+      expect(link).toHaveTextContent("#241");
+      expect(link).toHaveTextContent("open");
     });
 
-    it("does not render the open link when the PR has no URL", () => {
+    it("renders no link and stays a copy row (copying the line text) when the PR has no URL", async () => {
+      const { copyToClipboard } = await import("@/lib/clipboard");
+      vi.mocked(copyToClipboard).mockClear();
+
       const win = makeWindow({
         fabChange: "260610-596o-x",
         prNumber: 241,
         prUrl: undefined,
         prState: "open",
+        prChecks: "pass",
       });
       render(<StatusPanel window={win} />);
+
+      // No URL → nothing to open: no anchor, no inline ↗, no hover copy icon.
       expect(screen.queryByRole("link")).toBeNull();
+      expect(screen.queryByText("↗")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Copy PR URL" })).toBeNull();
+
+      // The row body itself is the copy action, copying the segment text.
+      const prRow = screen.getByTestId("pr-line").closest("button") as HTMLButtonElement;
+      expect(prRow).not.toBeNull();
+      fireEvent.click(prRow);
+      expect(copyToClipboard).toHaveBeenCalledWith("#241 · open · checks pass");
     });
 
     it("applies the red token to the failing checks segment", () => {

@@ -27,8 +27,11 @@ window-tree rows — so each test selects the target window, then reads the pane
 
 **What it proves:** the display gate is `fabChange && prNumber` — when the
 selected window is change-bound with a PR, the Pane panel shows the `pr` row
-(PR number + state, copyable, titled with the PR URL); when the selected window
-is a scratch window, no PR row appears.
+(open-first: the row body is an open-in-new-tab link to the PR, titled with the
+PR URL, with copy role-swapped to a hover-revealed icon — see change 41ks);
+when the selected window is a scratch window, no PR row appears. (This spec
+locates the row by its `[title]` = PR URL, which is element-type-agnostic, so
+it matches the anchor unchanged.)
 
 **Steps:**
 1. Navigate directly to the change-bound window route `/default/%401` (`@1`,

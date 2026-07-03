@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-03T08:59:52Z"}
+{"args":"in the cockpit, instead of listing all services on the host, only list the services which have a http response","cmd":"fab-new","event":"command","ts":"2026-07-03T08:59:52Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-07-03T09:01:54Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-03T09:06:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-03T09:06:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-03T09:15:35Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-03T09:17:01Z"}
+{"event":"review","result":"failed","ts":"2026-07-03T09:24:33Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-03T09:24:33Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-03T09:28:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-03T09:37:39Z"}
+{"event":"review","result":"passed","ts":"2026-07-03T09:37:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-03T09:41:55Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-03T09:43:17Z"}
+{"event":"review","result":"passed","ts":"2026-07-03T09:50:50Z"}

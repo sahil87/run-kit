@@ -126,13 +126,12 @@ catch (opacity read `1` even while the glyph was clipped).
    carries `rk-label-caret`) and confirm it is visible.
 2. Read the `::after` computed style at rest: assert `opacity` is `0` and the
    `content` contains the `▊` glyph (caret present, not removed).
-3. Compute a 12px-wide clip strip immediately to the RIGHT of the label box —
-   where the caret glyph paints (the 0-width unclipped cell overflows right).
-4. Screenshot that strip at rest.
-5. Hover the label; wait into the visible half of the blink; assert `::after`
+3. Hover the label; wait into the visible half of the blink; assert `::after`
    `opacity` is `1`.
-6. Screenshot the strip on hover and assert its pixels differ from rest — the
-   caret actually paints there. This is the discriminator that catches the
-   shipped no-op: under `width: 0; overflow: hidden` the glyph was clipped
-   inside the 0-width box and never reached this strip (opacity alone read `1`
-   in the buggy version, so it would not have caught it).
+4. Assert `::after` `overflow` is NOT `hidden` — a DOM-observable, non-pixel
+   discriminator (no screenshot diff, honoring the "NO pixel assertions" e2e
+   constraint). This catches the shipped no-op directly at its root cause:
+   under `width: 0; overflow: hidden` the glyph was clipped inside the 0-width
+   box and never painted, so `overflow` read `hidden` (opacity alone read `1`
+   in the buggy version, so it would not have caught it); the fix removed
+   `overflow: hidden`, so it reads the default `visible`.

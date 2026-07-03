@@ -492,6 +492,13 @@ function WindowHeading({
   const prevNameRef = useRef(name);
   const editingRef = useRef(editing);
   editingRef.current = editing;
+  // Set true by a key-driven commit/cancel (Enter/Escape) so the onBlur that
+  // fires as the focused <input> tears down is ignored — otherwise Escape could
+  // be followed by a stray blur COMMIT (renaming despite the cancel), or Enter
+  // by a redundant second commit. Mirrors the sidebar inline editor's
+  // `cancelledRef` blur guard (sidebar/index.tsx). Consumed (reset) by the blur
+  // handler; re-cleared on each fresh edit entry.
+  const keyHandledRef = useRef(false);
   // Track the window identity so an EXTERNAL switch (another client / tmux
   // changing the route) mid-edit can cancel the stale edit rather than retarget
   // it onto the newly-navigated window.
@@ -576,6 +583,7 @@ function WindowHeading({
     stopScramble();
     setDisplay(name);
     setDraft(name);
+    keyHandledRef.current = false;
     setEditing(true);
   }, [name, stopScramble]);
 
@@ -624,13 +632,25 @@ function WindowHeading({
         type="text"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        onBlur={() => {
+          // A key (Enter/Escape) already committed/cancelled and is tearing the
+          // input down — swallow the trailing blur so it doesn't re-commit
+          // (Enter) or override a cancel (Escape). Genuine focus-loss (no
+          // preceding key) still commits.
+          if (keyHandledRef.current) {
+            keyHandledRef.current = false;
+            return;
+          }
+          commit();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
+            keyHandledRef.current = true;
             commit();
           } else if (e.key === "Escape") {
             e.preventDefault();
+            keyHandledRef.current = true;
             cancel();
           }
         }}

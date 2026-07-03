@@ -264,7 +264,7 @@ test.describe("Window heading — animated path (motion opted back in)", () => {
 
     const afterStyle = (el: Element) => {
       const s = getComputedStyle(el, "::after");
-      return { opacity: s.opacity, content: s.content };
+      return { opacity: s.opacity, content: s.content, overflow: s.overflow };
     };
 
     // At rest the caret is transparent.
@@ -273,29 +273,20 @@ test.describe("Window heading — animated path (motion opted back in)", () => {
     // The ▊ glyph is present (not `none` / removed).
     expect(rest.content).toContain("▊");
 
-    // On hover the caret turns opaque AND actually PAINTS. Opacity alone does
-    // NOT catch the original bug (opacity was `1` there too — the glyph was
-    // just clipped). The caret cell is 0-width and unclipped, so the glyph
-    // overflows to the RIGHT of the label box; assert that a strip immediately
-    // right of the label changes rest→hover. Under the shipped no-op
-    // (`width: 0; overflow: hidden`) the glyph is clipped inside the 0-width
-    // box and never reaches this strip, so it would NOT change — this is the
-    // discriminator (verified: buggy CSS → identical strip; fixed CSS → differs).
-    const box = await label.boundingBox();
-    expect(box).toBeTruthy();
-    const clip = {
-      x: Math.round(box!.x + box!.width),
-      y: Math.round(box!.y),
-      width: 12,
-      height: Math.round(box!.height),
-    };
-    const before = await page.screenshot({ clip });
+    // On hover the caret turns opaque AND is unclipped, so the glyph actually
+    // PAINTS. Opacity alone does NOT catch the original bug (opacity was `1`
+    // there too — the glyph was just clipped). The bug's exact signature was
+    // `width: 0; overflow: hidden` on the pseudo-element, which clipped the
+    // ▊ inside its 0-width box. The fix removed `overflow: hidden` so the glyph
+    // overflows the box and paints. Assert the pseudo-element is NOT clipped —
+    // a DOM-observable, non-pixel discriminator (no flaky screenshot diff, per
+    // the PR's "NO pixel assertions" e2e constraint): under the no-op it reads
+    // `hidden`; on the fix it reads the default (`visible`).
     await label.hover();
     // Land inside the caret's visible half of the 1.06s steps(1) blink.
     await page.waitForTimeout(60);
     const hoverStyle = await label.evaluate(afterStyle);
     expect(hoverStyle.opacity).toBe("1");
-    const after = await page.screenshot({ clip });
-    expect(Buffer.compare(before, after)).not.toBe(0);
+    expect(hoverStyle.overflow).not.toBe("hidden");
   });
 });

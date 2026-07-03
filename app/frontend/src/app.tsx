@@ -504,6 +504,13 @@ function AppShell() {
       // Today's instant switch — the byte-identical body wrapped (or not)
       // below. Returns the `selectWindow` POST so the gated path can wait for
       // tmux to be told to switch before it starts counting incoming writes.
+      // The returned promise PRESERVES the POST's rejection so a chained
+      // `openForNotify` only fires on success (the gate must not open — and so
+      // let a stale outgoing byte release it — when tmux was never told to
+      // switch). Errors are still ignored: a separate `.catch(() => {})` marks
+      // the promise handled (no unhandled-rejection warning) for the fire-and-
+      // forget side effect, and every downstream consumer of the returned
+      // promise attaches its own rejection handler.
       const runSwitch = (): Promise<unknown> => {
         pendingClickRef.current = { windowId };
         navigate({
@@ -511,7 +518,8 @@ function AppShell() {
           params: { server, window: windowId },
           replace: true,
         });
-        const posted = selectWindow(server, windowId).catch(() => {});
+        const posted = selectWindow(server, windowId);
+        posted.catch(() => {}); // ignore errors (fire-and-forget)
         if (isMobile) setSidebarOpen(false);
         return posted;
       };
@@ -545,13 +553,16 @@ function AppShell() {
         return;
       }
 
-      // The new-state capture is gated on the incoming window's first paint,
-      // with a timeout (the polished variant). Terminal targets open the gate
-      // AFTER the selectWindow POST resolves — so a busy outgoing window's
+      // The new-state capture is gated on the incoming window's first inbound
+      // bytes, with a timeout (the polished variant). Terminal targets open the
+      // gate AFTER the selectWindow POST resolves — so a busy outgoing window's
       // still-streaming bytes (a same-session switch rides the existing socket)
       // can't release the gate before tmux has run select-window — then await
-      // the first-write signal fired from the terminal write seams. iframe
-      // targets have no such seam, so they use the ungated capture.
+      // the first-write signal, which `TerminalClient` fires at message-receipt
+      // time inside `ws.onmessage` (via `notifyFirstWrite`), not at terminal
+      // write time (rAF-scheduled writes don't fire during VT suppression).
+      // iframe targets have no such receipt seam, so they use the ungated
+      // capture.
       //
       // Trade-off (accepted): during the ~180ms slide the View Transitions API
       // paints a snapshot pseudo-element that hit-tests to <html>, so a click
@@ -585,7 +596,10 @@ function AppShell() {
           // fetch timeout, so awaiting it directly could freeze the document up
           // to Chromium's ~4s VT deadline and serialize a rapid second switch
           // behind the stall. Chaining still filters outgoing writes — only
-          // writes after the POST resolves count (openForNotify runs post-POST).
+          // writes after the POST resolves SUCCESSFULLY count (openForNotify
+          // runs post-POST, and `runSwitch`'s promise rejects on POST failure so
+          // the `.then` is skipped and the gate stays closed → it times out
+          // ungated rather than releasing on a stale outgoing byte).
           void posted.then(() => gate.openForNotify()).catch(() => {});
           await gate.waitForFirstWrite();
         }

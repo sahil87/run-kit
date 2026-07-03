@@ -28,6 +28,22 @@ confirmation dialog and no pending/spinner state.
 - **THEN** `window.location.reload()` is invoked exactly once
 - **AND** no confirmation prompt, disabled state, or spinner is shown
 
+#### R5: Shift+click force-reloads (Chrome Shift+reload semantics)
+<!-- added post-review-pr on direct user request ("Shift + Click of the refresh button should force reload (just like what happens in chrome)") -->
+A Shift+click on the `RefreshButton` SHALL perform a best-effort hard reload:
+a `fetch(window.location.href, { cache: "reload" })` (forcing a network
+round-trip that overwrites the document's HTTP cache entry) followed by
+`window.location.reload()` once the fetch settles — reloading even if the
+fetch rejects. The `title` names the affordance
+(`"Refresh page (Shift+click: force reload)"`). A plain click stays a plain
+`window.location.reload()` with no fetch. (`location.reload(true)` is not
+used — the legacy forceGet flag is dead in modern browsers.)
+
+- **GIVEN** the RefreshButton is visible
+- **WHEN** the user Shift+clicks it
+- **THEN** a `cache: "reload"` fetch of the current URL is issued and `window.location.reload()` follows once it settles (fulfilled or rejected)
+- **AND** a plain click issues no fetch
+
 #### R3: RefreshButton visual style matches the cluster convention
 The `RefreshButton` SHALL follow the established cluster-button pattern: a
 `<button type="button">` with the shared cluster className
@@ -99,6 +115,10 @@ of scope (see Non-Goals). Code comments SHALL NOT claim broader reach than this
 - [x] T004 Add unit tests in `app/frontend/src/components/top-bar.test.tsx`: RefreshButton renders (aria-label "Refresh page") when a current window exists and is absent with no window; clicking it invokes a stubbed `window.location.reload` (replace `window.location` with a spyable object, since jsdom's `reload` is not directly spyable); assert no `disabled` attribute. <!-- R1 R2 R3 -->
 - [x] T005 Add a Playwright e2e spec `app/frontend/tests/e2e/top-bar-refresh.spec.ts` (fully mocked SSE + servers, navigating to a percent-encoded terminal window route like `pr-status-sidebar.spec.ts`): the refresh button is visible next to the Close pane button on a terminal route; clicking it reloads the page (set a `window` marker via `page.evaluate` before the click, assert it is gone after the reload settles). Ship the sibling `app/frontend/tests/e2e/top-bar-refresh.spec.md` documenting what each test proves + steps (constitution Test Companion Docs). The spec MUST be fully mocked in fact: every mutating route mock's glob must match real request URLs INCLUDING query strings (the select mock needs `**/api/windows/*/select*` — client.ts `withServer` appends `?server=`; without the trailing `*` the POST falls through to the real :3020 backend and mutates live default-socket tmux servers), and the `.spec.md`'s "fully mocked" claims must be true. <!-- R1 R2 --> <!-- rework: review cycle 2 — select mock glob missed the query string; POST fell through to the real backend (e2e-touches-live-tmux class) -->
 
+### Phase 4: Post-review-pr addition
+
+- [x] T008 Shift+click force reload: exported `forceReload()` helper in `top-bar.tsx` (`cache: "reload"` fetch of the current URL → `reload()` in `.finally`), button `onClick` branches on `e.shiftKey`, `title` extended to name the affordance; unit tests cover Shift+click (fetch with `{ cache: "reload" }` then reload), rejected-fetch-still-reloads, and plain-click-never-fetches. <!-- R5 --> <!-- post-review-pr direct user request -->
+
 ## Execution Order
 
 - T001 blocks T002 (T002 renders the component T001 defines).
@@ -131,6 +151,7 @@ of scope (see Non-Goals). Code comments SHALL NOT claim broader reach than this
 - [x] A-012 Test companion docs: The new `*.spec.ts` ships a sibling `*.spec.md` in the same change (constitution Test Companion Docs).
 - [x] A-013 `just`-only tests: E2E tests are runnable via `just test-e2e`/`just pw` (port 3020 isolated), never `npx playwright test` directly.
 - [x] A-015 Test-doc integrity: the e2e ordering assertion's strength matches its comment and `.spec.md` wording (true adjacency asserted, or wording softened); no redundant re-asserts; the `window.location` restore-attribution comment in `top-bar.test.tsx` is accurate.
+- [x] A-016 R5: Shift+click issues a `cache: "reload"` fetch then reloads (even on fetch rejection); plain click reloads with no fetch — covered by unit tests. <!-- post-review-pr user request; verified by tests, not by the pipeline reviewers -->
 
 ## Notes
 

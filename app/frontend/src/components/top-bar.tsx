@@ -634,25 +634,42 @@ function ClosePaneButton({
 }
 
 /**
+ * Best-effort hard reload, Chrome Shift+reload style: a `cache: "reload"`
+ * fetch of the current document forces a network round-trip that overwrites
+ * the HTTP cache entry, so the follow-up `location.reload()` serves the fresh
+ * copy (hashed Vite assets self-bust; the document is the only cacheable
+ * stale-able resource). `location.reload(true)` is not an option — the
+ * forceGet flag is dead in modern browsers. Reloads regardless of fetch
+ * outcome: a force-refresh must never be blocked by a failing network.
+ */
+export function forceReload() {
+  fetch(window.location.href, { cache: "reload" })
+    .catch(() => {})
+    .finally(() => window.location.reload());
+}
+
+/**
  * Full-page refresh button — a plain `window.location.reload()` recovery
- * affordance in the top-bar cluster, next to ClosePaneButton. Unlike Split /
- * Close there is NO async action to await (the page unloads synchronously), so
- * it deliberately carries no `useOptimisticAction`/`isPending`/`LogoSpinner`
- * and no `disabled` state — a spinner would never meaningfully render. The
- * reload is non-destructive by design (constitution II/VI: state re-derives on
- * load; tmux is unaffected), so no confirmation dialog either. The same action
- * is also reachable from the command palette as "View: Refresh Page" — in
- * AppShell's palette (app.tsx `viewActions`) and, duplicated, in the board
- * route's own palette (board-page.tsx `refreshEntry`); the Cockpit `/` mounts
- * no palette (constitution V).
+ * affordance in the top-bar cluster, next to ClosePaneButton. Shift+click
+ * force-reloads (bypasses the HTTP cache via `forceReload`), mirroring
+ * Chrome's Shift+reload. Unlike Split / Close there is NO async action to
+ * await (the page unloads synchronously), so it deliberately carries no
+ * `useOptimisticAction`/`isPending`/`LogoSpinner` and no `disabled` state — a
+ * spinner would never meaningfully render. The reload is non-destructive by
+ * design (constitution II/VI: state re-derives on load; tmux is unaffected),
+ * so no confirmation dialog either. The same action is also reachable from
+ * the command palette as "View: Refresh Page" — in AppShell's palette
+ * (app.tsx `viewActions`) and, duplicated, in the board route's own palette
+ * (board-page.tsx `refreshEntry`); the Cockpit `/` mounts no palette
+ * (constitution V).
  */
 function RefreshButton() {
   return (
     <button
       type="button"
-      onClick={() => window.location.reload()}
+      onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
       aria-label="Refresh page"
-      title="Refresh page"
+      title="Refresh page (Shift+click: force reload)"
       className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
     >
       <svg

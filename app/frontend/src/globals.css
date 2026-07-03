@@ -145,18 +145,22 @@ summary {
   animation: rk-glint-sweep 450ms ease-out;
 }
 
-/* Glitch = brand only. One-shot RGB-split via text-shadow, steps(2). */
+/* Glitch = brand only. One-shot RGB-split via text-shadow, steps(2). The
+   hover also flips the chip to accent-green for the whole hover (user
+   feedback: the shadow split alone was barely visible at 11.5px) — the color
+   snap is what makes the glitch read; the split is the texture on top. */
 @keyframes rk-glitch {
   0% { text-shadow: none; transform: translateX(0); }
   50% {
-    text-shadow: -1.5px 0 color-mix(in srgb, #ff3b3b 70%, transparent),
-      1.5px 0 color-mix(in srgb, #3bd1ff 70%, transparent);
-    transform: translateX(0.5px);
+    text-shadow: -2px 0 color-mix(in srgb, #ff3b3b 85%, transparent),
+      2px 0 color-mix(in srgb, #3bd1ff 85%, transparent);
+    transform: translateX(1px);
   }
   100% { text-shadow: none; transform: translateX(0); }
 }
 .rk-brand-glitch:hover {
   animation: rk-glitch 300ms steps(2) 1;
+  color: var(--color-accent-green);
 }
 
 /* Caret blink shared by section labels AND the PageHeading reserved caret. */
@@ -166,18 +170,20 @@ summary {
 }
 
 /* Caret-only = section labels. A blinking block caret appears after the label
-   on hover. Color-neutral (headings stay non-interactive-looking). The cell is
-   zero-width and NOT clipped, so the glyph overflows its 0-width box and paints
-   after the label with no layout shift (verified: rest vs. hover renders differ
-   only in the caret, with identical box width). An earlier `overflow: hidden`
-   here clipped the glyph entirely — a visual no-op — so it is deliberately
-   omitted. Left-aligned labels have room to the right; nothing clips the glyph. */
+   on hover, in accent-green (user feedback: the animated element turning green
+   — as in the original demo — is part of the treatment; labels themselves stay
+   non-interactive-looking). The cell is zero-width and NOT clipped, so the
+   glyph overflows its 0-width box and paints after the label with no layout
+   shift (verified: rest vs. hover renders differ only in the caret, with
+   identical box width). An earlier `overflow: hidden` here clipped the glyph
+   entirely — a visual no-op — so it is deliberately omitted. Left-aligned
+   labels have room to the right; nothing clips the glyph. */
 .rk-label-caret::after {
   content: "▊";
   display: inline-block;
   width: 0;
   margin-left: 0.15ch;
-  color: var(--color-text-secondary);
+  color: var(--color-accent-green);
   opacity: 0;
 }
 .rk-label-caret:hover::after {
@@ -193,15 +199,15 @@ summary {
   transition: transform 160ms ease, color 160ms ease;
   will-change: transform;
 }
-.rk-bracket-group:hover .rk-bracket-open { transform: translateX(-3px); color: var(--color-accent); }
-.rk-bracket-group:hover .rk-bracket-close { transform: translateX(3px); color: var(--color-accent); }
+.rk-bracket-group:hover .rk-bracket-open { transform: translateX(-3px); color: var(--color-accent-green); }
+.rk-bracket-group:hover .rk-bracket-close { transform: translateX(3px); color: var(--color-accent-green); }
 /* Always-reserved caret cell: fixed width at rest (transparent) so toggling
    visibility on hover never shifts the closing bracket. */
 .rk-bracket-caret {
   display: inline-block;
   width: 1ch;
   text-align: center;
-  color: var(--color-accent);
+  color: var(--color-accent-green);
   opacity: 0;
 }
 .rk-bracket-group:hover .rk-bracket-caret {

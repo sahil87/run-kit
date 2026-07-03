@@ -44,28 +44,31 @@ async function gotoWindow(page: Page, windowId: string): Promise<void> {
   });
 }
 
+// File-level session lifecycle: shared by BOTH describe blocks below (the
+// reduced-motion default block and the animated-path opt-in block), so the
+// teardown must not run between them.
+test.beforeAll(() => {
+  try {
+    execSync(
+      `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
+      { stdio: "ignore" },
+    );
+  } catch {
+    // Session may already exist
+  }
+});
+
+test.afterAll(() => {
+  try {
+    execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
+      stdio: "ignore",
+    });
+  } catch {
+    // Best effort
+  }
+});
+
 test.describe("Window heading (centered, editable) + hover vocabulary", () => {
-  test.beforeAll(() => {
-    try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
-        { stdio: "ignore" },
-      );
-    } catch {
-      // Session may already exist
-    }
-  });
-
-  test.afterAll(() => {
-    try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
-        stdio: "ignore",
-      });
-    } catch {
-      // Best effort
-    }
-  });
-
   test("renders the current window name as the centered click-to-rename heading", async ({
     page,
   }) => {
@@ -227,6 +230,18 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     ).toHaveValue(name);
     await reducedCtx.close();
   });
+});
+
+/**
+ * Animated-path block. `playwright.config.ts` emulates `reducedMotion:
+ * "reduce"` globally (window-switch transition stabilization) and the hover
+ * vocabulary honors that gate by hiding the caret entirely — so the paint
+ * assertion below needs real motion. Opt back in per the convention
+ * `window-switch-transition.spec.ts` documents: `contextOptions` is the only
+ * seam that reaches the browser context in this Playwright version.
+ */
+test.describe("Window heading — animated path (motion opted back in)", () => {
+  test.use({ contextOptions: { reducedMotion: "no-preference" } });
 
   test("section-label caret (rk-label-caret) actually appears on hover", async ({
     page,

@@ -9,9 +9,14 @@ present and CSS-gated under `prefers-reduced-motion`.
 
 ## Shared setup
 
-- `beforeAll` creates a dedicated tmux session (`e2e-heading-<ts>`) on the
-  isolated test server (`rk-test-e2e`, or `E2E_TMUX_SERVER`) so this file never
-  collides with other specs. `afterAll` kills it.
+- FILE-LEVEL `beforeAll` creates a dedicated tmux session (`e2e-heading-<ts>`)
+  on the isolated test server (`rk-test-e2e`, or `E2E_TMUX_SERVER`) so this
+  file never collides with other specs; file-level `afterAll` kills it. The
+  hooks sit outside the describe blocks because the file has TWO: the default
+  block (which inherits the global `reducedMotion: "reduce"` emulation from
+  `playwright.config.ts`) and an animated-path block that opts back into motion
+  with `test.use({ contextOptions: { reducedMotion: "no-preference" } })` — the
+  convention `window-switch-transition.spec.ts` documents.
 - `resolveWindow(page, name)` polls `GET /api/sessions` until the CLI-created
   window surfaces in the backend snapshot, returning its stable `@N` id (the
   handle for the terminal route and the `Rename window <name>` heading label).
@@ -104,8 +109,13 @@ shows scrambled text.
 
 ### `section-label caret (rk-label-caret) actually appears on hover`
 
+*(Lives in the separate "animated path" describe block, which opts back into
+motion via `test.use({ contextOptions: { reducedMotion: "no-preference" } })` —
+under the config's global reduce emulation the vocabulary correctly hides the
+caret, so this paint assertion needs real motion.)*
+
 **What it proves:** The shared caret-only treatment (`rk-label-caret`) actually
-renders its `▊` caret on hover, not just carries the class. This is a
+renders its `▊` caret (accent-green) on hover, not just carries the class. This is a
 behavioral guard against the shipped no-op where `.rk-label-caret::after` had
 `width: 0; overflow: hidden`, which clipped the glyph entirely so it never
 became visible — a bug that class-presence and `opacity` checks alone did not

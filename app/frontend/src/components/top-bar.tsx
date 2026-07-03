@@ -481,6 +481,10 @@ function WindowHeading({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   const [display, setDisplay] = useState(name);
+  // True while decode frames are running — the heading renders accent-green
+  // for the duration of the scramble (the animated element turns green, same
+  // as every other treatment in the hover vocabulary).
+  const [scrambling, setScrambling] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -502,6 +506,7 @@ function WindowHeading({
       clearInterval(frameTimerRef.current);
       frameTimerRef.current = null;
     }
+    setScrambling(false);
   }, []);
 
   const runScramble = useCallback(
@@ -511,6 +516,7 @@ function WindowHeading({
         setDisplay(target);
         return;
       }
+      setScrambling(true);
       let revealed = 0;
       frameTimerRef.current = setInterval(() => {
         revealed += DECODE_REVEAL_PER_STEP;
@@ -656,7 +662,9 @@ function WindowHeading({
       // so give it a touch-sized tap target on coarse pointers (matches the
       // top-bar control convention `coarse:min-h-[30px]`); inline-flex centers
       // the truncated name vertically within the taller target.
-      className="max-w-[16ch] sm:max-w-[28ch] truncate text-center text-sm font-semibold text-text-primary transition-colors inline-flex items-center justify-center coarse:min-h-[30px]"
+      className={`max-w-[16ch] sm:max-w-[28ch] truncate text-center text-sm font-semibold transition-colors inline-flex items-center justify-center coarse:min-h-[30px] ${
+        scrambling ? "text-accent-green" : "text-text-primary"
+      }`}
     >
       {display}
     </button>
@@ -958,7 +966,7 @@ function RefreshButton() {
       onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
       aria-label="Refresh page"
       title="Refresh page (Shift+click: force reload)"
-      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
     >
       <svg
         width="14"

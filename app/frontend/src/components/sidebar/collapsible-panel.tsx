@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
 import type { RowTint } from "@/themes";
+import { TypedLabel } from "@/components/typed-label";
 
 type CollapsiblePanelProps = {
   title: string;
@@ -284,7 +285,7 @@ export function CollapsiblePanel({
           >
             &#x25BC;
           </span>
-          <span className="font-bold uppercase tracking-wide">{title}</span>
+          <TypedLabel text={title} className="font-bold uppercase tracking-wide" />
           {headerRight && (
             <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
               {headerRight}

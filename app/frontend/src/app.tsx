@@ -642,7 +642,7 @@ function AppShell() {
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
   dialogOpenRef.current =
-    dialogs.showRenameDialog || dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -1050,8 +1050,12 @@ function AppShell() {
               id: "rename-window",
               label: "Window: Rename",
               onSelect: () => {
+                // Rewired (260703-5ilm) to trigger the centered heading's inline
+                // edit via a CustomEvent (mirrors `theme-selector:open`), rather
+                // than opening the old modal rename dialog. The heading owns the
+                // rename surface now — one place, direct manipulation.
                 if (currentWindow) {
-                  dialogs.openRenameDialog(currentWindow.name);
+                  document.dispatchEvent(new CustomEvent("window-heading:rename"));
                 }
               },
             },
@@ -1566,27 +1570,6 @@ function AppShell() {
         </Dialog>
       )}
 
-      {dialogs.showRenameDialog && (
-        <Dialog title="Rename window" onClose={dialogs.closeRenameDialog}>
-          <input
-            autoFocus
-            type="text"
-            value={dialogs.renameName}
-            onChange={(e) => dialogs.setRenameName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && dialogs.handleRename()}
-            onFocus={(e) => e.target.select()}
-            aria-label="Window name"
-            placeholder="Window name..."
-            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
-          />
-          <button
-            onClick={dialogs.handleRename}
-            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
-          >
-            Rename
-          </button>
-        </Dialog>
-      )}
 
       {dialogs.showRenameSessionDialog && (
         <Dialog title="Rename session" onClose={dialogs.closeRenameSessionDialog}>

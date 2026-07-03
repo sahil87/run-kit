@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
 import { TopBar } from "./top-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -12,6 +12,7 @@ vi.mock("@/api/client", async () => {
     ...actual,
     splitWindow: vi.fn().mockResolvedValue({ ok: true, pane_id: "%1" }),
     closePane: vi.fn().mockResolvedValue({ ok: true }),
+    renameWindow: vi.fn().mockResolvedValue({ ok: true }),
   };
 });
 
@@ -130,21 +131,29 @@ describe("TopBar", () => {
     expect(screen.queryByLabelText("Switch session")).not.toBeInTheDocument();
   });
 
-  it("shows the server crumb as a link to /$server plus session/window breadcrumbs on a terminal route", () => {
+  it("shows the server crumb as a link to /$server plus the session crumb on a terminal route (breadcrumb ends at session)", () => {
     renderTopBar();
     // Server crumb is a link back to the Server Cabin.
     const serverLink = screen.getByText("runkit").closest("a")!;
     expect(serverLink).toHaveAttribute("href", "/runkit");
-    // Session + window crumbs present; no "Dashboard".
+    // Session crumb present; no "Dashboard".
     expect(screen.getByText("run-kit")).toBeInTheDocument();
-    expect(screen.getByText("main")).toBeInTheDocument();
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
+    // The breadcrumb ends at the session — the window name is NOT a trailing
+    // breadcrumb crumb anymore (260703-5ilm moved it to the centered heading).
+    // It lives in the heading button, not the Breadcrumb nav.
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav.textContent).not.toContain("main");
   });
 
-  it("renders breadcrumb with session and window names", () => {
+  it("renders the window name once, in the centered editable heading (not duplicated in the breadcrumb)", () => {
     renderTopBar();
     expect(screen.getByText("run-kit")).toBeInTheDocument();
-    expect(screen.getByText("main")).toBeInTheDocument();
+    // The window name renders as the centered heading — a click-to-rename button.
+    const heading = screen.getByRole("button", { name: "Rename window main" });
+    expect(heading).toHaveTextContent("main");
+    // Appears exactly once (no breadcrumb + center duplication).
+    expect(screen.getAllByText("main")).toHaveLength(1);
   });
 
   it("uses \u203A (U+203A) as the breadcrumb separator (not / or the old chevron)", () => {
@@ -708,5 +717,118 @@ describe("TopBar", () => {
       expect(screen.queryByText("Send test notification")).not.toBeInTheDocument();
       expect(trigger).toHaveFocus();
     });
+  });
+});
+
+// Centered, highlighted, editable window heading (change 260703-5ilm).
+describe("WindowHeading (centered, editable, terminal mode)", () => {
+  beforeEach(() => {
+    // Clear call history between tests (the renameWindow module mock persists
+    // its calls across tests otherwise), then re-arm the push-lib fns.
+    vi.clearAllMocks();
+    getPushState.mockResolvedValue("default");
+    enablePushSubscription.mockResolvedValue("subscribed");
+    sendTestNotification.mockResolvedValue(true);
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: true,
+      media: "(prefers-color-scheme: dark)",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("renders the current window name at rest as a click-to-rename button (weight-600, primary color)", () => {
+    renderTopBar();
+    const heading = screen.getByRole("button", { name: "Rename window main" });
+    expect(heading).toHaveTextContent("main");
+    expect(heading).toHaveClass("font-semibold", "text-text-primary");
+  });
+
+  it("does not render the heading outside terminal mode (empty center cell)", () => {
+    renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+    expect(screen.queryByRole("button", { name: /Rename window/ })).not.toBeInTheDocument();
+  });
+
+  it("clicking the name swaps to an inline input pre-filled with the name", () => {
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
+    const input = screen.getByRole("textbox", { name: "Window name" }) as HTMLInputElement;
+    expect(input).toBeInTheDocument();
+    expect(input.value).toBe("main");
+  });
+
+  it("Enter commits a non-empty trimmed name via renameWindow()", async () => {
+    const { renameWindow } = await import("@/api/client");
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
+    const input = screen.getByRole("textbox", { name: "Window name" });
+    act(() => fireEvent.change(input, { target: { value: "  renamed  " } }));
+    act(() => fireEvent.keyDown(input, { key: "Enter" }));
+    await waitFor(() => {
+      expect(renameWindow).toHaveBeenCalledWith("runkit", "@0", "renamed");
+    });
+    // Reverts to display state.
+    expect(screen.queryByRole("textbox", { name: "Window name" })).not.toBeInTheDocument();
+  });
+
+  it("Escape cancels with no API call and restores the original name", async () => {
+    const { renameWindow } = await import("@/api/client");
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
+    const input = screen.getByRole("textbox", { name: "Window name" });
+    act(() => fireEvent.change(input, { target: { value: "abandoned" } }));
+    act(() => fireEvent.keyDown(input, { key: "Escape" }));
+    expect(renameWindow).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Rename window main" })).toBeInTheDocument();
+  });
+
+  it("commit of an empty / whitespace-only value cancels (no rename call)", async () => {
+    const { renameWindow } = await import("@/api/client");
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
+    const input = screen.getByRole("textbox", { name: "Window name" });
+    act(() => fireEvent.change(input, { target: { value: "   " } }));
+    act(() => fireEvent.keyDown(input, { key: "Enter" }));
+    expect(renameWindow).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Rename window main" })).toBeInTheDocument();
+  });
+
+  it("blur commits (like Enter)", async () => {
+    const { renameWindow } = await import("@/api/client");
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
+    const input = screen.getByRole("textbox", { name: "Window name" });
+    act(() => fireEvent.change(input, { target: { value: "viaBlur" } }));
+    act(() => fireEvent.blur(input));
+    await waitFor(() => {
+      expect(renameWindow).toHaveBeenCalledWith("runkit", "@0", "viaBlur");
+    });
+  });
+
+  it("the `window-heading:rename` CustomEvent enters inline edit (command-palette keyboard path)", () => {
+    renderTopBar();
+    expect(screen.queryByRole("textbox", { name: "Window name" })).not.toBeInTheDocument();
+    act(() => {
+      document.dispatchEvent(new CustomEvent("window-heading:rename"));
+    });
+    expect(screen.getByRole("textbox", { name: "Window name" })).toBeInTheDocument();
+  });
+
+  it("relocated ▾ window switcher offers + New Window", () => {
+    const onCreateWindow = vi.fn();
+    renderTopBar({ onCreateWindow });
+    const windowDropdown = screen.getByLabelText("Switch window");
+    act(() => fireEvent.click(windowDropdown));
+    const newWindowBtn = screen.getByText("+ New Window");
+    act(() => fireEvent.click(newWindowBtn));
+    expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
   });
 });

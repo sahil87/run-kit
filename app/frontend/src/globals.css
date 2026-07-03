@@ -102,6 +102,133 @@ summary {
   16.6%, 33.3% { opacity: 1; }
 }
 
+/* ── Hover-animation vocabulary (change 260703-5ilm) ─────────────────────────
+   One motion treatment per element category, so motion carries meaning:
+     glitch  = brand (rk-brand-glitch)
+     decode  = editable window identity (JS, in top-bar.tsx — not here)
+     brackets+caret = page titles (rk-bracket-group / PageHeading)
+     typed sweep    = section labels (rk-typed-* frame states; JS in typed-label.tsx)
+     CRT glint      = buttons (rk-glint)
+   ALL treatments are disabled under prefers-reduced-motion: reduce (below). */
+
+/* CRT glint = buttons. A skewed highlight strip sweeps across the button face
+   on hover, one-shot. The button MUST clip it (overflow:hidden) — verified safe
+   because the font/bell popovers are SIBLINGS of their trigger buttons, not
+   children, so clipping the button never clips the popover. */
+@keyframes rk-glint-sweep {
+  0% { transform: translateX(-160%) skewX(-20deg); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translateX(260%) skewX(-20deg); opacity: 0; }
+}
+.rk-glint {
+  position: relative;
+  overflow: hidden;
+}
+.rk-glint::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-text-primary) 22%, transparent) 50%,
+    transparent 100%
+  );
+  transform: translateX(-160%) skewX(-20deg);
+  opacity: 0;
+}
+.rk-glint:hover::after {
+  animation: rk-glint-sweep 450ms ease-out;
+}
+
+/* Glitch = brand only. One-shot RGB-split via text-shadow, steps(2). The
+   hover also flips the chip to accent-green for the whole hover (user
+   feedback: the shadow split alone was barely visible at 11.5px) — the color
+   snap is what makes the glitch read; the split is the texture on top. */
+@keyframes rk-glitch {
+  0% { text-shadow: none; transform: translateX(0); }
+  50% {
+    text-shadow: -2px 0 color-mix(in srgb, #ff3b3b 85%, transparent),
+      2px 0 color-mix(in srgb, #3bd1ff 85%, transparent);
+    transform: translateX(1px);
+  }
+  100% { text-shadow: none; transform: translateX(0); }
+}
+.rk-brand-glitch:hover {
+  animation: rk-glitch 300ms steps(2) 1;
+  color: var(--color-accent-green);
+}
+
+/* Caret blink shared by section labels AND the PageHeading reserved caret. */
+@keyframes rk-caret-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* Typed sweep = section labels. On hover the label fades and an inverse-video
+   cursor (an accent-green cell OVER the character — a terminal block cursor
+   sitting on text) sweeps from the first cell, "typing" each character back to
+   full brightness. JS-driven per-cell (typed-label.tsx: fixed ~350ms total
+   pass so any label length reads as the same gesture); these classes are the
+   frame states. Width never changes — the cursor occupies the cell it is on.
+   Reduced motion is handled in JS (the sweep is skipped entirely; the rest
+   state IS the reduced-motion state), so there is nothing to gate in CSS. */
+.rk-typed-off {
+  opacity: 0.26;
+}
+.rk-typed-on {
+  color: var(--color-text-primary);
+}
+.rk-typed-cursor {
+  background: var(--color-accent-green);
+  color: var(--color-bg-primary);
+}
+.rk-typed-done {
+  color: var(--color-text-primary);
+}
+
+/* Brackets + caret = page titles. Hover scope is the bracket GROUP only
+   (applied to the inner bracket cluster in page-heading.tsx, not the row/rule).
+   Brackets step outward (no layout shift — transform only) and turn accent; a
+   reserved blinking caret cell sits before the closing bracket. */
+.rk-bracket-group .rk-bracket {
+  transition: transform 160ms ease, color 160ms ease;
+  will-change: transform;
+}
+.rk-bracket-group:hover .rk-bracket-open { transform: translateX(-3px); color: var(--color-accent-green); }
+.rk-bracket-group:hover .rk-bracket-close { transform: translateX(3px); color: var(--color-accent-green); }
+/* Always-reserved caret cell: fixed width at rest (transparent) so toggling
+   visibility on hover never shifts the closing bracket. */
+.rk-bracket-caret {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+  color: var(--color-accent-green);
+  opacity: 0;
+}
+.rk-bracket-group:hover .rk-bracket-caret {
+  opacity: 1;
+  animation: rk-caret-blink 1.06s steps(1) infinite;
+}
+
+/* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
+   decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
+@media (prefers-reduced-motion: reduce) {
+  .rk-glint::after,
+  .rk-glint:hover::after { animation: none; opacity: 0; }
+  .rk-brand-glitch:hover { animation: none; }
+  /* (typed-label sweep is skipped in JS — no CSS gate needed) */
+  .rk-bracket-group .rk-bracket,
+  .rk-bracket-group:hover .rk-bracket-open,
+  .rk-bracket-group:hover .rk-bracket-close { transition: none; transform: none; }
+  .rk-bracket-caret,
+  .rk-bracket-group:hover .rk-bracket-caret { animation: none; opacity: 0; }
+}
+
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */
 html.fullbleed,
 html.fullbleed body {

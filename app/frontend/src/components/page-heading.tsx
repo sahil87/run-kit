@@ -34,9 +34,12 @@ export function PageHeading({
   return (
     <div className={`flex items-center gap-3 min-w-0 ${className ?? ""}`}>
       {/* div, not span: this wrapper contains the <h1>, and a span may not
-          contain flow content like headings (invalid HTML). */}
-      <div className="flex items-center gap-1.5 min-w-0 shrink-0 max-w-[60%]">
-        <span className="text-text-secondary select-none" aria-hidden="true">
+          contain flow content like headings (invalid HTML).
+          `rk-bracket-group` scopes the hover treatment (brackets+caret =
+          page-title vocabulary, 260703-5ilm) to THIS cluster only — the rule
+          and `side` slot below are outside it and never trigger it. */}
+      <div className="rk-bracket-group flex items-center gap-1.5 min-w-0 shrink-0 max-w-[60%]">
+        <span className="rk-bracket rk-bracket-open text-text-secondary select-none" aria-hidden="true">
           {"["}
         </span>
         <h1 className="flex items-center gap-1.5 min-w-0 text-sm">
@@ -67,7 +70,13 @@ export function PageHeading({
             </>
           )}
         </h1>
-        <span className="text-text-secondary select-none" aria-hidden="true">
+        {/* Always-reserved blinking-caret cell: fixed 1ch width, transparent at
+            rest so the closing bracket never shifts. Sits AFTER the instance
+            name / page word, BEFORE the closing bracket → `[ cabin · name▊ ]`. */}
+        <span className="rk-bracket-caret select-none" aria-hidden="true">
+          {"▊"}
+        </span>
+        <span className="rk-bracket rk-bracket-close text-text-secondary select-none" aria-hidden="true">
           {"]"}
         </span>
       </div>

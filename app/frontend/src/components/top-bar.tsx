@@ -8,6 +8,8 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { splitWindow, closePane } from "@/api/client";
+import { useWindowRename } from "@/hooks/use-window-rename";
+import { prefersReducedMotion } from "@/lib/motion";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -182,9 +184,17 @@ export function TopBar({
   const serverIsLeaf = !windowName; // no window selected → server IS the leaf
   const serverHref = `/${encodeURIComponent(server)}`;
 
+  // Terminal-mode centered heading gate: the window name gets its own centered
+  // slot (with a ▾ switcher) instead of a trailing breadcrumb crumb, so the
+  // name is never duplicated in one bar. Other modes keep an empty center cell.
+  const showWindowHeading = mode === "terminal" && !!currentWindow;
+
   return (
     <header className="px-3 border-b-[3px] border-border">
-      <div className="flex items-center justify-between py-2">
+      {/* 3-column grid `1fr auto 1fr`: the center cell is truly centered
+          regardless of asymmetric left/right widths. Left = breadcrumb nav,
+          center = window heading (terminal mode only), right = controls. */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm min-w-0">
           {/* Brand root crumb — logo + wordmark, links to `/`. Left-most on
               every route; IS the home affordance (no separate "Cockpit" crumb).
@@ -194,7 +204,7 @@ export function TopBar({
             href="/"
             aria-label="Run Kit home"
             title="Cockpit"
-            className={`flex items-center gap-2 shrink-0 ${LINK_CRUMB_CLASS}`}
+            className={`flex items-center gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
           >
             <img src="/icon.svg" alt="Run Kit" width={20} height={20} />
             {/* [text-decoration:inherit] — the anchor is a flex container and
@@ -259,42 +269,57 @@ export function TopBar({
                 ))}
 
               {sessionName && (
-                <>
-                  {/* Session crumb — hidden below `sm` (intermediate). */}
-                  <span className="hidden sm:flex items-center gap-1.5">
-                    <BreadcrumbSeparator />
-                    <BreadcrumbDropdown
-                      items={sessionItems}
-                      label="session"
-                      icon={sessionName}
-                      title="Session"
-                      onNavigate={handleDropdownNavigate}
-                      action={{ label: "+ New Session", onAction: onCreateSession }}
-                      triggerClassName="max-w-[16ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
-                    />
-                  </span>
-
-                  {windowName && (
-                    <>
-                      <BreadcrumbSeparator />
-                      <BreadcrumbDropdown
-                        items={windowItems}
-                        label="window"
-                        icon={windowName}
-                        title="Window"
-                        onNavigate={handleDropdownNavigate}
-                        action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
-                        triggerClassName="text-text-primary font-medium hover:text-text-primary transition-colors text-sm"
-                      />
-                    </>
-                  )}
-                </>
+                // The breadcrumb ends at the SESSION crumb — window identity
+                // moved to the centered heading (below), so the window name is
+                // never duplicated. Session crumb hidden below `sm`.
+                <span className="hidden sm:flex items-center gap-1.5">
+                  <BreadcrumbSeparator />
+                  <BreadcrumbDropdown
+                    items={sessionItems}
+                    label="session"
+                    icon={sessionName}
+                    title="Session"
+                    onNavigate={handleDropdownNavigate}
+                    action={{ label: "+ New Session", onAction: onCreateSession }}
+                    triggerClassName="max-w-[16ch] truncate text-text-secondary hover:text-text-primary transition-colors text-sm"
+                  />
+                </span>
               )}
             </>
           )}
         </nav>
 
-        <div className="flex items-center gap-3 text-xs text-text-secondary shrink-0">
+        {/* Center cell — the window heading (terminal mode only). A ▾ switcher
+            sits beside it: name-click edits, ▾-click switches windows. Empty in
+            root/board/cockpit modes. On mobile the heading is the visible leaf
+            (intermediate crumbs are hidden below `sm`). */}
+        <div className="flex items-center justify-center gap-1 min-w-0">
+          {showWindowHeading && currentWindow && (
+            <>
+              {/* No `key` on the route identity: the instance persists across
+                  window switches so the decode replays on navigation and an
+                  in-progress edit survives long enough to be intentionally
+                  cancelled (see WindowHeading's identity-change guard) rather
+                  than silently destroyed by a remount. */}
+              <WindowHeading
+                server={server}
+                windowId={currentWindow.windowId}
+                sessionName={sessionName}
+                name={windowName}
+              />
+              <BreadcrumbDropdown
+                items={windowItems}
+                label="window"
+                title="Window"
+                onNavigate={handleDropdownNavigate}
+                action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
+                triggerClassName="text-text-secondary hover:text-text-primary transition-colors shrink-0"
+              />
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center justify-self-end gap-3 text-xs text-text-secondary shrink-0">
           {/* Icon ordering minimizes movement between pages: the conditional
               terminal-only buttons (splits, close, Aa) sit on the LEFT of the
               cluster, where their absence on non-terminal pages just widens the
@@ -384,6 +409,276 @@ export function TopBar({
         </div>
       </div>
     </header>
+  );
+}
+
+// Decode-scramble tuning (change 260703-5ilm). User-chosen: ~28ms/frame,
+// reveal ~0.9 chars/step, with a ~140ms hover-intent delay so cursor transit
+// across the bar toward the right-side buttons doesn't replay it.
+const DECODE_FRAME_MS = 28;
+const DECODE_REVEAL_PER_STEP = 0.9;
+const DECODE_HOVER_INTENT_MS = 140;
+const DECODE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_/";
+
+function randomGlyph(): string {
+  return DECODE_GLYPHS[Math.floor(Math.random() * DECODE_GLYPHS.length)];
+}
+
+/**
+ * Centered, highlighted, editable window heading (change 260703-5ilm) — the
+ * single most important identity on the terminal route (the tmux window name).
+ *
+ * Three states:
+ *  - display: weight-600 primary-color name; hover runs a "decode" scramble.
+ *  - decode: characters scramble through random glyphs and resolve
+ *    left-to-right (JS timer — CSS can't randomize glyphs or key on the name).
+ *  - edit: an identically-styled inline input (ch-sized, grows as you type).
+ *    Enter/blur commit, Escape/empty-trim cancel, wired to renameWindow() via
+ *    the optimistic window-store pattern (same as the sidebar inline rename).
+ *
+ * Guards (intake A5): (a) 140ms hover-intent delay before scramble; (b) edit
+ * start cancels the scramble timer and the input binds to the real name state,
+ * never scrambled DOM text; (c) the decode replays once whenever the DISPLAYED
+ * name changes — which covers a committed rename (confirmation animation), an
+ * SSE-delivered external rename, and navigating to a different window, all with
+ * one name-change-keyed mechanism. All scrambling is skipped under
+ * prefers-reduced-motion.
+ *
+ * The component is deliberately NOT remounted per window (no `key` on the route
+ * identity) so this instance persists across window switches: that is what lets
+ * guard (c)'s name-change effect actually fire on navigation (a fresh mount
+ * would re-seed `prevNameRef` and never replay), and it keeps an in-progress
+ * inline edit from being destroyed by an external window switch. Instead, an
+ * external identity change (windowId/server) while editing CANCELS the stale
+ * edit — the edit belonged to the previous window, so committing the typed name
+ * onto the newly-navigated window would be wrong (the modal this replaced was
+ * likewise pinned to the window it opened on).
+ */
+function WindowHeading({
+  server,
+  windowId,
+  sessionName,
+  name,
+}: {
+  server: string;
+  windowId: string;
+  sessionName: string;
+  name: string;
+}) {
+  // Shared with the sidebar inline rename (change 5ilm) so both surfaces rename
+  // identically (optimistic store rename, rollback + toast, clear on settle).
+  const { execute: executeRename } = useWindowRename();
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const [display, setDisplay] = useState(name);
+  // True while decode frames are running — the heading renders accent-green
+  // for the duration of the scramble (the animated element turns green, same
+  // as every other treatment in the hover vocabulary).
+  const [scrambling, setScrambling] = useState(false);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevNameRef = useRef(name);
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
+  // Set true by a key-driven commit/cancel (Enter/Escape) so the onBlur that
+  // fires as the focused <input> tears down is ignored — otherwise Escape could
+  // be followed by a stray blur COMMIT (renaming despite the cancel), or Enter
+  // by a redundant second commit. Mirrors the sidebar inline editor's
+  // `cancelledRef` blur guard (sidebar/index.tsx). Consumed (reset) by the blur
+  // handler; re-cleared on each fresh edit entry.
+  const keyHandledRef = useRef(false);
+  // Track the window identity so an EXTERNAL switch (another client / tmux
+  // changing the route) mid-edit can cancel the stale edit rather than retarget
+  // it onto the newly-navigated window.
+  const prevIdentityRef = useRef(`${server}:${windowId}`);
+
+  const stopScramble = useCallback(() => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    if (frameTimerRef.current) {
+      clearInterval(frameTimerRef.current);
+      frameTimerRef.current = null;
+    }
+    setScrambling(false);
+  }, []);
+
+  const runScramble = useCallback(
+    (target: string) => {
+      stopScramble();
+      if (prefersReducedMotion() || target.length === 0) {
+        setDisplay(target);
+        return;
+      }
+      setScrambling(true);
+      let revealed = 0;
+      frameTimerRef.current = setInterval(() => {
+        revealed += DECODE_REVEAL_PER_STEP;
+        const cut = Math.min(target.length, Math.floor(revealed));
+        if (cut >= target.length) {
+          setDisplay(target);
+          stopScramble();
+          return;
+        }
+        const scrambled = target
+          .slice(cut)
+          .split("")
+          .map((ch) => (ch === " " ? " " : randomGlyph()))
+          .join("");
+        setDisplay(target.slice(0, cut) + scrambled);
+      }, DECODE_FRAME_MS);
+    },
+    [stopScramble],
+  );
+
+  // External window switch (another client / tmux changing the route) while
+  // an inline edit is in progress: CANCEL the stale edit. The edit targeted
+  // the previous window, so committing the typed name onto the newly-navigated
+  // window would rename the wrong window. The retired rename modal was pinned
+  // to the window it opened on for the same reason; this is its equivalent now
+  // that the heading persists across window switches (no remount `key`).
+  useEffect(() => {
+    const identity = `${server}:${windowId}`;
+    if (identity !== prevIdentityRef.current) {
+      prevIdentityRef.current = identity;
+      if (editingRef.current) {
+        stopScramble();
+        setEditing(false);
+        setDraft(name);
+        setDisplay(name);
+      }
+    }
+  }, [server, windowId, name, stopScramble]);
+
+  // Keep the display/draft in sync with the incoming name; a DISPLAYED-name
+  // change replays the decode once (rename confirmation / external rename /
+  // route to a different window — one name-change-keyed mechanism). Because the
+  // instance is NOT remounted per window, this fires on navigation too, so the
+  // decode genuinely replays when routing to a different window (guard c).
+  useEffect(() => {
+    if (name !== prevNameRef.current) {
+      prevNameRef.current = name;
+      setDraft(name);
+      if (!editingRef.current) runScramble(name);
+      else setDisplay(name);
+    }
+  }, [name, runScramble]);
+
+  useEffect(() => () => stopScramble(), [stopScramble]);
+
+  const startEdit = useCallback(() => {
+    stopScramble();
+    setDisplay(name);
+    setDraft(name);
+    keyHandledRef.current = false;
+    setEditing(true);
+  }, [name, stopScramble]);
+
+  // Command-palette "Window: Rename" enters inline edit via a CustomEvent,
+  // mirroring the `theme-selector:open` pattern (Constitution V keyboard path).
+  useEffect(() => {
+    function onRename() {
+      startEdit();
+    }
+    document.addEventListener("window-heading:rename", onRename);
+    return () => document.removeEventListener("window-heading:rename", onRename);
+  }, [startEdit]);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const commit = useCallback(() => {
+    const trimmed = draft.trim();
+    setEditing(false);
+    // Empty/whitespace-only commit = cancel (matches the dialog's trim guard).
+    if (!trimmed || trimmed === name) {
+      setDisplay(name);
+      setDraft(name);
+      return;
+    }
+    executeRename(server, sessionName, windowId, trimmed);
+    // Optimistic display; the name-change effect replays the decode when the
+    // store-driven `name` prop updates.
+    setDisplay(trimmed);
+  }, [draft, name, server, sessionName, windowId, executeRename]);
+
+  const cancel = useCallback(() => {
+    setEditing(false);
+    setDisplay(name);
+    setDraft(name);
+  }, [name]);
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          // A key (Enter/Escape) already committed/cancelled and is tearing the
+          // input down — swallow the trailing blur so it doesn't re-commit
+          // (Enter) or override a cancel (Escape). Genuine focus-loss (no
+          // preceding key) still commits.
+          if (keyHandledRef.current) {
+            keyHandledRef.current = false;
+            return;
+          }
+          commit();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            keyHandledRef.current = true;
+            commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            keyHandledRef.current = true;
+            cancel();
+          }
+        }}
+        aria-label="Window name"
+        // Identically-styled to the display heading: monospace, centered,
+        // weight-600 primary color, sized in ch and growing with content.
+        style={{ width: `${Math.max(draft.length + 1, 3)}ch` }}
+        className="bg-transparent text-center text-sm font-semibold text-text-primary outline-none border-b border-accent min-w-0"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={startEdit}
+      onMouseEnter={() => {
+        if (prefersReducedMotion()) return;
+        stopScramble();
+        hoverTimerRef.current = setTimeout(() => runScramble(name), DECODE_HOVER_INTENT_MS);
+      }}
+      onMouseLeave={() => {
+        stopScramble();
+        setDisplay(name);
+      }}
+      aria-label={`Rename window ${name}`}
+      title="Click to rename"
+      // The heading is the mobile leaf and the primary rename affordance there,
+      // so give it a touch-sized tap target on coarse pointers (matches the
+      // top-bar control convention `coarse:min-h-[30px]`); inline-flex centers
+      // the truncated name vertically within the taller target.
+      className={`max-w-[16ch] sm:max-w-[28ch] truncate text-center text-sm font-semibold transition-colors inline-flex items-center justify-center coarse:min-h-[30px] ${
+        scrambling ? "text-accent-green" : "text-text-primary"
+      }`}
+    >
+      {display}
+    </button>
   );
 }
 
@@ -488,7 +783,7 @@ function ThemeToggle() {
       type="button"
       onClick={handleClick}
       aria-label={label}
-      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
       title={label}
     >
       {mode === "system" ? (
@@ -548,7 +843,7 @@ function SplitButton({
       onClick={() => execute()}
       disabled={isPending}
       aria-label={label}
-      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
       title={label}
     >
       {isPending ? (
@@ -608,7 +903,7 @@ function ClosePaneButton({
       onClick={() => execute()}
       disabled={isPending}
       aria-label="Close pane"
-      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
       title="Close pane"
     >
       {isPending ? (
@@ -682,7 +977,7 @@ function RefreshButton() {
       onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
       aria-label="Refresh page"
       title="Refresh page (Shift+click: force reload)"
-      className="min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
     >
       <svg
         width="14"
@@ -771,7 +1066,7 @@ function TerminalFontControl() {
         aria-expanded={open}
         aria-label="Terminal font size"
         title="Terminal font size"
-        className={`min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center text-xs font-semibold leading-none ${
+        className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center text-xs font-semibold leading-none ${
           open
             ? "border-accent text-accent bg-accent/10"
             : "border-border text-text-secondary hover:border-text-secondary"
@@ -915,7 +1210,7 @@ function NotificationControl() {
         aria-expanded={open}
         aria-label={ariaLabel}
         title={statusLabel}
-        className={`min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center leading-none ${
+        className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center leading-none ${
           open
             ? "border-accent text-accent bg-accent/10"
             : subscribed
@@ -993,7 +1288,7 @@ function FixedWidthToggle() {
       onClick={toggleFixedWidth}
       aria-label="Toggle fixed terminal width"
       aria-pressed={fixedWidth}
-      className={`min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center ${
+      className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center ${
         fixedWidth
           ? "border-accent text-accent bg-accent/10"
           : "border-border text-text-secondary hover:border-text-secondary"

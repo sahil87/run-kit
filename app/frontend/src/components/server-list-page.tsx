@@ -10,32 +10,6 @@ import { PageHeading } from "@/components/page-heading";
 import { useBoards } from "@/hooks/use-boards";
 import { TopBar } from "@/components/top-bar";
 
-// Well-known non-HTTP listening ports. A listening TCP port carries no protocol
-// label (we read it from /proc/net/tcp), so we can't KNOW a port speaks HTTP
-// without probing it — and probing every local port on each tick is more than
-// this view warrants. Instead we gate the "Open in window" click for the common
-// database/broker/cache ports where a proxied iframe would only ever show a
-// broken frame. The tile still renders (a listening port is worth surfacing for
-// awareness); only the click is disabled. This is a heuristic, not truth: an
-// HTTP server on an unusual port stays clickable, and a service on a nonstandard
-// port slips through — both low-harm, since the gate only affects the click.
-const NON_HTTP_PORTS = new Set<number>([
-  5432, // PostgreSQL
-  3306, // MySQL / MariaDB
-  6379, // Redis
-  27017, // MongoDB
-  5672, // AMQP (RabbitMQ)
-  11211, // Memcached
-  9092, // Kafka
-  2379, // etcd
-  25, // SMTP
-  22, // SSH
-]);
-
-function isLikelyHttpPort(port: number): boolean {
-  return !NON_HTTP_PORTS.has(port);
-}
-
 export function ServerListPage() {
   // Read the server list from SessionContext — the SAME source the AppShell
   // route guard (`resolveServerView`) reads. Keeping a separate local
@@ -141,10 +115,6 @@ export function ServerListPage() {
   const handleOpenInWindow = useCallback(
     async (port: number) => {
       if (openingRef.current) return;
-      // Non-HTTP ports have their button disabled, so this guard is belt-and-
-      // suspenders — it keeps the invariant if the tile is ever wired to another
-      // trigger (keyboard, programmatic) that bypasses the disabled state.
-      if (!isLikelyHttpPort(port)) return;
       const target = servers[0];
       if (!target) return; // action is disabled in this state; defensive guard
       openingRef.current = true;
@@ -346,8 +316,12 @@ export function ServerListPage() {
 
         {/* SERVICES zone (zone 3, Cockpit host-console home). A listening TCP
             port is a HOST property (not owned by any tmux window/session), so
-            `/` — the box-level console — is its home. Each tile opens that
-            port's UI in an @rk_type=iframe tmux window via the /proxy/{port}/
+            `/` — the box-level console — is its home. The backend probes each
+            listening port and broadcasts ONLY the ports that answer HTTP (see
+            internal/ports probe filter), so every tile here provably speaks
+            HTTP — no client-side denylist heuristic is needed and "Open in
+            window" is gated solely on a tmux server existing. Each tile opens
+            that port's UI in an @rk_type=iframe tmux window via the /proxy/{port}/
             proxy. Placed last, after the tmux-server tiles. */}
         <section aria-label="Services" className="mb-6 max-w-md">
           <h2 className="text-xs uppercase tracking-wide text-text-secondary mb-2">
@@ -374,13 +348,9 @@ export function ServerListPage() {
                   </div>
                   <button
                     onClick={() => handleOpenInWindow(svc.port)}
-                    disabled={servers.length === 0 || !isLikelyHttpPort(svc.port)}
+                    disabled={servers.length === 0}
                     title={
-                      servers.length === 0
-                        ? "Create a server first"
-                        : !isLikelyHttpPort(svc.port)
-                          ? "Not a web service"
-                          : undefined
+                      servers.length === 0 ? "Create a server first" : undefined
                     }
                     className="shrink-0 text-xs px-2 py-1 border border-border rounded text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary disabled:hover:border-border"
                   >

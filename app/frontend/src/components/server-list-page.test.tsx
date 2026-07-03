@@ -230,33 +230,24 @@ describe("ServerListPage — Services zone", () => {
     );
   });
 
-  it("disables 'Open in window' with a 'Not a web service' hint for a well-known non-HTTP port, even when a server exists", async () => {
-    mockServices = [{ port: 5432 }]; // PostgreSQL — in the non-HTTP denylist
+  it("enables 'Open in window' for ANY listed port when a server exists (backend now broadcasts only HTTP responders — no client-side denylist)", async () => {
+    // 5432 (PostgreSQL) was formerly on the NON_HTTP_PORTS denylist. Now the
+    // backend probes and only broadcasts HTTP responders, so any port that
+    // reaches the frontend is provably HTTP — every tile is clickable when a
+    // server exists. The denylist and its "Not a web service" gate are gone.
+    mockServices = [{ port: 5432 }, { port: 6379 }];
     mockServers = [{ name: "runkit", sessionCount: 1 }];
     mockSessionsByServer = new Map([["runkit", [{ name: "main", windows: [] }]]]);
     renderPage();
     expect(screen.getByText(":5432")).toBeTruthy();
-
-    const btn = screen.getByRole("button", { name: "Open in window" }) as HTMLButtonElement;
-    // A server exists, but the port is non-HTTP → click is gated with the port hint.
-    expect(btn.disabled).toBe(true);
-    expect(btn.title).toBe("Not a web service");
-  });
-
-  it("gates only the non-HTTP tile, leaving HTTP-likely ports clickable", async () => {
-    mockServices = [{ port: 5173 }, { port: 6379 }]; // vite (clickable) + redis (gated)
-    mockServers = [{ name: "runkit", sessionCount: 1 }];
-    mockSessionsByServer = new Map([["runkit", [{ name: "main", windows: [] }]]]);
-    renderPage();
-    expect(screen.getByText(":5173")).toBeTruthy();
+    expect(screen.getByText(":6379")).toBeTruthy();
 
     const buttons = screen.getAllByRole("button", { name: "Open in window" }) as HTMLButtonElement[];
-    // Tiles render in service order: 5173 first (enabled), 6379 second (disabled).
-    expect(buttons[0].disabled).toBe(false);
-    expect(buttons[1].disabled).toBe(true);
-    expect(buttons[1].title).toBe("Not a web service");
-    // Both ports still SHOW as tiles — only the click is gated.
-    expect(screen.getByText(":6379")).toBeTruthy();
+    for (const btn of buttons) {
+      expect(btn.disabled).toBe(false);
+      // No "Not a web service" hint remains — the only gate is server existence.
+      expect(btn.title).toBe("");
+    }
   });
 
   it("names the iframe window without colons or periods (tmux ValidateName rejects them)", async () => {

@@ -106,10 +106,12 @@ shows scrambled text.
    window, and assert `.rk-glint` is still attached.
 4. In the reduced-motion context, click the heading and assert the inline input
    value equals the real window name (no scrambled text leaks into edit).
-5. Still in the reduced context, hover a sidebar section label and wait longer
-   than one full sweep (~450ms): assert no `.rk-typed-cursor` cell appears and
-   the label never gains `rk-typed-done` — the typed sweep is JS-gated on the
-   same media query, and the rest state IS the reduced-motion state.
+5. Still in the reduced context, dispatch `pointerover` on a sidebar section
+   label (a dispatched event makes this a TRUE negative — the handler ran and
+   declined) and wait longer than one full sweep (~450ms): assert no
+   `.rk-typed-cursor` cell appears and the label never gains `rk-typed-done` —
+   the typed sweep is JS-gated on the same media query, and the rest state IS
+   the reduced-motion state.
 
 ### `section labels type themselves out on hover (typed sweep)`
 
@@ -119,23 +121,33 @@ under the config's global reduce emulation the typed sweep never starts, so
 asserting it needs real motion.)*
 
 **What it proves:** The shared section-label treatment (`TypedLabel`,
-`.rk-typed-label`) actually runs its invisible-hand typing sweep on hover: the
-label fades, an inverse-video cursor (accent-green cell OVER the character)
-sweeps from the first cell brightening characters as it passes, the label lands
-bright (`rk-typed-done`) with its text intact, and unhover restores the rest
-state. All assertions are DOM-observable frame states — no pixel diffs
-(honoring the "NO pixel assertions" e2e constraint).
+`.rk-typed-label`) actually runs its invisible-hand typing sweep on pointer
+enter: the label fades, an inverse-video cursor (accent-green cell OVER the
+character) sweeps from the first cell brightening characters as it passes, the
+label lands bright (`rk-typed-done`) with its text intact, and pointer leave
+restores the rest state. All assertions are DOM-observable frame states — no
+pixel diffs (honoring the "NO pixel assertions" e2e constraint).
+
+The sweep is driven by DISPATCHED `pointerover`/`pointerout` events, not real
+mouse hit-testing: on CI runners the sidebar re-layouts under SSE churn, and a
+label shifting beneath a stationary pointer fires spurious enter/leave events
+that cancel the sweep mid-pass or swallow the unhover (the flake this seam
+replaced). React derives `onPointerEnter`/`onPointerLeave` from delegated
+`pointerover`/`pointerout` pairs (`relatedTarget: null` reads as
+entering-from/leaving-to outside), so the dispatched events exercise the exact
+component handlers a real pointer does. (A dispatched `pointerenter` does NOT
+work in real Chromium — it never reaches React's delegated listener.)
 
 **Steps:**
 1. Create + navigate to a window; locate the sidebar `Sessions` heading (a
-   `TypedLabel`, class `rk-typed-label`) and confirm it is visible with its
-   text and no `rk-typed-done` class at rest.
-2. Hover the label: assert an `.rk-typed-cursor` cell attaches (the sweep
-   started — the cursor renders synchronously on the first character, and the
-   ~350ms pass outlasts Playwright's first assertion poll, so this is
-   race-free).
+   `TypedLabel`, class `rk-typed-label`, pinned by exact text — the nav holds
+   several TypedLabels) and confirm it is visible with its text and no
+   `rk-typed-done` class at rest.
+2. Dispatch `pointerover`: assert an `.rk-typed-cursor` cell attaches (the
+   sweep started — the cursor renders synchronously on the first character,
+   and the ~350ms pass outlasts Playwright's first assertion poll).
 3. Assert the label gains `rk-typed-done` (the pass completed), the cursor
    cell is gone (frame spans collapse back to plain text), and the text is
    fully intact.
-4. Move the mouse away: assert `rk-typed-done` is removed and the text is
+4. Dispatch `pointerout`: assert `rk-typed-done` is removed and the text is
    unchanged (rest state restored).

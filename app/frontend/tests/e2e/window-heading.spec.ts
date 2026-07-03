@@ -238,7 +238,10 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
         hasText: /^Sessions$/,
       })
       .first();
-    await reducedLabel.hover();
+    // Dispatched event (not real hover) — same churn-proof seam as the
+    // animated-path test; a dispatched enter makes this a TRUE negative
+    // (the handler ran and declined) rather than a possibly-missed hover.
+    await reducedLabel.dispatchEvent("pointerover");
     await reducedPage.waitForTimeout(450); // longer than one full ~350ms pass
     await expect(reducedLabel.locator(".rk-typed-cursor")).not.toBeAttached();
     await expect(reducedLabel).not.toHaveClass(/rk-typed-done/);
@@ -283,10 +286,17 @@ test.describe("Window heading — animated path (motion opted back in)", () => {
     await expect(label).toHaveText("Sessions");
     await expect(label).not.toHaveClass(/rk-typed-done/);
 
-    // Hover starts the sweep: an inverse-video cursor cell appears
-    // synchronously on the first character (the ~350ms pass is longer than
-    // Playwright's first assertion poll, so this is race-free).
-    await label.hover();
+    // Drive the sweep via dispatched pointer events rather than real mouse
+    // hit-testing: the sidebar re-layouts under SSE churn on CI runners, and
+    // a label shifting beneath a stationary pointer fires spurious
+    // enter/leave events that cancel the sweep mid-pass (or swallow the
+    // unhover) — exactly the flake this replaced. React 19 attaches
+    // derives onPointerEnter/Leave from delegated pointerover/pointerout
+    // pairs (relatedTarget null = from outside), so dispatched over/out
+    // exercise the same component handlers the real pointer does.
+    await label.dispatchEvent("pointerover");
+    // The sweep starts: an inverse-video cursor cell appears synchronously on
+    // the first character (the ~350ms pass outlasts the first assertion poll).
     await expect(label.locator(".rk-typed-cursor")).toBeAttached({
       timeout: 2_000,
     });
@@ -297,8 +307,8 @@ test.describe("Window heading — animated path (motion opted back in)", () => {
     await expect(label.locator(".rk-typed-cursor")).not.toBeAttached();
     await expect(label).toHaveText("Sessions");
 
-    // Unhover resets to the rest state.
-    await page.mouse.move(0, 0);
+    // Pointer leave resets to the rest state.
+    await label.dispatchEvent("pointerout");
     await expect(label).not.toHaveClass(/rk-typed-done/);
     await expect(label).toHaveText("Sessions");
   });

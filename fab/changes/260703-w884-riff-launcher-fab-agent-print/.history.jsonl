@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-03T09:12:38Z"}
+{"args":"Delegate rk riff launcher resolution to fab agent --print — resolveLauncher reads dead agent.spawn_command key after fab-kit 2.13.3 schema migration (launcher now at providers.\u003cname\u003e.session_command), silently falling back to hardcoded default; replace fabconfig.ReadSpawnCommand with exec of fab agent --print","cmd":"fab-new","event":"command","ts":"2026-07-03T09:12:38Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-03T09:14:28Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-03T09:15:32Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-03T09:17:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-03T09:17:20Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-03T09:18:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-03T09:24:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-03T09:36:09Z"}
+{"event":"review","result":"passed","ts":"2026-07-03T09:36:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-03T09:39:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review-pr","ts":"2026-07-03T09:41:40Z"}
+{"event":"review","result":"passed","ts":"2026-07-03T09:48:31Z"}

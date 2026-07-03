@@ -1,13 +1,17 @@
-// Package fabconfig reads the fab/project/config.yaml file that lives at a
-// repo root. It provides best-effort accessors that return empty values rather
-// than errors when the file is absent, malformed, or missing keys — this
-// mirrors the pattern used by internal/config for run-kit.yaml.
+// Package fabconfig reads the riff presets from the fab/project/config.yaml
+// file that lives at a repo root. It provides best-effort accessors that
+// return empty values rather than errors when the file is absent, malformed,
+// or missing keys — this mirrors the pattern used by internal/config for
+// run-kit.yaml.
+//
+// The agent launcher is NOT read here: `rk riff` resolves it by shelling out
+// to `fab agent --print` (see cmd/rk/riff.go resolveLauncher), so rk never
+// parses fab-kit's tier→provider→session_command schema itself.
 package fabconfig
 
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,17 +25,6 @@ const (
 	PaneKindSkill = "skill"
 	PaneKindCmd   = "cmd"
 )
-
-// fabConfig mirrors the subset of fab/project/config.yaml that rk cares about
-// when only scalar/struct access is needed (e.g., spawn_command). The presets
-// block is NOT decoded here — it is parsed directly from a yaml.Node walk
-// by ReadPresetsOrdered because struct-decoding a *yaml.Node field does not
-// populate the node (yaml.v3 requires top-level Node decode for node access).
-type fabConfig struct {
-	Agent struct {
-		SpawnCommand string `yaml:"spawn_command"`
-	} `yaml:"agent"`
-}
 
 // PaneSpec is one pane in a preset's panes: list. Exactly one of Skill/Cmd
 // is populated in a well-formed entry; Kind records which one was present
@@ -58,32 +51,6 @@ type PresetEntry struct {
 	Preset Preset
 }
 
-// ReadSpawnCommand returns the value of agent.spawn_command from
-// <repoRoot>/fab/project/config.yaml. It returns "" for any of:
-//   - empty repoRoot
-//   - missing file
-//   - unreadable file
-//   - malformed YAML
-//   - missing agent block
-//   - missing or empty spawn_command key
-//
-// This is best-effort and never returns an error — callers are expected to
-// apply a fallback when the result is "".
-func ReadSpawnCommand(repoRoot string) string {
-	if repoRoot == "" {
-		return ""
-	}
-	data, err := os.ReadFile(filepath.Join(repoRoot, fabConfigRelPath))
-	if err != nil {
-		return ""
-	}
-	var cfg fabConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(cfg.Agent.SpawnCommand)
-}
-
 // ReadPresets returns the map of named riff presets defined in
 // <repoRoot>/fab/project/config.yaml under the top-level path
 // riff.presets.<name>. It returns an empty (non-nil) map for any of:
@@ -97,9 +64,8 @@ func ReadSpawnCommand(repoRoot string) string {
 // if any pane entry has both skill and cmd keys set. Other validation failures
 // within a preset entry (unknown keys, etc.) are tolerated and ignored.
 //
-// This is best-effort and never returns an error or emits a log — matches the
-// silent-fallback posture of ReadSpawnCommand so repo-scan callers don't get
-// stderr noise from malformed configs.
+// This is best-effort and never returns an error or emits a log — a silent
+// fallback so repo-scan callers don't get stderr noise from malformed configs.
 func ReadPresets(repoRoot string) map[string]Preset {
 	ordered := ReadPresetsOrdered(repoRoot)
 	out := make(map[string]Preset, len(ordered))

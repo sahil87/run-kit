@@ -1,0 +1,57 @@
+id: w884
+name: 260703-w884-riff-launcher-fab-agent-print
+created: 2026-07-03T09:12:38Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 6
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 79.4
+        reversibility: 87.2
+        competence: 86.7
+        disambiguation: 79.4
+stage_metrics:
+    intake: {started_at: "2026-07-03T09:12:38Z", driver: fab-new, iterations: 1, completed_at: "2026-07-03T09:17:20Z"}
+    apply: {started_at: "2026-07-03T09:17:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T09:24:51Z"}
+    review: {started_at: "2026-07-03T09:24:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T09:36:09Z"}
+    hydrate: {started_at: "2026-07-03T09:36:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T09:39:59Z"}
+    ship: {started_at: "2026-07-03T09:39:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T09:41:40Z"}
+    review-pr: {started_at: "2026-07-03T09:41:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-03T09:48:31Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/298
+change_type_source: explicit
+true_impact:
+    added: 533
+    deleted: 258
+    net: 275
+    excluding:
+        added: 152
+        deleted: 244
+        net: -92
+    tests:
+        added: 89
+        deleted: 182
+        net: -93
+    computed_at: "2026-07-03T09:41:40Z"
+    computed_at_stage: ship
+summary: rk riff resolves the launcher via 'fab agent --print' (10s timeout, silent fallback); deleted fabconfig.ReadSpawnCommand + fabConfig struct; new parseFabAgentOutput pure seam + stub-fab test
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-03T09:48:31Z

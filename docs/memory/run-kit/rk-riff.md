@@ -132,7 +132,7 @@ riff:
         - main
 ```
 
-**Validation (best-effort, silent):** a preset whose pane entry has BOTH `skill` and `cmd` keys is silently discarded from the returned map — matches the silent-fallback posture of `ReadSpawnCommand`. Malformed YAML, missing `riff` or `riff.presets` blocks, or any read failure returns an empty map. Unknown top-level keys in a preset (other than `layout`/`panes`/`wt_args`) are tolerated.
+**Validation (best-effort, silent):** a preset whose pane entry has BOTH `skill` and `cmd` keys is silently discarded from the returned map — matches the silent-fallback posture shared across `internal/fabconfig` (`ReadPresets`/`ReadPresetsOrdered` return empty on any failure, never an error). Malformed YAML, missing `riff` or `riff.presets` blocks, or any read failure returns an empty map. Unknown top-level keys in a preset (other than `layout`/`panes`/`wt_args`) are tolerated.
 
 ### Invocation
 
@@ -197,7 +197,7 @@ On any goroutine failure:
 3. **Signal wrap** — `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`.
 4. **Count validation** — N ≥ 1 or exit 1.
 5. **Layout validation** — `resolveLayout` or exit 1 (error lists all 12 valid values).
-6. **Launcher resolution** — `fabconfig.ReadSpawnCommand` or hardcoded default.
+6. **Launcher resolution** — `resolveLauncher` shells out to `fab agent --print` (fab-kit's fully-resolved default-tier session command) via `exec.CommandContext` with `fabTimeout` (10 s); silent best-effort fallback to `defaultLauncher` (`claude --dangerously-skip-permissions`) on any failure. Never errors.
 7. **Preset resolution** — `resolveActivePreset` handles positional/named/conflict/unknown.
 8. **Effective spec assembly** — `resolveEffectiveSpec` merges CLI + preset + defaults.
 9. **Dispatch** — N = 1 calls `runWtCreate` + `spawnRiff` directly; N ≥ 2 calls `runCount` (the orchestrator dispatching by `spec.Count`).
@@ -225,17 +225,32 @@ Before each `tmux new-window`, `listWindowNames(ctx)` runs `tmux list-windows -F
 
 ## `internal/fabconfig/` Package
 
-Best-effort `yaml.v3` reader for `fab/project/config.yaml`. Public API:
+Best-effort `yaml.v3` reader for `fab/project/config.yaml` — **presets only**. Public API:
 
 ```go
-fabconfig.ReadSpawnCommand(repoRoot string) string
 fabconfig.ReadPresets(repoRoot string) map[string]Preset
 fabconfig.ReadPresetsOrdered(repoRoot string) []PresetEntry
 ```
 
+The package no longer reads the agent launcher: `ReadSpawnCommand` (and the `fabConfig` struct it decoded) were **deleted** in `260703-w884` because the launcher key it read (`agent.spawn_command`) is dead in the fab-kit 2.13.3 config schema (the launcher now lives at `providers.<name>.session_command` with per-tier profiles under `agent.tiers`). `rk riff` resolves the launcher by shelling out to `fab agent --print` instead of parsing that schema itself (see §Launcher Resolution). `ReadPresets`/`ReadPresetsOrdered` and all preset types are unchanged.
+
 `ReadPresets` returns an empty map for any failure path; `ReadPresetsOrdered` preserves YAML source order (walks `*yaml.Node` directly because struct-decoded `*yaml.Node` fields don't populate — yaml.v3 requires top-level Node decoding for node access). `Preset` has `Layout string`, `Panes []PaneSpec`, `WtArgs []string`. `PaneSpec` has `Kind` (one of `PaneKindSkill`/`PaneKindCmd`), `Skill`, `Cmd`.
 
-Callers never get an error or log emission — the silent-fallback posture matches `ReadSpawnCommand` so repo-scan callers don't get stderr noise.
+Callers never get an error or log emission — a silent-fallback posture so repo-scan callers don't get stderr noise from malformed configs.
+
+## Launcher Resolution
+
+`resolveLauncher()` (riff.go) resolves the agent launcher by shelling out to **`fab agent --print`**, which prints fab-kit's fully-resolved default-tier session command (tier → provider → `session_command`, with `{model}`/`{effort}` substitution via fab's own `internal/spawn`). Delegating to the fab CLI means rk never parses fab-kit's config schema itself and can't drift from it (constitution §III Wrap, Don't Reinvent) — the design decision that replaced the deleted `fabconfig.ReadSpawnCommand`, which read the now-dead `agent.spawn_command` key.
+
+Mechanics:
+
+- `exec.CommandContext(ctx, "fab", "agent", "--print")` with `ctx` bounded by the named `fabTimeout = 10 * time.Second` constant (in the timeouts `const` block alongside `wtTimeout`/`tmuxTimeout`) — constitution §I Security First + §Process Execution.
+- Stdout captured via `cmd.Output()` (**not** `CombinedOutput()`) so stderr can't pollute the launcher string.
+- fab discovers the repo from the process cwd; `rk riff` always runs inside the repo, so **no `--repo` flag and no `config.FindGitRoot` walk** are needed in `resolveLauncher` (`FindGitRoot` is still used by the preset helpers — see §Related Files).
+
+**Silent best-effort fallback (never errors):** the pure seam `parseFabAgentOutput(stdout string, err error) (string, bool)` makes the fallback decision. It returns `(trimmed-launcher, true)` only when `err` is nil and stdout trims to a single non-empty line; otherwise `("", false)` and `resolveLauncher` returns `defaultLauncher`. Fallback cases: `fab` absent from PATH, non-zero exit, timeout, empty/whitespace-only stdout, and **multi-line** trimmed output (an embedded newline is treated as malformed — a valid session command is one line). No stderr noise, no returned error — the never-errors posture of runRiff Step 5. The pure helper mirrors riff.go's established test-seam pattern (`parsePaneID`, `parseWorktreePath`, `buildWtDeleteArgs`) so the fallback rules are unit-testable without staging a subprocess.
+
+> **Duplicate `--effort`**: the resolved command can carry `--effort` twice (once from the user's `session_command` string, once appended by fab's profile injection). Last-wins, harmless — user config hygiene, out of scope for rk.
 
 ## `tmux.OriginalTMUX` Usage
 
@@ -243,27 +258,27 @@ Same as before: `internal/tmux`'s `init()` strips `$TMUX`, and `checkPreconditio
 
 ## Security / Trust Boundary
 
-Unchanged from prior changes: `fab/project/config.yaml` is a trust boundary equivalent to committed code. Preset `wt_args`, preset `cmd` values, and `agent.spawn_command` are all unescaped on their way to tmux's shell. Users consuming third-party repos SHOULD audit `fab/project/config.yaml` before running `rk riff` against them.
+Unchanged from prior changes: `fab/project/config.yaml` is a trust boundary equivalent to committed code. Preset `wt_args` and preset `cmd` values are unescaped on their way to tmux's shell. The launcher itself is now the trimmed stdout of `fab agent --print` — fab-kit resolves it from the *same* committed `fab/project/config.yaml` (`providers.<name>.session_command`), so the boundary is unchanged (config ≙ committed code) and actually narrows: rk no longer parses the config for the launcher, the `fab` binary does. Users consuming third-party repos SHOULD audit `fab/project/config.yaml` before running `rk riff` against them.
 
 ## Tests
 
-- `app/backend/cmd/rk/riff_test.go` — existing helpers (`parseWorktreePath`, `escapeSingleQuotes`, `buildNewWindowArgs`, `shellWrap`, `resolveWindowName`, `resolveLauncher`) plus coverage: `rewritePaneSpaceForm`, `paneFlag` parsing (interleaved argv → correct PaneSpec order), `resolveLayout` (all 12 inputs + unknown-value error), `autoLayout`, `resolveActivePreset` (6 scenarios), `resolveEffectiveSpec` (7 resolution rules), `buildSpawnArgvs` (single/2/4-pane shapes, bare skill, bare cmd; no longer emits a trailing `select-pane` row), `buildNewWindowCaptureArgs` (argv shape for the `-P -F '#{pane_id}'` step), `parsePaneID` (single-line trim + empty-input error), `printPresets` (empty + two-preset), `planFanOutRollback` (full success, partial with failure, no failure), `TestRiffCountShortForm` (`-N`/`--count`/`--count=`/default), `TestRiffFanOutFlagRejected` (post-rename hard-rename regression), `TestBuildWtDeleteArgs` (`--non-interactive` + positional name; rejects `--worktree-name`).
-- `app/backend/internal/fabconfig/fabconfig_test.go` — existing `ReadSpawnCommand` cases plus `ReadPresets` cases (empty file, missing riff block, malformed YAML, valid preset with all fields, pane-with-both-keys discarded, unknown keys tolerated, empty panes list, multiple presets, nested `agent.riff.presets` ignored) and `ReadPresetsOrdered` preserves source order.
+- `app/backend/cmd/rk/riff_test.go` — existing helpers (`parseWorktreePath`, `escapeSingleQuotes`, `buildNewWindowArgs`, `shellWrap`, `resolveWindowName`) plus coverage: `rewritePaneSpaceForm`, `paneFlag` parsing (interleaved argv → correct PaneSpec order), `resolveLayout` (all 12 inputs + unknown-value error), `autoLayout`, `resolveActivePreset` (6 scenarios), `resolveEffectiveSpec` (7 resolution rules), `buildSpawnArgvs` (single/2/4-pane shapes, bare skill, bare cmd; no longer emits a trailing `select-pane` row), `buildNewWindowCaptureArgs` (argv shape for the `-P -F '#{pane_id}'` step), `parsePaneID` (single-line trim + empty-input error), `printPresets` (empty + two-preset), `planFanOutRollback` (full success, partial with failure, no failure), `TestRiffCountShortForm` (`-N`/`--count`/`--count=`/default), `TestRiffFanOutFlagRejected` (post-rename hard-rename regression), `TestBuildWtDeleteArgs` (`--non-interactive` + positional name; rejects `--worktree-name`). **Launcher coverage** (`260703-w884`, replacing the deleted config-read tests `TestResolveLauncher`/`TestResolveLauncher_ReadsFromSubdir`/`TestFabconfigIntegration` and the `writeGitDir` helper): `TestParseFabAgentOutput` (pure table — success trims to a single line; leading/trailing whitespace trimmed; error / empty / whitespace-only / multi-line stdout → fallback) and `TestResolveLauncher_StubFab` (end-to-end via a stub `fab` executable on a temp-dir `PATH`: stub prints a launcher → returned verbatim; stub exits non-zero → `defaultLauncher`; empty PATH so `fab` is absent → `defaultLauncher`).
+- `app/backend/internal/fabconfig/fabconfig_test.go` — `ReadPresets` cases (empty file, missing riff block, malformed YAML, valid preset with all fields, pane-with-both-keys discarded, unknown keys tolerated, empty panes list, multiple presets, nested `agent.riff.presets` ignored) and `ReadPresetsOrdered` preserves source order. The `TestReadSpawnCommand`/`TestReadSpawnCommand_EmptyRoot` cases were **deleted** with `ReadSpawnCommand` (`260703-w884`).
 
 No integration tests invoke real `wt`/`tmux` — the pure helpers remain the unit-test surface. SIGINT propagation and the fan-out goroutine orchestration are deliberately not automated — manual verification against a hung `wt create` + `--count 3` is the acceptance check.
 
 ## Related Files
 
-- `app/backend/cmd/rk/riff.go` — command implementation
+- `app/backend/cmd/rk/riff.go` — command implementation, incl. `resolveLauncher` / `parseFabAgentOutput` (launcher via `fab agent --print`) and the `fabTimeout` const
 - `app/backend/cmd/rk/pane_spec.go` — `paneFlag` pflag.Value + argv pre-processor
 - `app/backend/cmd/rk/layout.go` — `layoutAliases`, `resolveLayout`, `autoLayout`
 - `app/backend/cmd/rk/layout_help.go` — `renderLayoutMocks`, `layoutFlagUsage`
 - `app/backend/cmd/rk/riff_test.go` — pure-helper unit tests
 - `app/backend/cmd/rk/root.go` — registration via `rootCmd.AddCommand(riffCmd)`
 - `app/backend/cmd/rk/context.go` — lists `rk riff` under **Workflow** in the CLI Commands section
-- `app/backend/internal/fabconfig/fabconfig.go` — `ReadSpawnCommand`, `ReadPresets`, `ReadPresetsOrdered`
+- `app/backend/internal/fabconfig/fabconfig.go` — `ReadPresets`, `ReadPresetsOrdered` (presets only; `ReadSpawnCommand` + the `fabConfig` struct were deleted in `260703-w884`)
 - `app/backend/internal/fabconfig/fabconfig_test.go` — fabconfig unit tests
-- `app/backend/internal/config/runkit_yaml.go` — `FindGitRoot(dir)` walk-up helper reused by launcher + preset resolution
+- `app/backend/internal/config/runkit_yaml.go` — `FindGitRoot(dir)` walk-up helper reused by preset resolution (`readPresetsForRepo`/`readPresetsOrderedForRepo`); `resolveLauncher` no longer uses it (fab does its own cwd-based repo discovery)
 - `app/backend/internal/tmux/tmux.go` — `OriginalTMUX` package-level var
 
 ## Design Decisions

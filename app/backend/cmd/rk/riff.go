@@ -32,10 +32,12 @@ const (
 )
 
 // Subprocess timeouts — `wt create` is the slowest step (matches constitution
-// §Process Execution's 30s build-op guidance); tmux operations are cheap.
+// §Process Execution's 30s build-op guidance); tmux and fab operations are
+// cheap. fabTimeout bounds the `fab agent --print` launcher-resolution call.
 const (
 	wtTimeout        = 30 * time.Second
 	tmuxTimeout      = 10 * time.Second
+	fabTimeout       = 10 * time.Second
 	defaultRiffSkill = "/fab-discuss"
 	defaultLauncher  = "claude --dangerously-skip-permissions"
 )
@@ -86,7 +88,9 @@ via --count.
 Prerequisites:
   - You must be inside a tmux session ($TMUX set).
   - 'wt' must be on your PATH (https://github.com/sahil87/wt).
-  - The launcher command (default: claude --dangerously-skip-permissions) must be available.
+  - The resolved launcher command (default: claude --dangerously-skip-permissions) must be available.
+  - 'fab' on PATH is optional: it is used to resolve the launcher (see below);
+    when absent, the default launcher is used.
 
 Flags before -- are parsed by rk; flags after -- are forwarded verbatim to
 wt create (e.g., --worktree-name, --base, --reuse). Run 'wt create --help' to
@@ -99,8 +103,9 @@ Pane array model:
   --cmd drops into $SHELL (fallback /bin/sh).
 
 Launcher resolution:
-  If 'fab/project/config.yaml' has 'agent.spawn_command', that value is used
-  as the launcher. Otherwise, falls back to 'claude --dangerously-skip-permissions'.
+  The launcher is resolved by running 'fab agent --print', which prints
+  fab-kit's fully-resolved default-tier session command. If 'fab' is not on
+  PATH or the call fails, falls back to 'claude --dangerously-skip-permissions'.
 
 Presets:
   Named invocations like 'rk riff ship' or 'rk riff --preset ship' pull
@@ -282,8 +287,9 @@ func runRiff(cmd *cobra.Command, args []string) error {
 		return &exitCodeError{code: 1, msg: err.Error()}
 	}
 
-	// Step 5: launcher resolution. Never errors — falls back to built-in
-	// default when config is absent / malformed / empty.
+	// Step 5: launcher resolution via `fab agent --print`. Never errors —
+	// falls back to the built-in default when fab is absent / fails / prints
+	// nothing usable.
 	launcher := resolveLauncher()
 
 	// Step 6: preset resolution. Determines whether args[0] is a preset name
@@ -343,22 +349,51 @@ func checkPreconditions() error {
 	return nil
 }
 
-// resolveLauncher discovers the repo root, reads fab/project/config.yaml's
-// agent.spawn_command, and falls back to the hardcoded default if resolution
-// yields an empty string. Never errors.
+// resolveLauncher resolves the agent launcher by shelling out to
+// `fab agent --print`, which prints fab-kit's fully-resolved default-tier
+// session command (tier → provider → session_command, with {model}/{effort}
+// substitution). Delegating to the fab CLI means rk never has to parse
+// fab-kit's config schema itself and can't drift from it (constitution §III
+// Wrap, Don't Reinvent). fab discovers the repo from the process cwd — and
+// `rk riff` always runs inside the repo — so no --repo flag or FindGitRoot
+// walk is needed here.
+//
+// Best-effort and never errors: on ANY failure (fab absent from PATH, non-zero
+// exit, timeout, empty/whitespace-only stdout, or multi-line stdout) it falls
+// back silently to defaultLauncher with no stderr noise, preserving the
+// documented never-errors posture of runRiff Step 5.
 func resolveLauncher() string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return defaultLauncher
-	}
-	root := config.FindGitRoot(cwd)
-	if root == "" {
-		return defaultLauncher
-	}
-	if v := fabconfig.ReadSpawnCommand(root); v != "" {
-		return v
+	ctx, cancel := context.WithTimeout(context.Background(), fabTimeout)
+	defer cancel()
+
+	// Output() (not CombinedOutput()) so stderr can't pollute the launcher.
+	out, err := exec.CommandContext(ctx, "fab", "agent", "--print").Output()
+	if launcher, ok := parseFabAgentOutput(string(out), err); ok {
+		return launcher
 	}
 	return defaultLauncher
+}
+
+// parseFabAgentOutput is the pure post-processing seam for resolveLauncher's
+// `fab agent --print` call: it decides whether the subprocess result yields a
+// usable launcher. Returns (trimmed launcher, true) only when err is nil and
+// stdout trims to a single non-empty line; otherwise (\"\", false) so the
+// caller falls back to defaultLauncher. A trimmed string containing an embedded
+// newline (multi-line output) is treated as malformed — a valid session command
+// is one line. Pure — no I/O — so the fallback rules are testable in isolation,
+// mirroring parsePaneID.
+func parseFabAgentOutput(stdout string, err error) (string, bool) {
+	if err != nil {
+		return "", false
+	}
+	launcher := strings.TrimSpace(stdout)
+	if launcher == "" {
+		return "", false
+	}
+	if strings.ContainsRune(launcher, '\n') {
+		return "", false
+	}
+	return launcher, true
 }
 
 // readPresetsForRepo returns the presets map from fab/project/config.yaml at

@@ -54,13 +54,13 @@ export function BoardsSection() {
                   type="button"
                   onClick={() => navigate({ to: "/board/$name", params: { name: b.name } })}
                   aria-current={isActive ? "page" : undefined}
-                  className={`w-full flex items-center justify-between gap-2 pl-2 pr-2 py-1 text-sm text-left transition-colors min-h-[36px] ${
+                  className={`w-full flex items-center justify-between gap-2 px-2 py-1 text-left transition-colors min-h-[36px] ${
                     isActive
                       ? "bg-bg-card text-text-primary font-medium"
                       : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
                   }`}
                 >
-                  <span className="truncate">{b.name}</span>
+                  <span className="truncate text-xs">{b.name}</span>
                   <span className="text-xs text-text-secondary shrink-0">{b.pinCount}</span>
                 </button>
               </li>

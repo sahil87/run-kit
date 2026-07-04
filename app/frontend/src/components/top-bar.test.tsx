@@ -269,6 +269,25 @@ describe("TopBar", () => {
     });
   });
 
+  describe("HelpLink", () => {
+    it("renders a help anchor pointing at the run-kit docs, opening in a new tab safely", () => {
+      renderTopBar();
+      const help = screen.getByLabelText("Help — run-kit docs");
+      // Anchor (not button) so external nav never unloads the live dashboard.
+      expect(help.tagName).toBe("A");
+      expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
+      expect(help).toHaveAttribute("target", "_blank");
+      // rel must carry both tokens: noopener severs window.opener, noreferrer
+      // strips the Referer header — both needed for a safe external new tab.
+      const rel = help.getAttribute("rel") ?? "";
+      expect(rel).toContain("noopener");
+      expect(rel).toContain("noreferrer");
+      // The native tooltip mirrors the accessible name so mouse + AT users see
+      // the same label.
+      expect(help).toHaveAttribute("title", "Help — run-kit docs");
+    });
+  });
+
   describe("TerminalFontControl", () => {
     const FONT_KEY = "runkit-terminal-font-size";
 

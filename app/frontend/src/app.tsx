@@ -17,7 +17,7 @@ import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { useDialogState } from "@/hooks/use-dialog-state";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { TopBar } from "@/components/top-bar";
+import { TopBar, HELP_URL } from "@/components/top-bar";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
@@ -1235,6 +1235,11 @@ function AppShell() {
         id: "keyboard-shortcuts",
         label: "Help: Keyboard Shortcuts",
         onSelect: () => setShowKeyboardShortcuts(true),
+      },
+      {
+        id: "help-documentation",
+        label: "Help: Documentation",
+        onSelect: () => window.open(HELP_URL, "_blank", "noopener,noreferrer"),
       },
     ],
     [server, executeReloadConfig, executeResetConfig],

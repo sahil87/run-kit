@@ -13,7 +13,7 @@ import { useToast } from "@/components/toast";
 import { BottomBar } from "@/components/bottom-bar";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
-import { TopBar } from "@/components/top-bar";
+import { TopBar, HELP_URL } from "@/components/top-bar";
 import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import type { PaletteAction } from "@/components/command-palette";
@@ -332,6 +332,19 @@ function BoardPageContent({ name }: { name: string }) {
       onSelect: () => window.location.reload(),
     };
 
+    // Help docs — duplicated from AppShell's `configActions` for the same
+    // reason as refreshEntry: the board route mounts its OWN palette and does
+    // NOT render AppShell (DD-8), so AppShell's "Help: Documentation" is
+    // unreachable here. The help affordance is route-agnostic (the top-bar
+    // HelpLink chip renders on every route), so keeping it keyboard-reachable
+    // on `/board/*` too honors constitution V. Shares the exported HELP_URL so
+    // the URL can never drift from the chip / AppShell action.
+    const helpEntry: PaletteAction = {
+      id: "help-documentation",
+      label: "Help: Documentation",
+      onSelect: () => window.open(HELP_URL, "_blank", "noopener,noreferrer"),
+    };
+
     if (entries.length > 0) {
       conditional.push({
         id: "board-cycle-next",
@@ -349,7 +362,7 @@ function BoardPageContent({ name }: { name: string }) {
       });
     }
 
-    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry];
+    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry];
   }, [boards, name, entries.length, navigate, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.

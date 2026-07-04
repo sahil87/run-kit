@@ -371,7 +371,7 @@ export function TopBar({
 
           {/* Route-agnostic controls — these render in every mode (including
               cockpit) and keep a stable left-to-right order:
-              FixedWidth → Notification → Theme → connection dot. */}
+              FixedWidth → Notification → Theme → Help → connection dot. */}
 
           {/* FixedWidthToggle is route-agnostic — fixed-width constrains the
               max-width of any surface including the server list, so it stays in
@@ -390,6 +390,11 @@ export function TopBar({
           {/* Theme toggle — route-agnostic. */}
           <span className="hidden sm:flex">
             <ThemeToggle />
+          </span>
+
+          {/* Help — route-agnostic external docs link. */}
+          <span className="hidden sm:flex">
+            <HelpLink />
           </span>
 
           {/* Connection dot — the right-most element. Rendered in terminal/root
@@ -818,6 +823,37 @@ function ThemeToggle() {
         </svg>
       )}
     </button>
+  );
+}
+
+// Help — external docs/landing page. Opens in a new tab. Exported so the
+// command-palette "Help: Documentation" action (app.tsx) shares the same URL
+// and the two can never drift (pattern: NOTIFICATIONS_HELP_URL below).
+export const HELP_URL = "https://shll.ai/run-kit";
+
+// Help link chip — route-agnostic, sits after ThemeToggle in the right cluster.
+// Anchor (not button): it navigates externally, so target="_blank" +
+// rel="noopener noreferrer" keeps the live dashboard (terminals, SSE) mounted.
+function HelpLink() {
+  return (
+    <a
+      href={HELP_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Help — run-kit docs"
+      title="Help — run-kit docs"
+      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center"
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d="M5.75 6a2.25 2.25 0 1 1 3.2 2.04c-.62.29-.95.79-.95 1.35v.36"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+        <circle cx="8" cy="12.25" r="0.9" fill="currentColor" />
+      </svg>
+    </a>
   );
 }
 

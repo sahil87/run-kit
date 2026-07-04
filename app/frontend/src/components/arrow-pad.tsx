@@ -100,7 +100,7 @@ export function ArrowPad({ onArrow, className }: ArrowPadProps) {
         aria-label="Arrow keys"
         aria-haspopup="true"
         aria-expanded={open}
-        className="rk-glint min-h-[36px] min-w-[36px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent text-text-secondary touch-none"
+        className="rk-glint h-8 w-8 flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent touch-none"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onMouseDown={handleMouseDown}

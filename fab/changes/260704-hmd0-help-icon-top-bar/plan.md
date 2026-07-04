@@ -76,7 +76,7 @@ A `Help: Documentation` action SHALL be added to the route-agnostic palette acti
 
 - [x] A-001 R1: The top bar renders a help anchor in the route-agnostic cluster after `ThemeToggle` and before the connection dot, in every mode, wrapped in `hidden sm:flex`.
 - [x] A-002 R2: The help chip uses the identical chip class string as `ThemeToggle` and a 14px inline `currentColor` `?` SVG glyph.
-- [x] A-003 R3: A single exported `HELP_URL` constant holds `https://shll.ai/run-kit`; no duplicate literal exists; the palette action imports it. (The only other literal is the T004-mandated test assertion — asserting the literal, not the imported constant, is what makes the test non-tautological.)
+- [x] A-003 R3: A single exported `HELP_URL` constant holds `https://shll.ai/run-kit`; no duplicate literal exists in the frontend implementation code; the palette action imports it. (Scope is `app/frontend/src/` implementation only — the URL still appears verbatim in docs/fab artifacts and in the T004-mandated test assertion. Asserting the literal, not the imported constant, is what makes the test non-tautological.)
 - [x] A-004 R4: A `Help: Documentation` palette action exists in `configActions` (shape `{ id, label, onSelect }`) opening `HELP_URL` in a new tab with `noopener,noreferrer`.
 
 ### Behavioral Correctness

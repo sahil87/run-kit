@@ -277,8 +277,14 @@ describe("TopBar", () => {
       expect(help.tagName).toBe("A");
       expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
       expect(help).toHaveAttribute("target", "_blank");
-      // rel must include noopener (noreferrer alongside it is fine).
-      expect(help.getAttribute("rel")).toContain("noopener");
+      // rel must carry both tokens: noopener severs window.opener, noreferrer
+      // strips the Referer header — both needed for a safe external new tab.
+      const rel = help.getAttribute("rel") ?? "";
+      expect(rel).toContain("noopener");
+      expect(rel).toContain("noreferrer");
+      // The native tooltip mirrors the accessible name so mouse + AT users see
+      // the same label.
+      expect(help).toHaveAttribute("title", "Help — run-kit docs");
     });
   });
 

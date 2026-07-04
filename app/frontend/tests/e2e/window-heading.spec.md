@@ -89,6 +89,11 @@ the 375px top bar stays single-line and introduces no horizontal page overflow
 4. Assert `document.body.scrollWidth ≤ 375` (no horizontal overflow).
 5. Assert the header's rendered height is under one-and-a-half lines of chrome
    (a wrap would roughly double it).
+6. Assert truncation is left-anchored, not center-clipped: the name lives in
+   an inner `truncate` span whose bounding box fits inside the button's box
+   (under the old bug — `truncate` on the flex button itself — the text box
+   overhung both ends, cutting the head of the name with no ellipsis), and the
+   span still carries the full name as text (the ellipsis is visual only).
 
 ### `hover treatments carry their classes; a reduced-motion context still renders them (gate is CSS-only)`
 

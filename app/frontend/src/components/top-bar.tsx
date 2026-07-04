@@ -673,11 +673,17 @@ function WindowHeading({
       // so give it a touch-sized tap target on coarse pointers (matches the
       // top-bar control convention `coarse:min-h-[30px]`); inline-flex centers
       // the truncated name vertically within the taller target.
-      className={`max-w-[16ch] sm:max-w-[28ch] truncate text-center text-sm font-semibold transition-colors inline-flex items-center justify-center coarse:min-h-[30px] ${
+      className={`max-w-[16ch] sm:max-w-[28ch] text-sm font-semibold transition-colors inline-flex items-center coarse:min-h-[30px] ${
         scrambling ? "text-accent-green" : "text-text-primary"
       }`}
     >
-      {display}
+      {/* Truncation lives on an inner span, NOT the button: text-overflow is
+          inert on a flex container, and the flex centering clipped long names
+          on BOTH ends (riff-blustery-whale → "iff-blustery-whal", no
+          ellipsis). The span is left-anchored, so a long name keeps its head
+          and cuts at the tail with an ellipsis; the button (and heading)
+          itself stays centered in the bar's grid cell. */}
+      <span className="min-w-0 truncate">{display}</span>
     </button>
   );
 }

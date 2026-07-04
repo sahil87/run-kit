@@ -190,6 +190,21 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     const box = await header.boundingBox();
     expect(box).toBeTruthy();
     expect(box!.height).toBeLessThan(56);
+
+    // Truncation is left-anchored, not center-clipped: the name lives in an
+    // inner `truncate` span whose box must fit INSIDE the button. Under the
+    // old center-clip bug (truncate on the flex button itself), the text box
+    // was wider than the button and overhung BOTH ends — the head of the name
+    // was cut and no ellipsis rendered (riff-blustery-whale → "iff-…-whal").
+    const nameSpan = heading.locator("span").first();
+    const headingBox = (await heading.boundingBox())!;
+    const spanBox = (await nameSpan.boundingBox())!;
+    expect(spanBox.x).toBeGreaterThanOrEqual(headingBox.x - 1);
+    expect(spanBox.x + spanBox.width).toBeLessThanOrEqual(
+      headingBox.x + headingBox.width + 1,
+    );
+    // The full name is still the accessible text (ellipsis is visual only).
+    await expect(nameSpan).toHaveText(name);
   });
 
   test("hover treatments carry their classes; a reduced-motion context still renders them (gate is CSS-only)", async ({

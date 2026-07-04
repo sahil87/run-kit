@@ -1,10 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
 
-// This spec is fully mocked: the top-bar RefreshButton is gated on a current
-// window, so we inject the SSE `sessions` payload (and the server list) via
-// page.route and navigate to a terminal window route. That reaches the
-// `currentWindow` cluster group deterministically without a real tmux server or
-// `gh`. See top-bar-refresh.spec.md for intent + steps.
+// This spec is fully mocked: we inject the SSE `sessions` payload (and the
+// server list) via page.route and navigate to a terminal window route. The
+// RefreshButton rides the L3 always-block (260704-9o7k) and renders at first
+// paint; the Close pane button is still gated on a current window, so IT is the
+// synchronization anchor proving the mocked SSE payload landed. See
+// top-bar-refresh.spec.md for intent + steps.
 //
 // The RefreshButton calls window.location.reload() — the routes installed via
 // page.route persist across the in-page reload, so the app re-mounts on the
@@ -20,7 +21,7 @@ const SERVER = "default";
 // deliberate: it makes the `/select` mock actually fire (so its interception is
 // verifiable — see `selectHits` below) instead of the no-op path a URL that
 // already matches the active window would take. `currentWindow` keys on the URL
-// (`@1`), so the RefreshButton (and the Close/Split cluster) still render.
+// (`@1`), so the Close/Split cluster still renders.
 const sessionsPayload = JSON.stringify([
   {
     name: "dev",
@@ -47,8 +48,8 @@ const sessionsPayload = JSON.stringify([
   },
 ]);
 
-// The RefreshButton renders on the terminal window route `/$server/$window`
-// (`@` percent-encoded to `%40`), where a current window exists.
+// The terminal window route `/$server/$window` (`@` percent-encoded to `%40`),
+// where a current window exists and the full three-level cluster renders.
 const WINDOW_URL = `/${SERVER}/%401`;
 
 /**
@@ -113,11 +114,17 @@ test.describe("Top-bar RefreshButton", () => {
   test.beforeEach(async ({ page }) => {
     ({ selectHits } = await mockBackend(page));
     await page.goto(WINDOW_URL);
-    // Wait for the cluster to render (the SSE payload landed → currentWindow set).
-    await expect(refreshButton(page)).toBeVisible({ timeout: 10_000 });
+    // Wait for the currentWindow-gated cluster to render (the SSE payload
+    // landed → currentWindow set). The refresh button can no longer be this
+    // anchor: it rides the L3 always-block (260704-9o7k) and is visible at
+    // first paint, BEFORE the mocked SSE event is processed — anchoring on it
+    // raced the mount-time /select POST and `selectHits` read 0. The Close pane
+    // button is still terminal-gated, so its visibility proves the session
+    // data arrived.
+    await expect(closeButton(page)).toBeVisible({ timeout: 10_000 });
   });
 
-  test("shows the refresh button next to the close button on a terminal route", async ({
+  test("renders refresh in the always block between theme and help on a terminal route", async ({
     page,
   }) => {
     // The /select mock intercepted the window-selection POST fired during nav —
@@ -125,27 +132,37 @@ test.describe("Top-bar RefreshButton", () => {
     // tmux select-window on the default socket). This guards the trailing-`*`
     // glob fix: a regression to `**/api/windows/*/select` (no trailing star)
     // misses the `?server=default` query string and this count drops to 0.
-    expect(selectHits()).toBeGreaterThan(0);
+    // Polled: the POST fires in a mount-time effect that runs fractionally
+    // after the close button (the beforeEach anchor) becomes visible.
+    await expect.poll(selectHits).toBeGreaterThan(0);
 
-    // The Close pane button is present on a terminal (current-window) route. The
-    // refresh button's visibility is already asserted in beforeEach.
-    await expect(closeButton(page)).toBeVisible();
+    // Refresh renders in the always block on a terminal route.
+    await expect(refreshButton(page)).toBeVisible();
 
-    // The refresh button renders IMMEDIATELY after the close button: each cluster
-    // button is wrapped in its own `<span class="hidden sm:flex">`, and the
-    // refresh span is the next element sibling of the close span (cluster order
-    // is split → split → close → refresh). Asserting nextElementSibling proves
-    // true adjacency — not merely "somewhere after" in document order.
-    const adjacency = await page.evaluate(() => {
-      const close = document.querySelector('button[aria-label="Close pane"]');
+    // Pyramid order (260704-9o7k): the L3 always-block runs Notification →
+    // Theme → Refresh → Help, with the connection dot as the right-most
+    // element. Each cluster button is wrapped in its own `<span class="hidden
+    // sm:flex">`; asserting element siblings proves true adjacency — not
+    // merely "somewhere after" in document order. (Theme's aria-label is
+    // dynamic — "System theme" in a fresh context — hence the suffix match;
+    // Help is a docs link, hence the anchor selector.)
+    const order = await page.evaluate(() => {
+      const theme = document.querySelector('button[aria-label$=" theme"]');
       const refresh = document.querySelector('button[aria-label="Refresh page"]');
-      if (!close || !refresh) return "missing";
-      const closeWrapper = close.closest("span");
+      const help = document.querySelector('a[aria-label^="Help"]');
+      if (!theme || !refresh || !help) return "missing";
+      const themeWrapper = theme.closest("span");
       const refreshWrapper = refresh.closest("span");
-      if (!closeWrapper || !refreshWrapper) return "no-wrapper";
-      return closeWrapper.nextElementSibling === refreshWrapper ? "adjacent" : "not-adjacent";
+      const helpWrapper = help.closest("span");
+      if (!themeWrapper || !refreshWrapper || !helpWrapper) return "no-wrapper";
+      if (themeWrapper.nextElementSibling !== refreshWrapper) return "theme-not-before-refresh";
+      if (refreshWrapper.nextElementSibling !== helpWrapper) return "refresh-not-before-help";
+      const cluster = refreshWrapper.parentElement;
+      const dot = cluster?.querySelector('[role="status"]');
+      if (!dot) return "no-dot";
+      return cluster?.lastElementChild === dot ? "pyramid" : "dot-not-last";
     });
-    expect(adjacency).toBe("adjacent");
+    expect(order).toBe("pyramid");
   });
 
   test("clicking the refresh button reloads the page", async ({ page }) => {

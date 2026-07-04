@@ -228,12 +228,14 @@ export function TopBar({
 
           {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
               desktop grid column and mobile overlay). Sits between the brand and
-              the crumbs. Not rendered on the Cockpit, which has no sidebar. */}
+              the crumbs. Not rendered on the Cockpit, which has no sidebar.
+              rk-glint: borderless at rest, so hover = green icon + sweep only
+              (the glint border flip is a no-op without a border). */}
           {hasSidebar && (
             <button
               onClick={onToggleSidebar}
               aria-label="Toggle navigation"
-              className="text-text-primary transition-colors min-w-[24px] min-h-[24px] flex items-center justify-center shrink-0"
+              className="rk-glint text-text-primary transition-colors min-w-[24px] min-h-[24px] flex items-center justify-center shrink-0"
             >
               <HamburgerIcon isOpen={hamburgerOpen} />
             </button>
@@ -261,7 +263,7 @@ export function TopBar({
                   <a
                     href={serverHref}
                     title="Server Cabin"
-                    className={`truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
+                    className={`rk-glint truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
                   >
                     {server}
                   </a>

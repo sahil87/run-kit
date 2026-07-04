@@ -96,7 +96,10 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, tri
         aria-label={label ? `Switch ${label}` : "Switch"}
         title={title}
         onClick={toggle}
-        className={`min-w-[24px] min-h-[24px] flex items-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
+        // rk-glint is safe here: the menu is a SIBLING of the trigger (both
+        // children of the relative wrapper), so the trigger's overflow:hidden
+        // never clips the open menu — same invariant as the top-bar popovers.
+        className={`rk-glint min-w-[24px] min-h-[24px] flex items-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
       >
         <span className="min-w-0 truncate">{icon ?? "\u25BE"}</span>
         {/* Persistent caret: the always-visible "opens a menu" affordance,

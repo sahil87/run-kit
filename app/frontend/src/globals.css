@@ -102,11 +102,14 @@ summary {
   16.6%, 33.3% { opacity: 1; }
 }
 
-/* ── Hover-animation vocabulary (change 260703-5ilm) ─────────────────────────
+/* ── Hover-animation vocabulary (change 260703-5ilm; boot sweep 260704-pr0p) ──
    One motion treatment per element category, so motion carries meaning:
-     glitch  = brand (rk-brand-glitch)
-     decode  = editable window identity (JS, in top-bar.tsx — not here)
-     brackets+caret = page titles (rk-bracket-group / PageHeading)
+     glitch      = brand (rk-brand-glitch)
+     boot sweep  = top-bar page heading (JS, in top-bar.tsx — one inverse-video
+                   cursor sweeps the `PageType: name` string: TypedLabel-style
+                   over the prefix, decode glyph churn over the name; reuses the
+                   rk-typed-* cell classes — not a class of its own)
+     brackets+caret = section headings (rk-bracket-group / SectionHeading)
      typed sweep    = section labels (rk-typed-* frame states; JS in typed-label.tsx)
      CRT glint      = buttons (rk-glint)
    ALL treatments are disabled under prefers-reduced-motion: reduce (below). */
@@ -174,7 +177,7 @@ summary {
   color: var(--color-accent-green);
 }
 
-/* Caret blink shared by section labels AND the PageHeading reserved caret. */
+/* Blink for the SectionHeading reserved caret (.rk-bracket-caret) on hover. */
 @keyframes rk-caret-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }
@@ -202,10 +205,12 @@ summary {
   color: var(--color-text-primary);
 }
 
-/* Brackets + caret = page titles. Hover scope is the bracket GROUP only
-   (applied to the inner bracket cluster in page-heading.tsx, not the row/rule).
-   Brackets step outward (no layout shift — transform only) and turn accent; a
-   reserved blinking caret cell sits before the closing bracket. */
+/* Brackets + caret = section headings. Hover scope is the bracket GROUP only
+   (applied to the inner bracket cluster in section-heading.tsx, not the
+   row/rule). Brackets step outward (no layout shift — transform only) and turn
+   accent; a reserved blinking caret cell sits before the closing bracket. The
+   label inside keeps its typed-sweep (TypedLabel) — the two vocabularies
+   compose on one element. */
 .rk-bracket-group .rk-bracket {
   transition: transform 160ms ease, color 160ms ease;
   will-change: transform;

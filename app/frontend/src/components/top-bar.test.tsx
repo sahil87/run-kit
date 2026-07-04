@@ -118,15 +118,22 @@ describe("TopBar", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the server name as the current-page leaf on the Server Cabin (no window), not 'Dashboard'", () => {
-    // root mode, no window \u2192 the server crumb IS the leaf.
+  it("shows the server name as the centered `Server Cabin:` heading on the Server Cabin (no window), not 'Dashboard' or a left leaf crumb", () => {
+    // root mode, no window \u2192 move-don't-copy: the server name is the CENTERED
+    // heading leaf, NOT a left `aria-current` crumb (260704-pr0p).
     renderTopBar({ mode: "root", sessionName: "", windowName: "", currentSession: null, currentWindow: null, server: "runkit" });
     // The literal "Dashboard" label is gone in every mode.
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
-    // The server name renders as a non-link current-page leaf.
-    const leaf = screen.getByText("runkit");
-    expect(leaf).toHaveAttribute("aria-current", "page");
-    expect(leaf.tagName).not.toBe("A");
+    // The server name renders as the centered `Server Cabin: <server>` heading
+    // (display-only \u2014 no rename). Its accessible name carries the type prefix.
+    const heading = screen.getByLabelText("Server Cabin runkit");
+    expect(heading).toBeInTheDocument();
+    // It is NOT inside the left breadcrumb nav (the left nav ends at the parent).
+    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(nav).not.toContainElement(heading);
+    // And it is not a link and not an aria-current leaf.
+    expect(heading.tagName).not.toBe("A");
+    expect(heading).not.toHaveAttribute("aria-current");
     // No session/window breadcrumbs.
     expect(screen.queryByLabelText("Switch session")).not.toBeInTheDocument();
   });
@@ -156,6 +163,60 @@ describe("TopBar", () => {
     expect(screen.getAllByText("main")).toHaveLength(1);
   });
 
+  describe("universal center heading (260704-pr0p)", () => {
+    it("renders a static `Terminal:` prefix sibling OUTSIDE the rename button on terminal routes", () => {
+      renderTopBar();
+      const heading = screen.getByRole("button", { name: "Rename window main" });
+      // The prefix is present at rest…
+      const prefix = screen.getByText(/Terminal:/);
+      expect(prefix).toBeInTheDocument();
+      // …but is NOT inside the rename button (clicking it must not start an
+      // edit — it binds only to the name).
+      expect(heading).not.toContainElement(prefix);
+    });
+
+    it("renders `Board: <name>` display heading + a ▾ board switcher in board mode", () => {
+      renderTopBar({
+        mode: "board",
+        currentWindow: null,
+        windowName: "",
+        boardName: "ops-wall",
+        paneCount: 2,
+        serverCount: 1,
+        boards: [{ name: "ops-wall" }, { name: "review" }],
+      });
+      // Display-only heading (no rename button); its accessible name carries the
+      // `Board` type prefix.
+      expect(screen.getByLabelText("Board ops-wall")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Rename/ })).not.toBeInTheDocument();
+      // The ▾ board switcher relocated to the center beside the name.
+      expect(screen.getByLabelText("Switch board")).toBeInTheDocument();
+    });
+
+    it("renders `Server Cabin: <server>` display heading (no rename) in root mode", () => {
+      renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+      expect(screen.getByLabelText("Server Cabin runkit")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Rename/ })).not.toBeInTheDocument();
+    });
+
+    it("renders the solo `Cockpit` word (no prefix, no name) in cockpit mode", () => {
+      renderTopBar({
+        mode: "cockpit",
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        server: "",
+      });
+      const solo = screen.getByLabelText("Cockpit");
+      expect(solo).toBeInTheDocument();
+      expect(solo).toHaveTextContent("Cockpit");
+      // No `Server Cabin:` / `Board:` / `Terminal:` prefix on the solo word.
+      expect(screen.queryByText(/Server Cabin:|Board:|Terminal:/)).not.toBeInTheDocument();
+    });
+  });
+
   it("uses \u203A (U+203A) as the breadcrumb separator (not / or the old chevron)", () => {
     renderTopBar();
     // The new separator appears between crumb levels.
@@ -173,9 +234,12 @@ describe("TopBar", () => {
     expect(screen.getByLabelText("Switch window")).toHaveAttribute("title", "Window");
   });
 
-  it("keeps the Server Cabin tooltip on the leaf server crumb (root mode, no window)", () => {
+  it("carries the Server Cabin identity on the centered heading in root mode (no window)", () => {
+    // The server-name leaf moved to the center heading (260704-pr0p); its
+    // accessible name is the `Server Cabin <server>` heading rather than a
+    // left crumb with a `title` tooltip.
     renderTopBar({ mode: "root", sessionName: "", windowName: "", currentSession: null, currentWindow: null });
-    expect(screen.getByText("runkit")).toHaveAttribute("title", "Server Cabin");
+    expect(screen.getByLabelText("Server Cabin runkit")).toBeInTheDocument();
   });
 
   it("renders the brand as the left-most root crumb linking to / (and no right-side Run Kit anchor)", () => {
@@ -868,7 +932,7 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
     expect(heading).toHaveClass("font-semibold", "text-text-primary");
   });
 
-  it("does not render the heading outside terminal mode (empty center cell)", () => {
+  it("renders no editable (click-to-rename) heading outside terminal mode — the center carries a display-only heading instead", () => {
     renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
     expect(screen.queryByRole("button", { name: /Rename window/ })).not.toBeInTheDocument();
   });

@@ -454,7 +454,7 @@ The centered, highlighted, editable window heading — the single most important
 
 ### Hover-Animation Vocabulary (`260703-5ilm`)
 
-A site-wide motion map where each treatment encodes **exactly one** category of element, so motion carries meaning instead of noise. The shared color cue: **the animated element turns `--color-accent-green` while it animates** (the brand chip on glitch-hover, the scrambling heading, both caret variants, the stepping brackets — user-requested — including the glint: the sweep strip is accent-green-tinted and the hovered chip's border + glyph flip green for the hover duration, the "green line"). All utilities live in `globals.css` (beside the `logo-chase` keyframes / `coarse` variant; Tailwind CSS 4) and are **all disabled under `@media (prefers-reduced-motion: reduce)`** (the decode is separately skipped in JS, reading the same media query). No pixel assertions in tests — treatments are asserted via class-presence + reduced-motion emulation, plus one behavioral guard for the caret (below).
+A site-wide motion map where each treatment encodes **exactly one** category of element, so motion carries meaning instead of noise. The shared color cue: **the animated element turns `--color-accent-green` while it animates** (the brand chip on glitch-hover, the scrambling heading, both caret variants, the stepping brackets — user-requested — including the glint: the sweep strip is accent-green-tinted and the hovered chip's border + glyph flip green for the hover duration, the "green line"). All utilities live in `globals.css` (beside the `logo-chase` keyframes / `coarse` variant; Tailwind CSS 4). Under `@media (prefers-reduced-motion: reduce)` the contract is **animations zeroed, not styling removed**: the CSS gate zeroes every keyframe animation (classes stay in the DOM — that is the test seam), the JS treatments (decode, typed sweep) skip themselves by reading the same media query, and static hover styling (e.g. the glint's green border/glyph flip) remains — a color change is not motion. No pixel assertions in tests — treatments are asserted via class-presence + reduced-motion emulation, plus one behavioral guard for the caret (below).
 
 | Category | Treatment | Mechanism |
 |----------|-----------|-----------|
@@ -918,7 +918,7 @@ All zones use `px-3 sm:px-6` — reduced horizontal padding on screens < 640px. 
 
 ### Touch Targets
 
-A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-variant coarse (@media (pointer: coarse))`. On touch devices, interactive elements get `coarse:min-h-[44px]` (Apple HIG minimum). This includes:
+A custom Tailwind variant `coarse:` is defined in `globals.css` via `@custom-variant coarse (@media (pointer: coarse))`. On touch devices, interactive elements are upsized per surface — `coarse:` is the mechanism, not a universal size (there is no single 44px minimum; each surface documents its own target). Upsized elements include:
 - FixedWidthToggle (`coarse:min-h-[36px] coarse:min-w-[28px]`)
 - Sidebar session ✕ kill buttons + window rows
 - Breadcrumb name dropdown triggers

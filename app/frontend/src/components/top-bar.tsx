@@ -17,15 +17,21 @@ export type TopBarMode = "terminal" | "board" | "root" | "cockpit";
 
 type TopBarProps = {
   /**
-   * Mode controls the breadcrumb / informational region:
-   * - `terminal` (default, `/$server/$window`) — brand + hamburger + server
-   *   link + session/window breadcrumb dropdowns.
-   * - `root` (`/$server` with no window, the Server Cabin) — brand + hamburger +
-   *   the server name as the current-page leaf (replaces the old "Dashboard"
-   *   label). No session/window crumbs.
-   * - `board` (`/board/$name`) — brand + hamburger + the board breadcrumb
-   *   dropdown plus pane/server counts and the cycle hint. Connection dot hidden.
-   * - `cockpit` (`/`, the Server List home) — brand crumb ONLY. No hamburger
+   * Mode controls the breadcrumb / informational region and the center page
+   * heading. The center cell carries a universal `PageType: name` heading in
+   * EVERY mode (260704-pr0p); the left breadcrumb always ends at the PARENT
+   * (move-don't-copy — the leaf is the centered heading, never duplicated):
+   * - `terminal` (default, `/$server/$window`) — left: brand + hamburger +
+   *   server link + session dropdown (ends at session). Center: `Terminal:
+   *   <window>` editable heading + ▾ window switcher.
+   * - `root` (`/$server` with no window, the Server Cabin) — left: brand +
+   *   hamburger (ends at the parent = home). Center: `Server Cabin: <server>`
+   *   display heading (the server leaf moved here from the left breadcrumb).
+   * - `board` (`/board/$name`) — left: brand + hamburger + pane/server counts +
+   *   cycle hint (the `Board ▸` home button is gone). Center: `Board: <board>`
+   *   display heading + ▾ board switcher (moved from the left breadcrumb).
+   * - `cockpit` (`/`, the Server List home) — brand crumb ONLY (left). Center:
+   *   the solo `Cockpit` word. No hamburger
    *   (the Cockpit has no sidebar), no terminal-font control, no split/close
    *   buttons, no fixed-width button (terminal-only since 260704-9o7k). The L3
    *   always-block (Notification · Theme · Refresh · Help) still renders, plus
@@ -185,24 +191,21 @@ export function TopBar({
   // (terminal / root / board) has a Shell sidebar and shows the toggle.
   const hasSidebar = mode !== "cockpit";
 
-  // The server crumb renders on the server routes only (terminal + root, the
-  // Server Cabin). When a window is present (terminal) it is a plain link back
-  // to `/$server`; when it is the current page (root, no window) it is a
-  // non-link `aria-current="page"` leaf. Cockpit and board have no server crumb.
-  const showServerCrumb = (mode === "terminal" || mode === "root") && !!server;
-  const serverIsLeaf = !windowName; // no window selected → server IS the leaf
+  // Move-don't-copy (260704-pr0p): the left breadcrumb always ends at the
+  // PARENT; the current-page leaf is the centered heading. So the server crumb
+  // renders in the left nav ONLY as a link back to the Server Cabin on the
+  // terminal route (parent = the cabin) — on the root route the server name is
+  // the leaf and moves to the center heading, leaving the left breadcrumb at
+  // brand + hamburger. Cockpit and board have no left server crumb.
+  const showServerCrumb = mode === "terminal" && !!server;
   const serverHref = `/${encodeURIComponent(server)}`;
-
-  // Terminal-mode centered heading gate: the window name gets its own centered
-  // slot (with a ▾ switcher) instead of a trailing breadcrumb crumb, so the
-  // name is never duplicated in one bar. Other modes keep an empty center cell.
-  const showWindowHeading = mode === "terminal" && !!currentWindow;
 
   return (
     <header className="px-3 border-b-[3px] border-border">
       {/* 3-column grid `1fr auto 1fr`: the center cell is truly centered
           regardless of asymmetric left/right widths. Left = breadcrumb nav,
-          center = window heading (terminal mode only), right = controls. */}
+          center = the universal `PageType: name` page heading (all four modes,
+          260704-pr0p), right = controls. */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm min-w-0">
           {/* Brand root crumb — logo + wordmark, links to `/`. Left-most on
@@ -236,46 +239,34 @@ export function TopBar({
             </button>
           )}
 
-          {mode === "board" && boardName ? (
-            <>
-              <BreadcrumbSeparator />
-              <BoardModeBreadcrumb
-                boardName={boardName}
-                paneCount={paneCount ?? 0}
-                serverCount={serverCount ?? 0}
-                boards={boards ?? []}
-              />
-            </>
+          {mode === "board" ? (
+            // Board mode keeps ONLY the counts/hint on the left (move-don't-copy,
+            // 260704-pr0p): the board name + ▾ switcher moved to the center
+            // heading, and the left `Board ▸` home button is gone (the brand
+            // crumb is already the home affordance). No leading separator — the
+            // hint is not a crumb.
+            <BoardModeInfo
+              paneCount={paneCount ?? 0}
+              serverCount={serverCount ?? 0}
+            />
           ) : (
             <>
-              {/* Server crumb (terminal + root). Intermediate crumbs (server,
-                  session, and their separators) hide below `sm` so mobile shows
-                  only brand icon + leaf crumb. When the server is itself the leaf
-                  (root, no window) it stays visible on mobile. */}
-              {showServerCrumb &&
-                (serverIsLeaf ? (
-                  <>
-                    <BreadcrumbSeparator />
-                    <span
-                      aria-current="page"
-                      title="Server Cabin"
-                      className="min-w-0 text-text-primary font-medium truncate"
-                    >
-                      {server}
-                    </span>
-                  </>
-                ) : (
-                  <span className="hidden sm:flex items-center gap-1.5">
-                    <BreadcrumbSeparator />
-                    <a
-                      href={serverHref}
-                      title="Server Cabin"
-                      className={`truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
-                    >
-                      {server}
-                    </a>
-                  </span>
-                ))}
+              {/* Server LINK crumb — terminal route only (parent = the Server
+                  Cabin). On the root route the server name is the leaf and lives
+                  in the center heading, so no left server crumb there. Hidden
+                  below `sm` so mobile shows only brand icon + centered leaf. */}
+              {showServerCrumb && (
+                <span className="hidden sm:flex items-center gap-1.5">
+                  <BreadcrumbSeparator />
+                  <a
+                    href={serverHref}
+                    title="Server Cabin"
+                    className={`truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
+                  >
+                    {server}
+                  </a>
+                </span>
+              )}
 
               {sessionName && (
                 // The breadcrumb ends at the SESSION crumb — window identity
@@ -298,15 +289,23 @@ export function TopBar({
           )}
         </nav>
 
-        {/* Center cell — the window heading (terminal mode only). A ▾ switcher
-            sits beside it: name-click edits, ▾-click switches windows. Empty in
-            root/board/cockpit modes. On mobile the heading is the visible leaf
-            (intermediate crumbs are hidden below `sm`). */}
-        <div className="flex items-center justify-center gap-1 min-w-0">
-          {showWindowHeading && currentWindow && (
+        {/* Center cell — the universal `PageType: name` page heading, filled on
+            EVERY mode (260704-pr0p): terminal = editable window heading + ▾
+            window switcher; board = display board heading + ▾ board switcher
+            (both moved here from the left breadcrumb); root = display server
+            heading; cockpit = solo `Cockpit`. It stays centered under the
+            `auto` middle grid column regardless of left/right widths, and on
+            mobile it is the visible leaf (intermediate crumbs hide below `sm`). */}
+        {/* No flex `gap` here: the single separator between the page-type prefix
+            and the instance name is the boot sweep's own `sp` space cell (the
+            cursor visibly crosses it) — a `gap-1` on top of it double-spaced
+            them (260704-pr0p rework N4). The ▾ switchers carry their own `ml-1`
+            so only the switcher gets separated from the name. */}
+        <div className="flex items-center justify-center min-w-0">
+          {mode === "terminal" && currentWindow && (
             <>
               {/* No `key` on the route identity: the instance persists across
-                  window switches so the decode replays on navigation and an
+                  window switches so the boot sweep replays on navigation and an
                   in-progress edit survives long enough to be intentionally
                   cancelled (see WindowHeading's identity-change guard) rather
                   than silently destroyed by a remount. */}
@@ -322,9 +321,39 @@ export function TopBar({
                 title="Window"
                 onNavigate={handleDropdownNavigate}
                 action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
-                triggerClassName="text-text-secondary hover:text-text-primary transition-colors shrink-0"
+                triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
               />
             </>
+          )}
+
+          {mode === "board" && boardName && (
+            <>
+              {/* Board name is display-only (boards have no rename API); the ▾
+                  board switcher moved here from the left breadcrumb. */}
+              <PageHeadingDisplay
+                prefix={BOARD_PREFIX}
+                name={boardName}
+                ariaLabel={`Board ${boardName}`}
+              />
+              <BoardSwitcher boardName={boardName} boards={boards ?? []} />
+            </>
+          )}
+
+          {mode === "root" && server && (
+            <PageHeadingDisplay
+              prefix={CABIN_PREFIX}
+              name={server}
+              ariaLabel={`Server Cabin ${server}`}
+            />
+          )}
+
+          {mode === "cockpit" && (
+            <PageHeadingDisplay
+              prefix=""
+              name={COCKPIT_SOLO}
+              solo
+              ariaLabel="Cockpit"
+            />
           )}
         </div>
 
@@ -456,11 +485,11 @@ export function TopBar({
   );
 }
 
-// Decode-scramble tuning (change 260703-5ilm). User-chosen: ~28ms/frame,
-// reveal ~0.9 chars/step, with a ~140ms hover-intent delay so cursor transit
+// Boot-sweep tuning (change 260704-pr0p, extending the 260703-5ilm decode).
+// One inverse-video cursor sweeps the whole heading string (prefix + space +
+// name) at ~28ms/cell, with a ~140ms hover-intent delay so cursor transit
 // across the bar toward the right-side buttons doesn't replay it.
 const DECODE_FRAME_MS = 28;
-const DECODE_REVEAL_PER_STEP = 0.9;
 const DECODE_HOVER_INTENT_MS = 140;
 const DECODE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_/";
 
@@ -468,24 +497,256 @@ function randomGlyph(): string {
   return DECODE_GLYPHS[Math.floor(Math.random() * DECODE_GLYPHS.length)];
 }
 
+// A boot-sweep cell: `kind` fixes its resting styling (prefix vs name vs the
+// separating space vs a solo type word); `phase` is its live sweep state.
+type SweepKind = "pfx" | "sp" | "nm" | "solo";
+type SweepPhase = "rest" | "resolved" | "cursor" | "ahead";
+type SweepCell = { ch: string; kind: SweepKind; phase: SweepPhase };
+
 /**
- * Centered, highlighted, editable window heading (change 260703-5ilm) — the
- * single most important identity on the terminal route (the tmux window name).
+ * Build the resting cell list for a heading. Terminal/board/root headings pass
+ * a `prefix` (e.g. `Terminal`) + `name`; cockpit passes `solo` alone (no
+ * prefix, no instance name — just the type word).
+ *
+ * The separating space is its own `sp` cell so the cursor visibly crosses it
+ * between the prefix and the name (matching the reviewed demo).
+ */
+function buildCells(
+  prefix: string,
+  name: string,
+  solo: boolean,
+): SweepCell[] {
+  if (solo) {
+    return Array.from(name).map((ch) => ({ ch, kind: "solo", phase: "rest" }));
+  }
+  const cells: SweepCell[] = [];
+  for (const ch of prefix) cells.push({ ch, kind: "pfx", phase: "rest" });
+  cells.push({ ch: " ", kind: "sp", phase: "rest" });
+  for (const ch of name) cells.push({ ch, kind: "nm", phase: "rest" });
+  return cells;
+}
+
+/**
+ * The one continuous "boot sweep": a single inverse-video accent-green block
+ * cursor sweeps prefix + space + name left-to-right at `DECODE_FRAME_MS`/cell
+ * (change 260704-pr0p). Over PREFIX cells it behaves like TypedLabel — cells
+ * ahead of the cursor are dim (`rk-typed-off`), the cursor cell shows the real
+ * char in inverse video (`rk-typed-cursor`), resolved cells settle to
+ * secondary. Once the cursor crosses into the NAME, unresolved name cells churn
+ * random `DECODE_GLYPHS` in accent-green each frame (spaces preserved) until
+ * the cursor locks each to its true char; resolved name cells settle to
+ * semibold primary. Cockpit's solo word runs the typed sweep alone.
+ *
+ * Returns the live cell array (for per-cell rendering), a `scrambling` flag,
+ * and imperative controls. Reduced motion is JS-gated (`prefersReducedMotion`):
+ * the sweep never starts and the rest state IS the reduced state.
+ */
+function useBootSweep(prefix: string, name: string, solo: boolean) {
+  const rest = () => buildCells(prefix, name, solo);
+  const [cells, setCells] = useState<SweepCell[]>(rest);
+  const [scrambling, setScrambling] = useState(false);
+  const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stop = useCallback(() => {
+    if (frameTimerRef.current) {
+      clearInterval(frameTimerRef.current);
+      frameTimerRef.current = null;
+    }
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setScrambling(false);
+  }, []);
+
+  // Snap every cell back to its true char + resting styling.
+  const resolve = useCallback(() => {
+    stop();
+    setCells(rest());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefix, name, solo, stop]);
+
+  const play = useCallback(() => {
+    stop();
+    const base = rest();
+    if (prefersReducedMotion() || base.length === 0) {
+      setCells(base);
+      return;
+    }
+    setScrambling(true);
+    let cur = 0;
+    const n = base.length;
+    const tick = () => {
+      if (cur > n) {
+        setCells(base);
+        stop();
+        return;
+      }
+      const next = base.map((c, i): SweepCell => {
+        if (i < cur) return { ...c, phase: "resolved" };
+        if (i === cur) return { ...c, phase: "cursor" };
+        // Ahead of the cursor: name cells churn a glyph (space preserved);
+        // prefix/solo/space cells just dim.
+        if (c.kind === "nm") {
+          return { ...c, ch: c.ch === " " ? " " : randomGlyph(), phase: "ahead" };
+        }
+        return { ...c, phase: "ahead" };
+      });
+      setCells(next);
+      cur += 1;
+    };
+    tick();
+    frameTimerRef.current = setInterval(tick, DECODE_FRAME_MS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefix, name, solo, stop]);
+
+  // Deferred (hover-intent) start: `DECODE_HOVER_INTENT_MS` before the sweep,
+  // so cursor transit toward the right-side buttons doesn't replay it.
+  const playDeferred = useCallback(() => {
+    if (prefersReducedMotion()) return;
+    stop();
+    hoverTimerRef.current = setTimeout(play, DECODE_HOVER_INTENT_MS);
+  }, [play, stop]);
+
+  useEffect(() => () => stop(), [stop]);
+
+  return { cells, scrambling, play, playDeferred, resolve, stop };
+}
+
+// Per-cell REST styling by kind. Resolved cells (and cells rendered at rest)
+// settle to THESE classes as the cursor passes — NOT to a container-wide color.
+// This is the fix for the "resolved cells stay accent-green" defect (change
+// 260704-pr0p rework): the heading containers no longer flip `text-accent-green`
+// for the whole scramble, so each resolved cell must name its own rest color —
+// prefix/space → `text-text-secondary`, name/solo → semibold `text-text-primary`.
+// Only the churn (`ahead` name) glyphs and the single cursor cell are green.
+function restCellClass(kind: SweepKind): string {
+  return kind === "nm" || kind === "solo"
+    ? "font-semibold text-text-primary"
+    : "text-text-secondary";
+}
+
+/**
+ * Renders a boot-sweep cell list. At REST (no active sweep) it emits plain text
+ * inside a single `whitespace-pre` span so the accessible name stays clean and
+ * stable; while sweeping it emits per-cell spans carrying the frame-state
+ * classes. Decorative during animation — the spans are `aria-hidden` so churn
+ * glyphs never reach a screen reader.
+ *
+ * Cell-state → styling: the single `cursor` cell is inverse video
+ * (`rk-typed-cursor`); an `ahead` cell is a dim prefix glyph (`rk-typed-off`) or
+ * an accent-green name churn glyph; a `resolved` (already-swept) cell settles to
+ * its per-kind REST class (`restCellClass`), so the left-to-right two-tone
+ * reveal is visible instead of a uniform green flash.
+ */
+function SweepCells({
+  cells,
+  scrambling,
+}: {
+  cells: SweepCell[];
+  scrambling: boolean;
+}) {
+  if (!scrambling) {
+    return <>{cells.map((c) => c.ch).join("")}</>;
+  }
+  return (
+    <span aria-hidden="true" className="whitespace-pre">
+      {cells.map((c, k) => {
+        let cls: string;
+        if (c.phase === "cursor") cls = "rk-typed-cursor";
+        else if (c.phase === "ahead")
+          cls = c.kind === "nm" ? "text-accent-green" : "rk-typed-off";
+        // resolved (already swept) — settle to the cell's own rest color so it
+        // does NOT inherit any transient container color.
+        else cls = restCellClass(c.kind);
+        return (
+          <span key={k} className={cls}>
+            {c.ch}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+// Page-type prefix words for the universal center heading (change 260704-pr0p,
+// title-case per the reviewed demo — supersedes PageHeading's lowercase idiom).
+const TERMINAL_PREFIX = "Terminal:";
+const BOARD_PREFIX = "Board:";
+const CABIN_PREFIX = "Server Cabin:";
+const COCKPIT_SOLO = "Cockpit";
+
+/**
+ * Split a boot-sweep cell list into its prefix portion (the `pfx`/`sp` cells)
+ * and its name portion (the `nm` cells), so a heading can render the static
+ * prefix span and the name in separate DOM containers while ONE cursor sweeps
+ * across both. The `sp` separating space rides with the prefix portion so the
+ * cursor visibly crosses it before entering the name.
+ */
+function splitSweepCells(cells: SweepCell[]): {
+  prefix: SweepCell[];
+  name: SweepCell[];
+} {
+  const prefix = cells.filter((c) => c.kind === "pfx" || c.kind === "sp");
+  const name = cells.filter((c) => c.kind === "nm");
+  return { prefix, name };
+}
+
+/**
+ * The static page-type prefix span — a sibling OUTSIDE the rename button/input
+ * so clicking it never starts an edit and it can hide independently below `sm`.
+ * Its CONTENT is driven by the shared boot sweep (the one cursor crosses it into
+ * the name), but structurally it is decorative: the accessible heading name is
+ * carried by the name element's own label, so the prefix carries no role.
+ */
+function HeadingPrefix({
+  cells,
+  scrambling,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  cells: SweepCell[];
+  scrambling: boolean;
+  // Optional hover handlers so the terminal prefix replays the sweep too
+  // (260704-pr0p rework N5 — unifies with board/root/cockpit, which hover the
+  // whole heading; the demo replayed from the whole bar). Display-only headings
+  // pass none: their outer wrapper already owns the hover.
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}) {
+  return (
+    <span
+      className="hidden sm:inline text-sm text-text-secondary whitespace-pre shrink-0"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      <SweepCells cells={cells} scrambling={scrambling} />
+    </span>
+  );
+}
+
+/**
+ * Centered, highlighted, editable window heading (change 260703-5ilm; boot
+ * sweep 260704-pr0p) — the single most important identity on the terminal
+ * route (the tmux window name), now prefixed `Terminal:`.
  *
  * Three states:
- *  - display: weight-600 primary-color name; hover runs a "decode" scramble.
- *  - decode: characters scramble through random glyphs and resolve
- *    left-to-right (JS timer — CSS can't randomize glyphs or key on the name).
+ *  - display: a static `Terminal:` prefix sibling + weight-600 primary-color
+ *    name; hover runs the "boot sweep" (typed cursor over the prefix flowing
+ *    into a decode scramble over the name).
+ *  - decode/sweep: one inverse-video cursor sweeps prefix → name at 28ms/cell
+ *    (JS timer — CSS can't randomize glyphs or key on the name state).
  *  - edit: an identically-styled inline input (ch-sized, grows as you type).
  *    Enter/blur commit, Escape/empty-trim cancel, wired to renameWindow() via
  *    the optimistic window-store pattern (same as the sidebar inline rename).
  *
- * Guards (intake A5): (a) 140ms hover-intent delay before scramble; (b) edit
- * start cancels the scramble timer and the input binds to the real name state,
- * never scrambled DOM text; (c) the decode replays once whenever the DISPLAYED
- * name changes — which covers a committed rename (confirmation animation), an
+ * Guards (intake A5): (a) 140ms hover-intent delay before the sweep; (b) edit
+ * start cancels the sweep and the input binds to the real name state, never
+ * scrambled DOM text; (c) the sweep replays once whenever the DISPLAYED name
+ * changes — which covers a committed rename (confirmation animation), an
  * SSE-delivered external rename, and navigating to a different window, all with
- * one name-change-keyed mechanism. All scrambling is skipped under
+ * one name-change-keyed mechanism. All animation is skipped under
  * prefers-reduced-motion.
  *
  * The component is deliberately NOT remounted per window (no `key` on the route
@@ -515,16 +776,27 @@ function WindowHeading({
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
-  const [display, setDisplay] = useState(name);
-  // True while decode frames are running — the heading renders accent-green
-  // for the duration of the scramble (the animated element turns green, same
-  // as every other treatment in the hover vocabulary).
-  const [scrambling, setScrambling] = useState(false);
+  // The boot sweep drives the animated name display; `sweep.cells` carries the
+  // whole `Terminal: name` string so ONE cursor crosses the prefix into the
+  // name. `scrambling` is passed to `SweepCells`, which turns ONLY the per-cell
+  // churn glyphs and the single cursor cell accent-green (the vocabulary-wide
+  // "animated element turns green" cue) — resolved cells settle to their REST
+  // color as the cursor passes, so the container itself never flips green
+  // (260704-pr0p rework M2).
+  const sweep = useBootSweep(TERMINAL_PREFIX, name, false);
+  const { prefix: prefixCells, name: nameCells } = splitSweepCells(sweep.cells);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const prevNameRef = useRef(name);
+  // Seeded with `null` (never a real name) so the name-effect below fires ONCE
+  // on mount — that is the mount/navigation replay leg (change 260704-pr0p
+  // rework M1). A fresh mount plays once, then `prevNameRef` holds the real
+  // name so only a GENUINE later name change replays. Seeding it with `name`
+  // (as before) suppressed the initial/route-transition play entirely, since
+  // WindowHeading mounts only after `currentWindow` resolves and the headings
+  // remount across page types. Using the existing name-effect as the single
+  // play path (rather than a separate mount effect) is what keeps mount from
+  // double-playing over a name change.
+  const prevNameRef = useRef<string | null>(null);
   const editingRef = useRef(editing);
   editingRef.current = editing;
   // Set true by a key-driven commit/cancel (Enter/Escape) so the onBlur that
@@ -539,46 +811,6 @@ function WindowHeading({
   // it onto the newly-navigated window.
   const prevIdentityRef = useRef(`${server}:${windowId}`);
 
-  const stopScramble = useCallback(() => {
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-    if (frameTimerRef.current) {
-      clearInterval(frameTimerRef.current);
-      frameTimerRef.current = null;
-    }
-    setScrambling(false);
-  }, []);
-
-  const runScramble = useCallback(
-    (target: string) => {
-      stopScramble();
-      if (prefersReducedMotion() || target.length === 0) {
-        setDisplay(target);
-        return;
-      }
-      setScrambling(true);
-      let revealed = 0;
-      frameTimerRef.current = setInterval(() => {
-        revealed += DECODE_REVEAL_PER_STEP;
-        const cut = Math.min(target.length, Math.floor(revealed));
-        if (cut >= target.length) {
-          setDisplay(target);
-          stopScramble();
-          return;
-        }
-        const scrambled = target
-          .slice(cut)
-          .split("")
-          .map((ch) => (ch === " " ? " " : randomGlyph()))
-          .join("");
-        setDisplay(target.slice(0, cut) + scrambled);
-      }, DECODE_FRAME_MS);
-    },
-    [stopScramble],
-  );
-
   // External window switch (another client / tmux changing the route) while
   // an inline edit is in progress: CANCEL the stale edit. The edit targeted
   // the previous window, so committing the typed name onto the newly-navigated
@@ -590,37 +822,37 @@ function WindowHeading({
     if (identity !== prevIdentityRef.current) {
       prevIdentityRef.current = identity;
       if (editingRef.current) {
-        stopScramble();
+        sweep.resolve();
         setEditing(false);
         setDraft(name);
-        setDisplay(name);
       }
     }
-  }, [server, windowId, name, stopScramble]);
+  }, [server, windowId, name, sweep]);
 
-  // Keep the display/draft in sync with the incoming name; a DISPLAYED-name
-  // change replays the decode once (rename confirmation / external rename /
-  // route to a different window — one name-change-keyed mechanism). Because the
-  // instance is NOT remounted per window, this fires on navigation too, so the
-  // decode genuinely replays when routing to a different window (guard c).
+  // Plays the boot sweep once on MOUNT and once on every later DISPLAYED-name
+  // change (rename confirmation / external rename / route to a different
+  // window — one name-keyed mechanism, plus the mount leg via the `null` seed
+  // above). Because the instance is NOT remounted per window, the name change
+  // also fires on navigation, so the sweep genuinely replays when routing to a
+  // different window (guard c). The mount fire and a name change can never
+  // double-play: mount sets `prevNameRef` to the real name, so the effect only
+  // re-runs `play()` for a name that is actually different. While editing, do
+  // not animate (bind to the real name).
   useEffect(() => {
     if (name !== prevNameRef.current) {
       prevNameRef.current = name;
       setDraft(name);
-      if (!editingRef.current) runScramble(name);
-      else setDisplay(name);
+      if (!editingRef.current) sweep.play();
+      else sweep.resolve();
     }
-  }, [name, runScramble]);
-
-  useEffect(() => () => stopScramble(), [stopScramble]);
+  }, [name, sweep]);
 
   const startEdit = useCallback(() => {
-    stopScramble();
-    setDisplay(name);
+    sweep.resolve();
     setDraft(name);
     keyHandledRef.current = false;
     setEditing(true);
-  }, [name, stopScramble]);
+  }, [name, sweep]);
 
   // Command-palette "Window: Rename" enters inline edit via a CustomEvent,
   // mirroring the `theme-selector:open` pattern (Constitution V keyboard path).
@@ -644,121 +876,238 @@ function WindowHeading({
     setEditing(false);
     // Empty/whitespace-only commit = cancel (matches the dialog's trim guard).
     if (!trimmed || trimmed === name) {
-      setDisplay(name);
+      sweep.resolve();
       setDraft(name);
       return;
     }
     executeRename(server, sessionName, windowId, trimmed);
-    // Optimistic display; the name-change effect replays the decode when the
-    // store-driven `name` prop updates.
-    setDisplay(trimmed);
-  }, [draft, name, server, sessionName, windowId, executeRename]);
+    // The name-change effect replays the boot sweep when the store-driven
+    // `name` prop settles to the committed value.
+  }, [draft, name, server, sessionName, windowId, executeRename, sweep]);
 
   const cancel = useCallback(() => {
     setEditing(false);
-    setDisplay(name);
+    sweep.resolve();
     setDraft(name);
-  }, [name]);
+  }, [name, sweep]);
 
   if (editing) {
     return (
-      <input
-        ref={inputRef}
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          // A key (Enter/Escape) already committed/cancelled and is tearing the
-          // input down — swallow the trailing blur so it doesn't re-commit
-          // (Enter) or override a cancel (Escape). Genuine focus-loss (no
-          // preceding key) still commits.
-          if (keyHandledRef.current) {
-            keyHandledRef.current = false;
-            return;
-          }
-          commit();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            keyHandledRef.current = true;
+      <>
+        <HeadingPrefix cells={prefixCells} scrambling={false} />
+        <input
+          ref={inputRef}
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            // A key (Enter/Escape) already committed/cancelled and is tearing
+            // the input down — swallow the trailing blur so it doesn't re-commit
+            // (Enter) or override a cancel (Escape). Genuine focus-loss (no
+            // preceding key) still commits.
+            if (keyHandledRef.current) {
+              keyHandledRef.current = false;
+              return;
+            }
             commit();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            keyHandledRef.current = true;
-            cancel();
-          }
-        }}
-        aria-label="Window name"
-        // Identically-styled to the display heading: monospace, centered,
-        // weight-600 primary color, sized in ch and growing with content.
-        style={{ width: `${Math.max(draft.length + 1, 3)}ch` }}
-        className="bg-transparent text-center text-sm font-semibold text-text-primary outline-none border-b border-accent min-w-0"
-      />
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              keyHandledRef.current = true;
+              commit();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              keyHandledRef.current = true;
+              cancel();
+            }
+          }}
+          aria-label="Window name"
+          // Identically-styled to the display heading: monospace, centered,
+          // weight-600 primary color, sized in ch and growing with content.
+          style={{ width: `${Math.max(draft.length + 1, 3)}ch` }}
+          className="bg-transparent text-center text-sm font-semibold text-text-primary outline-none border-b border-accent min-w-0"
+        />
+      </>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={startEdit}
-      onMouseEnter={() => {
-        if (prefersReducedMotion()) return;
-        stopScramble();
-        hoverTimerRef.current = setTimeout(() => runScramble(name), DECODE_HOVER_INTENT_MS);
-      }}
-      onMouseLeave={() => {
-        stopScramble();
-        setDisplay(name);
-      }}
-      aria-label={`Rename window ${name}`}
-      title="Click to rename"
-      // The heading is the mobile leaf and the primary rename affordance there,
-      // so give it a touch-sized tap target on coarse pointers (matches the
-      // top-bar control convention `coarse:min-h-[30px]`); inline-flex centers
-      // the truncated name vertically within the taller target.
-      className={`max-w-[16ch] sm:max-w-[28ch] text-sm font-semibold transition-colors inline-flex items-center coarse:min-h-[30px] ${
-        scrambling ? "text-accent-green" : "text-text-primary"
-      }`}
-    >
-      {/* Truncation lives on an inner span, NOT the button: text-overflow is
-          inert on a flex container, and the flex centering clipped long names
-          on BOTH ends (riff-blustery-whale → "iff-blustery-whal", no
-          ellipsis). The span is left-anchored, so a long name keeps its head
-          and cuts at the tail with an ellipsis; the button (and heading)
-          itself stays centered in the bar's grid cell. */}
-      <span className="min-w-0 truncate">{display}</span>
-    </button>
+    <>
+      {/* Static `Terminal:` prefix — a sibling OUTSIDE the button so clicking
+          it never starts an edit; hidden below `sm` (mobile keeps just the
+          name). Its content rides the same sweep so the one cursor crosses it.
+          Hovering the prefix replays the sweep too (matches the whole-heading
+          hover on board/root/cockpit), but it is NOT a click target — clicking
+          it never enters edit (only the button below does). */}
+      <HeadingPrefix
+        cells={prefixCells}
+        scrambling={sweep.scrambling}
+        onMouseEnter={sweep.playDeferred}
+        onMouseLeave={sweep.resolve}
+      />
+      <button
+        type="button"
+        onClick={startEdit}
+        onMouseEnter={sweep.playDeferred}
+        onMouseLeave={sweep.resolve}
+        aria-label={`Rename window ${name}`}
+        title="Click to rename"
+        // The heading is the mobile leaf and the primary rename affordance
+        // there, so give it a touch-sized tap target on coarse pointers
+        // (matches the top-bar control convention `coarse:min-h-[30px]`);
+        // inline-flex centers the truncated name vertically within the taller
+        // target. The container keeps its REST color throughout the sweep — the
+        // green lives ONLY on the per-cell churn/cursor spans (SweepCells), so
+        // resolved cells settle to `text-text-primary` as the cursor passes
+        // rather than the whole name flashing accent-green (260704-pr0p rework).
+        className="max-w-[16ch] sm:max-w-[28ch] text-sm font-semibold text-text-primary inline-flex items-center coarse:min-h-[30px]"
+      >
+        {/* Truncation lives on an inner span, NOT the button: text-overflow is
+            inert on a flex container, and the flex centering clipped long names
+            on BOTH ends (riff-blustery-whale → "iff-blustery-whal", no
+            ellipsis). The span is left-anchored, so a long name keeps its head
+            and cuts at the tail with an ellipsis; the button (and heading)
+            itself stays centered in the bar's grid cell. */}
+        <span className="min-w-0 truncate">
+          <SweepCells cells={nameCells} scrambling={sweep.scrambling} />
+        </span>
+      </button>
+    </>
   );
 }
 
 /**
- * Board-mode breadcrumb: `Board ▸ {name} ▾   {n} pane(s) · {n} server(s) · ⌘[⌘] cycle`.
- * The inline-info span is hidden on `< 640px` viewports via `hidden sm:inline`,
- * matching the existing chrome mobile-hide pattern documented in
- * `ui-patterns.md` § Chrome (Top Bar).
+ * Display-only universal center heading for board / root / cockpit (change
+ * 260704-pr0p). Renders the same boot sweep as `WindowHeading` but with NO
+ * rename affordance (board has no rename API; the server/board name is
+ * display-only). Two shapes:
+ *  - prefixed: a static `PageType:` sibling span + the boot-swept name
+ *    (`Board: <board>`, `Server Cabin: <server>`).
+ *  - solo: just the type word swept alone (`Cockpit`) — no prefix, no name; it
+ *    is the leaf/name-equivalent, so it stays visible at all breakpoints and
+ *    renders primary-medium (PageHeading's solo rule).
  *
- * The board switcher uses the shared `<BreadcrumbDropdown>` so it inherits the
- * same a11y semantics as the session/window switchers: `role="menu"`/`menuitem`,
- * Escape to close, ArrowUp/ArrowDown navigation, and outside-click dismiss.
- * The `← Sessions` shortcut is wired through the `action` slot — it lives above
- * the items list and navigates back to the root sessions view.
+ * Hover replays the sweep behind the 140ms intent delay; mouseleave resolves to
+ * rest; the sweep plays once on MOUNT and once on every later name change;
+ * reduced motion skips the sweep entirely. Not remounted per route so a name
+ * change replays instead of a fresh mount re-seeding the prev-name ref.
+ *
+ * A11y: the identity carries a STABLE `aria-label` (the churn glyphs are
+ * `aria-hidden` inside SweepCells). The label sits on a `role="group"` wrapper
+ * — `aria-label` is prohibited on the implicit `role="generic"` of a bare
+ * `<span>`/`<div>` (ARIA 1.2), and `group` names the prefix+name as one
+ * identity atom WITHOUT introducing a document-outline heading (intake
+ * assumption #18: no `<h1>`/heading is added to the top bar).
  */
-function BoardModeBreadcrumb({
-  boardName,
+function PageHeadingDisplay({
+  prefix,
+  name,
+  solo = false,
+  ariaLabel,
+}: {
+  prefix: string;
+  name: string;
+  solo?: boolean;
+  ariaLabel: string;
+}) {
+  const sweep = useBootSweep(prefix, name, solo);
+  // Seeded `null` so the name-effect fires ONCE on mount — the mount /
+  // route-transition replay leg (260704-pr0p rework M1). Headings remount
+  // across page types, so without this leg navigating between page types never
+  // animated. Mount sets `prevNameRef` to the real name, so only a genuine
+  // later name change replays (no mount double-play).
+  const prevNameRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (name !== prevNameRef.current) {
+      prevNameRef.current = name;
+      sweep.play();
+    }
+  }, [name, sweep]);
+
+  if (solo) {
+    return (
+      <span
+        role="group"
+        aria-label={ariaLabel}
+        onMouseEnter={sweep.playDeferred}
+        onMouseLeave={sweep.resolve}
+        // Container keeps its REST color throughout the sweep; the green lives
+        // only on the per-cell cursor span (SweepCells), so the solo word
+        // settles to `text-text-primary` cell-by-cell rather than flashing
+        // accent-green as a whole (260704-pr0p rework M2).
+        className="text-sm font-medium text-text-primary inline-flex items-center coarse:min-h-[30px] whitespace-pre"
+      >
+        <SweepCells cells={sweep.cells} scrambling={sweep.scrambling} />
+      </span>
+    );
+  }
+
+  const { prefix: prefixCells, name: nameCells } = splitSweepCells(sweep.cells);
+  return (
+    // role="group" + aria-label: see the component doc comment (ARIA-valid
+    // naming without a heading). No flex `gap`: the single prefix↔name
+    // separator is the sweep's own `sp` space cell (N4 — a `gap-1` on top of it
+    // double-spaced them).
+    <span
+      role="group"
+      aria-label={ariaLabel}
+      onMouseEnter={sweep.playDeferred}
+      onMouseLeave={sweep.resolve}
+      className="inline-flex items-center min-w-0 coarse:min-h-[30px]"
+    >
+      <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} />
+      {/* Name keeps its REST color throughout the sweep (green lives only on
+          the per-cell churn/cursor spans) so resolved cells settle to
+          `text-text-primary` as the cursor passes (260704-pr0p rework M2). */}
+      <span className="max-w-[16ch] sm:max-w-[28ch] text-sm font-semibold text-text-primary truncate">
+        <SweepCells cells={nameCells} scrambling={sweep.scrambling} />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Board-mode LEFT info (260704-pr0p): `{n} pane(s) · {n} server(s) · ⌘[⌘] cycle`.
+ * Hidden on `< 640px` via `hidden sm:inline`, matching the chrome mobile-hide
+ * pattern. Move-don't-copy: the board name + ▾ switcher moved OUT to the center
+ * heading (§ BoardSwitcher), and the old left `Board ▸` home button is gone —
+ * the brand crumb is already the home affordance, and a left "Board" word would
+ * duplicate the type word now centered. Only the counts/hint stays left
+ * (centering it would crowd the center slot).
+ */
+function BoardModeInfo({
   paneCount,
   serverCount,
+}: {
+  paneCount: number;
+  serverCount: number;
+}) {
+  const paneNoun = paneCount === 1 ? "pane" : "panes";
+  const serverNoun = serverCount === 1 ? "server" : "servers";
+  return (
+    <span className="hidden sm:inline ml-2 text-xs text-text-secondary">
+      {paneCount} {paneNoun} · {serverCount} {serverNoun} · ⌘[⌘] cycle
+    </span>
+  );
+}
+
+/**
+ * Board switcher — the bare-`▾` `BreadcrumbDropdown` beside the centered board
+ * heading (260704-pr0p relocated it from the left breadcrumb, mirroring how the
+ * window switcher sits beside the WindowHeading). It inherits the shared
+ * dropdown a11y (`role="menu"`/`menuitem`, Escape, ArrowUp/Down, outside-click)
+ * and keeps the `← Sessions` shortcut in the `action` slot.
+ */
+function BoardSwitcher({
+  boardName,
   boards,
 }: {
   boardName: string;
-  paneCount: number;
-  serverCount: number;
   boards: { name: string }[];
 }) {
   const navigate = useNavigate();
-
-  const paneNoun = paneCount === 1 ? "pane" : "panes";
-  const serverNoun = serverCount === 1 ? "server" : "servers";
 
   const boardItems: BreadcrumbDropdownItem[] = boards.map((b) => ({
     label: b.name,
@@ -779,26 +1128,14 @@ function BoardModeBreadcrumb({
   );
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => navigate({ to: "/" })}
-        className="text-sm text-text-secondary hover:text-text-primary"
-      >
-        Board ▸
-      </button>
-      <span className="text-sm text-text-primary font-medium">{boardName}</span>
-      <BreadcrumbDropdown
-        items={boardItems}
-        label="board"
-        onNavigate={handleNavigate}
-        action={{ label: "← Sessions", onAction: () => navigate({ to: "/" }) }}
-        triggerClassName="text-sm text-text-secondary hover:text-text-primary px-1"
-      />
-      <span className="hidden sm:inline ml-2 text-xs text-text-secondary">
-        {paneCount} {paneNoun} · {serverCount} {serverNoun} · ⌘[⌘] cycle
-      </span>
-    </>
+    <BreadcrumbDropdown
+      items={boardItems}
+      label="board"
+      title="Board"
+      onNavigate={handleNavigate}
+      action={{ label: "← Sessions", onAction: () => navigate({ to: "/" }) }}
+      triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
+    />
   );
 }
 

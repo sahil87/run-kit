@@ -6,10 +6,9 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useHostMetrics, useHostServices, useSessionContext } from "@/contexts/session-context";
 import { HostMetrics } from "@/components/host-metrics";
-import { PageHeading } from "@/components/page-heading";
 import { useBoards } from "@/hooks/use-boards";
 import { TopBar } from "@/components/top-bar";
-import { TypedLabel } from "@/components/typed-label";
+import { SectionHeading } from "@/components/section-heading";
 
 export function ServerListPage() {
   // Read the server list from SessionContext — the SAME source the AppShell
@@ -165,13 +164,13 @@ export function ServerListPage() {
   return (
     <div className="flex flex-col h-screen bg-bg-primary">
       {/* Shared full-width TopBar in cockpit mode: brand root crumb + the
-          route-agnostic controls (FixedWidth / Notification / Theme). No
-          hamburger (the Cockpit has no sidebar) and no connection dot (no
-          per-server SSE stream here). Pinned above the scrollable content —
-          same `flex-col h-screen` pinning the ad-hoc header used, so it stays
-          fixed while the list below scrolls. Session/server-dependent props are
-          passed empty (board-mode precedent). The page identity is carried by
-          the retro PageHeading rendered at the top of the scroll content. */}
+          solo `Cockpit` center page heading (260704-pr0p) + the route-agnostic
+          controls. No hamburger (the Cockpit has no sidebar). Pinned above the
+          scrollable content — same `flex-col h-screen` pinning the ad-hoc
+          header used, so it stays fixed while the list below scrolls.
+          Session/server-dependent props are passed empty (board-mode
+          precedent). The page identity now lives in the top bar (the old
+          in-page PageHeading row is gone). */}
       <TopBar
         mode="cockpit"
         sessions={[]}
@@ -189,30 +188,27 @@ export function ServerListPage() {
       />
 
       {/* Server list. `pt-6` matches the `mb-6` inter-section rhythm so the
-          gap below the TopBar equals the gap between sections. */}
+          gap below the TopBar equals the gap between sections. The Cockpit's
+          page identity now lives in the top-bar center heading (260704-pr0p);
+          the old in-page `[ cockpit ]` PageHeading row was removed. */}
       <div className="flex-1 min-h-0 overflow-y-auto pt-6 px-4 sm:px-6 pb-6">
-        {/* Retro page heading (tmux pane-title rule) — the Cockpit's page
-            identity. Lowercase per the terminal idiom. Supersedes the earlier
-            no-heading decision (intake assumption #11), revised by the user
-            during the visual pass. */}
-        <PageHeading page="cockpit" className="mb-6" />
         {/* HOST HEALTH zone (Cockpit host-console home). Renders host-global
             metrics from the server-independent `useHostMetrics()` stream, above
             the tmux-server tiles. `/` is the only surface that is about the BOX,
             not a session, so host health belongs here. */}
         <section aria-label="Host health" className="mb-6 max-w-md">
-          {/* Heading row idiom (shared with TMUX SERVERS): `gap-3` between the
-              uppercase heading and its side-text; side-text is secondary mono. */}
-          <div className="flex items-center gap-3 mb-2">
-            <h2 className="text-xs uppercase tracking-wide text-text-secondary">
-              <TypedLabel text="Host Health" />
-            </h2>
-            {hostMetrics && (
-              <span className="text-xs text-text-secondary font-mono truncate">
-                {hostMetrics.hostname}
-              </span>
-            )}
-          </div>
+          {/* Bracket section heading (260704-pr0p): the PageHeading bracket
+              idiom moved to the zone labels. The SectionHeading `side` slot is
+              reserved for the CABIN stats relocation — on the cockpit zones it
+              stays empty (plan assumption #4). Each zone's existing inline
+              metadata (here the live hostname) stays in the zone body at its
+              original `text-xs` sizing, right below the heading. */}
+          <SectionHeading label="Host Health" className="mb-2" />
+          {hostMetrics && (
+            <div className="text-xs text-text-secondary font-mono truncate mb-2">
+              {hostMetrics.hostname}
+            </div>
+          )}
           {hostMetrics ? (
             <HostMetrics metrics={hostMetrics} />
           ) : (
@@ -228,15 +224,13 @@ export function ServerListPage() {
             sidebar BoardsSection, instead of the section appearing/vanishing
             with the first/last board. */}
         <section aria-label="Boards" className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <h2 className="text-xs uppercase tracking-wide text-text-secondary">
-              <TypedLabel text="Boards" />
-            </h2>
-            <span className="text-xs text-text-secondary font-mono">
-              {boardsLoading
-                ? "loading…"
-                : `${boards.length} board${boards.length !== 1 ? "s" : ""}`}
-            </span>
+          {/* Side slot stays empty on cockpit zones (plan assumption #4); the
+              board count stays in the zone body at its original text-xs sizing. */}
+          <SectionHeading label="Boards" className="mb-2" />
+          <div className="text-xs text-text-secondary font-mono mb-2">
+            {boardsLoading
+              ? "loading…"
+              : `${boards.length} board${boards.length !== 1 ? "s" : ""}`}
           </div>
           {!boardsLoading && boards.length === 0 ? (
             <div className="text-xs text-text-secondary">
@@ -266,15 +260,13 @@ export function ServerListPage() {
 
         {/* TMUX SERVERS zone (zone 2) — the tmux-server tile grid. */}
         <section aria-label="Tmux servers" className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <h2 className="text-xs uppercase tracking-wide text-text-secondary">
-              <TypedLabel text="Tmux Servers" />
-            </h2>
-            <span className="text-xs text-text-secondary font-mono">
-              {!serversLoaded
-                ? "loading…"
-                : `${servers.length} server${servers.length !== 1 ? "s" : ""}`}
-            </span>
+          {/* Side slot stays empty on cockpit zones (plan assumption #4); the
+              server count stays in the zone body at its original text-xs sizing. */}
+          <SectionHeading label="Tmux Servers" className="mb-2" />
+          <div className="text-xs text-text-secondary font-mono mb-2">
+            {!serversLoaded
+              ? "loading…"
+              : `${servers.length} server${servers.length !== 1 ? "s" : ""}`}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -327,9 +319,7 @@ export function ServerListPage() {
             that port's UI in an @rk_type=iframe tmux window via the /proxy/{port}/
             proxy. Placed last, after the tmux-server tiles. */}
         <section aria-label="Services" className="mb-6 max-w-md">
-          <h2 className="text-xs uppercase tracking-wide text-text-secondary mb-2">
-            <TypedLabel text="Services" />
-          </h2>
+          <SectionHeading label="Services" className="mb-2" />
           {hostServices.length === 0 ? (
             <div className="text-xs text-text-secondary">No services</div>
           ) : (

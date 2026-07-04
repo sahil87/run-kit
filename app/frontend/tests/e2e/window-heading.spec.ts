@@ -4,6 +4,8 @@ import { execSync } from "node:child_process";
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-heading-${Date.now()}`;
+// Board name for the board-mode centered-heading test (alphanumeric only).
+const BOARD_NAME = `head${Date.now().toString().slice(-6)}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
 /**
@@ -85,6 +87,99 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // The window name is NOT duplicated as a breadcrumb crumb.
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(nav).not.toContainText(name);
+    // The universal `Terminal:` page-type prefix (260704-pr0p) renders as a
+    // static sibling OUTSIDE the rename button (clicking it must not edit).
+    const prefix = page.getByText(/Terminal:/);
+    await expect(prefix).toBeVisible();
+    const prefixInButton = await heading.evaluate(
+      (btn, pfx) => btn.contains(pfx),
+      await prefix.elementHandle(),
+    );
+    expect(prefixInButton).toBe(false);
+  });
+
+  test("root route shows the centered `Server Cabin: <server>` heading (not a left leaf crumb)", async ({
+    page,
+  }) => {
+    await page.goto(`/${TMUX_SERVER}`);
+    // The server name is the CENTERED heading leaf (move-don't-copy) — its
+    // accessible name carries the `Server Cabin` type prefix.
+    const heading = page.getByLabel(`Server Cabin ${TMUX_SERVER}`);
+    await expect(heading).toBeVisible({ timeout: 10_000 });
+    // It is display-only — no rename button on the Server Cabin.
+    await expect(
+      page.getByRole("button", { name: /Rename window/ }),
+    ).toHaveCount(0);
+    // The name is not duplicated as a left breadcrumb crumb.
+    const nav = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(nav).not.toContainText(TMUX_SERVER);
+  });
+
+  test("cockpit route (/) shows the solo `Cockpit` center heading and bracket section headings", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    // Solo type word — no prefix, no instance name.
+    await expect(page.getByLabel("Cockpit")).toBeVisible({
+      timeout: 10_000,
+    });
+    // The in-page PageHeading `<h1>` row is gone; page identity is the top bar.
+    await expect(page.locator("h1")).toHaveCount(0);
+    // The four zone labels render as bracket section headings (<h2>), each with
+    // the reserved caret cell and brackets around a TypedLabel.
+    const hostHealth = page.getByRole("heading", { level: 2, name: "Host Health" });
+    await expect(hostHealth).toBeVisible();
+    // The bracket idiom: `[`/`]` + reserved `▊` caret sit around the label.
+    const group = page
+      .locator(".rk-bracket-group", { has: hostHealth })
+      .first();
+    await expect(group.locator(".rk-bracket-open")).toHaveText("[");
+    await expect(group.locator(".rk-bracket-close")).toHaveText("]");
+    await expect(group.locator(".rk-bracket-caret")).toBeAttached();
+    await expect(group.locator(".rk-typed-label")).toHaveText("Host Health");
+  });
+
+  test("board route shows the centered `Board: <name>` heading + relocated ▾ switcher (name display-only, no left `Board ▸`)", async ({
+    page,
+  }) => {
+    // A board needs a pinned window. Create one, pin it via the API (the same
+    // deterministic seam boards-pin-flow.spec.ts uses), then navigate.
+    const name = `head-board-${Date.now()}`;
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
+      stdio: "ignore",
+    });
+    const winId = await resolveWindow(page, name);
+
+    const pinRes = await page.request.post(`/api/boards/${BOARD_NAME}/pin`, {
+      data: { server: TMUX_SERVER, windowId: winId },
+    });
+    expect(pinRes.ok()).toBeTruthy();
+
+    try {
+      await page.goto(`/board/${BOARD_NAME}`, { waitUntil: "domcontentloaded" });
+
+      // The board name is the CENTERED heading leaf (move-don't-copy) — its
+      // accessible name carries the `Board` type prefix.
+      const heading = page.getByLabel(`Board ${BOARD_NAME}`);
+      await expect(heading).toBeVisible({ timeout: 10_000 });
+      // The ▾ board switcher relocated from the left breadcrumb to the center,
+      // beside the board name.
+      await expect(page.getByLabel("Switch board")).toBeVisible();
+      // Display-only — boards have no rename API, so no rename button.
+      await expect(
+        page.getByRole("button", { name: /Rename window/ }),
+      ).toHaveCount(0);
+      // Move-don't-copy: the board name is not duplicated as a left breadcrumb
+      // crumb, and the old left `Board ▸` home button is gone.
+      const nav = page.getByRole("navigation", { name: "Breadcrumb" });
+      await expect(nav).not.toContainText(BOARD_NAME);
+      await expect(nav).not.toContainText("Board ▸");
+    } finally {
+      // Unpin so the (empty) board disappears — keep the shared server clean.
+      await page.request.post(`/api/boards/${BOARD_NAME}/unpin`, {
+        data: { server: TMUX_SERVER, windowId: winId },
+      });
+    }
   });
 
   test("click name → inline input → type + Enter commits the rename", async ({
@@ -326,5 +421,45 @@ test.describe("Window heading — animated path (motion opted back in)", () => {
     await label.dispatchEvent("pointerout");
     await expect(label).not.toHaveClass(/rk-typed-done/);
     await expect(label).toHaveText("Sessions");
+  });
+
+  test("terminal page heading runs the boot sweep on hover: cursor cell attaches, then resolves to rest", async ({
+    page,
+  }) => {
+    const name = `head-sweep-${Date.now()}`;
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, {
+      stdio: "ignore",
+    });
+    const id = await resolveWindow(page, name);
+    await gotoWindow(page, id);
+
+    const heading = page.getByRole("button", { name: `Rename window ${name}` });
+    await expect(heading).toBeVisible({ timeout: 10_000 });
+    // Let any mount-replay sweep settle before driving a fresh hover pass (the
+    // mount leg auto-plays once on navigation; DECODE_HOVER_INTENT_MS + a full
+    // ~28ms/cell pass is well under this wait).
+    await page.waitForTimeout(1_200);
+
+    // The boot sweep's cursor/churn cells live inside the top-bar header (the
+    // prefix sibling + the name button). Scope cursor assertions to the header
+    // so the sidebar TypedLabels (not hovered here) can't be mistaken for them.
+    const headerCursor = page.locator("header .rk-typed-cursor");
+    await expect(headerCursor).toHaveCount(0);
+
+    // Drive the sweep via a dispatched `mouseover` (React derives the button's
+    // onMouseEnter from mouseover/mouseout) — the same churn-proof seam the
+    // typed-sweep test uses, avoiding real hit-testing flake. playDeferred waits
+    // DECODE_HOVER_INTENT_MS (140ms) before the first frame.
+    await heading.dispatchEvent("mouseover");
+    // An inverse-video cursor cell appears inside the header during the sweep.
+    await expect(headerCursor.first()).toBeAttached({ timeout: 2_000 });
+
+    // Pass completes (or mouseout cancels): cells collapse back to plain text,
+    // no cursor cell remains, and the accessible name is intact.
+    await heading.dispatchEvent("mouseout");
+    await expect(page.locator("header .rk-typed-cursor")).toHaveCount(0, {
+      timeout: 2_000,
+    });
+    await expect(heading).toHaveText(name);
   });
 });

@@ -295,11 +295,12 @@ describe("ServerListPage — Cockpit TopBar", () => {
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
-  it("renders the retro 'cockpit' page heading (lowercase, bracket-tag idiom)", () => {
+  it("no longer renders an in-page PageHeading row — the Cockpit identity lives in the top-bar center heading (260704-pr0p)", () => {
     renderPage();
-    expect(
-      screen.getByRole("heading", { level: 1, name: "cockpit" }),
-    ).toBeInTheDocument();
+    // The old `[ cockpit ]` <h1> PageHeading row is gone.
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+    // Page identity now rides the shared TopBar's solo `Cockpit` center heading.
+    expect(screen.getByLabelText("Cockpit")).toBeInTheDocument();
   });
 });
 

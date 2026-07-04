@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-04T13:31:51Z"}
+{"args":"Universal top-bar center page heading (PageType: name) on all four modes with a combined boot-sweep animation (typed cursor over prefix flowing into decode over name), move-not-copy leaf crumbs, removal of in-page PageHeading rows, and bracket-idiom transfer to section sub-headings","cmd":"fab-new","event":"command","ts":"2026-07-04T13:31:51Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-07-04T13:37:47Z"}
+{"cmd":"fab-proceed","event":"command","ts":"2026-07-04T13:38:04Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-04T13:39:24Z"}
+{"cmd":"git-branch","event":"command","ts":"2026-07-04T13:40:45Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-04T13:41:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-04T13:42:04Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-04T13:43:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-04T13:59:17Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-04T14:00:34Z"}
+{"event":"review","result":"failed","ts":"2026-07-04T14:22:54Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-04T14:22:54Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-04T14:24:52Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-04T17:04:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-04T17:09:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-04T17:22:35Z"}
+{"event":"review","result":"passed","ts":"2026-07-04T17:22:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-04T17:33:21Z"}

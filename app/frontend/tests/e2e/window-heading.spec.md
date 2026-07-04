@@ -1,11 +1,19 @@
 # window-heading.spec.ts
 
-Proves the centered, editable top-bar window heading (change 260703-5ilm):
-the current tmux window name is the prominent centered identity on the Terminal
-route, renaming happens in place (click → inline input, Enter/blur commit,
-Escape cancel), the command-palette rename path enters the same inline edit,
-the 375px bar stays single-line, and the hover-animation vocabulary classes are
-present and CSS-gated under `prefers-reduced-motion`.
+Proves the universal, centered top-bar page heading (change 260703-5ilm's
+editable window heading, extended by 260704-pr0p into a `PageType: name` heading
+on every route with the boot-sweep animation): the current tmux window name is
+the prominent centered identity on the Terminal route (now prefixed
+`Terminal:`), renaming happens in place (click → inline input, Enter/blur
+commit, Escape cancel), the command-palette rename path enters the same inline
+edit, the 375px bar stays single-line, the hover-animation vocabulary classes
+are present and CSS-gated under `prefers-reduced-motion`, and the same centered
+heading fills the Server Cabin (`Server Cabin: <server>`, display-only), the
+Board (`Board: <name>` + relocated ▾ switcher, display-only) and the Cockpit
+(solo `Cockpit`) — with the retired in-page PageHeading row's bracket idiom now
+carried by the Cockpit's `<h2>` section headings. A motion-opted-in block
+additionally asserts the boot sweep itself runs on hover (an inverse-video
+cursor cell attaches inside the top-bar header, then resolves to rest).
 
 ## Shared setup
 
@@ -38,6 +46,59 @@ breadcrumb now ends at the session).
 2. Assert the `Rename window <name>` button is visible and its text equals the
    window name.
 3. Assert the `Breadcrumb` nav does NOT contain the window name (no duplication).
+4. Assert the static `Terminal:` page-type prefix (260704-pr0p) is visible and
+   is NOT contained inside the rename button — it is a sibling span, so clicking
+   it never starts an edit (the edit input binds only to the name).
+
+### `root route shows the centered `Server Cabin: <server>` heading (not a left leaf crumb)`
+
+**What it proves:** Move-don't-copy (260704-pr0p): on the Server Cabin
+(`/$server`, no window) the server name is the CENTERED `Server Cabin: <server>`
+heading, display-only (no rename), and is NOT duplicated as a left breadcrumb
+leaf crumb — the left breadcrumb ends at its parent.
+
+**Steps:**
+1. Navigate to `/${server}`.
+2. Assert the `Server Cabin <server>` heading (its accessible name carries the
+   type prefix) is visible.
+3. Assert there is no `Rename window …` button (the server name is display-only).
+4. Assert the `Breadcrumb` nav does NOT contain the server name.
+
+### `cockpit route (/) shows the solo `Cockpit` center heading and bracket section headings`
+
+**What it proves:** The Cockpit `/` carries the solo `Cockpit` center heading
+(no prefix, no instance name) in the top bar; the old in-page `[ cockpit ]`
+PageHeading `<h1>` row is gone; and the bracket idiom transferred to the zone
+`<h2>` section headings (brackets `[`/`]` + reserved `▊` caret cell around a
+TypedLabel — 260704-pr0p).
+
+**Steps:**
+1. Navigate to `/`.
+2. Assert the solo `Cockpit` heading is visible.
+3. Assert there is no `<h1>` on the page (the PageHeading row was removed).
+4. Locate the `Host Health` `<h2>` section heading; assert its enclosing
+   `.rk-bracket-group` carries the `[`/`]` bracket spans, a reserved
+   `.rk-bracket-caret` cell, and a `.rk-typed-label` whose text is the label.
+
+### `board route shows the centered `Board: <name>` heading + relocated ▾ switcher (name display-only, no left `Board ▸`)`
+
+**What it proves:** Move-don't-copy (260704-pr0p): on a board route
+(`/board/$name`) the board name is the CENTERED `Board: <name>` heading with the
+▾ board switcher relocated beside it (moved out of the left breadcrumb),
+display-only (no rename — boards have no rename API), and neither the board name
+nor the old left `Board ▸` home button appears in the left breadcrumb.
+
+**Steps:**
+1. Create a window, pin it to a board via `POST /api/boards/<board>/pin` (the
+   deterministic API seam), then navigate to `/board/<board>`.
+2. Assert the `Board <name>` heading (its accessible name carries the type
+   prefix) is visible.
+3. Assert the relocated ▾ board switcher (`Switch board`) is visible beside it.
+4. Assert there is no `Rename window …` button (the board name is display-only).
+5. Assert the `Breadcrumb` nav does NOT contain the board name and does NOT
+   contain the old left `Board ▸` home button (move-don't-copy).
+6. Cleanup: unpin the window via `POST /api/boards/<board>/unpin` so the empty
+   board disappears and the shared server stays clean (`finally`).
 
 ### `click name → inline input → type + Enter commits the rename`
 
@@ -156,3 +217,33 @@ work in real Chromium — it never reaches React's delegated listener.)
    fully intact.
 4. Dispatch `pointerout`: assert `rk-typed-done` is removed and the text is
    unchanged (rest state restored).
+
+### `terminal page heading runs the boot sweep on hover: cursor cell attaches, then resolves to rest`
+
+*(Also in the "animated path" block — the boot sweep is JS-gated on the same
+`prefers-reduced-motion` query as the typed sweep, so asserting it needs the
+motion opt-in.)*
+
+**What it proves:** The universal top-bar page heading (260704-pr0p) actually
+runs its combined boot sweep on hover: an inverse-video accent-green cursor cell
+(`.rk-typed-cursor`) attaches inside the top-bar header while the sweep runs,
+then the sweep resolves back to plain text (cursor cell gone) with the
+accessible name intact. All assertions are DOM-observable frame states — no
+pixel diffs (honoring the "NO pixel assertions" e2e constraint). The sweep is
+driven by a DISPATCHED `mouseover`/`mouseout` pair (React derives the button's
+`onMouseEnter`/`onMouseLeave` from delegated `mouseover`/`mouseout`), the same
+churn-proof seam the typed-sweep test uses, avoiding real hit-testing flake.
+
+**Steps:**
+1. Create + navigate to a window; confirm the `Rename window <name>` heading is
+   visible.
+2. Wait ~1200ms for the mount-replay sweep (which auto-plays once on navigation)
+   to settle, then assert no `.rk-typed-cursor` remains inside the header (a
+   clean rest baseline before the hover pass).
+3. Dispatch `mouseover` on the heading; assert an `.rk-typed-cursor` cell
+   attaches inside `header` (the sweep started — scoped to the header so the
+   sidebar TypedLabels aren't mistaken for it; `playDeferred` waits the 140ms
+   hover-intent before the first frame).
+4. Dispatch `mouseout`; assert no `.rk-typed-cursor` cell remains inside the
+   header (the sweep resolved to rest) and the heading text still equals the
+   window name (the accessible name never churned).

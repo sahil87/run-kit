@@ -481,6 +481,68 @@ describe("SessionProvider — server-independent host metrics", () => {
   });
 });
 
+describe("SessionProvider — hostMetricsConnected (Cockpit dot, 260704-9o7k)", () => {
+  it("is false before the first dedicated metrics event, true after (no server attached)", async () => {
+    setMockMatches([{ params: {} }]); // `/` — dedicated stream is the source
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // Before the first tick the dedicated stream hasn't delivered — gray.
+    expect(result.current.hostMetricsConnected).toBe(false);
+
+    act(() => {
+      MockEventSource.forHostMetrics()!.emit("metrics", FAKE_METRICS);
+    });
+
+    // First metrics event → the stream is flowing → green.
+    expect(result.current.hostMetricsConnected).toBe(true);
+  });
+
+  it("flips back to false after a 3s disconnect debounce on the dedicated stream's error", async () => {
+    vi.useFakeTimers();
+    try {
+      setMockMatches([{ params: {} }]);
+      const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+      act(() => {
+        MockEventSource.forHostMetrics()!.emit("metrics", FAKE_METRICS);
+      });
+      expect(result.current.hostMetricsConnected).toBe(true);
+
+      // Error arms the 3s debounce — not yet gray.
+      act(() => { MockEventSource.forHostMetrics()!.onerror?.(); });
+      expect(result.current.hostMetricsConnected).toBe(true);
+
+      // After 3s with no recovery → gray.
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+      expect(result.current.hostMetricsConnected).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("derives from per-server connectedness (fan-out fallback) when a server is attached", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // A server is attached (dedicated stream closed). Until the per-server
+    // stream emits `sessions`, the slice is not connected → gray.
+    expect(result.current.hostMetricsConnected).toBe(false);
+
+    act(() => {
+      MockEventSource.forServer("runkit")!.emit("sessions", []);
+    });
+
+    // The attached server's stream is now connected → host metrics flow via the
+    // fan-out → green.
+    expect(result.current.isConnectedByServer.get("runkit")).toBe(true);
+    expect(result.current.hostMetricsConnected).toBe(true);
+  });
+});
+
 describe("SessionProvider — server-independent host services", () => {
   const FAKE_SERVICES = { services: [{ port: 5173 }, { port: 8080, process: "api" }] };
 

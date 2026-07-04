@@ -1,3 +1,11 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-04T07:28:33Z"}
 {"args":"Regroup top-bar right cluster into 3-level pyramid (always / +board / +terminal), repurpose connection dot for all pages, promote refresh, wire close on board","cmd":"fab-new","event":"command","ts":"2026-07-04T07:28:33Z"}
 {"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-07-04T07:29:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-04T07:35:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-04T07:37:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-04T07:52:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-04T08:08:17Z"}
+{"event":"review","result":"passed","ts":"2026-07-04T08:08:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-04T08:14:04Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-04T08:16:05Z"}
+{"event":"review","result":"passed","ts":"2026-07-04T08:23:11Z"}

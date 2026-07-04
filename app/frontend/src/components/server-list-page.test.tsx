@@ -60,6 +60,9 @@ vi.mock("@/contexts/session-context", () => ({
     refreshServers: refreshServersMock,
     markServerPending: markServerPendingMock,
     sessionsByServer: mockSessionsByServer,
+    // Cockpit connection dot source (260704-9o7k) — gray in these tests; the
+    // dot's presence (not its color) is what the TopBar tests assert.
+    hostMetricsConnected: false,
   }),
 }));
 
@@ -275,16 +278,21 @@ describe("ServerListPage — Cockpit TopBar", () => {
     // The shared TopBar's brand root crumb links home.
     const brand = screen.getByLabelText("Run Kit home");
     expect(brand).toHaveAttribute("href", "/");
-    // Route-agnostic controls are reachable on `/`.
-    expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
+    // L3 always-block controls are reachable on `/` (Theme; Refresh + Help
+    // promoted here in 260704-9o7k). The fixed-width BUTTON is terminal-only
+    // now, so it is NOT on the Cockpit.
     expect(screen.getByLabelText(/theme/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
   });
 
-  it("renders no hamburger and no connection dot in cockpit mode", () => {
+  it("renders no hamburger in cockpit mode, but DOES render the connection dot (host-metrics health, 260704-9o7k)", () => {
     renderPage();
-    // The Cockpit has no sidebar → no hamburger; no per-server SSE → no dot.
+    // The Cockpit has no sidebar → no hamburger.
     expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    // 260704-9o7k: the dot now renders on Cockpit, reflecting host-metrics
+    // stream health (formerly hardcoded hidden).
+    expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
   it("renders the retro 'cockpit' page heading (lowercase, bracket-tag idiom)", () => {

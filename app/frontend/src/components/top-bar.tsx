@@ -26,12 +26,14 @@ type TopBarProps = {
    * - `board` (`/board/$name`) — brand + hamburger + the board breadcrumb
    *   dropdown plus pane/server counts and the cycle hint. Connection dot hidden.
    * - `cockpit` (`/`, the Server List home) — brand crumb ONLY. No hamburger
-   *   (the Cockpit has no sidebar), no connection dot (no per-server SSE stream),
-   *   no terminal-font control, no split/close buttons. The route-agnostic
-   *   controls (FixedWidthToggle, NotificationControl, ThemeToggle) still render.
-   *   Session/server-dependent props are passed empty (`sessions=[]`,
-   *   `currentSession=null`, `currentWindow=null`, `sessionName=""`, `server=""`,
-   *   no-op callbacks) — the same tolerant-empty shape board mode already uses.
+   *   (the Cockpit has no sidebar), no terminal-font control, no split/close
+   *   buttons, no fixed-width button (terminal-only since 260704-9o7k). The L3
+   *   always-block (Notification · Theme · Refresh · Help) still renders, plus
+   *   the connection dot — which on Cockpit reflects host-metrics stream health
+   *   (260704-9o7k; formerly hidden). Session/server-dependent props are passed
+   *   empty (`sessions=[]`, `currentSession=null`, `currentWindow=null`,
+   *   `sessionName=""`, `server=""`, no-op callbacks) — the same tolerant-empty
+   *   shape board mode already uses.
    */
   mode?: TopBarMode;
   sessions: ProjectSession[];
@@ -52,6 +54,11 @@ type TopBarProps = {
   serverCount?: number;
   /** Board-mode list of all boards (for the board switcher dropdown). */
   boards?: { name: string }[];
+  /** Board-mode ✕ handler — unpins the board's focused pane (non-destructive).
+   *  Wired from `board-page.tsx`; the terminal ✕ keeps its own kill path. */
+  onCloseFocused?: () => void;
+  /** Disable the board-mode ✕ (e.g. the board has zero panes). */
+  closeDisabled?: boolean;
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
@@ -135,6 +142,8 @@ export function TopBar({
   paneCount,
   serverCount,
   boards,
+  onCloseFocused,
+  closeDisabled,
 }: TopBarProps) {
   // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
   // window id (@N) is the only identity in the URL. Selecting a session jumps
@@ -320,14 +329,27 @@ export function TopBar({
         </div>
 
         <div className="flex items-center justify-self-end gap-3 text-xs text-text-secondary shrink-0">
-          {/* Icon ordering minimizes movement between pages: the conditional
-              terminal-only buttons (splits, close, Aa) sit on the LEFT of the
-              cluster, where their absence on non-terminal pages just widens the
-              gap to the breadcrumb. The always-present items (theme, fixed
-              width) form a stable block, followed by the connection dot as the
-              right-most element (the brand anchor moved to the left nav as the
-              root crumb, so there is no longer a Run Kit anchor pinning this
-              cluster's right edge). */}
+          {/* Right-cluster button pyramid (260704-9o7k). A strict cumulative
+              pyramid, growing LEFTWARD from a stable always-block pinned right,
+              so no shared button ever changes screen position between pages:
+
+                L1 — terminal only  : SplitButton ×2 · FixedWidthToggle
+                L2 — terminal+board : TerminalFontControl (Aa) · ClosePaneButton (✕)
+                L3 — all four modes : Notification · Theme · Refresh · Help
+                                      + connection dot (right-most status terminator)
+
+              L1's absence on non-terminal pages just widens the gap to the
+              breadcrumb; the L3 always-block keeps its fixed right edge (the
+              brand anchor moved to the left nav as the root crumb). The dot is
+              the right-most element in every mode. */}
+
+          {/* L1 — terminal-only: split vertical · split horizontal · fixed-width.
+              FixedWidthToggle is terminal-only (260704-9o7k): the 900px maxWidth
+              wrapper lives in AppShell (app.tsx), which renders both `terminal`
+              and `root`, so Server Cabin keeps the constraint AND the palette
+              access (`View: Fixed Width`); only the button is terminal-scoped.
+              It was already a no-op on Board/Cockpit (their pages never read
+              `fixedWidth`). */}
           {currentWindow && (
             <>
               <span className="hidden sm:flex">
@@ -346,71 +368,88 @@ export function TopBar({
                 />
               </span>
               <span className="hidden sm:flex">
-                <ClosePaneButton
-                  server={server}
-                  windowId={currentWindow.windowId}
-                />
-              </span>
-              <span className="hidden sm:flex">
-                <RefreshButton />
+                <FixedWidthToggle />
               </span>
             </>
           )}
 
-          {/* Terminal font size applies only to terminal-bearing surfaces:
-              the single-window terminal (`terminal`) and board panes (`board`,
-              where `currentWindow` is always `null`). It is gated out of `root`
-              (the Server Cabin tile view) and `cockpit` (the server list) —
-              neither has a terminal to size. Sits outside the `currentWindow`
-              block so board mode still shows it. */}
-          {mode !== "root" && mode !== "cockpit" && (
-            <span className="hidden sm:flex">
-              <TerminalFontControl />
-            </span>
+          {/* L2 — terminal + board: terminal-font (Aa) + close/unpin (✕). Both
+              gate on the L2 predicate (`terminal` || `board`). Aa sizes a
+              terminal surface (the single window or a board pane); it is gated
+              out of `root`/`cockpit`, which have no terminal to size. The ✕ is
+              close-pane on Terminal (kills the active pane) and unpin-focused on
+              Board (removes the focused pane from the board, non-destructive —
+              see board-page.tsx). */}
+          {(mode === "terminal" || mode === "board") && (
+            <>
+              <span className="hidden sm:flex">
+                <TerminalFontControl />
+              </span>
+              <span className="hidden sm:flex">
+                {mode === "board" ? (
+                  <ClosePaneButton
+                    onUnpin={onCloseFocused}
+                    // Board mode has no terminal to close: without an `onUnpin`
+                    // handler the ✕ would fall through to `closePane("", "")`
+                    // (empty server/window). Disable it when the handler is
+                    // absent so the button can never trigger that no-op path.
+                    disabled={closeDisabled || !onCloseFocused}
+                    label="Unpin pane from board"
+                  />
+                ) : (
+                  currentWindow && (
+                    <ClosePaneButton
+                      server={server}
+                      windowId={currentWindow.windowId}
+                    />
+                  )
+                )}
+              </span>
+            </>
           )}
 
-          {/* Route-agnostic controls — these render in every mode (including
-              cockpit) and keep a stable left-to-right order:
-              FixedWidth → Notification → Theme → Help → connection dot. */}
-
-          {/* FixedWidthToggle is route-agnostic — fixed-width constrains the
-              max-width of any surface including the server list, so it stays in
-              all modes. */}
-          <span className="hidden sm:flex">
-            <FixedWidthToggle />
-          </span>
+          {/* L3 — always (all four modes): Notification → Theme → Refresh →
+              Help, then the connection dot as the right-most element. */}
 
           {/* Notification control — bell button + dropdown (enable / send test).
-              Route-agnostic; hides itself when push is unsupported (insecure
-              context / no SW support). */}
+              Hides itself when push is unsupported (insecure context / no SW
+              support). */}
           <span className="hidden sm:flex">
             <NotificationControl />
           </span>
 
-          {/* Theme toggle — route-agnostic. */}
+          {/* Theme toggle. */}
           <span className="hidden sm:flex">
             <ThemeToggle />
           </span>
 
-          {/* Help — route-agnostic external docs link. */}
+          {/* Refresh — full-page reload recovery affordance. Promoted from the
+              terminal-only group into the always-block (260704-9o7k): a reload
+              is meaningful on every page. Behavior unchanged (plain click
+              reloads, Shift+click force-reloads). */}
+          <span className="hidden sm:flex">
+            <RefreshButton />
+          </span>
+
+          {/* Help — external docs link. */}
           <span className="hidden sm:flex">
             <HelpLink />
           </span>
 
-          {/* Connection dot — the right-most element. Rendered in terminal/root
-              modes only: board mode spans servers (connection state is
-              per-server) and cockpit has no per-server SSE stream, so both hide
-              it. */}
-          {mode !== "board" && mode !== "cockpit" && (
-            <span role="status" aria-live="polite" className="hidden sm:inline">
-              <span
-                className={`block w-2 h-2 rounded-full ${
-                  isConnected ? "bg-accent-green" : "bg-text-secondary"
-                }`}
-                aria-label={isConnected ? "Connected" : "Disconnected"}
-              />
-            </span>
-          )}
+          {/* Connection dot — the right-most element, in ALL four modes
+              (260704-9o7k dropped the board/cockpit gate). Its meaning is
+              per-page "this page's live data is flowing": Terminal/Server Cabin
+              = the current server's SSE stream; Cockpit = host-metrics stream
+              health; Board = AND over the attached servers' streams (derived by
+              each caller and passed as `isConnected`). */}
+          <span role="status" aria-live="polite" className="hidden sm:inline">
+            <span
+              className={`block w-2 h-2 rounded-full ${
+                isConnected ? "bg-accent-green" : "bg-text-secondary"
+              }`}
+              aria-label={isConnected ? "Connected" : "Disconnected"}
+            />
+          </span>
         </div>
       </div>
     </header>
@@ -923,32 +962,53 @@ function SplitButton({
   );
 }
 
+/**
+ * The L2 ✕ chip — mode-aware (260704-9o7k). Two behaviors, one component:
+ *  - Terminal (default): `closePane(server, windowId)` kills the active pane of
+ *    the current window (unchanged optimistic path, spinner while pending).
+ *  - Board (`onUnpin` provided): calls `onUnpin` to unpin the board's focused
+ *    pane — a non-destructive move-out, NOT a kill. Board wiring passes a
+ *    board-specific `label` ("Unpin pane from board") and `disabled` (zero
+ *    panes). One component keeps the shared chip styling/spinner in one place.
+ */
 function ClosePaneButton({
   server,
   windowId,
+  onUnpin,
+  disabled,
+  label = "Close pane",
 }: {
-  server: string;
-  windowId: string;
+  server?: string;
+  windowId?: string;
+  onUnpin?: () => void;
+  disabled?: boolean;
+  label?: string;
 }) {
   const { addToast } = useToast();
 
+  // Terminal kill path — only meaningful when there is no `onUnpin` override.
   const { execute, isPending } = useOptimisticAction<[]>({
-    action: () => closePane(server, windowId),
+    action: () => closePane(server ?? "", windowId ?? ""),
     onError: (err) => {
       addToast(err.message || "Failed to close pane");
     },
   });
 
+  // Board unpin is synchronous (no await/spinner); terminal close shows the
+  // optimistic spinner and disables while the kill is in flight.
+  const busy = onUnpin ? false : isPending;
+  const isDisabled = disabled || busy;
+
   return (
     <button
       type="button"
-      onClick={() => execute()}
-      disabled={isPending}
-      aria-label="Close pane"
+      onClick={() => (onUnpin ? onUnpin() : execute())}
+      disabled={isDisabled}
+      aria-label={label}
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-      title="Close pane"
+      title={label}
     >
-      {isPending ? (
+      {busy ? (
         <LogoSpinner size={14} />
       ) : (
         <svg

@@ -1,20 +1,20 @@
 # top-bar-refresh.spec.ts
 
-Verifies the top-bar **RefreshButton**: on a terminal (current-window) route it
-renders immediately after the Close pane button, and clicking it performs a full
-`window.location.reload()`.
+Verifies the top-bar **RefreshButton**: on a terminal route it renders in the L3
+always-block at its pyramid position (Notification → Theme → **Refresh** → Help,
+dot right-most), and clicking it performs a full `window.location.reload()`.
 
 ## Shared setup
 
-- Fully mocked — no tmux server, no `gh`, no real backend reads. The RefreshButton
-  is gated on a current window, so the spec injects data via `page.route`:
+- Fully mocked — no tmux server, no `gh`, no real backend reads. The spec
+  injects data via `page.route`:
   - `**/api/servers` → a single server `default` (so the app attaches exactly one
     SSE connection).
   - `**/api/sessions/stream*` → one `event: sessions` frame whose payload is a
     session `dev` with two windows: `@1` "feature-work" (the URL target,
     `isActiveWindow: false`) and `@2` "other" (`isActiveWindow: true`). This
-    satisfies the `currentWindow` gate the RefreshButton (and the Split/Close
-    cluster) render behind, and — because the deep-linked `@1` is NOT the
+    satisfies the `currentWindow` gate the Split/Close cluster renders behind,
+    and — because the deep-linked `@1` is NOT the
     tmux-active window — makes app.tsx's mount-time alignment fire exactly one
     `selectWindow(server, "@1")` POST so the `/select` mock is genuinely
     exercised (a same-window payload would take the no-op path and never call
@@ -29,31 +29,35 @@ renders immediately after the Close pane button, and clicking it performs a full
   - the `/relay/` WebSocket is stubbed (accepted and held open) so the terminal
     route mounts without a backend.
 - `beforeEach` installs the routes, navigates to the percent-encoded terminal
-  window route `/default/%401` (`@1`), and waits for the Refresh page button to be
-  visible (the strongest signal the SSE payload has landed and `currentWindow` is
-  set).
+  window route `/default/%401` (`@1`), and waits for the **Close pane** button to
+  be visible — the signal the SSE payload has landed and `currentWindow` is set.
+  The Refresh button cannot be this anchor: it rides the L3 always-block
+  (260704-9o7k) and is visible at first paint, before the mocked SSE event is
+  processed, so anchoring on it raced the mount-time `/select` POST.
 
 ## Tests
 
-### `shows the refresh button next to the close button on a terminal route`
+### `renders refresh in the always block between theme and help on a terminal route`
 
 **What it proves:** the `/select` mock intercepted the window-selection POST fired
 during navigation (so no real backend read/write occurred — proving the "fully
-mocked" guarantee holds); and on a terminal route the Close pane button is visible
-(the Refresh page button's visibility is already asserted by the shared
-`beforeEach`), with the refresh button rendering *immediately* after the close
-button — its wrapper `<span>` is the direct next element sibling of the close
-button's wrapper `<span>` (the cluster order is split → split → close → refresh).
-This is true adjacency, not merely "somewhere after" in document order.
+mocked" guarantee holds); and on a terminal route the Refresh page button renders
+at its pyramid position in the L3 always-block — its wrapper `<span>` sits
+directly between the Theme toggle's and the Help link's wrappers, and the
+connection dot (`role="status"`) is the cluster's last element. This is true
+sibling adjacency, not merely "somewhere after" in document order.
 
 **Steps:**
-1. Assert the `/select` route mock fired at least once during nav (its hit counter
-   is `> 0`) — proof the trailing-`*` glob intercepts the `?server=default` URL
-   rather than falling through to the real :3020 backend.
-2. Assert the `Close pane` button is visible.
-3. In the page, resolve each button's wrapper `<span>` via `.closest("span")` and
-   assert the refresh wrapper is the `nextElementSibling` of the close wrapper
-   (coordinate-free true-adjacency check).
+1. Poll the `/select` route-mock hit counter until `> 0` — proof the trailing-`*`
+   glob intercepts the `?server=default` URL rather than falling through to the
+   real :3020 backend (the POST fires in a mount-time effect fractionally after
+   the close button renders).
+2. Assert the `Refresh page` button is visible.
+3. In the page, resolve the theme/refresh/help wrappers via `.closest("span")` and
+   assert theme's wrapper's `nextElementSibling` is the refresh wrapper, whose
+   `nextElementSibling` is the help wrapper; then assert the cluster's
+   `lastElementChild` is the `role="status"` dot wrapper (coordinate-free
+   true-adjacency checks).
 
 ### `clicking the refresh button reloads the page`
 

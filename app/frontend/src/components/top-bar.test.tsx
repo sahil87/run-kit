@@ -206,9 +206,42 @@ describe("TopBar", () => {
     expect(screen.getByLabelText("Disconnected")).toBeInTheDocument();
   });
 
-  it("renders FixedWidthToggle", () => {
+  it("renders FixedWidthToggle in terminal mode (L1 terminal-only button)", () => {
     renderTopBar();
     expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
+  });
+
+  it("does NOT render FixedWidthToggle outside terminal mode (root/board/cockpit)", () => {
+    // 260704-9o7k: the fixed-width BUTTON is terminal-only now; the 900px
+    // wrapper + palette action live in AppShell and are untouched.
+    renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+    cleanup();
+    renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
+    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+    cleanup();
+    renderTopBar({ mode: "cockpit", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
+    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+  });
+
+  it("renders the L3 always block in Notification → Theme → Refresh → Help order, dot right-most (260704-9o7k pyramid)", () => {
+    const { container } = renderTopBar();
+    const cluster = container.querySelector('.justify-self-end')!;
+    // Collect the ordered accessible landmarks of the always block + dot.
+    const bell = screen.getByLabelText(/Notifications/);
+    const theme = screen.getByLabelText(/theme/i);
+    const refresh = screen.getByLabelText("Refresh page");
+    const help = screen.getByLabelText("Help — run-kit docs");
+    const dot = cluster.querySelector('[role="status"]')!;
+    // DOCUMENT_POSITION_FOLLOWING (4) means the arg comes AFTER the node.
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(bell, theme)).toBe(true);
+    expect(follows(theme, refresh)).toBe(true);
+    expect(follows(refresh, help)).toBe(true);
+    expect(follows(help, dot)).toBe(true);
+    // Dot is the last child of the cluster.
+    expect(cluster.lastElementChild).toBe(dot);
   });
 
   it("renders the hamburger toggle on terminal/root/board but NOT on the cockpit", () => {
@@ -220,19 +253,25 @@ describe("TopBar", () => {
     expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
   });
 
-  it("renders the connection dot as the right-most element on terminal/root, hidden on board and cockpit", () => {
+  it("renders the connection dot as the right-most element in ALL four modes (260704-9o7k: dot everywhere)", () => {
+    // Terminal.
     const { container } = renderTopBar();
-    // The dot's status wrapper is the LAST child of the right-hand control cluster.
     const dotStatus = container.querySelector('[role="status"]')!;
     expect(dotStatus).toBeInTheDocument();
     const cluster = dotStatus.parentElement!;
     expect(cluster.lastElementChild).toBe(dotStatus);
     cleanup();
-    renderTopBar({ mode: "board", boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    // Root (Server Cabin).
+    renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+    expect(screen.getByRole("status")).toBeInTheDocument();
     cleanup();
+    // Board — dot now renders (per-page "live data flowing"; caller derives it).
+    renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    cleanup();
+    // Cockpit — dot now renders (host-metrics stream health).
     renderTopBar({ mode: "cockpit", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
   describe("cockpit mode (Server List home)", () => {
@@ -249,23 +288,28 @@ describe("TopBar", () => {
       });
     }
 
-    it("renders the brand link and the route-agnostic controls, without erroring on empty props", () => {
+    it("renders the brand link and the L3 always-block controls, without erroring on empty props", () => {
       renderCockpit();
       // Brand root crumb links home.
       expect(screen.getByLabelText("Run Kit home")).toHaveAttribute("href", "/");
-      // Route-agnostic controls stay.
-      expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
+      // L3 always-block controls stay (Refresh + Help promoted here; Theme).
       expect(screen.getByLabelText(/theme/i)).toBeInTheDocument();
+      expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
+      expect(screen.getByLabelText("Help — run-kit docs")).toBeInTheDocument();
+      // The fixed-width BUTTON is terminal-only now (260704-9o7k).
+      expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
     });
 
-    it("renders no hamburger, no connection dot, no terminal-font control, no split/close buttons", () => {
+    it("renders no hamburger, no terminal-font control, no split/close/fixed-width buttons; dot IS present (host-metrics health)", () => {
       renderCockpit();
       expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
-      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      // 260704-9o7k: the dot now renders on Cockpit (host-metrics stream health).
+      expect(screen.getByRole("status")).toBeInTheDocument();
       expect(screen.queryByLabelText("Terminal font size")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Close pane")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
     });
   });
 
@@ -473,6 +517,59 @@ describe("TopBar", () => {
     expect(closePane).toHaveBeenCalledWith("runkit", "@0");
   });
 
+  describe("board-mode ✕ = unpin focused pane (260704-9o7k)", () => {
+    /** Board mode passes tolerant-empty session props plus the unpin wiring. */
+    function renderBoard(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
+      return renderTopBar({
+        mode: "board",
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        server: "",
+        boardName: "b",
+        paneCount: 1,
+        serverCount: 1,
+        boards: [{ name: "b" }],
+        ...overrides,
+      });
+    }
+
+    it("labels the ✕ as unpin (not 'Close pane') and calls onCloseFocused, never closePane", async () => {
+      const { closePane } = await import("@/api/client");
+      // The module-level closePane mock accumulates calls across tests; measure
+      // the delta around THIS click rather than an absolute never-called.
+      const before = vi.mocked(closePane).mock.calls.length;
+      const onCloseFocused = vi.fn();
+      renderBoard({ onCloseFocused });
+      // Distinct accessible name from the terminal kill button.
+      expect(screen.queryByLabelText("Close pane")).not.toBeInTheDocument();
+      const unpin = screen.getByLabelText("Unpin pane from board");
+      fireEvent.click(unpin);
+      expect(onCloseFocused).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(closePane).mock.calls.length).toBe(before);
+    });
+
+    it("disables the ✕ when the board has zero panes (closeDisabled)", () => {
+      const onCloseFocused = vi.fn();
+      renderBoard({ onCloseFocused, closeDisabled: true, paneCount: 0 });
+      const unpin = screen.getByLabelText("Unpin pane from board");
+      expect(unpin).toBeDisabled();
+      fireEvent.click(unpin);
+      expect(onCloseFocused).not.toHaveBeenCalled();
+    });
+
+    it("terminal-mode ✕ still calls closePane (kill), not unpin", async () => {
+      const { closePane } = await import("@/api/client");
+      renderTopBar(); // terminal mode default
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText("Close pane"));
+      });
+      expect(closePane).toHaveBeenCalledWith("runkit", "@0");
+    });
+  });
+
   describe("RefreshButton", () => {
     // jsdom's window.location.reload is a non-configurable own property, so
     // vi.spyOn(window.location, "reload") throws "Cannot redefine property".
@@ -512,9 +609,9 @@ describe("TopBar", () => {
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
     });
 
-    it("does not render the refresh button on dashboard (no window)", () => {
-      renderTopBar({ currentWindow: null, windowName: "" });
-      expect(screen.queryByLabelText("Refresh page")).not.toBeInTheDocument();
+    it("still renders the refresh button on the Server Cabin (no window) — it moved to the always block (260704-9o7k)", () => {
+      renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+      expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
     });
 
     it("has no disabled state and no spinner (synchronous, non-destructive action)", () => {

@@ -43,6 +43,11 @@ interface BuildOpts {
   onCycleNext?: () => void;
   onCyclePrev?: () => void;
   onRefresh?: () => void;
+  /** Board has ≥1 pinned entry — production gates the cycle + unpin-focused
+   *  entries on `entries.length > 0`. Defaults true so existing cases (which
+   *  assume a populated board) are unaffected. */
+  hasEntries?: boolean;
+  onUnpinFocused?: () => void;
 }
 
 function buildBoardActions(opts: BuildOpts): PaletteAction[] {
@@ -76,16 +81,27 @@ function buildBoardActions(opts: BuildOpts): PaletteAction[] {
       label: "Board: Leave Board View",
       onSelect: () => opts.onLeaveBoardView?.(),
     });
-    conditional.push({
-      id: "board-cycle-next",
-      label: "Board: Cycle Pane Focus →",
-      onSelect: () => opts.onCycleNext?.(),
-    });
-    conditional.push({
-      id: "board-cycle-prev",
-      label: "Board: Cycle Pane Focus ←",
-      onSelect: () => opts.onCyclePrev?.(),
-    });
+    // Cycle + unpin-focused are gated on the board having entries in production
+    // (`entries.length > 0`). Mirror that with `hasEntries` (default true).
+    if (opts.hasEntries !== false) {
+      conditional.push({
+        id: "board-cycle-next",
+        label: "Board: Cycle Pane Focus →",
+        onSelect: () => opts.onCycleNext?.(),
+      });
+      conditional.push({
+        id: "board-cycle-prev",
+        label: "Board: Cycle Pane Focus ←",
+        onSelect: () => opts.onCyclePrev?.(),
+      });
+      // Board: Unpin Focused Pane — keyboard parity for the top-bar ✕
+      // (260704-9o7k). Present only with entries; unpins the focused pane.
+      conditional.push({
+        id: "board-unpin-focused",
+        label: "Board: Unpin Focused Pane",
+        onSelect: () => opts.onUnpinFocused?.(),
+      });
+    }
   }
 
   // Always-present in boardRouteActions (unconditional refreshEntry) — the board
@@ -234,5 +250,46 @@ describe("CmdK Board Actions", () => {
     fireEvent.change(input, { target: { value: "Refresh Page" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("shows 'Board: Unpin Focused Pane' on a board route with entries (260704-9o7k)", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+      hasEntries: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("Board: Unpin Focused Pane")).toBeInTheDocument();
+  });
+
+  it("hides 'Board: Unpin Focused Pane' when the board has zero entries", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+      hasEntries: false,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.queryByText("Board: Unpin Focused Pane")).not.toBeInTheDocument();
+  });
+
+  it("invokes the unpin-focused handler when 'Board: Unpin Focused Pane' is selected", () => {
+    const onUnpinFocused = vi.fn();
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+      hasEntries: true,
+      onUnpinFocused,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Unpin Focused" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onUnpinFocused).toHaveBeenCalledOnce();
   });
 });

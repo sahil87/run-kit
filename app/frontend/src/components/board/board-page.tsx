@@ -360,10 +360,20 @@ function BoardPageContent({ name }: { name: string }) {
           setFocusedIndex((prev) => (prev - 1 + entries.length) % entries.length);
         },
       });
+      // Keyboard parity for the top-bar board ✕ (Constitution V; 260704-9o7k).
+      // Unpins the focused pane (non-destructive) — mirrors `unpinFocused`.
+      conditional.push({
+        id: "board-unpin-focused",
+        label: "Board: Unpin Focused Pane",
+        onSelect: () => {
+          const e = entries[focusedIndex];
+          if (e) unpin(e.server, e.windowId, name);
+        },
+      });
     }
 
     return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry];
-  }, [boards, name, entries.length, navigate, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
+  }, [boards, name, entries, focusedIndex, unpin, navigate, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {
@@ -371,6 +381,29 @@ function BoardPageContent({ name }: { name: string }) {
     for (const e of entries) set.add(e.server);
     return set.size;
   }, [entries]);
+
+  // Connection dot (260704-9o7k): "this board's live data is flowing". Green
+  // only when the board has entries AND every distinct attached server's SSE
+  // slice is connected (binary AND — a single disconnected server flips it
+  // gray; a zero-entry board is gray, nothing is flowing).
+  const boardConnected = useMemo(() => {
+    const servers = new Set<string>();
+    for (const e of entries) servers.add(e.server);
+    if (servers.size === 0) return false;
+    for (const s of servers) {
+      if (!ctx.isConnectedByServer.get(s)) return false;
+    }
+    return true;
+  }, [entries, ctx.isConnectedByServer]);
+
+  // Board ✕ = unpin the focused pane (non-destructive). Distinct from the tmux
+  // pane-kill the terminal ✕ does — a top-bar button that killed whatever agent
+  // happens to be focused would be an expensive misclick; kill stays in the
+  // pane's own UI. Shared by the top-bar ✕ and the palette action below.
+  const unpinFocused = useCallback(() => {
+    const e = entries[focusedIndex];
+    if (e) unpin(e.server, e.windowId, name);
+  }, [entries, focusedIndex, unpin, name]);
 
   // sidebarOpen drives the hamburger animation; setSidebarOpen handles the
   // toggle and mobile destination-tap auto-close. Both are destructured above
@@ -448,11 +481,12 @@ function BoardPageContent({ name }: { name: string }) {
         {/* Top bar grid area — board mode renders the breadcrumb dropdown +
             inline pane/server count + cycle hint inside `<TopBar>`. The
             previous bespoke `<header>` (Board ▸ {name} ▾) is replaced by
-            this single TopBar invocation. Right-section chrome (split,
-            close-pane, fixed-width, theme toggle, ⌘K, compose) is hidden
-            implicitly by passing `currentWindow={null}` so SplitButton /
-            ClosePaneButton do not render — board panes carry their own
-            unpin/close affordances. */}
+            this single TopBar invocation. L1 terminal-only chrome (split,
+            fixed-width) is hidden by passing `currentWindow={null}`. The board
+            keeps the L2 pair: the terminal-font Aa (board panes are terminals)
+            and the ✕ — repurposed to UNPIN THE FOCUSED PANE (`onCloseFocused`,
+            260704-9o7k), a non-destructive move-out, NOT a tmux kill; per-pane
+            kill/unpin still live on each `BoardPane`. */}
         <header style={{ gridArea: "topbar" }}>
           <TopBar
             mode="board"
@@ -461,7 +495,7 @@ function BoardPageContent({ name }: { name: string }) {
             currentWindow={null}
             sessionName=""
             windowName=""
-            isConnected={false}
+            isConnected={boardConnected}
             sidebarOpen={sidebarOpen}
             server=""
             onNavigate={() => {}}
@@ -472,6 +506,8 @@ function BoardPageContent({ name }: { name: string }) {
             paneCount={entries.length}
             serverCount={serverCount}
             boards={boards.map((b) => ({ name: b.name }))}
+            onCloseFocused={unpinFocused}
+            closeDisabled={entries.length === 0}
           />
         </header>
 

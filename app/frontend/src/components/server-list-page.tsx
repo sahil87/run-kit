@@ -34,6 +34,8 @@ export function ServerListPage() {
   const { addToast } = useToast();
   const hostMetrics = useHostMetrics();
   const hostServices = useHostServices();
+  // Cockpit connection dot (260704-9o7k): reflects host-metrics stream health.
+  const { hostMetricsConnected } = useSessionContext();
   // Cross-server pane boards for the BOARDS zone. useBoards is self-contained
   // (plain /api/boards fetch + the shared SSE pool) and boards aggregate
   // windows across servers, so the box-level Cockpit is their natural home.
@@ -177,7 +179,7 @@ export function ServerListPage() {
         currentWindow={null}
         sessionName=""
         windowName=""
-        isConnected={false}
+        isConnected={hostMetricsConnected}
         sidebarOpen={false}
         server=""
         onNavigate={() => {}}

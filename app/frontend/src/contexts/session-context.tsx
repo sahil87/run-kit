@@ -30,6 +30,13 @@ export type SessionContextType = {
   sessionsByServer: Map<string, ProjectSession[]>;
   sessionOrderByServer: Map<string, string[]>;
   isConnectedByServer: Map<string, boolean>;
+  /** Health of the host-metrics source that feeds `useHostMetrics()` — true
+   *  when host metrics are flowing (260704-9o7k, for the Cockpit connection
+   *  dot). When no per-server stream is attached this is the dedicated
+   *  `?metrics=1` stream's health; otherwise it derives from whether any
+   *  attached server's per-server stream is connected (the metrics fan-out
+   *  source). */
+  hostMetricsConnected: boolean;
   metricsByServer: Map<string, MetricsSnapshot | null>;
   /** Per-server map of `windowId → pane-text preview` for the tile grid. Only
    *  windows in sessions the client declared expanded (via `setPreviewScope`)
@@ -149,6 +156,13 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // Latest host-global metrics snapshot from the dedicated server-independent
   // stream (see the host-metrics effect below). `null` until the first tick.
   const [hostMetrics, setHostMetrics] = useState<MetricsSnapshot | null>(null);
+  // Health of the DEDICATED `?metrics=1` stream (260704-9o7k). Set true on its
+  // first metrics event, cleared via a 3s debounce on error — mirrors the
+  // per-server slice `isConnected` lifecycle. Only meaningful while the
+  // dedicated stream is the host-metrics source (attached set empty); when a
+  // per-server stream carries the fan-out the derived value below reads from
+  // per-server connectedness instead. `false` until the first dedicated event.
+  const [dedicatedMetricsConnected, setDedicatedMetricsConnected] = useState(false);
   // Latest host-global listening services from the same server-independent
   // broadcast (`event: services`). Empty array until the first tick — never
   // null, so `/` consumers can map over it unconditionally.
@@ -546,15 +560,26 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // server-neutral, metrics-only client that is never session-polled or reaped,
   // so it keeps receiving the broadcast with zero attached servers.
   const hostMetricsESRef = useRef<EventSource | null>(null);
+  // 3s disconnect debounce for the dedicated stream (mirrors the per-server
+  // pool's `disconnectTimer`) so a transient socket blip doesn't flicker the
+  // Cockpit dot. Held in a ref so the effect can clear it on reconnect/close.
+  const dedicatedDisconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hostMetricsWanted = attachedSet.size === 0;
   useEffect(() => {
     if (!hostMetricsWanted) {
       // A per-server stream now carries host metrics (via the fan-out above) —
-      // close the redundant dedicated stream to free its connection slot.
+      // close the redundant dedicated stream to free its connection slot. The
+      // derived `hostMetricsConnected` reads from per-server connectedness in
+      // this state, so reset the dedicated flag (and its timer) here.
+      if (dedicatedDisconnectTimerRef.current) {
+        clearTimeout(dedicatedDisconnectTimerRef.current);
+        dedicatedDisconnectTimerRef.current = null;
+      }
       if (hostMetricsESRef.current) {
         hostMetricsESRef.current.close();
         hostMetricsESRef.current = null;
       }
+      setDedicatedMetricsConnected(false);
       return;
     }
     // Wanted (no server attached). StrictMode-safe: the ref survives the dev
@@ -570,10 +595,26 @@ export function SessionProvider({ children }: SessionProviderProps) {
         // through applyHostMetrics keeps the guard authoritative across the
         // dedicated-stream ↔ per-server-fan-out switch.
         applyHostMetrics(e.data, data);
+        // First (or recovered) metrics event — the stream is flowing. Clear any
+        // pending disconnect debounce and mark connected.
+        if (dedicatedDisconnectTimerRef.current) {
+          clearTimeout(dedicatedDisconnectTimerRef.current);
+          dedicatedDisconnectTimerRef.current = null;
+        }
+        setDedicatedMetricsConnected(true);
       } catch {
         // Malformed metrics event — skip
       }
     });
+    es.onerror = () => {
+      // 3s debounce before flipping the dot gray — mirrors the per-server pool.
+      if (!dedicatedDisconnectTimerRef.current) {
+        dedicatedDisconnectTimerRef.current = setTimeout(() => {
+          dedicatedDisconnectTimerRef.current = null;
+          setDedicatedMetricsConnected(false);
+        }, 3000);
+      }
+    };
     // `event: services` rides the same dedicated stream (it fans out to every
     // client). Add the listener here too so host services stay live on the bare
     // `/` route with zero attached servers, mirroring the metrics listener.
@@ -614,6 +655,19 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return m;
   }, [slicesByServer]);
 
+  // Host-metrics source health (260704-9o7k) — the Cockpit connection dot.
+  // When no server is attached the dedicated `?metrics=1` stream IS the source,
+  // so use its debounced health. Otherwise the per-server metrics fan-out
+  // carries host metrics, so derive from whether ANY attached server slice is
+  // connected — that server is delivering the server-global `event: metrics`.
+  const hostMetricsConnected = useMemo(() => {
+    if (hostMetricsWanted) return dedicatedMetricsConnected;
+    for (const slice of slicesByServer.values()) {
+      if (slice.isConnected) return true;
+    }
+    return false;
+  }, [hostMetricsWanted, dedicatedMetricsConnected, slicesByServer]);
+
   const metricsByServer = useMemo(() => {
     const m = new Map<string, MetricsSnapshot | null>();
     for (const [name, slice] of slicesByServer) m.set(name, slice.metrics);
@@ -641,6 +695,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       sessionsByServer,
       sessionOrderByServer,
       isConnectedByServer,
+      hostMetricsConnected,
       metricsByServer,
       previewsByServer,
       setPreviewScope,
@@ -657,6 +712,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       sessionsByServer,
       sessionOrderByServer,
       isConnectedByServer,
+      hostMetricsConnected,
       metricsByServer,
       previewsByServer,
       setPreviewScope,
@@ -748,6 +804,7 @@ export function StandaloneSessionContextProvider({
     sessionsByServer: value.sessionsByServer ?? new Map(),
     sessionOrderByServer: value.sessionOrderByServer ?? new Map(),
     isConnectedByServer: value.isConnectedByServer ?? new Map(),
+    hostMetricsConnected: value.hostMetricsConnected ?? false,
     metricsByServer: value.metricsByServer ?? new Map(),
     previewsByServer: value.previewsByServer ?? new Map(),
     setPreviewScope: value.setPreviewScope ?? (() => {}),

@@ -389,7 +389,11 @@ export function TopBar({
                 {mode === "board" ? (
                   <ClosePaneButton
                     onUnpin={onCloseFocused}
-                    disabled={closeDisabled}
+                    // Board mode has no terminal to close: without an `onUnpin`
+                    // handler the ✕ would fall through to `closePane("", "")`
+                    // (empty server/window). Disable it when the handler is
+                    // absent so the button can never trigger that no-op path.
+                    disabled={closeDisabled || !onCloseFocused}
                     label="Unpin pane from board"
                   />
                 ) : (

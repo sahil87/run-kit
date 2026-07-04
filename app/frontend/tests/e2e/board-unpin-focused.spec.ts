@@ -68,15 +68,19 @@ test.describe("Boards: top-bar ✕ unpins the focused pane (260704-9o7k)", () =>
     // — proving the mode-aware wiring. It is the focused-pane unpin affordance.
     const topbarUnpin = page.getByRole("button", { name: "Unpin pane from board" });
     await expect(topbarUnpin).toBeVisible({ timeout: 5_000 });
-    await topbarUnpin.click();
 
-    // Belt-and-suspenders (mirrors boards-pin-flow): regardless of headless
-    // event-handler timing, unpin via the API too so the test asserts the
-    // server-side contract end-to-end.
-    const unpinRes = await page.request.post(`/api/boards/${BOARD_NAME}/unpin`, {
-      data: { server: TMUX_SERVER, windowId: winId },
-    });
-    expect(unpinRes.ok()).toBeTruthy();
+    // Assert the UI click itself drives the unpin: wait for the click-triggered
+    // POST /api/boards/{name}/unpin. This makes the test a true end-to-end
+    // assertion of the top-bar ✕ — a broken click would time out here rather
+    // than being masked by a redundant API unpin.
+    const unpinReq = page.waitForRequest(
+      (req) =>
+        req.method() === "POST" &&
+        req.url().includes(`/api/boards/${BOARD_NAME}/unpin`),
+      { timeout: 5_000 },
+    );
+    await topbarUnpin.click();
+    await unpinReq;
 
     // Poll the listing until the board disappears (empty boards aren't kept).
     await expect

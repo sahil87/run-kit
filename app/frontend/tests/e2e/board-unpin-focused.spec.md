@@ -25,8 +25,10 @@ focuses on the data-flow contract the backend and the board top bar agree on.
 
 **What it proves:** With a window pinned via the HTTP API, `/board/<name>`
 renders the pane and the top-bar ✕ exposes the distinct `Unpin pane from board`
-label (mode-aware wiring); driving the unpin leaves the route heading toward its
-empty state, and the listing endpoint no longer lists the (now-empty) board.
+label (mode-aware wiring); clicking the ✕ itself drives the unpin (asserted via
+the click-triggered `POST /unpin` request — no redundant API unpin masks a
+broken click), leaving the route heading toward its empty state, and the listing
+endpoint no longer lists the (now-empty) board.
 
 **Steps:**
 
@@ -37,8 +39,9 @@ empty state, and the listing endpoint no longer lists the (now-empty) board.
    every WebSocket child).
 5. Assert `win-a` is visible (pane-header content).
 6. Assert the top-bar button named `Unpin pane from board` is visible (distinct
-   from the terminal `Close pane` label) and click it.
-7. Belt-and-suspenders: POST `/api/boards/<name>/unpin` so the server-side
-   contract is asserted regardless of headless event-handler timing.
+   from the terminal `Close pane` label).
+7. Arm a `waitForRequest` for the click-triggered `POST /api/boards/<name>/unpin`,
+   click the ✕, and await that request — a true end-to-end assertion that the UI
+   click (not a test-issued API call) performs the unpin.
 8. Poll `GET /api/boards` until the board disappears (empty boards are removed
    per spec — `Empty board cannot exist`).

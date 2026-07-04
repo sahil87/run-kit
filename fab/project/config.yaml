@@ -1,59 +1,34 @@
-# Full reference of all available options: fab config reference
+agent:
+    tiers:
+        default:
+            effort: xhigh
+            model: claude-fable-5
+            provider: claude
+        doing:
+            effort: xhigh
+            model: claude-opus-4-8
+            provider: claude
+        fast:
+            effort: low
+            model: claude-sonnet-5
+            provider: claude
+        operator:
+            effort: medium
+            model: claude-sonnet-5
+            provider: claude
+        review:
+            effort: xhigh
+            model: claude-fable-5
+            provider: claude
 checklist:
     extra_categories: []
-fab_version: 2.13.3
+fab_version: 2.13.5
 project:
     description: Web based agent orchestration framework
     name: run-kit
-# providers — named agent invocation grammars. Each provider MAY carry a
-# session_command (opens an interactive session: fab operator / fab batch /
-# fab agent) and/or a dispatch_command (runs one headless stage task via fab
-# dispatch, which pipes the stage prompt to the command's STDIN; ABSENT →
-# native Agent-tool dispatch). The two are NOT merged. {model}/{effort}
-# placeholders are substituted from the resolved tier profile; a plain Claude
-# command has --model/--effort appended instead. Provider names are opaque,
-# user-chosen strings. See: fab config reference.
-#
-# claude is the built-in default (session_command shown live). codex and gemini
-# are a commented starter TEMPLATE — uncomment and adapt to add that provider.
-# Anything whose uncommenting changes default behavior ships commented: claude's
-# dispatch_command (flips claude native→headless CLI dispatch) and the opt-in
-# codex/gemini blocks.
-#
-# Per-provider notes (kept out of the blocks below so uncommenting a whole block
-# yields valid YAML — strip the leading '# ' from every line of a block):
-#   claude.dispatch_command — claude -p reads the prompt from stdin; uncommenting
-#     runs claude's stages as headless CLI processes instead of native sub-agents.
-#   codex — codex exec reads the prompt from stdin. Substitute a current model ID
-#     for {model} (e.g. gpt-5.3-codex); {model}/{effort} come from the tier.
-#   gemini — no {effort} (the gemini CLI has no reasoning-effort flag) and no -p:
-#     gemini's -p takes prompt TEXT (appended after stdin), whereas fab dispatch
-#     pipes the prompt to stdin, which gemini reads as the prompt in non-TTY mode.
 providers:
     claude:
-        session_command: 'claude --dangerously-skip-permissions -n "$(basename "$(pwd)")" --model {model} --effort {effort}'
-        # dispatch_command: 'claude -p --dangerously-skip-permissions --model {model} --effort {effort}'
-    # codex:
-    #     session_command: 'codex -m {model} -c model_reasoning_effort={effort}'
-    #     dispatch_command: 'codex exec -m {model} -c model_reasoning_effort={effort}'
-    # gemini:
-    #     session_command: 'gemini -m {model}'
-    #     dispatch_command: 'gemini -m {model}'   # no {effort} flag; no -p (fab dispatch pipes the prompt to stdin)
-
-# agent.tiers — per-stage model override. A tier is a named {provider, model,
-# effort} profile (the invocation command lives on the provider, above). fab-kit
-# owns the FIXED stage→tier mapping (intake→default, apply/review-pr/hydrate→
-# doing, review→review, ship→fast; default also governs fab batch / fab agent,
-# and operator governs fab operator). Omit any tier (or the whole block) to use
-# fab-kit's built-in default; an omitted field inherits the `default` tier.
-# Provider is written explicitly on every line as documented style.
-agent:
-    tiers:
-        default:  { provider: claude, model: claude-fable-5,  effort: xhigh }
-        operator: { provider: claude, model: claude-sonnet-5, effort: medium }
-        doing:    { provider: claude, model: claude-opus-4-8, effort: xhigh }
-        review:   { provider: claude, model: claude-fable-5,  effort: xhigh }
-        fast:     { provider: claude, model: claude-sonnet-5, effort: low }
+        session_command: claude --dangerously-skip-permissions -n "$(basename "$(pwd)")" --model {model} --effort {effort}
 source_paths:
     - app/backend/
     - app/frontend/src/

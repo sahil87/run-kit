@@ -177,7 +177,7 @@ summary {
   color: var(--color-accent-green);
 }
 
-/* Caret blink shared by section labels AND the SectionHeading reserved caret. */
+/* Blink for the SectionHeading reserved caret (.rk-bracket-caret) on hover. */
 @keyframes rk-caret-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }

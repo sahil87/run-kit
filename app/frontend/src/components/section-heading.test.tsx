@@ -16,9 +16,22 @@ describe("SectionHeading", () => {
 
   it("keeps brackets, caret, and rule decorative (aria-hidden) — heading name is clean", () => {
     const { container } = render(<SectionHeading label="Host Health" />);
-    // `[` + reserved `▊` caret cell + `]` + trailing rule = 4 aria-hidden nodes.
-    const decorations = container.querySelectorAll("[aria-hidden='true']");
-    expect(decorations.length).toBe(4);
+    // The specific decorative elements — the `[`/`]` brackets, the reserved
+    // `▊` caret cell, and the trailing rule — must each be aria-hidden so the
+    // <h2> accessible name is the label only. (Asserting the specific elements
+    // rather than counting all aria-hidden nodes keeps this robust to future
+    // decorative additions elsewhere, e.g. inside TypedLabel.)
+    const decorative = [
+      ".rk-bracket-open",
+      ".rk-bracket-caret",
+      ".rk-bracket-close",
+      ".flex-1.border-t",
+    ];
+    for (const selector of decorative) {
+      const el = container.querySelector(selector);
+      expect(el, selector).not.toBeNull();
+      expect(el!.getAttribute("aria-hidden")).toBe("true");
+    }
     expect(
       screen.getByRole("heading", { level: 2, name: "Host Health" }),
     ).toBeInTheDocument();

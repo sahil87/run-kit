@@ -111,10 +111,13 @@ summary {
      CRT glint      = buttons (rk-glint)
    ALL treatments are disabled under prefers-reduced-motion: reduce (below). */
 
-/* CRT glint = buttons. A skewed highlight strip sweeps across the button face
-   on hover, one-shot. The button MUST clip it (overflow:hidden) — verified safe
-   because the font/bell popovers are SIBLINGS of their trigger buttons, not
-   children, so clipping the button never clips the popover. */
+/* CRT glint = buttons. A skewed accent-green highlight strip sweeps across the
+   button face on hover, one-shot, while the chip's border + glyph flip to
+   accent-green for the hover duration (the "green line" — chosen over a fill
+   or inverse cell so hover never reads as the armed/pressed state, which uses
+   a solid accent fill). The button MUST clip the strip (overflow:hidden) —
+   verified safe because the font/bell popovers are SIBLINGS of their trigger
+   buttons, not children, so clipping the button never clips the popover. */
 @keyframes rk-glint-sweep {
   0% { transform: translateX(-160%) skewX(-20deg); opacity: 0; }
   10% { opacity: 1; }
@@ -135,7 +138,7 @@ summary {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, var(--color-text-primary) 22%, transparent) 50%,
+    color-mix(in srgb, var(--color-accent-green) 45%, transparent) 50%,
     transparent 100%
   );
   transform: translateX(-160%) skewX(-20deg);
@@ -143,6 +146,14 @@ summary {
 }
 .rk-glint:hover::after {
   animation: rk-glint-sweep 450ms ease-out;
+}
+/* The green line: border + glyph turn accent-green while hovered. Unlayered,
+   so it wins over the chips' Tailwind hover utilities (hover:border-text-
+   secondary et al.) without touching every call site. :not(:disabled) keeps
+   disabled chips inert. */
+.rk-glint:hover:not(:disabled) {
+  border-color: var(--color-accent-green);
+  color: var(--color-accent-green);
 }
 
 /* Glitch = brand only. One-shot RGB-split via text-shadow, steps(2). The

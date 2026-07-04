@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 16
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-04T07:52:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-04T08:08:17Z"}
     hydrate: {started_at: "2026-07-04T08:08:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-04T08:14:04Z"}
     ship: {started_at: "2026-07-04T08:14:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-04T08:16:05Z"}
-    review-pr: {started_at: "2026-07-04T08:16:05Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-04T08:16:05Z", driver: git-pr, iterations: 1, completed_at: "2026-07-04T08:23:11Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/308
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Top-bar right-cluster regrouped into a 3-level button pyramid; connection dot now renders in all four modes (Cockpit=host-metrics health via new hostMetricsConnected, Board=AND over attached servers); RefreshButton promoted to always-block, FixedWidth button now terminal-only; board ✕ unpins the focused pane (+ Board: Unpin Focused Pane palette action)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-04T08:16:05Z
+last_updated: 2026-07-04T08:23:11Z

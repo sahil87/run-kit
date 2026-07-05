@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
-import { listServers, setPreviewScope as apiSetPreviewScope, type ServerInfo } from "@/api/client";
+import { listServers, compareServers, setPreviewScope as apiSetPreviewScope, type ServerInfo } from "@/api/client";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
@@ -254,7 +254,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const fetchServers = useCallback(async () => {
     try {
       const data = await listServers();
-      setServers(Array.isArray(data) ? data : []);
+      // Sort once at the single ingestion point so every consumer of ctx.servers
+      // inherits infra-last ordering. /api/servers stays alphabetical (asserted
+      // API contract); display order is a frontend concern.
+      setServers(Array.isArray(data) ? [...data].sort(compareServers) : []);
     } catch {
       // ignore
     } finally {

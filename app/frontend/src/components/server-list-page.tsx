@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { createServer, createSession, createWindow, getSessions } from "@/api/client";
+import { createServer, createSession, createWindow, getSessions, isInfraServer } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
@@ -278,7 +278,9 @@ export function ServerListPage() {
                 }
                 className="bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]"
               >
-                <div className="text-text-primary font-medium text-sm">
+                {/* De-emphasize infra servers (daemon + test sockets): grey the
+                    name only; tile stays fully clickable/attachable. */}
+                <div className={`${isInfraServer(name) ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>
                   {name}
                 </div>
                 <div className="text-text-secondary text-xs mt-1">

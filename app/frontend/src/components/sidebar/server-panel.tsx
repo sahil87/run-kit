@@ -5,7 +5,7 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { PaletteIcon } from "./icons";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
-import type { ServerInfo } from "@/api/client";
+import { isInfraServer, type ServerInfo } from "@/api/client";
 
 type ServerPanelProps = {
   server: string;
@@ -230,6 +230,10 @@ function ServerTile({
     : tint?.base;
   const uncoloredHoverClass = !tint && !isActive ? "hover:bg-bg-card/50" : "";
   const showActions = !isMobile && (onColorClick || onKill);
+  // De-emphasize infrastructure servers (daemon + test sockets): grey the name,
+  // not disabled. Hover/click/active-selection/kill stay unchanged so the tile
+  // remains fully attachable and never reads as dead/disconnected.
+  const nameClass = isInfraServer(name) ? "text-text-secondary" : "text-text-primary";
 
   const tileWrapperRef = useRef<HTMLDivElement>(null);
   const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
@@ -272,7 +276,7 @@ function ServerTile({
         <div className="h-1" style={{ backgroundColor: stripeBg }} />
         {/* Body */}
         <div className="px-1.5 pt-1 pb-1.5">
-          <div className="text-[11px] leading-tight font-medium text-text-primary whitespace-nowrap overflow-hidden text-ellipsis">
+          <div className={`text-[11px] leading-tight font-medium ${nameClass} whitespace-nowrap overflow-hidden text-ellipsis`}>
             {name}
           </div>
           <div className="text-[10px] leading-tight text-text-secondary mt-0.5">

@@ -12,7 +12,10 @@ import {
 import { ChromeProvider } from "./chrome-context";
 import type { MetricsSnapshot } from "@/types";
 
-vi.mock("@/api/client", () => ({
+// Keep the real module (so pure helpers like `compareServers` — exercised by
+// the infra-sort test below — run for real); only `listServers` is stubbed.
+vi.mock("@/api/client", async (importActual) => ({
+  ...(await importActual<typeof import("@/api/client")>()),
   listServers: vi.fn().mockResolvedValue([]),
 }));
 
@@ -202,7 +205,10 @@ describe("SessionProvider — multi-server EventSource pool", () => {
     const es = MockEventSource.forServer("runkit")!;
     const callsBefore = vi.mocked(listServers).mock.calls.length;
 
-    // Backend reaped the server — emit server-gone on its stream.
+    // Backend reaped the server — emit server-gone on its stream. The re-query
+    // now returns an empty list (the server is genuinely gone), so it does not
+    // get re-attached/re-seeded as the current server.
+    vi.mocked(listServers).mockResolvedValueOnce([]);
     await act(async () => {
       es.emit("server-gone", {});
       await Promise.resolve();
@@ -264,6 +270,27 @@ describe("SessionProvider — multi-server EventSource pool", () => {
     expect(MockEventSource.forServer("work")?.closed).toBe(true);
     expect(result.current.sessionsByServer.has("work")).toBe(false);
     expect(result.current.isConnectedByServer.has("work")).toBe(false);
+  });
+
+  it("sorts fetched servers infra-last (daemon + test sockets after regular)", async () => {
+    // Backend returns /api/servers byte-alphabetical; the frontend re-sorts at
+    // the single fetchServers ingestion point so every consumer sees infra last.
+    vi.mocked(listServers).mockResolvedValue([
+      { name: "alpha", sessionCount: 0 },
+      { name: "rk-daemon", sessionCount: 0 },
+      { name: "rk-test-e2e", sessionCount: 0 },
+      { name: "zeta", sessionCount: 0 },
+    ]);
+    setMockMatches([{ params: { server: "alpha" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.servers.map((s) => s.name)).toEqual([
+      "alpha",
+      "zeta",
+      "rk-daemon",
+      "rk-test-e2e",
+    ]);
   });
 });
 

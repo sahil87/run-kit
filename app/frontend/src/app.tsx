@@ -31,7 +31,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType, DAEMON_SERVER } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -1673,6 +1673,11 @@ function AppShell() {
           <p className="text-text-secondary mb-2.5">
             Kill server <strong>{killServerTarget}</strong> and all its sessions? This cannot be undone.
           </p>
+          {killServerTarget === DAEMON_SERVER && (
+            <p className="text-red-400 mb-2.5">
+              <strong>{DAEMON_SERVER}</strong> hosts the run-kit daemon serving this dashboard — killing it takes the dashboard down.
+            </p>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => setKillServerTarget(null)}

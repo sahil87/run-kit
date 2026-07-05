@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 6
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-05T15:20:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-05T15:26:39Z"}
     review: {started_at: "2026-07-05T15:26:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-05T15:34:58Z"}
     hydrate: {started_at: "2026-07-05T15:34:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-05T15:38:26Z"}
-    ship: {started_at: "2026-07-05T15:38:26Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-05T15:38:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-05T15:40:07Z"}
+    review-pr: {started_at: "2026-07-05T15:40:07Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/313
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 562
+    deleted: 8
+    net: 554
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 153
+        deleted: 2
+        net: 151
     tests:
-        added: 0
+        added: 70
         deleted: 0
-        net: 0
-    computed_at: "2026-07-05T15:38:26Z"
-    computed_at_stage: hydrate
+        net: 70
+    computed_at: "2026-07-05T15:40:07Z"
+    computed_at_stage: ship
 summary: Server-tile & sidebar session-reorder dragover now accept (preventDefault) on the self-target element, killing the native cancelled-drag snap-back ghost and reviving the drop-flush path
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-05T15:38:26Z
+last_updated: 2026-07-05T15:40:07Z

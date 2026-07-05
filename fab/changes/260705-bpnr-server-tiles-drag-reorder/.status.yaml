@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 23
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-05T11:18:14Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-05T11:30:41Z"}
     review: {started_at: "2026-07-05T11:30:41Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-05T11:43:38Z"}
     hydrate: {started_at: "2026-07-05T11:43:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-05T11:50:33Z"}
-    ship: {started_at: "2026-07-05T11:50:33Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-05T11:50:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-05T11:52:14Z"}
+    review-pr: {started_at: "2026-07-05T11:52:14Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/312
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2200
+    deleted: 35
+    net: 2165
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1737
+        deleted: 22
+        net: 1715
     tests:
-        added: 0
+        added: 906
         deleted: 0
-        net: 0
-    computed_at: "2026-07-05T11:50:33Z"
-    computed_at_stage: hydrate
+        net: 906
+    computed_at: "2026-07-05T11:52:14Z"
+    computed_at_stage: ship
 summary: 'Server-tile drag reorder: @rk_server_rank per-server tmux option, rank field + POST /api/servers/order + server-global SSE event:server-order, rank-aware comparator at the fetchServers choke point, shared use-server-reorder hook on both tile grids, palette Move up/down for server/session/window via lib/palette-move.ts'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-05T11:50:33Z
+last_updated: 2026-07-05T11:52:14Z

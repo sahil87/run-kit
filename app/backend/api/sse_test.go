@@ -473,6 +473,61 @@ func TestSSEHubMultiServerIsolation(t *testing.T) {
 	}
 }
 
+// TestBroadcastServerOrderFansOutToAllClients verifies the server-global
+// contract for `event: server-order`: a single broadcast reaches EVERY
+// connected client regardless of server key — including the metrics-only
+// (`?metrics=1`) client that has no attached tmux server — and the payload is
+// cached and replayed to a client that connects AFTER the broadcast.
+func TestBroadcastServerOrderFansOutToAllClients(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf, nil, nil, nil)
+
+	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
+	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	moClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(rkClient)
+	hub.addClient(dfClient)
+	hub.addClient(moClient)
+	defer hub.removeClient(rkClient)
+	defer hub.removeClient(dfClient)
+	defer hub.removeClient(moClient)
+
+	hub.broadcastServerOrder([]string{"a", "b"})
+
+	// Every connected client — including the metrics-only stream — must have
+	// received the server-order frame with the exact payload.
+	for name, c := range map[string]*sseClient{"runkit": rkClient, "default": dfClient, "metrics-only": moClient} {
+		var events []string
+		for len(c.ch) > 0 {
+			events = append(events, string(<-c.ch))
+		}
+		got := filterSSEEvents(events, "server-order")
+		if len(got) == 0 {
+			t.Fatalf("%s client received no server-order event (all: %v)", name, events)
+		}
+		if !strings.Contains(got[0], `{"order":["a","b"]}`) {
+			t.Errorf("%s client server-order payload = %q, want order [a,b]", name, got[0])
+		}
+	}
+
+	// A client that connects AFTER the broadcast must receive the cached
+	// snapshot on connect (server-global cache, not per-server).
+	lateClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(lateClient)
+	defer hub.removeClient(lateClient)
+	var lateEvents []string
+	for len(lateClient.ch) > 0 {
+		lateEvents = append(lateEvents, string(<-lateClient.ch))
+	}
+	replay := filterSSEEvents(lateEvents, "server-order")
+	if len(replay) == 0 {
+		t.Fatalf("late client did not receive cached server-order snapshot (all: %v)", lateEvents)
+	}
+	if !strings.Contains(replay[0], `{"order":["a","b"]}`) {
+		t.Errorf("late client cached snapshot = %q, want order [a,b]", replay[0])
+	}
+}
+
 // filterSSEEvents returns only the SSE frames whose first line is `event: <name>`.
 func filterSSEEvents(events []string, name string) []string {
 	var out []string

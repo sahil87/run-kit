@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { ServerPanel } from "./server-panel";
 import { ThemeProvider } from "@/contexts/theme-context";
+import { ToastProvider } from "@/components/toast";
 import type { ServerInfo } from "@/api/client";
 
 // jsdom does not implement matchMedia — ThemeProvider + useIsMobileLayout both need it.
@@ -43,7 +44,9 @@ function renderPanel(overrides: {
   };
   return render(
     <ThemeProvider>
-      <ServerPanel {...props} />
+      <ToastProvider>
+        <ServerPanel {...props} />
+      </ToastProvider>
     </ThemeProvider>,
   );
 }

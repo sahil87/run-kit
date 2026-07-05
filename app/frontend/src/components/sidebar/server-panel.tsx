@@ -6,6 +6,8 @@ import { SwatchPopover } from "@/components/swatch-popover";
 import { PaletteIcon } from "./icons";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
 import { isInfraServer, type ServerInfo } from "@/api/client";
+import { useServerReorder, type ServerTileDragProps } from "@/hooks/use-server-reorder";
+import { useToast } from "@/components/toast";
 
 type ServerPanelProps = {
   server: string;
@@ -65,6 +67,11 @@ export function ServerPanel({
   const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
   const isMobile = useIsMobileLayout();
   const activeTileRef = useRef<HTMLButtonElement>(null);
+  const { addToast } = useToast();
+  // Drag-reorder for regular server tiles (shared with the Cockpit grid).
+  // `servers` is already effective-sorted upstream; the hook returns the
+  // transient optimistic order to render while a drag is in progress.
+  const { orderedServers, getTileProps, isDragging, draggingName } = useServerReorder(servers, addToast);
 
   const handleToggle = useCallback(
     (isOpen: boolean) => {
@@ -135,7 +142,7 @@ export function ServerPanel({
           role="listbox"
           aria-label="Tmux servers"
         >
-          {servers.map(({ name, sessionCount }) => {
+          {orderedServers.map(({ name, sessionCount }) => {
             const color = serverColors[name];
             const tint = color != null && rowTints ? rowTints.get(color) ?? null : null;
             const uncoloredSelectedTint = rowTints?.get(UNCOLORED_SELECTED_KEY) ?? null;
@@ -160,6 +167,8 @@ export function ServerPanel({
                 stripeBg={stripeBg}
                 isActive={isActive}
                 isMobile={isMobile}
+                dragProps={getTileProps(name)}
+                isDragSource={isDragging && draggingName === name}
                 tileRef={isActive ? activeTileRef : undefined}
                 onClick={() => onSwitchServer(name)}
                 onKill={() => onKillServer(name)}
@@ -198,6 +207,12 @@ type ServerTileProps = {
   stripeBg: string;
   isActive: boolean;
   isMobile: boolean;
+  /** HTML5 drag-reorder props (from useServerReorder). Infra tiles receive
+   *  `{ draggable: false }` with no handlers. */
+  dragProps: ServerTileDragProps;
+  /** True while THIS tile is the active drag source — dims it (`opacity-50`)
+   *  as drag-source feedback, matching the session-reorder treatment. */
+  isDragSource: boolean;
   tileRef?: React.Ref<HTMLButtonElement>;
   onClick: () => void;
   onKill?: () => void;
@@ -214,6 +229,8 @@ function ServerTile({
   stripeBg,
   isActive,
   isMobile,
+  dragProps,
+  isDragSource,
   tileRef,
   onClick,
   onKill,
@@ -259,8 +276,13 @@ function ServerTile({
   return (
     <div
       ref={tileWrapperRef}
-      className="relative group focus-within:z-10"
+      className={`relative group focus-within:z-10${isDragSource ? " opacity-50" : ""}`}
       style={{ scrollSnapAlign: isMobile ? "start" : undefined }}
+      draggable={dragProps.draggable}
+      onDragStart={dragProps.onDragStart}
+      onDragOver={dragProps.onDragOver}
+      onDragEnd={dragProps.onDragEnd}
+      onDrop={dragProps.onDrop}
     >
       <button
         ref={tileRef}

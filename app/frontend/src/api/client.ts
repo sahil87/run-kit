@@ -402,6 +402,9 @@ export async function setSessionColor(
 export type ServerInfo = {
   name: string;
   sessionCount: number;
+  /** User-defined display rank (@rk_server_rank). null/undefined when unset —
+   *  unranked servers sort after ranked ones within the regular class. */
+  rank?: number | null;
 };
 
 /** The tmux server socket hosting the run-kit daemon itself (infrastructure,
@@ -429,6 +432,34 @@ export function compareServers(a: ServerInfo, b: ServerInfo): number {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
+/** Rank-aware sort comparator. Effective key: (infra-class, rank, name).
+ *
+ *  Infra servers (`isInfraServer`) stay pinned last as a class and IGNORE rank
+ *  entirely (their intra-class order is byte-alphabetical, unchanged). Within
+ *  the regular class: ranked servers sort by rank ascending; a ranked server
+ *  sorts before any unranked one; two unranked servers fall back to byte-order
+ *  name. This wraps `compareServers` so the infra-last + byte-order semantics
+ *  (and their tests) are preserved verbatim — rank is a secondary key inserted
+ *  only inside the regular class. An all-regular-unranked list is byte-
+ *  alphabetical, identical to `compareServers`. */
+export function compareServersRanked(a: ServerInfo, b: ServerInfo): number {
+  const ai = isInfraServer(a.name);
+  const bi = isInfraServer(b.name);
+  // Cross-class or both-infra: defer entirely to compareServers (infra ignore
+  // rank; the class pin and byte-order intra-infra ordering are unchanged).
+  if (ai !== bi || (ai && bi)) return compareServers(a, b);
+  // Both regular: rank is the primary key.
+  const ar = a.rank ?? null;
+  const br = b.rank ?? null;
+  if (ar !== br) {
+    if (ar === null) return 1; // unranked sorts after ranked
+    if (br === null) return -1;
+    return ar - br;
+  }
+  // Same rank (both null, or an unlikely duplicate rank): byte-order name.
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
 export async function listServers(): Promise<ServerInfo[]> {
   const res = await deduplicatedFetch("/api/servers");
   if (!res.ok) await throwOnError(res);
@@ -453,6 +484,19 @@ export async function killServer(name: string): Promise<{ ok: boolean }> {
   });
   if (!res.ok) await throwOnError(res);
   return res.json();
+}
+
+/** Persist the user-defined server display order. The backend writes rank i to
+ *  the i-th listed server and broadcasts a server-global `event: server-order`.
+ *  Server-independent (like listServers/createServer/killServer) — the order
+ *  spans the whole /api/servers list, not one server. */
+export async function setServerOrder(order: string[]): Promise<void> {
+  const res = await fetch("/api/servers/order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ order }),
+  });
+  if (!res.ok) await throwOnError(res);
 }
 
 export interface Keybinding {

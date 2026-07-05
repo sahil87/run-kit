@@ -1117,6 +1117,85 @@ func TestGetSessionOrder_invalidJSONReturnsSyntaxError(t *testing.T) {
 	}
 }
 
+func TestGetServerRank_unsetReturnsNil(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := GetServerRank(ctx, server)
+	if err != nil {
+		t.Fatalf("GetServerRank unset: %v", err)
+	}
+	if got != nil {
+		t.Errorf("got %v, want nil (unset)", *got)
+	}
+}
+
+func TestGetServerRank_noServerReturnsNil(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	// A socket name with no running server: the read must degrade to nil, not
+	// bubble a "no server running" / "failed to connect" error.
+	server := testSocketName("unit")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := GetServerRank(ctx, server)
+	if err != nil {
+		t.Fatalf("GetServerRank on dead server: %v", err)
+	}
+	if got != nil {
+		t.Errorf("got %v, want nil (no server)", *got)
+	}
+}
+
+func TestSetServerRank_roundTrip(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := SetServerRank(ctx, server, 3); err != nil {
+		t.Fatalf("SetServerRank: %v", err)
+	}
+	got, err := GetServerRank(ctx, server)
+	if err != nil {
+		t.Fatalf("GetServerRank: %v", err)
+	}
+	if got == nil || *got != 3 {
+		t.Fatalf("got %v, want 3", got)
+	}
+
+	// Overwrite replaces (0 is a valid rank — the first server).
+	if err := SetServerRank(ctx, server, 0); err != nil {
+		t.Fatalf("SetServerRank overwrite: %v", err)
+	}
+	got, err = GetServerRank(ctx, server)
+	if err != nil {
+		t.Fatalf("GetServerRank after overwrite: %v", err)
+	}
+	if got == nil || *got != 0 {
+		t.Fatalf("got %v, want 0 after overwrite", got)
+	}
+}
+
+func TestGetServerRank_malformedValueReturnsError(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Plant a non-integer value via raw set-option (bypasses SetServerRank).
+	args := append(serverArgs(server), "set-option", "-s", ServerRankOption, "not-an-int")
+	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
+		t.Fatalf("plant malformed rank: %v\n%s", err, string(out))
+	}
+
+	_, err := GetServerRank(ctx, server)
+	if err == nil {
+		t.Fatal("expected decode error for malformed rank, got nil")
+	}
+}
+
 // withRealSessionTmux starts an isolated tmux server with a "real" session
 // containing two windows. Skips the test if tmux is unavailable. Returns
 // (server, realSession).

@@ -22,6 +22,12 @@ import (
 // JSON-encoded sidebar session order.
 const SessionOrderOption = "@rk_session_order"
 
+// ServerRankOption is the tmux server-scoped user option that stores this
+// server's user-defined display rank (an integer, ascending) among the other
+// tmux servers. Order data rides each server so a killed server takes only its
+// own rank — no cross-server merge rule is needed. Mirrors SessionOrderOption.
+const ServerRankOption = "@rk_server_rank"
+
 // OriginalTMUX captures the TMUX env var before init() strips it.
 // Package-level var init runs before init(), so this sees the original value.
 // Used by cmd/rk/context.go to restore TMUX in child process environments
@@ -1666,5 +1672,57 @@ func SetSessionOrder(ctx context.Context, server string, order []string) error {
 	defer cancel()
 
 	_, err = tmuxExecRawServer(ctx, server, "set-option", "-s", SessionOrderOption, string(encoded))
+	return err
+}
+
+// GetServerRank reads this server's user-defined display rank from the
+// server-scoped user option @rk_server_rank.
+//
+// Returns (nil, nil) when the option is unset. "Unset" is detected by tmux's
+// stderr ("invalid option"/"unknown option") OR by the "no server running" /
+// "failed to connect" socket-not-found cases — all normal operational states
+// (fresh server, no rank ever set) that must NOT bubble as errors, exactly
+// mirroring GetSessionOrder's taxonomy.
+//
+// Other subprocess failures AND a malformed (non-integer) stored value
+// propagate as wrapped errors so callers can distinguish real failure.
+func GetServerRank(ctx context.Context, server string) (*int, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", ServerRankOption)
+	if err != nil {
+		errMsg := err.Error()
+		// Unset user-option ("invalid/unknown option") OR a dead/absent server
+		// socket (IsServerGone: "no server running" / "failed to connect" /
+		// "No such file or directory") are all normal first-use states, not
+		// errors. IsServerGone is the shared dead-server sentinel (Constitution
+		// III), covering the socket-file-missing case that a bare
+		// "failed to connect" substring check would miss.
+		if strings.Contains(errMsg, "invalid option") ||
+			strings.Contains(errMsg, "unknown option") ||
+			IsServerGone(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", ServerRankOption, err)
+	}
+	raw := strings.TrimSpace(out)
+	if raw == "" {
+		return nil, nil
+	}
+	rank, cerr := strconv.Atoi(raw)
+	if cerr != nil {
+		return nil, fmt.Errorf("decode %s: %w", ServerRankOption, cerr)
+	}
+	return &rank, nil
+}
+
+// SetServerRank writes this server's display rank to the server-scoped user
+// option @rk_server_rank as a decimal integer string. Mirrors SetSessionOrder.
+func SetServerRank(ctx context.Context, server string, rank int) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", ServerRankOption, strconv.Itoa(rank))
 	return err
 }

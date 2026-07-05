@@ -163,6 +163,30 @@ describe("SessionProvider — multi-server EventSource pool", () => {
     expect(result.current.sessionOrderByServer.get("work") ?? []).toEqual([]);
   });
 
+  it("re-sorts ctx.servers on a server-order event without a listServers refetch", async () => {
+    vi.mocked(listServers).mockResolvedValue([
+      { name: "runkit", sessionCount: 0 },
+      { name: "work", sessionCount: 0 },
+    ]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // Initial (unranked) order is byte-alphabetical.
+    expect(result.current.servers.map((s) => s.name)).toEqual(["runkit", "work"]);
+    const callsBefore = vi.mocked(listServers).mock.calls.length;
+
+    // A server-global server-order event puts "work" first (rank 0), "runkit"
+    // second (rank 1). Rides the current server's stream.
+    act(() => {
+      MockEventSource.forServer("runkit")!.emit("server-order", { order: ["work", "runkit"] });
+    });
+
+    expect(result.current.servers.map((s) => s.name)).toEqual(["work", "runkit"]);
+    // Pure state re-sort — no /api/servers refetch was triggered.
+    expect(vi.mocked(listServers).mock.calls.length).toBe(callsBefore);
+  });
+
   it("ignores session-order events whose server field doesn't match the stream", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);

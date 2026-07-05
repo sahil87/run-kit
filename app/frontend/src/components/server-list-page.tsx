@@ -7,6 +7,7 @@ import { useToast } from "@/components/toast";
 import { useHostMetrics, useHostServices, useSessionContext } from "@/contexts/session-context";
 import { HostMetrics } from "@/components/host-metrics";
 import { useBoards } from "@/hooks/use-boards";
+import { useServerReorder } from "@/hooks/use-server-reorder";
 import { TopBar } from "@/components/top-bar";
 import { SectionHeading } from "@/components/section-heading";
 
@@ -42,6 +43,9 @@ export function ServerListPage() {
   const ghostNameRef = useRef<string | null>(null);
   // Guards against a double-click firing two create flows for the same port.
   const openingRef = useRef(false);
+  // Drag-reorder for the TMUX SERVERS tile grid (shared with the sidebar
+  // ServerPanel via the same hook). `servers` is already effective-sorted.
+  const { orderedServers, getTileProps, isDragging, draggingName } = useServerReorder(servers, addToast);
 
   // Reconcile ghost tiles against SessionContext's list: drop any ghost whose
   // real server has appeared. Computed at render time (no effect/local fetch).
@@ -270,13 +274,21 @@ export function ServerListPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {servers.map(({ name, sessionCount }) => (
+            {orderedServers.map(({ name, sessionCount }) => {
+              const drag = getTileProps(name);
+              const isDragSource = isDragging && draggingName === name;
+              return (
               <button
                 key={name}
+                draggable={drag.draggable}
+                onDragStart={drag.onDragStart}
+                onDragOver={drag.onDragOver}
+                onDragEnd={drag.onDragEnd}
+                onDrop={drag.onDrop}
                 onClick={() =>
                   navigate({ to: "/$server", params: { server: name } })
                 }
-                className="bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]"
+                className={`bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]${isDragSource ? " opacity-50" : ""}`}
               >
                 {/* De-emphasize infra servers (daemon + test sockets): grey the
                     name only; tile stays fully clickable/attachable. */}
@@ -287,7 +299,8 @@ export function ServerListPage() {
                   {sessionCount} sess
                 </div>
               </button>
-            ))}
+              );
+            })}
 
             {/* Ghost server cards */}
             {visibleGhosts.map((name) => (

@@ -68,15 +68,15 @@ test.describe("Server reorder — order endpoint + server-global SSE", () => {
           es.close();
           resolve(e.data as string);
         });
-        // Give the stream a moment to open, then trigger the POST from the page
-        // context so it shares the origin.
-        setTimeout(() => {
+        // Trigger the POST once the stream is actually open (deterministic — no
+        // fixed delay). The POST runs from the page context so it shares origin.
+        es.onopen = () => {
           void fetch("/api/servers/order", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ order: [server] }),
           });
-        }, 500);
+        };
       });
     }, TMUX_SERVER);
 

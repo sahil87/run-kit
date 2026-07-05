@@ -23,8 +23,10 @@ export function deriveEffectiveSessionOrder(
   liveNames: string[],
   sseOrder: string[],
 ): string[] {
-  const ordered = sseOrder.filter((n) => liveNames.includes(n));
-  const appended = liveNames.filter((n) => !ordered.includes(n));
+  const liveSet = new Set(liveNames);
+  const ordered = sseOrder.filter((n) => liveSet.has(n));
+  const orderedSet = new Set(ordered);
+  const appended = liveNames.filter((n) => !orderedSet.has(n));
   return [...ordered, ...appended];
 }
 

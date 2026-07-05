@@ -128,11 +128,17 @@ func (s *Server) handleServerOrderPost(w http.ResponseWriter, r *http.Request) {
 	if body.Order == nil {
 		body.Order = []string{}
 	}
+	seen := make(map[string]struct{}, len(body.Order))
 	for _, name := range body.Order {
 		if errMsg := validate.ValidateServerName(name); errMsg != "" {
 			writeError(w, http.StatusBadRequest, errMsg)
 			return
 		}
+		if _, dup := seen[name]; dup {
+			writeError(w, http.StatusBadRequest, "Duplicate server name in order: "+name)
+			return
+		}
+		seen[name] = struct{}{}
 	}
 
 	// Write rank i to the i-th listed server, best-effort. A per-server failure

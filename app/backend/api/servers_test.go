@@ -303,6 +303,25 @@ func TestHandleServerOrderPost_InvalidNameRejected(t *testing.T) {
 	}
 }
 
+func TestHandleServerOrderPost_DuplicateNameRejected(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	// A duplicated name would assign multiple ranks (last wins) — reject up front.
+	body := `{"order":["srv-a","srv-b","srv-a"]}`
+	req := httptest.NewRequest("POST", "/api/servers/order", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400 for duplicate server name", rec.Code)
+	}
+	if len(mock.setServerRankCalls) != 0 {
+		t.Errorf("SetServerRank was called %d times, want 0 (validation before any write)", len(mock.setServerRankCalls))
+	}
+}
+
 func TestHandleServerOrderPost_MalformedBodyRejected(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mock := &serversTmuxMock{}

@@ -65,7 +65,7 @@ with zero attached servers still hears order changes.
 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
 2. In the page context, open an `EventSource` on `/api/sessions/stream?metrics=1`
    and register a `server-order` listener that resolves with the frame data.
-3. Shortly after, `fetch('POST /api/servers/order', {order: [TMUX_SERVER]})`
-   from the page origin.
+3. On the EventSource's `onopen` (stream actually open — no fixed delay),
+   `fetch('POST /api/servers/order', {order: [TMUX_SERVER]})` from the page origin.
 4. Await the resolved frame; parse it and assert `order` contains
    `TMUX_SERVER`. (Rejects if no frame arrives within the timeout.)

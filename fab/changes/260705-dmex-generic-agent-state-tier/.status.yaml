@@ -1,0 +1,35 @@
+id: dmex
+name: 260705-dmex-generic-agent-state-tier
+created: 2026-07-05T22:58:09Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 3
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 3.6
+    fuzzy: true
+    dimensions:
+        signal: 66.4
+        reversibility: 77.7
+        competence: 77.3
+        disambiguation: 71.8
+stage_metrics:
+    intake: {started_at: "2026-07-05T22:58:09Z", driver: fab-new, iterations: 1}
+prs: []
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-05T23:00:56Z

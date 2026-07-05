@@ -29,6 +29,9 @@ Justfile recipes MUST be one-liners that delegate to `scripts/`. Logic, loops, a
 ### IX. Uniform HTTP Verb
 All mutating API endpoints MUST use `POST`. `PUT`, `PATCH`, and `DELETE` SHALL NOT be used — read operations are `GET`, everything else is `POST`. Fewer verb shapes means fewer ways for a client call to be wrong, and the operation's intent belongs in the URL path and request body, not the HTTP method. The CORS `AllowedMethods` allowlist MUST be `[GET, POST, OPTIONS]`. Endpoint semantics that would conventionally map to other verbs (e.g. partial updates) are expressed via the path and a documented body contract (e.g. partial-merge: present keys set, `null` unsets).
 
+### X. Hooks Carry Only the Underivable
+Agent-harness hooks (lifecycle telemetry pushed by hook commands into tmux or the filesystem) SHALL carry only state that cannot be derived from tmux, the filesystem, or git at request time — ephemeral in-flight facts such as busy/waiting lifecycle and the pending question text, which exist nowhere on disk. Anything derivable from a pane's cwd, git, `gh`, or fab artifacts (PR links, branches, worktrees, change identity, diff stats) MUST be derived server-side per Principle II — never pushed by an agent. When a fact is available both ways, derivation wins.
+
 ## Additional Constraints
 
 ### Test Integrity
@@ -45,4 +48,4 @@ The restart mechanism uses tmux-based kill-and-restart: `run-kit serve --restart
 
 ## Governance
 
-**Version**: 1.3.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-07-02
+**Version**: 1.4.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-07-05

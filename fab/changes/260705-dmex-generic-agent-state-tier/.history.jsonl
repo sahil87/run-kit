@@ -1,0 +1,4 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-05T22:58:09Z"}
+{"args":"Generic agent-state tier: rk agent-setup installs global agent-harness hooks that write the @rk_agent_state tmux pane-option convention (active|waiting|idle:epoch); run-kit reads it natively via paneFormat and derives PR links from pane branch instead of consuming fab agent_state/pr_url — per the two-tier ownership split (constitution Principle X)","cmd":"fab-new","event":"command","ts":"2026-07-05T22:58:09Z"}
+{"delta":"+3.6","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-07-05T22:59:46Z"}
+{"delta":"+0.0","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-07-05T23:00:46Z"}

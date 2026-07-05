@@ -20,3 +20,4 @@
 - [ ] [hmd0] 2026-07-03: Add a help icon on the top bar (next to the theme icon) pointing to https://shll.ai/run-kit
 - [ ] [bpnr] 2026-07-05: Allow reorganizing (dragging/rearranging) servers in the server tiles. This should impact the server tree below in the SESSIONS panel also. Ideally save the order for tiles using tmux server vars
 - [ ] [8thb] 2026-07-05: Evaluate / discuss / and execute - conversion of the run-kit app into an SPA. right now its an MPA. I can see the navbar reload via flicker duing page chnages. My hope is after becoming an SPA, Navbar becomes a common component, and page changes just re-render it, removing the flicker.
+- [ ] [nhuy] 2026-07-05: Allow the command run-kit also to work - maybe make rk an alias of run-kit

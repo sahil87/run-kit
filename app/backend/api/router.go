@@ -57,6 +57,8 @@ type TmuxOps interface {
 	CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error
 	GetSessionOrder(ctx context.Context, server string) ([]string, error)
 	SetSessionOrder(ctx context.Context, server string, order []string) error
+	GetServerRank(ctx context.Context, server string) (*int, error)
+	SetServerRank(ctx context.Context, server string, rank int) error
 	ListBoards(ctx context.Context) ([]tmux.BoardSummary, error)
 	GetBoard(ctx context.Context, name string) ([]tmux.BoardEntry, error)
 	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
@@ -208,6 +210,12 @@ func (p *prodTmuxOps) GetSessionOrder(ctx context.Context, server string) ([]str
 }
 func (p *prodTmuxOps) SetSessionOrder(ctx context.Context, server string, order []string) error {
 	return tmux.SetSessionOrder(ctx, server, order)
+}
+func (p *prodTmuxOps) GetServerRank(ctx context.Context, server string) (*int, error) {
+	return tmux.GetServerRank(ctx, server)
+}
+func (p *prodTmuxOps) SetServerRank(ctx context.Context, server string, rank int) error {
+	return tmux.SetServerRank(ctx, server, rank)
 }
 func (p *prodTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	return tmux.ListBoards(ctx)
@@ -381,6 +389,7 @@ func (s *Server) buildRouter() chi.Router {
 	// Server management routes
 	r.Get("/api/servers", s.handleServersList)
 	r.Post("/api/servers", s.handleServerCreate)
+	r.Post("/api/servers/order", s.handleServerOrderPost)
 	r.Post("/api/servers/kill", s.handleServerKill)
 
 	// Keybindings

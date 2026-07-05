@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"rk/internal/tmux"
@@ -190,6 +191,129 @@ func TestHandleServersList_ReturnsAllServersIncludingTestSockets(t *testing.T) {
 		if gotNames[i] != name {
 			t.Errorf("got[%d] = %q, want %q (full: %v)", i, gotNames[i], name, gotNames)
 		}
+	}
+}
+
+func intPtr(n int) *int { return &n }
+
+func TestHandleServersList_IncludesRankField(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers: []string{"work", "default"},
+		sessions: map[string][]tmux.SessionInfo{
+			"work":    {{Name: "s1"}},
+			"default": {{Name: "s1"}},
+		},
+	}
+	// "default" is ranked 0; "work" has no rank (nil).
+	mock.getServerRankByServer = map[string]*int{"default": intPtr(0)}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// Array stays alphabetical (asserted contract): default, work.
+	if len(got) != 2 || got[0].Name != "default" || got[1].Name != "work" {
+		t.Fatalf("got %+v, want [default, work] alphabetical", got)
+	}
+	if got[0].Rank == nil || *got[0].Rank != 0 {
+		t.Errorf("default rank = %v, want 0", got[0].Rank)
+	}
+	if got[1].Rank != nil {
+		t.Errorf("work rank = %v, want nil (unranked)", got[1].Rank)
+	}
+}
+
+func TestHandleServersList_RankReadErrorYieldsNullRank(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers:  []string{"broken"},
+		sessions: map[string][]tmux.SessionInfo{"broken": {{Name: "s1"}}},
+	}
+	mock.getServerRankErrByServer = map[string]error{"broken": errors.New("boom")}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200 (rank read failure must not surface as 5xx)", rec.Code)
+	}
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0].Rank != nil {
+		t.Fatalf("got %+v, want rank nil on read error", got)
+	}
+}
+
+func TestHandleServerOrderPost_WritesRanksInOrder(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	body := `{"order":["a","b","c"]}`
+	req := httptest.NewRequest("POST", "/api/servers/order", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+	if len(mock.setServerRankCalls) != 3 {
+		t.Fatalf("SetServerRank called %d times, want 3: %+v", len(mock.setServerRankCalls), mock.setServerRankCalls)
+	}
+	want := []struct {
+		Server string
+		Rank   int
+	}{{"a", 0}, {"b", 1}, {"c", 2}}
+	for i, c := range mock.setServerRankCalls {
+		if c != want[i] {
+			t.Errorf("call[%d] = %+v, want %+v", i, c, want[i])
+		}
+	}
+}
+
+func TestHandleServerOrderPost_InvalidNameRejected(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	// A name with a forbidden character fails ValidateServerName.
+	body := `{"order":["ok","bad name!"]}`
+	req := httptest.NewRequest("POST", "/api/servers/order", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400 for invalid server name", rec.Code)
+	}
+	if len(mock.setServerRankCalls) != 0 {
+		t.Errorf("SetServerRank was called %d times, want 0 (validation before any write)", len(mock.setServerRankCalls))
+	}
+}
+
+func TestHandleServerOrderPost_MalformedBodyRejected(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("POST", "/api/servers/order", strings.NewReader(`{"order": "not-an-array"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400 for malformed body", rec.Code)
 	}
 }
 

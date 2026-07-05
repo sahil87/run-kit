@@ -25,6 +25,7 @@ import {
   DAEMON_SERVER,
   isInfraServer,
   compareServers,
+  compareServersRanked,
 } from "./client";
 import type { ServerInfo } from "./client";
 
@@ -597,5 +598,53 @@ describe("infra-server identification", () => {
       .sort(compareServers)
       .map((s) => s.name);
     expect(sorted).toEqual(["alpha", "zeta", "rk-daemon", "rk-test-e2e"]);
+  });
+});
+
+describe("rank-aware server ordering (compareServersRanked)", () => {
+  const sr = (name: string, rank?: number | null): ServerInfo => ({
+    name,
+    sessionCount: 0,
+    rank: rank ?? null,
+  });
+
+  it("sorts regular servers by rank ascending", () => {
+    const sorted = [sr("b", 1), sr("a", 0), sr("c", 2)]
+      .sort(compareServersRanked)
+      .map((s) => s.name);
+    expect(sorted).toEqual(["a", "b", "c"]);
+  });
+
+  it("sorts unranked regular servers after ranked ones (byte-alphabetical among themselves)", () => {
+    const sorted = [sr("zebra"), sr("alpha"), sr("mid", 0)]
+      .sort(compareServersRanked)
+      .map((s) => s.name);
+    // "mid" (rank 0) leads; the two unranked follow in byte order.
+    expect(sorted).toEqual(["mid", "alpha", "zebra"]);
+  });
+
+  it("mixes ranked and unranked correctly", () => {
+    // b:1, a:null, a2:0, rk-daemon:null(infra) → a2, b, a, rk-daemon
+    const sorted = [sr("b", 1), sr("a"), sr("a2", 0), sr("rk-daemon")]
+      .sort(compareServersRanked)
+      .map((s) => s.name);
+    expect(sorted).toEqual(["a2", "b", "a", "rk-daemon"]);
+  });
+
+  it("keeps infra servers pinned last and ignores their rank", () => {
+    // Even if an infra server somehow carries a low rank, it stays in the
+    // infra class (last), and intra-infra order is byte-alphabetical.
+    const sorted = [sr("rk-test-b", 0), sr("work", 5), sr("rk-daemon", 1)]
+      .sort(compareServersRanked)
+      .map((s) => s.name);
+    expect(sorted).toEqual(["work", "rk-daemon", "rk-test-b"]);
+  });
+
+  it("keeps an all-regular-unranked list byte-alphabetical (unchanged from compareServers)", () => {
+    const input = [sr("charlie"), sr("alpha"), sr("bravo")];
+    const ranked = [...input].sort(compareServersRanked).map((s) => s.name);
+    const plain = [...input].sort(compareServers).map((s) => s.name);
+    expect(ranked).toEqual(["alpha", "bravo", "charlie"]);
+    expect(ranked).toEqual(plain);
   });
 });

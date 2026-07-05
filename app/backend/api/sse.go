@@ -208,6 +208,12 @@ type sseHub struct {
 	cachedMetricsJSON      string // latest metrics JSON for new clients
 	services               *ports.Collector
 	cachedServicesJSON     string // latest listening-services JSON for new clients
+	// cachedServerOrderJSON is the latest server-global `event: server-order`
+	// payload. Unlike previousOrderJSON (per-server @rk_session_order), server
+	// rank order is a HOST-global concern, so it is a single slot fanned to
+	// EVERY client (incl. the `?metrics=1` metrics-only stream) and replayed on
+	// connect — mirroring cachedMetricsJSON / cachedServicesJSON.
+	cachedServerOrderJSON string
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
 	// poll path joins onto change-bound windows. nil degrades gracefully (no
 	// PR fields attached) — used by tests and when no collector is wired.
@@ -350,6 +356,17 @@ func (h *sseHub) addClient(c *sseClient) {
 		}
 	}
 
+	// Send cached server-order snapshot immediately (server-global), so a
+	// late-joining client — including the zero-attached-server Cockpit
+	// `?metrics=1` stream — gets the current server rank order without a fetch
+	// race.
+	if h.cachedServerOrderJSON != "" {
+		select {
+		case c.ch <- []byte(fmt.Sprintf("event: server-order\ndata: %s\n\n", h.cachedServerOrderJSON)):
+		default:
+		}
+	}
+
 	if !h.polling {
 		h.polling = true
 		go h.poll()
@@ -409,6 +426,48 @@ func (h *sseHub) broadcastSessionOrder(server string, order []string) {
 			if !c.dropped {
 				slog.Warn("SSE event dropped", "server", server, "event", "session-order")
 				c.dropped = true
+			}
+		}
+	}
+}
+
+// broadcastServerOrder pushes a server-global `event: server-order` to EVERY
+// connected client across every server key (including the `?metrics=1`
+// metrics-only stream) and caches the payload so future clients receive it on
+// connect. Server rank order is a HOST-global concern — a client viewing one
+// server (or none, on the Cockpit) still needs to re-sort its server list — so
+// this fans out to all clients like the metrics/services broadcasts, NOT to a
+// single server's clients like broadcastSessionOrder.
+//
+// nil order is normalized to an empty slice so the cached JSON is always "[]"
+// rather than "null".
+func (h *sseHub) broadcastServerOrder(order []string) {
+	if order == nil {
+		order = []string{}
+	}
+	payload := struct {
+		Order []string `json:"order"`
+	}{Order: order}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("server-order broadcast marshal failed", "err", err)
+		return
+	}
+	jsonStr := string(jsonBytes)
+	event := []byte(fmt.Sprintf("event: server-order\ndata: %s\n\n", jsonStr))
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cachedServerOrderJSON = jsonStr
+	for _, cs := range h.clients {
+		for _, c := range cs {
+			select {
+			case c.ch <- event:
+			default:
+				if !c.dropped {
+					slog.Warn("SSE event dropped", "event", "server-order")
+					c.dropped = true
+				}
 			}
 		}
 	}

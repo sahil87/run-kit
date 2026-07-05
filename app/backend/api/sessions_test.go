@@ -140,6 +140,16 @@ type mockTmuxOps struct {
 	setSessionOrderOrder  []string
 	setSessionOrderErr    error
 
+	// Server rank. rankMu guards the concurrent fan-out reads/writes (the
+	// /api/servers handler calls GetServerRank once per server in parallel).
+	rankMu             sync.Mutex
+	getServerRankByServer map[string]*int
+	getServerRankErrByServer map[string]error
+	setServerRankCalls    []struct {
+		Server string
+		Rank   int
+	}
+
 	// Boards
 	listBoardsCalled         bool
 	listBoardsResult         []tmux.BoardSummary
@@ -378,6 +388,36 @@ func (m *mockTmuxOps) SetSessionOrder(ctx context.Context, server string, order 
 		return m.setSessionOrderErr
 	}
 	return m.err
+}
+func (m *mockTmuxOps) GetServerRank(ctx context.Context, server string) (*int, error) {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	if m.getServerRankErrByServer != nil {
+		if err, ok := m.getServerRankErrByServer[server]; ok && err != nil {
+			return nil, err
+		}
+	}
+	if m.getServerRankByServer != nil {
+		return m.getServerRankByServer[server], nil
+	}
+	return nil, nil
+}
+func (m *mockTmuxOps) SetServerRank(ctx context.Context, server string, rank int) error {
+	m.rankMu.Lock()
+	m.setServerRankCalls = append(m.setServerRankCalls, struct {
+		Server string
+		Rank   int
+	}{server, rank})
+	m.rankMu.Unlock()
+	m.rankMu.Lock()
+	err := m.err
+	if m.getServerRankErrByServer != nil {
+		if e, ok := m.getServerRankErrByServer[server]; ok && e != nil {
+			err = e
+		}
+	}
+	m.rankMu.Unlock()
+	return err
 }
 func (m *mockTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	m.listBoardsCalled = true

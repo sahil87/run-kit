@@ -3,6 +3,7 @@ import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { computeKillRedirect } from "@/lib/navigation";
+import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import {
   windowSwitchDirection,
   viewTransitionSupported,
@@ -31,7 +32,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, updateWindowType, DAEMON_SERVER } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, updateWindowType, isInfraServer, DAEMON_SERVER } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -879,6 +880,36 @@ function AppShell() {
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Effective session order for the current server: SSE order (@rk_session_order)
+  // filtered to live session names, with any un-ordered live sessions appended
+  // in natural order — the "SSE order ?? natural" derivation (the sidebar's
+  // transient drag override is component-local and not visible here). Drives the
+  // Session: Move up/down gating (boundary = hidden, no wraparound).
+  const effectiveSessionOrder = useMemo(
+    () =>
+      deriveEffectiveSessionOrder(
+        sessions.map((s) => s.name),
+        ctx.sessionOrderByServer.get(server) ?? [],
+      ),
+    [sessions, ctx.sessionOrderByServer, server],
+  );
+
+  const currentSessionOrderIdx = sessionName
+    ? effectiveSessionOrder.indexOf(sessionName)
+    : -1;
+
+  const moveCurrentSession = useCallback(
+    (delta: -1 | 1) => {
+      if (!sessionName) return;
+      const next = computeMoveOrder(effectiveSessionOrder, currentSessionOrderIdx, delta);
+      if (!next) return; // boundary / invalid index: no-op
+      setSessionOrder(server, next).catch((err) =>
+        addToast(err.message || "Failed to move session"),
+      );
+    },
+    [sessionName, currentSessionOrderIdx, effectiveSessionOrder, server, addToast],
+  );
+
   const sessionActions: PaletteAction[] = useMemo(
     () => [
       {
@@ -907,6 +938,28 @@ function AppShell() {
                 }
               },
             },
+            // Move up/down within the effective session order (boundary =
+            // hidden, no wraparound). Persisted via the existing setSessionOrder
+            // (@rk_session_order), the same primitive the sidebar drag uses.
+            ...(currentSessionOrderIdx > 0
+              ? [
+                  {
+                    id: "session-move-up",
+                    label: "Session: Move up",
+                    onSelect: () => moveCurrentSession(-1),
+                  },
+                ]
+              : []),
+            ...(currentSessionOrderIdx >= 0 &&
+            currentSessionOrderIdx < effectiveSessionOrder.length - 1
+              ? [
+                  {
+                    id: "session-move-down",
+                    label: "Session: Move down",
+                    onSelect: () => moveCurrentSession(1),
+                  },
+                ]
+              : []),
             {
               id: "kill-session",
               label: "Session: Kill",
@@ -915,7 +968,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, dialogs, handleCreateSessionInstant, setShowCreateSessionAtFolderDialog],
+    [sessionName, dialogs, handleCreateSessionInstant, setShowCreateSessionAtFolderDialog, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession],
   );
 
   // Compute min/max window indices for current session (for move boundary checks)
@@ -983,8 +1036,8 @@ function AppShell() {
                     id: "move-window-left",
                     label: "Window: Move Left",
                     onSelect: () => {
-                      if (sessionName) {
-                        const targetIndex = currentWindow.index - 1;
+                      const targetIndex = computeWindowMoveTarget(currentWindow.index, -1, minWindowIndex, maxWindowIndex);
+                      if (sessionName && targetIndex !== null) {
                         // The move preserves the window's stable ID — only its
                         // index changes — so navigate to the same windowId.
                         moveWindow(server, currentWindow.windowId, targetIndex)
@@ -1008,8 +1061,8 @@ function AppShell() {
                     id: "move-window-right",
                     label: "Window: Move Right",
                     onSelect: () => {
-                      if (sessionName) {
-                        const targetIndex = currentWindow.index + 1;
+                      const targetIndex = computeWindowMoveTarget(currentWindow.index, 1, minWindowIndex, maxWindowIndex);
+                      if (sessionName && targetIndex !== null) {
                         // The move preserves the window's stable ID — only its
                         // index changes — so navigate to the same windowId.
                         moveWindow(server, currentWindow.windowId, targetIndex)
@@ -1022,6 +1075,52 @@ function AppShell() {
                           .catch((err) => {
                             addToast(err.message || "Failed to move window");
                           });
+                      }
+                    },
+                  },
+                ]
+              : []),
+            // Move up/down — the up/down vocabulary parity for windows (same
+            // moveWindow ±1 primitive as Move Left/Right above; kept alongside
+            // them so the existing left/right entries are not regressed).
+            // Boundary = hidden, no wraparound.
+            ...(currentWindow.index > minWindowIndex
+              ? [
+                  {
+                    id: "window-move-up",
+                    label: "Window: Move up",
+                    onSelect: () => {
+                      const targetIndex = computeWindowMoveTarget(currentWindow.index, -1, minWindowIndex, maxWindowIndex);
+                      if (sessionName && targetIndex !== null) {
+                        moveWindow(server, currentWindow.windowId, targetIndex)
+                          .then(() => {
+                            navigate({
+                              to: "/$server/$window",
+                              params: { server, window: currentWindow.windowId },
+                            });
+                          })
+                          .catch((err) => addToast(err.message || "Failed to move window"));
+                      }
+                    },
+                  },
+                ]
+              : []),
+            ...(currentWindow.index < maxWindowIndex
+              ? [
+                  {
+                    id: "window-move-down",
+                    label: "Window: Move down",
+                    onSelect: () => {
+                      const targetIndex = computeWindowMoveTarget(currentWindow.index, 1, minWindowIndex, maxWindowIndex);
+                      if (sessionName && targetIndex !== null) {
+                        moveWindow(server, currentWindow.windowId, targetIndex)
+                          .then(() => {
+                            navigate({
+                              to: "/$server/$window",
+                              params: { server, window: currentWindow.windowId },
+                            });
+                          })
+                          .catch((err) => addToast(err.message || "Failed to move window"));
                       }
                     },
                   },
@@ -1245,6 +1344,25 @@ function AppShell() {
     [server, executeReloadConfig, executeResetConfig],
   );
 
+  // Regular-class effective order (infra servers ignore rank and are not
+  // reorderable). `servers` is already effective-sorted by the context, so this
+  // is the visible order. The current server's position within it gates the
+  // Move up/down actions (boundary = hidden, no wraparound); infra servers get
+  // no Move action at all.
+  const { regularOrder, currentRegularIdx } = useMemo(() => {
+    const order = servers.filter((s) => !isInfraServer(s.name)).map((s) => s.name);
+    return { regularOrder: order, currentRegularIdx: order.indexOf(server) };
+  }, [servers, server]);
+
+  const moveCurrentServer = useCallback(
+    (delta: -1 | 1) => {
+      const next = computeMoveOrder(regularOrder, currentRegularIdx, delta);
+      if (!next) return; // boundary / infra (idx -1): no-op
+      setServerOrder(next).catch((err) => addToast(err.message || "Failed to move server"));
+    },
+    [currentRegularIdx, regularOrder, server, addToast],
+  );
+
   const serverActions: PaletteAction[] = useMemo(
     () => [
       {
@@ -1257,13 +1375,34 @@ function AppShell() {
         label: "Server: Kill",
         onSelect: () => setKillServerTarget(server),
       },
+      // Move up/down act on the CURRENT server within the regular class. Hidden
+      // when the current server is infra (not reorderable) or at the boundary
+      // (no wraparound).
+      ...(currentRegularIdx > 0
+        ? [
+            {
+              id: "server-move-up",
+              label: "Server: Move up",
+              onSelect: () => moveCurrentServer(-1),
+            },
+          ]
+        : []),
+      ...(currentRegularIdx >= 0 && currentRegularIdx < regularOrder.length - 1
+        ? [
+            {
+              id: "server-move-down",
+              label: "Server: Move down",
+              onSelect: () => moveCurrentServer(1),
+            },
+          ]
+        : []),
       ...servers.map(({ name }) => ({
         id: `switch-server-${name}`,
         label: `Server: Switch to ${name}${name === server ? " (current)" : ""}`,
         onSelect: () => handleSwitchServer(name),
       })),
     ],
-    [servers, server, handleSwitchServer],
+    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer],
   );
 
   // Per-window switch entries — one per window across every session. Grouped

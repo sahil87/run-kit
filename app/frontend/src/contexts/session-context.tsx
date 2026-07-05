@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
-import { listServers, compareServers, setPreviewScope as apiSetPreviewScope, type ServerInfo } from "@/api/client";
+import { listServers, compareServersRanked, setPreviewScope as apiSetPreviewScope, type ServerInfo } from "@/api/client";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
@@ -197,6 +197,28 @@ export function SessionProvider({ children }: SessionProviderProps) {
     setHostServices(services);
   }, []);
 
+  // Apply a server-global `event: server-order` payload: stamp each named
+  // server's rank from its position in `order`, drop the rank of any server not
+  // listed (so a removed-from-order server falls to the unranked tail), then
+  // re-sort with the same rank-aware comparator used at fetch time — a state
+  // update, no /api/servers refetch. Always produces a fresh array; churn here
+  // is bounded to explicit reorder events, not per-tick SSE, so no dedup guard
+  // is needed. Shared by the per-server pool streams and the dedicated
+  // `?metrics=1` stream, since the event is server-global (identical on every
+  // stream).
+  const applyServerOrder = useCallback((order: string[]) => {
+    const rankByName = new Map<string, number>();
+    order.forEach((name, i) => rankByName.set(name, i));
+    setServers((prev) => {
+      const next = prev.map((s) => ({
+        ...s,
+        rank: rankByName.has(s.name) ? rankByName.get(s.name)! : null,
+      }));
+      next.sort(compareServersRanked);
+      return next;
+    });
+  }, []);
+
   const attachServer = useCallback((name: string) => {
     setAttachedNonCurrent((prev) => {
       if (prev.has(name)) return prev;
@@ -255,9 +277,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
     try {
       const data = await listServers();
       // Sort once at the single ingestion point so every consumer of ctx.servers
-      // inherits infra-last ordering. /api/servers stays alphabetical (asserted
-      // API contract); display order is a frontend concern.
-      setServers(Array.isArray(data) ? [...data].sort(compareServers) : []);
+      // inherits the effective (infra-class, rank, name) ordering. /api/servers
+      // stays alphabetical (asserted API contract) and carries each entry's
+      // rank; display order — including user-defined rank — is a frontend
+      // concern applied here.
+      setServers(Array.isArray(data) ? [...data].sort(compareServersRanked) : []);
     } catch {
       // ignore
     } finally {
@@ -450,6 +474,18 @@ export function SessionProvider({ children }: SessionProviderProps) {
         }
       });
 
+      // server-order — server-global (identical on every stream, like metrics/
+      // services). Re-sort the held `servers` list with the new rank order.
+      // No `data.server` filter: this is a host-global concern, not per-server.
+      es.addEventListener("server-order", (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data) as { order?: string[] };
+          if (Array.isArray(data.order)) applyServerOrder(data.order);
+        } catch {
+          // Malformed event — skip
+        }
+      });
+
       // preview — pane-text snapshots for the tile grid, keyed by windowId.
       // Bounded server-side to the sessions this connection declared expanded
       // (setPreviewScope).
@@ -541,7 +577,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // cycles in Strict Mode dev. Real cleanup happens implicitly when the
     // window unloads. The pool dedupes via `pool.has(name)` so re-runs are
     // safe without close-then-reopen.
-  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices]);
+  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices, applyServerOrder]);
 
   // Dedicated server-independent host-metrics stream, opened ONLY when no
   // per-server stream is open (`attachedSet` empty — the bare `/` case with
@@ -629,11 +665,21 @@ export function SessionProvider({ children }: SessionProviderProps) {
         // Malformed services event — skip
       }
     });
+    // `event: server-order` rides the same server-global broadcast, so the bare
+    // `/` Cockpit (zero attached servers) still re-sorts its tile grid live.
+    es.addEventListener("server-order", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data) as { order?: string[] };
+        if (Array.isArray(data.order)) applyServerOrder(data.order);
+      } catch {
+        // Malformed server-order event — skip
+      }
+    });
     // No cleanup close() here — the open/close is driven by `hostMetricsWanted`
     // (the effect body closes the stream when it flips false), not by effect
     // teardown. A cleanup close() would tear down the connection on every
     // StrictMode remount and orphan the ref-guarded reopen.
-  }, [hostMetricsWanted, applyHostMetrics, applyHostServices]);
+  }, [hostMetricsWanted, applyHostMetrics, applyHostServices, applyServerOrder]);
 
   // Derive per-field Maps from the slice Map. Memoized so unrelated re-renders
   // don't churn consumer references. Each Map is a fresh reference whenever

@@ -121,11 +121,18 @@ export function useServerReorder(
 
   const onDragOver = useCallback((e: React.DragEvent, targetName: string) => {
     const dragName = dragNameRef.current;
-    if (!dragName || dragName === targetName) return;
+    if (!dragName) return; // drag from another hook instance — not ours
     if (isInfraServer(targetName)) return; // infra tiles are not drop targets
     if (!e.dataTransfer.types.includes(SERVER_REORDER_MIME)) return;
+    // Accept the drop BEFORE the self-target check: HTML5 DnD only registers a
+    // release as accepted when the last dragover was preventDefault()ed. Because
+    // insert-before splicing lands the dragged tile under the cursor, the final
+    // dragover fires on the dragged tile's OWN element — bailing early there
+    // would leave the drop uncancelled and play the native cancelled-drag
+    // snap-back animation to the origin (and starve the onDrop flush path).
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
+    if (dragName === targetName) return; // …then bail: nothing to reorder
 
     const base = overrideRef.current ?? servers.filter((s) => !isInfraServer(s.name)).map((s) => s.name);
     const fromIdx = base.indexOf(dragName);

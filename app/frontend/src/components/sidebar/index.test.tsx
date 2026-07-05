@@ -643,3 +643,73 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     expect(onSelectWindow).not.toHaveBeenCalled();
   });
 });
+
+describe("Sidebar — session-reorder self-target drop acceptance (i41e snap-back fix)", () => {
+  // Mirror of use-server-reorder.test.ts's self-target case for the sidebar
+  // session-reorder handler (`handleSessionReorderOver`). The bug: a dragover on
+  // the dragged row itself bailed BEFORE preventDefault, so HTML5 DnD played the
+  // native cancelled-drag snap-back. The fix hoists preventDefault/dropEffect
+  // above the self-name check. fireEvent.dragOver returns `false` when the
+  // handler called preventDefault() (the event was cancelled), so drop
+  // acceptance is observable without stubbing the native method.
+
+  /** A minimal mutable dataTransfer bag, mirroring the hook test's makeDragEvent. */
+  function makeDataTransfer(types: string[] = []) {
+    const store = new Map<string, string>();
+    const t = [...types];
+    return {
+      setData: (type: string, data: string) => {
+        store.set(type, data);
+        if (!t.includes(type)) t.push(type);
+      },
+      getData: (type: string) => store.get(type) ?? "",
+      get types() {
+        return t;
+      },
+      dropEffect: "none",
+      effectAllowed: "none",
+    };
+  }
+
+  it("accepts a session-reorder dragover on the dragged row itself (preventDefault called, dropEffect move)", () => {
+    // PRIMARY_SESSIONS has one session "main" in the (force-open current)
+    // "primary" group, rendered as a draggable row with data-session-row.
+    renderSidebar({ currentServer: "primary" });
+
+    const row = document.querySelector('[data-session-row="primary:main"]');
+    expect(row).toBeTruthy();
+
+    // dragStart seeds sessionDragSource = { server: "primary", name: "main" }.
+    // Shared dataTransfer bag so the dragover sees the session-reorder MIME the
+    // start handler wrote.
+    const dataTransfer = makeDataTransfer();
+    act(() => {
+      fireEvent.dragStart(row!, { dataTransfer });
+    });
+    expect(dataTransfer.types).toContain("application/x-session-reorder");
+
+    // dragover on the SAME row (self-target). The handler must still accept the
+    // drop: fireEvent returns false when preventDefault() was called.
+    let notPrevented: boolean;
+    act(() => {
+      notPrevented = fireEvent.dragOver(row!, { dataTransfer });
+    });
+    expect(notPrevented!).toBe(false); // preventDefault() was called → drop accepted
+    expect(dataTransfer.dropEffect).toBe("move");
+  });
+
+  it("does not accept a session-reorder dragover before any drag started (source guard)", () => {
+    renderSidebar({ currentServer: "primary" });
+    const row = document.querySelector('[data-session-row="primary:main"]');
+    expect(row).toBeTruthy();
+
+    // No dragStart → sessionDragSource is null → the source guard rejects before
+    // acceptance (no preventDefault).
+    const dataTransfer = makeDataTransfer(["application/x-session-reorder"]);
+    let notPrevented: boolean;
+    act(() => {
+      notPrevented = fireEvent.dragOver(row!, { dataTransfer });
+    });
+    expect(notPrevented!).toBe(true); // default NOT prevented → not accepted
+  });
+});

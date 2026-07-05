@@ -345,4 +345,86 @@ describe("useServerReorder", () => {
       expect(result.current.draggingName).toBeNull();
     });
   });
+
+  describe("self-target drop acceptance (snap-back fix)", () => {
+    it("accepts a dragOver on the dragged tile itself without reordering or scheduling a POST", () => {
+      const servers = [srv("a"), srv("b"), srv("c")];
+      const { result } = renderHook(() => useServerReorder(servers));
+
+      act(() => result.current.getTileProps("a").onDragStart!(makeDragEvent()));
+
+      // A dragOver on "a" ITSELF (the common terminal hover state once the
+      // dragged tile is spliced under the cursor). Even though there is nothing
+      // to reorder, the drop MUST be accepted so HTML5 DnD does not play the
+      // native cancelled-drag snap-back animation to the origin.
+      const over = makeDragEvent({ types: [MIME] });
+      act(() => result.current.getTileProps("a").onDragOver!(over));
+
+      expect(over.preventDefault).toHaveBeenCalled();
+      expect(over.dataTransfer.dropEffect).toBe("move");
+      // No reorder math ran: order is unchanged and no debounced POST was scheduled.
+      expect(result.current.orderedServers.map((s) => s.name)).toEqual(["a", "b", "c"]);
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(setServerOrderMock).not.toHaveBeenCalled();
+    });
+
+    it("does not reschedule an already-pending debounce when the dragged tile re-enters itself", () => {
+      const servers = [srv("a"), srv("b")];
+      const { result } = renderHook(() => useServerReorder(servers));
+
+      act(() => result.current.getTileProps("a").onDragStart!(makeDragEvent()));
+      // Sweep "a" over "b" → schedules a debounced POST of [b, a] due at +250ms.
+      act(() =>
+        result.current.getTileProps("b").onDragOver!(makeDragEvent({ types: [MIME] })),
+      );
+
+      // Advance PARTWAY (200ms) toward the original 250ms deadline, then re-enter
+      // the dragged tile itself. This is the case that distinguishes no-reschedule
+      // from reschedule: if the self-target dragOver cleared and re-armed the timer,
+      // the deadline would slip to 200+250=450ms and the assertions below would
+      // catch it. Advancing straight to 250ms would NOT — a rescheduled timer still
+      // coalesces into exactly one POST, just later.
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      // Re-enter the dragged tile itself: accepted, but MUST NOT touch the timer
+      // or the override — the previously scheduled order stands.
+      act(() => result.current.getTileProps("a").onDragOver!(makeDragEvent({ types: [MIME] })));
+      expect(result.current.orderedServers.map((s) => s.name)).toEqual(["b", "a"]);
+
+      // Advance the REMAINING 50ms to the original 250ms deadline. The POST must
+      // fire here — proving the self-target dragOver did not push the deadline out.
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+      expect(setServerOrderMock).toHaveBeenCalledTimes(1);
+      expect(setServerOrderMock).toHaveBeenCalledWith(["b", "a"]);
+    });
+
+    it("flushes the pending debounced POST on a drop over the SOURCE tile", () => {
+      const servers = [srv("a"), srv("b"), srv("c")];
+      const { result } = renderHook(() => useServerReorder(servers));
+
+      act(() => result.current.getTileProps("a").onDragStart!(makeDragEvent()));
+      // Sweep "a" over "c" → override [b, c, a], debounced POST pending.
+      act(() =>
+        result.current.getTileProps("c").onDragOver!(makeDragEvent({ types: [MIME] })),
+      );
+      // Release over the SOURCE tile "a" — the common real-world release point
+      // now that self-target drops are accepted. The drop flushes immediately.
+      act(() =>
+        result.current.getTileProps("a").onDrop!(makeDragEvent({ types: [MIME] })),
+      );
+      expect(setServerOrderMock).toHaveBeenCalledTimes(1);
+      expect(setServerOrderMock).toHaveBeenCalledWith(["b", "c", "a"]);
+
+      // Advancing the timer must NOT fire a second POST — the drop cleared it.
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(setServerOrderMock).toHaveBeenCalledTimes(1);
+    });
+  });
 });

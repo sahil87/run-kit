@@ -188,4 +188,49 @@ describe("ServerPanel", () => {
     const toggle = screen.getByRole("button", { name: /Server/ });
     expect(within(toggle).getByText("work")).toBeInTheDocument();
   });
+
+  it("de-emphasizes infra server names (grey), leaves regular names primary", () => {
+    renderPanel({
+      server: "work",
+      servers: [
+        { name: "work", sessionCount: 2 },
+        { name: "rk-daemon", sessionCount: 1 },
+        { name: "rk-test-e2e", sessionCount: 1 },
+      ],
+    });
+    openPanel();
+
+    // Infra names render text-text-secondary, not text-text-primary.
+    const daemonName = screen.getByText("rk-daemon");
+    expect(daemonName).toHaveClass("text-text-secondary");
+    expect(daemonName).not.toHaveClass("text-text-primary");
+
+    const testName = screen.getByText("rk-test-e2e");
+    expect(testName).toHaveClass("text-text-secondary");
+    expect(testName).not.toHaveClass("text-text-primary");
+
+    // Regular name stays primary.
+    const workName = screen.getByText("work", { selector: "div" });
+    expect(workName).toHaveClass("text-text-primary");
+    expect(workName).not.toHaveClass("text-text-secondary");
+  });
+
+  it("keeps the kill button on infra tiles (de-emphasized, not disabled)", () => {
+    renderPanel({
+      server: "work",
+      servers: [
+        { name: "work", sessionCount: 2 },
+        { name: "rk-daemon", sessionCount: 1 },
+      ],
+      onKillServer: vi.fn(),
+      onServerColorChange: vi.fn(),
+    });
+    openPanel();
+
+    // The infra tile is still fully attachable and killable.
+    expect(screen.getByRole("option", { name: /rk-daemon/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Kill server rk-daemon/ }),
+    ).toBeInTheDocument();
+  });
 });

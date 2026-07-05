@@ -22,7 +22,11 @@ import {
   setWindowColor,
   updateWindowUrl,
   updateWindowType,
+  DAEMON_SERVER,
+  isInfraServer,
+  compareServers,
 } from "./client";
+import type { ServerInfo } from "./client";
 
 beforeAll(() => mswServer.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
@@ -531,5 +535,67 @@ describe("POST verb migration + /options contract", () => {
     );
     await setServerColor("default", "1+3");
     expect(capturedBody).toEqual({ server: "default", color: "1+3" });
+  });
+});
+
+describe("infra-server identification", () => {
+  const si = (name: string): ServerInfo => ({ name, sessionCount: 0 });
+
+  it("DAEMON_SERVER is the daemon socket name", () => {
+    expect(DAEMON_SERVER).toBe("rk-daemon");
+  });
+
+  it("isInfraServer matches the exact daemon socket", () => {
+    expect(isInfraServer("rk-daemon")).toBe(true);
+  });
+
+  it("isInfraServer matches any rk-test- prefixed name", () => {
+    expect(isInfraServer("rk-test-e2e")).toBe(true);
+    expect(isInfraServer("rk-test-e2e-web-123-456")).toBe(true);
+    expect(isInfraServer("rk-test-")).toBe(true);
+  });
+
+  it("isInfraServer rejects near-misses", () => {
+    expect(isInfraServer("rk-daemon2")).toBe(false);
+    expect(isInfraServer("my-rk-daemon")).toBe(false);
+    expect(isInfraServer("rktest")).toBe(false);
+    expect(isInfraServer("rk-tes")).toBe(false);
+    expect(isInfraServer("default")).toBe(false);
+    expect(isInfraServer("work")).toBe(false);
+  });
+
+  it("compareServers sorts regular servers before infra servers", () => {
+    const sorted = [si("rk-daemon"), si("work"), si("default")]
+      .sort(compareServers)
+      .map((s) => s.name);
+    expect(sorted).toEqual(["default", "work", "rk-daemon"]);
+  });
+
+  it("compareServers sorts alphabetically within the infra class (byte order)", () => {
+    const sorted = [si("rk-test-b"), si("rk-daemon"), si("rk-test-a")]
+      .sort(compareServers)
+      .map((s) => s.name);
+    // "rk-daemon" < "rk-test-a" < "rk-test-b" in byte order.
+    expect(sorted).toEqual(["rk-daemon", "rk-test-a", "rk-test-b"]);
+  });
+
+  it("compareServers keeps an all-regular list byte-alphabetical (unchanged from backend order)", () => {
+    const sorted = [si("charlie"), si("alpha"), si("bravo")]
+      .sort(compareServers)
+      .map((s) => s.name);
+    expect(sorted).toEqual(["alpha", "bravo", "charlie"]);
+  });
+
+  it("compareServers interleaves regular and infra correctly from an already-alphabetical input", () => {
+    // Mirrors the backend's alphabetical /api/servers response.
+    const sorted = [
+      si("alpha"),
+      si("rk-daemon"),
+      si("rk-test-e2e"),
+      si("zeta"),
+    ]
+      .sort(compareServers)
+      .map((s) => s.name);
+    expect(sorted).toEqual(["alpha", "zeta", "rk-daemon", "rk-test-e2e"]);
   });
 });

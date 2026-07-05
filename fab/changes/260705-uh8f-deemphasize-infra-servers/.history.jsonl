@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-05T05:06:46Z"}
+{"args":"De-emphasize infrastructure tmux servers (rk-daemon, rk-test-*) in the run-kit UI: grey out rk-daemon, sort infra servers last in all server lists via one frontend comparator, and guard the kill affordance on rk-daemon","cmd":"fab-new","event":"command","ts":"2026-07-05T05:06:46Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-07-05T05:08:45Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-05T05:10:01Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-05T05:11:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-05T05:12:18Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-05T05:13:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-05T05:22:38Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-05T05:23:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-05T05:30:50Z"}
+{"event":"review","result":"passed","ts":"2026-07-05T05:30:50Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-05T05:31:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-05T05:34:22Z"}

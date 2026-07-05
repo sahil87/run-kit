@@ -404,6 +404,31 @@ export type ServerInfo = {
   sessionCount: number;
 };
 
+/** The tmux server socket hosting the run-kit daemon itself (infrastructure,
+ *  not a workspace). Mirrors the backend `ServerSocket` constant
+ *  (app/backend/internal/daemon/daemon.go). */
+export const DAEMON_SERVER = "rk-daemon";
+// Mirrors backend IsTestServerName (app/backend/internal/tmux/tmux.go:1342) —
+// the one frontend home of the "rk-test-" literal.
+const TEST_SERVER_PREFIX = "rk-test-";
+
+/** True for infrastructure servers (the daemon socket and any test socket),
+ *  which are de-emphasized and sorted last in every server list. */
+export function isInfraServer(name: string): boolean {
+  return name === DAEMON_SERVER || name.startsWith(TEST_SERVER_PREFIX);
+}
+
+/** Sort comparator: regular servers first (alphabetical), then infrastructure
+ *  servers (alphabetical within their class). Plain lexicographic (not
+ *  localeCompare) to mirror the backend's `sort.Strings` byte order within each
+ *  class, keeping the regular-server segment byte-identical to today. */
+export function compareServers(a: ServerInfo, b: ServerInfo): number {
+  const ai = isInfraServer(a.name);
+  const bi = isInfraServer(b.name);
+  if (ai !== bi) return ai ? 1 : -1;
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
 export async function listServers(): Promise<ServerInfo[]> {
   const res = await deduplicatedFetch("/api/servers");
   if (!res.ok) await throwOnError(res);

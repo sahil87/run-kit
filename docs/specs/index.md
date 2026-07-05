@@ -28,3 +28,9 @@
 | [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |
 | [Short-Term Goal](short-term-goal.md) | Minimum viable product requirements and priorities |
 | [Themes](themes.md) | Theme system architecture: ANSI palettes, derivation, tmux integration, import script |
+
+## Wiki
+
+| Page | Description |
+|------|-------------|
+| [Competitive Landscape](../wiki/competitive-landscape.md) | Where run-kit sits among tmux dashboards, agent orchestrators, mobile clients, and server consoles — the two-lineages positioning and closest competitors |

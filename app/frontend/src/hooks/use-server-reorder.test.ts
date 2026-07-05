@@ -375,17 +375,29 @@ describe("useServerReorder", () => {
       const { result } = renderHook(() => useServerReorder(servers));
 
       act(() => result.current.getTileProps("a").onDragStart!(makeDragEvent()));
-      // Sweep "a" over "b" → schedules a debounced POST of [b, a].
+      // Sweep "a" over "b" → schedules a debounced POST of [b, a] due at +250ms.
       act(() =>
         result.current.getTileProps("b").onDragOver!(makeDragEvent({ types: [MIME] })),
       );
+
+      // Advance PARTWAY (200ms) toward the original 250ms deadline, then re-enter
+      // the dragged tile itself. This is the case that distinguishes no-reschedule
+      // from reschedule: if the self-target dragOver cleared and re-armed the timer,
+      // the deadline would slip to 200+250=450ms and the assertions below would
+      // catch it. Advancing straight to 250ms would NOT — a rescheduled timer still
+      // coalesces into exactly one POST, just later.
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
       // Re-enter the dragged tile itself: accepted, but MUST NOT touch the timer
       // or the override — the previously scheduled order stands.
       act(() => result.current.getTileProps("a").onDragOver!(makeDragEvent({ types: [MIME] })));
       expect(result.current.orderedServers.map((s) => s.name)).toEqual(["b", "a"]);
 
+      // Advance the REMAINING 50ms to the original 250ms deadline. The POST must
+      // fire here — proving the self-target dragOver did not push the deadline out.
       act(() => {
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(50);
       });
       expect(setServerOrderMock).toHaveBeenCalledTimes(1);
       expect(setServerOrderMock).toHaveBeenCalledWith(["b", "a"]);

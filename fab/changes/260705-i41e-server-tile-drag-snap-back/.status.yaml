@@ -1,0 +1,55 @@
+id: i41e
+name: 260705-i41e-server-tile-drag-snap-back
+created: 2026-07-05T15:15:43Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 5
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 82.8
+        reversibility: 86.1
+        competence: 84.4
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-07-05T15:15:43Z", driver: fab-new, iterations: 1, completed_at: "2026-07-05T15:20:45Z"}
+    apply: {started_at: "2026-07-05T15:20:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-05T15:26:39Z"}
+    review: {started_at: "2026-07-05T15:26:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-05T15:34:58Z"}
+    hydrate: {started_at: "2026-07-05T15:34:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-05T15:38:26Z"}
+    ship: {started_at: "2026-07-05T15:38:26Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-05T15:38:26Z"
+    computed_at_stage: hydrate
+summary: Server-tile & sidebar session-reorder dragover now accept (preventDefault) on the self-target element, killing the native cancelled-drag snap-back ghost and reviving the drop-flush path
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-05T15:38:26Z

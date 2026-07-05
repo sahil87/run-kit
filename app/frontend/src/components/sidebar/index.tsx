@@ -665,10 +665,14 @@ export function Sidebar({
   }, []);
 
   const handleSessionReorderOver = useCallback((e: React.DragEvent, server: string, targetName: string, naturalNames: string[]) => {
-    if (!sessionDragSource || sessionDragSource.server !== server || sessionDragSource.name === targetName) return;
+    if (!sessionDragSource || sessionDragSource.server !== server) return; // source guard: drag confined to one server's group
     if (!e.dataTransfer.types.includes("application/x-session-reorder")) return;
+    // Accept the drop BEFORE the self-name check so HTML5 DnD registers the
+    // release (no native cancelled-drag snap-back on the dragged row itself,
+    // the common terminal hover state under insert-before splicing).
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
+    if (sessionDragSource.name === targetName) return; // …then bail: nothing to reorder
 
     const base = orderOverrideRef.current[server] ?? naturalNames;
     const dragName = sessionDragSource.name;

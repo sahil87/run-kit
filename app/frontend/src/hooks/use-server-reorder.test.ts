@@ -345,4 +345,74 @@ describe("useServerReorder", () => {
       expect(result.current.draggingName).toBeNull();
     });
   });
+
+  describe("self-target drop acceptance (snap-back fix)", () => {
+    it("accepts a dragOver on the dragged tile itself without reordering or scheduling a POST", () => {
+      const servers = [srv("a"), srv("b"), srv("c")];
+      const { result } = renderHook(() => useServerReorder(servers));
+
+      act(() => result.current.getTileProps("a").onDragStart!(makeDragEvent()));
+
+      // A dragOver on "a" ITSELF (the common terminal hover state once the
+      // dragged tile is spliced under the cursor). Even though there is nothing
+      // to reorder, the drop MUST be accepted so HTML5 DnD does not play the
+      // native cancelled-drag snap-back animation to the origin.
+      const over = makeDragEvent({ types: [MIME] });
+      act(() => result.current.getTileProps("a").onDragOver!(over));
+
+      expect(over.preventDefault).toHaveBeenCalled();
+      expect(over.dataTransfer.dropEffect).toBe("move");
+      // No reorder math ran: order is unchanged and no debounced POST was scheduled.
+      expect(result.current.orderedServers.map((s) => s.name)).toEqual(["a", "b", "c"]);
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(setServerOrderMock).not.toHaveBeenCalled();
+    });
+
+    it("does not reschedule an already-pending debounce when the dragged tile re-enters itself", () => {
+      const servers = [srv("a"), srv("b")];
+      const { result } = renderHook(() => useServerReorder(servers));
+
+      act(() => result.current.getTileProps("a").onDragStart!(makeDragEvent()));
+      // Sweep "a" over "b" → schedules a debounced POST of [b, a].
+      act(() =>
+        result.current.getTileProps("b").onDragOver!(makeDragEvent({ types: [MIME] })),
+      );
+      // Re-enter the dragged tile itself: accepted, but MUST NOT touch the timer
+      // or the override — the previously scheduled order stands.
+      act(() => result.current.getTileProps("a").onDragOver!(makeDragEvent({ types: [MIME] })));
+      expect(result.current.orderedServers.map((s) => s.name)).toEqual(["b", "a"]);
+
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(setServerOrderMock).toHaveBeenCalledTimes(1);
+      expect(setServerOrderMock).toHaveBeenCalledWith(["b", "a"]);
+    });
+
+    it("flushes the pending debounced POST on a drop over the SOURCE tile", () => {
+      const servers = [srv("a"), srv("b"), srv("c")];
+      const { result } = renderHook(() => useServerReorder(servers));
+
+      act(() => result.current.getTileProps("a").onDragStart!(makeDragEvent()));
+      // Sweep "a" over "c" → override [b, c, a], debounced POST pending.
+      act(() =>
+        result.current.getTileProps("c").onDragOver!(makeDragEvent({ types: [MIME] })),
+      );
+      // Release over the SOURCE tile "a" — the common real-world release point
+      // now that self-target drops are accepted. The drop flushes immediately.
+      act(() =>
+        result.current.getTileProps("a").onDrop!(makeDragEvent({ types: [MIME] })),
+      );
+      expect(setServerOrderMock).toHaveBeenCalledTimes(1);
+      expect(setServerOrderMock).toHaveBeenCalledWith(["b", "c", "a"]);
+
+      // Advancing the timer must NOT fire a second POST — the drop cleared it.
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(setServerOrderMock).toHaveBeenCalledTimes(1);
+    });
+  });
 });

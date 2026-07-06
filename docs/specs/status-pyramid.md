@@ -70,14 +70,16 @@ output. Not v1.
 | Tip (StatusDotTip) | full detail | phase + status label, agent line, PR link, docs link |
 | Rollup badges **[target]** | attention counts up the hierarchy | session row → server tile → board header |
 
-**Hue-collision rule** (why waiting is animation, not color): `text-amber-400`
-is the execution/completion phase hue; yellow is adjacent; red is reserved for
-exactly one use (the `failed` center dot); green and purple are taken. There is
-no free hue that reads as "attention" at 7px without colliding with a journey
-phase — so attention gets the channel nothing else uses: **animation** (a
-pulsing halo/glow around the dot, hue unchanged). Under
-`prefers-reduced-motion` the halo renders static (a persistent outer ring) —
-attention is never encoded in motion alone.
+**Hue-collision rule**: no `PHASE_HUE` color can double as the attention color —
+`text-amber-400` is the execution/completion phase hue; yellow is adjacent; red
+is reserved for exactly one use (the `failed` center dot); green and purple are
+taken. Attention therefore gets the channel nothing else uses — **animation** (a
+pulsing halo/glow around the dot) — **plus a dedicated attention hue from
+outside `PHASE_HUE`** (fuchsia family), per the D3 resolution: with Row
+Minimalism the pulse is the sole row-level waiting carrier, so it pairs with the
+attention hue rather than relying on motion alone. Under
+`prefers-reduced-motion` the halo renders static (a persistent outer ring in the
+attention hue) — attention is never encoded in motion alone.
 
 ---
 
@@ -162,7 +164,42 @@ match current `statusDotState` behavior.
 
 ---
 
-## Duration-Text Ladder
+## Row Minimalism **[decided]**
+
+The WindowRow's trailing status cluster — the stage word (`intake`, red when
+failed) and the duration text — is **removed**. The **StatusDot is the row's
+only externally visible status signal**; the name gets the freed width back
+(less truncation, especially on mobile).
+
+Where each removed signal goes:
+
+| Removed from the row | Survives as |
+|----------------------|-------------|
+| stage word (`review`) | dot hue (coarse: amber trio) at a glance; exact stage in the StatusDotTip and the PANE panel |
+| failed-red stage text | already redundant — the dot's `failed` shape (dotted ring + red center) |
+| `done`-parking suppression | the dot's `done` square |
+| idle/elapsed duration | StatusDotTip + PANE panel; the *attention* half ("sitting too long") migrates to the future `stuck` overlay |
+| `waiting Xm` | the waiting overlay itself (see D3 resolution) + tip + PANE panel |
+
+**The PANE panel becomes the pyramid's register view**: the four layers render
+as separate, orthogonal lines — never collapsed — so the dot is a *pure
+function* of what the panel shows and can be mentally derived from it:
+
+```
+output  active · 4s since last output        (L0)
+agent   waiting 3m                           (L1)
+fab     260705-dmex · review · failed        (L2)
+PR      #314 open · checks fail · draft      (L3)
+```
+
+Absent layers render as absent (no placeholder rows for a plain shell pane
+beyond `output`).
+
+## Duration-Text Ladder (tip + PANE panel)
+
+With row minimalism, this ladder governs the **StatusDotTip and PANE panel**
+text — the row itself renders no duration. (The Decision Table's "Duration
+text" column henceforth describes tip/panel content.)
 
 **[current]** `getWindowDuration`: output flowing (L0 active) mutes everything;
 then `idle` + `agentIdleDuration` shows the static fab-provided string; then
@@ -180,7 +217,9 @@ tmux elapsed (activityTimestamp ticker)                ← unchanged
 The waiting exemption is load-bearing: a Claude blocked on a permission prompt
 keeps rendering its spinner *below* the prompt, so L0 reads "flowing" — the mute
 rule would hide exactly the duration that matters most. `waiting` is the only
-state that pierces the mute.
+state that pierces the mute. (In the PANE panel's register view the L0 line may
+always show its elapsed value — the mute rule applies where space is contested,
+i.e. the tip's one-line summary.)
 
 ---
 
@@ -232,4 +271,4 @@ One overlay at a time: `waiting` outranks `stuck`.
 |----|----------|---------|
 | D1 | PR tier gate: `prNumber` alone (drop `fabChange &&`)? | Yes — branch-derived PRs make the fab coupling arbitrary |
 | D2 | Closed/merged PR retention: does branch-derivation (open-PR lookup) drop merged/closed PRs, losing the purple done-square and mooting the closed-vs-live-fab conflict? | Keep a merged PR visible for a grace window (collector retains last-known state); closed-unmerged with a live change falls back to fab tier. Verify against #314 implementation |
-| D3 | Is a 7px halo pulse salient enough for `waiting` at sidebar density, or does it need a hue after all? | Ship halo pulse; if scanning proves weak, the fallback is a dedicated attention hue *not* in `PHASE_HUE` (fuchsia family) — never amber/yellow/red |
+| ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved by Row Minimalism**: with the row's text signals removed, the pulse is the sole row-level waiting carrier and must not be subtle — `waiting` renders **halo pulse + a dedicated attention hue together** (outside `PHASE_HUE`, fuchsia family — never amber/yellow/red). Reduced-motion: static halo + the attention hue. Final glyph tuning at implementation with a visual check against all five phase hues |

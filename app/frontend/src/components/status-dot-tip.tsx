@@ -68,8 +68,11 @@ export function dotTipContent(win: WindowInfo, state: StatusDotState): DotTipCon
   const agent = agentLine(win);
   const links: DotLink[] = [];
   if (win.prUrl) {
+    // `prUrl` and `prNumber` are independently optional on WindowInfo, so a
+    // window can carry a URL without a number — omit the `#N` rather than
+    // render a user-visible "Open PR #undefined".
     links.push({
-      label: `Open PR #${win.prNumber}`,
+      label: win.prNumber ? `Open PR #${win.prNumber}` : "Open PR",
       href: win.prUrl,
       testid: "dot-tip-pr-link",
     });

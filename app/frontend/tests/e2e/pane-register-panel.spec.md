@@ -11,7 +11,7 @@ render as absent; the L3 PR register shows for ANY pane with a `prNumber`
 
 - Fully mocked — no tmux, no `gh`, no real backend. Injected via `page.route`:
   - `**/api/servers` → a single server `default`.
-  - `**/api/windows/*/select` → 200.
+  - `**/api/windows/*/select*` → 200.
   - `**/api/sessions/stream*` → one `event: sessions` frame, session `dev` with
     three windows:
     - `@1` "full-stack" — all four layers: `agentState: waiting` (3m),

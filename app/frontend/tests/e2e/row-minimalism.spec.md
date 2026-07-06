@@ -12,7 +12,7 @@ PANE panel register view.
   e2e tmux server has neither, and `gh` is unavailable in CI). The spec injects
   the data via `page.route`:
   - `**/api/servers` → a single server `default`.
-  - `**/api/windows/*/select` → 200 (window selection POST).
+  - `**/api/windows/*/select*` → 200 (window selection POST).
   - `**/api/sessions/stream*` → one `event: sessions` frame with a session
     `dev` and two windows:
     - `@1` "feature-work" — a fab window at `review` (`fabStage: review`,

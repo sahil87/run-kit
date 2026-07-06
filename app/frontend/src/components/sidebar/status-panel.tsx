@@ -198,12 +198,12 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children }: {
             before the segments therefore live as NBSPs INSIDE the prefix/icon
             spans, not as separate text nodes. CopyableRow renders `${prefix} `
             (3-char prefix + a gap space = 4 monospace advances before its
-            icon), so the at-rest prefix here is "pr"+NBSP+NBSP (also 4 advances)
+            icon), so the at-rest prefix here is "PR"+NBSP+NBSP (also 4 advances)
             to keep the icon/content column-aligned with tmx/cwd/git/fab and the
             no-URL pr branch. The "copied \u2713"+NBSP feedback is 9 advances,
             matching CopyableRow's "copied \u2713 " copied rendering. */}
         <span className="text-text-secondary shrink-0">
-          {copied ? "copied \u2713\u00a0" : "pr\u00a0\u00a0"}
+          {copied ? "copied \u2713\u00a0" : "PR\u00a0\u00a0"}
         </span>
         <span className={`${ICON_CLASS} shrink-0`} aria-hidden="true">{"\uf407\u00a0"}</span>
         <span data-testid="pr-line" className="min-w-0 truncate">

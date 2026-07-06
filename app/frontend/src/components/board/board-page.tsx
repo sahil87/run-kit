@@ -391,12 +391,26 @@ function BoardPageContent({ name }: { name: string }) {
   // both the per-pane pulsing seam and the header waiting count. A pane whose
   // window is not yet in the snapshot is simply not waiting (no wrong signal).
   const waitingWindowIds = useMemo(() => {
+    // Build the set of waiting window keys once per distinct board server
+    // (scan each server's windows a single time, not per-entry), then keep
+    // only the keys that a board entry pins. Avoids the O(entries × windows)
+    // flatMap-then-find that re-scanned + re-allocated per entry on every SSE
+    // tick.
+    const waitingKeys = new Set<string>();
+    const seenServers = new Set<string>();
+    for (const e of entries) {
+      if (seenServers.has(e.server)) continue;
+      seenServers.add(e.server);
+      for (const s of ctx.sessionsByServer.get(e.server) ?? []) {
+        for (const w of s.windows) {
+          if (isWaiting(w)) waitingKeys.add(`${e.server}:${w.windowId}`);
+        }
+      }
+    }
     const set = new Set<string>();
     for (const e of entries) {
-      const win = (ctx.sessionsByServer.get(e.server) ?? [])
-        .flatMap((s) => s.windows)
-        .find((w) => w.windowId === e.windowId);
-      if (win && isWaiting(win)) set.add(`${e.server}:${e.windowId}`);
+      const key = `${e.server}:${e.windowId}`;
+      if (waitingKeys.has(key)) set.add(key);
     }
     return set;
   }, [entries, ctx.sessionsByServer]);

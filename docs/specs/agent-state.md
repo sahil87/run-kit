@@ -69,16 +69,23 @@ Hook commands that write the option MUST:
 4. **Depend on nothing but tmux** — write via plain
    `tmux set-option -pt "$TMUX_PANE" @rk_agent_state "<state>:<epoch>:<pid>"`.
    No `rk` binary and no run-kit server need be running at hook-fire time.
-5. **Carry the agent pid** — `$PPID` inside the hook's `sh -c` is the agent
-   process (the harness runs hooks as its own shell children). This is what
-   lets readers trust state on *wrapped launches*, where
-   `#{pane_current_command}` reads as a shell while the agent runs inside it.
+5. **Carry the agent pid, resolved by a comm-validated ancestor walk** — NOT
+   raw `$PPID`: harnesses spawn hook commands through an *ephemeral*
+   intermediate shell that exits when the hook finishes (measured with Claude
+   Code — raw `$PPID` recorded that dead wrapper, so liveness suppressed every
+   value). The hook walks up from `$PPID` (bounded, 3 hops) until the process
+   name equals the agent's comm (a per-agent registry literal, e.g. `claude`),
+   and omits the pid segment entirely if the walk cannot validate an ancestor —
+   a two-segment value that degrades to the reader's legacy fallback, never a
+   wrong pid. This is what lets readers trust state on *wrapped launches*,
+   where `#{pane_current_command}` reads as a shell while the agent runs
+   inside it.
 
-Canonical command (one literal per state; nothing user-provided is
-interpolated):
+Canonical command (state and comm are fixed registry literals; nothing
+user-provided is interpolated):
 
 ```sh
-sh -c '[ -n "$TMUX_PANE" ] || exit 0; tmux set-option -pt "$TMUX_PANE" @rk_agent_state "<state>:$(date +%s):$PPID" 2>/dev/null || true'
+sh -c '[ -n "$TMUX_PANE" ] || exit 0; p=$PPID; i=0; while [ $i -lt 3 ] && [ -n "$p" ] && [ "$(ps -o comm= -p "$p" 2>/dev/null)" != "claude" ]; do p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d " "); i=$((i+1)); done; [ "$(ps -o comm= -p "$p" 2>/dev/null)" = "claude" ] || p=""; tmux set-option -pt "$TMUX_PANE" @rk_agent_state "<state>:$(date +%s)${p:+:$p}" 2>/dev/null || true'
 ```
 
 > **Migration**: updating the hook strings requires re-running `rk agent-setup`

@@ -100,51 +100,53 @@ export function prDotState(win: WindowInfo): PrDotState {
 }
 
 /**
- * Lifecycle status-dot model — TWO orthogonal axes:
- *   - `phase` → HUE (where in the lifecycle journey: blue → amber → green → purple)
+ * Lifecycle status-dot model (palette v3 — status-pyramid.md) — TWO orthogonal
+ * axes plus an additive attention overlay:
+ *   - `phase` → CORE HUE (which journey + position in it)
  *   - `shape` → STATUS (health, using ONE shape vocabulary across fab AND PR)
+ *   - `waiting` → ATTENTION overlay (additive constant-yellow halo; NEVER
+ *     touches core hue/shape). See status-dot.tsx for the halo rendering.
  *
- * The single dot is driven by a three-way precedence (PR > fab > tmux):
- * PR drives when the window is change-bound AND has a PR; else fab drives when
- * the window has a fab change; else terminal activity drives a monochrome
- * fallback. Color is reserved for the fab/PR journey — tmux stays gray.
+ * The core hue + shape are owned by TWO ladders joined at the top — first
+ * precondition wins:
+ *   fabChange ?  (prNumber ? purple-PR : stage==intake ? blue : green)   [cool = fab]
+ *             :  (fresh agentState ? (prNumber ? orange-PR : yellow) : gray)  [warm = agent / floor]
+ * The glance rule: cool core = my pipeline, warm core = my ad-hoc agents,
+ * gray = just a terminal, yellow HALO = needs me now.
  */
 export type DotShape = "ring" | "solid" | "failed" | "done" | "skipped";
 
 /**
- * 4-phase model matching the fab-kit README grouping (Intake / Execution /
- * Completion / Shipping), plus `pr` and `none`. Execution and Completion both
- * map to amber in PHASE_HUE — the README *grouping* is kept (hydrate stays its
- * own "completion" phase) but the *palette* is shared, so apply/review/hydrate
- * render an identical amber dot. Purple is reserved for the live PR phase.
+ * Palette-v3 phase model (status-pyramid.md § The Channel Model). The amber
+ * `execution`/`completion` grouping RETIRES — apply/review/hydrate/ship/review-pr
+ * all collapse to a single `apply` (green) phase (the "green collapse": the old
+ * ship/review-pr green barely rendered, since /git-pr creates the PR mid-ship
+ * and purple takes the dot the moment prNumber exists). The two families:
+ *   cool = fab pipeline: `intake` (blue) → `apply` (green) → `pr` (purple)
+ *   warm = ad-hoc agent: `agent` (yellow) → `agentPr` (orange)
+ *   `none` = gray floor (no journey)
  */
-export type DotPhase = "intake" | "execution" | "completion" | "shipping" | "pr" | "none";
+export type DotPhase = "intake" | "apply" | "pr" | "agent" | "agentPr" | "none";
 
 export type StatusDotState = {
-  phase: DotPhase; // → hue
+  phase: DotPhase; // → core hue
   shape: DotShape; // → shape
+  /** Attention overlay: when true, an additive constant-yellow halo wraps the
+   *  dot (core hue + shape untouched). Set from the window's rolled-up
+   *  `agentState === "waiting"`. Ladder-exempt — overlays any tier. */
+  waiting?: boolean;
 };
 
 /**
- * fabStage → phase, using the README 4-phase grouping:
- *   intake→intake; apply,review→execution; hydrate→completion;
- *   ship,review-pr→shipping. Unknown/absent → none (gray, no journey).
+ * fabStage → cool-family phase (palette v3): only `intake` gets its own blue
+ * hue; every other fab stage (apply/review/hydrate/ship/review-pr) collapses to
+ * the single green `apply` phase. Unknown/absent → `apply` (a live fab window
+ * with an unrecognized stage still reads as the green working tier, not gray) —
+ * the purple `pr` phase is chosen in `statusDotState`, never here.
  */
 export function fabPhase(stage: string | undefined): DotPhase {
-  switch (stage) {
-    case "intake":
-      return "intake";
-    case "apply":
-    case "review":
-      return "execution";
-    case "hydrate":
-      return "completion";
-    case "ship":
-    case "review-pr":
-      return "shipping";
-    default:
-      return "none";
-  }
+  if (stage === "intake") return "intake";
+  return "apply";
 }
 
 /**
@@ -202,25 +204,73 @@ export function prShape(win: WindowInfo): DotShape {
 }
 
 /**
- * phase → hue token. Execution and Completion BOTH map to amber (README
- * grouping kept, palette shared) so apply/review/hydrate render identically;
- * purple is reserved for the live PR phase. No raw hex — `text-blue-400` and
- * `text-amber-400` are standard Tailwind classes (used like the existing
- * `text-yellow-400`); the rest are the established shared tokens.
+ * phase → core-hue token (palette v3, status-pyramid.md § The Channel Model).
+ * Two families + floor: cool fab (blue intake → green apply-collapsed → purple
+ * PR), warm ad-hoc agent (yellow working → orange PR), gray floor. The amber
+ * `execution`/`completion` tokens are GONE (green collapse). No raw hex —
+ * `text-blue-400`/`text-yellow-400`/`text-orange-400` are standard Tailwind
+ * classes; the rest are the established shared tokens.
  */
 export const PHASE_HUE: Record<DotPhase, string> = {
   intake: "text-blue-400",
-  execution: "text-amber-400",
-  completion: "text-amber-400",
-  shipping: "text-accent-green",
+  apply: "text-accent-green",
   pr: "text-purple-400",
+  agent: "text-yellow-400",
+  agentPr: "text-orange-400",
   none: "text-text-secondary",
 };
 
+/**
+ * Is there a fresh agent on this window? #314 clears stale/shell-reconciled
+ * values server-side (the reconciler treats a plain-shell pane as no-agent and
+ * the rollup omits it), so a non-empty rolled-up `agentState` on the window IS
+ * fresh — no client-side staleness heuristic is needed. `waiting` is a valid
+ * fresh state too (it maps to a yellow SOLID core + the additive halo).
+ */
+function hasFreshAgent(win: WindowInfo): boolean {
+  return win.agentState === "active" || win.agentState === "waiting" || win.agentState === "idle";
+}
+
+/**
+ * Two ladders joined at the top (palette v3 — status-pyramid.md § The Tier
+ * Ladder). First precondition wins for the CORE hue + shape; `waiting` is an
+ * additive overlay computed independently (ladder-exempt).
+ *
+ *   fabChange ?  (prNumber ? purple-PR : intake ? blue : green)     [cool = fab]
+ *             :  (fresh agent ? (prNumber ? orange-PR : yellow) : gray floor)  [warm/floor]
+ *
+ * D1 (resolved): PR dot-ownership is PER-FAMILY — purple requires
+ * `fabChange && prNumber`, orange requires `fresh agent && prNumber`. A plain
+ * pane with neither a fab change nor a fresh agent stays on the gray floor even
+ * when its branch has a PR (the PR still shows in the L3 register / tip /
+ * PR-status line — derivation stays universal, Principle X — but never as a
+ * mystifying floor-pane dot).
+ *
+ * D2 (closed-unmerged fallback): a CLOSED-unmerged PR never owns the dot — it
+ * falls through to the underlying tier (a fab window shows its live green stage,
+ * not a dead PR's skipped ring; decision-table row 20). A merged PR (retained by
+ * the backend's grace window) still owns the dot as the purple/orange done
+ * square. `ownsDot` gates PR ownership on `prNumber` present AND not closed.
+ */
+function prOwnsDot(win: WindowInfo): boolean {
+  return !!win.prNumber && win.prState !== "closed";
+}
+
 export function statusDotState(win: WindowInfo): StatusDotState {
-  if (win.fabChange && win.prNumber) return { phase: "pr", shape: prShape(win) }; // PR wins
-  if (win.fabChange) return { phase: fabPhase(win.fabStage), shape: fabShape(win.fabDisplayState) }; // then fab
-  return { phase: "none", shape: win.activity === "active" ? "solid" : "ring" }; // then tmux
+  const waiting = win.agentState === "waiting";
+  if (win.fabChange) {
+    // Cool family — fab pipeline.
+    if (prOwnsDot(win)) return { phase: "pr", shape: prShape(win), waiting };
+    return { phase: fabPhase(win.fabStage), shape: fabShape(win.fabDisplayState), waiting };
+  }
+  if (hasFreshAgent(win)) {
+    // Warm family — ad-hoc agent.
+    if (prOwnsDot(win)) return { phase: "agentPr", shape: prShape(win), waiting };
+    // A waiting/active agent is mid-turn → solid; only a resting `idle` agent is a ring.
+    return { phase: "agent", shape: win.agentState === "idle" ? "ring" : "solid", waiting };
+  }
+  // L0 floor — no fab change, no fresh agent: monochrome tmux activity.
+  return { phase: "none", shape: win.activity === "active" ? "solid" : "ring", waiting };
 }
 
 /**

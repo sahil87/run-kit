@@ -20,6 +20,7 @@ import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
 import { BoardPane, type BoardPaneHandle } from "./board-pane";
 import { selectLivePanes } from "./select-live-panes";
+import { isWaiting } from "@/lib/waiting";
 import { NotFoundPage } from "@/router";
 
 const CommandPalette = lazy(() =>
@@ -382,6 +383,25 @@ function BoardPageContent({ name }: { name: string }) {
     return set.size;
   }, [entries]);
 
+  // Attention rollup (260706-y1ar; status-pyramid.md § Attention Propagation).
+  // A `BoardEntry` is a thin shape with no `agentState`, so join each pinned
+  // pane back to its live `WindowInfo` via (server, windowId) against the
+  // streamed `sessionsByServer`. use-boards attaches every board server, so this
+  // window data (incl. `agentState`) is flowing for board panes. The set drives
+  // both the per-pane pulsing seam and the header waiting count. A pane whose
+  // window is not yet in the snapshot is simply not waiting (no wrong signal).
+  const waitingWindowIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) {
+      const win = (ctx.sessionsByServer.get(e.server) ?? [])
+        .flatMap((s) => s.windows)
+        .find((w) => w.windowId === e.windowId);
+      if (win && isWaiting(win)) set.add(`${e.server}:${e.windowId}`);
+    }
+    return set;
+  }, [entries, ctx.sessionsByServer]);
+  const waitingPaneCount = waitingWindowIds.size;
+
   // Connection dot (260704-9o7k): "this board's live data is flowing". Green
   // only when the board has entries AND every distinct attached server's SSE
   // slice is connected (binary AND — a single disconnected server flips it
@@ -505,6 +525,7 @@ function BoardPageContent({ name }: { name: string }) {
             boardName={name}
             paneCount={entries.length}
             serverCount={serverCount}
+            waitingPaneCount={waitingPaneCount}
             boards={boards.map((b) => ({ name: b.name }))}
             onCloseFocused={unpinFocused}
             closeDisabled={entries.length === 0}
@@ -539,6 +560,7 @@ function BoardPageContent({ name }: { name: string }) {
               focusedIndex={focusedIndex}
               onPaneClick={setFocusedIndex}
               scrollLocked={scrollLocked}
+              waitingWindowIds={waitingWindowIds}
             />
           ) : (
             <DesktopRow
@@ -550,6 +572,7 @@ function BoardPageContent({ name }: { name: string }) {
               focusedIndex={focusedIndex}
               onPaneClick={setFocusedIndex}
               scrollLocked={scrollLocked}
+              waitingWindowIds={waitingWindowIds}
             />
           )}
         </main>
@@ -645,6 +668,7 @@ function DesktopRow({
   focusedIndex,
   onPaneClick,
   scrollLocked,
+  waitingWindowIds,
 }: {
   entries: ReturnType<typeof useBoardEntries>["entries"];
   getWidth: (windowId: string) => number;
@@ -654,6 +678,8 @@ function DesktopRow({
   focusedIndex: number;
   onPaneClick: (idx: number) => void;
   scrollLocked: boolean;
+  /** (server:windowId) keys of panes whose joined window is `waiting`. */
+  waitingWindowIds: Set<string>;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -772,6 +798,7 @@ function DesktopRow({
           width={getWidth(entry.windowId)}
           paused={livePanes === null ? false : !livePanes.has(idx)}
           isFocused={idx === focusedIndex}
+          waiting={waitingWindowIds.has(`${entry.server}:${entry.windowId}`)}
           onClick={() => onPaneClick(idx)}
           onUnpin={() => onUnpin(entry)}
           showResizeHandle={true}
@@ -791,6 +818,7 @@ function MobileCarousel({
   focusedIndex,
   onPaneClick,
   scrollLocked,
+  waitingWindowIds,
 }: {
   entries: ReturnType<typeof useBoardEntries>["entries"];
   carouselIndex: number;
@@ -799,6 +827,8 @@ function MobileCarousel({
   focusedIndex: number;
   onPaneClick: (idx: number) => void;
   scrollLocked: boolean;
+  /** (server:windowId) keys of panes whose joined window is `waiting`. */
+  waitingWindowIds: Set<string>;
 }) {
   return (
     <div className="h-full flex flex-col">
@@ -820,6 +850,7 @@ function MobileCarousel({
               // first render and break on rotation.
               paused={idx !== carouselIndex}
               isFocused={idx === focusedIndex}
+              waiting={waitingWindowIds.has(`${entry.server}:${entry.windowId}`)}
               onClick={() => onPaneClick(idx)}
               onUnpin={() => onUnpin(entry)}
               showResizeHandle={false}

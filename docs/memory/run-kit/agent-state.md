@@ -185,15 +185,38 @@ keeps writing `.fab-runtime.yaml` `_agents` until its own reader-side change
 (fab-kit backlog `[ioku]`) lands — harmless coexistence, run-kit simply stops
 reading the old sink.
 
-## UI Surfacing (deferred)
+## UI Surfacing (landed — `260706-y1ar-status-pyramid-ui-surfacing`)
 
-The richer `waiting` value flows through existing surfaces **without new UI**
-(Non-Goal — UI surfacing redesign is deferred per intake Assumption 11): the pane
-panel's `agt` line renders `waiting <dur>` state-agnostically. But the sidebar
-window-row duration text and `StatusDot` still gate on `idle`/existing inputs — a
-known deferred gap, not widened here. See
-[ui-patterns](/run-kit/ui-patterns.md) § Window rows (Duration display) and
-§ Status Dot.
+#314 shipped the `waiting` value but nothing rendered it (the UI redesign was
+deferred out per #314's Assumption 11). `260706-y1ar` is that deferred work — the
+`agentState` three-state value is now a first-class UI input across every surface
+(design authority `docs/specs/status-pyramid.md`, palette v3). What consumes it:
+
+- **`StatusDot` (palette-v3 two-family ladder)**: a fresh `agentState` on a
+  non-fab window drives the **warm ad-hoc-agent family** — yellow working / orange
+  PR (vs the cool fab family blue/green/purple, vs the gray floor). A `waiting`
+  window of ANY tier gets an **additive constant-yellow pulsing halo** (core hue +
+  shape untouched — never a hue-flip). `agentState === "idle"` is a ring;
+  `active`/`waiting` are solid (mid-turn). See
+  [ui-patterns](/run-kit/ui-patterns.md) § Status Dot.
+- **Row Minimalism**: the sidebar window row's trailing stage-word + duration
+  cluster was removed — the `StatusDot` is now the row's ONLY status signal
+  (§ Window rows).
+- **PANE panel L1 `agent` register**: the four-register view (output/agent/fab/PR)
+  renders `agent waiting <dur>` on its own line, never muted by flowing output
+  (the pierce rule); the `StatusDotTip` gains an `agent:` line on every tier
+  (§ Pane panel four-register view, § Status Dot hover-card).
+- **Attention rollups + nav**: `waiting` counts propagate as `WaitingBadge` chips
+  (session row, Cockpit server tile, board header), a pulsing board-pane seam, and
+  the `Agent: Next waiting` command-palette navigation (§ Attention Surfacing).
+- **Web Push on sustained waiting**: the SSE hub fires one push per sustained
+  (≥15s) waiting episode — see [architecture](/run-kit/architecture.md)
+  § Web Push on Sustained Waiting.
+
+The window-level rollup + `waiting > active > idle` precedence + the
+`formatAgentDuration` value (present for `waiting`/`idle`) documented above are
+what these surfaces consume — unchanged by `260706-y1ar`, which only added
+consumers.
 
 ## Design Decisions
 

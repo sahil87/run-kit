@@ -272,17 +272,15 @@ describe("Sidebar", () => {
     expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", "@1");
   });
 
-  it("shows fab stage text on windows", () => {
+  it("Row Minimalism: window rows show NO fab stage text (dot is the only status signal)", () => {
+    // Palette v3 / Row Minimalism (260706-y1ar): the stage word was removed from
+    // the window row. Status lives entirely in the leading StatusDot; the exact
+    // stage + durations are in the tip and the PANE panel register view.
     renderSidebar();
-    // Both fab windows show "apply"
-    const applySpans = screen.getAllByText("apply");
-    expect(applySpans.length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("apply")).not.toBeInTheDocument();
   });
 
-  it("hides fab stage text on parked windows (fabDisplayState done), keeping the duration", () => {
-    // A fully-shipped change parked at review-pr reports display_state "done"
-    // from fab pane map — the stale stage text is suppressed (quiet row) while
-    // an actively-worked sibling keeps its stage text.
+  it("Row Minimalism: window rows show NO duration text (parked or otherwise)", () => {
     const parked: ProjectSession[] = [
       {
         name: "run-kit",
@@ -320,11 +318,10 @@ describe("Sidebar", () => {
       },
     ];
     renderSidebar({ sessions: parked });
-    // Parked row: stage text gone, duration still rendered.
+    // No stage words, no duration text anywhere in the rows.
     expect(screen.queryByText("review-pr")).not.toBeInTheDocument();
-    expect(screen.getAllByText("2m").length).toBeGreaterThanOrEqual(1);
-    // Active sibling keeps its stage text.
-    expect(screen.getAllByText("apply").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("apply")).not.toBeInTheDocument();
+    expect(screen.queryByText("2m")).not.toBeInTheDocument();
   });
 
   it("does not render empty-state hint when sessions exist", () => {

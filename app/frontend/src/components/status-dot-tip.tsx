@@ -29,30 +29,52 @@ const STATUS_DOT_DOCS_URL =
 /** A single interactive link rendered inside the hover-card. */
 export type DotLink = { label: string; href: string; testid: string };
 
-/** Resolved hover-card content for a window+state. */
-export type DotTipContent = { label: string; links: DotLink[] };
+/** Resolved hover-card content for a window+state. `agent` is the L1 agent
+ *  line (`agent: waiting 3m` / `active` / `idle 12m`), null when no agent. */
+export type DotTipContent = { label: string; agent: string | null; links: DotLink[] };
+
+/**
+ * Agent line for the hover card (status-pyramid.md § Attention Propagation —
+ * "StatusDotTip gains an agent line on every tier"). Post-Row-Minimalism the
+ * tip is the recovery path for the removed row stage word + durations, so it
+ * carries the agent state on EVERY tier (fab, PR, warm, or floor). Composes
+ * `agent: {state} {duration}` — the rk-computed `agentIdleDuration` is present
+ * for `waiting`/`idle` and empty for `active`. Null when no `agentState`.
+ */
+function agentLine(win: WindowInfo): string | null {
+  if (!win.agentState) return null;
+  const dur = win.agentIdleDuration ? ` ${win.agentIdleDuration}` : "";
+  return `agent: ${win.agentState}${dur}`;
+}
 
 /**
  * Pure content resolver: maps a window + its derived `StatusDotState` to the
- * hover-card's text + interactive links. The label REUSES `dotLabel()` so the
- * card text is the single source of truth shared with the dot's `aria-label`.
+ * hover-card's text + agent line + interactive links. The label REUSES
+ * `dotLabel()` so the card text is the single source of truth shared with the
+ * dot's `aria-label`.
  *
- * Only PR-phase dots that actually carry a `prUrl` get a link ("Open PR #N").
- * Fab-phase and tmux-fallback dots get text only. The docs-link icon is NOT in
- * `links[]` — it is a fixed element the card always renders (constant href), so
- * it does not flow through per-state logic.
+ * Any window that carries a `prUrl` gets an "Open PR #N" link — on ANY tier,
+ * including the gray floor. The PR-dot OWNERSHIP is family-gated (D1: only fab
+ * or fresh-agent windows let a PR own the dot's hue), but the derived PR itself
+ * is UNIVERSAL (Principle X / decision-table row 10) — the tip surfaces it
+ * wherever it exists, exactly like the PANE panel's L3 register, so a floor pane
+ * on a branch with an open PR still offers the link. The agent line is added on
+ * every tier when an `agentState` exists. The docs-link icon is NOT in `links[]`
+ * — it is a fixed element the card always renders (constant href), so it does
+ * not flow through per-state logic.
  */
 export function dotTipContent(win: WindowInfo, state: StatusDotState): DotTipContent {
   const label = dotLabel(win, state);
+  const agent = agentLine(win);
   const links: DotLink[] = [];
-  if (state.phase === "pr" && win.prUrl) {
+  if (win.prUrl) {
     links.push({
       label: `Open PR #${win.prNumber}`,
       href: win.prUrl,
       testid: "dot-tip-pr-link",
     });
   }
-  return { label, links };
+  return { label, agent, links };
 }
 
 /**
@@ -114,12 +136,12 @@ type StatusDotTipProps = {
  *
  * Opens on hover (snappy delay) AND on keyboard focus (Constitution V —
  * keyboard-first), dismisses on Escape / blur / pointer-leave. Always shows the
- * dot's label text + a docs-link icon; PR-phase dots additionally show an
- * "Open PR #N" link (from `dotTipContent`).
+ * dot's label text + a docs-link icon; any window with a `prUrl` additionally
+ * shows an "Open PR #N" link (from `dotTipContent`, universal derivation).
  */
 export function StatusDotTip({ win, state, renderDot }: StatusDotTipProps) {
   const [open, setOpen] = useState(false);
-  const { label, links } = dotTipContent(win, state);
+  const { label, agent, links } = dotTipContent(win, state);
 
   const { refs, floatingStyles, context } = useFloating({
     open,
@@ -181,6 +203,13 @@ export function StatusDotTip({ win, state, renderDot }: StatusDotTipProps) {
                 <InfoIcon />
               </a>
             </div>
+            {/* Agent line (L1) — present on every tier when an agent exists.
+                Post-Row-Minimalism recovery path for the removed row durations. */}
+            {agent && (
+              <span className="text-text-secondary whitespace-nowrap" data-testid="dot-tip-agent">
+                {agent}
+              </span>
+            )}
             {links.map((link) => (
               <a
                 key={link.testid}

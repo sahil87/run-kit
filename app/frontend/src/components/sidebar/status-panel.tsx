@@ -47,23 +47,32 @@ function shortenPath(cwd: string): string {
   return path;
 }
 
-/** Build the process/activity string for the run line */
-function getProcessLine(win: WindowInfo, nowSeconds: number): string {
+/**
+ * Build the L0 `output` register string (status-pyramid.md register view). L0
+ * speaks about bytes, not intent: `active \u00b7 <command>` while output flows, else
+ * `<command> \u00b7 idle Xm since last output` (or `idle Xm` with no command). This
+ * register ALWAYS shows its own elapsed value \u2014 the duration-mute rule (which
+ * hides elapsed when output flows) applies only to the tip's one-line summary,
+ * never here in the uncontested register view, so the waiting-pierce rule is
+ * automatic (see spec \u00a7 Duration-Text Ladder).
+ */
+function getOutputLine(win: WindowInfo, nowSeconds: number): string {
   const command = win.panes?.find((p) => p.isActive)?.command ?? win.paneCommand ?? "";
-  if (win.activity === "active") return command || "active";
+  if (win.activity === "active") return command ? `active \u00b7 ${command}` : "active";
 
   let idle = "";
   if (win.activityTimestamp) {
     const elapsed = nowSeconds - win.activityTimestamp;
     if (elapsed > 0) idle = formatDuration(elapsed);
   }
-
-  if (command && idle) return `${command} \u2014 idle ${idle}`;
-  if (idle) return `idle ${idle}`;
-  return command || "";
+  const idleText = idle ? `idle ${idle} since last output` : "";
+  if (command && idleText) return `${command} \u2014 ${idleText}`;
+  if (idleText) return idleText;
+  return command || "idle";
 }
 
-/** Build the agent state string when an agent is present */
+/** Build the L1 `agent` register string when an agent is present: e.g.
+ *  `waiting 3m` / `active` / `idle 12m`. Null when no `agentState`. */
 function getAgentLine(win: WindowInfo): string | null {
   if (!win.agentState) return null;
   if (win.agentIdleDuration) return `${win.agentState} ${win.agentIdleDuration}`;
@@ -77,11 +86,14 @@ type PrSegment = { text: string; color: string };
 // truth shared with the sidebar dot and the dashboard PR line.
 
 /**
- * Build the PR status line for the pane panel as colored segments, e.g.
+ * Build the L3 `PR` register line for the pane panel as colored segments, e.g.
  * "#241 · open · checks pass" for an open PR, or "#241 · merged" once it
- * lands. Returns null unless the window is change-bound (`fabChange`) AND
- * carries a `prNumber` — the same gate the sidebar/dashboard PR surface uses.
- * For a merged/closed PR the checks and review parts are suppressed (they're
+ * lands. Returns null unless the window carries a `prNumber`. Gated ONLY on
+ * `prNumber` — NOT on `fabChange` — because the L3 register shows the PR for
+ * ANY pane on a branch with a PR (derivation is universal, Constitution
+ * Principle X; the ladder's per-family dot ownership is a separate concern —
+ * see statusDotState). For a merged/closed PR the checks and review parts are
+ * suppressed (they're
  * historical once the PR is no longer open); only the terminal state is shown.
  * The state segment color is purely the GitHub state (open→green via
  * PR_STATE_COLORS), NOT a health verdict — health is conveyed by the checks and
@@ -92,7 +104,7 @@ type PrSegment = { text: string; color: string };
  * three PR surfaces (sidebar dot, these segments, PrStatusLine) consistent.
  */
 function getPrSegments(win: WindowInfo): PrSegment[] | null {
-  if (!win.fabChange || !win.prNumber) return null;
+  if (!win.prNumber) return null;
   const segments: PrSegment[] = [{ text: `#${win.prNumber}`, color: "text-text-primary" }];
   if (win.prState) {
     segments.push({
@@ -275,10 +287,13 @@ function WindowContent({ win }: { win: WindowInfo }) {
   const gitBranch = activePane?.gitBranch ?? "";
 
   const fabChange = parseFabChange(win.fabChange ?? "");
+  // L2 `fab` register: `<id> <slug> \u00b7 <stage>[ \u00b7 <displayState>]`. The
+  // displayState segment is appended when present (`fab pane map` may omit it
+  // on older binaries), completing the register per status-pyramid.md.
   const fabLine = fabChange && win.fabStage
-    ? `${fabChange.id} ${fabChange.slug} \u00b7 ${win.fabStage}`
+    ? `${fabChange.id} ${fabChange.slug} \u00b7 ${win.fabStage}${win.fabDisplayState ? ` \u00b7 ${win.fabDisplayState}` : ""}`
     : null;
-  const processLine = getProcessLine(win, nowSeconds);
+  const outputLine = getOutputLine(win, nowSeconds);
   const agentLine = getAgentLine(win);
   const prSegments = getPrSegments(win);
   const prText = prSegments?.map((s) => s.text).join(" · ") ?? "";
@@ -341,7 +356,8 @@ function WindowContent({ win }: { win: WindowInfo }) {
         </CopyableRow>
       )}
 
-      {/* pr — live PR status for a change-bound window with a PR. Open-first
+      {/* PR (L3 register) — live PR status for ANY pane with a derived PR
+          (ungated from fabChange; universal derivation, Principle X). Open-first
           (260703-41ks): when a PR URL is present, the row BODY is a real anchor
           that opens the PR in a new tab (native middle/Ctrl+click, right-click
           -> "Copy link address"), with an always-visible inline arrow (↗)
@@ -362,7 +378,7 @@ function WindowContent({ win }: { win: WindowInfo }) {
             {segmentSpans}
           </PrLinkRow>
         ) : (
-          <CopyableRow prefix={"pr\u00A0"} copied={copiedRow === "pr"} onCopy={() => handleCopy("pr", prText)}>
+          <CopyableRow prefix={"PR\u00A0"} copied={copiedRow === "pr"} onCopy={() => handleCopy("pr", prText)}>
             <span className={ICON_CLASS} aria-hidden="true">{"\uF407"}</span>
             {" "}
             <span data-testid="pr-line">
@@ -372,25 +388,34 @@ function WindowContent({ win }: { win: WindowInfo }) {
         )
       )}
 
-      {/* run */}
-      {processLine && (
-        <div className="truncate">
-          <span className="text-text-secondary">run </span>
-          <BrailleSnake className={`${ICON_CLASS} font-normal`} />{" "}
-          <span className="text-text-secondary">{processLine}</span>
-        </div>
-      )}
+      {/* ── The four orthogonal signal registers (status-pyramid.md § Row
+          Minimalism): output (L0) / agent (L1) / fab (L2) / PR (L3, rendered
+          just above). One line per layer, never collapsed, so the sidebar
+          StatusDot is a pure function of what this panel shows and can be
+          mentally derived from it. Absent layers render as absent (a plain shell
+          pane shows only `output`). The identity rows (tmx/cwd/git) are pane
+          metadata, orthogonal to these signal registers. ── */}
 
-      {/* agt */}
+      {/* output (L0) — tmux activity + elapsed. Always rendered: L0 is the
+          floor layer whose precondition is "always", so it is the one register
+          a plain shell pane still shows. Its elapsed is never muted here (the
+          register view is uncontested for space — the waiting-pierce rule). */}
+      <div className="truncate" data-testid="register-output">
+        <span className="text-text-secondary">output </span>
+        <BrailleSnake className={`${ICON_CLASS} font-normal`} />{" "}
+        <span className="text-text-secondary">{outputLine}</span>
+      </div>
+
+      {/* agent (L1) — agentState + epoch duration. Absent when no agent. */}
       {agentLine && (
-        <div className="truncate">
-          <span className="text-text-secondary">agt </span>
+        <div className="truncate" data-testid="register-agent">
+          <span className="text-text-secondary">agent </span>
           <StarTwinkle className={`${ICON_CLASS} font-normal`} />{" "}
           <span className="text-text-secondary">{agentLine}</span>
         </div>
       )}
 
-      {/* fab */}
+      {/* fab (L2) — change · stage · displayState. Absent when no fab change. */}
       {fabLine && (
         <CopyableRow prefix="fab" copied={copiedRow === "fab"} onCopy={() => handleCopy("fab", fabChange!.id)}>
           <ClockSpinner className={`${ICON_CLASS} font-normal`} />{" "}

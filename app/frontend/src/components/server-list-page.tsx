@@ -5,6 +5,8 @@ import { Dialog } from "@/components/dialog";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useHostMetrics, useHostServices, useSessionContext } from "@/contexts/session-context";
+import { WaitingBadge } from "@/components/waiting-badge";
+import { countWaitingInSessions } from "@/lib/waiting";
 import { HostMetrics } from "@/components/host-metrics";
 import { useBoards } from "@/hooks/use-boards";
 import { useServerReorder } from "@/hooks/use-server-reorder";
@@ -288,8 +290,18 @@ export function ServerListPage() {
                 onClick={() =>
                   navigate({ to: "/$server", params: { server: name } })
                 }
-                className={`bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]${isDragSource ? " opacity-50" : ""}`}
+                className={`relative bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]${isDragSource ? " opacity-50" : ""}`}
               >
+                {/* Attention rollup (260706-y1ar): per-server waiting count,
+                    summed over this server's sessions. One glance at `/` answers
+                    "does anything need me". Data comes from the streamed
+                    `sessionsByServer` — only attached servers have windows
+                    streamed, so an unattached server's count is 0 and the badge
+                    (WaitingBadge renders null at 0) is simply absent until its
+                    stream attaches; never a wrong count. */}
+                <span className="absolute right-2 top-2">
+                  <WaitingBadge count={countWaitingInSessions(sessionsByServer.get(name) ?? [])} />
+                </span>
                 {/* De-emphasize infra servers (daemon + test sockets): grey the
                     name only; tile stays fully clickable/attachable. */}
                 <div className={`${isInfraServer(name) ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>

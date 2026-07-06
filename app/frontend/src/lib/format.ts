@@ -20,20 +20,8 @@ export function parseFabChange(fabChange: string): { id: string; slug: string } 
   };
 }
 
-/** Get display duration for an idle window. Returns empty string for active windows. */
-export function getWindowDuration(win: { activity: string; agentState?: string; agentIdleDuration?: string; activityTimestamp: number }, nowSeconds: number): string {
-  if (win.activity === "active") return "";
-
-  // Fab windows with known agent state
-  if (win.agentState === "idle" && win.agentIdleDuration) {
-    return win.agentIdleDuration;
-  }
-
-  // Unknown agent state or non-fab: fall back to activityTimestamp
-  if (win.agentState !== "active" && win.activityTimestamp) {
-    const elapsed = nowSeconds - win.activityTimestamp;
-    if (elapsed > 0) return formatDuration(elapsed);
-  }
-
-  return "";
-}
+// `getWindowDuration` was removed with Row Minimalism (260706-y1ar): the window
+// row no longer renders a duration, and it was its only caller. The PANE panel
+// composes its own `output`/`agent` register durations directly from
+// `activityTimestamp` / `agentIdleDuration` (see status-panel.tsx). `formatDuration`
+// remains — still used there and by the backend-parity duration formatting.

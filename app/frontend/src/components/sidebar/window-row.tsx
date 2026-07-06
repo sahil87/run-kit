@@ -1,7 +1,5 @@
 import { useEffect, useState, useRef, useMemo, memo } from "react";
 import { isGhostWindow } from "@/contexts/optimistic-context";
-import { getWindowDuration } from "@/lib/format";
-import { useNow } from "@/hooks/use-now";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
@@ -276,25 +274,15 @@ function WindowRowInner({
             <span className="truncate">{win.name}</span>
           )}
         </span>
-        <span className="flex items-center gap-1.5 shrink-0">
-          {/* The window's status signal (PR-or-activity) now renders as the
-              single leading StatusDot above — the separate right-side PR dot was
-              collapsed into it. This cluster carries only the stage text and
-              duration. */}
-          {/* Quiet parked rows: a change whose displayed stage is fully done
-              (fab pane map display_state === "done") is parked, not active —
-              suppress the stale stage text and let the duration stand alone.
-              Any other value, unknown future values, or an absent field (older
-              fab binaries omit display_state) keeps today's behavior. A failed
-              stage renders in the red token instead of secondary; the gate
-              itself is unchanged. */}
-          {win.fabStage && win.fabDisplayState !== "done" && (
-            <span className={`text-xs ${win.fabDisplayState === "failed" ? "text-red-400" : "text-text-secondary"}`}>
-              {win.fabStage}
-            </span>
-          )}
-          <WindowDuration win={win} />
-        </span>
+        {/* Row Minimalism (260706-y1ar; status-pyramid.md § Row Minimalism):
+            the trailing status cluster — the stage word (red-when-failed) and
+            the duration text — is REMOVED. The leading StatusDot above is the
+            row's ONLY externally visible status signal (its hue = journey, shape
+            = health, additive halo = waiting); the freed width goes to the
+            window name. The exact stage word + durations survive in the
+            StatusDotTip hover-card and the PANE panel's register view. Hover-
+            reveal action icons (pin/color/kill) below are actions, not status,
+            so they are untouched. */}
       </button>
       {/* Hover-reveal buttons: pin + color swatch + kill. Inert at rest on
           fine pointers (pointer-events-none) so stray clicks near the row's
@@ -379,38 +367,11 @@ function WindowRowInner({
  *  identity-arg `useCallback`s + stable context refs. */
 export const WindowRow = memo(WindowRowInner);
 
-/** Non-ticking wrapper that decides whether a LIVE clock is needed before any
- *  `useNow()` interval is spun up. Only the `activityTimestamp` fallback branch
- *  of `getWindowDuration` depends on `now`; active windows render nothing and
- *  agent-provided `agentIdleDuration` is a static string. For those two cases we
- *  render directly (no interval, no per-second re-render). Only the live case
- *  mounts the ticking leaf below — so a sidebar full of active / agent-idle rows
- *  spins up zero per-second timers. */
-function WindowDuration({ win }: { win: ProjectWindow | GhostWindow }) {
-  // Active windows never show a duration.
-  if (win.activity === "active") return null;
-  // Agent-provided idle duration is a fixed string — no live clock needed.
-  if (win.agentState === "idle" && win.agentIdleDuration) {
-    return <span className="text-xs text-text-secondary">{win.agentIdleDuration}</span>;
-  }
-  // Remaining case (activityTimestamp fallback) is the only one that ticks.
-  if (win.agentState !== "active" && win.activityTimestamp) {
-    return <TickingDuration win={win} />;
-  }
-  return null;
-}
-
-/** Ticking leaf that owns the per-second `now` tick via `useNow()`. Mounted only
- *  for windows whose displayed duration is derived from `activityTimestamp` (the
- *  one branch that changes each second). Isolating the tick here keeps both
- *  `WindowRow` (static under `React.memo`) and non-ticking duration rows free of
- *  the interval — only this text node re-renders each second. */
-function TickingDuration({ win }: { win: ProjectWindow | GhostWindow }) {
-  const now = useNow();
-  const duration = getWindowDuration(win, now);
-  if (!duration) return null;
-  return <span className="text-xs text-text-secondary">{duration}</span>;
-}
+/* Row Minimalism (260706-y1ar): the `WindowDuration`/`TickingDuration` leaves
+   (and their per-second `useNow()` tick) were removed with the trailing status
+   cluster — the row renders no duration. Idle/elapsed durations now live only in
+   the StatusDotTip and the PANE panel's register view. This also drops the last
+   `getWindowDuration` caller (removed from lib/format.ts). */
 
 /** Small pin icon — outline (not pinned) vs filled (pinned to any board).
  *  Lucide-style thumbtack viewed face-on: round-cornered cap, narrow neck

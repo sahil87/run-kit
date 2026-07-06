@@ -3,6 +3,8 @@ import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
+import { WaitingBadge } from "@/components/waiting-badge";
+import { countWaitingWindows } from "@/lib/waiting";
 import { PaletteIcon } from "./icons";
 
 type SessionRowProps = {
@@ -96,6 +98,9 @@ function SessionRowInner({
   const name = session.name;
   const [showColorPicker, setShowColorPicker] = useState(false);
   const colorBtnRef = useRef<HTMLButtonElement>(null);
+  // Count this session's waiting windows once (used for both the badge count and
+  // its aria label below).
+  const waitingCount = countWaitingWindows(session.windows);
 
   const tint = useMemo(() => {
     if (sessionColor == null || !rowTints) return null;
@@ -185,6 +190,12 @@ function SessionRowInner({
             </span>
           )}
         </button>
+        {/* Attention rollup (260706-y1ar): count of this session's waiting
+            windows. Hidden at 0 (WaitingBadge renders null). */}
+        <WaitingBadge
+          count={waitingCount}
+          label={`${waitingCount} window(s) in ${session.name} waiting for input`}
+        />
       </div>
       <div className="flex items-center pr-2">
         {onColorChange && (

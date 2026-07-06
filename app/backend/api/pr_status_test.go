@@ -116,19 +116,28 @@ func TestAttachPRStatusNilCollectorNoop(t *testing.T) {
 	}
 }
 
-func TestAttachPRStatusResetsStaleFields(t *testing.T) {
-	// A window carrying stale PR fields whose PR dropped from the snapshot must
-	// be cleared (wholesale-rebuild + reset semantics).
+func TestAttachPRStatusResetsCollectorFields(t *testing.T) {
+	// A window whose PR dropped from the collector snapshot has its COLLECTOR-only
+	// fields (checks/review/draft) cleared. PrState is dual-sourced — it also
+	// carries enrichWindowPR's branch fallback — so attachPRStatus preserves it on
+	// a collector MISS rather than wiping it; clearing a genuinely gone PR's state
+	// is the branch fallback's job on the next FetchSessions (500ms cache TTL).
 	hub := &sseHub{prStatus: stubSnapshotter{snap: map[string]prstatus.PRStatus{}}}
 	sess := []sessions.ProjectSession{{
 		Windows: []tmux.WindowInfo{
-			{FabChange: "x", PrNumber: intp(386), PrURL: strp("u386"), PrState: "open", PrChecks: "pass", PrReview: "approved", PrIsDraft: true},
+			{FabChange: "x", PrNumber: intp(386), PrURL: strp("u386"), PrState: "closed", PrChecks: "pass", PrReview: "approved", PrIsDraft: true},
 		},
 	}}
 	hub.attachPRStatus(sess)
 	w := sess[0].Windows[0]
-	if w.PrState != "" || w.PrChecks != "" || w.PrReview != "" || w.PrIsDraft {
-		t.Errorf("stale PR fields not reset: %+v", w)
+	if w.PrChecks != "" || w.PrReview != "" || w.PrIsDraft {
+		t.Errorf("stale collector fields not reset: %+v", w)
+	}
+	// The branch-derived fallback state MUST survive a collector miss so a
+	// closed PR outside the viewer's top-$limit window is not stranded to "" and
+	// wrongly owned by prOwnsDot.
+	if w.PrState != "closed" {
+		t.Errorf("branch-derived PrState fallback must be preserved on collector miss, got %q: %+v", w.PrState, w)
 	}
 }
 

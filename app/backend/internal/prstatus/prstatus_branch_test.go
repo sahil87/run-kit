@@ -439,3 +439,25 @@ func TestPickBranchPR_SkipsEmptyURL(t *testing.T) {
 		t.Fatalf("expected #4 (URL-less node skipped), got %v", pr)
 	}
 }
+
+// TestMapBranchState: the branch-fallback state mapper collapses GitHub's enum to
+// the frontend's lowercase display value, case-insensitively, and maps
+// unknown/empty to "" (NOT "open") so an unconfident branch fallback never wrongly
+// owns the status dot.
+func TestMapBranchState(t *testing.T) {
+	cases := map[string]string{
+		"OPEN":    "open",
+		"open":    "open",
+		"MERGED":  "merged",
+		"Merged":  "merged",
+		"CLOSED":  "closed",
+		"closed":  "closed",
+		"":        "",
+		"UNKNOWN": "", // future enum value must not default to "open"
+	}
+	for in, want := range cases {
+		if got := MapBranchState(in); got != want {
+			t.Errorf("MapBranchState(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

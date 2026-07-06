@@ -529,10 +529,10 @@ func windowBranchRepo(w *tmux.WindowInfo) (repoDir, branch string) {
 	return "", ""
 }
 
-// enrichWindowPR populates the window's PrURL/PrNumber from its branch
-// (Constitution §X — PR links are derivable, not pushed). It replaces the
-// pane-map join as the PR-link source: any pane on a branch with an open PR gets
-// its link, in any repo, under any workflow.
+// enrichWindowPR populates the window's PrURL/PrNumber (and a fallback PrState)
+// from its branch (Constitution §X — PR links are derivable, not pushed). It
+// replaces the pane-map join as the PR-link source: any pane on a branch with a
+// PR (open, merged, or closed) gets its link, in any repo, under any workflow.
 //
 // CRITICAL — this runs on the SSE hot path (FetchSessions), so it does ZERO
 // network/subprocess work: it (a) REGISTERS the (repoDir, branch) pair with the
@@ -540,7 +540,15 @@ func windowBranchRepo(w *tmux.WindowInfo) (repoDir, branch string) {
 // JOINS the last-good derived PR from the refresher's in-memory snapshot. The
 // actual `gh pr list` resolution happens off-tick on the refresher goroutine
 // (see internal/prstatus.BranchRefresher). A window with no branch is skipped; a
-// branch not yet resolved, with no open PR, or gh absent leaves the fields nil.
+// branch not yet resolved, with no PR, or gh absent leaves the fields nil.
+//
+// PrState is seeded as a FALLBACK from the branch-derived state so that the
+// authoritative viewer-wide collector (sse.attachPRStatus, keyed by PR URL) can
+// override it on a hit but a MISS does not strand PrState empty. Without this, a
+// branch-derived CLOSED PR outside the viewer's top-$limit collector window
+// would carry prNumber set + prState "" and the frontend's prOwnsDot would paint
+// a solid done-square for a dead PR. MapBranchState maps unknown/empty to "" so
+// an unconfident state never defaults to "open" and re-creates that bug.
 func enrichWindowPR(w *tmux.WindowInfo) {
 	repoDir, branch := windowBranchRepo(w)
 	if branch == "" {
@@ -554,6 +562,7 @@ func enrichWindowPR(w *tmux.WindowInfo) {
 		num := pr.Number
 		w.PrURL = &url
 		w.PrNumber = &num
+		w.PrState = prstatus.MapBranchState(pr.State)
 	}
 }
 

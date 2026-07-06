@@ -92,13 +92,21 @@ type BranchPR struct {
 // derived so its purple/orange DONE-square survives statelessly, restart-proof —
 // there is no grace clock to remember it (status-pyramid.md D2, revised). The
 // `state` field is requested so pickBranchPR can rank by precedence
-// (open > merged > closed).
+// (open > merged > closed). An explicit `--limit 100` overrides gh's default of
+// 30, which `--state all` could otherwise exceed on a much-reused head and
+// truncate the winning PR out of the result page.
 var branchPRExec = func(ctx context.Context, repoDir, branch string) ([]byte, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, ghTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(queryCtx, "gh", "pr", "list",
 		"--head", branch,
 		"--state", "all",
+		// gh pr list defaults to 30 results; under --state all a branch's full
+		// history (open + every prior merged/closed PR on the same head) can
+		// exceed that and truncate the winning PR out of the page. A generous
+		// explicit cap keeps pickBranchPR's precedence ranking correct without
+		// unbounded output — a single head realistically never has this many PRs.
+		"--limit", "100",
 		"--json", "number,url,state,updatedAt",
 	)
 	cmd.Dir = repoDir
@@ -125,8 +133,9 @@ type branchEntry struct {
 	observedAt time.Time // last Register time — drives age-out
 }
 
-// BranchRefresher resolves registered (repo, branch) pairs → open PR on a
-// background tick and serves the result from an in-memory snapshot. The sessions
+// BranchRefresher resolves registered (repo, branch) pairs → their PR (any
+// state, open > merged > closed by precedence) on a background tick and serves
+// the result from an in-memory snapshot. The sessions
 // enrichment REGISTERS pairs (cheap) and reads via Snapshot (no exec); the
 // refresher goroutine owns all gh subprocesses, keeping the SSE hot path
 // network-free.
@@ -351,6 +360,29 @@ func Register(repoDir, branch string) {
 // from the default refresher's in-memory snapshot — no subprocess (hot-path safe).
 func SnapshotBranchPR(repoDir, branch string) (*BranchPR, bool) {
 	return DefaultBranchRefresher.Snapshot(repoDir, branch)
+}
+
+// MapBranchState collapses a branch-derived PR's raw GitHub state enum
+// (OPEN|MERGED|CLOSED, case-insensitive) to the frontend display value
+// open|merged|closed. Unlike the viewer-wide collector's mapState (which
+// defaults unknown/empty to "open"), an unrecognized or empty state maps to ""
+// here: a branch fallback with no confident state MUST NOT default to "open",
+// or a stateless dead PR would wrongly own the status dot. Used by the sessions
+// enrichment to seed WindowInfo.PrState as a fallback when the URL-keyed
+// collector join misses (e.g. a closed PR outside the viewer's top-$limit
+// window) — without it, prOwnsDot sees prNumber set + prState "" and wrongly
+// paints a solid done-square for a dead PR.
+func MapBranchState(state string) string {
+	switch strings.ToUpper(state) {
+	case "OPEN":
+		return "open"
+	case "MERGED":
+		return "merged"
+	case "CLOSED":
+		return "closed"
+	default:
+		return ""
+	}
 }
 
 // branchStateRank maps a GitHub PR state to its precedence rank — LOWER wins.

@@ -653,14 +653,22 @@ func previewSubsetFor(c *sseClient, full map[string]string, byWindow map[string]
 // internal/sessions.enrichWindowPR REGISTERS the (repo, branch) pair and JOINS
 // the last-good PR from internal/prstatus.BranchRefresher's in-memory snapshot,
 // while the actual `gh pr list` runs off-tick on that refresher's background
-// goroutine — so a PR appears for ANY pane on a branch with an open PR, not only
-// fab-change-bound windows (the FabChange gate was removed in 260705-dmex), with
-// zero gh subprocesses on this hot path. The join is by
+// goroutine — so a PR appears for ANY pane on a branch with a PR (open, merged,
+// or closed), not only fab-change-bound windows (the FabChange gate was removed
+// in 260705-dmex), with zero gh subprocesses on this hot path. The join is by
 // canonical PR URL, never by bare PR number — numbers are only unique per repo,
-// so a number join can pick up an unrelated repo's PR state. The four display
-// fields are always reset first so a window that lost its PR (merged/closed →
-// dropped from the snapshot) clears cleanly even on a cached result slice (the
-// cache stores the same slice by reference).
+// so a number join can pick up an unrelated repo's PR state.
+//
+// PrChecks/PrReview/PrIsDraft are collector-only, so they are always reset first
+// and re-attached solely on a snapshot hit. PrState is DUAL-SOURCED: the
+// viewer-wide collector is authoritative on a URL-hit, but enrichWindowPR has
+// already seeded a branch-derived fallback (MapBranchState) into PrState, so a
+// collector MISS must PRESERVE that fallback rather than wipe it to "" — a
+// branch-derived closed PR outside the viewer's top-$limit window would
+// otherwise carry prNumber set + prState "" and prOwnsDot would paint a dead
+// PR's dot solid. The fallback is refreshed by enrichWindowPR every FetchSessions
+// (500ms cache TTL), so preserving it on a cache-hit re-run of this idempotent
+// pass cannot strand a stale value for longer than one cache generation.
 //
 // No-op when no collector is wired (nil prStatus) — degrades gracefully.
 func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
@@ -672,8 +680,10 @@ func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
 		windows := sess[si].Windows
 		for wi := range windows {
 			w := &windows[wi]
-			// Reset display fields so stale values never linger.
-			w.PrState, w.PrChecks, w.PrReview, w.PrIsDraft = "", "", "", false
+			// Reset collector-only fields so stale values never linger. PrState
+			// is left intact: it holds enrichWindowPR's branch fallback and is
+			// overridden below only on a collector hit.
+			w.PrChecks, w.PrReview, w.PrIsDraft = "", "", false
 			if w.PrURL == nil || *w.PrURL == "" {
 				continue
 			}

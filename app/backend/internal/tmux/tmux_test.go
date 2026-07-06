@@ -1,7 +1,10 @@
 package tmux
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -641,33 +644,112 @@ func TestParsePanes(t *testing.T) {
 	})
 }
 
+// makeDirenvDiff builds a real DIRENV_DIFF value the way direnv does — JSON
+// {"p":{...},"n":{...}} → zlib deflate → base64url (padded) — so reversal tests
+// exercise genuine decode/inflate/parse paths rather than a hand-mocked shortcut.
+// p holds prior values (changed/removed vars), n holds new values (changed/added).
+func makeDirenvDiff(t *testing.T, p, n map[string]string) string {
+	t.Helper()
+	payload, err := json.Marshal(struct {
+		P map[string]string `json:"p"`
+		N map[string]string `json:"n"`
+	}{P: p, N: n})
+	if err != nil {
+		t.Fatalf("marshal diff: %v", err)
+	}
+	var buf bytes.Buffer
+	w := zlib.NewWriter(&buf)
+	if _, err := w.Write(payload); err != nil {
+		t.Fatalf("zlib write: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("zlib close: %v", err)
+	}
+	return base64.URLEncoding.EncodeToString(buf.Bytes())
+}
+
 func TestSanitizeEnv(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
-		wantHas []string // entries that must be present
-		wantNot []string // prefixes that must be absent
+		wantHas []string // exact entries that must be present
+		wantNot []string // substrings that must be absent from every entry
 	}{
 		{
-			name:    "replaces PATH and strips DIRENV vars",
-			input:   []string{"HOME=/home/user", "PATH=/dirty/path:/usr/bin", "DIRENV_DIFF=abc", "DIRENV_DIR=/foo", "SHELL=/bin/zsh"},
-			wantHas: []string{"HOME=/home/user", "PATH=" + cleanPATH, "SHELL=/bin/zsh"},
-			wantNot: []string{"DIRENV_", "/dirty/path"},
+			// direnv added WORKTREE_INIT_SCRIPT + IDEAS_FILE, changed PATH,
+			// removed EDITOR. Reversal must undo all four.
+			name: "reverses direnv diff (add removed, changed+removed restored)",
+			input: []string{
+				"HOME=/home/user",
+				"PATH=/run-kit/bin:/usr/bin",
+				"WORKTREE_INIT_SCRIPT=fab sync",
+				"IDEAS_FILE=fab/backlog.md",
+				"DIRENV_DIFF=" + makeDirenvDiff(t,
+					map[string]string{"PATH": "/home/user/.local/bin:/usr/bin", "EDITOR": "vim"},
+					map[string]string{"PATH": "/run-kit/bin:/usr/bin", "WORKTREE_INIT_SCRIPT": "fab sync", "IDEAS_FILE": "fab/backlog.md"},
+				),
+				"SHELL=/bin/zsh",
+			},
+			wantHas: []string{
+				"HOME=/home/user",
+				"PATH=/home/user/.local/bin:/usr/bin", // restored to prior (true from-home PATH)
+				"EDITOR=vim",                          // direnv-removed var restored
+				"SHELL=/bin/zsh",
+			},
+			wantNot: []string{"WORKTREE_INIT_SCRIPT", "IDEAS_FILE", "/run-kit/bin", "DIRENV_"},
 		},
 		{
-			name:    "adds PATH when missing",
+			name: "strips all RK_* and DIRENV_* vars",
+			input: []string{
+				"HOME=/home/user",
+				"PATH=/usr/bin",
+				"RK_DAEMON_LOG=/tmp/daemon.log",
+				"RK_PORT=3000",
+				"RK_HOST=0.0.0.0",
+				"DIRENV_DIR=/run-kit",
+				"DIRENV_FILE=/run-kit/.envrc",
+			},
+			wantHas: []string{"HOME=/home/user", "PATH=/usr/bin"},
+			wantNot: []string{"RK_", "DIRENV_"},
+		},
+		{
+			// No DIRENV_DIFF: pass through unchanged except RK_*/DIRENV_* strips.
+			// The real PATH MUST survive — NOT reset to the POSIX default.
+			name: "no diff: passes PATH through, does not POSIX-reset",
+			input: []string{
+				"HOME=/home/user",
+				"PATH=/home/user/.local/bin:/usr/bin",
+				"RK_PORT=3000",
+				"SHELL=/bin/zsh",
+			},
+			wantHas: []string{
+				"HOME=/home/user",
+				"PATH=/home/user/.local/bin:/usr/bin",
+				"SHELL=/bin/zsh",
+			},
+			wantNot: []string{"RK_", cleanPATH},
+		},
+		{
+			// Malformed DIRENV_DIFF: fail-soft to pass-through + strips.
+			name: "malformed diff: fail-soft pass-through with strips",
+			input: []string{
+				"HOME=/home/user",
+				"PATH=/home/user/.local/bin:/usr/bin",
+				"RK_DAEMON_LOG=/tmp/x",
+				"DIRENV_DIFF=not-valid-base64!!!",
+			},
+			wantHas: []string{"HOME=/home/user", "PATH=/home/user/.local/bin:/usr/bin"},
+			wantNot: []string{"RK_", "DIRENV_", cleanPATH},
+		},
+		{
+			// Last-resort PATH guard: env with no PATH gets cleanPATH injected.
+			name:    "PATH-missing guard injects cleanPATH",
 			input:   []string{"HOME=/home/user", "SHELL=/bin/zsh"},
 			wantHas: []string{"HOME=/home/user", "PATH=" + cleanPATH, "SHELL=/bin/zsh"},
 			wantNot: nil,
 		},
 		{
-			name:    "deduplicates multiple PATH entries",
-			input:   []string{"PATH=/first", "PATH=/second"},
-			wantHas: []string{"PATH=" + cleanPATH},
-			wantNot: []string{"/first", "/second"},
-		},
-		{
-			name:    "empty input still has PATH",
+			name:    "empty input still gets PATH guard",
 			input:   nil,
 			wantHas: []string{"PATH=" + cleanPATH},
 			wantNot: nil,
@@ -691,10 +773,10 @@ func TestSanitizeEnv(t *testing.T) {
 				}
 			}
 
-			for _, prefix := range tt.wantNot {
+			for _, sub := range tt.wantNot {
 				for _, e := range got {
-					if strings.Contains(e, prefix) {
-						t.Errorf("unexpected entry %q containing %q", e, prefix)
+					if strings.Contains(e, sub) {
+						t.Errorf("unexpected entry %q containing %q", e, sub)
 					}
 				}
 			}
@@ -711,6 +793,75 @@ func TestSanitizeEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReverseDirenvDiff_absentPassesThrough(t *testing.T) {
+	in := []string{"HOME=/home/user", "PATH=/usr/bin"}
+	got, err := reverseDirenvDiff(in)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != len(in) {
+		t.Fatalf("expected unchanged env, got %v", got)
+	}
+	for i := range in {
+		if got[i] != in[i] {
+			t.Errorf("entry %d changed: got %q want %q", i, got[i], in[i])
+		}
+	}
+}
+
+func TestReverseDirenvDiff_valid(t *testing.T) {
+	diff := makeDirenvDiff(t,
+		map[string]string{"PATH": "/usr/bin", "EDITOR": "vim"},  // prior
+		map[string]string{"PATH": "/run-kit/bin", "ADDED": "x"}, // new (PATH changed, ADDED added, EDITOR removed by direnv)
+	)
+	in := []string{
+		"HOME=/home/user",
+		"PATH=/run-kit/bin",
+		"ADDED=x",
+		"DIRENV_DIFF=" + diff,
+	}
+	got, err := reverseDirenvDiff(in)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := envToMap(got)
+	if m["PATH"] != "/usr/bin" {
+		t.Errorf("PATH not restored: got %q want /usr/bin", m["PATH"])
+	}
+	if v, ok := m["ADDED"]; ok {
+		t.Errorf("ADDED should be removed, got %q", v)
+	}
+	if m["EDITOR"] != "vim" {
+		t.Errorf("EDITOR (direnv-removed) not restored: got %q want vim", m["EDITOR"])
+	}
+	// DIRENV_DIFF is left for the caller's DIRENV_* strip, not removed here.
+	if _, ok := m["DIRENV_DIFF"]; !ok {
+		t.Errorf("DIRENV_DIFF should remain for the caller to strip")
+	}
+}
+
+func TestReverseDirenvDiff_malformedReturnsError(t *testing.T) {
+	in := []string{"HOME=/home/user", "DIRENV_DIFF=not-base64!!!"}
+	got, err := reverseDirenvDiff(in)
+	if err == nil {
+		t.Fatalf("expected error for malformed diff, got nil")
+	}
+	// On error the original env is returned so the caller can fall through.
+	if len(got) != len(in) {
+		t.Errorf("expected original env returned on error, got %v", got)
+	}
+}
+
+func envToMap(environ []string) map[string]string {
+	m := make(map[string]string, len(environ))
+	for _, e := range environ {
+		if i := strings.IndexByte(e, '='); i >= 0 {
+			m[e[:i]] = e[i+1:]
+		}
+	}
+	return m
 }
 
 func TestEnsureConfigCreatesDropInDir(t *testing.T) {

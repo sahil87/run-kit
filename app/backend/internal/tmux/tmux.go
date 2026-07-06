@@ -773,10 +773,13 @@ func ListActiveWindowsByGroup(ctx context.Context, server string) (map[string]st
 // optionally in a specific directory.
 //
 // Because new-session may start the tmux server process, the command runs with
-// a sanitized environment: PATH is reset to a POSIX default and all DIRENV_*
-// vars are removed. Without this, the server inherits direnv-modified PATH from
-// the shell that launched rk, and every new pane gets stale/duplicated
-// PATH entries that corrupt direnv's diff computation.
+// a sanitized environment (see sanitizeEnv): direnv's DIRENV_DIFF is
+// reverse-applied so the server is born with the operator's from-home
+// environment, and rk-owned (RK_*) and direnv-state (DIRENV_*) vars are
+// stripped. Without this, a server first-touched by the rk daemon inherits
+// run-kit's direnv-polluted environment (WORKTREE_INIT_SCRIPT, IDEAS_FILE,
+// RK_PORT/RK_HOST, RK_DAEMON_LOG, a direnv-mangled PATH), leaking run-kit's
+// project config into unrelated repos.
 func CreateSession(name string, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -810,32 +813,48 @@ func runTmuxWithEnv(ctx context.Context, args []string, env []string) error {
 	return nil
 }
 
-// cleanPATH is the POSIX default PATH used to sanitize the tmux server environment.
+// cleanPATH is the POSIX default PATH used only as a last-resort guard when the
+// sanitized environment carries no PATH at all (see sanitizeEnv). It is no
+// longer an unconditional reset — the direnv-reversed environment carries the
+// operator's true from-home PATH.
 const cleanPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-// cleanEnvForServer returns a copy of the current environment with PATH reset
-// to a clean POSIX default and all DIRENV_* variables removed. This prevents
-// the tmux server process from inheriting direnv state.
+// cleanEnvForServer returns a sanitized copy of the current environment for a
+// user-facing tmux server rk is about to birth. See sanitizeEnv.
 func cleanEnvForServer() []string {
 	return sanitizeEnv(os.Environ())
 }
 
-// sanitizeEnv filters an environment slice: replaces PATH with a clean POSIX
-// default (deduplicating if present multiple times), strips DIRENV_* vars,
-// and ensures PATH is always present.
+// sanitizeEnv produces the environment for a user-facing tmux server born by
+// rk, targeting the semantics "as if the user had started tmux from $HOME":
+//
+//  1. Reverse-apply direnv's DIRENV_DIFF (undoing run-kit's .envrc changes,
+//     including restoring the operator's true pre-direnv PATH). A malformed
+//     diff is logged and treated as absent — sanitization never fails hard.
+//  2. Strip all RK_*-prefixed vars (RK_DAEMON_LOG, RK_PORT, RK_HOST, ...): rk
+//     adds these post-direnv so diff reversal does not catch them.
+//  3. Strip all DIRENV_*-prefixed vars (incl. DIRENV_DIFF itself): direnv
+//     excludes its own state vars from the diff, so reversal leaves them; a
+//     from-home shell has none.
+//  4. As a last-resort guard, inject PATH=cleanPATH only if no PATH survives,
+//     so the tmux server never starts with an empty PATH.
 func sanitizeEnv(environ []string) []string {
-	env := make([]string, 0, len(environ)+1)
+	reversed, err := reverseDirenvDiff(environ)
+	if err != nil {
+		slog.Warn("direnv diff reversal failed; passing env through with strips",
+			"err", err,
+		)
+		reversed = environ
+	}
+
+	env := make([]string, 0, len(reversed)+1)
 	pathSeen := false
-	for _, e := range environ {
-		if strings.HasPrefix(e, "DIRENV_") {
+	for _, e := range reversed {
+		if strings.HasPrefix(e, "RK_") || strings.HasPrefix(e, "DIRENV_") {
 			continue
 		}
 		if strings.HasPrefix(e, "PATH=") {
-			if !pathSeen {
-				env = append(env, "PATH="+cleanPATH)
-				pathSeen = true
-			}
-			continue
+			pathSeen = true
 		}
 		env = append(env, e)
 	}

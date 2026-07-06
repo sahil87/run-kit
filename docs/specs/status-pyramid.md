@@ -22,7 +22,7 @@ display-precedence ladder built on them.
 | Layer | Signal | Exists when | Source |
 |-------|--------|-------------|--------|
 | L0 — tmux output | `activity` (active/idle), `activityTimestamp` | always, every window | `#{window_activity}` within 10s (`ActivityThresholdSeconds`) |
-| L1 — agent lifecycle | `agentState` (active / waiting / idle) + epoch | an instrumented agent runs in a pane of the window | `@rk_agent_state` pane option, window rollup `waiting > active > idle`; absent = unknown; shell-command reconciler clears stale values (see agent-state.md) |
+| L1 — agent lifecycle | `agentState` (active / waiting / idle) + epoch | an instrumented agent runs in a pane of the window | `@rk_agent_state` pane option, window rollup `waiting > active > idle`; absent = unknown; PID-liveness reconciler clears dead-agent values, shell-name fallback for legacy two-segment values (see agent-state.md) |
 | L2 — fab pipeline | `fabChange`, `fabStage`, `fabDisplayState` | the pane's worktree has an active change | cwd → `.fab-status.yaml` → `.status.yaml`, via the pane-map join |
 | L3 — PR | `prNumber`/`prUrl` + `prState`/`prChecks`/`prReview`/`prIsDraft` | the pane's branch resolves to a PR | branch → `gh` lookup in the prstatus collector (post-#314; previously fab's `.status.yaml` `prs:` list) |
 
@@ -150,7 +150,7 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
 5. **tmux output recency surfaces in exactly two places**: the bottom tier's
    solid/ring (no change, no PR, no agent), and the duration-mute rule (below).
    It is never an attention signal — output ≠ needs-me.
-6. **Merged-PR durability is derived, not remembered** **[target — D2 revised]**.
+6. **Merged-PR durability is derived, not remembered** **[current — D2 revised]**.
    The first implementation resolved D2 with an `--state open` lookup plus a
    10-minute **in-memory grace window** (`branchPRMergedGrace`) — which proved
    wrong in production: the grace expires (and any rk restart wipes it), so a
@@ -227,8 +227,8 @@ fab  260705-dmex · review · failed        (L2)
 PR   #314 open · checks fail · draft      (L3)
 ```
 
-Register keys are fixed-width 3-char (`out` / `agt` / `fab` / `PR`), matching
-the panel's existing `tmx`/`cwd`/`git` vocabulary. **[target — follow-up PR]**
+Register keys are fixed-width 3-char lowercase (`out` / `agt` / `fab` / `pr`),
+matching the panel's existing `tmx`/`cwd`/`git` vocabulary. **[current]**
 
 Absent layers render as absent (no placeholder rows for a plain shell pane
 beyond `output`).
@@ -305,5 +305,5 @@ One overlay at a time: `waiting` outranks `stuck`.
 | ID | Question | Resolution |
 |----|----------|-----------|
 | ~~D1~~ | ~~PR tier gate: `prNumber` alone?~~ | **Resolved (palette v3)**: PR dot-ownership is per-family — purple requires `fabChange && prNumber`, orange requires `fresh agentState && prNumber`. A plain pane's PR never owns the dot (derivation stays universal in register/tip/PR-status-line) |
-| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed merged purple into green on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent); merged owns the dot statelessly (durable done-square); closed-unmerged never owns (green fab fallback / floor — shipped). Grace-window machinery retires. **[target — follow-up PR]** |
+| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed merged purple into green on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent); merged owns the dot statelessly (durable done-square); closed-unmerged never owns (green fab fallback / floor — shipped). Grace-window machinery retired. **[current]** |
 | ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved (additive halo, palette v3)**: `waiting` = constant-**yellow** pulsing halo around the dot, core hue and shape untouched. Rejected: hue-flip (destroys family identity precisely when attention is highest — e.g. fab intake asking); self-colored halo (reduced-motion form nearly invisible + collides with the `ring` shape); fuchsia (its motivating amber collision no longer exists). Reduced-motion: static yellow outer ring. Final glow tuning at implementation with a visual check against all six core hues |

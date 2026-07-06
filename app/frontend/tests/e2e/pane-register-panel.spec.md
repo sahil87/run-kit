@@ -35,7 +35,8 @@ vocabulary (`out`/`agt`).
 **Steps:**
 1. Navigate to `/default/1`.
 2. Assert the `register-output` (L0) test id is visible and contains the key
-   text "out".
+   text "out" as a whole token (`/\bout\b/`, not a bare substring — a regressed
+   `output` key would still contain "out").
 3. Assert the `register-agent` (L1) is visible and contains the key text "agt"
    and "waiting 3m".
 4. Assert the fab register (L2) shows the change id ("y1ar") and stage

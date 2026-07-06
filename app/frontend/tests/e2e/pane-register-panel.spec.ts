@@ -99,7 +99,11 @@ test.describe("PANE panel four-register view", () => {
     // L0 out register (always present) — fixed-width 3-char key.
     const output = page.getByTestId("register-output");
     await expect(output).toBeVisible();
-    await expect(output).toContainText("out");
+    // Match `out` as a whole token (word boundaries), not a bare substring:
+    // a regressed `output` key still contains "out", so toContainText("out")
+    // would pass even if the 3-char normalization broke. /\bout\b/ matches the
+    // "out " key but NOT "output" (t→p is not a word boundary).
+    await expect(output).toContainText(/\bout\b/);
     // L1 agt register — 3-char key + the waiting agent + duration.
     const agent = page.getByTestId("register-agent");
     await expect(agent).toBeVisible();

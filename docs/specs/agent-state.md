@@ -34,12 +34,17 @@ is derived server-side.
 |----------|-------|
 | Name | `@rk_agent_state` |
 | Scope | tmux **pane** user option (`set-option -p`) |
-| Value | `"<state>:<epoch_seconds>"` |
+| Value | `"<state>:<epoch_seconds>[:<pid>]"` |
 | States | `active` \| `waiting` \| `idle` |
-| Example | `waiting:1751790000` |
+| Example | `waiting:1751790000:48213` |
 
-The epoch suffix is **mandatory** — readers compute idle/waiting duration from
-it.
+The epoch segment is **mandatory** — readers compute idle/waiting duration from
+it. The pid segment is the **agent process's pid** and SHOULD be written by all
+current writers (`$PPID` inside the hook's `sh -c` — the shell's parent IS the
+agent); it feeds the PID-liveness reconciler (Reader rule 3). Readers MUST
+tolerate its absence (legacy two-segment values). A malformed value — wrong
+segment count, unknown state, non-integer epoch, or a malformed/non-positive
+pid — is wholly unknown; readers never partially trust it.
 
 ### State semantics
 
@@ -62,15 +67,23 @@ Hook commands that write the option MUST:
 3. **Never fail the agent** — every path exits 0 (`… 2>/dev/null || true`); a
    broken hook must never break the agent's turn.
 4. **Depend on nothing but tmux** — write via plain
-   `tmux set-option -pt "$TMUX_PANE" @rk_agent_state "<state>:<epoch>"`. No `rk`
-   binary and no run-kit server need be running at hook-fire time.
+   `tmux set-option -pt "$TMUX_PANE" @rk_agent_state "<state>:<epoch>:<pid>"`.
+   No `rk` binary and no run-kit server need be running at hook-fire time.
+5. **Carry the agent pid** — `$PPID` inside the hook's `sh -c` is the agent
+   process (the harness runs hooks as its own shell children). This is what
+   lets readers trust state on *wrapped launches*, where
+   `#{pane_current_command}` reads as a shell while the agent runs inside it.
 
 Canonical command (one literal per state; nothing user-provided is
 interpolated):
 
 ```sh
-sh -c '[ -n "$TMUX_PANE" ] || exit 0; tmux set-option -pt "$TMUX_PANE" @rk_agent_state "<state>:$(date +%s)" 2>/dev/null || true'
+sh -c '[ -n "$TMUX_PANE" ] || exit 0; tmux set-option -pt "$TMUX_PANE" @rk_agent_state "<state>:$(date +%s):$PPID" 2>/dev/null || true'
 ```
+
+> **Migration**: updating the hook strings requires re-running `rk agent-setup`
+> (idempotent — rk-owned entries are replaced in place) and **restarting agent
+> sessions** (harnesses snapshot hook config at session start).
 
 ---
 
@@ -80,11 +93,21 @@ sh -c '[ -n "$TMUX_PANE" ] || exit 0; tmux set-option -pt "$TMUX_PANE" @rk_agent
    has no hooks installed).
 2. **Duration from epoch** — readers compute idle/waiting duration from the
    epoch suffix; they MAY apply staleness heuristics on top.
-3. **Shell-command reconciler** — a pane whose `#{pane_current_command}` is a
-   plain shell (`bash` \| `zsh` \| `fish` \| `sh` \| `dash`) is treated as having
-   **no agent**, regardless of a leftover option value. An Esc-interrupted or
-   killed agent can strand a stale `active`; the reconciler auto-clears it (the
-   guppi lesson).
+3. **Reconciler** — clears stranded state from dead agents, in two forms:
+   - **PID liveness (primary — pid-carrying values)**: the state is trusted iff
+     the agent process is alive (`kill(pid, 0)`; `ESRCH` = dead → treat as no
+     agent; `EPERM` counts as alive). The pane's command name is IRRELEVANT for
+     these values — a wrapped launch (`#{pane_current_command}` = `bash` while
+     the agent runs inside a non-exec'ing wrapper) reports correctly, and a
+     killed/crashed agent clears precisely.
+   - **Shell-command fallback (legacy two-segment values only)**: a pane whose
+     `#{pane_current_command}` is a plain shell (`bash` \| `zsh` \| `fish` \|
+     `sh` \| `dash`) is treated as having **no agent**, regardless of a leftover
+     option value (the guppi lesson). Known false negative: wrapped launches —
+     which is why the pid form is preferred.
+   An Esc-interrupted agent (alive, at rest) is corrected by the hooks
+   themselves (`Notification: idle_prompt` rewrites to `idle` after ~60s) — the
+   reconciler's job is only the dead-process case.
 4. **Window rollup** — a window with multiple panes rolls up to a single state
    with precedence `waiting > active > idle` (a split window with one waiting
    pane is a waiting window). A per-pane truth is preserved for future pane/board

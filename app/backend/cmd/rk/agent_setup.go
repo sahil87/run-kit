@@ -41,9 +41,15 @@ const rkHookMarker = tmux.AgentStateOption
 // pane option via plain tmux with no rk/server dependency at hook-fire time. The
 // state is a fixed literal (one of the three known states) — NOT user input — so
 // there is no injection surface (Constitution §I).
+//
+// The trailing `$PPID` segment is the AGENT's pid: the harness runs the hook as
+// its own `sh -c` child, so the shell's parent IS the agent process. Readers use
+// it for the precise PID-liveness reconciler (docs/specs/agent-state.md § Reader
+// rules) — this is what makes wrapped launches (pane command "bash" while the
+// agent runs inside) report state correctly.
 func agentStateHookCommand(state string) string {
 	return fmt.Sprintf(
-		`sh -c '[ -n "$TMUX_PANE" ] || exit 0; tmux set-option -pt "$TMUX_PANE" %s "%s:$(date +%%s)" 2>/dev/null || true'`,
+		`sh -c '[ -n "$TMUX_PANE" ] || exit 0; tmux set-option -pt "$TMUX_PANE" %s "%s:$(date +%%s):$PPID" 2>/dev/null || true'`,
 		rkHookMarker, state,
 	)
 }

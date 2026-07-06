@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"rk/internal/validate"
@@ -218,10 +219,12 @@ const (
 )
 
 // shellCommands is the set of plain-shell pane_current_command values that the
-// reconciler treats as "no agent" — a pane running one of these has no agent
-// regardless of a leftover @rk_agent_state value (the guppi auto-clear lesson:
-// an Esc-interrupted or killed agent can strand a stale `active`). See
-// docs/specs/agent-state.md § Reader rules.
+// LEGACY reconciler fallback treats as "no agent" — applied only to
+// two-segment @rk_agent_state values (no pid segment, older writers). A pane
+// running one of these has no agent regardless of a leftover value (the guppi
+// auto-clear lesson: a killed agent can strand a stale `active`). Pid-carrying
+// values use the precise PID-liveness reconciler instead (agentProcessAlive)
+// and never consult this set. See docs/specs/agent-state.md § Reader rules.
 var shellCommands = map[string]bool{
 	"bash": true,
 	"zsh":  true,
@@ -241,30 +244,49 @@ func isAgentState(s string) bool {
 	return s == AgentStateActive || s == AgentStateWaiting || s == AgentStateIdle
 }
 
+// agentProcessAlive reports whether the agent process with the given pid is
+// still alive, via the classic kill(pid, 0) liveness probe: no signal is sent,
+// only existence/permission is checked. EPERM counts as alive (the process
+// exists but belongs to another user). Package-level var so tests can stub it —
+// parsePanes stays deterministic without real processes.
+var agentProcessAlive = func(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
 // parseAgentState parses a raw @rk_agent_state value of the form
-// "<state>:<epoch_seconds>" into a validated (state, epoch) pair. A value that
-// is empty, lacks the colon, carries an unknown state token, or has a
-// non-integer epoch yields ("", 0) — unknown. Splitting on the LAST colon is
-// defensive; the state tokens never contain a colon, so it is equivalent to a
-// first-colon split for valid input.
-func parseAgentState(raw string) (string, int64) {
+// "<state>:<epoch_seconds>[:<pid>]" into a validated (state, epoch, pid)
+// triple. The pid segment is optional (written by rk agent-setup's hooks as
+// $PPID — the agent process itself, since the hook runs as its `sh -c` child);
+// pid is 0 when the segment is absent (legacy two-segment writers). A value
+// that is empty, has the wrong segment count, carries an unknown state token,
+// a non-integer epoch, or a malformed/non-positive pid yields ("", 0, 0) —
+// unknown (malformed values are never partially trusted).
+func parseAgentState(raw string) (string, int64, int) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", 0
+		return "", 0, 0
 	}
-	i := strings.LastIndex(raw, ":")
-	if i < 0 {
-		return "", 0
+	parts := strings.Split(raw, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return "", 0, 0
 	}
-	state := raw[:i]
+	state := parts[0]
 	if !isAgentState(state) {
-		return "", 0
+		return "", 0, 0
 	}
-	epoch, err := strconv.ParseInt(raw[i+1:], 10, 64)
+	epoch, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return "", 0
+		return "", 0, 0
 	}
-	return state, epoch
+	pid := 0
+	if len(parts) == 3 {
+		pid, err = strconv.Atoi(parts[2])
+		if err != nil || pid <= 0 {
+			return "", 0, 0
+		}
+	}
+	return state, epoch, pid
 }
 
 // PaneInfo describes a single tmux pane within a window.
@@ -282,8 +304,10 @@ type PaneInfo struct {
 	CwdMissing bool `json:"cwdMissing,omitempty"`
 	// AgentState is the generic agent-lifecycle state from the pane's
 	// @rk_agent_state option (active|waiting|idle; empty = unknown), after the
-	// shell-command reconciler. AgentStateEpoch is the option's epoch-seconds
-	// suffix (0 = unknown), from which idle/waiting duration is computed rk-side.
+	// reconciler (PID liveness for pid-carrying values; shell-command fallback
+	// for legacy two-segment values). AgentStateEpoch is the option's
+	// epoch-seconds segment (0 = unknown), from which idle/waiting duration is
+	// computed rk-side.
 	AgentState      string `json:"agentState,omitempty"`
 	AgentStateEpoch int64  `json:"agentStateEpoch,omitempty"`
 }
@@ -519,11 +543,13 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 // grouping and not stored in PaneInfo. Lines with fewer than 7 fields are
 // silently skipped. Empty input returns nil.
 //
-// The @rk_agent_state field (field 6) is parsed into AgentState/AgentStateEpoch
-// via parseAgentState, then reconciled: a pane whose command is a plain shell is
-// treated as having no agent (both fields zeroed) regardless of a leftover option
-// value — the guppi auto-clear lesson that prevents a stranded `active` after an
-// Esc-interrupt/kill.
+// The @rk_agent_state field (field 6) is parsed into
+// AgentState/AgentStateEpoch (+ an optional agent pid) via parseAgentState,
+// then reconciled: pid-carrying values are trusted iff the agent process is
+// alive (kill-0 liveness — precise, wrapper-launch-proof); legacy two-segment
+// values fall back to the shell-command heuristic (a plain-shell pane has no
+// agent — the guppi auto-clear lesson that prevents a stranded `active` after
+// a kill).
 //
 // Accessible to same-package tests.
 func parsePanes(lines []string) map[int][]PaneInfo {
@@ -547,10 +573,21 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 		}
 		isActive := strings.TrimSpace(parts[5]) == "1"
 		command := strings.TrimSpace(parts[4])
-		agentState, agentEpoch := parseAgentState(parts[6])
-		// Reconciler: a plain-shell pane has no agent regardless of a leftover
-		// @rk_agent_state value.
-		if isShellCommand(command) {
+		agentState, agentEpoch, agentPID := parseAgentState(parts[6])
+		// Reconciler. Primary form (pid-carrying values from current
+		// agent-setup hooks): PID liveness — the state is trusted iff the agent
+		// process is still alive, regardless of the pane's command name. This
+		// fixes the wrapped-launch false negative (an agent started via a
+		// non-exec'ing shell wrapper reports pane_current_command = "bash"
+		// while genuinely running) and precisely clears state from a
+		// killed/crashed agent. Legacy fallback (two-segment values, no pid):
+		// the original shell-command heuristic — a plain-shell pane has no
+		// agent regardless of a leftover value.
+		if agentPID > 0 {
+			if !agentProcessAlive(agentPID) {
+				agentState, agentEpoch = "", 0
+			}
+		} else if isShellCommand(command) {
 			agentState, agentEpoch = "", 0
 		}
 		p := PaneInfo{

@@ -251,8 +251,10 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 func TestAgentStateHookCommandShape(t *testing.T) {
 	cmd := agentStateHookCommand(agentStateWaiting)
 	// Must self-locate via $TMUX_PANE, no-op outside tmux, never fail the agent,
-	// carry the marker + state, and write the epoch suffix.
-	for _, want := range []string{`[ -n "$TMUX_PANE" ] || exit 0`, rkHookMarker, "waiting:", "date +%s", "|| true"} {
+	// carry the marker + state, and write the epoch + agent-pid segments (the
+	// pid — $PPID = the hook shell's parent, i.e. the agent — feeds the
+	// PID-liveness reconciler).
+	for _, want := range []string{`[ -n "$TMUX_PANE" ] || exit 0`, rkHookMarker, "waiting:", "date +%s", `:$PPID"`, "|| true"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("hook command missing %q: %s", want, cmd)
 		}

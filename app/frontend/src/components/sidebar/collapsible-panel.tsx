@@ -287,7 +287,14 @@ export function CollapsiblePanel({
           </span>
           <TypedLabel text={title} className="font-bold uppercase tracking-wide" />
           {headerRight && (
-            <span className="ml-auto flex items-center gap-1 min-w-0 truncate">
+            /* No `truncate` here: the Pane panel's headerRight leads with a
+               StatusDot whose waiting halo is a box-shadow painting OUTSIDE
+               the dot — an overflow-hidden wrapper clips it into a half-moon
+               (same fix as the window-row dot wrapper). Every headerRight
+               consumer ellipsizes its own text (Pane/Host/Server carry inner
+               `truncate` spans; Boards is a fixed count), so `min-w-0` alone
+               is enough. */
+            <span className="ml-auto flex items-center gap-1 min-w-0">
               {headerRight}
             </span>
           )}

@@ -28,6 +28,7 @@
 | [Project Plan](project-plan.md) | 4-phase reimplementation plan: scaffold → backend → frontend → cleanup |
 | [Design Philosophy](design.md) | Core design principles and mental models behind fab-kit |
 | [Short-Term Goal](short-term-goal.md) | Minimum viable product requirements and priorities |
+| [Status Pyramid](status-pyramid.md) | Precedence model for status signals — tier ladder (PR > fab > agent > tmux), channel model (hue/shape/animation), attention overlay, decision table, rollups |
 | [Themes](themes.md) | Theme system architecture: ANSI palettes, derivation, tmux integration, import script |
 
 ## Wiki

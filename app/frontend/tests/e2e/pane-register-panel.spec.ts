@@ -5,10 +5,11 @@ import { test, expect, type Page } from "@playwright/test";
 // pane-register-panel.spec.md for intent + steps.
 //
 // PANE panel register view (260706-y1ar; status-pyramid.md § Row Minimalism):
-// output (L0) / agent (L1) / fab (L2) / PR (L3), one orthogonal line per layer,
-// never collapsed. Absent layers render as absent (a plain shell shows only
-// `output`). The PR register shows for ANY pane with a prNumber (ungated from
-// fabChange — universal derivation, Principle X).
+// out (L0) / agt (L1) / fab (L2) / PR (L3), one orthogonal line per layer, never
+// collapsed. The L0/L1 keys are fixed-width 3-char (`out`/`agt`, matching
+// tmx/cwd/git) per 260706-4h26. Absent layers render as absent (a plain shell
+// shows only `out`). The PR register shows for ANY pane with a prNumber (ungated
+// from fabChange — universal derivation, Principle X).
 
 const SERVER = "default";
 
@@ -93,13 +94,16 @@ test.describe("PANE panel four-register view", () => {
     await mockBackend(page);
   });
 
-  test("a full window shows all four registers (output/agent/fab/PR)", async ({ page }) => {
+  test("a full window shows all four registers (out/agt/fab/PR)", async ({ page }) => {
     await page.goto(`/${SERVER}/1`);
-    // L0 output register (always present).
-    await expect(page.getByTestId("register-output")).toBeVisible();
-    // L1 agent register — the waiting agent + duration.
+    // L0 out register (always present) — fixed-width 3-char key.
+    const output = page.getByTestId("register-output");
+    await expect(output).toBeVisible();
+    await expect(output).toContainText("out");
+    // L1 agt register — 3-char key + the waiting agent + duration.
     const agent = page.getByTestId("register-agent");
     await expect(agent).toBeVisible();
+    await expect(agent).toContainText("agt");
     await expect(agent).toContainText("waiting 3m");
     // L2 fab register — change · stage · displayState.
     await expect(page.getByText(/y1ar/)).toBeVisible();

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -11,13 +12,21 @@ import (
 // Branch→PR derivation (260705-dmex-generic-agent-state-tier).
 //
 // This is a distinct capability from the viewer-wide collector above: given a
-// pane's repo directory and branch, it resolves the OPEN PR whose head is that
-// branch via `gh pr list --head <branch>` run in the repo. run-kit derives
-// PrURL/PrNumber this way for ANY pane on a branch with an open PR — not only
+// pane's repo directory and branch, it resolves the PR whose head is that branch
+// via `gh pr list --head <branch> --state all` run in the repo, picking by
+// precedence (open > merged > closed — pickBranchPR). run-kit derives
+// PrURL/PrNumber this way for ANY pane on a branch with a PR — not only
 // fab-change-bound windows — replacing the pane-map join as the PR-link source
 // (Constitution §X: PR links are derivable, not pushed). The viewer-wide
 // URL-keyed collector still supplies the live state/checks/review join, keyed by
 // the derived URL.
+//
+// Querying ALL states (not just open) is what makes a merged PR's purple/orange
+// done-square DURABLE and RESTART-PROOF: the PR keeps resolving positive after it
+// merges, derived freshly from gh each pass, so there is no in-memory grace clock
+// to expire or to be wiped by an rk restart (status-pyramid.md § Open Decisions
+// D2, revised — the earlier `--state open` + 10-min grace decayed the merged
+// square into a green fab square minutes after merge).
 //
 // CRITICAL — no network on the SSE hot path. Resolution runs on a BACKGROUND
 // refresher (mirroring Collector.Start's tick discipline), NOT inline in
@@ -55,49 +64,42 @@ const (
 	// forever. One availability probe per pass at most, and skipped entirely
 	// while a fresh verdict stands.
 	branchPRAvailabilityTTL = 60 * time.Second
-
-	// branchPRMergedGrace is the D2 grace window (status-pyramid.md § Open
-	// Decisions — D2). The branch lookup is `--state open`, so the moment a PR
-	// merges (or closes) it drops out of the query and would otherwise vanish
-	// from the window instantly — losing the purple/orange DONE-square terminal
-	// state (the whole point of the merged shape). To retain it, when the query
-	// returns "no open PR" for a pair that PREVIOUSLY resolved to a PR, keep the
-	// last-known derived PR for this grace window instead of clearing to a
-	// negative. During the grace the viewer-wide collector (which DOES query
-	// MERGED/CLOSED) supplies the merged state via the URL join, so the dot shows
-	// the done-square; a closed-unmerged PR's fall-back to the live fab tier is
-	// handled frontend-side (statusDotState drops PR ownership for prState ==
-	// "closed"). After the grace the entry becomes a true negative and the pane
-	// falls through to its fab/floor tier. Sized generously so a just-merged PR
-	// stays visible long enough to register, but bounded so a stale mapping never
-	// lingers indefinitely (Constitution II — no durable state).
-	branchPRMergedGrace = 10 * time.Minute
 )
 
-// BranchPR is the derived open PR for a (repo, branch) pair. It carries only the
-// fields needed to populate WindowInfo.PrURL/PrNumber and to key the live-status
-// join; the richer state/checks/review come from the viewer-wide collector.
-// (State/IsDraft were trimmed at rework cycle 1 — no consumer ever read them,
-// and they were dropped from the `--json` field list too.)
+// BranchPR is the derived PR for a (repo, branch) pair. It carries only the
+// fields needed to populate WindowInfo.PrURL/PrNumber, to rank candidates by
+// precedence, and to key the live-status join; the richer checks/review come
+// from the viewer-wide collector.
 type BranchPR struct {
 	Number int    `json:"number"`
 	URL    string `json:"url"`
-	// UpdatedAt is used only to pick the most-recently-updated PR when a branch
-	// has more than one open PR; it is not surfaced further.
+	// State is GitHub's PR state — OPEN | MERGED | CLOSED (the `gh pr list --json
+	// state` enum). It drives pickBranchPR's precedence ranking (open > merged >
+	// closed); it is compared case-insensitively and not surfaced further (the
+	// viewer-wide collector supplies the displayed prState via the URL join).
+	State string `json:"state"`
+	// UpdatedAt breaks ties WITHIN a state class — the most-recently-updated PR of
+	// the winning class is chosen; it is not surfaced further.
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-// branchPRExec runs `gh pr list --head <branch>` in repoDir and returns its raw
-// stdout. It is a package var so tests can stub gh without a real binary
-// (mirroring the ghExec seam on Collector). The default uses exec.CommandContext
-// with a timeout and an explicit argv slice.
+// branchPRExec runs `gh pr list --head <branch> --state all` in repoDir and
+// returns its raw stdout. It is a package var so tests can stub gh without a real
+// binary (mirroring the ghExec seam on Collector). The default uses
+// exec.CommandContext with a timeout and an explicit argv slice.
+//
+// The query is `--state all` (NOT `--state open`): a merged PR must keep being
+// derived so its purple/orange DONE-square survives statelessly, restart-proof —
+// there is no grace clock to remember it (status-pyramid.md D2, revised). The
+// `state` field is requested so pickBranchPR can rank by precedence
+// (open > merged > closed).
 var branchPRExec = func(ctx context.Context, repoDir, branch string) ([]byte, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, ghTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(queryCtx, "gh", "pr", "list",
 		"--head", branch,
-		"--state", "open",
-		"--json", "number,url,updatedAt",
+		"--state", "all",
+		"--json", "number,url,state,updatedAt",
 	)
 	cmd.Dir = repoDir
 	return cmd.Output()
@@ -111,20 +113,16 @@ var branchPRAvailable = ghAvailable
 // branchEntry is a cached derivation for one (repo, branch) pair. observedAt is
 // bumped on every Register so the refresher can age out pairs no window reports
 // anymore; pr is the last-good result (nil == either not-yet-resolved OR a
-// confirmed "no open PR" past the grace window — both serve nothing from
-// Snapshot, which is the only distinction the join cares about).
+// confirmed "no PR" — both serve nothing from Snapshot, which is the only
+// distinction the join cares about).
 //
-// wentNegativeAt is the D2 grace-window clock: when a pair that PREVIOUSLY
-// resolved to a PR next resolves to "no open PR" (the PR merged/closed and
-// dropped from the `--state open` query), the refresher does NOT clear `pr`
-// immediately — it stamps `wentNegativeAt` and keeps serving the last-known PR
-// until `branchPRMergedGrace` elapses, so the merged done-square survives the
-// open-only lookup (status-pyramid.md D2). Zero when the entry is positive
-// (open PR still resolving) or has never resolved.
+// Because the branch query is `--state all`, a merged PR keeps resolving to a
+// positive result on every pass — its done-square is durable STATELESSLY, so
+// there is no grace clock to remember it across the merge boundary or across an
+// rk restart (status-pyramid.md D2, revised).
 type branchEntry struct {
-	pr             *BranchPR // last-known PR (served during the D2 grace even after it left `--state open`)
-	observedAt     time.Time // last Register time — drives age-out
-	wentNegativeAt time.Time // when a previously-positive entry first resolved negative (D2 grace clock)
+	pr         *BranchPR // last-known PR
+	observedAt time.Time // last Register time — drives age-out
 }
 
 // BranchRefresher resolves registered (repo, branch) pairs → open PR on a
@@ -201,9 +199,9 @@ func (r *BranchRefresher) Register(repoDir, branch string) {
 
 // Snapshot returns the last-good derived PR for a (repoDir, branch) pair from the
 // in-memory cache. It NEVER runs a subprocess — this is the hot-path join. It
-// returns (pr, true) only when the refresher has resolved the pair to an open PR;
+// returns (pr, true) only when the refresher has resolved the pair to a PR;
 // (nil, false) for an unregistered pair, an as-yet-unresolved pair, or a resolved
-// negative ("no open PR") entry.
+// negative ("no PR") entry.
 func (r *BranchRefresher) Snapshot(repoDir, branch string) (*BranchPR, bool) {
 	if repoDir == "" || branch == "" {
 		return nil, false
@@ -247,7 +245,11 @@ func (r *BranchRefresher) Start(ctx context.Context) {
 //   - transient exec error → KEEP the last-good entry (true stale-while-revalidate;
 //     never fail-to-negative)
 //   - a parsed empty/no-PR result → a valid NEGATIVE entry (nil pr, resolved)
-//   - a parsed open PR → the positive entry
+//   - a parsed PR (open/merged/closed, picked by precedence) → the positive entry
+//
+// Because the query is `--state all`, a merged PR keeps resolving positive on
+// every pass — its done-square is durable STATELESSLY (no grace clock, no
+// negative-stamp retention). Only a genuine empty/no-PR result clears the entry.
 func (r *BranchRefresher) refresh(ctx context.Context) {
 	now := r.now()
 
@@ -286,7 +288,7 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 			// revalidate). Do NOT downgrade a good entry to a negative.
 			continue
 		}
-		pr, parseErr := pickBranchPR(out) // nil,nil == confirmed no open PR (valid negative)
+		pr, parseErr := pickBranchPR(out) // nil,nil == confirmed no PR (valid negative)
 		if parseErr != nil {
 			// Partial/malformed gh output (broken JSON): treat like a transient
 			// error and keep last-good rather than clearing a previously-good PR
@@ -295,24 +297,11 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 		}
 		r.mu.Lock()
 		if e, ok := r.entries[p.key]; ok { // may have aged out concurrently
-			if pr != nil {
-				// Positive: an open PR resolved — update and clear any grace clock.
-				e.pr = pr
-				e.wentNegativeAt = time.Time{}
-			} else if e.pr != nil {
-				// D2 grace: the PR left `--state open` (merged/closed) but this
-				// pair previously resolved to one. Retain the last-known PR until
-				// the grace window elapses, so the done-square survives; then
-				// clear to a true negative and let the pane fall through to fab.
-				if e.wentNegativeAt.IsZero() {
-					e.wentNegativeAt = now
-				} else if now.Sub(e.wentNegativeAt) > branchPRMergedGrace {
-					e.pr = nil
-					e.wentNegativeAt = time.Time{}
-				}
-			}
-			// (pr == nil && e.pr == nil): a still-unresolved negative — nothing
-			// to retain, leave as-is.
+			// A successfully parsed result is authoritative: a picked PR (open/
+			// merged/closed) is the positive entry; a genuine empty/no-PR result
+			// clears to a true negative. No grace retention — `--state all` keeps
+			// a merged PR resolving positive, so the done-square is stateless.
+			e.pr = pr
 			r.entries[p.key] = e
 		}
 		r.mu.Unlock()
@@ -364,13 +353,37 @@ func SnapshotBranchPR(repoDir, branch string) (*BranchPR, bool) {
 	return DefaultBranchRefresher.Snapshot(repoDir, branch)
 }
 
-// pickBranchPR parses a `gh pr list --json ...` array and returns the
-// most-recently-updated open PR, or nil when the array is empty or every node
-// has an empty URL (malformed/partial JSON — a URL-less PR can never key the
-// live-status join). A JSON parse error is surfaced via the returned error so
-// refresh can keep the last-good entry (stale-while-revalidate) rather than
-// downgrading a good mapping to a negative on transient/partial gh output; a
-// successfully parsed empty array is a valid negative (nil pr, nil err).
+// branchStateRank maps a GitHub PR state to its precedence rank — LOWER wins.
+// Open outranks merged outranks closed (status-pyramid.md D2, revised): an open
+// PR always owns the branch (the branch-reuse edge — a reopened branch's live PR
+// must beat an older merged one), else the most recent merged PR, else the most
+// recent closed PR (still derived for the register/tip; the frontend prOwnsDot
+// excludes closed from dot ownership). Comparison is case-insensitive — `gh pr
+// list --json state` emits GitHub's uppercase enum (OPEN|MERGED|CLOSED), the same
+// values the viewer-wide collector's mapState handles. An unknown/empty state
+// sorts last (rank 3) so a future enum value never silently outranks a real one.
+func branchStateRank(state string) int {
+	switch strings.ToUpper(state) {
+	case "OPEN":
+		return 0
+	case "MERGED":
+		return 1
+	case "CLOSED":
+		return 2
+	default:
+		return 3
+	}
+}
+
+// pickBranchPR parses a `gh pr list --json ...` array and returns the winning PR
+// by precedence: open > merged > closed (branchStateRank), breaking ties WITHIN a
+// state class by most-recently-updated. Nodes with an empty URL are skipped
+// (malformed/partial JSON — a URL-less PR can never key the live-status join).
+// Returns nil when the array is empty or every node was skipped. A JSON parse
+// error is surfaced via the returned error so refresh can keep the last-good
+// entry (stale-while-revalidate) rather than downgrading a good mapping to a
+// negative on transient/partial gh output; a successfully parsed empty array is a
+// valid negative (nil pr, nil err).
 func pickBranchPR(out []byte) (*BranchPR, error) {
 	var prs []BranchPR
 	if err := json.Unmarshal(out, &prs); err != nil {
@@ -381,7 +394,17 @@ func pickBranchPR(out []byte) (*BranchPR, error) {
 		if prs[i].URL == "" {
 			continue
 		}
-		if best < 0 || prs[i].UpdatedAt.After(prs[best].UpdatedAt) {
+		if best < 0 {
+			best = i
+			continue
+		}
+		rank, bestRank := branchStateRank(prs[i].State), branchStateRank(prs[best].State)
+		switch {
+		case rank < bestRank:
+			// A higher-precedence state class wins outright.
+			best = i
+		case rank == bestRank && prs[i].UpdatedAt.After(prs[best].UpdatedAt):
+			// Within the same class, most-recently-updated wins.
 			best = i
 		}
 	}

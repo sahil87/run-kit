@@ -46,13 +46,18 @@ the PANE panel's L3 register, the PR-status line, and the tip (derivation stays 
 [Constitution Principle X](https://github.com/sahil87/run-kit/blob/main/fab/project/constitution.md)),
 but a plain shell never renders a mystifying PR dot.
 
-### D2 — merged / closed-PR retention
+### D2 — merged / closed-PR derivation
 
-The branch→PR derivation queries only *open* PRs, so a PR that merges or closes drops out instantly.
-To keep the terminal state visible, the collector **retains the last-known PR for a grace window** so
-a **merged** PR still shows its purple/orange **done-square**. A **closed-unmerged** PR never owns
-the dot: a window with a live fab change falls back to its **green working tier** (the live stage),
-not a dead PR's skipped ring.
+The branch→PR derivation queries **all** PR states (`gh pr list --state all`) and picks by
+precedence: an **open** PR (most recently updated) wins; else the most recent **merged** PR; else the
+most recent **closed** PR. A **merged** PR therefore keeps resolving positive on every pass, so its
+purple/orange **done-square is durable statelessly** — derived fresh from `gh` each cycle, with **no
+in-memory grace clock** to expire and nothing for an rk restart to wipe (the earlier `--state open` +
+10-minute grace window decayed the merged square into a green fab square minutes after merge; that
+machinery is gone). A **closed-unmerged** PR is still derived (it shows in the L3 register / tip) but
+never owns the dot: a window with a live fab change falls back to its **green working tier** (the live
+stage), not a dead PR's skipped ring. Branch-reuse edge: an open PR always outranks an older merged
+one on the same branch.
 
 ## The channel model — palette v3 (two families + floor)
 
@@ -156,14 +161,16 @@ lines — never collapsed — so the dot is a *pure function* of what the panel 
 derived from it:
 
 ```
-output  active · 4s since last output        (L0: tmux activity)
-agent   waiting 3m                            (L1: @rk_agent_state + epoch)
-fab     260705-dmex · review · failed         (L2: fabChange · stage · displayState)
-PR      #314 open · checks fail · draft        (L3: prNumber/state/checks/review/draft)
+out  active · 4s since last output        (L0: tmux activity)
+agt  waiting 3m                            (L1: @rk_agent_state + epoch)
+fab  260705-dmex · review · failed         (L2: fabChange · stage · displayState)
+PR   #314 open · checks fail · draft        (L3: prNumber/state/checks/review/draft)
 ```
 
-Absent layers render as absent (a plain shell pane shows only `output`). The L3 PR register shows for
-**any** pane with a `prNumber` (universal derivation — even a plain pane whose dot stays gray).
+The register keys are fixed-width 3-char (`out`/`agt`/`fab`/`PR`), matching the panel's existing
+`tmx`/`cwd`/`git` vocabulary. Absent layers render as absent (a plain shell pane shows only `out`).
+The L3 PR register shows for **any** pane with a `prNumber` (universal derivation — even a plain pane
+whose dot stays gray).
 
 ## Red is used in exactly one way
 
@@ -183,7 +190,9 @@ text and the tip agent line.
 
 - **Mostly frontend.** The dot's inputs flow on `WindowInfo` via SSE (`fabChange`, `fabStage`,
   `fabDisplayState`, `activity`, `agentState`, and the branch-derived PR fields). The one backend
-  touch is the D2 grace-window PR retention (the collector keeps a merged PR visible briefly).
+  touch is the D2 branch→PR derivation: it queries all PR states and picks by precedence
+  (open > merged > closed), so a merged PR keeps resolving and its done-square stays visible
+  statelessly — no grace clock, restart-proof.
 - The existing PR color vocabulary (`PR_STATE_COLORS`, `PR_CHECKS_COLORS`, `PR_REVIEW_COLORS`,
   `prDotState`, `PrStatusLine`) is preserved — it serves the dashboard PR line and the pane-panel PR
   register.

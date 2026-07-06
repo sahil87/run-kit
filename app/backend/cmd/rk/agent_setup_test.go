@@ -51,7 +51,7 @@ func TestMergeHooksAddsEntriesAndPreservesExisting(t *testing.T) {
 		},
 	}
 
-	mergeHooks(existing, claudeHooks())
+	mergeHooks(existing, claudeHooks(), "claude")
 
 	// Non-hook config preserved.
 	if existing["model"] != "opus" {
@@ -82,11 +82,11 @@ func TestMergeHooksAddsEntriesAndPreservesExisting(t *testing.T) {
 
 func TestMergeHooksIdempotent(t *testing.T) {
 	settings := map[string]any{}
-	mergeHooks(settings, claudeHooks())
+	mergeHooks(settings, claudeHooks(), "claude")
 	first, _ := json.Marshal(settings)
 
 	// A second merge must not add duplicates and must produce identical output.
-	mergeHooks(settings, claudeHooks())
+	mergeHooks(settings, claudeHooks(), "claude")
 	second, _ := json.Marshal(settings)
 
 	if string(first) != string(second) {
@@ -108,7 +108,7 @@ func TestUnmergeHooksRemovesOnlyRkEntries(t *testing.T) {
 			},
 		},
 	}
-	mergeHooks(settings, claudeHooks())
+	mergeHooks(settings, claudeHooks(), "claude")
 	unmergeHooks(settings)
 
 	if got := countRkEntries(settings); got != 0 {
@@ -128,7 +128,7 @@ func TestUnmergeHooksDropsEmptyEventAndRoot(t *testing.T) {
 	// When rk owns the ONLY entries, uninstall must remove empty event arrays and
 	// the now-empty hooks object entirely.
 	settings := map[string]any{}
-	mergeHooks(settings, claudeHooks())
+	mergeHooks(settings, claudeHooks(), "claude")
 	unmergeHooks(settings)
 
 	if _, ok := settings["hooks"]; ok {
@@ -249,12 +249,13 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 }
 
 func TestAgentStateHookCommandShape(t *testing.T) {
-	cmd := agentStateHookCommand(agentStateWaiting)
+	cmd := agentStateHookCommand(agentStateWaiting, "claude")
 	// Must self-locate via $TMUX_PANE, no-op outside tmux, never fail the agent,
-	// carry the marker + state, and write the epoch + agent-pid segments (the
-	// pid — $PPID = the hook shell's parent, i.e. the agent — feeds the
-	// PID-liveness reconciler).
-	for _, want := range []string{`[ -n "$TMUX_PANE" ] || exit 0`, rkHookMarker, "waiting:", "date +%s", `:$PPID"`, "|| true"} {
+	// carry the marker + state, resolve the agent pid via the bounded
+	// comm-validated ancestor walk (raw $PPID records the harness's ephemeral
+	// hook-wrapper shell, which is dead by read time), and omit the pid segment
+	// when the walk fails (${p:+:$p} → two-segment legacy degrade).
+	for _, want := range []string{`[ -n "$TMUX_PANE" ] || exit 0`, rkHookMarker, "waiting:", "date +%s", `ps -o comm= -p "$p"`, `!= "claude"`, "${p:+:$p}", "|| true"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("hook command missing %q: %s", want, cmd)
 		}

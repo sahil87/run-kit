@@ -39,18 +39,22 @@ const rkHookMarker = tmux.AgentStateOption
 // agentStateHookCommand builds the fixed, self-contained hook command for a
 // given state. It is a no-op outside tmux, never fails the agent, and writes the
 // pane option via plain tmux with no rk/server dependency at hook-fire time. The
-// state is a fixed literal (one of the three known states) — NOT user input — so
-// there is no injection surface (Constitution §I).
+// state and comm are fixed registry literals (never user input), so there is no
+// injection surface (Constitution §I).
 //
-// The trailing `$PPID` segment is the AGENT's pid: the harness runs the hook as
-// its own `sh -c` child, so the shell's parent IS the agent process. Readers use
-// it for the precise PID-liveness reconciler (docs/specs/agent-state.md § Reader
-// rules) — this is what makes wrapped launches (pane command "bash" while the
-// agent runs inside) report state correctly.
-func agentStateHookCommand(state string) string {
+// The pid segment is resolved by a bounded, comm-validated ancestor walk (up to
+// 3 hops from $PPID) rather than raw $PPID: harnesses spawn hook commands
+// through an EPHEMERAL intermediate shell that exits the moment the hook
+// finishes (measured with Claude Code — a raw $PPID recorded that dead wrapper,
+// so the reader's liveness check suppressed every value). The walk climbs until
+// the process name equals the agent's comm (e.g. "claude"), which is the pid
+// the PID-liveness reconciler actually needs. If the walk cannot validate an
+// ancestor, the pid segment is omitted — a two-segment value that degrades to
+// the reader's legacy shell-name fallback, never a wrong pid.
+func agentStateHookCommand(state, comm string) string {
 	return fmt.Sprintf(
-		`sh -c '[ -n "$TMUX_PANE" ] || exit 0; tmux set-option -pt "$TMUX_PANE" %s "%s:$(date +%%s):$PPID" 2>/dev/null || true'`,
-		rkHookMarker, state,
+		`sh -c '[ -n "$TMUX_PANE" ] || exit 0; p=$PPID; i=0; while [ $i -lt 3 ] && [ -n "$p" ] && [ "$(ps -o comm= -p "$p" 2>/dev/null)" != "%s" ]; do p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d " "); i=$((i+1)); done; [ "$(ps -o comm= -p "$p" 2>/dev/null)" = "%s" ] || p=""; tmux set-option -pt "$TMUX_PANE" %s "%s:$(date +%%s)${p:+:$p}" 2>/dev/null || true'`,
+		comm, comm, rkHookMarker, state,
 	)
 }
 
@@ -64,10 +68,12 @@ type agentHook struct {
 }
 
 // agentConfig is one agent's install target: a display name, the user-global
-// settings file to merge into, and the ordered event→state hook mapping.
+// settings file to merge into, the agent process's comm name (for the hook's
+// pid-resolution walk), and the ordered event→state hook mapping.
 type agentConfig struct {
 	name         string
 	settingsPath string
+	comm         string // process name of the agent binary, e.g. "claude"
 	hooks        []agentHook
 }
 
@@ -91,6 +97,7 @@ func agentRegistry(home string) []agentConfig {
 		{
 			name:         "Claude Code",
 			settingsPath: filepath.Join(home, claudeSettingsRelPath),
+			comm:         "claude",
 			hooks: []agentHook{
 				{event: "UserPromptSubmit", state: agentStateActive},
 				{event: "PreToolUse", state: agentStateActive},
@@ -155,7 +162,7 @@ func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, unins
 	if uninstall {
 		unmergeHooks(next)
 	} else {
-		mergeHooks(next, ac.hooks)
+		mergeHooks(next, ac.hooks, ac.comm)
 	}
 
 	beforeJSON := mustMarshalIndent(current)
@@ -253,7 +260,7 @@ func writeSettings(path string, m map[string]any) error {
 // preserved. The Claude hooks shape is:
 //
 //	hooks → <Event> → [ { matcher?, hooks: [ {type:"command", command} ] } ]
-func mergeHooks(settings map[string]any, hooks []agentHook) {
+func mergeHooks(settings map[string]any, hooks []agentHook, comm string) {
 	hooksRoot := asMap(settings["hooks"])
 	if hooksRoot == nil {
 		hooksRoot = map[string]any{}
@@ -273,7 +280,7 @@ func mergeHooks(settings map[string]any, hooks []agentHook) {
 
 	// Now append the fresh rk entries.
 	for _, h := range hooks {
-		hooksRoot[h.event] = append(asSlice(hooksRoot[h.event]), rkHookEntry(h))
+		hooksRoot[h.event] = append(asSlice(hooksRoot[h.event]), rkHookEntry(h, comm))
 	}
 
 	settings["hooks"] = hooksRoot
@@ -304,12 +311,12 @@ func unmergeHooks(settings map[string]any) {
 
 // rkHookEntry builds the Claude hook-entry object for one agentHook: an optional
 // matcher plus a single command handler.
-func rkHookEntry(h agentHook) map[string]any {
+func rkHookEntry(h agentHook, comm string) map[string]any {
 	entry := map[string]any{
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": agentStateHookCommand(h.state),
+				"command": agentStateHookCommand(h.state, comm),
 			},
 		},
 	}

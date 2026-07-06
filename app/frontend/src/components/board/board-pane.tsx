@@ -21,6 +21,11 @@ interface BoardPaneProps {
   width?: number;
   paused?: boolean; // mobile carousel: when true, terminal is unmounted (WebSocket closes)
   isFocused: boolean;
+  /** Attention overlay (260706-y1ar): when the joined window's rolled-up agent
+   *  state is `waiting`, the pane gets a 3px pulsing yellow seam (static under
+   *  reduced-motion — see globals.css `.rk-waiting-seam`). The board-pane form
+   *  of the same additive attention signal the status-dot halo carries. */
+  waiting?: boolean;
   onClick: () => void;
   onUnpin: () => void;
   showResizeHandle: boolean;
@@ -49,7 +54,7 @@ interface BoardPaneProps {
  * Re-mounting on swipe-in re-establishes the connection.
  */
 export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function BoardPane(
-  { entry, width, paused = false, isFocused, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked, rootRef },
+  { entry, width, paused = false, isFocused, waiting = false, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked, rootRef },
   ref,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -93,12 +98,20 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
     <div
       ref={rootRef}
       role="group"
-      aria-label={`board pane ${entry.windowName}`}
+      aria-label={`board pane ${entry.windowName}${waiting ? " (agent waiting)" : ""}`}
       onClick={onClick}
-      className={`relative flex flex-col shrink-0 h-full bg-bg-primary border ${
+      // Border precedence: a `waiting` pane always shows the 3px pulsing yellow
+      // seam (attention is the highest-priority signal); focus is still shown
+      // via the accent shadow ring layered on top, so a focused-AND-waiting pane
+      // reads both. A non-waiting pane keeps the prior focus/idle border.
+      className={`relative flex flex-col shrink-0 h-full bg-bg-primary ${
         width === undefined ? "w-full" : ""
       } ${
-        isFocused ? "border-accent shadow-[0_0_0_1px_var(--color-accent)]" : "border-border opacity-90"
+        waiting
+          ? `border-[3px] rk-waiting-seam${isFocused ? " shadow-[0_0_0_1px_var(--color-accent)]" : ""}`
+          : isFocused
+            ? "border border-accent shadow-[0_0_0_1px_var(--color-accent)]"
+            : "border border-border opacity-90"
       }`}
       style={width !== undefined ? { width } : undefined}
     >

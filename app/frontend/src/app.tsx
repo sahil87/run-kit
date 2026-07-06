@@ -4,6 +4,8 @@ import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS
 import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
+import { nextWaitingTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
+import { isWaiting } from "@/lib/waiting";
 import {
   windowSwitchDirection,
   viewTransitionSupported,
@@ -1422,11 +1424,54 @@ function AppShell() {
     [flatWindows, navigateToWindow, windowParam],
   );
 
+  // Agent: Next waiting (260706-y1ar; status-pyramid.md § Attention Propagation).
+  // The keyboard-first attention nav (Constitution V): cycles focus through
+  // windows whose rolled-up agentState is `waiting`, CURRENT SERVER FIRST then
+  // other ATTACHED servers (unattached servers' window data isn't streamed, so
+  // they can't be enumerated client-side — a known constraint). No-op with a
+  // "no agents waiting" toast when none. Single action; the cycle arithmetic is
+  // the pure `nextWaitingTarget` helper (unit-tested). Built off `flatWindows`
+  // (current server, already sidebar-ordered) + a live read of the streamed
+  // `sessionsByServerRef` for other servers (avoids churning this memo's deps
+  // every SSE tick — mirrors handleSidebarSelectWindow's ref read).
+  const agentActions: PaletteAction[] = useMemo(() => {
+    const onSelect = () => {
+      const ordered: WaitingTarget[] = [];
+      // Current server first, in sidebar order.
+      for (const fw of flatWindows) {
+        if (isWaiting(fw.window)) {
+          ordered.push({ server, windowId: fw.window.windowId });
+        }
+      }
+      // Then other attached servers (skip the current one — already added).
+      for (const s of servers) {
+        if (s.name === server) continue;
+        for (const sess of sessionsByServerRef.current.get(s.name) ?? []) {
+          for (const w of sess.windows) {
+            if (isWaiting(w)) ordered.push({ server: s.name, windowId: w.windowId });
+          }
+        }
+      }
+      const target = nextWaitingTarget(ordered, server, windowParam);
+      if (!target) {
+        addToast("No agents waiting", "info");
+        return;
+      }
+      if (target.server === server) {
+        navigateToWindow(target.windowId);
+      } else {
+        navigate({ to: "/$server/$window", params: { server: target.server, window: target.windowId } });
+        if (isMobile) setSidebarOpen(false);
+      }
+    };
+    return [{ id: "agent-next-waiting", label: "Agent: Next waiting", onSelect }];
+  }, [flatWindows, servers, server, windowParam, navigateToWindow, navigate, isMobile, setSidebarOpen, addToast]);
+
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...serverActions, ...pushActions, ...windowSwitchActions],
-    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, serverActions, pushActions, windowSwitchActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions],
+    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, serverActions, pushActions, windowSwitchActions, agentActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

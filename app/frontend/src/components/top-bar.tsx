@@ -10,6 +10,7 @@ import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { prefersReducedMotion } from "@/lib/motion";
+import { WaitingBadge } from "@/components/waiting-badge";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -58,6 +59,10 @@ type TopBarProps = {
   boardName?: string;
   paneCount?: number;
   serverCount?: number;
+  /** Board-mode attention rollup (260706-y1ar): count of board panes whose
+   *  joined window is `waiting`. Rendered as a yellow badge in the board-mode
+   *  left info. Absent/0 → no badge. */
+  waitingPaneCount?: number;
   /** Board-mode list of all boards (for the board switcher dropdown). */
   boards?: { name: string }[];
   /** Board-mode ✕ handler — unpins the board's focused pane (non-destructive).
@@ -147,6 +152,7 @@ export function TopBar({
   boardName,
   paneCount,
   serverCount,
+  waitingPaneCount,
   boards,
   onCloseFocused,
   closeDisabled,
@@ -250,6 +256,7 @@ export function TopBar({
             <BoardModeInfo
               paneCount={paneCount ?? 0}
               serverCount={serverCount ?? 0}
+              waitingPaneCount={waitingPaneCount ?? 0}
             />
           ) : (
             <>
@@ -1082,15 +1089,29 @@ function PageHeadingDisplay({
 function BoardModeInfo({
   paneCount,
   serverCount,
+  waitingPaneCount,
 }: {
   paneCount: number;
   serverCount: number;
+  waitingPaneCount: number;
 }) {
   const paneNoun = paneCount === 1 ? "pane" : "panes";
   const serverNoun = serverCount === 1 ? "server" : "servers";
   return (
     <span className="hidden sm:inline ml-2 text-xs text-text-secondary">
-      {paneCount} {paneNoun} · {serverCount} {serverNoun} · ⌘[⌘] cycle
+      {paneCount} {paneNoun} · {serverCount} {serverNoun}
+      {/* Attention rollup (260706-y1ar): count of waiting panes on this board.
+          Constant-yellow, hidden at 0 (WaitingBadge renders null). */}
+      {waitingPaneCount > 0 && (
+        <>
+          {" · "}
+          <WaitingBadge
+            count={waitingPaneCount}
+            label={`${waitingPaneCount} pane(s) on this board waiting for input`}
+          />
+        </>
+      )}
+      {" · ⌘[⌘] cycle"}
     </span>
   );
 }

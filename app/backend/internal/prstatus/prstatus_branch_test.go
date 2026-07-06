@@ -223,25 +223,52 @@ func TestBranchRefresher_MalformedJSONKeepsLastGood(t *testing.T) {
 	}
 }
 
-// TestBranchRefresher_EmptyArrayIsNegative: a successfully parsed empty array is
-// a valid negative — it DOES clear a previously-good entry (the PR was closed),
-// unlike a parse error which keeps last-good.
-func TestBranchRefresher_EmptyArrayIsNegative(t *testing.T) {
+// TestBranchRefresher_MergedPRRetainedForGrace: D2 grace window
+// (status-pyramid.md § Open Decisions — D2). The branch lookup is `--state
+// open`, so a merged/closed PR drops out of the query and returns an empty
+// array. A previously-positive entry must NOT clear immediately — the last-known
+// PR is RETAINED for branchPRMergedGrace so the merged done-square survives the
+// open-only lookup — then cleared to a true negative once the grace elapses (the
+// pane then falls through to its fab/floor tier).
+func TestBranchRefresher_MergedPRRetainedForGrace(t *testing.T) {
 	empty := false
 	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
 		if empty {
-			return branchListJSON(), nil // parsed empty → PR gone
+			return branchListJSON(), nil // parsed empty → PR left `--state open`
 		}
 		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
 	})
+	base := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return base }
 	r.Register("/repo", "feat")
-	r.refresh(context.Background()) // resolves #4
+	r.refresh(context.Background()) // resolves #4 (positive)
 
+	// The PR merges: the query goes empty. First empty pass starts the grace
+	// clock but MUST still serve #4 (the done-square survives).
 	empty = true
-	r.refresh(context.Background()) // valid negative → clears #4
+	r.refresh(context.Background())
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 4 {
+		t.Fatalf("merged PR #4 must be retained during the grace window, got ok=%v pr=%v", ok, pr)
+	}
 
+	// A pass still WITHIN the grace window keeps serving #4. Re-Register each
+	// pass (a live window re-registers every SSE tick) so the observed-TTL
+	// age-out never fires before the grace clock — the two are independent.
+	base = base.Add(branchPRMergedGrace / 2)
+	r.now = func() time.Time { return base }
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 4 {
+		t.Fatalf("PR #4 must still be retained mid-grace, got ok=%v pr=%v", ok, pr)
+	}
+
+	// A pass PAST the grace window clears the entry to a true negative.
+	base = base.Add(branchPRMergedGrace + time.Second)
+	r.now = func() time.Time { return base }
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
 	if pr, ok := r.Snapshot("/repo", "feat"); ok || pr != nil {
-		t.Errorf("empty array must clear the entry (PR closed), got ok=%v pr=%v", ok, pr)
+		t.Errorf("PR #4 must clear after the grace window elapses, got ok=%v pr=%v", ok, pr)
 	}
 }
 

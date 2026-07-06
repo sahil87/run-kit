@@ -55,6 +55,23 @@ const (
 	// forever. One availability probe per pass at most, and skipped entirely
 	// while a fresh verdict stands.
 	branchPRAvailabilityTTL = 60 * time.Second
+
+	// branchPRMergedGrace is the D2 grace window (status-pyramid.md § Open
+	// Decisions — D2). The branch lookup is `--state open`, so the moment a PR
+	// merges (or closes) it drops out of the query and would otherwise vanish
+	// from the window instantly — losing the purple/orange DONE-square terminal
+	// state (the whole point of the merged shape). To retain it, when the query
+	// returns "no open PR" for a pair that PREVIOUSLY resolved to a PR, keep the
+	// last-known derived PR for this grace window instead of clearing to a
+	// negative. During the grace the viewer-wide collector (which DOES query
+	// MERGED/CLOSED) supplies the merged state via the URL join, so the dot shows
+	// the done-square; a closed-unmerged PR's fall-back to the live fab tier is
+	// handled frontend-side (statusDotState drops PR ownership for prState ==
+	// "closed"). After the grace the entry becomes a true negative and the pane
+	// falls through to its fab/floor tier. Sized generously so a just-merged PR
+	// stays visible long enough to register, but bounded so a stale mapping never
+	// lingers indefinitely (Constitution II — no durable state).
+	branchPRMergedGrace = 10 * time.Minute
 )
 
 // BranchPR is the derived open PR for a (repo, branch) pair. It carries only the
@@ -94,11 +111,20 @@ var branchPRAvailable = ghAvailable
 // branchEntry is a cached derivation for one (repo, branch) pair. observedAt is
 // bumped on every Register so the refresher can age out pairs no window reports
 // anymore; pr is the last-good result (nil == either not-yet-resolved OR a
-// confirmed "no open PR" — both serve nothing from Snapshot, which is the only
-// distinction the join cares about).
+// confirmed "no open PR" past the grace window — both serve nothing from
+// Snapshot, which is the only distinction the join cares about).
+//
+// wentNegativeAt is the D2 grace-window clock: when a pair that PREVIOUSLY
+// resolved to a PR next resolves to "no open PR" (the PR merged/closed and
+// dropped from the `--state open` query), the refresher does NOT clear `pr`
+// immediately — it stamps `wentNegativeAt` and keeps serving the last-known PR
+// until `branchPRMergedGrace` elapses, so the merged done-square survives the
+// open-only lookup (status-pyramid.md D2). Zero when the entry is positive
+// (open PR still resolving) or has never resolved.
 type branchEntry struct {
-	pr         *BranchPR // nil == no PR served (unresolved or confirmed-negative)
-	observedAt time.Time // last Register time — drives age-out
+	pr             *BranchPR // last-known PR (served during the D2 grace even after it left `--state open`)
+	observedAt     time.Time // last Register time — drives age-out
+	wentNegativeAt time.Time // when a previously-positive entry first resolved negative (D2 grace clock)
 }
 
 // BranchRefresher resolves registered (repo, branch) pairs → open PR on a
@@ -269,7 +295,24 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 		}
 		r.mu.Lock()
 		if e, ok := r.entries[p.key]; ok { // may have aged out concurrently
-			e.pr = pr
+			if pr != nil {
+				// Positive: an open PR resolved — update and clear any grace clock.
+				e.pr = pr
+				e.wentNegativeAt = time.Time{}
+			} else if e.pr != nil {
+				// D2 grace: the PR left `--state open` (merged/closed) but this
+				// pair previously resolved to one. Retain the last-known PR until
+				// the grace window elapses, so the done-square survives; then
+				// clear to a true negative and let the pane fall through to fab.
+				if e.wentNegativeAt.IsZero() {
+					e.wentNegativeAt = now
+				} else if now.Sub(e.wentNegativeAt) > branchPRMergedGrace {
+					e.pr = nil
+					e.wentNegativeAt = time.Time{}
+				}
+			}
+			// (pr == nil && e.pr == nil): a still-unresolved negative — nothing
+			// to retain, leave as-is.
 			r.entries[p.key] = e
 		}
 		r.mu.Unlock()

@@ -11,13 +11,19 @@ export { dotLabel };
 /**
  * Unified lifecycle status dot reused on the sidebar window row, the dashboard
  * window cards, and the pane-panel header. It renders a single signal per
- * window via the `statusDotState` three-way precedence (PR > fab > tmux), using
- * TWO orthogonal visual channels:
+ * window via the `statusDotState` two-family ladder (palette v3 —
+ * status-pyramid.md), using TWO orthogonal visual channels plus an additive
+ * attention overlay:
  *
- *   - HUE = phase (where in the lifecycle journey): blue (intake) → amber
- *     (apply/review/hydrate) → green (ship/review-pr) → purple (the live PR).
- *     A plain window (no fab change, no PR) is gray — color is reserved for the
- *     fab/PR journey.
+ *   - CORE HUE = phase (which journey + position in it). Cool = fab pipeline:
+ *     blue (intake) → green (apply→review-pr, collapsed) → purple (the live PR).
+ *     Warm = ad-hoc agent: yellow (working) → orange (its PR). Gray = floor
+ *     (no fab change, no fresh agent) — color is reserved for a journey.
+ *   - ATTENTION = the additive constant-yellow pulsing halo when the agent is
+ *     `waiting` (state.waiting). NEVER touches the core hue or shape; it is a
+ *     box-shadow ring layered over ANY tier (blue core + yellow halo = "fab
+ *     intake asking"; green failed core + halo = "review failed, agent asking").
+ *     Static yellow ring under prefers-reduced-motion (see globals.css).
  *   - SHAPE = status (health), ONE vocabulary across fab stages AND PR:
  *       ring          → pending (PR: checks running)
  *       solid         → active / ready (PR: open / healthy)
@@ -60,6 +66,16 @@ export function StatusDot({ win }: { win: WindowInfo }) {
   // has left its journey hue behind); every other shape uses the phase hue.
   const color = state.shape === "skipped" ? "text-text-secondary" : PHASE_HUE[state.phase];
 
+  // Additive waiting halo (palette v3 — status-pyramid.md § The Channel Model).
+  // When the rolled-up agent state is `waiting`, wrap the dot in a constant-
+  // yellow pulsing halo (a box-shadow ring, static under reduced-motion). It is
+  // ADDITIVE — the core hue (`color`) and shape below are untouched, so a blue
+  // intake dot keeps its blue core, a green failed dot keeps its failed shape;
+  // only the yellow halo is layered on. The class rides the dot element itself
+  // (box-shadow renders outside the border-box, so it disturbs neither the
+  // dot's size nor its hue), keeping the floating-ui `setRef` on one element.
+  const halo = state.waiting ? " rk-waiting-halo" : "";
+
   // The dot's shape markup. `setRef`/`tipProps` come from StatusDotTip — they
   // make the dot the floating-card reference and wire hover/focus/aria. The
   // native `title` is intentionally dropped (the custom card replaces it); the
@@ -96,7 +112,7 @@ export function StatusDot({ win }: { win: WindowInfo }) {
       return (
         <span
           {...common}
-          className={`${DOT_SIZE} rounded-none shrink-0 ${color}`}
+          className={`${DOT_SIZE} rounded-none shrink-0 ${color}${halo}`}
           style={{ backgroundColor: "currentColor" }}
         />
       );
@@ -115,7 +131,7 @@ export function StatusDot({ win }: { win: WindowInfo }) {
       return (
         <span
           {...common}
-          className={`relative inline-flex items-center justify-center w-[9px] h-[9px] rounded-full shrink-0 ${color}`}
+          className={`relative inline-flex items-center justify-center w-[9px] h-[9px] rounded-full shrink-0 ${color}${halo}`}
           style={{ border: "1.2px dotted currentColor", backgroundColor: "transparent" }}
         >
           <span aria-hidden="true" className="w-[3px] h-[3px] rounded-full bg-red-400" />
@@ -127,7 +143,7 @@ export function StatusDot({ win }: { win: WindowInfo }) {
       return (
         <span
           {...common}
-          className={`${DOT_SIZE} rounded-full shrink-0 ${color}`}
+          className={`${DOT_SIZE} rounded-full shrink-0 ${color}${halo}`}
           style={{ border: "none", backgroundColor: "currentColor" }}
         />
       );
@@ -138,7 +154,7 @@ export function StatusDot({ win }: { win: WindowInfo }) {
     return (
       <span
         {...common}
-        className={`${DOT_SIZE} rounded-full shrink-0 ${color}`}
+        className={`${DOT_SIZE} rounded-full shrink-0 ${color}${halo}`}
         style={{ border: "1.8px solid currentColor", backgroundColor: "transparent" }}
       />
     );

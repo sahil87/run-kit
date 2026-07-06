@@ -195,12 +195,12 @@ const orderBootstrapMaxAttempts = 3
 type sseHub struct {
 	mu                     sync.RWMutex
 	clients                map[string][]*sseClient
-	previousJSON           map[string]string          // per-server sessions JSON dedup cache
-	previousOrderJSON      map[string]string          // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
-	orderBootstrapAttempts map[string]int             // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
-	previousRealSessions   map[string]map[string]bool // per-server prior-tick real (non-anchor) session names for disappearance logging
+	previousJSON           map[string]string            // per-server sessions JSON dedup cache
+	previousOrderJSON      map[string]string            // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
+	orderBootstrapAttempts map[string]int               // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
+	previousRealSessions   map[string]map[string]bool   // per-server prior-tick real (non-anchor) session names for disappearance logging
 	previousPreviewJSON    map[string]map[string]string // per-server latest {windowId → preview text} snapshot (union of all clients' expanded windows); seeds cached-on-connect delivery
-	cache                  map[string]*cachedResult   // per-server session fetch cache (500ms TTL)
+	cache                  map[string]*cachedResult     // per-server session fetch cache (500ms TTL)
 	polling                bool
 	fetcher                SessionFetcher
 	orderFetcher           SessionOrderFetcher
@@ -218,6 +218,10 @@ type sseHub struct {
 	// poll path joins onto change-bound windows. nil degrades gracefully (no
 	// PR fields attached) — used by tests and when no collector is wired.
 	prStatus PRStatusSnapshotter
+
+	// waitingPush tracks per-window `waiting` episodes and fires one Web Push per
+	// sustained-waiting episode from the poll seam (260706-y1ar). In-memory only.
+	waitingPush *waitingPushTracker
 
 	// subscriber, when non-nil, provides per-server Wait(after) channels
 	// driven by tmux control-mode notifications. When nil, the loop runs
@@ -307,6 +311,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		metrics:                mc,
 		services:               svc,
 		prStatus:               pc,
+		waitingPush:            newWaitingPushTracker(),
 		captureFn:              capturePreviewForWindow,
 	}
 }
@@ -760,6 +765,14 @@ func (h *sseHub) poll() {
 		// snapshot, and never under the write lock while FetchSessions runs.
 		dataChanged := false
 		var deadServers []string
+		// Accumulate the live (server, windowID) keys across all polled servers
+		// so the waiting-push tracker can reap episodes for windows that vanished
+		// (retain, after the loop). polledServers records which servers were
+		// SUCCESSFULLY fetched this tick — the retain sweep is scoped to these so a
+		// server whose fetch failed transiently (contributing zero live keys) does
+		// not have its still-waiting episodes wrongly reaped/re-armed.
+		liveWaitingKeys := map[string]bool{}
+		polledServers := map[string]bool{}
 		for _, server := range servers {
 			// Metrics-only clients (server-neutral, `?metrics=1`) have no tmux
 			// server — skip all session-fetch / order / reap work for them. They
@@ -813,6 +826,22 @@ func (h *sseHub) poll() {
 			// cleanly. Re-deriving every tick keeps the cached sessions in sync
 			// with the latest PR snapshot without a deep copy.
 			h.attachPRStatus(result)
+
+			// This server's fetch succeeded — record it so the post-loop reap only
+			// sweeps episodes belonging to servers actually polled this tick.
+			polledServers[server] = true
+
+			// Web Push on sustained waiting (260706-y1ar). Ride this per-server
+			// tick, where the rolled-up window AgentState already exists: advance
+			// the episode tracker (pure, synchronous — no I/O in the hot path) and
+			// fan the resulting pushes out in a detached goroutine inside
+			// notifyWaiting. Best-effort, in-memory only; push errors never block
+			// the tick. Accumulate the live keys for the post-loop reap.
+			if h.waitingPush != nil {
+				for k := range h.waitingPush.notifyWaiting(server, result) {
+					liveWaitingKeys[k] = true
+				}
+			}
 
 			jsonBytes, err := json.Marshal(result)
 			if err != nil {
@@ -945,6 +974,25 @@ func (h *sseHub) poll() {
 			h.mu.Lock()
 			h.previousRealSessions[server] = currentReal
 			h.mu.Unlock()
+		}
+
+		// Reap waiting-push episodes for windows no longer present, so a re-created
+		// window id can't inherit a stale "pushed" flag. The sweep is SCOPED to
+		// servers whose state we actually observed this tick: the ones successfully
+		// polled (polledServers) plus the ones confirmed GONE (deadServers — their
+		// windows truly vanished). A server that failed to fetch TRANSIENTLY
+		// (non-IsServerGone) is in neither set, so its still-waiting episodes are
+		// left untouched — reaping them would reset the run and fire a duplicate
+		// push the moment the server recovers.
+		if h.waitingPush != nil {
+			reapableServers := make(map[string]bool, len(polledServers)+len(deadServers))
+			for s := range polledServers {
+				reapableServers[s] = true
+			}
+			for _, s := range deadServers {
+				reapableServers[s] = true
+			}
+			h.waitingPush.retain(liveWaitingKeys, reapableServers)
 		}
 
 		// Reap dead servers collected during the loop. A dead socket has no

@@ -231,6 +231,44 @@ summary {
   animation: rk-caret-blink 1.06s steps(1) infinite;
 }
 
+/* Waiting halo = attention overlay (change 260706-y1ar; status-pyramid.md
+   § The Channel Model / D3). NOT a hover treatment — it renders whenever an
+   agent is `waiting` (blocked on a human), the single most notification-worthy
+   state. A constant-YELLOW pulsing halo (a box-shadow ring) is layered around
+   the status dot; the dot's own core hue + shape are untouched (family identity
+   must survive attention). Yellow is a CONSTANT (#facc15 — Tailwind yellow-400),
+   theme-independent by design: yellow = "an agent needs you now" in every
+   theme. Applied to the wrapper span so it never disturbs the inner dot markup.
+   Reduced motion: a STATIC yellow ring (no pulse) — attention is never encoded
+   in motion alone (gated below). */
+@keyframes rk-waiting-halo {
+  0%, 100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, #facc15 55%, transparent); }
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, #facc15 85%, transparent); }
+}
+.rk-waiting-halo {
+  /* NO border-radius here: the halo is a box-shadow, which follows the
+     element's OWN corner radius. The dot sets its shape via a Tailwind
+     `rounded-*` utility (rounded-full for circles, rounded-none for the
+     `done` square); an unlayered `border-radius: 9999px` here would beat
+     Tailwind v4's layered `rounded-none` and force a waiting done-SQUARE to
+     render as a circle (breaking "shape untouched" — R2). Letting the shadow
+     inherit the element radius keeps square corners sharp. */
+  animation: rk-waiting-halo 1.4s ease-in-out infinite;
+}
+
+/* Waiting seam = the board-pane form of the same attention overlay. A waiting
+   pane's border pulses in the constant yellow (3px, border-width system —
+   board-pane.tsx switches to border-[3px] and adds this class). Reduced motion:
+   a static yellow border (gated below). */
+@keyframes rk-waiting-seam {
+  0%, 100% { border-color: color-mix(in srgb, #facc15 55%, transparent); }
+  50% { border-color: #facc15; }
+}
+.rk-waiting-seam {
+  border-color: #facc15;
+  animation: rk-waiting-seam 1.4s ease-in-out infinite;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 @media (prefers-reduced-motion: reduce) {
@@ -243,6 +281,9 @@ summary {
   .rk-bracket-group:hover .rk-bracket-close { transition: none; transform: none; }
   .rk-bracket-caret,
   .rk-bracket-group:hover .rk-bracket-caret { animation: none; opacity: 0; }
+  /* Waiting overlay → static yellow ring / seam (attention never motion-only). */
+  .rk-waiting-halo { animation: none; box-shadow: 0 0 0 2px #facc15; }
+  .rk-waiting-seam { animation: none; border-color: #facc15; }
 }
 
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */

@@ -152,12 +152,27 @@ describe("WindowRow", () => {
     expect(screen.queryByTestId("pr-status-line")).toBeNull();
   });
 
-  // Quiet parked rows: fab pane map display_state === "done" means the change
-  // is parked (fully shipped, awaiting archive) — the stage text is stale and
-  // is suppressed; the duration stands alone. Any other value, unknown future
-  // values, or an absent field keeps today's show-stage behavior.
-  describe("fab stage quiet-row policy", () => {
-    it("suppresses stage text when fabDisplayState is done, keeping the duration", () => {
+  // Row Minimalism (260706-y1ar; status-pyramid.md § Row Minimalism): the
+  // trailing status cluster is REMOVED — the row renders NO stage word and NO
+  // duration text. The leading StatusDot is the row's only externally visible
+  // status signal; the exact stage word + durations live in the StatusDotTip
+  // and the PANE panel's register view.
+  describe("Row Minimalism — no stage word, no duration in the row", () => {
+    it("renders no stage word for an active fab stage", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260612-epqk-x",
+        fabStage: "review-pr",
+        fabDisplayState: "active",
+      });
+      renderRow(win);
+      // The stage word never appears as row text — only the leading dot + name.
+      expect(screen.queryByText("review-pr")).toBeNull();
+      expect(screen.getByText("zsh")).toBeInTheDocument();
+    });
+
+    it("renders no duration text (e.g. agent idle duration is not in the row)", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -168,89 +183,27 @@ describe("WindowRow", () => {
         agentIdleDuration: "2m",
       });
       renderRow(win);
-      expect(screen.queryByText("review-pr")).toBeNull();
-      expect(screen.getByText("2m")).toBeInTheDocument();
+      expect(screen.queryByText("2m")).toBeNull();
     });
 
-    it("shows stage text when fabDisplayState is active", () => {
+    it("renders no stage word even for a failed stage (no red row text)", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
-        fabStage: "review-pr",
-        fabDisplayState: "active",
-      });
-      renderRow(win);
-      expect(screen.getByText("review-pr")).toBeInTheDocument();
-    });
-
-    it("shows stage text when fabDisplayState is ready", () => {
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabStage: "intake",
-        fabDisplayState: "ready",
-      });
-      renderRow(win);
-      expect(screen.getByText("intake")).toBeInTheDocument();
-    });
-
-    it("shows stage text when fabDisplayState is absent (older fab binary)", () => {
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabStage: "apply",
-      });
-      renderRow(win);
-      expect(screen.getByText("apply")).toBeInTheDocument();
-    });
-
-    it("shows stage text for unknown future fabDisplayState values", () => {
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabStage: "apply",
-        fabDisplayState: "paused",
-      });
-      renderRow(win);
-      expect(screen.getByText("apply")).toBeInTheDocument();
-    });
-  });
-
-  // Triage signals: a failed fab stage colors the separate stage TEXT red
-  // (window-row's own text, unchanged by the lifecycle dot). The DOT now follows
-  // the lifecycle journey (hue=phase, shape=status) — a failed stage/PR renders
-  // a dotted ring in the phase hue + a red CENTER dot, never a whole-dot red.
-  describe("triage signals", () => {
-    it("colors the stage text red when fabDisplayState is failed", () => {
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
+        fabChange: "260613-o20f-x",
         fabStage: "review",
         fabDisplayState: "failed",
       });
       renderRow(win);
-      const stage = screen.getByText("review");
-      expect(stage.className).toContain("text-red-400");
-      expect(stage.className).not.toContain("text-text-secondary");
+      expect(screen.queryByText("review")).toBeNull();
     });
+  });
 
-    it("keeps the secondary token on the stage text for a non-failed stage", () => {
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabStage: "apply",
-        fabDisplayState: "active",
-      });
-      renderRow(win);
-      const stage = screen.getByText("apply");
-      expect(stage.className).toContain("text-text-secondary");
-      expect(stage.className).not.toContain("text-red-400");
-    });
-
-    it("renders a failed fab stage as a dotted ring + red CENTER dot (no whole-dot red)", () => {
-      // The lifecycle dot replaces the old whole-dot red tint: a failed stage
-      // keeps its phase hue (review→amber) with a dotted border and only a small
-      // red center child. Requires a fabChange (else it's the tmux fallback).
+  // The DOT carries all status (hue=phase, shape=status, additive halo=waiting).
+  // A failed fab stage renders a dotted ring in the phase hue (green post-collapse)
+  // + a red CENTER dot, never a whole-dot red.
+  describe("dot status signals", () => {
+    it("renders a failed fab stage as a green dotted ring + red CENTER dot (no whole-dot red)", () => {
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -260,10 +213,25 @@ describe("WindowRow", () => {
       });
       renderRow(win);
       const dot = screen.getByLabelText("review — failed");
-      expect(dot.className).toContain("text-amber-400");
+      expect(dot.className).toContain("text-accent-green"); // green collapse (was amber)
       expect(dot.className).not.toContain("text-red-400"); // whole-dot red is gone
       expect(dot.getAttribute("style")).toContain("dotted");
       expect(dot.querySelector("span")!.className).toContain("bg-red-400"); // red center only
+    });
+
+    it("renders an additive yellow halo on a waiting window (core hue kept)", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        fabChange: "260613-o20f-x",
+        fabStage: "intake",
+        fabDisplayState: "active",
+        agentState: "waiting",
+      });
+      renderRow(win);
+      const dot = screen.getByLabelText("intake — active — agent waiting");
+      expect(dot.className).toContain("text-blue-400"); // core hue kept
+      expect(dot.className).toContain("rk-waiting-halo"); // additive overlay
     });
 
     it("renders a plain (non-fab, non-PR) window via the monochrome tmux fallback", () => {
@@ -388,21 +356,24 @@ describe("WindowRow", () => {
       expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
     });
 
-    it("renders a gray skipped ring for a closed-unmerged PR (labelled 'PR — closed')", () => {
-      // A closed PR with no failing checks flows past merged/fail/pending/healthy
-      // to neutral; prShape maps the closed-neutral case to the gray `skipped`
-      // ring (docs/specs/status-dot.md line 61/82), NOT a purple solid.
+    it("D2: a closed-unmerged PR on a live fab change falls back to the green fab tier (not a dead PR dot)", () => {
+      // Palette v3 D2 (status-pyramid.md decision-table row 20): a closed PR
+      // never owns the dot — a live fab window shows its green stage instead of
+      // a dead PR's skipped ring. With no stage/displayState the fab tier reads
+      // "fab — active" (green solid), NOT "PR — closed".
       const win = makeWindow({
         windowId: "@0",
         index: 0,
         fabChange: "260613-o20f-x",
+        fabStage: "apply",
+        fabDisplayState: "active",
         prNumber: 386,
         prState: "closed",
       });
       renderRow(win);
-      const dot = screen.getByLabelText("PR — closed");
-      expect(dot).toBeInTheDocument();
-      expect(dot.className).toContain("text-text-secondary");
+      expect(screen.queryByLabelText("PR — closed")).toBeNull();
+      const dot = screen.getByLabelText("apply — active");
+      expect(dot.className).toContain("text-accent-green");
       expect(dot.className).not.toContain("text-purple-400");
     });
 

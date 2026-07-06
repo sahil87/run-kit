@@ -369,7 +369,7 @@ describe("StatusPanel copy behavior", () => {
     getSelectionSpy.mockRestore();
   });
 
-  it("process-only row (no fab state) is not rendered as a button", () => {
+  it("output register (L0) is not rendered as a button (informational, always present)", () => {
     const win = makeWindowWithPanes({
       fabChange: undefined,
       fabStage: undefined,
@@ -379,10 +379,10 @@ describe("StatusPanel copy behavior", () => {
     });
     render(<StatusPanel window={win} />);
 
-    // The "run" row should be a div, not a button
-    const runText = screen.getByText("run");
-    expect(runText.closest("button")).toBeNull();
-    expect(runText.closest("div")).not.toBeNull();
+    // The "output" (L0) register is a div, not a button.
+    const outputText = screen.getByText("output");
+    expect(outputText.closest("button")).toBeNull();
+    expect(outputText.closest("div")).not.toBeNull();
   });
 
   it("empty paneId renders non-interactive tmx row", () => {
@@ -472,7 +472,11 @@ describe("StatusPanel copy behavior", () => {
       expect(screen.getByText("open (draft)").className).toContain("text-accent-green");
     });
 
-    it("hides the pr row when the window is not change-bound", () => {
+    it("SHOWS the PR register even when NOT change-bound (L3 universal derivation, Principle X)", () => {
+      // Palette v3 (status-pyramid.md § Signal Inventory L3): the PANE panel's PR
+      // register is ungated from fabChange — it shows for ANY pane with a
+      // prNumber (a plain shell on a branch with a PR still surfaces its PR
+      // here, even though the DOT stays on the gray floor via D1).
       const win = makeWindow({
         fabChange: undefined,
         prNumber: 241,
@@ -480,10 +484,10 @@ describe("StatusPanel copy behavior", () => {
         prState: "open",
       });
       render(<StatusPanel window={win} />);
-      expect(screen.queryByText(/#241/)).toBeNull();
+      expect(screen.getByTestId("pr-line")).toHaveTextContent("#241");
     });
 
-    it("hides the pr row when the window is change-bound but has no PR", () => {
+    it("hides the pr register when there is no PR", () => {
       const win = makeWindow({ fabChange: "260610-596o-x", prNumber: undefined });
       render(<StatusPanel window={win} />);
       expect(screen.queryByText(/^#\d+/)).toBeNull();

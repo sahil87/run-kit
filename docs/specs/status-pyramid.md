@@ -32,6 +32,31 @@ Two orthogonal *axes* run across these layers:
 - **Attention** (does this need a human *now*): L1 `waiting` (and, future, "stuck").
   Encoded in **animation** — never in hue or shape.
 
+### Why L0 exists (and what it no longer does)
+
+L0 is the **floor**: the only layer whose precondition is "always", and therefore
+the only signal for the non-agent majority of a terminal console — builds,
+REPLs, ssh sessions, `htop`, dev servers, log tails. Dropping it would make the
+pyramid describe only agent/fab/PR panes: an agent-dashboard model, contradicting
+run-kit's terminal-underneath positioning (an agent is just one thing you run in
+a pane).
+
+L0 speaks about **bytes, not intent** — it answers "is output happening", never
+"does this need me" — so it is never an attention signal. Its historically
+misleading cases were all *agent* panes (a spinner repainting below a permission
+prompt reads "active"; a silently thinking agent reads "idle"); the agent tier
+now owns every such window, and L0 never speaks for a pane with a fresh
+`@rk_agent_state`. What remains is its honest domain, exactly three jobs:
+
+1. Bottom-tier solid/ring for windows with no PR, no change, no agent.
+2. The elapsed ticker for those windows (`idle 23m` on a forgotten shell pane).
+3. The duration-mute rule (output flowing → hide elapsed), pierced only by `waiting`.
+
+A future refinement MAY consult `#{pane_current_command} ≠ shell` (already
+collected as `PaneCommand`) as a complementary process-running signal for the
+floor tier — a silent long build reads busy correctly by process, wrongly by
+output. Not v1.
+
 ---
 
 ## The Channel Model

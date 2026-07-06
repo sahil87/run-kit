@@ -54,6 +54,7 @@ From a clean install to a working dashboard with one agent running:
 
 ```bash
 brew install sahil87/tap/rk     # install
+rk agent-setup                  # optional, once per machine: agent busy/waiting/idle in the dashboard
 rk serve -d                     # start the dashboard daemon on :3000
 open http://localhost:3000      # open the dashboard in your browser
 
@@ -123,6 +124,19 @@ Exactly one signal drives the dot, in precedence order **PR > fab > tmux**.
 ![StatusDot stage × status matrix](https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/status-dot-matrix.svg)
 
 See the [status dot reference](docs/site/status-dot.md) for the full matrix, the per-state rendering, and the design rationale.
+
+## Agent state — `rk agent-setup`
+
+Windows running an AI agent can report a live lifecycle state in the sidebar and pane panel: **active** (turn in progress), **waiting** (blocked on you — a permission prompt or question), or **idle** (turn done, with elapsed duration). `waiting` is the state worth a glance at your phone: the agent isn't working, it's waiting for *you*.
+
+This is opt-in and needs a one-time setup per machine:
+
+```bash
+rk agent-setup              # shows the settings diff, asks before writing
+rk agent-setup --uninstall  # removes exactly the rk-owned entries
+```
+
+It installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) that stamp a `@rk_agent_state` tmux pane option on lifecycle events. The hooks are self-contained one-liners — no rk binary or server needed at fire time — so they work for any session, in any repo, under any workflow. Idempotent: re-running updates rk's entries in place and never touches your other hooks. Until it's run (and agents are restarted so new sessions pick up the hooks), agent state shows `—`. The cross-repo convention is documented in [`docs/specs/agent-state.md`](docs/specs/agent-state.md).
 
 ## Boards — watch many panes at once
 
@@ -211,6 +225,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — rk has no 
 | `rk context` | Print agent-optimized environment info (server URL, ports, etc.) — designed to be read by AI agents inside an rk-spawned workspace. |
 | `rk notify` | Send a Web Push notification to your subscribed devices (see [Push notifications](#push-notifications)). Fail-silent. |
 | `rk doctor` | Check runtime dependencies. Run this first when something breaks. |
+| `rk agent-setup` | Install agent-harness hooks (v1: Claude Code) so panes report busy/waiting/idle state (see [Agent state](#agent-state--rk-agent-setup)). Once per machine; `--uninstall` reverses it. |
 | `rk init-conf` | Scaffold default `tmux.conf` and `tmux.d/` drop-in directory to `~/.rk/`. Optional. |
 | `rk update` | Upgrade via Homebrew and restart the daemon. |
 | `rk completion` | Generate shell completion scripts (or use `rk shell-init` for eval-safe output). |
@@ -222,6 +237,7 @@ Run `rk <command> --help` for full flag details, or see the [full command refere
 
 - **`rk riff` fails with "not in a tmux session"** — riff requires `$TMUX` to be set. Start tmux first (`tmux new -s work`), then run `rk riff` inside it.
 - **`rk riff` fails with "wt not found"** — install `wt` via `brew install sahil87/tap/wt`, or via the toolkit meta-formula `brew install sahil87/tap/all`.
+- **Agent state shows `—` for every window** — run `rk agent-setup` once on the machine, then start a fresh agent session (hooks apply to new sessions, not already-running ones). A pane sitting at a plain shell also reads `—` by design — state clears when the agent exits.
 - **Anything else broken** — run `rk doctor`. It checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status.
 
 ## Architecture

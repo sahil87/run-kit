@@ -5,9 +5,15 @@ import (
 	"compress/zlib"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 )
+
+// errDirenvDiffTooLarge is returned when the inflated DIRENV_DIFF payload
+// exceeds maxDirenvDiffInflated. The caller treats it like any decode error:
+// fail-soft, passing the env through with strips.
+var errDirenvDiffTooLarge = errors.New("direnv diff: inflated payload exceeds size cap")
 
 // direnvDiffVar is the environment variable direnv exports carrying its
 // internal env_diff — a record of every change direnv made when it loaded the
@@ -15,6 +21,14 @@ import (
 // the user had started tmux from $HOME" (a from-home shell is precisely one
 // where direnv reverted its diff).
 const direnvDiffVar = "DIRENV_DIFF"
+
+// maxDirenvDiffInflated caps the inflated (post-zlib) size of a DIRENV_DIFF
+// payload. DIRENV_DIFF is untrusted environment input, so an unbounded inflate
+// would let a crafted zlib bomb balloon memory during server creation
+// (local DoS/OOM). A real direnv env_diff is at most a few KB; 10 MiB is far
+// above any legitimate diff yet bounds a hostile one. An oversized payload is
+// treated as a parse failure so the caller falls through fail-soft.
+const maxDirenvDiffInflated = 10 << 20 // 10 MiB
 
 // direnvDiff is direnv's env_diff payload: P holds the prior value of each var
 // direnv changed or removed, N holds the new value of each var direnv changed
@@ -111,9 +125,16 @@ func decodeDirenvDiff(raw string) (direnvDiff, error) {
 	}
 	defer r.Close()
 
-	plain, err := io.ReadAll(r)
+	// Cap the inflate: DIRENV_DIFF is untrusted, so read at most
+	// maxDirenvDiffInflated bytes plus one sentinel byte. If that extra byte
+	// arrives the payload is over the cap — treat it as a parse failure so the
+	// caller falls through fail-soft rather than allocating unbounded memory.
+	plain, err := io.ReadAll(io.LimitReader(r, maxDirenvDiffInflated+1))
 	if err != nil {
 		return diff, err
+	}
+	if len(plain) > maxDirenvDiffInflated {
+		return diff, errDirenvDiffTooLarge
 	}
 
 	if err := json.Unmarshal(plain, &diff); err != nil {

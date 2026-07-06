@@ -854,6 +854,36 @@ func TestReverseDirenvDiff_malformedReturnsError(t *testing.T) {
 	}
 }
 
+// TestReverseDirenvDiff_oversizedPayloadFailsSoft proves that a DIRENV_DIFF
+// whose inflated payload exceeds the size cap is rejected with an error (so the
+// caller falls through fail-soft) rather than being decoded into memory. It
+// builds a valid zlib stream — highly compressible so the encoded env value
+// stays tiny — that inflates well past maxDirenvDiffInflated.
+func TestReverseDirenvDiff_oversizedPayloadFailsSoft(t *testing.T) {
+	// A large, highly-compressible payload: JSON is irrelevant here because the
+	// size cap trips before the unmarshal ever runs.
+	big := strings.Repeat("A", maxDirenvDiffInflated+1024)
+	var buf bytes.Buffer
+	w := zlib.NewWriter(&buf)
+	if _, err := w.Write([]byte(big)); err != nil {
+		t.Fatalf("zlib write: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("zlib close: %v", err)
+	}
+	encoded := base64.URLEncoding.EncodeToString(buf.Bytes())
+
+	in := []string{"HOME=/home/user", "DIRENV_DIFF=" + encoded}
+	got, err := reverseDirenvDiff(in)
+	if !errors.Is(err, errDirenvDiffTooLarge) {
+		t.Fatalf("expected errDirenvDiffTooLarge, got %v", err)
+	}
+	// On error the original env is returned so the caller can fall through.
+	if len(got) != len(in) {
+		t.Errorf("expected original env returned on oversized diff, got %v", got)
+	}
+}
+
 func envToMap(environ []string) map[string]string {
 	m := make(map[string]string, len(environ))
 	for _, e := range environ {

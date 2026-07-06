@@ -627,6 +627,35 @@ func TestRollupAgentState(t *testing.T) {
 			t.Errorf("got (%q, %q), want (idle, empty)", state, dur)
 		}
 	})
+
+	t.Run("tie-break prefers newest epoch at same precedence", func(t *testing.T) {
+		// Two waiting panes: the older one is listed first. The rollup must
+		// pick the newest epoch so the duration reflects the most-recently-
+		// updated pane, not the arbitrary first one (which would inflate it).
+		panes := []tmux.PaneInfo{
+			{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: now - 600},
+			{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: now - 60},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != tmux.AgentStateWaiting {
+			t.Errorf("state = %q, want waiting", state)
+		}
+		if dur != "1m" {
+			t.Errorf("tie-break duration = %q, want 1m (newest epoch), not 10m", dur)
+		}
+	})
+
+	t.Run("tie-break is order-independent", func(t *testing.T) {
+		// Same two panes with the newest listed first — result must be identical.
+		panes := []tmux.PaneInfo{
+			{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: now - 60},
+			{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: now - 600},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != tmux.AgentStateWaiting || dur != "1m" {
+			t.Errorf("got (%q, %q), want (waiting, 1m)", state, dur)
+		}
+	})
 }
 
 // strPtr is a test helper returning a pointer to s.

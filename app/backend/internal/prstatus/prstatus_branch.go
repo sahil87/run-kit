@@ -260,7 +260,13 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 			// revalidate). Do NOT downgrade a good entry to a negative.
 			continue
 		}
-		pr := pickBranchPR(out) // nil == confirmed no open PR (valid negative)
+		pr, parseErr := pickBranchPR(out) // nil,nil == confirmed no open PR (valid negative)
+		if parseErr != nil {
+			// Partial/malformed gh output (broken JSON): treat like a transient
+			// error and keep last-good rather than clearing a previously-good PR
+			// mapping. Only a successfully parsed result updates the entry.
+			continue
+		}
 		r.mu.Lock()
 		if e, ok := r.entries[p.key]; ok { // may have aged out concurrently
 			e.pr = pr
@@ -318,11 +324,14 @@ func SnapshotBranchPR(repoDir, branch string) (*BranchPR, bool) {
 // pickBranchPR parses a `gh pr list --json ...` array and returns the
 // most-recently-updated open PR, or nil when the array is empty or every node
 // has an empty URL (malformed/partial JSON — a URL-less PR can never key the
-// live-status join). Returns nil on a JSON parse error.
-func pickBranchPR(out []byte) *BranchPR {
+// live-status join). A JSON parse error is surfaced via the returned error so
+// refresh can keep the last-good entry (stale-while-revalidate) rather than
+// downgrading a good mapping to a negative on transient/partial gh output; a
+// successfully parsed empty array is a valid negative (nil pr, nil err).
+func pickBranchPR(out []byte) (*BranchPR, error) {
 	var prs []BranchPR
 	if err := json.Unmarshal(out, &prs); err != nil {
-		return nil
+		return nil, err
 	}
 	best := -1
 	for i := range prs {
@@ -334,9 +343,9 @@ func pickBranchPR(out []byte) *BranchPR {
 		}
 	}
 	if best < 0 {
-		return nil
+		return nil, nil
 	}
 	// Return a copy so callers can't mutate the parsed slice's backing array.
 	chosen := prs[best]
-	return &chosen
+	return &chosen, nil
 }

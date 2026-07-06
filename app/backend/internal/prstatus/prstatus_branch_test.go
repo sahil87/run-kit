@@ -186,10 +186,10 @@ func TestBranchRefresher_TransientErrorKeepsLastGood(t *testing.T) {
 	}
 }
 
-// TestBranchRefresher_MalformedJSONNegative: unparseable gh output yields a
-// negative entry (nil pr) rather than a panic. (When there is no prior good
-// entry, pickBranchPR→nil is a confirmed negative.)
-func TestBranchRefresher_MalformedJSONNegative(t *testing.T) {
+// TestBranchRefresher_MalformedJSONNoPrior: unparseable gh output with no prior
+// good entry serves nothing (the entry stays unresolved, nil pr) rather than
+// panicking. Snapshot returns (nil, false) either way.
+func TestBranchRefresher_MalformedJSONNoPrior(t *testing.T) {
 	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
 		return []byte("not json"), nil
 	})
@@ -197,6 +197,51 @@ func TestBranchRefresher_MalformedJSONNegative(t *testing.T) {
 	r.refresh(context.Background())
 	if pr, ok := r.Snapshot("/repo", "feat"); ok || pr != nil {
 		t.Errorf("expected no PR on malformed JSON, got ok=%v", ok)
+	}
+}
+
+// TestBranchRefresher_MalformedJSONKeepsLastGood: a partial/malformed gh output
+// (broken JSON) must NOT clear a previously-good PR mapping — it is treated like
+// a transient error (stale-while-revalidate), same as an exec error.
+func TestBranchRefresher_MalformedJSONKeepsLastGood(t *testing.T) {
+	malformed := false
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		if malformed {
+			return []byte("{partial"), nil // broken JSON, e.g. a truncated gh write
+		}
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // resolves #4
+
+	malformed = true
+	r.refresh(context.Background()) // parse error → must keep #4
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 4 {
+		t.Fatalf("last-good PR #4 must survive a JSON parse error, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_EmptyArrayIsNegative: a successfully parsed empty array is
+// a valid negative — it DOES clear a previously-good entry (the PR was closed),
+// unlike a parse error which keeps last-good.
+func TestBranchRefresher_EmptyArrayIsNegative(t *testing.T) {
+	empty := false
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		if empty {
+			return branchListJSON(), nil // parsed empty → PR gone
+		}
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // resolves #4
+
+	empty = true
+	r.refresh(context.Background()) // valid negative → clears #4
+
+	if pr, ok := r.Snapshot("/repo", "feat"); ok || pr != nil {
+		t.Errorf("empty array must clear the entry (PR closed), got ok=%v pr=%v", ok, pr)
 	}
 }
 
@@ -281,7 +326,10 @@ func TestPickBranchPR_SkipsEmptyURL(t *testing.T) {
 		`{"number":1,"url":"","updatedAt":"2026-07-09T00:00:00Z"}`,
 		branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z"),
 	)
-	pr := pickBranchPR(out)
+	pr, err := pickBranchPR(out)
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
 	if pr == nil || pr.Number != 4 {
 		t.Fatalf("expected #4 (URL-less node skipped), got %v", pr)
 	}

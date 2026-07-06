@@ -485,7 +485,13 @@ func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, durat
 		if p.AgentState == "" {
 			continue
 		}
-		if rank := agentStatePrecedence(p.AgentState); rank > best {
+		rank := agentStatePrecedence(p.AgentState)
+		// Deterministic tie-break: at the same precedence (e.g. two waiting
+		// panes), prefer the pane with the newest AgentStateEpoch so the
+		// window duration reflects the most-recently-updated pane rather than
+		// an arbitrary older one (which would inflate the shown waiting/idle
+		// duration). A strictly-higher rank always wins outright.
+		if rank > best || (rank == best && p.AgentStateEpoch > bestEpoch) {
 			best = rank
 			state = p.AgentState
 			bestEpoch = p.AgentStateEpoch

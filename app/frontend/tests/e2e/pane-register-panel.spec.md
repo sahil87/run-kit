@@ -1,11 +1,12 @@
 # pane-register-panel.spec.ts
 
 Verifies the **PANE panel's four-register view** (260706-y1ar;
-`docs/specs/status-pyramid.md` § Row Minimalism): output (L0) / agent (L1) /
-fab (L2) / PR (L3) render as separate orthogonal lines, never collapsed, so the
-sidebar StatusDot is a pure function of what the panel shows. Absent layers
-render as absent; the L3 PR register shows for ANY pane with a `prNumber`
-(ungated from `fabChange` — universal derivation, Principle X).
+`docs/specs/status-pyramid.md` § Row Minimalism): out (L0) / agt (L1) / fab (L2)
+/ PR (L3) render as separate orthogonal lines, never collapsed, so the sidebar
+StatusDot is a pure function of what the panel shows. The L0/L1 register keys are
+fixed-width 3-char (`out`/`agt`, matching `tmx`/`cwd`/`git`) per 260706-4h26.
+Absent layers render as absent; the L3 PR register shows for ANY pane with a
+`prNumber` (ungated from `fabChange` — universal derivation, Principle X).
 
 ## Shared setup
 
@@ -24,16 +25,20 @@ render as absent; the L3 PR register shows for ANY pane with a `prNumber`
 
 ## Tests
 
-### `a full window shows all four registers (output/agent/fab/PR)`
+### `a full window shows all four registers (out/agt/fab/PR)`
 
 **What it proves:** every signal layer that exists for a window renders as its
-own register line — output (L0), agent (L1, with the waiting duration), fab (L2,
-change · stage), and PR (L3).
+own register line — out (L0), agt (L1, with the waiting duration), fab (L2,
+change · stage), and PR (L3) — and the L0/L1 keys use the fixed-width 3-char
+vocabulary (`out`/`agt`).
 
 **Steps:**
 1. Navigate to `/default/1`.
-2. Assert the `register-output` (L0) test id is visible.
-3. Assert the `register-agent` (L1) is visible and contains "waiting 3m".
+2. Assert the `register-output` (L0) test id is visible and contains the key
+   text "out" as a whole token (`/\bout\b/`, not a bare substring — a regressed
+   `output` key would still contain "out").
+3. Assert the `register-agent` (L1) is visible and contains the key text "agt"
+   and "waiting 3m".
 4. Assert the fab register (L2) shows the change id ("y1ar") and stage
    ("review").
 5. Assert the PR register (L3) `pr-line` contains "#386".

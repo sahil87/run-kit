@@ -1,0 +1,57 @@
+id: 4h26
+name: 260706-4h26-durable-merged-pr-register-keys
+created: 2026-07-06T10:34:41Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 16
+    acceptance_completed: 16
+confidence:
+    certain: 2
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 76.0
+        reversibility: 80.0
+        competence: 87.0
+        disambiguation: 82.0
+stage_metrics:
+    intake: {started_at: "2026-07-06T10:34:41Z", driver: fab-new, iterations: 1, completed_at: "2026-07-06T10:36:00Z"}
+    apply: {started_at: "2026-07-06T10:36:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-06T10:48:22Z"}
+    review: {started_at: "2026-07-06T10:48:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-06T10:59:53Z"}
+    hydrate: {started_at: "2026-07-06T10:59:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-06T11:06:26Z"}
+    ship: {started_at: "2026-07-06T11:06:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-06T11:08:45Z"}
+    review-pr: {started_at: "2026-07-06T11:08:45Z", driver: git-pr, iterations: 1, completed_at: "2026-07-06T11:25:09Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/319
+change_type_source: explicit
+true_impact:
+    added: 704
+    deleted: 179
+    net: 525
+    excluding:
+        added: 275
+        deleted: 145
+        net: 130
+    tests:
+        added: 127
+        deleted: 45
+        net: 82
+    computed_at: "2026-07-06T11:08:45Z"
+    computed_at_stage: ship
+summary: 'Branch→PR derivation: --state all + precedence (open>merged>closed), stateless/restart-proof merged durability (deleted grace clock); PANE register prefixes output→out, agent→agt (3-char vocabulary)'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-06T11:25:09Z

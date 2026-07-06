@@ -48,7 +48,7 @@ function shortenPath(cwd: string): string {
 }
 
 /**
- * Build the L0 `output` register string (status-pyramid.md register view). L0
+ * Build the L0 `out` register string (status-pyramid.md register view). L0
  * speaks about bytes, not intent: `active \u00b7 <command>` while output flows, else
  * `<command> \u00b7 idle Xm since last output` (or `idle Xm` with no command). This
  * register ALWAYS shows its own elapsed value \u2014 the duration-mute rule (which
@@ -71,7 +71,7 @@ function getOutputLine(win: WindowInfo, nowSeconds: number): string {
   return command || "idle";
 }
 
-/** Build the L1 `agent` register string when an agent is present: e.g.
+/** Build the L1 `agt` register string when an agent is present: e.g.
  *  `waiting 3m` / `active` / `idle 12m`. Null when no `agentState`. */
 function getAgentLine(win: WindowInfo): string | null {
   if (!win.agentState) return null;
@@ -389,27 +389,28 @@ function WindowContent({ win }: { win: WindowInfo }) {
       )}
 
       {/* ── The four orthogonal signal registers (status-pyramid.md § Row
-          Minimalism): output (L0) / agent (L1) / fab (L2) / PR (L3, rendered
-          just above). One line per layer, never collapsed, so the sidebar
-          StatusDot is a pure function of what this panel shows and can be
-          mentally derived from it. Absent layers render as absent (a plain shell
-          pane shows only `output`). The identity rows (tmx/cwd/git) are pane
-          metadata, orthogonal to these signal registers. ── */}
+          Minimalism): out (L0) / agt (L1) / fab (L2) / PR (L3, rendered just
+          above), fixed-width 3-char keys matching tmx/cwd/git. One line per
+          layer, never collapsed, so the sidebar StatusDot is a pure function of
+          what this panel shows and can be mentally derived from it. Absent
+          layers render as absent (a plain shell pane shows only `out`). The
+          identity rows (tmx/cwd/git) are pane metadata, orthogonal to these
+          signal registers. ── */}
 
-      {/* output (L0) — tmux activity + elapsed. Always rendered: L0 is the
+      {/* out (L0) — tmux activity + elapsed. Always rendered: L0 is the
           floor layer whose precondition is "always", so it is the one register
           a plain shell pane still shows. Its elapsed is never muted here (the
           register view is uncontested for space — the waiting-pierce rule). */}
       <div className="truncate" data-testid="register-output">
-        <span className="text-text-secondary">output </span>
+        <span className="text-text-secondary">out </span>
         <BrailleSnake className={`${ICON_CLASS} font-normal`} />{" "}
         <span className="text-text-secondary">{outputLine}</span>
       </div>
 
-      {/* agent (L1) — agentState + epoch duration. Absent when no agent. */}
+      {/* agt (L1) — agentState + epoch duration. Absent when no agent. */}
       {agentLine && (
         <div className="truncate" data-testid="register-agent">
-          <span className="text-text-secondary">agent </span>
+          <span className="text-text-secondary">agt </span>
           <StarTwinkle className={`${ICON_CLASS} font-normal`} />{" "}
           <span className="text-text-secondary">{agentLine}</span>
         </div>

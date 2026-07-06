@@ -34,9 +34,18 @@ func branchListJSON(nodes ...string) []byte {
 	return []byte(out)
 }
 
+// branchNode renders an OPEN PR node (the common case for the non-precedence
+// tests). Precedence tests use branchNodeState to set a specific state.
 func branchNode(number int, url, updatedAt string) string {
+	return branchNodeState(number, url, "OPEN", updatedAt)
+}
+
+// branchNodeState renders a PR node with an explicit GitHub state (OPEN | MERGED
+// | CLOSED — the `gh pr list --json state` enum) so precedence tests can build
+// mixed-state branches.
+func branchNodeState(number int, url, state, updatedAt string) string {
 	return `{"number":` + strconv.Itoa(number) + `,"url":"` + url +
-		`","updatedAt":"` + updatedAt + `"}`
+		`","state":"` + state + `","updatedAt":"` + updatedAt + `"}`
 }
 
 // TestBranchRefresher_SinglePR: a registered pair resolves to its single open PR
@@ -223,52 +232,121 @@ func TestBranchRefresher_MalformedJSONKeepsLastGood(t *testing.T) {
 	}
 }
 
-// TestBranchRefresher_MergedPRRetainedForGrace: D2 grace window
-// (status-pyramid.md § Open Decisions — D2). The branch lookup is `--state
-// open`, so a merged/closed PR drops out of the query and returns an empty
-// array. A previously-positive entry must NOT clear immediately — the last-known
-// PR is RETAINED for branchPRMergedGrace so the merged done-square survives the
-// open-only lookup — then cleared to a true negative once the grace elapses (the
-// pane then falls through to its fab/floor tier).
-func TestBranchRefresher_MergedPRRetainedForGrace(t *testing.T) {
-	empty := false
+// TestBranchRefresher_MergedPRDurableFromColdCollector: the D2-revised
+// durability contract (status-pyramid.md § Open Decisions — D2, revised). A
+// merged PR's done-square must be DERIVED, not remembered — so it survives an rk
+// restart, which a fresh (cold) BranchRefresher faithfully models (the refresher
+// holds ALL cross-restart derivation state, so a new instance == a restart). The
+// branch query is `--state all`, so the merged PR keeps resolving positive with
+// no prior positive entry and no grace clock: the cold collector serves it on the
+// FIRST refresh and on every pass thereafter (no wall-clock grace to expire).
+func TestBranchRefresher_MergedPRDurableFromColdCollector(t *testing.T) {
+	// Cold collector: a fresh refresher (no history, no grace state). The gh
+	// response is exactly what a warm collector would see — a merged PR on the
+	// branch. Restart-proofness = the SAME gh response yields the SAME derivation
+	// from fresh process state.
 	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
-		if empty {
-			return branchListJSON(), nil // parsed empty → PR left `--state open`
-		}
-		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+		return branchListJSON(branchNodeState(4, "https://x/pull/4", "MERGED", "2026-07-01T00:00:00Z")), nil
 	})
 	base := time.Unix(1_000_000, 0)
 	r.now = func() time.Time { return base }
-	r.Register("/repo", "feat")
-	r.refresh(context.Background()) // resolves #4 (positive)
 
-	// The PR merges: the query goes empty. First empty pass starts the grace
-	// clock but MUST still serve #4 (the done-square survives).
-	empty = true
-	r.refresh(context.Background())
-	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 4 {
-		t.Fatalf("merged PR #4 must be retained during the grace window, got ok=%v pr=%v", ok, pr)
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // FIRST refresh on a cold collector
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 4 {
+		t.Fatalf("merged PR #4 must be served on the first refresh of a cold collector, got ok=%v pr=%v", ok, pr)
 	}
 
-	// A pass still WITHIN the grace window keeps serving #4. Re-Register each
-	// pass (a live window re-registers every SSE tick) so the observed-TTL
-	// age-out never fires before the grace clock — the two are independent.
-	base = base.Add(branchPRMergedGrace / 2)
-	r.now = func() time.Time { return base }
-	r.Register("/repo", "feat")
-	r.refresh(context.Background())
-	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 4 {
-		t.Fatalf("PR #4 must still be retained mid-grace, got ok=%v pr=%v", ok, pr)
+	// Many further passes, arbitrarily far in the future — no grace clock, so the
+	// merged PR is served statelessly forever (as long as the pane sits on the
+	// branch). Re-Register each pass (a live window does every SSE tick) so the
+	// observed-TTL age-out never fires.
+	for i := 0; i < 5; i++ {
+		base = base.Add(time.Hour) // far past any former 10-min grace window
+		r.now = func() time.Time { return base }
+		r.Register("/repo", "feat")
+		r.refresh(context.Background())
+		if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil || pr.Number != 4 {
+			t.Fatalf("merged PR #4 must remain served on pass %d (stateless durability, no grace expiry), got ok=%v pr=%v", i, ok, pr)
+		}
 	}
+}
 
-	// A pass PAST the grace window clears the entry to a true negative.
-	base = base.Add(branchPRMergedGrace + time.Second)
-	r.now = func() time.Time { return base }
-	r.Register("/repo", "feat")
-	r.refresh(context.Background())
-	if pr, ok := r.Snapshot("/repo", "feat"); ok || pr != nil {
-		t.Errorf("PR #4 must clear after the grace window elapses, got ok=%v pr=%v", ok, pr)
+// TestPickBranchPR_Precedence covers the open > merged > closed selection rule
+// (status-pyramid.md D2, revised), including the branch-reuse edge (an open PR
+// with an OLDER updatedAt still outranks a newer merged PR — state class beats
+// recency across classes) and most-recent-within-class tie-breaking.
+func TestPickBranchPR_Precedence(t *testing.T) {
+	cases := []struct {
+		name  string
+		nodes []string
+		want  int // expected PR number, or -1 for nil
+	}{
+		{
+			name: "open beats merged even when older (branch-reuse edge)",
+			nodes: []string{
+				branchNodeState(4, "https://x/pull/4", "MERGED", "2026-07-05T00:00:00Z"), // newer
+				branchNodeState(9, "https://x/pull/9", "OPEN", "2026-07-01T00:00:00Z"),   // older but open
+			},
+			want: 9,
+		},
+		{
+			name: "merged beats closed",
+			nodes: []string{
+				branchNodeState(4, "https://x/pull/4", "CLOSED", "2026-07-05T00:00:00Z"),
+				branchNodeState(9, "https://x/pull/9", "MERGED", "2026-07-01T00:00:00Z"),
+			},
+			want: 9,
+		},
+		{
+			name: "closed only returns the most-recent closed",
+			nodes: []string{
+				branchNodeState(4, "https://x/pull/4", "CLOSED", "2026-07-01T00:00:00Z"),
+				branchNodeState(9, "https://x/pull/9", "CLOSED", "2026-07-05T00:00:00Z"), // most recent
+			},
+			want: 9,
+		},
+		{
+			name: "most-recent within the open class",
+			nodes: []string{
+				branchNodeState(4, "https://x/pull/4", "OPEN", "2026-07-01T00:00:00Z"),
+				branchNodeState(9, "https://x/pull/9", "OPEN", "2026-07-05T00:00:00Z"), // most recent
+				branchNodeState(7, "https://x/pull/7", "OPEN", "2026-07-03T00:00:00Z"),
+			},
+			want: 9,
+		},
+		{
+			name: "lowercase state ranks the same (case-insensitive)",
+			nodes: []string{
+				branchNodeState(4, "https://x/pull/4", "merged", "2026-07-05T00:00:00Z"),
+				branchNodeState(9, "https://x/pull/9", "open", "2026-07-01T00:00:00Z"),
+			},
+			want: 9,
+		},
+		{
+			name:  "empty result is a valid negative",
+			nodes: nil,
+			want:  -1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pr, err := pickBranchPR(branchListJSON(tc.nodes...))
+			if err != nil {
+				t.Fatalf("unexpected parse error: %v", err)
+			}
+			if tc.want < 0 {
+				if pr != nil {
+					t.Fatalf("expected nil (negative), got %v", pr)
+				}
+				return
+			}
+			if pr == nil || pr.Number != tc.want {
+				t.Fatalf("got %v, want #%d", pr, tc.want)
+			}
+		})
 	}
 }
 
@@ -359,5 +437,27 @@ func TestPickBranchPR_SkipsEmptyURL(t *testing.T) {
 	}
 	if pr == nil || pr.Number != 4 {
 		t.Fatalf("expected #4 (URL-less node skipped), got %v", pr)
+	}
+}
+
+// TestMapBranchState: the branch-fallback state mapper collapses GitHub's enum to
+// the frontend's lowercase display value, case-insensitively, and maps
+// unknown/empty to "" (NOT "open") so an unconfident branch fallback never wrongly
+// owns the status dot.
+func TestMapBranchState(t *testing.T) {
+	cases := map[string]string{
+		"OPEN":    "open",
+		"open":    "open",
+		"MERGED":  "merged",
+		"Merged":  "merged",
+		"CLOSED":  "closed",
+		"closed":  "closed",
+		"":        "",
+		"UNKNOWN": "", // future enum value must not default to "open"
+	}
+	for in, want := range cases {
+		if got := MapBranchState(in); got != want {
+			t.Errorf("MapBranchState(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

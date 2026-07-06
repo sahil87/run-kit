@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-06T10:34:41Z"}
+{"args":"Durable merged-PR dot + 3-char register keys: replace D2 grace-window with state-all branch→PR derivation (open \u003e merged precedence, closed never owns) so merged purple/orange done-square is stateless and restart-proof; normalize PANE register keys to 3-char (output→out, agent→agt)","cmd":"fab-new","event":"command","ts":"2026-07-06T10:34:41Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-06T10:35:30Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-06T10:36:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-06T10:36:00Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-06T10:36:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-06T10:48:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-06T10:59:53Z"}
+{"event":"review","result":"passed","ts":"2026-07-06T10:59:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-06T11:06:26Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-06T11:08:45Z"}
+{"event":"review","result":"passed","ts":"2026-07-06T11:25:09Z"}

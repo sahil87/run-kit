@@ -248,9 +248,10 @@ function hasFreshAgent(win: WindowInfo): boolean {
  *
  * D2 (closed-unmerged fallback): a CLOSED-unmerged PR never owns the dot — it
  * falls through to the underlying tier (a fab window shows its live green stage,
- * not a dead PR's skipped ring; decision-table row 20). A merged PR (retained by
- * the backend's grace window) still owns the dot as the purple/orange done
- * square. `ownsDot` gates PR ownership on `prNumber` present AND not closed.
+ * not a dead PR's skipped ring; decision-table row 20). A merged PR still owns
+ * the dot as the purple/orange done square — durably, because the backend keeps
+ * deriving it statelessly (`gh pr list --state all`), not via any grace window.
+ * `ownsDot` gates PR ownership on `prNumber` present AND not closed.
  */
 function prOwnsDot(win: WindowInfo): boolean {
   return !!win.prNumber && win.prState !== "closed";

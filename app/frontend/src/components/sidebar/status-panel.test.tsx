@@ -379,10 +379,30 @@ describe("StatusPanel copy behavior", () => {
     });
     render(<StatusPanel window={win} />);
 
-    // The "output" (L0) register is a div, not a button.
-    const outputText = screen.getByText("output");
+    // The L0 register uses the fixed-width 3-char key "out" (status-pyramid.md
+    // § Row Minimalism) and is a div, not a button.
+    const outputText = screen.getByText("out");
     expect(outputText.closest("button")).toBeNull();
     expect(outputText.closest("div")).not.toBeNull();
+  });
+
+  it("renders the fixed-width 3-char register keys out/agt (not output/agent)", () => {
+    // Row Minimalism (status-pyramid.md): the L0/L1 register keys are normalized
+    // to 3 chars — `out`/`agt` — matching tmx/cwd/git. The old `output`/`agent`
+    // prefixes must be gone.
+    const win = makeWindowWithPanes({
+      agentState: "waiting",
+      agentIdleDuration: "3m",
+      panes: [
+        { paneId: "%5", paneIndex: 0, cwd: "/home/user/code/run-kit", command: "claude", isActive: true },
+      ],
+    });
+    render(<StatusPanel window={win} />);
+
+    expect(screen.getByText("out")).toBeInTheDocument();
+    expect(screen.getByText("agt")).toBeInTheDocument();
+    expect(screen.queryByText("output")).toBeNull();
+    expect(screen.queryByText("agent")).toBeNull();
   });
 
   it("empty paneId renders non-interactive tmx row", () => {

@@ -198,7 +198,7 @@ A server enters the SSE poll set exactly once — when a browser opens `GET /api
 
 ## Server-Scoped User Options
 
-tmux distinguishes window-scoped (`-w`) options, server-scoped (`-s`) options, and session-scoped user options (the default — `set-option -t <session>`). We use all three: window-scoped for per-window state (`@color`, `@rk_type`, `@rk_url`), server-scoped for state belonging to the tmux server as a whole (`@rk_session_order`, `@rk_server_rank`), and session-scoped on `_rk-pin-*` pin-sessions for board membership (`@rk_board`/`@rk_home`/`@rk_board_order`, since `260602-qn62`) and on `_rk-ctl` for the control-mode keepalive marker.
+tmux distinguishes window-scoped (`-w`) options, server-scoped (`-s`) options, **pane-scoped (`-p`) options** (since `260705-dmex-generic-agent-state-tier`), and session-scoped user options (the default — `set-option -t <session>`). We use all four: window-scoped for per-window state (`@color`, `@rk_type`, `@rk_url`), server-scoped for state belonging to the tmux server as a whole (`@rk_session_order`, `@rk_server_rank`), **pane-scoped for per-pane agent lifecycle state (`@rk_agent_state`)**, and session-scoped on `_rk-pin-*` pin-sessions for board membership (`@rk_board`/`@rk_home`/`@rk_board_order`, since `260602-qn62`) and on `_rk-ctl` for the control-mode keepalive marker.
 
 | Option | Scope | Set via | Read via | Owner |
 |--------|-------|---------|----------|-------|
@@ -207,6 +207,7 @@ tmux distinguishes window-scoped (`-w`) options, server-scoped (`-s`) options, a
 | `@rk_url` | window (`-w`) | `CreateWindowWithOptions`, `tmux.SetWindowOptions` (both via `appendOptionOps`; since `260529-jad6`) | `ListWindows` format string field 10 | per-window (iframe) |
 | `@rk_session_order` | server (`-s`) | `tmux.SetSessionOrder(ctx, server, order)` | `tmux.GetSessionOrder(ctx, server)` | sidebar reorder |
 | `@rk_server_rank` | server (`-s`) | `tmux.SetServerRank(ctx, server, rank)` | `tmux.GetServerRank(ctx, server)` | server-tile display rank (`260705-bpnr-server-tiles-drag-reorder`) |
+| `@rk_agent_state` | **pane (`-p`)** | agent-harness hooks installed by `rk agent-setup` — plain `set-option -pt "$TMUX_PANE"` at hook-fire time, NO rk/server dependency (`260705-dmex-generic-agent-state-tier`) | `paneFormat` field 6 → `parsePanes` (→ `PaneInfo.AgentState`/`AgentStateEpoch`) | generic agent-lifecycle state (`active|waiting|idle:epoch`; const `tmux.AgentStateOption`). See [agent-state](agent-state.md) |
 | `@rk_board` | session-scoped on each `_rk-pin-*` (set via `set-option -t <pinSession>`) | `tmux.Pin` / `tmux.Reorder` (re-stamp on wrong-board re-pin) | `tmux.ListBoardEntries(ctx, server)` (per-pin `show-options -v`) | board membership (which board; const `tmux.BoardOption`) |
 | `@rk_home` | session-scoped on each `_rk-pin-*` | `tmux.Pin` (stamped at pin time) | `tmux.Unpin` (restore target) | board pin restore-to-home (const `tmux.HomeOption`) |
 | `@rk_board_order` | session-scoped on each `_rk-pin-*` | `tmux.Pin` (append key) / `tmux.Reorder` | `tmux.ListBoardEntries` / `tmux.GetBoard` (sort) | board pin fractional order (const `tmux.BoardOrderOption`; via `ComputeOrderKey`) |

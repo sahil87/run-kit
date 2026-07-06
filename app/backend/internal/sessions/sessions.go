@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"rk/internal/prstatus"
 	"rk/internal/tmux"
 )
 
@@ -67,20 +68,22 @@ func applyActiveWindow(windows []tmux.WindowInfo, trackedWid string) {
 	}
 }
 
-// paneMapEntry matches the JSON output of `fab pane map --json`.
+// paneMapEntry matches the JSON output of `fab pane map --json`. Since the
+// generic agent-state tier (260705-dmex), the join consumes only the fab tier
+// proper — change/stage/display_state. Agent state now comes from the
+// @rk_agent_state pane option (see internal/tmux) and PR links are derived
+// server-side from the pane's branch (see internal/prstatus), so agent_state /
+// agent_idle_duration / pr_url / pr_number are no longer read from the pane map
+// (any such keys still emitted by fab are simply ignored).
 type paneMapEntry struct {
-	Session           string  `json:"session"`
-	WindowIndex       int     `json:"window_index"`
-	Pane              string  `json:"pane"`
-	Tab               string  `json:"tab"`
-	Worktree          string  `json:"worktree"`
-	Change            *string `json:"change"`
-	Stage             *string `json:"stage"`
-	DisplayState      *string `json:"display_state"` // active/ready/done/failed/pending/skipped; nil when null/absent (fab < 2.1.7)
-	AgentState        *string `json:"agent_state"`
-	AgentIdleDuration *string `json:"agent_idle_duration"`
-	PrURL             *string `json:"pr_url"`
-	PrNumber          *int    `json:"pr_number"`
+	Session      string  `json:"session"`
+	WindowIndex  int     `json:"window_index"`
+	Pane         string  `json:"pane"`
+	Tab          string  `json:"tab"`
+	Worktree     string  `json:"worktree"`
+	Change       *string `json:"change"`
+	Stage        *string `json:"stage"`
+	DisplayState *string `json:"display_state"` // active/ready/done/failed/pending/skipped; nil when null/absent (fab < 2.1.7)
 }
 
 // fetchPaneMap runs `fab pane map --json --all-sessions` via the fab router on
@@ -143,11 +146,15 @@ func fetchPaneMap(server string) (map[string]paneMapEntry, error) {
 }
 
 // dedupEntries collapses pane-map entries that belong to the same window,
-// preferring richer fab state. Priority: Change > AgentState > first-seen.
-// The collision key is the window each pane belongs to. The external
+// preferring the change-bound pane. Priority: Change > first-seen. The
+// collision key is the window each pane belongs to. The external
 // `fab pane map` tool identifies a window only by (session, window_index), so
 // that pair is the window-grouping key here; FetchSessions then re-keys the
 // result by the window's stable WindowID before joining (see FetchSessions).
+//
+// The former AgentState tiebreak arm is gone since 260705-dmex: agent state no
+// longer rides the pane map (it comes from the @rk_agent_state pane option), so
+// the only richer-state signal left in the map is Change.
 func dedupEntries(entries []paneMapEntry) map[string]paneMapEntry {
 	m := make(map[string]paneMapEntry, len(entries))
 	for _, e := range entries {
@@ -157,11 +164,8 @@ func dedupEntries(entries []paneMapEntry) map[string]paneMapEntry {
 			m[key] = e
 			continue
 		}
-		// Multiple panes in the same window (splits). Priority: Change > AgentState > first-seen.
-		switch {
-		case e.Change != nil && existing.Change == nil:
-			m[key] = e
-		case e.Change == nil && existing.Change == nil && e.AgentState != nil && existing.AgentState == nil:
+		// Multiple panes in the same window (splits). Priority: Change > first-seen.
+		if e.Change != nil && existing.Change == nil {
 			m[key] = e
 		}
 	}
@@ -433,6 +437,126 @@ func derefStr(s *string) string {
 	return *s
 }
 
+// agentStatePrecedence ranks the three agent states for the window-level rollup:
+// waiting > active > idle. A higher number wins. An unknown/empty state ranks 0
+// (contributes nothing). waiting is the attention state, so it must win the
+// rollup — a split window with one waiting pane is a waiting window.
+func agentStatePrecedence(state string) int {
+	switch state {
+	case tmux.AgentStateWaiting:
+		return 3
+	case tmux.AgentStateActive:
+		return 2
+	case tmux.AgentStateIdle:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// formatAgentDuration formats an elapsed-seconds value in the Ns/Nm/Nh style
+// fab produced (floor division), so the frontend duration surface is
+// byte-compatible with the previous fab-formatted string. A non-positive
+// elapsed yields "".
+func formatAgentDuration(elapsedSeconds int64) string {
+	if elapsedSeconds <= 0 {
+		return ""
+	}
+	switch {
+	case elapsedSeconds < 60:
+		return fmt.Sprintf("%ds", elapsedSeconds)
+	case elapsedSeconds < 3600:
+		return fmt.Sprintf("%dm", elapsedSeconds/60)
+	default:
+		return fmt.Sprintf("%dh", elapsedSeconds/3600)
+	}
+}
+
+// rollupAgentState derives the window-level agent state and idle/waiting
+// duration from the window's panes (post-reconciler), applying the
+// waiting > active > idle precedence. The duration is computed rk-side from the
+// winning pane's AgentStateEpoch for idle AND waiting (empty for active/unknown).
+// Pure function (no I/O) so the rollup is unit-testable, mirroring the
+// parseWindows/parsePanes/applyActiveWindow split.
+func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, duration string) {
+	best := -1
+	var bestEpoch int64
+	for _, p := range panes {
+		if p.AgentState == "" {
+			continue
+		}
+		rank := agentStatePrecedence(p.AgentState)
+		// Deterministic tie-break: at the same precedence (e.g. two waiting
+		// panes), prefer the pane with the newest AgentStateEpoch so the
+		// window duration reflects the most-recently-updated pane rather than
+		// an arbitrary older one (which would inflate the shown waiting/idle
+		// duration). A strictly-higher rank always wins outright.
+		if rank > best || (rank == best && p.AgentStateEpoch > bestEpoch) {
+			best = rank
+			state = p.AgentState
+			bestEpoch = p.AgentStateEpoch
+		}
+	}
+	if state == "" {
+		return "", ""
+	}
+	// Duration is meaningful for idle and waiting (how long the human has been
+	// the blocker / how long at rest); active has no duration.
+	if (state == tmux.AgentStateIdle || state == tmux.AgentStateWaiting) && bestEpoch > 0 {
+		duration = formatAgentDuration(nowUnix - bestEpoch)
+	}
+	return state, duration
+}
+
+// windowBranchRepo returns the (repoDir, branch) to derive a window's PR from:
+// the active pane's cwd/branch when the active pane is on a branch, else the
+// first pane that has a resolved branch. A window is the UI unit that carries a
+// single PrURL, and the active pane is its canonical representative. Returns
+// ("", "") when no pane has a resolved branch.
+func windowBranchRepo(w *tmux.WindowInfo) (repoDir, branch string) {
+	// Prefer the active pane.
+	for i := range w.Panes {
+		if w.Panes[i].IsActive && w.Panes[i].GitBranch != "" {
+			return w.Panes[i].Cwd, w.Panes[i].GitBranch
+		}
+	}
+	// Fall back to the first pane with a branch.
+	for i := range w.Panes {
+		if w.Panes[i].GitBranch != "" {
+			return w.Panes[i].Cwd, w.Panes[i].GitBranch
+		}
+	}
+	return "", ""
+}
+
+// enrichWindowPR populates the window's PrURL/PrNumber from its branch
+// (Constitution §X — PR links are derivable, not pushed). It replaces the
+// pane-map join as the PR-link source: any pane on a branch with an open PR gets
+// its link, in any repo, under any workflow.
+//
+// CRITICAL — this runs on the SSE hot path (FetchSessions), so it does ZERO
+// network/subprocess work: it (a) REGISTERS the (repoDir, branch) pair with the
+// prstatus background refresher — a cheap, lock-guarded set touch — and (b)
+// JOINS the last-good derived PR from the refresher's in-memory snapshot. The
+// actual `gh pr list` resolution happens off-tick on the refresher goroutine
+// (see internal/prstatus.BranchRefresher). A window with no branch is skipped; a
+// branch not yet resolved, with no open PR, or gh absent leaves the fields nil.
+func enrichWindowPR(w *tmux.WindowInfo) {
+	repoDir, branch := windowBranchRepo(w)
+	if branch == "" {
+		return
+	}
+	// Report the pair so the background refresher resolves it (cheap; no exec).
+	prstatus.Register(repoDir, branch)
+	// Join the last-good result from the in-memory snapshot (no exec).
+	if pr, ok := prstatus.SnapshotBranchPR(repoDir, branch); ok {
+		url := pr.URL
+		num := pr.Number
+		w.PrURL = &url
+		w.PrNumber = &num
+	}
+}
+
 // FetchSessions fetches all sessions from the specified server, derives project
 // roots from tmux, enriches with fab state, and applies the two-tier
 // active-window derivation. The provider supplies the event-tracked active
@@ -509,17 +633,15 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	}
 
 	// Build result with per-window fab enrichment from pane-map and git branches.
+	nowUnix := time.Now().Unix()
 	result := make([]ProjectSession, len(data))
 	for i, sd := range data {
 		for j := range sd.windows {
+			// Fab tier proper (change/stage/display_state) from the pane map.
 			if entry, ok := enrichByWindowID[sd.windows[j].WindowID]; ok {
 				sd.windows[j].FabChange = derefStr(entry.Change)
 				sd.windows[j].FabStage = derefStr(entry.Stage)
 				sd.windows[j].FabDisplayState = derefStr(entry.DisplayState)
-				sd.windows[j].AgentState = derefStr(entry.AgentState)
-				sd.windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
-				sd.windows[j].PrURL = entry.PrURL
-				sd.windows[j].PrNumber = entry.PrNumber
 			}
 			for k := range sd.windows[j].Panes {
 				cwd := sd.windows[j].Panes[k].Cwd
@@ -530,6 +652,14 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 					sd.windows[j].Panes[k].CwdMissing = true
 				}
 			}
+			// Generic agent-state tier (260705-dmex): window-level rollup over
+			// the panes' @rk_agent_state (waiting > active > idle), with the
+			// idle/waiting duration computed rk-side from the epoch.
+			sd.windows[j].AgentState, sd.windows[j].AgentIdleDuration = rollupAgentState(sd.windows[j].Panes, nowUnix)
+			// PR-from-branch derivation (260705-dmex): register the window's
+			// branch with the prstatus refresher and join its last-good PR from
+			// the in-memory snapshot — no subprocess on this hot path.
+			enrichWindowPR(&sd.windows[j])
 		}
 
 		// Two-tier active-window derivation. The user-facing session name IS

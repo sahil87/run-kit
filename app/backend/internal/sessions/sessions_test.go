@@ -103,10 +103,13 @@ func TestProjectSessionNameFieldJSON(t *testing.T) {
 func TestPaneMapEntryParsing(t *testing.T) {
 	change := "260313-abc-feature"
 	stage := "apply"
-	agentState := "active"
 
+	// The JSON still carries the legacy agent_state / agent_idle_duration /
+	// pr_url / pr_number keys fab may emit; since 260705-dmex the slimmed
+	// paneMapEntry no longer has those fields, so they MUST be ignored without
+	// error — the join consumes only change/stage/display_state.
 	jsonData := `[
-		{"session":"dev","window_index":0,"pane":"%0","tab":"main","worktree":"/home/user/project","change":"260313-abc-feature","stage":"apply","agent_state":"active","agent_idle_duration":null},
+		{"session":"dev","window_index":0,"pane":"%0","tab":"main","worktree":"/home/user/project","change":"260313-abc-feature","stage":"apply","agent_state":"active","agent_idle_duration":null,"pr_url":"https://x/pull/1","pr_number":1},
 		{"session":"dev","window_index":1,"pane":"%1","tab":"build","worktree":"/tmp/build","change":null,"stage":null,"agent_state":null,"agent_idle_duration":null}
 	]`
 
@@ -119,7 +122,7 @@ func TestPaneMapEntryParsing(t *testing.T) {
 		t.Fatalf("got %d entries, want 2", len(entries))
 	}
 
-	// First entry: fab pane with populated fields
+	// First entry: fab tier proper (change/stage) populated.
 	e0 := entries[0]
 	if e0.Session != "dev" {
 		t.Errorf("entries[0].Session = %q, want %q", e0.Session, "dev")
@@ -133,12 +136,6 @@ func TestPaneMapEntryParsing(t *testing.T) {
 	if e0.Stage == nil || *e0.Stage != stage {
 		t.Errorf("entries[0].Stage = %v, want %q", e0.Stage, stage)
 	}
-	if e0.AgentState == nil || *e0.AgentState != agentState {
-		t.Errorf("entries[0].AgentState = %v, want %q", e0.AgentState, agentState)
-	}
-	if e0.AgentIdleDuration != nil {
-		t.Errorf("entries[0].AgentIdleDuration = %v, want nil", e0.AgentIdleDuration)
-	}
 
 	// Second entry: non-fab pane with null fields
 	e1 := entries[1]
@@ -147,9 +144,6 @@ func TestPaneMapEntryParsing(t *testing.T) {
 	}
 	if e1.Stage != nil {
 		t.Errorf("entries[1].Stage = %v, want nil", e1.Stage)
-	}
-	if e1.AgentState != nil {
-		t.Errorf("entries[1].AgentState = %v, want nil", e1.AgentState)
 	}
 }
 
@@ -164,27 +158,24 @@ func TestDerefStr(t *testing.T) {
 }
 
 func TestPaneMapJoinPopulatesPerWindowFabFields(t *testing.T) {
+	// Since 260705-dmex the pane-map join carries only the fab tier proper
+	// (change/stage/display_state); agent state comes from @rk_agent_state, not
+	// the pane map.
 	change := "260313-abc-feature"
 	stage := "apply"
-	agentState := "active"
-	idleDuration := "5m"
 
 	paneMap := map[string]paneMapEntry{
 		"dev:0": {
-			Session:           "dev",
-			WindowIndex:       0,
-			Change:            &change,
-			Stage:             &stage,
-			AgentState:        &agentState,
-			AgentIdleDuration: nil,
+			Session:     "dev",
+			WindowIndex: 0,
+			Change:      &change,
+			Stage:       &stage,
 		},
 		"dev:1": {
-			Session:           "dev",
-			WindowIndex:       1,
-			Change:            &change,
-			Stage:             &stage,
-			AgentState:        strPtr("idle"),
-			AgentIdleDuration: &idleDuration,
+			Session:     "dev",
+			WindowIndex: 1,
+			Change:      &change,
+			Stage:       strPtr("review"),
 		},
 	}
 
@@ -200,34 +191,23 @@ func TestPaneMapJoinPopulatesPerWindowFabFields(t *testing.T) {
 		if entry, ok := paneMap[key]; ok {
 			windows[j].FabChange = derefStr(entry.Change)
 			windows[j].FabStage = derefStr(entry.Stage)
-			windows[j].AgentState = derefStr(entry.AgentState)
-			windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
 		}
 	}
 
-	// Window 0: fab pane, active agent
+	// Window 0: fab pane, apply stage
 	if windows[0].FabChange != change {
 		t.Errorf("windows[0].FabChange = %q, want %q", windows[0].FabChange, change)
 	}
 	if windows[0].FabStage != stage {
 		t.Errorf("windows[0].FabStage = %q, want %q", windows[0].FabStage, stage)
 	}
-	if windows[0].AgentState != agentState {
-		t.Errorf("windows[0].AgentState = %q, want %q", windows[0].AgentState, agentState)
-	}
-	if windows[0].AgentIdleDuration != "" {
-		t.Errorf("windows[0].AgentIdleDuration = %q, want empty", windows[0].AgentIdleDuration)
-	}
 
-	// Window 1: fab pane, idle agent
+	// Window 1: fab pane, review stage
 	if windows[1].FabChange != change {
 		t.Errorf("windows[1].FabChange = %q, want %q", windows[1].FabChange, change)
 	}
-	if windows[1].AgentState != "idle" {
-		t.Errorf("windows[1].AgentState = %q, want %q", windows[1].AgentState, "idle")
-	}
-	if windows[1].AgentIdleDuration != idleDuration {
-		t.Errorf("windows[1].AgentIdleDuration = %q, want %q", windows[1].AgentIdleDuration, idleDuration)
+	if windows[1].FabStage != "review" {
+		t.Errorf("windows[1].FabStage = %q, want %q", windows[1].FabStage, "review")
 	}
 
 	// Window 2: no pane-map entry — fab fields remain empty
@@ -236,9 +216,6 @@ func TestPaneMapJoinPopulatesPerWindowFabFields(t *testing.T) {
 	}
 	if windows[2].FabStage != "" {
 		t.Errorf("windows[2].FabStage = %q, want empty", windows[2].FabStage)
-	}
-	if windows[2].AgentState != "" {
-		t.Errorf("windows[2].AgentState = %q, want empty", windows[2].AgentState)
 	}
 }
 
@@ -257,8 +234,6 @@ func TestPaneMapNilLeavesAllFieldsEmpty(t *testing.T) {
 		if entry, ok := paneMap[key]; ok {
 			windows[j].FabChange = derefStr(entry.Change)
 			windows[j].FabStage = derefStr(entry.Stage)
-			windows[j].AgentState = derefStr(entry.AgentState)
-			windows[j].AgentIdleDuration = derefStr(entry.AgentIdleDuration)
 		}
 	}
 
@@ -269,118 +244,45 @@ func TestPaneMapNilLeavesAllFieldsEmpty(t *testing.T) {
 		if w.FabStage != "" {
 			t.Errorf("windows[%d].FabStage = %q, want empty", i, w.FabStage)
 		}
-		if w.AgentState != "" {
-			t.Errorf("windows[%d].AgentState = %q, want empty", i, w.AgentState)
-		}
-		if w.AgentIdleDuration != "" {
-			t.Errorf("windows[%d].AgentIdleDuration = %q, want empty", i, w.AgentIdleDuration)
-		}
 	}
 }
 
-func TestPaneMapEntryParsesPrFields(t *testing.T) {
-	jsonData := `[
-		{"session":"dev","window_index":0,"pane":"%0","tab":"main","worktree":"/p","change":"260610-596o-x","stage":"apply","agent_state":null,"agent_idle_duration":null,"pr_url":"https://github.com/o/r/pull/386","pr_number":386},
-		{"session":"dev","window_index":1,"pane":"%1","tab":"build","worktree":"/b","change":null,"stage":null,"agent_state":null,"agent_idle_duration":null,"pr_url":null,"pr_number":null}
-	]`
-
-	var entries []paneMapEntry
-	if err := json.Unmarshal([]byte(jsonData), &entries); err != nil {
-		t.Fatalf("failed to parse pane-map JSON: %v", err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("got %d entries, want 2", len(entries))
-	}
-
-	// First entry: PR fields populated.
-	if entries[0].PrURL == nil || *entries[0].PrURL != "https://github.com/o/r/pull/386" {
-		t.Errorf("entries[0].PrURL = %v, want the PR url", entries[0].PrURL)
-	}
-	if entries[0].PrNumber == nil || *entries[0].PrNumber != 386 {
-		t.Errorf("entries[0].PrNumber = %v, want 386", entries[0].PrNumber)
-	}
-	// Second entry: null PR fields parse to nil pointers.
-	if entries[1].PrURL != nil {
-		t.Errorf("entries[1].PrURL = %v, want nil", entries[1].PrURL)
-	}
-	if entries[1].PrNumber != nil {
-		t.Errorf("entries[1].PrNumber = %v, want nil", entries[1].PrNumber)
-	}
-}
-
-func TestPaneMapJoinPopulatesPerWindowPrFields(t *testing.T) {
-	change := "260610-596o-x"
-	prURL := "https://github.com/o/r/pull/386"
-	prNumber := 386
-
-	paneMap := map[string]paneMapEntry{
-		// Window with a PR (change-bound).
-		"dev:0": {
-			Session:     "dev",
-			WindowIndex: 0,
-			Change:      &change,
-			PrURL:       &prURL,
-			PrNumber:    &prNumber,
-		},
-		// Window with a pane-map entry but null PR fields.
-		"dev:1": {
-			Session:     "dev",
-			WindowIndex: 1,
-			Change:      &change,
-			PrURL:       nil,
-			PrNumber:    nil,
-		},
-	}
-
-	windows := []tmux.WindowInfo{
-		{Index: 0, WindowID: "@10", Name: "main"},
-		{Index: 1, WindowID: "@11", Name: "build"},
-		{Index: 2, WindowID: "@12", Name: "test"}, // no pane-map entry
-	}
-
-	// Mirror the FetchSessions enrichment join FAITHFULLY: production does not
-	// join by (session, index) directly — it first re-keys the (session, index)
-	// pane-map onto each window's stable WindowID (so an index shift from a
-	// reorder can never misattribute one window's PR fields to another), then
-	// joins by WindowID. Reproduce both steps here.
-	sessionName := "dev"
-	enrichByWindowID := make(map[string]paneMapEntry, len(paneMap))
-	for j := range windows {
-		indexKey := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
-		if entry, ok := paneMap[indexKey]; ok {
-			enrichByWindowID[windows[j].WindowID] = entry
+// TestWindowBranchRepo covers the branch/repo selection that feeds the
+// PR-from-branch derivation (260705-dmex): the active pane's branch wins, else
+// the first pane with a branch; no branch → ("", "").
+func TestWindowBranchRepo(t *testing.T) {
+	t.Run("active pane with a branch wins", func(t *testing.T) {
+		w := tmux.WindowInfo{Panes: []tmux.PaneInfo{
+			{Cwd: "/repo/a", GitBranch: "feat-a", IsActive: false},
+			{Cwd: "/repo/b", GitBranch: "feat-b", IsActive: true},
+		}}
+		repo, branch := windowBranchRepo(&w)
+		if repo != "/repo/b" || branch != "feat-b" {
+			t.Errorf("got (%q, %q), want (/repo/b, feat-b)", repo, branch)
 		}
-	}
-	for j := range windows {
-		if entry, ok := enrichByWindowID[windows[j].WindowID]; ok {
-			windows[j].PrURL = entry.PrURL
-			windows[j].PrNumber = entry.PrNumber
+	})
+
+	t.Run("falls back to first pane with a branch when active has none", func(t *testing.T) {
+		w := tmux.WindowInfo{Panes: []tmux.PaneInfo{
+			{Cwd: "/repo/a", GitBranch: "", IsActive: true},
+			{Cwd: "/repo/b", GitBranch: "feat-b", IsActive: false},
+		}}
+		repo, branch := windowBranchRepo(&w)
+		if repo != "/repo/b" || branch != "feat-b" {
+			t.Errorf("got (%q, %q), want (/repo/b, feat-b)", repo, branch)
 		}
-	}
+	})
 
-	// Window 0: PR fields flow through as the entry's pointer values.
-	if windows[0].PrURL == nil || *windows[0].PrURL != prURL {
-		t.Errorf("windows[0].PrURL = %v, want %q", windows[0].PrURL, prURL)
-	}
-	if windows[0].PrNumber == nil || *windows[0].PrNumber != prNumber {
-		t.Errorf("windows[0].PrNumber = %v, want %d", windows[0].PrNumber, prNumber)
-	}
-
-	// Window 1: pane-map entry present but null PR fields → nil.
-	if windows[1].PrURL != nil {
-		t.Errorf("windows[1].PrURL = %v, want nil", windows[1].PrURL)
-	}
-	if windows[1].PrNumber != nil {
-		t.Errorf("windows[1].PrNumber = %v, want nil", windows[1].PrNumber)
-	}
-
-	// Window 2: no pane-map entry → nil PR fields.
-	if windows[2].PrURL != nil {
-		t.Errorf("windows[2].PrURL = %v, want nil", windows[2].PrURL)
-	}
-	if windows[2].PrNumber != nil {
-		t.Errorf("windows[2].PrNumber = %v, want nil", windows[2].PrNumber)
-	}
+	t.Run("no pane has a branch yields empty", func(t *testing.T) {
+		w := tmux.WindowInfo{Panes: []tmux.PaneInfo{
+			{Cwd: "/repo/a", GitBranch: "", IsActive: true},
+			{Cwd: "/repo/b", GitBranch: ""},
+		}}
+		repo, branch := windowBranchRepo(&w)
+		if repo != "" || branch != "" {
+			t.Errorf("got (%q, %q), want empty", repo, branch)
+		}
+	})
 }
 
 func TestPaneMapEntryParsesDisplayState(t *testing.T) {
@@ -573,80 +475,38 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 	}
 }
 
-// TestPaneMapDedupPrefersAgentState verifies rule-2: when both colliding
-// entries have nil Change, the entry with non-nil AgentState wins over the
-// all-nil entry. Runs both input orderings to prove the result is determined
-// by entry content, not slice position.
-func TestPaneMapDedupPrefersAgentState(t *testing.T) {
-	agentState := "active"
-	bare := paneMapEntry{
-		Session:     "dev",
-		WindowIndex: 0,
-		Pane:        "%0",
-		Change:      nil,
-		AgentState:  nil,
-	}
-	agent := paneMapEntry{
-		Session:     "dev",
-		WindowIndex: 0,
-		Pane:        "%1",
-		Change:      nil,
-		AgentState:  &agentState,
-	}
+// TestPaneMapDedupFirstSeenWhenNeitherChangeBound verifies that since 260705-dmex
+// (the AgentState tiebreak arm removed), when neither colliding entry is
+// change-bound the FIRST-seen entry is kept regardless of any other field —
+// there is no longer an agent-state tiebreak. Both input orderings are exercised
+// to prove first-seen (not content) decides.
+func TestPaneMapDedupFirstSeenWhenNeitherChangeBound(t *testing.T) {
+	first := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%0", Change: nil}
+	second := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%1", Change: nil}
 
-	orderings := []struct {
-		name    string
-		entries []paneMapEntry
-	}{
-		{name: "agent-first", entries: []paneMapEntry{agent, bare}},
-		{name: "bare-first", entries: []paneMapEntry{bare, agent}},
+	m := dedupEntries([]paneMapEntry{first, second})
+	got, ok := m["dev:0"]
+	if !ok {
+		t.Fatalf("map missing key dev:0")
 	}
-
-	for _, o := range orderings {
-		t.Run(o.name, func(t *testing.T) {
-			m := dedupEntries(o.entries)
-			got, ok := m["dev:0"]
-			if !ok {
-				t.Fatalf("map missing key dev:0")
-			}
-			if got.Pane != agent.Pane {
-				t.Errorf("got pane %q, want %q (agent entry should win)", got.Pane, agent.Pane)
-			}
-			if got.AgentState == nil || *got.AgentState != agentState {
-				t.Errorf("got AgentState %v, want %q", got.AgentState, agentState)
-			}
-		})
+	if got.Pane != first.Pane {
+		t.Errorf("got pane %q, want %q (first-seen should win)", got.Pane, first.Pane)
 	}
 }
 
-// TestPaneMapDedupChangeStillWinsOverAgent verifies rule-1 priority is
-// unaffected by the new rule-2: an entry with non-nil Change (and nil
-// AgentState) beats an entry with nil Change (and non-nil AgentState),
-// regardless of input order.
-func TestPaneMapDedupChangeStillWinsOverAgent(t *testing.T) {
+// TestPaneMapDedupChangeWins verifies rule-1: an entry with non-nil Change beats
+// a bare (nil Change) entry regardless of input order.
+func TestPaneMapDedupChangeWins(t *testing.T) {
 	change := "260313-abc-feature"
-	agentState := "active"
-	changeEntry := paneMapEntry{
-		Session:     "dev",
-		WindowIndex: 0,
-		Pane:        "%0",
-		Change:      &change,
-		AgentState:  nil,
-	}
-	agentEntry := paneMapEntry{
-		Session:     "dev",
-		WindowIndex: 0,
-		Pane:        "%1",
-		Change:      nil,
-		AgentState:  &agentState,
-	}
+	changeEntry := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%0", Change: &change}
+	bareEntry := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%1", Change: nil}
 
 	orderings := []struct {
 		name    string
 		entries []paneMapEntry
 	}{
-		{name: "change-first", entries: []paneMapEntry{changeEntry, agentEntry}},
-		{name: "agent-first", entries: []paneMapEntry{agentEntry, changeEntry}},
+		{name: "change-first", entries: []paneMapEntry{changeEntry, bareEntry}},
+		{name: "bare-first", entries: []paneMapEntry{bareEntry, changeEntry}},
 	}
 
 	for _, o := range orderings {
@@ -682,6 +542,120 @@ func TestResolveCwdMissing(t *testing.T) {
 	if _, ok := got[""]; ok {
 		t.Errorf("empty cwd should be skipped, not flagged")
 	}
+}
+
+func TestFormatAgentDuration(t *testing.T) {
+	cases := []struct {
+		elapsed int64
+		want    string
+	}{
+		{-5, ""},
+		{0, ""},
+		{45, "45s"},
+		{59, "59s"},
+		{60, "1m"},
+		{130, "2m"},
+		{3599, "59m"},
+		{3600, "1h"},
+		{7300, "2h"},
+	}
+	for _, c := range cases {
+		if got := formatAgentDuration(c.elapsed); got != c.want {
+			t.Errorf("formatAgentDuration(%d) = %q, want %q", c.elapsed, got, c.want)
+		}
+	}
+}
+
+func TestRollupAgentState(t *testing.T) {
+	const now int64 = 1_000_000
+
+	t.Run("waiting wins over active", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{AgentState: tmux.AgentStateActive, AgentStateEpoch: now - 10},
+			{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: now - 130},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != tmux.AgentStateWaiting {
+			t.Errorf("state = %q, want waiting", state)
+		}
+		if dur != "2m" {
+			t.Errorf("waiting duration = %q, want 2m", dur)
+		}
+	})
+
+	t.Run("active wins over idle", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{AgentState: tmux.AgentStateIdle, AgentStateEpoch: now - 300},
+			{AgentState: tmux.AgentStateActive, AgentStateEpoch: now - 5},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != tmux.AgentStateActive {
+			t.Errorf("state = %q, want active", state)
+		}
+		if dur != "" {
+			t.Errorf("active duration = %q, want empty", dur)
+		}
+	})
+
+	t.Run("idle duration formatted from epoch", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{AgentState: tmux.AgentStateIdle, AgentStateEpoch: now - 130},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != tmux.AgentStateIdle || dur != "2m" {
+			t.Errorf("got (%q, %q), want (idle, 2m)", state, dur)
+		}
+	})
+
+	t.Run("no agent panes yields empty", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{AgentState: "", AgentStateEpoch: 0},
+			{Command: "zsh"},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != "" || dur != "" {
+			t.Errorf("got (%q, %q), want empty", state, dur)
+		}
+	})
+
+	t.Run("idle with zero epoch has no duration", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{AgentState: tmux.AgentStateIdle, AgentStateEpoch: 0},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != tmux.AgentStateIdle || dur != "" {
+			t.Errorf("got (%q, %q), want (idle, empty)", state, dur)
+		}
+	})
+
+	t.Run("tie-break prefers newest epoch at same precedence", func(t *testing.T) {
+		// Two waiting panes: the older one is listed first. The rollup must
+		// pick the newest epoch so the duration reflects the most-recently-
+		// updated pane, not the arbitrary first one (which would inflate it).
+		panes := []tmux.PaneInfo{
+			{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: now - 600},
+			{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: now - 60},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != tmux.AgentStateWaiting {
+			t.Errorf("state = %q, want waiting", state)
+		}
+		if dur != "1m" {
+			t.Errorf("tie-break duration = %q, want 1m (newest epoch), not 10m", dur)
+		}
+	})
+
+	t.Run("tie-break is order-independent", func(t *testing.T) {
+		// Same two panes with the newest listed first — result must be identical.
+		panes := []tmux.PaneInfo{
+			{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: now - 60},
+			{AgentState: tmux.AgentStateWaiting, AgentStateEpoch: now - 600},
+		}
+		state, dur := rollupAgentState(panes, now)
+		if state != tmux.AgentStateWaiting || dur != "1m" {
+			t.Errorf("got (%q, %q), want (waiting, 1m)", state, dur)
+		}
+	})
 }
 
 // strPtr is a test helper returning a pointer to s.

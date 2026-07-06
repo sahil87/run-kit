@@ -71,7 +71,14 @@ export type WindowInfo = {
   activityTimestamp: number;
   /** Color value descriptor: "4" for a single ANSI index, "1+3" for a blend. */
   color?: string;
+  /** Generic agent-lifecycle state from the `@rk_agent_state` pane option:
+   *  `active` (turn in progress) | `waiting` (blocked on a human — permission
+   *  prompt / question dialog) | `idle` (at rest). Empty/absent = unknown.
+   *  Window-level rollup with precedence `waiting > active > idle`. See
+   *  docs/specs/agent-state.md. */
   agentState?: string;
+  /** Idle/waiting duration (e.g. `2m`), computed server-side from the option's
+   *  epoch for the `idle` and `waiting` states; empty for `active`/unknown. */
   agentIdleDuration?: string;
   fabChange?: string;
   fabStage?: string;

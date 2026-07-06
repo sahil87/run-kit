@@ -202,6 +202,71 @@ func WindowIDFromPinSession(name string) (string, bool) {
 	return id, true
 }
 
+// AgentStateOption is the tmux PANE-scoped user option that carries the generic
+// agent-lifecycle state written by agent-harness hooks (installed via
+// `rk agent-setup`). Value schema: "<state>:<epoch_seconds>", state ∈
+// active|waiting|idle. It is the tier-2 signal owned by run-kit (tier 1 —
+// change/stage — stays fab's). See docs/specs/agent-state.md.
+const AgentStateOption = "@rk_agent_state"
+
+// Agent lifecycle states carried by @rk_agent_state. Any other token parses as
+// unknown (empty state, zero epoch).
+const (
+	AgentStateActive  = "active"
+	AgentStateWaiting = "waiting"
+	AgentStateIdle    = "idle"
+)
+
+// shellCommands is the set of plain-shell pane_current_command values that the
+// reconciler treats as "no agent" — a pane running one of these has no agent
+// regardless of a leftover @rk_agent_state value (the guppi auto-clear lesson:
+// an Esc-interrupted or killed agent can strand a stale `active`). See
+// docs/specs/agent-state.md § Reader rules.
+var shellCommands = map[string]bool{
+	"bash": true,
+	"zsh":  true,
+	"fish": true,
+	"sh":   true,
+	"dash": true,
+}
+
+// isShellCommand reports whether cmd is one of the plain shells the reconciler
+// treats as having no agent.
+func isShellCommand(cmd string) bool {
+	return shellCommands[cmd]
+}
+
+// isAgentState reports whether s is one of the three known agent states.
+func isAgentState(s string) bool {
+	return s == AgentStateActive || s == AgentStateWaiting || s == AgentStateIdle
+}
+
+// parseAgentState parses a raw @rk_agent_state value of the form
+// "<state>:<epoch_seconds>" into a validated (state, epoch) pair. A value that
+// is empty, lacks the colon, carries an unknown state token, or has a
+// non-integer epoch yields ("", 0) — unknown. Splitting on the LAST colon is
+// defensive; the state tokens never contain a colon, so it is equivalent to a
+// first-colon split for valid input.
+func parseAgentState(raw string) (string, int64) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", 0
+	}
+	i := strings.LastIndex(raw, ":")
+	if i < 0 {
+		return "", 0
+	}
+	state := raw[:i]
+	if !isAgentState(state) {
+		return "", 0
+	}
+	epoch, err := strconv.ParseInt(raw[i+1:], 10, 64)
+	if err != nil {
+		return "", 0
+	}
+	return state, epoch
+}
+
 // PaneInfo describes a single tmux pane within a window.
 type PaneInfo struct {
 	PaneID    string `json:"paneId"`
@@ -215,6 +280,12 @@ type PaneInfo struct {
 	// tmux pane. tmux keeps reporting the stale path until the shell's cwd
 	// recovers, so the UI surfaces this as a "(deleted)" marker.
 	CwdMissing bool `json:"cwdMissing,omitempty"`
+	// AgentState is the generic agent-lifecycle state from the pane's
+	// @rk_agent_state option (active|waiting|idle; empty = unknown), after the
+	// shell-command reconciler. AgentStateEpoch is the option's epoch-seconds
+	// suffix (0 = unknown), from which idle/waiting duration is computed rk-side.
+	AgentState      string `json:"agentState,omitempty"`
+	AgentStateEpoch int64  `json:"agentStateEpoch,omitempty"`
 }
 
 // WindowInfo describes a single tmux window within a session.
@@ -443,9 +514,17 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 }
 
 // parsePanes parses tmux list-panes output lines into a window-index→[]PaneInfo map.
-// Lines are 6-field tab-delimited: window_index, pane_id, pane_index, cwd, command, is_active.
-// Field 0 (window_index) is consumed for grouping and not stored in PaneInfo.
-// Lines with fewer than 6 fields are silently skipped. Empty input returns nil.
+// Lines are 7-field tab-delimited: window_index, pane_id, pane_index, cwd,
+// command, is_active, @rk_agent_state. Field 0 (window_index) is consumed for
+// grouping and not stored in PaneInfo. Lines with fewer than 7 fields are
+// silently skipped. Empty input returns nil.
+//
+// The @rk_agent_state field (field 6) is parsed into AgentState/AgentStateEpoch
+// via parseAgentState, then reconciled: a pane whose command is a plain shell is
+// treated as having no agent (both fields zeroed) regardless of a leftover option
+// value — the guppi auto-clear lesson that prevents a stranded `active` after an
+// Esc-interrupt/kill.
+//
 // Accessible to same-package tests.
 func parsePanes(lines []string) map[int][]PaneInfo {
 	if len(lines) == 0 {
@@ -454,7 +533,7 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 	byWindow := make(map[int][]PaneInfo)
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
-		if len(parts) < 6 {
+		if len(parts) < 7 {
 			continue
 		}
 		windowIndex, err := strconv.Atoi(strings.TrimSpace(parts[0]))
@@ -467,12 +546,21 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 			continue
 		}
 		isActive := strings.TrimSpace(parts[5]) == "1"
+		command := strings.TrimSpace(parts[4])
+		agentState, agentEpoch := parseAgentState(parts[6])
+		// Reconciler: a plain-shell pane has no agent regardless of a leftover
+		// @rk_agent_state value.
+		if isShellCommand(command) {
+			agentState, agentEpoch = "", 0
+		}
 		p := PaneInfo{
-			PaneID:    strings.TrimSpace(parts[1]),
-			PaneIndex: paneIndex,
-			Cwd:       parts[3],
-			Command:   strings.TrimSpace(parts[4]),
-			IsActive:  isActive,
+			PaneID:          strings.TrimSpace(parts[1]),
+			PaneIndex:       paneIndex,
+			Cwd:             parts[3],
+			Command:         command,
+			IsActive:        isActive,
+			AgentState:      agentState,
+			AgentStateEpoch: agentEpoch,
 		}
 		byWindow[windowIndex] = append(byWindow[windowIndex], p)
 	}
@@ -541,7 +629,10 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 }
 
 // paneFormat is the list-panes format string: window_index, pane_id, pane_index,
-// pane_current_path, pane_current_command, pane_active (6 fields).
+// pane_current_path, pane_current_command, pane_active, @rk_agent_state (7
+// fields). The @rk_agent_state field carries the generic agent-lifecycle state
+// (see AgentStateOption / docs/specs/agent-state.md); it costs no extra
+// subprocess since it rides the existing list-panes call.
 var paneFormat = strings.Join([]string{
 	"#{window_index}",
 	"#{pane_id}",
@@ -549,6 +640,7 @@ var paneFormat = strings.Join([]string{
 	"#{pane_current_path}",
 	"#{pane_current_command}",
 	"#{pane_active}",
+	"#{@rk_agent_state}",
 }, listDelim)
 
 // ListWindows returns windows for a given session on the specified server.

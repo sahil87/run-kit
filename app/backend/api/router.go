@@ -317,6 +317,12 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	pc := prstatus.NewCollector(prStatusPollInterval)
 	pc.Start(ctx)
 
+	// Branch→PR refresher (260705-dmex): resolves observed (repo, branch) pairs
+	// to their open PR on a background tick so the SSE hot path (which only
+	// registers pairs + joins the snapshot) never spawns gh. Started next to the
+	// viewer-wide collector; both exit on ctx cancellation.
+	prstatus.DefaultBranchRefresher.Start(ctx)
+
 	s := &Server{
 		logger:   logger,
 		sessions: &prodSessionFetcher{},

@@ -21,7 +21,12 @@ func (s stubSnapshotter) Snapshot() map[string]prstatus.PRStatus { return s.snap
 func intp(n int) *int       { return &n }
 func strp(s string) *string { return &s }
 
-func TestAttachPRStatusChangeBoundGate(t *testing.T) {
+// TestAttachPRStatusURLGate verifies the URL-only gate since 260705-dmex: the
+// former FabChange (change-bound) gate is GONE, so ANY window with a non-empty
+// derived PrURL that matches the snapshot is enriched — including a scratch
+// (non-change-bound) window. The empty-PrURL / no-PrURL / no-match cases still
+// stay empty (the URL is the join key).
+func TestAttachPRStatusURLGate(t *testing.T) {
 	hub := &sseHub{
 		prStatus: stubSnapshotter{snap: map[string]prstatus.PRStatus{
 			"u386": {Number: 386, URL: "u386", State: "open", Checks: "pass", ReviewDecision: "approved"},
@@ -37,15 +42,15 @@ func TestAttachPRStatusChangeBoundGate(t *testing.T) {
 		Windows: []tmux.WindowInfo{
 			// change-bound window with a matching PR → attach
 			{Index: 0, FabChange: "260610-x", PrNumber: intp(386), PrURL: strp("u386")},
-			// scratch window (no FabChange) WITH a PrURL → gate blocks attach
+			// scratch window (no FabChange) WITH a matching PrURL → attach now
+			// (branch-derived PR; the change gate is gone)
 			{Index: 1, FabChange: "", PrNumber: intp(999), PrURL: strp("u999")},
-			// change-bound window whose PR is not in the snapshot → no attach
+			// window whose PR is not in the snapshot → no attach
 			{Index: 2, FabChange: "260610-y", PrNumber: intp(123), PrURL: strp("u123")},
-			// change-bound window with no PrURL (e.g. a stale fab that emits
-			// pr_number only) → no attach — the join key is the URL
+			// window with no PrURL → no attach — the join key is the URL
 			{Index: 3, FabChange: "260610-z", PrNumber: intp(386), PrURL: nil},
-			// change-bound window with an EMPTY PrURL → gate treats it as
-			// missing; must not match an empty snapshot key
+			// window with an EMPTY PrURL → gate treats it as missing; must not
+			// match an empty snapshot key
 			{Index: 4, FabChange: "260610-w", PrNumber: intp(7), PrURL: strp("")},
 		},
 	}}
@@ -56,8 +61,8 @@ func TestAttachPRStatusChangeBoundGate(t *testing.T) {
 	if ws[0].PrState != "open" || ws[0].PrChecks != "pass" || ws[0].PrReview != "approved" {
 		t.Errorf("window 0 (change-bound, matched) not enriched: %+v", ws[0])
 	}
-	if ws[1].PrState != "" || ws[1].PrChecks != "" || ws[1].PrReview != "" {
-		t.Errorf("window 1 (scratch) must NOT be enriched despite PrURL: %+v", ws[1])
+	if ws[1].PrState != "merged" || ws[1].PrChecks != "fail" {
+		t.Errorf("window 1 (scratch, matched) MUST be enriched now the change gate is gone: %+v", ws[1])
 	}
 	if ws[2].PrState != "" {
 		t.Errorf("window 2 (no snapshot match) must stay empty: %+v", ws[2])

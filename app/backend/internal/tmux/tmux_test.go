@@ -516,9 +516,17 @@ func TestParseWindowsMixedTypes(t *testing.T) {
 }
 
 // paneLine builds a 6-field tab-delimited list-panes line.
+// paneLine builds a 7-field tab-delimited list-panes line with an empty
+// @rk_agent_state (the common case). Use paneLineAgent to carry an agent state.
 func paneLine(windowIndex int, paneID string, paneIndex int, cwd, command string, active int) string {
-	return fmt.Sprintf("%d%s%s%s%d%s%s%s%s%s%d",
-		windowIndex, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active)
+	return paneLineAgent(windowIndex, paneID, paneIndex, cwd, command, active, "")
+}
+
+// paneLineAgent builds a 7-field tab-delimited list-panes line including the
+// @rk_agent_state field (field 6).
+func paneLineAgent(windowIndex int, paneID string, paneIndex int, cwd, command string, active int, agentState string) string {
+	return fmt.Sprintf("%d%s%s%s%d%s%s%s%s%s%d%s%s",
+		windowIndex, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState)
 }
 
 // totalPanes sums the number of panes across all windows in the map.
@@ -642,6 +650,95 @@ func TestParsePanes(t *testing.T) {
 			t.Errorf("parsePanes() byWindow = %v, want nil", byWindow)
 		}
 	})
+
+	t.Run("agent state parsed from field 6", func(t *testing.T) {
+		cases := []struct {
+			raw       string
+			wantState string
+			wantEpoch int64
+		}{
+			{"active:1751790000", "active", 1751790000},
+			{"waiting:1751790001", "waiting", 1751790001},
+			{"idle:1751790002", "idle", 1751790002},
+		}
+		for _, c := range cases {
+			lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, c.raw)}
+			byWindow := parsePanes(lines)
+			if totalPanes(byWindow) != 1 {
+				t.Fatalf("raw %q: got %d panes, want 1", c.raw, totalPanes(byWindow))
+			}
+			p := byWindow[0][0]
+			if p.AgentState != c.wantState || p.AgentStateEpoch != c.wantEpoch {
+				t.Errorf("raw %q: AgentState=%q epoch=%d, want %q/%d", c.raw, p.AgentState, p.AgentStateEpoch, c.wantState, c.wantEpoch)
+			}
+		}
+	})
+
+	t.Run("unset agent state yields zero values", func(t *testing.T) {
+		lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, "")}
+		p := parsePanes(lines)[0][0]
+		if p.AgentState != "" || p.AgentStateEpoch != 0 {
+			t.Errorf("unset: AgentState=%q epoch=%d, want empty/0", p.AgentState, p.AgentStateEpoch)
+		}
+	})
+
+	t.Run("malformed agent state degrades to zero", func(t *testing.T) {
+		cases := []string{
+			"active",             // no colon
+			"active:notanumber",  // non-integer epoch
+			"bogus:1751790000",   // unknown state token
+			":1751790000",        // empty state
+		}
+		for _, raw := range cases {
+			lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, raw)}
+			p := parsePanes(lines)[0][0]
+			if p.AgentState != "" || p.AgentStateEpoch != 0 {
+				t.Errorf("raw %q: AgentState=%q epoch=%d, want empty/0", raw, p.AgentState, p.AgentStateEpoch)
+			}
+		}
+	})
+
+	t.Run("shell command reconciler zeros a leftover agent state", func(t *testing.T) {
+		for _, shell := range []string{"bash", "zsh", "fish", "sh", "dash"} {
+			lines := []string{paneLineAgent(0, "%1", 0, "/tmp", shell, 1, "active:1751790000")}
+			p := parsePanes(lines)[0][0]
+			if p.AgentState != "" || p.AgentStateEpoch != 0 {
+				t.Errorf("shell %q: AgentState=%q epoch=%d, want empty/0 (reconciler)", shell, p.AgentState, p.AgentStateEpoch)
+			}
+		}
+	})
+
+	t.Run("non-shell command keeps agent state", func(t *testing.T) {
+		lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000")}
+		p := parsePanes(lines)[0][0]
+		if p.AgentState != "active" || p.AgentStateEpoch != 1751790000 {
+			t.Errorf("claude: AgentState=%q epoch=%d, want active/1751790000", p.AgentState, p.AgentStateEpoch)
+		}
+	})
+}
+
+func TestParseAgentState(t *testing.T) {
+	cases := []struct {
+		raw       string
+		wantState string
+		wantEpoch int64
+	}{
+		{"active:100", "active", 100},
+		{"waiting:200", "waiting", 200},
+		{"idle:300", "idle", 300},
+		{"", "", 0},
+		{"active", "", 0},
+		{"active:", "", 0},
+		{"active:x", "", 0},
+		{"bogus:100", "", 0},
+		{" idle:400 ", "idle", 400}, // surrounding whitespace trimmed
+	}
+	for _, c := range cases {
+		state, epoch := parseAgentState(c.raw)
+		if state != c.wantState || epoch != c.wantEpoch {
+			t.Errorf("parseAgentState(%q) = (%q, %d), want (%q, %d)", c.raw, state, epoch, c.wantState, c.wantEpoch)
+		}
+	}
 }
 
 // makeDirenvDiff builds a real DIRENV_DIFF value the way direnv does — JSON

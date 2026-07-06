@@ -250,7 +250,13 @@ function WindowRowInner({
         onMouseEnter={tint && !isSelected ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
         onMouseLeave={tint && !isSelected ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
       >
-        <span className="flex items-center gap-1.5 truncate min-w-0">
+        {/* No `truncate` on this wrapper: the dot's waiting halo is a
+            box-shadow that paints OUTSIDE the 7px dot, and `truncate`'s
+            overflow-hidden clipped it into a half-moon at the span's left
+            edge. The name span below carries its own `truncate`, so text
+            ellipsis is unaffected; `min-w-0` stays so that inner truncation
+            keeps working inside the flex row. */}
+        <span className="flex items-center gap-1.5 min-w-0">
           {/* Unified status dot: PR status when the window is change-bound with
               a PR (purple/red/yellow/green/hollow per prDotState), else
               monochrome terminal activity (filled=active, hollow ring=idle). One

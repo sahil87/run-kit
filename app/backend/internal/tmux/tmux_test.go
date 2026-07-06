@@ -698,21 +698,50 @@ func TestParsePanes(t *testing.T) {
 		}
 	})
 
-	t.Run("shell command reconciler zeros a leftover agent state", func(t *testing.T) {
+	t.Run("legacy shell-command reconciler zeros a two-segment leftover state", func(t *testing.T) {
 		for _, shell := range []string{"bash", "zsh", "fish", "sh", "dash"} {
 			lines := []string{paneLineAgent(0, "%1", 0, "/tmp", shell, 1, "active:1751790000")}
 			p := parsePanes(lines)[0][0]
 			if p.AgentState != "" || p.AgentStateEpoch != 0 {
-				t.Errorf("shell %q: AgentState=%q epoch=%d, want empty/0 (reconciler)", shell, p.AgentState, p.AgentStateEpoch)
+				t.Errorf("shell %q: AgentState=%q epoch=%d, want empty/0 (legacy reconciler)", shell, p.AgentState, p.AgentStateEpoch)
 			}
 		}
 	})
 
-	t.Run("non-shell command keeps agent state", func(t *testing.T) {
+	t.Run("non-shell command keeps a two-segment state", func(t *testing.T) {
 		lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000")}
 		p := parsePanes(lines)[0][0]
 		if p.AgentState != "active" || p.AgentStateEpoch != 1751790000 {
 			t.Errorf("claude: AgentState=%q epoch=%d, want active/1751790000", p.AgentState, p.AgentStateEpoch)
+		}
+	})
+
+	t.Run("pid-carrying state survives a shell pane command when the process is alive", func(t *testing.T) {
+		// The wrapped-launch case: claude started via a non-exec'ing bash
+		// wrapper, so pane_current_command reads "bash" while the agent runs.
+		// PID liveness must win over the shell-name heuristic.
+		restore := agentProcessAlive
+		agentProcessAlive = func(pid int) bool { return pid == 4242 }
+		defer func() { agentProcessAlive = restore }()
+
+		lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "bash", 1, "waiting:1751790000:4242")}
+		p := parsePanes(lines)[0][0]
+		if p.AgentState != "waiting" || p.AgentStateEpoch != 1751790000 {
+			t.Errorf("alive pid under bash: AgentState=%q epoch=%d, want waiting/1751790000", p.AgentState, p.AgentStateEpoch)
+		}
+	})
+
+	t.Run("pid-carrying state zeroed when the process is dead", func(t *testing.T) {
+		// A crashed/killed agent must clear even when the pane command looks
+		// agent-like — liveness is authoritative for pid-carrying values.
+		restore := agentProcessAlive
+		agentProcessAlive = func(int) bool { return false }
+		defer func() { agentProcessAlive = restore }()
+
+		lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000:4242")}
+		p := parsePanes(lines)[0][0]
+		if p.AgentState != "" || p.AgentStateEpoch != 0 {
+			t.Errorf("dead pid: AgentState=%q epoch=%d, want empty/0", p.AgentState, p.AgentStateEpoch)
 		}
 	})
 }
@@ -722,21 +751,28 @@ func TestParseAgentState(t *testing.T) {
 		raw       string
 		wantState string
 		wantEpoch int64
+		wantPID   int
 	}{
-		{"active:100", "active", 100},
-		{"waiting:200", "waiting", 200},
-		{"idle:300", "idle", 300},
-		{"", "", 0},
-		{"active", "", 0},
-		{"active:", "", 0},
-		{"active:x", "", 0},
-		{"bogus:100", "", 0},
-		{" idle:400 ", "idle", 400}, // surrounding whitespace trimmed
+		{"active:100", "active", 100, 0},
+		{"waiting:200", "waiting", 200, 0},
+		{"idle:300", "idle", 300, 0},
+		{"active:100:4242", "active", 100, 4242}, // pid-carrying form
+		{"waiting:200:1", "waiting", 200, 1},
+		{"", "", 0, 0},
+		{"active", "", 0, 0},
+		{"active:", "", 0, 0},
+		{"active:x", "", 0, 0},
+		{"bogus:100", "", 0, 0},
+		{"active:100:x", "", 0, 0},      // malformed pid → wholly unknown
+		{"active:100:0", "", 0, 0},      // non-positive pid → wholly unknown
+		{"active:100:-7", "", 0, 0},     // negative pid → wholly unknown
+		{"active:100:4242:9", "", 0, 0}, // too many segments
+		{" idle:400 ", "idle", 400, 0},  // surrounding whitespace trimmed
 	}
 	for _, c := range cases {
-		state, epoch := parseAgentState(c.raw)
-		if state != c.wantState || epoch != c.wantEpoch {
-			t.Errorf("parseAgentState(%q) = (%q, %d), want (%q, %d)", c.raw, state, epoch, c.wantState, c.wantEpoch)
+		state, epoch, pid := parseAgentState(c.raw)
+		if state != c.wantState || epoch != c.wantEpoch || pid != c.wantPID {
+			t.Errorf("parseAgentState(%q) = (%q, %d, %d), want (%q, %d, %d)", c.raw, state, epoch, pid, c.wantState, c.wantEpoch, c.wantPID)
 		}
 	}
 }

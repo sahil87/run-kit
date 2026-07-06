@@ -63,46 +63,70 @@ output. Not v1.
 
 | Channel | Carries | Vocabulary |
 |---------|---------|------------|
-| Hue | journey phase | blue (intake) → amber (apply/review/hydrate) → green (ship/review-pr) → purple (live PR) → gray (no journey) — `PHASE_HUE` |
-| Shape | health/status of the owning tier | solid (live/healthy) · ring (pending) · failed (dotted ring + red center) · done (sharp square) · skipped (gray hollow ring) |
-| Animation **[target]** | attention | pulsing halo = `waiting`; (future) slow pulse = stuck. No animation = no attention needed |
+| Core hue **[target — palette v3]** | which journey + position in it | **cool = fab pipeline**: blue (intake) → green (apply→review-pr, collapsed) → purple (PR) · **warm = ad-hoc agent**: yellow (working) → orange (PR) · gray = floor (no agent, no journey) |
+| Shape | health/status of the owning tier | solid (live/healthy) · ring (pending/idle) · failed (dotted ring + red center) · done (sharp square) · skipped (gray hollow ring) |
+| Animation **[target]** | attention — **additive, never destructive** | constant-**yellow** pulsing halo = `waiting`, over any tier; core hue AND shape are kept. (future) slow-pulse halo = stuck. No halo = no attention needed |
 | Duration text | how long in the current resting state | `waiting Xm` (attention token) · `idle Xm` · tmux elapsed |
 | Tip (StatusDotTip) | full detail | phase + status label, agent line, PR link, docs link |
 | Rollup badges **[target]** | attention counts up the hierarchy | session row → server tile → board header |
 
-**Hue-collision rule**: no `PHASE_HUE` color can double as the attention color —
-`text-amber-400` is the execution/completion phase hue; yellow is adjacent; red
-is reserved for exactly one use (the `failed` center dot); green and purple are
-taken. Attention therefore gets the channel nothing else uses — **animation** (a
-pulsing halo/glow around the dot) — **plus a dedicated attention hue from
-outside `PHASE_HUE`** (fuchsia family), per the D3 resolution: with Row
-Minimalism the pulse is the sole row-level waiting carrier, so it pairs with the
-attention hue rather than relying on motion alone. Under
-`prefers-reduced-motion` the halo renders static (a persistent outer ring in the
-attention hue) — attention is never encoded in motion alone.
+**Palette v3 — two families + floor.** The palette encodes *which journey* by
+temperature: **cool = fab pipeline** (blue intake → green working → purple PR —
+blue and purple keep their long-learned meanings; amber retires), **warm =
+ad-hoc agent** (yellow working → orange PR), **gray = floor**. The glance rule:
+warm core = my ad-hoc agents, cool core = my pipeline, gray = just a terminal,
+**yellow glow = needs me now**. The only adjacent hue pair (yellow/orange) sits
+*within* the warm family, where both read "ad-hoc agent" and the phase detail
+lives in the panel — cross-family pairs are all strongly separated. Deliberate
+consequence: the docs-site's alignment with fab-kit's 4-phase README grouping is
+broken by the green collapse — document it, don't hide it. (Supporting fact:
+the old ship/review-pr green barely ever rendered — `/git-pr` creates the PR
+mid-ship, and purple takes the dot the moment `prNumber` exists.)
+
+**Attention is additive: a constant-yellow pulsing halo around the dot, with the
+core hue and shape untouched.** Blue core + yellow halo = "pipeline at intake,
+needs me" (intake is the *asking* stage — fab-waiting-at-intake is a common
+case, not a corner). Yellow is the agent color in both roles: yellow core = "an
+ad-hoc agent lives here", yellow halo = "an agent needs you" — the glow never
+claims the window is ad-hoc, because family identity lives strictly in the
+core. Under `prefers-reduced-motion` the halo renders as a static yellow outer
+ring — attention is never encoded in motion alone. Rejected alternatives, for
+the record: **hue-flip on waiting** (destroys family identity exactly when
+attention is highest); **self-colored halo** (pulse in the core's own hue —
+fine animated, but its reduced-motion form nearly vanishes and reads like the
+hollow `ring` shape; also leaves colorblind + reduced-motion users with no
+cue); **fuchsia attention hue** (superseded — the amber collision that forced
+it no longer exists once fab collapses to blue/green).
 
 ---
 
 ## The Tier Ladder (dot ownership)
 
-The dot's hue + shape are owned by the **first tier whose precondition holds**:
+The dot's core hue + shape are owned by **two ladders joined at the top** —
+first precondition wins **[target — palette v3]**:
 
 ```
-PR (prNumber resolved)  >  fab (fabChange)  >  agent (fresh agentState)  >  tmux (always)
+fabChange ?  (prNumber ? purple-PR : stage == intake ? blue : green)
+          :  (fresh agentState ? (prNumber ? orange-PR : yellow, shape by state) : gray floor)
+waiting   →  additive yellow halo, over anything (core hue + shape kept)
 ```
 
-- **[current]** the PR tier gate is `fabChange && prNumber` — PR requires a fab change.
-- **[target — D1]** the gate becomes `prNumber` alone. Post-#314 the PR is a
-  property of the *branch*, not of fab; a non-fab pane on a branch with an open
-  PR gets the purple PR dot. (Principle X: derive, and show what you derived.)
-- **[target]** the agent tier is new: for windows with no change and no PR, a
-  fresh `agentState` replaces the 10-second output heuristic as the shape
-  source. The agent tier keeps **gray** hue — color stays reserved for the
-  journey; an agent mid-turn is `solid` even while quiet (thinking), an idle
-  agent is `ring` even while `htop` repaints the pane.
-- The **attention overlay is ladder-exempt**: `waiting` pulses on any tier —
-  a change-bound window at review whose agent hits a permission prompt pulses
-  over its amber review dot; a PR-phase window pulses over purple.
+- **[D1 — resolved]** PR dot-ownership exists in *both* families but is colored
+  by family: **purple = fab change at PR phase** (unambiguous again),
+  **orange = ad-hoc agent's branch has a PR**. A pane with *neither* a fab
+  change *nor* a fresh agent stays on the gray floor even when its branch has a
+  PR — derivation stays universal (the L3 register, PR-status line, and tip
+  show the PR for any pane; Principle X), but a plain shell never renders a
+  mystifying PR dot.
+- **[target]** the agent tier is new and **warm**: a fresh `agentState` gives a
+  yellow core (solid mid-turn even while quiet; ring when idle — an agent
+  parked here), replacing the 10-second output heuristic for those windows.
+  Freshness rules are #314's (absent option / shell reconciler → fall through
+  to the floor).
+- The **attention overlay is ladder-exempt and additive**: `waiting` wraps any
+  tier's dot in the constant-yellow pulsing halo — a fab intake agent asking a
+  question keeps its blue core; a review-failed window keeps its green failed
+  shape; only the halo is added.
 
 ### What-wins-when facts (the crisp version)
 
@@ -115,24 +139,26 @@ PR (prNumber resolved)  >  fab (fabChange)  >  agent (fresh agentState)  >  tmux
 2. **A live fab stage never outranks its own PR.** Once a PR exists, stage
    progress (hydrate done, review-pr active…) surfaces in the tip and the
    PR-status line, not the dot. The dot answers "how is the PR" from ship on.
-3. **Agent active/idle never owns hue, and never surfaces in the dot's shape on
-   change-bound or PR windows** — those tiers' shapes carry pipeline/PR health,
-   which is rarer and more actionable than routine agent state. Agent state on
-   those windows lives in: the duration text, the tip's agent line, and (when
-   waiting) the attention halo.
-4. **`waiting` is never a tier** — it cannot displace hue/shape anywhere. It is
-   an overlay: halo pulse + `waiting Xm` duration text + rollup counts + push.
+3. **Agent state owns the warm family, but never surfaces in the dot on
+   fab windows** — a fab window's shape carries pipeline/PR health, which is
+   rarer and more actionable than routine agent state. Agent state on fab
+   windows lives in: the tip's agent line, the PANE panel's agent register, and
+   (when waiting) the additive halo.
+4. **`waiting` is never a tier and never destructive** — it cannot displace
+   core hue or shape anywhere. It is an additive overlay: constant-yellow halo
+   pulse + tip/panel `waiting Xm` + rollup counts + push.
 5. **tmux output recency surfaces in exactly two places**: the bottom tier's
    solid/ring (no change, no PR, no agent), and the duration-mute rule (below).
    It is never an attention signal — output ≠ needs-me.
 6. **A closed-unmerged PR currently keeps the tier** (gray `skipped` ring) even
    when the fab change is still live **[current]**. **[open — D2]**: when the
    branch's PR is closed-unmerged but `fabChange` is still active (work
-   continues toward a new PR), the tier SHOULD fall back to fab so the dot
-   shows live stage state instead of a dead PR. Verify against #314's
-   derivation semantics (open-PR-only lookup may make this moot by dropping
-   closed PRs entirely — which would instead *lose* the merged-purple-square
-   terminal state; resolve the two together).
+   continues toward a new PR), the tier SHOULD fall back to the **green working
+   hue** so the dot shows live stage state instead of a dead PR. Verify against
+   #314's derivation semantics (open-PR-only lookup may make this moot by
+   dropping closed PRs entirely — which would instead *lose* the
+   merged-done-square terminal state; resolve the two together, for both the
+   purple and orange PR tiers).
 7. **Unknown beats wrong**: absent `@rk_agent_state`, or a value on a pane whose
    command is a plain shell (reconciler), means *no agent tier* — the ladder
    falls through to tmux. Nothing renders a guessed agent state.
@@ -141,26 +167,31 @@ PR (prNumber resolved)  >  fab (fabChange)  >  agent (fresh agentState)  >  tmux
 
 ## Decision Table
 
-`—` = signal absent. Anim/Text columns are **[target]**; hue/shape rows marked ✓
-match current `statusDotState` behavior.
+`—` = signal absent. Palette v3; the halo column is the additive waiting
+overlay (core hue/shape unchanged by it).
 
-| # | PR | fab | agent | tmux out | Dot (hue · shape · anim) | Duration text | |
-|---|----|-----|-------|----------|--------------------------|---------------|---|
-| 1 | — | — | — | flowing | gray · solid | *(none — muted)* | ✓ |
-| 2 | — | — | — | quiet | gray · ring | tmux elapsed | ✓ |
-| 3 | — | — | active | any | gray · solid | *(none)* | agent replaces 10s heuristic |
-| 4 | — | — | idle | any | gray · ring | `idle Xm` (from epoch) | |
-| 5 | — | — | **waiting** | any | gray · solid · **pulse** | `waiting Xm` | push after sustain |
-| 6 | — | apply·active | any but waiting | any | amber · solid | idle→`idle Xm`, else none | ✓ hue/shape |
-| 7 | — | review·failed | any but waiting | any | amber · failed | per agent state | ✓ |
-| 8 | — | stage·pending | — | any | phase hue · ring | tmux elapsed | ✓ |
-| 9 | — | any stage | **waiting** | any | phase hue · stage shape · **pulse** | `waiting Xm` | the permission-prompt-at-review case |
-| 10 | open·healthy | any | any but waiting | any | purple · solid | per agent state | ✓ |
-| 11 | checks running | any | — | any | purple · ring | | ✓ |
-| 12 | checks fail / changes requested | any | any | any | purple · failed | | ✓ |
-| 13 | merged | any | any | any | purple · done (square) | | ✓ — see D2 for derivation survival |
-| 14 | closed-unmerged | live change | any | any | **[current]** gray · skipped / **[D2 target]** fall back to fab tier | | |
-| 15 | open | any | **waiting** | any | purple · solid · **pulse** | `waiting Xm` | |
+| # | journey | signals | Dot (core hue · shape [· halo]) | Tip/panel duration |
+|---|---------|---------|--------------------------------|--------------------|
+| 1 | floor | no agent · output flowing | gray · solid | *(none — muted)* |
+| 2 | floor | no agent · quiet | gray · ring | tmux elapsed |
+| 3 | ad-hoc | agent active | yellow · solid | *(none)* |
+| 4 | ad-hoc | agent idle | yellow · ring | `idle Xm` (from epoch) |
+| 5 | ad-hoc | agent **waiting** | yellow · solid · **halo** | `waiting Xm` — push after sustain |
+| 6 | ad-hoc | PR open · healthy | orange · solid | per agent state |
+| 7 | ad-hoc | PR checks fail | orange · failed | |
+| 8 | ad-hoc | PR merged | orange · done (square) | see D2 for derivation survival |
+| 9 | ad-hoc | PR open + **waiting** | orange · solid · **halo** | `waiting Xm` |
+| 10 | floor | PR on branch · no agent · no change | gray (floor) | PR in L3 register/tip only |
+| 11 | fab | intake · active/ready | blue · solid | |
+| 12 | fab | intake · pending | blue · ring | |
+| 13 | fab | intake + **waiting** | blue · solid · **halo** | the asking stage — common case |
+| 14 | fab | apply→review-pr · active | green · solid | idle→`idle Xm`, else none |
+| 15 | fab | review · failed | green · failed | |
+| 16 | fab | review · failed + **waiting** | green · failed · **halo** | shape and hue survive the overlay |
+| 17 | fab | PR open · healthy | purple · solid | |
+| 18 | fab | PR checks fail / changes requested | purple · failed | |
+| 19 | fab | PR merged | purple · done (square) | |
+| 20 | fab | PR closed-unmerged · change live | **[current]** gray · skipped / **[D2 target]** green working tier | |
 
 ---
 
@@ -267,8 +298,8 @@ One overlay at a time: `waiting` outranks `stuck`.
 
 ## Open Decisions
 
-| ID | Question | Leaning |
-|----|----------|---------|
-| D1 | PR tier gate: `prNumber` alone (drop `fabChange &&`)? | Yes — branch-derived PRs make the fab coupling arbitrary |
-| D2 | Closed/merged PR retention: does branch-derivation (open-PR lookup) drop merged/closed PRs, losing the purple done-square and mooting the closed-vs-live-fab conflict? | Keep a merged PR visible for a grace window (collector retains last-known state); closed-unmerged with a live change falls back to fab tier. Verify against #314 implementation |
-| ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved by Row Minimalism**: with the row's text signals removed, the pulse is the sole row-level waiting carrier and must not be subtle — `waiting` renders **halo pulse + a dedicated attention hue together** (outside `PHASE_HUE`, fuchsia family — never amber/yellow/red). Reduced-motion: static halo + the attention hue. Final glyph tuning at implementation with a visual check against all five phase hues |
+| ID | Question | Resolution |
+|----|----------|-----------|
+| ~~D1~~ | ~~PR tier gate: `prNumber` alone?~~ | **Resolved (palette v3)**: PR dot-ownership is per-family — purple requires `fabChange && prNumber`, orange requires `fresh agentState && prNumber`. A plain pane's PR never owns the dot (derivation stays universal in register/tip/PR-status-line) |
+| D2 | Closed/merged PR retention: does branch-derivation (open-PR lookup) drop merged/closed PRs, losing the done-square and mooting the closed-vs-live-fab conflict? | Keep a merged PR visible for a grace window (collector retains last-known state); closed-unmerged with a live change falls back to the green working tier. Verify against #314 implementation; applies to both purple and orange tiers |
+| ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved (additive halo, palette v3)**: `waiting` = constant-**yellow** pulsing halo around the dot, core hue and shape untouched. Rejected: hue-flip (destroys family identity precisely when attention is highest — e.g. fab intake asking); self-colored halo (reduced-motion form nearly invisible + collides with the `ring` shape); fuchsia (its motivating amber collision no longer exists). Reduced-motion: static yellow outer ring. Final glow tuning at implementation with a visual check against all six core hues |

@@ -49,7 +49,7 @@ The formula's `test do` block in `.github/formula-template.rb` MUST assert that 
 
 ## Tasks
 
-<!-- Each item carries a <!-- R# --> trace annotation. -->
+<!-- Each item carries an R# trace annotation. -->
 
 ### Phase 2: Core Implementation
 

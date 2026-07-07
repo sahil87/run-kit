@@ -36,8 +36,8 @@ And extend the formula `test do` block to assert the alias resolves and runs:
 
 ```ruby
 test do
-  assert_match "rk version", shell_output("#{bin}/rk version")
-  assert_match "rk version", shell_output("#{bin}/run-kit version")
+  assert_match "rk version", shell_output("#{bin}/rk --version")
+  assert_match "rk version", shell_output("#{bin}/run-kit --version")
 end
 ```
 

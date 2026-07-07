@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -28,34 +29,109 @@ import (
 // entries. All file writes go through Go; the hook command is a fixed literal per
 // state with nothing user-provided interpolated (Constitution §I).
 
-// rkHookMarker is the substring that identifies an rk-owned hook command inside
-// an agent config. Every rk hook writes the @rk_agent_state pane option, so its
-// presence in a command string is the unambiguous "this entry is ours" signal
-// used for idempotent replace + surgical uninstall — non-rk hooks never carry it.
-// It IS the option name: one source of truth per binary (A-021) — the canonical
-// convention string lives in internal/tmux, not re-declared here.
+// rkHookMarker is the LEGACY substring that identifies an rk-owned hook command:
+// the pre-indirection self-contained one-liner inlined `tmux set-option … @rk_agent_state`,
+// so the option name appearing in a command string was the "this entry is ours"
+// signal. It IS the option name — one source of truth per binary (A-021), the
+// canonical convention string lives in internal/tmux, not re-declared here.
+//
+// The NEW-generation command (agentStateHookCommand below) delegates to
+// `rk agent-hook` and no longer contains the option name, so it is instead
+// identified by rkHookMarkerAgentHook. isRkEntry matches EITHER marker so a
+// re-run of `rk agent-setup` on the new binary strips old-generation entries and
+// replaces them in place, and `--uninstall` removes both generations.
 const rkHookMarker = tmux.AgentStateOption
 
-// agentStateHookCommand builds the fixed, self-contained hook command for a
-// given state. It is a no-op outside tmux, never fails the agent, and writes the
-// pane option via plain tmux with no rk/server dependency at hook-fire time. The
-// state and comm are fixed registry literals (never user input), so there is no
-// injection surface (Constitution §I).
+// rkHookMarkerAgentHook identifies the new-generation delegating hook command by
+// its ` agent-hook ` invocation substring. The surrounding spaces keep it from
+// matching an unrelated token that merely contains "agent-hook".
+const rkHookMarkerAgentHook = " agent-hook "
+
+// agentStateHookCommand builds the STABLE delegating hook command for a given
+// state: a thin wrapper that invokes `rk agent-hook`, keeping all logic in the
+// binary so hook behavior tracks `brew upgrade rk` with no settings churn and no
+// agent session restarts. The former self-contained one-liner (which inlined the
+// comm-validated ancestor walk and the `tmux set-option`) was frozen twice — once
+// in ~/.claude/settings.json at install time, once in the harness's session-start
+// snapshot — so a hook fix shipped in the binary reached zero running agents until
+// every session was restarted (the #320↔#321 skew). Delegating to the binary
+// lifts that freeze.
 //
-// The pid segment is resolved by a bounded, comm-validated ancestor walk (up to
-// 3 hops from $PPID) rather than raw $PPID: harnesses spawn hook commands
-// through an EPHEMERAL intermediate shell that exits the moment the hook
-// finishes (measured with Claude Code — a raw $PPID recorded that dead wrapper,
-// so the reader's liveness check suppressed every value). The walk climbs until
-// the process name equals the agent's comm (e.g. "claude"), which is the pid
-// the PID-liveness reconciler actually needs. If the walk cannot validate an
-// ancestor, the pid segment is omitted — a two-segment value that degrades to
-// the reader's legacy shell-name fallback, never a wrong pid.
-func agentStateHookCommand(state, comm string) string {
+//	sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent <comm> <state> 2>/dev/null || true'
+//
+// The $TMUX_PANE guard stays in the wrapper as a cheap short-circuit (no binary
+// spawn outside tmux). `|| true` preserves the never-fail contract even if the
+// binary is missing or moved. rkPath is the absolute rk path resolved at install
+// time (a stable symlink, never the version-pinned Cellar path — see
+// resolveRkPath); it is embedded double-quoted INSIDE the single-quoted sh -c
+// body, so a path containing any of ' " $ ` \ would break out of (or be
+// reinterpreted within) that quoting. state and comm are fixed registry literals
+// (never user input); rkPath is machine-derived and MUST be pre-validated by
+// validateHookPath (the install flow rejects shell-active characters rather than
+// attempting escaping), which together close the interpolation surface
+// (Constitution §I).
+func agentStateHookCommand(rkPath, state, comm string) string {
 	return fmt.Sprintf(
-		`sh -c '[ -n "$TMUX_PANE" ] || exit 0; p=$PPID; i=0; while [ $i -lt 3 ] && [ -n "$p" ] && [ "$(ps -o comm= -p "$p" 2>/dev/null)" != "%s" ]; do p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d " "); i=$((i+1)); done; [ "$(ps -o comm= -p "$p" 2>/dev/null)" = "%s" ] || p=""; tmux set-option -pt "$TMUX_PANE" %s "%s:$(date +%%s)${p:+:$p}" 2>/dev/null || true'`,
-		comm, comm, rkHookMarker, state,
+		`sh -c '[ -n "$TMUX_PANE" ] || exit 0; "%s" agent-hook --agent %s %s 2>/dev/null || true'`,
+		rkPath, comm, state,
 	)
+}
+
+// resolveRkPath returns the absolute path to embed in the installed hook. It
+// prefers exec.LookPath("rk") — on a Homebrew machine this yields the STABLE
+// symlink (/home/linuxbrew/.linuxbrew/bin/rk or /opt/homebrew/bin/rk), NOT the
+// version-pinned Cellar path — and falls back to os.Executable() WITHOUT
+// resolving symlinks. Symlink resolution is deliberately avoided: it would pin
+// the Cellar version and re-freeze the hook (the exact failure this change
+// removes). On total resolution failure it returns "" so validateHookPath fails
+// the install fast with a clear error: a bare-"rk" fallback would reintroduce the
+// PATH dependency the absolute path exists to eliminate, and writing a
+// PATH-dependent hook that silently no-ops when rk is off PATH at fire time is
+// worse than a loud install-time failure the (interactive) user can act on.
+func resolveRkPath() string {
+	if p, err := exec.LookPath("rk"); err == nil {
+		if abs, err := filepath.Abs(p); err == nil {
+			return abs
+		}
+		return p
+	}
+	if p, err := os.Executable(); err == nil {
+		// Intentionally NOT filepath.EvalSymlinks(p): that would pin the Cellar path.
+		return p
+	}
+	return ""
+}
+
+// hookUnsafePathChars are the characters that must not appear in the rk path
+// embedded in the hook command: the path sits inside a double-quoted region of a
+// single-quoted `sh -c` string, so a single quote terminates the outer string
+// and " $ ` \ are shell-active inside the double quotes.
+const hookUnsafePathChars = "'\"$`\\"
+
+// validateHookPath rejects a resolved rk path that cannot be embedded verbatim
+// in the hook command as a STABLE, PATH-independent absolute path. It rejects
+// three classes: (1) empty — resolveRkPath returning "" means total resolution
+// failure, so there is no path to embed; (2) non-absolute (including a bare "rk")
+// — the stable-hook design embeds an absolute path precisely to avoid the PATH
+// dependency at hook-fire time, so a relative path defeats the whole change; and
+// (3) shell-unsafe characters — the path sits inside a double-quoted region of a
+// single-quoted sh -c string, so any of ' " $ ` \ would break the quoting.
+// Rejection (a clear install-time error) is chosen over escaping or a silent
+// fallback: escaping would have to survive three nested quoting layers
+// (shell-in-shell-in-JSON — fragile to get right and to review), and such paths
+// do not occur under Homebrew or any conventional install layout. agent-setup is
+// interactive, so the user is present to see the error and act on it.
+func validateHookPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("could not resolve the rk binary path; install rk on PATH (or at a conventional Homebrew location) and re-run")
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("resolved rk path %q is not absolute; the hook must embed an absolute path to be PATH-independent at fire time — install rk at a conventional path and re-run", path)
+	}
+	if strings.ContainsAny(path, hookUnsafePathChars) {
+		return fmt.Errorf("resolved rk path %q contains a shell-unsafe character (one of %s) and cannot be embedded in the hook command; install rk at a conventional path and re-run", path, hookUnsafePathChars)
+	}
+	return nil
 }
 
 // agentHook is one hook entry in an agent's event mapping: which harness event,
@@ -140,9 +216,22 @@ func runAgentSetup(out io.Writer, in io.Reader, uninstall bool) error {
 		return fmt.Errorf("could not determine home directory: %w", err)
 	}
 
+	// Resolve the absolute rk path ONCE per invocation — it is install-host-stable
+	// within a single run, and resolving once keeps every installed hook entry
+	// consistent. Only the install path needs it; uninstall passes "". The path is
+	// validated before any merge: a shell-unsafe path must fail the install with a
+	// clear error, never be embedded (see validateHookPath).
+	rkPath := ""
+	if !uninstall {
+		rkPath = resolveRkPath()
+		if err := validateHookPath(rkPath); err != nil {
+			return err
+		}
+	}
+
 	reader := bufio.NewReader(in)
 	for _, ac := range agentRegistry(home) {
-		if err := applyAgentConfig(out, reader, ac, uninstall); err != nil {
+		if err := applyAgentConfig(out, reader, ac, rkPath, uninstall); err != nil {
 			return err
 		}
 	}
@@ -152,7 +241,7 @@ func runAgentSetup(out io.Writer, in io.Reader, uninstall bool) error {
 // applyAgentConfig reads one agent's settings file, computes the merged (or
 // unmerged) result, prints a diff, and — on confirmation — writes it back. A
 // no-op (result identical to current) is reported and skipped without prompting.
-func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, uninstall bool) error {
+func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool) error {
 	current, err := readSettings(ac.settingsPath)
 	if err != nil {
 		return fmt.Errorf("%s: read %s: %w", ac.name, ac.settingsPath, err)
@@ -162,7 +251,7 @@ func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, unins
 	if uninstall {
 		unmergeHooks(next)
 	} else {
-		mergeHooks(next, ac.hooks, ac.comm)
+		mergeHooks(next, ac.hooks, rkPath, ac.comm)
 	}
 
 	beforeJSON := mustMarshalIndent(current)
@@ -260,7 +349,7 @@ func writeSettings(path string, m map[string]any) error {
 // preserved. The Claude hooks shape is:
 //
 //	hooks → <Event> → [ { matcher?, hooks: [ {type:"command", command} ] } ]
-func mergeHooks(settings map[string]any, hooks []agentHook, comm string) {
+func mergeHooks(settings map[string]any, hooks []agentHook, rkPath, comm string) {
 	hooksRoot := asMap(settings["hooks"])
 	if hooksRoot == nil {
 		hooksRoot = map[string]any{}
@@ -269,7 +358,9 @@ func mergeHooks(settings map[string]any, hooks []agentHook, comm string) {
 	// Strip every existing rk entry from each touched event array FIRST, once —
 	// an event may carry more than one rk hook (e.g. Notification maps to both a
 	// waiting and an idle entry), so removing per-hook would drop entries added
-	// earlier in this same pass. Non-rk entries are untouched.
+	// earlier in this same pass. removeRkEntries matches BOTH generations, so a
+	// re-run over old-generation entries replaces them in place. Non-rk entries
+	// are untouched.
 	touched := make(map[string]bool)
 	for _, h := range hooks {
 		if !touched[h.event] {
@@ -280,7 +371,7 @@ func mergeHooks(settings map[string]any, hooks []agentHook, comm string) {
 
 	// Now append the fresh rk entries.
 	for _, h := range hooks {
-		hooksRoot[h.event] = append(asSlice(hooksRoot[h.event]), rkHookEntry(h, comm))
+		hooksRoot[h.event] = append(asSlice(hooksRoot[h.event]), rkHookEntry(h, rkPath, comm))
 	}
 
 	settings["hooks"] = hooksRoot
@@ -311,12 +402,12 @@ func unmergeHooks(settings map[string]any) {
 
 // rkHookEntry builds the Claude hook-entry object for one agentHook: an optional
 // matcher plus a single command handler.
-func rkHookEntry(h agentHook, comm string) map[string]any {
+func rkHookEntry(h agentHook, rkPath, comm string) map[string]any {
 	entry := map[string]any{
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": agentStateHookCommand(h.state, comm),
+				"command": agentStateHookCommand(rkPath, h.state, comm),
 			},
 		},
 	}
@@ -343,8 +434,14 @@ func removeRkEntries(arr []any) []any {
 	return out
 }
 
-// isRkEntry reports whether a hook-entry object is rk-owned — i.e. one of its
-// nested command handlers contains the rkHookMarker.
+// isRkEntry reports whether a hook-entry object is rk-owned. It matches BOTH
+// generations of the hook command: the LEGACY self-contained one-liner (which
+// inlined the @rk_agent_state option name → rkHookMarker) and the NEW delegating
+// one-liner (which invokes `rk agent-hook` → rkHookMarkerAgentHook and no longer
+// contains the option name). Matching both is what lets `rk agent-setup` on the
+// new binary strip old-generation entries and replace them in place, and lets
+// `--uninstall` remove both generations. Non-rk hooks carry neither marker and
+// are preserved untouched.
 func isRkEntry(entry map[string]any) bool {
 	if entry == nil {
 		return false
@@ -354,7 +451,11 @@ func isRkEntry(entry map[string]any) bool {
 		if handler == nil {
 			continue
 		}
-		if cmd, ok := handler["command"].(string); ok && strings.Contains(cmd, rkHookMarker) {
+		cmd, ok := handler["command"].(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(cmd, rkHookMarker) || strings.Contains(cmd, rkHookMarkerAgentHook) {
 			return true
 		}
 	}

@@ -136,7 +136,11 @@ rk agent-setup              # shows the settings diff, asks before writing
 rk agent-setup --uninstall  # removes exactly the rk-owned entries
 ```
 
-It installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) that stamp a `@rk_agent_state` tmux pane option on lifecycle events. The hooks are self-contained one-liners — no rk binary or server needed at fire time — so they work for any session, in any repo, under any workflow. Idempotent: re-running updates rk's entries in place and never touches your other hooks. Until it's run (and agents are restarted so new sessions pick up the hooks), agent state shows `—`. The cross-repo convention is documented in [`docs/specs/agent-state.md`](docs/specs/agent-state.md).
+It installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) that stamp a `@rk_agent_state` tmux pane option on lifecycle events. Each hook is a thin, stable wrapper that delegates to `rk agent-hook` — a stable interface whose logic (the pid resolution, the value write) lives in the binary. No run-kit **server** is needed at fire time, and because the logic is in the binary, hook fixes track `brew upgrade rk` with no settings changes and no session restarts. They work for any session, in any repo, under any workflow. Idempotent: re-running updates rk's entries in place (recognizing and replacing older-generation entries too) and never touches your other hooks. Until it's run (and agents are restarted so new sessions pick up the hooks), agent state shows `—`.
+
+> **Upgrading from an earlier rk?** Older installs had the hook *logic* inlined in `settings.json`. Run `rk agent-setup` once more to swap in the new delegating wrapper, then restart your agent sessions (harnesses snapshot hook config at session start). This is the last time a hook *logic* change needs a re-setup — future fixes ship in the binary. (Changes to which events map to which state still need a re-setup, since that mapping lives in the settings entries.)
+
+The cross-repo convention is documented in [`docs/specs/agent-state.md`](docs/specs/agent-state.md).
 
 ## Boards — watch many panes at once
 

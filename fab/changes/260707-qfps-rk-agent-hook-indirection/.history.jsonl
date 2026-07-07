@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-07T06:46:17Z"}
+{"args":"rk agent-hook indirection — replace raw shell one-liner hooks in agent harness settings with a stable rk agent-hook binary subcommand so hook logic updates with rk upgrades","cmd":"fab-new","event":"command","ts":"2026-07-07T06:46:17Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-07-07T06:47:36Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-07-07T06:48:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-07T06:49:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-07T07:10:54Z"}
+{"event":"review","result":"failed","ts":"2026-07-07T07:22:25Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-07T07:22:25Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-07T07:34:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-07T07:44:22Z"}
+{"event":"review","result":"passed","ts":"2026-07-07T07:44:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-07T07:48:45Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-07T07:50:46Z"}
+{"event":"review","result":"passed","ts":"2026-07-07T07:58:33Z"}

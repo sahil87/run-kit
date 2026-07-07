@@ -51,7 +51,7 @@ func TestMergeHooksAddsEntriesAndPreservesExisting(t *testing.T) {
 		},
 	}
 
-	mergeHooks(existing, claudeHooks(), "claude")
+	mergeHooks(existing, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
 
 	// Non-hook config preserved.
 	if existing["model"] != "opus" {
@@ -82,11 +82,11 @@ func TestMergeHooksAddsEntriesAndPreservesExisting(t *testing.T) {
 
 func TestMergeHooksIdempotent(t *testing.T) {
 	settings := map[string]any{}
-	mergeHooks(settings, claudeHooks(), "claude")
+	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
 	first, _ := json.Marshal(settings)
 
 	// A second merge must not add duplicates and must produce identical output.
-	mergeHooks(settings, claudeHooks(), "claude")
+	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
 	second, _ := json.Marshal(settings)
 
 	if string(first) != string(second) {
@@ -108,7 +108,7 @@ func TestUnmergeHooksRemovesOnlyRkEntries(t *testing.T) {
 			},
 		},
 	}
-	mergeHooks(settings, claudeHooks(), "claude")
+	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
 	unmergeHooks(settings)
 
 	if got := countRkEntries(settings); got != 0 {
@@ -128,7 +128,7 @@ func TestUnmergeHooksDropsEmptyEventAndRoot(t *testing.T) {
 	// When rk owns the ONLY entries, uninstall must remove empty event arrays and
 	// the now-empty hooks object entirely.
 	settings := map[string]any{}
-	mergeHooks(settings, claudeHooks(), "claude")
+	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
 	unmergeHooks(settings)
 
 	if _, ok := settings["hooks"]; ok {
@@ -196,11 +196,11 @@ func TestConfirmGate(t *testing.T) {
 func TestApplyAgentConfigDeclineDoesNotWrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
 
 	var out bytes.Buffer
 	// Decline the confirmation.
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("n\n")), ac, false); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("n\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -214,23 +214,28 @@ func TestApplyAgentConfigDeclineDoesNotWrite(t *testing.T) {
 func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	ac := agentConfig{name: "Test", settingsPath: path, hooks: claudeHooks()}
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
 
 	var out bytes.Buffer
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, false); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
 		t.Fatalf("install error: %v", err)
 	}
 	written, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("settings file should exist after confirm: %v", err)
 	}
-	if !strings.Contains(string(written), rkHookMarker) {
-		t.Errorf("written settings missing rk hook marker: %s", written)
+	// The NEW-generation command no longer inlines @rk_agent_state — it delegates
+	// to `rk agent-hook`, so the installed hooks are identified by that marker.
+	if !strings.Contains(string(written), rkHookMarkerAgentHook) {
+		t.Errorf("written settings missing new rk hook marker (%q): %s", rkHookMarkerAgentHook, written)
+	}
+	if strings.Contains(string(written), rkHookMarker) {
+		t.Errorf("new-generation command should not contain the legacy %q marker: %s", rkHookMarker, written)
 	}
 
 	// Second install is a no-op: nothing to do, no prompt consumed.
 	out.Reset()
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, false); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false); err != nil {
 		t.Fatalf("second install error: %v", err)
 	}
 	if !strings.Contains(out.String(), "nothing to do") {
@@ -239,25 +244,194 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 
 	// Uninstall with confirmation clears the rk entries.
 	out.Reset()
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, true); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "", true); err != nil {
 		t.Fatalf("uninstall error: %v", err)
 	}
 	after, _ := os.ReadFile(path)
-	if strings.Contains(string(after), rkHookMarker) {
+	if strings.Contains(string(after), rkHookMarkerAgentHook) {
 		t.Errorf("uninstall should remove rk hooks, still present: %s", after)
 	}
 }
 
 func TestAgentStateHookCommandShape(t *testing.T) {
-	cmd := agentStateHookCommand(agentStateWaiting, "claude")
-	// Must self-locate via $TMUX_PANE, no-op outside tmux, never fail the agent,
-	// carry the marker + state, resolve the agent pid via the bounded
-	// comm-validated ancestor walk (raw $PPID records the harness's ephemeral
-	// hook-wrapper shell, which is dead by read time), and omit the pid segment
-	// when the walk fails (${p:+:$p} → two-segment legacy degrade).
-	for _, want := range []string{`[ -n "$TMUX_PANE" ] || exit 0`, rkHookMarker, "waiting:", "date +%s", `ps -o comm= -p "$p"`, `!= "claude"`, "${p:+:$p}", "|| true"} {
+	cmd := agentStateHookCommand("/opt/homebrew/bin/rk", agentStateWaiting, "claude")
+	// The NEW stable form: self-locate via $TMUX_PANE, no-op outside tmux, never
+	// fail the agent, and DELEGATE to `rk agent-hook` (all logic — the walk, the
+	// value formatting — lives in the binary, so it tracks `brew upgrade rk`).
+	for _, want := range []string{
+		`[ -n "$TMUX_PANE" ] || exit 0`,
+		`"/opt/homebrew/bin/rk"`,      // absolute path, embedded quoted
+		" agent-hook --agent claude ", // the delegating invocation
+		"waiting",                     // the fixed state literal
+		"2>/dev/null",
+		"|| true",
+	} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("hook command missing %q: %s", want, cmd)
+		}
+	}
+	// The logic that MOVED into the binary must no longer appear in the hook body.
+	for _, notWant := range []string{rkHookMarker, "set-option", "ps -o comm=", "date +%s"} {
+		if strings.Contains(cmd, notWant) {
+			t.Errorf("hook command should no longer inline %q (moved to the binary): %s", notWant, cmd)
+		}
+	}
+}
+
+// legacyRkEntry builds an old-generation rk hook entry (the pre-indirection
+// self-contained one-liner that inlined @rk_agent_state) for migration tests.
+func legacyRkEntry(state string) map[string]any {
+	legacyCmd := `sh -c '[ -n "$TMUX_PANE" ] || exit 0; p=$PPID; ` +
+		`tmux set-option -pt "$TMUX_PANE" ` + rkHookMarker + ` "` + state + `:$(date +%s)" 2>/dev/null || true'`
+	return map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": legacyCmd}},
+	}
+}
+
+func TestIsRkEntryMatchesBothGenerations(t *testing.T) {
+	// Legacy entry (inlines @rk_agent_state, no `agent-hook`).
+	if !isRkEntry(legacyRkEntry("active")) {
+		t.Error("legacy @rk_agent_state entry should be recognized as rk-owned")
+	}
+	// New entry (delegates to `rk agent-hook`, no @rk_agent_state).
+	newEntry := rkHookEntry(agentHook{event: "Stop", state: agentStateIdle}, "/opt/homebrew/bin/rk", "claude")
+	if !isRkEntry(newEntry) {
+		t.Error("new agent-hook entry should be recognized as rk-owned")
+	}
+	// A non-rk entry carries neither marker and must be preserved.
+	nonRk := map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": "/usr/local/bin/guard.sh"}},
+	}
+	if isRkEntry(nonRk) {
+		t.Error("non-rk entry must not be recognized as rk-owned")
+	}
+}
+
+func TestMergeHooksReplacesLegacyEntriesInPlace(t *testing.T) {
+	// A settings file whose rk hooks are all OLD-generation, plus a non-rk hook.
+	settings := map[string]any{
+		"hooks": map[string]any{
+			"UserPromptSubmit": []any{legacyRkEntry("active")},
+			"Stop":             []any{legacyRkEntry("idle")},
+			"PreToolUse": []any{
+				map[string]any{
+					"matcher": "Bash",
+					"hooks":   []any{map[string]any{"type": "command", "command": "/usr/local/bin/guard.sh"}},
+				},
+				legacyRkEntry("active"),
+			},
+		},
+	}
+
+	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+
+	// Exactly five rk entries — the legacy ones were REPLACED in place, not
+	// duplicated alongside the new ones.
+	if got := countRkEntries(settings); got != 5 {
+		t.Errorf("rk entries after migrating a legacy file = %d, want 5 (replace, not duplicate)", got)
+	}
+	// No legacy-form command survives.
+	root := asMap(settings["hooks"])
+	for _, ev := range root {
+		for _, e := range asSlice(ev) {
+			for _, h := range asSlice(asMap(e)["hooks"]) {
+				cmd, _ := asMap(h)["command"].(string)
+				if strings.Contains(cmd, "set-option") {
+					t.Errorf("a legacy inlined-set-option command survived migration: %s", cmd)
+				}
+			}
+		}
+	}
+	// The non-rk Bash guard is preserved.
+	preTool := asSlice(root["PreToolUse"])
+	foundGuard := false
+	for _, e := range preTool {
+		for _, h := range asSlice(asMap(e)["hooks"]) {
+			if cmd, _ := asMap(h)["command"].(string); strings.Contains(cmd, "guard.sh") {
+				foundGuard = true
+			}
+		}
+	}
+	if !foundGuard {
+		t.Error("non-rk guard was dropped during legacy migration")
+	}
+}
+
+func TestUnmergeHooksRemovesBothGenerations(t *testing.T) {
+	settings := map[string]any{
+		"hooks": map[string]any{
+			"UserPromptSubmit": []any{
+				legacyRkEntry("active"),
+				rkHookEntry(agentHook{event: "UserPromptSubmit", state: agentStateActive}, "/opt/homebrew/bin/rk", "claude"),
+			},
+			"PreToolUse": []any{
+				map[string]any{
+					"matcher": "Bash",
+					"hooks":   []any{map[string]any{"type": "command", "command": "/usr/local/bin/guard.sh"}},
+				},
+			},
+		},
+	}
+
+	unmergeHooks(settings)
+
+	if got := countRkEntries(settings); got != 0 {
+		t.Errorf("both generations should be removed, %d rk entries remain", got)
+	}
+	preTool := asSlice(asMap(settings["hooks"])["PreToolUse"])
+	if len(preTool) != 1 {
+		t.Fatalf("non-rk guard should survive, PreToolUse len = %d", len(preTool))
+	}
+}
+
+func TestResolveRkPathIsAbsoluteAndNotSymlinkResolved(t *testing.T) {
+	// resolveRkPath returns "" ONLY on total resolution failure (both
+	// exec.LookPath and os.Executable fail); validateHookPath then fails the
+	// install fast. A running test process always resolves via one branch or the
+	// other, and (when it falls back to os.Executable) must NOT resolve symlinks —
+	// resolving would pin the Cellar path and re-freeze the hook. We can't assert
+	// the LookPath branch portably, but under a normal test run resolution
+	// succeeds, so we assert a non-empty, absolute path is returned.
+	got := resolveRkPath()
+	if got == "" {
+		t.Fatal("resolveRkPath returned empty; resolution should succeed in a test process")
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("resolveRkPath returned non-absolute path %q; the hook needs an absolute path", got)
+	}
+}
+
+func TestValidateHookPath(t *testing.T) {
+	// A valid hook path must be a STABLE, PATH-independent absolute path with no
+	// shell-active characters: the rk path is embedded double-quoted inside a
+	// single-quoted sh -c string, so any of ' " $ ` \ would break out of or be
+	// reinterpreted within that quoting, and a non-absolute path (incl. a bare
+	// "rk") would reintroduce the PATH dependency the absolute path exists to
+	// avoid. Install must REJECT all these (clear error over fragile escaping or a
+	// silent PATH-dependent fallback).
+	valid := []string{
+		"/opt/homebrew/bin/rk",
+		"/home/linuxbrew/.linuxbrew/bin/rk",
+		"/path with spaces/rk", // spaces are fine inside double quotes
+	}
+	for _, p := range valid {
+		if err := validateHookPath(p); err != nil {
+			t.Errorf("validateHookPath(%q) = %v, want nil", p, err)
+		}
+	}
+	invalid := []string{
+		"",                   // total resolution failure — nothing to embed
+		"rk",                 // bare name is PATH-dependent, not absolute
+		"bin/rk",             // relative path is PATH/cwd-dependent, not absolute
+		`/tmp/o'brien/rk`,    // ' terminates the outer single-quoted string
+		`/tmp/say"cheese/rk`, // " terminates the double-quoted path
+		`/tmp/$HOME/rk`,      // $ expands inside double quotes
+		"/tmp/`id`/rk",       // backtick substitutes inside double quotes
+		`/tmp/back\slash/rk`, // \ escapes inside double quotes
+	}
+	for _, p := range invalid {
+		if err := validateHookPath(p); err == nil {
+			t.Errorf("validateHookPath(%q) = nil, want error (invalid: empty, non-absolute, or shell-unsafe)", p)
 		}
 	}
 }

@@ -412,6 +412,9 @@ func TestWindowCreateOmittedNameAccepted(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
+	if !ops.createWindowCalled {
+		t.Error("CreateWindow was not called")
+	}
 	if ops.createWindowName != "" {
 		t.Errorf("name = %q, want empty string (tmux auto-names)", ops.createWindowName)
 	}

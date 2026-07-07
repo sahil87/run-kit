@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-unnamed-${Date.now()}`;
@@ -7,8 +7,11 @@ const TEST_SESSION = `e2e-unnamed-${Date.now()}`;
 test.describe("Unnamed window creation (+ New Window)", () => {
   test.beforeAll(() => {
     try {
-      execSync(
-        `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
+      // execFileSync (argv, no shell) avoids injection/quoting issues from the
+      // env-controlled TMUX_SERVER — no template-string shell command.
+      execFileSync(
+        "tmux",
+        ["-L", TMUX_SERVER, "new-session", "-d", "-s", TEST_SESSION, "-x", "80", "-y", "24"],
         { stdio: "ignore" },
       );
     } catch {
@@ -18,7 +21,7 @@ test.describe("Unnamed window creation (+ New Window)", () => {
 
   test.afterAll(() => {
     try {
-      execSync(`tmux -L ${TMUX_SERVER} kill-session -t ${TEST_SESSION}`, {
+      execFileSync("tmux", ["-L", TMUX_SERVER, "kill-session", "-t", TEST_SESSION], {
         stdio: "ignore",
       });
     } catch {

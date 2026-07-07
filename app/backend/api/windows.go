@@ -84,7 +84,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		// path (which omits -n and lets tmux auto-name), a name is required here.
 		// The shipped UI always supplies one; this pins the API contract.
 		if body.Name == "" {
-			writeError(w, http.StatusBadRequest, "Window name is required for typed windows")
+			writeError(w, http.StatusBadRequest, "Window name is required when rkType is set")
 			return
 		}
 		rkType := body.RkType

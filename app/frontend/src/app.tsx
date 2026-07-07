@@ -80,7 +80,7 @@ function deriveInstantSessionName(cwd: string | undefined, existingNames: string
 function rawBasename(cwd: string | undefined): string {
   if (!cwd) return "window";
   const trimmed = cwd.replace(/\/+$/, "");
-  if (trimmed === "" || trimmed === "~") return "window";
+  if (trimmed === "") return "window";
   const segment = trimmed.split("/").pop() ?? "";
   return segment || "window";
 }

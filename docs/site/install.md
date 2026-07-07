@@ -10,7 +10,7 @@ run-kit ships as a Homebrew formula:
 brew install sahil87/tap/rk
 ```
 
-This puts the `rk` binary on your `PATH`. From there, a clean install to a working dashboard with one agent running is:
+This puts the `rk` binary on your `PATH`. The formula also installs `run-kit` as an interchangeable alias, so every command below works the same whether you type `rk` or `run-kit`. From there, a clean install to a working dashboard with one agent running is:
 
 ```bash
 rk agent-setup                  # optional, once per machine: agent busy/waiting/idle in the dashboard

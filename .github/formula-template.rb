@@ -28,9 +28,11 @@ class Rk < Formula
 
   def install
     bin.install "rk"
+    bin.install_symlink bin/"rk" => "run-kit"
   end
 
   test do
-    assert_match "rk version", shell_output("#{bin}/rk version")
+    assert_match "rk version", shell_output("#{bin}/rk --version")
+    assert_match "rk version", shell_output("#{bin}/run-kit --version")
   end
 end

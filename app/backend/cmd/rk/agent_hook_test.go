@@ -1,0 +1,303 @@
+package main
+
+import (
+	"context"
+	"testing"
+)
+
+// fakeProc models a process tree for the ancestor-walk tests: pid → (comm, ppid).
+type fakeProc struct {
+	comm string
+	ppid int
+}
+
+// installFakeProcTree points the process-inspection seams at an in-memory tree so
+// resolveAgentPID can be tested without spawning real ancestor chains. It returns
+// a restore func for the test to defer.
+func installFakeProcTree(t *testing.T, tree map[int]fakeProc) {
+	t.Helper()
+	origComm, origPPID := processCommFn, processPPIDFn
+	processCommFn = func(_ context.Context, pid int) string {
+		if p, ok := tree[pid]; ok {
+			return p.comm
+		}
+		return ""
+	}
+	processPPIDFn = func(_ context.Context, pid int) int {
+		if p, ok := tree[pid]; ok {
+			return p.ppid
+		}
+		return 0
+	}
+	t.Cleanup(func() {
+		processCommFn, processPPIDFn = origComm, origPPID
+	})
+}
+
+func TestResolveAgentPIDWalksToAgentAncestor(t *testing.T) {
+	// Chain: rk(100) → sh(101) → hook-shell(102) → claude(103) → login-shell(104)
+	// The walk starts at the parent (101) and must climb to the claude pid (103).
+	installFakeProcTree(t, map[int]fakeProc{
+		101: {comm: "sh", ppid: 102},
+		102: {comm: "bash", ppid: 103},
+		103: {comm: "claude", ppid: 104},
+		104: {comm: "zsh", ppid: 1},
+	})
+
+	got := resolveAgentPID(context.Background(), 101, "claude")
+	if got != 103 {
+		t.Errorf("resolveAgentPID = %d, want 103 (the claude ancestor)", got)
+	}
+}
+
+func TestResolveAgentPIDMatchesImmediateParent(t *testing.T) {
+	// When the hook's parent IS the agent (non-wrapped launch), the walk returns
+	// the start pid itself.
+	installFakeProcTree(t, map[int]fakeProc{
+		200: {comm: "claude", ppid: 1},
+	})
+	if got := resolveAgentPID(context.Background(), 200, "claude"); got != 200 {
+		t.Errorf("resolveAgentPID = %d, want 200 (parent is the agent)", got)
+	}
+}
+
+func TestResolveAgentPIDExhaustsBoundReturnsZero(t *testing.T) {
+	// A chain of shells with the claude ancestor BEYOND the 5-hop bound must
+	// return 0 (→ omit the pid segment) rather than a wrong pid.
+	tree := map[int]fakeProc{}
+	// pids 300..306 are all shells; 307 is claude — 7 hops up, past the bound.
+	for pid := 300; pid <= 306; pid++ {
+		tree[pid] = fakeProc{comm: "sh", ppid: pid + 1}
+	}
+	tree[307] = fakeProc{comm: "claude", ppid: 1}
+	installFakeProcTree(t, tree)
+
+	if got := resolveAgentPID(context.Background(), 300, "claude"); got != 0 {
+		t.Errorf("resolveAgentPID = %d, want 0 (claude ancestor is past the %d-hop bound)", got, agentHookAncestorHops)
+	}
+}
+
+func TestResolveAgentPIDDeadAncestorReturnsZero(t *testing.T) {
+	// A missing/dead ancestor (ppid resolves to 0 mid-walk) returns 0.
+	installFakeProcTree(t, map[int]fakeProc{
+		400: {comm: "sh", ppid: 0}, // parent unknown
+	})
+	if got := resolveAgentPID(context.Background(), 400, "claude"); got != 0 {
+		t.Errorf("resolveAgentPID = %d, want 0 (ancestor chain broke)", got)
+	}
+}
+
+// captureWrite installs a writeAgentState seam that records its last call.
+type writeCall struct {
+	called bool
+	pane   string
+	state  string
+	pid    int
+}
+
+func captureWrite(t *testing.T) *writeCall {
+	t.Helper()
+	rec := &writeCall{}
+	orig := writeAgentStateFn
+	writeAgentStateFn = func(_ context.Context, pane, state string, pid int) {
+		rec.called = true
+		rec.pane, rec.state, rec.pid = pane, state, pid
+	}
+	t.Cleanup(func() { writeAgentStateFn = orig })
+	return rec
+}
+
+func TestRunAgentHookNoPaneNoWrite(t *testing.T) {
+	t.Setenv("TMUX_PANE", "")
+	rec := captureWrite(t)
+	// Also fail the test loudly if the walk seam is even consulted.
+	origComm := processCommFn
+	processCommFn = func(context.Context, int) string {
+		t.Fatal("ancestor walk should not run when $TMUX_PANE is unset")
+		return ""
+	}
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "claude", "active")
+	if rec.called {
+		t.Error("no $TMUX_PANE must mean no write")
+	}
+}
+
+func TestRunAgentHookUnknownStateNoWrite(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%3")
+	rec := captureWrite(t)
+	runAgentHook(context.Background(), "claude", "busy") // not a canonical state
+	if rec.called {
+		t.Error("an unknown state must not write")
+	}
+}
+
+func TestRunAgentHookUnknownAgentNoWrite(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%3")
+	rec := captureWrite(t)
+	runAgentHook(context.Background(), "nope", "active") // not in the registry
+	if rec.called {
+		t.Error("an unknown --agent must not write")
+	}
+}
+
+func TestRunAgentHookWritesWithResolvedPid(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%7")
+	rec := captureWrite(t)
+	// The hook's parent chain resolves to a claude pid.
+	installFakeProcTree(t, map[int]fakeProc{
+		// os.Getppid() is the real parent; make it resolve to claude directly by
+		// mapping ANY pid to a claude ancestor one hop up.
+	})
+	// Override the seam to always find claude at the immediate parent, regardless
+	// of the real getppid value.
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "claude" }
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "claude", "waiting")
+	if !rec.called {
+		t.Fatal("a valid invocation inside tmux must write")
+	}
+	if rec.pane != "%7" || rec.state != agentStateWaiting {
+		t.Errorf("wrote (pane=%q state=%q), want (%%7, waiting)", rec.pane, rec.state)
+	}
+	if rec.pid <= 0 {
+		t.Errorf("pid = %d, want the resolved (>0) claude pid", rec.pid)
+	}
+}
+
+func TestRunAgentHookWritesTwoSegmentWhenWalkFails(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%7")
+	rec := captureWrite(t)
+	// No ancestor matches claude → the walk returns 0 → the value must omit the
+	// pid segment (two-segment legacy fallback), never a wrong pid.
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "bash" }
+	origPPID := processPPIDFn
+	processPPIDFn = func(_ context.Context, _ int) int { return 0 } // chain breaks immediately
+	t.Cleanup(func() { processCommFn, processPPIDFn = origComm, origPPID })
+
+	runAgentHook(context.Background(), "claude", "idle")
+	if !rec.called {
+		t.Fatal("a valid state inside tmux must still write, just without a pid")
+	}
+	if rec.pid != 0 {
+		t.Errorf("pid = %d, want 0 (walk failed → omit the pid segment)", rec.pid)
+	}
+}
+
+func TestFormatAgentStateValue(t *testing.T) {
+	// The cross-repo @rk_agent_state value contract, byte-for-byte
+	// (docs/specs/agent-state.md § The Option): three segments with a pid, two
+	// without (the legacy form readers fall back on). A non-positive pid means
+	// "the walk could not validate an ancestor" and must OMIT the segment.
+	cases := []struct {
+		state string
+		epoch int64
+		pid   int
+		want  string
+	}{
+		{agentStateWaiting, 1751790000, 48213, "waiting:1751790000:48213"},
+		{agentStateActive, 1751790000, 1, "active:1751790000:1"},
+		{agentStateIdle, 1751790000, 0, "idle:1751790000"},
+		{agentStateActive, 1751790000, -7, "active:1751790000"},
+	}
+	for _, c := range cases {
+		if got := formatAgentStateValue(c.state, c.epoch, c.pid); got != c.want {
+			t.Errorf("formatAgentStateValue(%q, %d, %d) = %q, want %q", c.state, c.epoch, c.pid, got, c.want)
+		}
+	}
+}
+
+func TestParseProcStatusPPID(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    int
+	}{
+		{"typical status file", "Name:\tzsh\nUmask:\t0022\nState:\tS (sleeping)\nPid:\t3393476\nPPid:\t3393474\nTracerPid:\t0\n", 3393474},
+		{"pid 1 / kernel thread", "Name:\tsystemd\nPPid:\t0\n", 0},
+		{"missing PPid line", "Name:\tzsh\nPid:\t42\n", 0},
+		{"malformed value", "PPid:\tnotanumber\n", 0},
+		{"empty content", "", 0},
+	}
+	for _, c := range cases {
+		if got := parseProcStatusPPID(c.content); got != c.want {
+			t.Errorf("%s: parseProcStatusPPID = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAgentCommForNameKnownAndUnknown(t *testing.T) {
+	if c := agentCommForName("", "claude"); c != "claude" {
+		t.Errorf("agentCommForName(claude) = %q, want claude", c)
+	}
+	if c := agentCommForName("", "Claude Code"); c != "claude" {
+		t.Errorf("agentCommForName(display name) = %q, want claude", c)
+	}
+	if c := agentCommForName("", "gemini"); c != "" {
+		t.Errorf("agentCommForName(unregistered) = %q, want empty", c)
+	}
+}
+
+func TestAgentHookCmdNeverErrorsOnMalformedInvocation(t *testing.T) {
+	// The never-fail contract: NO invocation of `rk agent-hook` may return a
+	// non-nil error from cobra (which would exit non-zero — a warning/blocking
+	// signal to the harness). Missing state, extra args, and unknown flags must
+	// all return nil. $TMUX_PANE unset guarantees no real tmux write is attempted.
+	t.Setenv("TMUX_PANE", "")
+	cases := [][]string{
+		{"agent-hook", "--agent", "claude"},           // missing state arg
+		{"agent-hook", "--agent", "claude", "a", "b"}, // extra args
+		{"agent-hook", "--bogus", "x"},                // unknown flag
+		{"agent-hook", "--agent"},                     // KNOWN flag missing its value (pflag error before RunE — needs SetFlagErrorFunc)
+		{"agent-hook", "--agent", "claude", "active"}, // valid (no pane → no-op)
+	}
+	for _, args := range cases {
+		agentHookAgent = "claude" // reset the package-level flag binding between runs
+		rootCmd.SetArgs(args)
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("rk %v returned error %v; must always be nil (never-fail contract)", args, err)
+		}
+	}
+}
+
+func TestTmuxSocketArgs(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{",1,0", nil}, // empty socket field
+		{"/tmp/tmux-1000/default,4242,0", []string{"-S", "/tmp/tmux-1000/default"}},
+		{"/tmp/tmux-1000/rk-daemon,1,2", []string{"-S", "/tmp/tmux-1000/rk-daemon"}},
+		{"/no/commas", []string{"-S", "/no/commas"}}, // tolerate a bare socket path
+	}
+	for _, c := range cases {
+		got := tmuxSocketArgs(c.in)
+		if len(got) != len(c.want) {
+			t.Errorf("tmuxSocketArgs(%q) = %v, want %v", c.in, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("tmuxSocketArgs(%q)[%d] = %q, want %q", c.in, i, got[i], c.want[i])
+			}
+		}
+	}
+}
+
+func TestIsAgentStateValidator(t *testing.T) {
+	for _, s := range []string{agentStateActive, agentStateWaiting, agentStateIdle} {
+		if !isAgentState(s) {
+			t.Errorf("isAgentState(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"", "busy", "running", "Active"} {
+		if isAgentState(s) {
+			t.Errorf("isAgentState(%q) = true, want false", s)
+		}
+	}
+}

@@ -993,12 +993,33 @@ func sanitizeEnv(environ []string) []string {
 	return env
 }
 
+// buildCreateWindowArgs builds the argv slice (after the "tmux" binary and any
+// -L server prefix) for a plain window create. When name is empty the -n token
+// is omitted entirely, so tmux applies its automatic-rename-format
+// ('#{b:pane_current_path}' in the embedded configs) and the window names itself
+// to the folder basename immediately — no rename round-trip is needed because
+// -c cwd is passed on the create. A non-empty name pins the window (tmux
+// disables automatic-rename on an explicit name), which is the desired behavior
+// for deliberately named windows. Pure, no side effects, so the -n-conditional
+// branch is unit-testable without a live tmux server (mirrors riff.go's
+// buildNewWindowArgs).
+func buildCreateWindowArgs(session, name, cwd string) []string {
+	args := []string{"new-window", "-a", "-t", session}
+	if name != "" {
+		args = append(args, "-n", name)
+	}
+	args = append(args, "-c", cwd)
+	return args
+}
+
 // CreateWindow creates a new window in an existing session on the specified server.
+// An empty name lets tmux auto-name the window to its folder basename (see
+// buildCreateWindowArgs); a non-empty name pins it.
 func CreateWindow(session, name, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "new-window", "-a", "-t", session, "-n", name, "-c", cwd)
+	_, err := tmuxExecServer(ctx, server, buildCreateWindowArgs(session, name, cwd)...)
 	return err
 }
 

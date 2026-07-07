@@ -32,9 +32,15 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := validate.ValidateName(body.Name, "Window name"); errMsg != "" {
-		writeError(w, http.StatusBadRequest, errMsg)
-		return
+	// Window name is optional on CREATE: an omitted/empty name means "let tmux
+	// auto-name the window to its folder basename" (via automatic-rename-format
+	// in the embedded configs). Only a non-empty name is validated. The rename
+	// path (handleWindowRename) still requires a non-empty, validated name.
+	if body.Name != "" {
+		if errMsg := validate.ValidateName(body.Name, "Window name"); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
 	}
 
 	server := serverFromRequest(r)
@@ -72,6 +78,15 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 	// window creation and option-set stay in a single invocation so they are
 	// atomic at creation.
 	if body.RkType != "" {
+		// The rkType path pins an explicit name (CreateWindowWithOptions runs
+		// new-window -n <name> with automatic-rename disabled), so an empty name
+		// would create a window stuck on an empty name. Unlike the plain create
+		// path (which omits -n and lets tmux auto-name), a name is required here.
+		// The shipped UI always supplies one; this pins the API contract.
+		if body.Name == "" {
+			writeError(w, http.StatusBadRequest, "Window name is required for typed windows")
+			return
+		}
 		rkType := body.RkType
 		ops := []tmux.WindowOptionOp{{Key: optKeyRkType, Value: &rkType}}
 		if body.RkUrl != "" {

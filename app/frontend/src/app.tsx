@@ -70,6 +70,21 @@ function deriveInstantSessionName(cwd: string | undefined, existingNames: string
   return `${base}-11`;
 }
 
+/**
+ * Raw (unsanitized) basename of a filesystem path — the last non-empty path
+ * segment. Used as the optimistic ghost-window label so it matches what tmux
+ * will name an unnamed window (tmux's `#{b:pane_current_path}` uses the raw
+ * basename, NOT the tmux-safe sanitization `deriveNameFromPath` applies).
+ * Falls back to "window" when no basename is derivable.
+ */
+function rawBasename(cwd: string | undefined): string {
+  if (!cwd) return "window";
+  const trimmed = cwd.replace(/\/+$/, "");
+  if (trimmed === "" || trimmed === "~") return "window";
+  const segment = trimmed.split("/").pop() ?? "";
+  return segment || "window";
+}
+
 /** Root wrapper — provides theme, chrome, session, focused-terminal, and
  *  optimistic contexts above ALL routes. Mounting `SessionProvider` here
  *  means the multi-server EventSource pool is shared across `/$server/...`,
@@ -678,10 +693,16 @@ function AppShell() {
     action: (srv, session) => {
       const targetSession = sessions.find((s) => s.name === session);
       const activeWin = targetSession?.windows.find((w) => w.isActiveWindow);
-      return createWindow(srv, session, "zsh", activeWin?.worktreePath);
+      // No name — tmux auto-names the window to its folder basename via
+      // automatic-rename-format (the -c cwd on create makes this immediate).
+      return createWindow(srv, session, undefined, activeWin?.worktreePath);
     },
     onOptimistic: (srv, session) => {
-      ghostWindowIdRef.current = addGhostWindowStore(srv, session, "zsh");
+      // Label the optimistic ghost with the raw basename of the creation cwd so
+      // it matches what tmux will name the window (was hardcoded "zsh").
+      const targetSession = sessions.find((s) => s.name === session);
+      const activeWin = targetSession?.windows.find((w) => w.isActiveWindow);
+      ghostWindowIdRef.current = addGhostWindowStore(srv, session, rawBasename(activeWin?.worktreePath));
     },
     onRollback: () => {
       if (ghostWindowIdRef.current) {

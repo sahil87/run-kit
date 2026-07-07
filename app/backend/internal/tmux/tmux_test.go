@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -1094,6 +1095,16 @@ func TestDefaultConfigContainsSourceDirective(t *testing.T) {
 	}
 }
 
+// The embedded default config sets automatic-rename-format to the pane's
+// current-path basename, so unnamed windows display their folder rather than
+// the running command (change 260707-j66b).
+func TestDefaultConfigSetsAutomaticRenameFormat(t *testing.T) {
+	content := string(DefaultConfigBytes())
+	if !strings.Contains(content, "automatic-rename-format '#{b:pane_current_path}'") {
+		t.Error("embedded default config missing automatic-rename-format '#{b:pane_current_path}'")
+	}
+}
+
 func TestEnsureDropInDirNoHomeDir(t *testing.T) {
 	origDefault := DefaultConfigPath
 	defer func() { DefaultConfigPath = origDefault }()
@@ -1803,6 +1814,43 @@ func TestIsServerGone(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := IsServerGone(tc.err); got != tc.want {
 				t.Errorf("IsServerGone(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildCreateWindowArgs asserts the argv slice produced by
+// buildCreateWindowArgs: an empty name omits the -n token entirely (so tmux's
+// automatic-rename-format names the window to its folder basename), while a
+// non-empty name pins it with -n <name>. Other args (-a, -t, -c) are unchanged.
+func TestBuildCreateWindowArgs(t *testing.T) {
+	cases := []struct {
+		name    string
+		session string
+		winName string
+		cwd     string
+		want    []string
+	}{
+		{
+			name:    "empty name omits -n",
+			session: "dev",
+			winName: "",
+			cwd:     "/home/user/run-kit",
+			want:    []string{"new-window", "-a", "-t", "dev", "-c", "/home/user/run-kit"},
+		},
+		{
+			name:    "non-empty name pins with -n",
+			session: "dev",
+			winName: "feature",
+			cwd:     "/home/user/run-kit",
+			want:    []string{"new-window", "-a", "-t", "dev", "-n", "feature", "-c", "/home/user/run-kit"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildCreateWindowArgs(tc.session, tc.winName, tc.cwd)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("buildCreateWindowArgs(%q, %q, %q) =\n  %#v\nwant\n  %#v", tc.session, tc.winName, tc.cwd, got, tc.want)
 			}
 		})
 	}

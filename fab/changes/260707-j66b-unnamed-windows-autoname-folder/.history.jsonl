@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-07T08:39:42Z"}
+{"args":"Unnamed tmux windows auto-name to their folder (basename of active pane cwd) instead of the running command — tmux-native automatic-rename-format in embedded configs + name-optional window-create API","cmd":"fab-new","event":"command","ts":"2026-07-07T08:39:42Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-07T08:40:57Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-07T08:42:09Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-07T08:44:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-07T08:44:27Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-07T08:45:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-07T08:57:44Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-07T08:58:34Z"}
+{"event":"review","result":"failed","ts":"2026-07-07T09:09:04Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-07T09:09:04Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-07T09:14:25Z"}
+{"event":"review","result":"failed","ts":"2026-07-07T09:23:19Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-07T09:23:19Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-07T09:27:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-07T09:39:21Z"}
+{"event":"review","result":"passed","ts":"2026-07-07T09:39:21Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-07T09:40:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-07T09:44:46Z"}

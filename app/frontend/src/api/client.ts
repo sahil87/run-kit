@@ -124,12 +124,17 @@ export async function killSession(server: string, session: string): Promise<{ ok
 export async function createWindow(
   server: string,
   session: string,
-  name: string,
+  name?: string,
   cwd?: string,
   rkType?: string,
   rkUrl?: string,
 ): Promise<{ ok: boolean }> {
-  const body: Record<string, string> = { name };
+  // `name` is optional: omitting it (or passing an empty string) tells the
+  // backend to let tmux auto-name the window to its folder basename via
+  // automatic-rename-format. Explicit names (renames, iframe windows) are
+  // still sent. Matches the existing omit-when-absent handling for cwd/rkType.
+  const body: Record<string, string> = {};
+  if (name) body.name = name;
   if (cwd) body.cwd = cwd;
   if (rkType) body.rkType = rkType;
   if (rkUrl) body.rkUrl = rkUrl;

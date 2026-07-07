@@ -83,8 +83,11 @@ func agentStateHookCommand(rkPath, state, comm string) string {
 // version-pinned Cellar path — and falls back to os.Executable() WITHOUT
 // resolving symlinks. Symlink resolution is deliberately avoided: it would pin
 // the Cellar version and re-freeze the hook (the exact failure this change
-// removes). A best-effort empty fallback keeps install non-fatal; the wrapper's
-// `|| true` still holds if the path is somehow wrong at fire time.
+// removes). On total resolution failure it returns "" so validateHookPath fails
+// the install fast with a clear error: a bare-"rk" fallback would reintroduce the
+// PATH dependency the absolute path exists to eliminate, and writing a
+// PATH-dependent hook that silently no-ops when rk is off PATH at fire time is
+// worse than a loud install-time failure the (interactive) user can act on.
 func resolveRkPath() string {
 	if p, err := exec.LookPath("rk"); err == nil {
 		if abs, err := filepath.Abs(p); err == nil {
@@ -96,7 +99,7 @@ func resolveRkPath() string {
 		// Intentionally NOT filepath.EvalSymlinks(p): that would pin the Cellar path.
 		return p
 	}
-	return "rk"
+	return ""
 }
 
 // hookUnsafePathChars are the characters that must not appear in the rk path
@@ -106,14 +109,25 @@ func resolveRkPath() string {
 const hookUnsafePathChars = "'\"$`\\"
 
 // validateHookPath rejects a resolved rk path that cannot be embedded verbatim
-// in the hook command. Rejection (a clear install-time error) is chosen over
-// escaping or a silent fallback: escaping would have to survive three nested
-// quoting layers (shell-in-shell-in-JSON — fragile to get right and to review),
-// a bare-"rk" fallback would reintroduce the PATH dependency the absolute path
-// exists to avoid, and such paths do not occur under Homebrew or any
-// conventional install layout. agent-setup is interactive, so the user is
-// present to see the error and act on it.
+// in the hook command as a STABLE, PATH-independent absolute path. It rejects
+// three classes: (1) empty — resolveRkPath returning "" means total resolution
+// failure, so there is no path to embed; (2) non-absolute (including a bare "rk")
+// — the stable-hook design embeds an absolute path precisely to avoid the PATH
+// dependency at hook-fire time, so a relative path defeats the whole change; and
+// (3) shell-unsafe characters — the path sits inside a double-quoted region of a
+// single-quoted sh -c string, so any of ' " $ ` \ would break the quoting.
+// Rejection (a clear install-time error) is chosen over escaping or a silent
+// fallback: escaping would have to survive three nested quoting layers
+// (shell-in-shell-in-JSON — fragile to get right and to review), and such paths
+// do not occur under Homebrew or any conventional install layout. agent-setup is
+// interactive, so the user is present to see the error and act on it.
 func validateHookPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("could not resolve the rk binary path; install rk on PATH (or at a conventional Homebrew location) and re-run")
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("resolved rk path %q is not absolute; the hook must embed an absolute path to be PATH-independent at fire time — install rk at a conventional path and re-run", path)
+	}
 	if strings.ContainsAny(path, hookUnsafePathChars) {
 		return fmt.Errorf("resolved rk path %q contains a shell-unsafe character (one of %s) and cannot be embedded in the hook command; install rk at a conventional path and re-run", path, hookUnsafePathChars)
 	}

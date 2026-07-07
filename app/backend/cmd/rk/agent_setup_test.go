@@ -385,41 +385,53 @@ func TestUnmergeHooksRemovesBothGenerations(t *testing.T) {
 }
 
 func TestResolveRkPathIsAbsoluteAndNotSymlinkResolved(t *testing.T) {
-	// resolveRkPath must never return an empty string and (when it falls back to
-	// os.Executable) must NOT resolve symlinks — resolving would pin the Cellar
-	// path and re-freeze the hook. We can't assert the LookPath branch portably,
-	// but we can assert the contract that it returns a non-empty path.
+	// resolveRkPath returns "" ONLY on total resolution failure (both
+	// exec.LookPath and os.Executable fail); validateHookPath then fails the
+	// install fast. A running test process always resolves via one branch or the
+	// other, and (when it falls back to os.Executable) must NOT resolve symlinks —
+	// resolving would pin the Cellar path and re-freeze the hook. We can't assert
+	// the LookPath branch portably, but under a normal test run resolution
+	// succeeds, so we assert a non-empty, absolute path is returned.
 	got := resolveRkPath()
 	if got == "" {
-		t.Fatal("resolveRkPath returned empty; the hook needs an absolute path")
+		t.Fatal("resolveRkPath returned empty; resolution should succeed in a test process")
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("resolveRkPath returned non-absolute path %q; the hook needs an absolute path", got)
 	}
 }
 
 func TestValidateHookPath(t *testing.T) {
-	// The rk path is embedded double-quoted inside a single-quoted sh -c string;
-	// any of ' " $ ` \ would break out of or be reinterpreted within that quoting,
-	// so install must REJECT such paths (clear error over fragile escaping).
-	safe := []string{
+	// A valid hook path must be a STABLE, PATH-independent absolute path with no
+	// shell-active characters: the rk path is embedded double-quoted inside a
+	// single-quoted sh -c string, so any of ' " $ ` \ would break out of or be
+	// reinterpreted within that quoting, and a non-absolute path (incl. a bare
+	// "rk") would reintroduce the PATH dependency the absolute path exists to
+	// avoid. Install must REJECT all these (clear error over fragile escaping or a
+	// silent PATH-dependent fallback).
+	valid := []string{
 		"/opt/homebrew/bin/rk",
 		"/home/linuxbrew/.linuxbrew/bin/rk",
 		"/path with spaces/rk", // spaces are fine inside double quotes
-		"rk",
 	}
-	for _, p := range safe {
+	for _, p := range valid {
 		if err := validateHookPath(p); err != nil {
 			t.Errorf("validateHookPath(%q) = %v, want nil", p, err)
 		}
 	}
-	unsafe := []string{
+	invalid := []string{
+		"",                   // total resolution failure — nothing to embed
+		"rk",                 // bare name is PATH-dependent, not absolute
+		"bin/rk",             // relative path is PATH/cwd-dependent, not absolute
 		`/tmp/o'brien/rk`,    // ' terminates the outer single-quoted string
 		`/tmp/say"cheese/rk`, // " terminates the double-quoted path
 		`/tmp/$HOME/rk`,      // $ expands inside double quotes
 		"/tmp/`id`/rk",       // backtick substitutes inside double quotes
 		`/tmp/back\slash/rk`, // \ escapes inside double quotes
 	}
-	for _, p := range unsafe {
+	for _, p := range invalid {
 		if err := validateHookPath(p); err == nil {
-			t.Errorf("validateHookPath(%q) = nil, want error (shell-unsafe char)", p)
+			t.Errorf("validateHookPath(%q) = nil, want error (invalid: empty, non-absolute, or shell-unsafe)", p)
 		}
 	}
 }

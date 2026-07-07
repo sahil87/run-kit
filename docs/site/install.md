@@ -13,12 +13,15 @@ brew install sahil87/tap/rk
 This puts the `rk` binary on your `PATH`. From there, a clean install to a working dashboard with one agent running is:
 
 ```bash
+rk agent-setup                  # optional, once per machine: agent busy/waiting/idle in the dashboard
 rk serve -d                     # start the dashboard daemon on :3000
 open http://localhost:3000      # open the dashboard in your browser
 
 # in any tmux session:
 rk riff --skill /fab-discuss    # spawn an agent workspace
 ```
+
+`rk agent-setup` installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) so windows running an agent report live **active/waiting/idle** state in the dashboard. It shows the settings diff and asks before writing; re-running is idempotent, and `rk agent-setup --uninstall` removes exactly the rk-owned entries. Until it's run (and agent sessions are restarted so new sessions pick up the hooks), agent state shows `—`. See [Agent state in the README](../../README.md#agent-state--rk-agent-setup) for how the hooks work.
 
 ## Upgrade
 
@@ -27,6 +30,8 @@ rk update
 ```
 
 `rk update` pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
+
+> **Upgrading from an earlier rk?** Older installs had the agent-hook *logic* inlined in `~/.claude/settings.json`. Run `rk agent-setup` once more to swap in the new delegating wrapper, then restart your agent sessions. Future hook fixes ship in the binary and track `rk update` with no re-setup.
 
 ## Prerequisites
 

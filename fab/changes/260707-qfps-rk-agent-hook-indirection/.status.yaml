@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 11
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-07T07:22:25Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-07T07:34:35Z"}
     review: {started_at: "2026-07-07T07:34:35Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-07T07:44:22Z"}
     hydrate: {started_at: "2026-07-07T07:44:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-07T07:48:45Z"}
-    ship: {started_at: "2026-07-07T07:48:45Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-07T07:48:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-07T07:50:46Z"}
+    review-pr: {started_at: "2026-07-07T07:50:46Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/322
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1689
+    deleted: 107
+    net: 1582
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 951
+        deleted: 63
+        net: 888
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-07T07:48:45Z"
-    computed_at_stage: hydrate
+        added: 495
+        deleted: 28
+        net: 467
+    computed_at: "2026-07-07T07:50:46Z"
+    computed_at_stage: ship
 summary: 'rk agent-hook subcommand: hook logic moves from the settings-frozen shell one-liner into the rk binary (comm-validated ancestor walk bound 5, OriginalTMUX -S targeting, always-exit-0); installer emits a stable delegating wrapper, isRkEntry migrates both hook generations in place'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-07T07:48:45Z
+last_updated: 2026-07-07T07:50:46Z

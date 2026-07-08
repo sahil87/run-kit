@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-07T09:29:04Z"}
+{"args":"Evaluate/discuss/execute: remove navbar reload flicker on page changes — app is already an SPA; lift TopBar into a persistent root layout so it mounts once across routes","cmd":"fab-new","event":"command","ts":"2026-07-07T09:29:04Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-07-07T09:32:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-08T03:17:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-08T03:17:57Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-08T03:18:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-08T03:58:12Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-08T03:59:01Z"}
+{"event":"review","result":"failed","ts":"2026-07-08T04:18:21Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-08T04:18:21Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-08T04:29:43Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-08T04:30:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-08T04:45:35Z"}
+{"event":"review","result":"passed","ts":"2026-07-08T04:45:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-08T04:50:41Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-08T04:52:21Z"}
+{"event":"review","result":"passed","ts":"2026-07-08T05:02:38Z"}

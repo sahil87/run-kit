@@ -1,0 +1,57 @@
+id: 4vq2
+name: 260707-4vq2-lift-topbar-root-layout
+created: 2026-07-07T09:29:04Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 2
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 66.7
+        reversibility: 83.3
+        competence: 83.3
+        disambiguation: 75.8
+stage_metrics:
+    intake: {started_at: "2026-07-07T09:29:04Z", driver: fab-new, iterations: 1, completed_at: "2026-07-08T03:17:57Z"}
+    apply: {started_at: "2026-07-08T04:18:21Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-08T04:29:43Z"}
+    review: {started_at: "2026-07-08T04:29:43Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-08T04:45:35Z"}
+    hydrate: {started_at: "2026-07-08T04:45:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-08T04:50:41Z"}
+    ship: {started_at: "2026-07-08T04:50:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-08T04:52:21Z"}
+    review-pr: {started_at: "2026-07-08T04:52:21Z", driver: git-pr, iterations: 1, completed_at: "2026-07-08T05:02:38Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/326
+change_type_source: explicit
+true_impact:
+    added: 1490
+    deleted: 176
+    net: 1314
+    excluding:
+        added: 1051
+        deleted: 163
+        net: 888
+    tests:
+        added: 194
+        deleted: 0
+        net: 194
+    computed_at: "2026-07-08T04:52:21Z"
+    computed_at_stage: ship
+summary: Lift TopBar to a single persistent mount at a pathless root layout (RootTopBar/AppLayout above the outlet) — route-derived mode/boardName + page-registered slot context + not-found boolean channel; Shell grid drops its topbar row; useVisualViewport + .app-root fullbleed pin move to RootWrapper; Suspense blanks only the content region
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-08T05:02:38Z

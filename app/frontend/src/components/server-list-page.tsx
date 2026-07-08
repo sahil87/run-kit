@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { createServer, createSession, createWindow, getSessions, isInfraServer } from "@/api/client";
 import { Dialog } from "@/components/dialog";
@@ -10,7 +10,7 @@ import { countWaitingInSessions } from "@/lib/waiting";
 import { HostMetrics } from "@/components/host-metrics";
 import { useBoards } from "@/hooks/use-boards";
 import { useServerReorder } from "@/hooks/use-server-reorder";
-import { TopBar } from "@/components/top-bar";
+import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { SectionHeading } from "@/components/section-heading";
 
 export function ServerListPage() {
@@ -38,6 +38,30 @@ export function ServerListPage() {
   const hostServices = useHostServices();
   // Cockpit connection dot (260704-9o7k): reflects host-metrics stream health.
   const { hostMetricsConnected } = useSessionContext();
+
+  // Publish the cockpit TopBar's page-owned prop into the persistent root bar's
+  // slot (260707-4vq2). Cockpit mode is otherwise entirely tolerant-empty (no
+  // sessions/handlers), so the connection dot's data source is the only page
+  // input the slot needs. `mode` is derived at root from the route.
+  useRegisterTopBarSlot(
+    useMemo(
+      () => ({
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        isConnected: hostMetricsConnected,
+        sidebarOpen: false,
+        server: "",
+        onNavigate: () => {},
+        onToggleSidebar: () => {},
+        onCreateSession: () => {},
+        onCreateWindow: () => {},
+      }),
+      [hostMetricsConnected],
+    ),
+  );
   // Cross-server pane boards for the BOARDS zone. useBoards is self-contained
   // (plain /api/boards fetch + the shared SSE pool) and boards aggregate
   // windows across servers, so the box-level Cockpit is their natural home.
@@ -168,30 +192,14 @@ export function ServerListPage() {
   );
 
   return (
-    <div className="flex flex-col h-screen bg-bg-primary">
-      {/* Shared full-width TopBar in cockpit mode: brand root crumb + the
-          solo `Cockpit` center page heading (260704-pr0p) + the route-agnostic
-          controls. No hamburger (the Cockpit has no sidebar). Pinned above the
-          scrollable content — same `flex-col h-screen` pinning the ad-hoc
-          header used, so it stays fixed while the list below scrolls.
-          Session/server-dependent props are passed empty (board-mode
-          precedent). The page identity now lives in the top bar (the old
-          in-page PageHeading row is gone). */}
-      <TopBar
-        mode="cockpit"
-        sessions={[]}
-        currentSession={null}
-        currentWindow={null}
-        sessionName=""
-        windowName=""
-        isConnected={hostMetricsConnected}
-        sidebarOpen={false}
-        server=""
-        onNavigate={() => {}}
-        onToggleSidebar={() => {}}
-        onCreateSession={() => {}}
-        onCreateWindow={() => {}}
-      />
+    <div className="flex flex-col h-full bg-bg-primary">
+      {/* The cockpit-mode TopBar mount moved to the persistent root layout
+          (260707-4vq2). Its route-derived mode is `cockpit` (brand root crumb +
+          the solo `Cockpit` center heading + route-agnostic controls; no
+          hamburger). This page only publishes the connection-dot source
+          (`hostMetricsConnected`) into the slot — see the registration effect
+          above. `h-full` (was `h-screen`) because the root layout now owns the
+          viewport height; the list below still scrolls within `flex-1`. */}
 
       {/* Server list. `pt-6` matches the `mb-6` inter-section rhythm so the
           gap below the TopBar equals the gap between sections. The Cockpit's

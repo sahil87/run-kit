@@ -4,6 +4,7 @@ import type { Service, ProjectSession } from "@/types";
 import type { ServerInfo } from "@/api/client";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ChromeProvider } from "@/contexts/chrome-context";
+import { TopBarSlotProvider } from "@/contexts/top-bar-slot-context";
 
 // --- Router mock: capture navigate calls. ---
 const navigateMock = vi.fn();
@@ -92,7 +93,9 @@ function renderPage() {
   return render(
     <ThemeProvider>
       <ChromeProvider>
-        <ServerListPage />
+        <TopBarSlotProvider>
+          <ServerListPage />
+        </TopBarSlotProvider>
       </ChromeProvider>
     </ThemeProvider>,
   );
@@ -272,35 +275,29 @@ describe("ServerListPage — Services zone", () => {
   });
 });
 
-describe("ServerListPage — Cockpit TopBar", () => {
-  it("renders the shared TopBar (brand home crumb) instead of the old ad-hoc header", () => {
+describe("ServerListPage — TopBar mount moved to root (260707-4vq2)", () => {
+  // The cockpit-mode TopBar mount was lifted to the persistent root layout
+  // (`RootTopBar` in app.tsx). `ServerListPage` no longer renders a TopBar of
+  // its own — it only publishes the connection-dot data into the slot context.
+  // The TopBar's own rendering (brand crumb, controls, `Cockpit` heading,
+  // no-hamburger) is now covered by top-bar.test.tsx (which renders TopBar in
+  // cockpit mode directly) and the top-bar-persistence e2e; asserting those
+  // internals on this component — which no longer mounts them — would be a
+  // false test (Test Integrity: tests conform to the current structure).
+
+  it("renders NO TopBar of its own — the brand crumb / controls / heading are not this component's DOM", () => {
     renderPage();
-    // The shared TopBar's brand root crumb links home.
-    const brand = screen.getByLabelText("Run Kit home");
-    expect(brand).toHaveAttribute("href", "/");
-    // L3 always-block controls are reachable on `/` (Theme; Refresh + Help
-    // promoted here in 260704-9o7k). The fixed-width BUTTON is terminal-only
-    // now, so it is NOT on the Cockpit.
-    expect(screen.getByLabelText(/theme/i)).toBeInTheDocument();
-    expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+    // None of the shared TopBar's landmarks render from ServerListPage now.
+    expect(screen.queryByLabelText("Run Kit home")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Refresh page")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Cockpit")).not.toBeInTheDocument();
   });
 
-  it("renders no hamburger in cockpit mode, but DOES render the connection dot (host-metrics health, 260704-9o7k)", () => {
+  it("still renders no in-page PageHeading row — the Cockpit identity lives in the root top-bar center heading (260704-pr0p)", () => {
     renderPage();
-    // The Cockpit has no sidebar → no hamburger.
-    expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
-    // 260704-9o7k: the dot now renders on Cockpit, reflecting host-metrics
-    // stream health (formerly hardcoded hidden).
-    expect(screen.getByRole("status")).toBeInTheDocument();
-  });
-
-  it("no longer renders an in-page PageHeading row — the Cockpit identity lives in the top-bar center heading (260704-pr0p)", () => {
-    renderPage();
-    // The old `[ cockpit ]` <h1> PageHeading row is gone.
+    // The old `[ cockpit ]` <h1> PageHeading row remains gone; the page body
+    // carries no level-1 heading of its own (page identity rides the root bar).
     expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
-    // Page identity now rides the shared TopBar's solo `Cockpit` center heading.
-    expect(screen.getByLabelText("Cockpit")).toBeInTheDocument();
   });
 });
 

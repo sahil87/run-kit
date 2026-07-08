@@ -4,8 +4,9 @@ import {
   createRoute,
 } from "@tanstack/react-router";
 import { lazy } from "react";
-import { RootWrapper, ServerShell } from "@/app";
+import { RootWrapper, AppLayout, ServerShell } from "@/app";
 import { ServerListPage } from "@/components/server-list-page";
+import { useSignalTopBarNotFound } from "@/contexts/top-bar-slot-context";
 
 const BoardPage = lazy(() =>
   import("@/components/board/board-page").then((m) => ({ default: m.BoardPage })),
@@ -34,8 +35,15 @@ export function urlSegmentToWindowId(segment: string): string {
 }
 
 export function NotFoundPage() {
+  // Signal the persistent `RootTopBar` to force its minimal `cockpit`-like
+  // fallback mode while this page renders. Route params alone can't distinguish
+  // a not-found from a real route: TanStack Router's fuzzy not-found handling
+  // retains the partially-matched params (e.g. `/board/x/y` keeps `name=x`), so
+  // without this signal the bar would derive `board` mode ("Board: x") over the
+  // not-found body (260707-4vq2 rework, R10).
+  useSignalTopBarNotFound();
   return (
-    <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg-primary">
+    <div className="flex flex-col items-center justify-center h-full gap-4 bg-bg-primary">
       <h1 className="text-xl text-text-primary">Page not found</h1>
       <a href="/" className="text-accent hover:underline">
         Go to server list
@@ -46,17 +54,35 @@ export function NotFoundPage() {
 
 const rootRoute = createRootRoute({
   component: RootWrapper,
+});
+
+// Pathless layout route (260707-4vq2): hosts the persistent TopBar chrome via
+// `AppLayout` and uniformly parents every page route below. Because it carries
+// no `path`, it adds a stable middle match to EVERY route's chain
+// (`[root, app-layout, <leaf>]`) without touching any URL — so `AppLayout` (and
+// the single TopBar it mounts) is never remounted across navigation, which is
+// what makes the bar persist in place. `id` (not `path`) is how tanstack-router
+// names a pathless layout route.
+//
+// `notFoundComponent` lives HERE (not on the root route) so an unmatched path
+// renders `NotFoundPage` inside `AppLayout`'s `<Outlet>` — i.e. BELOW the
+// persistent TopBar (R10), where the route-derived mode falls back to the
+// minimal `cockpit`-like heading.
+const appLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: "app-layout",
+  component: AppLayout,
   notFoundComponent: NotFoundPage,
 });
 
 const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appLayoutRoute,
   path: "/",
   component: ServerListPage,
 });
 
 const serverLayoutRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appLayoutRoute,
   path: "/$server",
   component: ServerShell,
 });
@@ -87,7 +113,7 @@ const terminalRoute = createRoute({
 });
 
 const boardRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => appLayoutRoute,
   path: "/board/$name",
   parseParams: (params) => ({ name: params.name }),
   component: BoardPage,
@@ -100,11 +126,15 @@ const boardRoute = createRoute({
 //                                       URL segment is the window id's numeric
 //                                       part, @N sans @; parse restores @N)
 //   /board/$name       → Board        (BoardPage — cross-server pane board)
-//   not-found fallback → Not Found    (NotFoundPage — root notFoundComponent catch-all)
+//   not-found fallback → Not Found    (NotFoundPage — app-layout route's
+//                                       notFoundComponent, rendered below the
+//                                       persistent TopBar; see appLayoutRoute)
 const routeTree = rootRoute.addChildren([
-  indexRoute,
-  boardRoute,
-  serverLayoutRoute.addChildren([serverIndexRoute, terminalRoute]),
+  appLayoutRoute.addChildren([
+    indexRoute,
+    boardRoute,
+    serverLayoutRoute.addChildren([serverIndexRoute, terminalRoute]),
+  ]),
 ]);
 
 export const router = createRouter({ routeTree });

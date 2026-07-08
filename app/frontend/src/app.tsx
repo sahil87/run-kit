@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback } fro
 import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-terminal-context";
+import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import { nextWaitingTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
@@ -20,7 +21,8 @@ import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { useDialogState } from "@/hooks/use-dialog-state";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { TopBar, HELP_URL } from "@/components/top-bar";
+import { TopBar, HELP_URL, type TopBarMode } from "@/components/top-bar";
+import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { TerminalClient } from "@/components/terminal-client";
@@ -96,6 +98,15 @@ function rawBasename(cwd: string | undefined): string {
  *  which route is active. AppShell's TerminalClient and BoardPage's
  *  BoardPanes both register into this single provider instance. */
 export function RootWrapper() {
+  // `useVisualViewport` maintains the `--app-height` / `--app-offset-top` CSS
+  // vars (iOS keyboard handling) on `document.documentElement`. It moved here
+  // from `Shell` (260707-4vq2): the persistent root layout div (in `AppLayout`)
+  // is now the `--app-height` consumer, and the var must exist on EVERY route —
+  // including the cockpit and edge pages that mount no `Shell`. The hook is a
+  // single idempotent effect; owning it once at the root avoids the double-mount
+  // cleanup race a second call in `Shell` would create (Shell now sizes to
+  // `height: 100%` and no longer consumes the var directly).
+  useVisualViewport();
   return (
     <ThemeProvider>
       <ToastProvider>
@@ -103,15 +114,146 @@ export function RootWrapper() {
           <SessionProvider>
             <FocusedTerminalProvider>
               <OptimisticProvider>
-                <Suspense fallback={null}>
+                <TopBarSlotProvider>
                   <Outlet />
-                </Suspense>
+                </TopBarSlotProvider>
               </OptimisticProvider>
             </FocusedTerminalProvider>
           </SessionProvider>
         </ChromeProvider>
       </ToastProvider>
     </ThemeProvider>
+  );
+}
+
+/**
+ * `AppLayout` — the persistent-chrome layout (260707-4vq2). It is the component
+ * of a **pathless layout route** that uniformly parents EVERY page route
+ * (index, server, terminal, board). Because every navigation keeps the match
+ * chain `[root, app-layout, <leaf>]`, this layout match sits at a stable depth
+ * with a stable route id and is NEVER remounted across navigation — so the
+ * `TopBar` mounted here (once, above the `<Outlet>`) keeps a stable React/DOM
+ * identity and re-renders in place instead of unmounting/remounting a per-page
+ * copy (the flicker fix).
+ *
+ * (Hosting the bar directly in `RootWrapper` — the root route's component — did
+ * NOT work: the index route `/` is a direct child of the root at the same
+ * pathname, so the root→index match chain is structurally shorter than
+ * root→serverLayout→…, and React remounted the root subtree when navigating to
+ * `/`. A pathless layout route normalizes the tree depth and removes that
+ * asymmetry.)
+ *
+ * The `<Suspense fallback={null}>` boundary wraps only the content region, so a
+ * lazy-chunk load (e.g. the board) blanks the body while the bar stays painted.
+ */
+export function AppLayout() {
+  return (
+    <div
+      className="app-root flex flex-col"
+      style={{ height: "var(--app-height, 100vh)" }}
+    >
+      {/* Plain `div`, not `header`: `TopBar` already renders its own `<header>`
+          (the banner landmark), so wrapping it in a second `<header>` would
+          nest two `role="banner"` landmarks. This wrapper only owns the
+          `shrink-0` sizing that keeps the bar at its natural height above the
+          `flex-1` content region. */}
+      <div className="shrink-0">
+        <RootTopBar />
+      </div>
+      <div className="flex-1 min-h-0">
+        <Suspense fallback={null}>
+          <Outlet />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * `RootTopBar` — the single persistent `TopBar` mount (260707-4vq2). Delivers
+ * the bar's inputs through two channels (see `top-bar-slot-context.tsx`):
+ *   - Route-derived (here, synchronously from `useMatches()`): `mode` +
+ *     `boardName`. This flips the instant the URL changes, so the heading
+ *     never waits on the incoming page's mount — critical for the lazily
+ *     loaded board (`Board: <name>` renders from the URL param while the
+ *     chunk is still loading).
+ *   - Page-registered (`useTopBarSlot()`): the data/handler props a page owns.
+ *     When no page has registered yet (first frame after navigation, or a lazy
+ *     chunk still loading), we render the tolerant-empty prop shape every mode
+ *     already supports.
+ */
+function RootTopBar() {
+  const matches = useMatches();
+  // The not-found page signals its render via context (`useSignalTopBarNotFound`
+  // in `NotFoundPage`). This MUST win over the route-param walk below: TanStack
+  // Router's fuzzy not-found handling RETAINS the partially-matched params in
+  // `useMatches()` — e.g. `/board/x/y` keeps `name=x`, so the param walk alone
+  // would derive `board` mode ("Board: x") over the not-found body. When the
+  // not-found page is what actually renders, force the minimal `cockpit`
+  // fallback (R3/R10). (The `/$server/$window`+extra shape — `/a/b/c` — is a
+  // different arm: it renders AppShell's `ServerNotFound`, not `NotFoundPage`,
+  // so `notFound` is false there and the `root`/`terminal` mode below is kept.)
+  const notFound = useTopBarNotFound();
+
+  // Walk matches deepest-first for route params. Param NAMES are unique across
+  // the route tree (`window` only on the terminal route, `server` on the server
+  // layout, `name` on the board route), so their presence fully determines the
+  // mode — the same deepest-first param walk `SessionContext` uses for
+  // `currentServer`. The cockpit (`/`) carries no params and resolves to the
+  // minimal `cockpit` mode.
+  let serverParam: string | undefined;
+  let windowParam: string | undefined;
+  let boardParam: string | undefined;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const p = (matches[i]?.params ?? {}) as {
+      server?: string;
+      window?: string;
+      name?: string;
+    };
+    if (serverParam === undefined && typeof p.server === "string") serverParam = p.server;
+    if (windowParam === undefined && typeof p.window === "string") windowParam = p.window;
+    if (boardParam === undefined && typeof p.name === "string") boardParam = p.name;
+  }
+
+  let mode: TopBarMode;
+  if (notFound) mode = "cockpit";
+  else if (boardParam !== undefined) mode = "board";
+  else if (windowParam !== undefined) mode = "terminal";
+  else if (serverParam !== undefined) mode = "root";
+  else mode = "cockpit";
+
+  const slot = useTopBarSlot();
+
+  return (
+    <TopBar
+      mode={mode}
+      boardName={notFound ? undefined : boardParam}
+      sessions={slot?.sessions ?? []}
+      currentSession={slot?.currentSession ?? null}
+      currentWindow={slot?.currentWindow ?? null}
+      sessionName={slot?.sessionName ?? ""}
+      windowName={slot?.windowName ?? ""}
+      isConnected={slot?.isConnected ?? false}
+      sidebarOpen={slot?.sidebarOpen ?? false}
+      // Prefer the page-registered server (the confirmed value), but fall back
+      // to the route-derived `serverParam` so the `Server Cabin: <server>`
+      // heading (root mode) and the terminal-mode server crumb render
+      // synchronously from the URL — before AppShell's registering effect runs
+      // on a cold deep link / first frame after navigation, `slot` is null and
+      // `slot?.server` would be `""`, which those truthy-gated renders omit.
+      // Mirrors how `boardName` already renders from `boardParam` above.
+      server={slot?.server ?? serverParam ?? ""}
+      onNavigate={slot?.onNavigate ?? (() => {})}
+      onToggleSidebar={slot?.onToggleSidebar ?? (() => {})}
+      onCreateSession={slot?.onCreateSession ?? (() => {})}
+      onCreateWindow={slot?.onCreateWindow ?? (() => {})}
+      paneCount={slot?.paneCount}
+      serverCount={slot?.serverCount}
+      waitingPaneCount={slot?.waitingPaneCount}
+      boards={slot?.boards}
+      onCloseFocused={slot?.onCloseFocused}
+      closeDisabled={slot?.closeDisabled}
+    />
   );
 }
 
@@ -125,7 +267,7 @@ export function ServerShell() {
 /** Server not found UI — shown when server param doesn't match any known server. */
 function ServerNotFound({ serverName }: { serverName: string }) {
   return (
-    <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg-primary">
+    <div className="flex flex-col items-center justify-center h-full gap-4 bg-bg-primary">
       <h1 className="text-xl text-text-primary">Server not found</h1>
       <p className="text-text-secondary">
         No tmux server named <strong>{serverName}</strong> was found.
@@ -147,7 +289,7 @@ function ServerNotFound({ serverName }: { serverName: string }) {
  *  three-way guard and the pending-clear effect in SessionContext). */
 function ServerWaiting({ serverName }: { serverName: string }) {
   return (
-    <div className="flex flex-col items-center justify-center h-screen gap-4 bg-bg-primary">
+    <div className="flex flex-col items-center justify-center h-full gap-4 bg-bg-primary">
       <LogoSpinner size={48} />
       <h1 className="text-xl text-text-primary">Creating server…</h1>
       <p className="text-text-secondary">
@@ -1549,6 +1691,51 @@ function AppShell() {
     [server, handleCreateSessionInstant, executeCreateSessionInstant],
   );
 
+  // Register AppShell's TopBar props into the persistent root bar's slot
+  // (260707-4vq2). The heavy handlers (`navigateToWindow` with its
+  // View-Transitions gate, `handleCreateSessionInstant` with optimistic
+  // ghosts) stay defined here and are published by reference — no logic
+  // migrates to root. `mode` (terminal vs root) is derived at root from the
+  // route, so it is NOT part of the slot. Memoized so the registration effect
+  // re-publishes only when a prop actually changes. Declared here (a hook)
+  // BEFORE the three-way route-guard early returns to keep the hook order
+  // stable across the waiting/not-found branches.
+  const onToggleSidebar = useCallback(
+    () => setSidebarOpen(!sidebarOpen),
+    [setSidebarOpen, sidebarOpen],
+  );
+  const topBarSlot = useMemo(
+    () => ({
+      sessions,
+      currentSession,
+      currentWindow,
+      sessionName: displaySession,
+      windowName: displayName,
+      isConnected,
+      sidebarOpen,
+      server,
+      onNavigate: navigateToWindow,
+      onToggleSidebar,
+      onCreateSession: handleCreateSessionInstant,
+      onCreateWindow: handleCreateWindow,
+    }),
+    [
+      sessions,
+      currentSession,
+      currentWindow,
+      displaySession,
+      displayName,
+      isConnected,
+      sidebarOpen,
+      server,
+      navigateToWindow,
+      onToggleSidebar,
+      handleCreateSessionInstant,
+      handleCreateWindow,
+    ],
+  );
+  useRegisterTopBarSlot(topBarSlot);
+
   // Three-way route guard. Distinguishes a just-created server (brief waiting
   // state) from a genuinely-unknown one (not found), keyed on `serversLoaded`
   // (NOT `servers.length > 0`, which fired not-found prematurely when the user
@@ -1576,11 +1763,6 @@ function AppShell() {
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
     />
   );
-
-  // Mode for TopBar — `terminal` when a session is active, `root` otherwise.
-  // Terminal mode whenever a window is in the URL — keyed on `windowParam` (not
-  // the SSE-derived session) so the cold-deep-link top bar doesn't flash "root".
-  const topBarMode = windowParam ? "terminal" : "root";
 
   return (
     <Shell sidebarChildren={sidebarElement}>
@@ -1614,24 +1796,10 @@ function AppShell() {
         </aside>
       )}
 
-      {/* Top bar grid area */}
-      <header style={{ gridArea: "topbar" }}>
-        <TopBar
-          mode={topBarMode}
-          sessions={sessions}
-          currentSession={currentSession}
-          currentWindow={currentWindow}
-          sessionName={displaySession}
-          windowName={displayName}
-          isConnected={isConnected}
-          sidebarOpen={sidebarOpen}
-          server={server}
-          onNavigate={navigateToWindow}
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          onCreateSession={handleCreateSessionInstant}
-          onCreateWindow={handleCreateWindow}
-        />
-      </header>
+      {/* Top bar mount moved to the persistent root layout (260707-4vq2) —
+          AppShell publishes its TopBar props into the slot context instead
+          (see the `useRegisterTopBarSlot` effect above). The `terminal` vs
+          `root` mode distinction is derived at root from the route params. */}
 
       {/* Content grid area */}
       <main

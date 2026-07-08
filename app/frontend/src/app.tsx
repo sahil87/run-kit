@@ -235,7 +235,14 @@ function RootTopBar() {
       windowName={slot?.windowName ?? ""}
       isConnected={slot?.isConnected ?? false}
       sidebarOpen={slot?.sidebarOpen ?? false}
-      server={slot?.server ?? ""}
+      // Prefer the page-registered server (the confirmed value), but fall back
+      // to the route-derived `serverParam` so the `Server Cabin: <server>`
+      // heading (root mode) and the terminal-mode server crumb render
+      // synchronously from the URL — before AppShell's registering effect runs
+      // on a cold deep link / first frame after navigation, `slot` is null and
+      // `slot?.server` would be `""`, which those truthy-gated renders omit.
+      // Mirrors how `boardName` already renders from `boardParam` above.
+      server={slot?.server ?? serverParam ?? ""}
       onNavigate={slot?.onNavigate ?? (() => {})}
       onToggleSidebar={slot?.onToggleSidebar ?? (() => {})}
       onCreateSession={slot?.onCreateSession ?? (() => {})}

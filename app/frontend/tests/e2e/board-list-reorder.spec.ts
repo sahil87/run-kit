@@ -10,8 +10,8 @@ import { join } from "node:path";
 // board order is never clobbered by test residue (byte-identical round-trip).
 const SETTINGS_PATH = join(homedir(), ".rk", "settings.yaml");
 // `undefined` = the file did not exist before the suite (restore = delete it);
-// a string = its exact original bytes (restore = write them back verbatim).
-let settingsSnapshot: string | undefined;
+// a Buffer = its exact original bytes (restore = write them back verbatim).
+let settingsSnapshot: Buffer | undefined;
 let settingsExisted = false;
 
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
@@ -33,7 +33,7 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
     // any curated board order survives byte-identically — $HOME is NOT isolated
     // by scripts/test-e2e.sh, so test residue would otherwise persist.
     try {
-      settingsSnapshot = readFileSync(SETTINGS_PATH, "utf8");
+      settingsSnapshot = readFileSync(SETTINGS_PATH);
       settingsExisted = true;
     } catch (err) {
       // Only ENOENT means "no file to restore" (afterAll then deletes any

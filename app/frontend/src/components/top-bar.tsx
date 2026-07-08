@@ -70,6 +70,12 @@ type TopBarProps = {
   onCloseFocused?: () => void;
   /** Disable the board-mode ✕ (e.g. the board has zero panes). */
   closeDisabled?: boolean;
+  /** Board-mode autofit state (738w) — reflected by the L2 toggle's
+   *  `aria-pressed`. Wired from `board-page.tsx` via the slot context. */
+  autofit?: boolean;
+  /** Board-mode autofit setter (738w) — flips the same state the palette's
+   *  `Board: Toggle Autofit` action flips. Absent → no toggle rendered. */
+  onToggleAutofit?: () => void;
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
@@ -156,6 +162,8 @@ export function TopBar({
   boards,
   onCloseFocused,
   closeDisabled,
+  autofit,
+  onToggleAutofit,
 }: TopBarProps) {
   // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
   // window id (@N) is the only identity in the URL. Selecting a session jumps
@@ -423,6 +431,18 @@ export function TopBar({
               <span className="hidden sm:flex">
                 <TerminalFontControl />
               </span>
+              {/* Board-only autofit toggle (738w): sits between Aa and ✕ in the
+                  L2 cluster. Board mode only (unlike Aa/✕ which are
+                  terminal||board) — terminal panes have their own fixed-width
+                  toggle. Rendered only when the board published a setter. */}
+              {mode === "board" && onToggleAutofit && (
+                <span className="hidden sm:flex">
+                  <BoardAutofitToggle
+                    autofit={autofit ?? false}
+                    onToggle={onToggleAutofit}
+                  />
+                </span>
+              )}
               <span className="hidden sm:flex">
                 {mode === "board" ? (
                   <ClosePaneButton
@@ -1781,6 +1801,65 @@ function FixedWidthToggle() {
             <polyline points="5,5 5,7 5,9" />
             <line x1="9" y1="7" x2="13" y2="7" />
             <polyline points="9,5 9,7 9,9" />
+          </>
+        )}
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * Board-mode autofit toggle (738w). Mirrors `FixedWidthToggle`'s vocabulary
+ * (rk-glint, `coarse:` touch sizing, `aria-pressed`, pressed-state accent
+ * styling) but drives the per-board board-autofit preference (owned by
+ * `BoardPage` via `useBoardAutofit`, plumbed through the top-bar slot context).
+ * When on, board panes stretch to fill the row (≤4 panes) or floor at ~25% and
+ * scroll (>4); when off, hand-tuned per-pane widths apply. The same flip is
+ * reachable from the palette's `Board: Toggle Autofit` (Constitution V). The
+ * icon is a set of columns filling a frame — the "panes fill the row" idea —
+ * with the pressed (on) state showing filled columns.
+ */
+function BoardAutofitToggle({
+  autofit,
+  onToggle,
+}: {
+  autofit: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label="Toggle board autofit"
+      aria-pressed={autofit}
+      className={`rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border transition-colors flex items-center justify-center ${
+        autofit
+          ? "border-accent text-accent bg-accent/10"
+          : "border-border text-text-secondary hover:border-text-secondary"
+      }`}
+      title={autofit ? "Autofit on (panes fill the row)" : "Autofit off (fixed pane widths)"}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {/* Outer frame = the board row */}
+        <rect x="1" y="2.5" width="12" height="9" rx="1" />
+        {/* Two internal dividers = panes sharing the row. When on, the panes are
+            filled (they've stretched to fill); when off, just outlines. */}
+        <line x1="5" y1="2.5" x2="5" y2="11.5" />
+        <line x1="9" y1="2.5" x2="9" y2="11.5" />
+        {autofit && (
+          <>
+            <rect x="1.5" y="3" width="3" height="8" fill="currentColor" stroke="none" opacity="0.35" />
+            <rect x="5.5" y="3" width="3" height="8" fill="currentColor" stroke="none" opacity="0.35" />
+            <rect x="9.5" y="3" width="3" height="8" fill="currentColor" stroke="none" opacity="0.35" />
           </>
         )}
       </svg>

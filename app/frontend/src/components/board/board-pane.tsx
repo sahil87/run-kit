@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { TerminalClient } from "@/components/terminal-client";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
+import { BOARD_PANE_MIN_WIDTH } from "@/hooks/use-pane-widths";
 import { BoardHeader } from "./board-header";
 import type { BoardEntry } from "@/api/boards";
 import type { BoardPaneDragProps, BoardPaneDropProps } from "@/hooks/use-board-pane-reorder";
@@ -20,6 +21,19 @@ interface BoardPaneProps {
    * at render time.
    */
   width?: number;
+  /**
+   * Desktop autofit mode (738w). When `true`, the pane root becomes an
+   * equal-share flex item (`flex: 1 1 0` + a `min-width` floor of
+   * `max(BOARD_PANE_MIN_WIDTH, calc(25% - 3px))`) instead of using the pixel
+   * `width` prop or the carousel's `w-full`. The `width` prop is ignored while
+   * autofit is on, so the stored per-pane widths are never consulted (and the
+   * caller keeps them untouched — non-destructive toggle). The `25% - 3px` floor
+   * is gap-adjusted for the row's `gap-1` (4px × 3 gaps ÷ 4 panes) so exactly 4
+   * panes fit flush without a horizontal scrollbar; a 5th pane pushes the row
+   * into horizontal scroll at the 25% floor. Desktop only — the mobile carousel
+   * never passes it.
+   */
+  autofit?: boolean;
   paused?: boolean; // mobile carousel: when true, terminal is unmounted (WebSocket closes)
   isFocused: boolean;
   /** Attention overlay (260706-y1ar): when the joined window's rolled-up agent
@@ -68,7 +82,7 @@ interface BoardPaneProps {
  * Re-mounting on swipe-in re-establishes the connection.
  */
 export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function BoardPane(
-  { entry, width, paused = false, isFocused, waiting = false, dimmed = false, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked, rootRef, dragHandleProps, dropTargetProps },
+  { entry, width, autofit = false, paused = false, isFocused, waiting = false, dimmed = false, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked, rootRef, dragHandleProps, dropTargetProps },
   ref,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -122,8 +136,12 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       // seam (attention is the highest-priority signal); focus is still shown
       // via the accent shadow ring layered on top, so a focused-AND-waiting pane
       // reads both. A non-waiting pane keeps the prior focus/idle border.
-      className={`relative flex flex-col shrink-0 h-full bg-bg-primary ${
-        width === undefined ? "w-full" : ""
+      className={`relative flex flex-col h-full bg-bg-primary ${
+        // Autofit: equal-share flex item (no `shrink-0`, no `w-full`, no pixel
+        // width) — the flex + min-width in `style` below drives sizing. Non-
+        // autofit desktop: fixed pixel width (`shrink-0`). Carousel: `w-full`
+        // (`shrink-0`).
+        autofit ? "" : width === undefined ? "shrink-0 w-full" : "shrink-0"
       } ${dimmed ? "opacity-50" : ""} ${
         waiting
           ? `border-[3px] rk-waiting-seam${isFocused ? " shadow-[0_0_0_1px_var(--color-accent)]" : ""}`
@@ -136,7 +154,16 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
               // #1). `dimmed` (opacity-50) then stands alone.
               `border border-border${dimmed ? "" : " opacity-90"}`
       }`}
-      style={width !== undefined ? { width } : undefined}
+      // Autofit wins: an equal-share flex item with a gap-adjusted 25% floor
+      // (resolves against the flex container's content box = the scrollport).
+      // Otherwise the desktop pixel width, or nothing (carousel `w-full`).
+      style={
+        autofit
+          ? { flex: "1 1 0", minWidth: `max(${BOARD_PANE_MIN_WIDTH}px, calc(25% - 3px))` }
+          : width !== undefined
+            ? { width }
+            : undefined
+      }
     >
       <BoardHeader entry={entry} onUnpin={onUnpin} dragHandleProps={dragHandleProps} />
       <div className="flex-1 min-h-0 px-1 py-0.5 flex flex-col">

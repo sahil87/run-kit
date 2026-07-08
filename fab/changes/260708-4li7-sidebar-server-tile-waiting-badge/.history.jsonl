@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-08T05:40:25Z"}
+{"args":"Currently the agent blocked state makes it way to the tmux session row on the left panel. Also bring it up on the servers boxes in the SERVER section","cmd":"fab-new","event":"command","ts":"2026-07-08T05:40:25Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-07-08T05:42:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-08T05:46:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-08T05:46:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-08T05:52:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-08T06:00:01Z"}
+{"event":"review","result":"passed","ts":"2026-07-08T06:00:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-08T06:02:40Z"}

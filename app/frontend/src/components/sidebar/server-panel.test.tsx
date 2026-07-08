@@ -22,6 +22,7 @@ function renderPanel(overrides: {
   server?: string;
   servers?: ServerInfo[];
   serverColors?: Record<string, string>;
+  waitingCounts?: Map<string, number>;
   onSwitchServer?: (name: string) => void;
   onKillServer?: (name: string) => void;
   onCreateServer?: () => void;
@@ -36,6 +37,7 @@ function renderPanel(overrides: {
       { name: "e2e", sessionCount: 1 },
     ],
     serverColors: overrides.serverColors ?? {},
+    waitingCounts: overrides.waitingCounts,
     onSwitchServer: overrides.onSwitchServer ?? vi.fn(),
     onKillServer: overrides.onKillServer ?? vi.fn(),
     onCreateServer: overrides.onCreateServer ?? vi.fn(),
@@ -235,5 +237,39 @@ describe("ServerPanel", () => {
     expect(
       screen.getByRole("button", { name: /Kill server rk-daemon/ }),
     ).toBeInTheDocument();
+  });
+
+  it("renders a waiting badge with the count on a server that has waiting windows", () => {
+    renderPanel({
+      server: "default",
+      servers: [
+        { name: "default", sessionCount: 4 },
+        { name: "work", sessionCount: 2 },
+      ],
+      waitingCounts: new Map([["work", 3]]),
+    });
+    openPanel();
+
+    // The badge lives inside the `work` tile (sibling of its option button in
+    // the same tile wrapper), so scope to that tile's wrapper via the option.
+    const badge = screen.getByTestId("waiting-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("3");
+    expect(badge).toHaveAttribute("aria-label", "3 agents waiting for input");
+  });
+
+  it("renders no waiting badge for a server with count 0 or no map entry", () => {
+    renderPanel({
+      server: "default",
+      servers: [
+        { name: "default", sessionCount: 4 }, // no map entry → count 0
+        { name: "work", sessionCount: 2 }, // explicit 0
+      ],
+      waitingCounts: new Map([["work", 0]]),
+    });
+    openPanel();
+
+    // WaitingBadge returns null at count <= 0, so no badge is present for either.
+    expect(screen.queryByTestId("waiting-badge")).not.toBeInTheDocument();
   });
 });

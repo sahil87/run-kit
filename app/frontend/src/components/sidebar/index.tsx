@@ -19,6 +19,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useChromeState } from "@/contexts/chrome-context";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useMergedSessions } from "@/contexts/optimistic-context";
+import { countWaitingInSessions } from "@/lib/waiting";
 import { BoardsSection } from "./boards-section";
 import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
@@ -89,6 +90,18 @@ export function Sidebar({
     () => computeRowBorders(theme.palette, theme.category),
     [theme.palette, theme.category],
   );
+  // Per-server waiting rollup for the SERVER panel tiles (260708-4li7). Pure
+  // derivation over the already-streamed session data — no new endpoint, no
+  // polling (Constitution II). Attached-server-only by construction: only
+  // servers with an open SSE stream have windows in `sessionsByServer`, so an
+  // unattached server's count is 0 and its tile badge is simply absent.
+  const waitingCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [name, sessions] of sessionsByServer) {
+      m.set(name, countWaitingInSessions(sessions));
+    }
+    return m;
+  }, [sessionsByServer]);
   const navigate = useNavigate();
   const { addToast } = useToast();
 
@@ -1042,6 +1055,7 @@ export function Sidebar({
         server={currentServer ?? ""}
         servers={servers}
         serverColors={serverColors}
+        waitingCounts={waitingCounts}
         rowTints={rowTints}
         rowBorders={rowBorders}
         onSwitchServer={handleSwitchServer}

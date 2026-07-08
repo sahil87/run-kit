@@ -8,12 +8,17 @@ import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
 import { isInfraServer, type ServerInfo } from "@/api/client";
 import { useServerReorder, type ServerTileDragProps } from "@/hooks/use-server-reorder";
 import { useToast } from "@/components/toast";
+import { WaitingBadge } from "@/components/waiting-badge";
 
 type ServerPanelProps = {
   server: string;
   servers: ServerInfo[];
   /** server name → color value descriptor ("4" / "1+3"). */
   serverColors: Record<string, string>;
+  /** server name → count of waiting windows (from countWaitingInSessions).
+   *  Attached-server-only by construction: an unattached server has no windows
+   *  streamed, so its count is 0 and the tile's badge is simply absent. */
+  waitingCounts?: Map<string, number>;
   rowTints?: Map<string, RowTint>;
   /** Contrast-adjusted full-saturation border color per color value. */
   rowBorders?: Map<string, string>;
@@ -54,6 +59,7 @@ export function ServerPanel({
   server,
   servers,
   serverColors,
+  waitingCounts,
   rowTints,
   rowBorders,
   onSwitchServer,
@@ -162,6 +168,7 @@ export function ServerPanel({
                 key={name}
                 name={name}
                 sessionCount={sessionCount}
+                waitingCount={waitingCounts?.get(name) ?? 0}
                 tint={tint}
                 uncoloredSelectedTint={uncoloredSelectedTint}
                 stripeBg={stripeBg}
@@ -202,6 +209,8 @@ export function ServerPanel({
 type ServerTileProps = {
   name: string;
   sessionCount: number;
+  /** Count of waiting windows on this server; 0 renders no badge. */
+  waitingCount: number;
   tint: RowTint | null;
   uncoloredSelectedTint: RowTint | null;
   stripeBg: string;
@@ -224,6 +233,7 @@ type ServerTileProps = {
 function ServerTile({
   name,
   sessionCount,
+  waitingCount,
   tint,
   uncoloredSelectedTint,
   stripeBg,
@@ -301,8 +311,17 @@ function ServerTile({
           <div className={`text-[11px] leading-tight font-medium ${nameClass} whitespace-nowrap overflow-hidden text-ellipsis`}>
             {name}
           </div>
-          <div className="text-[10px] leading-tight text-text-secondary mt-0.5">
-            {sessionCount} sess
+          {/* Session count + waiting rollup (260708-4li7). The badge rides the
+              same flex row as the "N sess" count, right-aligned, so it never
+              collides with the hover-revealed palette/kill action cluster at the
+              tile's top-right (this is why the Cockpit tile's absolute top-right
+              placement is not copied). WaitingBadge renders null at count <= 0,
+              so the common (nothing-waiting) layout is unchanged. */}
+          <div className="flex items-center justify-between mt-0.5">
+            <div className="text-[10px] leading-tight text-text-secondary">
+              {sessionCount} sess
+            </div>
+            <WaitingBadge count={waitingCount} />
           </div>
         </div>
       </button>

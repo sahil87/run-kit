@@ -528,6 +528,82 @@ func TestBroadcastServerOrderFansOutToAllClients(t *testing.T) {
 	}
 }
 
+// TestBroadcastBoardOrderFansOutToAllClients verifies the server-global contract
+// for `event: board-order`: a single broadcast reaches EVERY connected client
+// regardless of server key — including the metrics-only (`?metrics=1`) client —
+// and the payload is cached and replayed to a client that connects AFTER the
+// broadcast. Mirrors TestBroadcastServerOrderFansOutToAllClients.
+func TestBroadcastBoardOrderFansOutToAllClients(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf, nil, nil, nil)
+
+	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
+	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	moClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(rkClient)
+	hub.addClient(dfClient)
+	hub.addClient(moClient)
+	defer hub.removeClient(rkClient)
+	defer hub.removeClient(dfClient)
+	defer hub.removeClient(moClient)
+
+	hub.broadcastBoardOrder([]string{"reviews", "deploys"})
+
+	for name, c := range map[string]*sseClient{"runkit": rkClient, "default": dfClient, "metrics-only": moClient} {
+		var events []string
+		for len(c.ch) > 0 {
+			events = append(events, string(<-c.ch))
+		}
+		got := filterSSEEvents(events, "board-order")
+		if len(got) == 0 {
+			t.Fatalf("%s client received no board-order event (all: %v)", name, events)
+		}
+		if !strings.Contains(got[0], `{"order":["reviews","deploys"]}`) {
+			t.Errorf("%s client board-order payload = %q, want order [reviews,deploys]", name, got[0])
+		}
+	}
+
+	// A client that connects AFTER the broadcast must receive the cached snapshot.
+	lateClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(lateClient)
+	defer hub.removeClient(lateClient)
+	var lateEvents []string
+	for len(lateClient.ch) > 0 {
+		lateEvents = append(lateEvents, string(<-lateClient.ch))
+	}
+	replay := filterSSEEvents(lateEvents, "board-order")
+	if len(replay) == 0 {
+		t.Fatalf("late client did not receive cached board-order snapshot (all: %v)", lateEvents)
+	}
+	if !strings.Contains(replay[0], `{"order":["reviews","deploys"]}`) {
+		t.Errorf("late client cached board-order snapshot = %q, want order [reviews,deploys]", replay[0])
+	}
+}
+
+// TestBroadcastBoardOrderNilNormalizedToEmpty verifies a nil order broadcasts
+// (and caches) as "[]" rather than "null", matching broadcastServerOrder.
+func TestBroadcastBoardOrderNilNormalizedToEmpty(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf, nil, nil, nil)
+	c := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	hub.addClient(c)
+	defer hub.removeClient(c)
+
+	hub.broadcastBoardOrder(nil)
+
+	var events []string
+	for len(c.ch) > 0 {
+		events = append(events, string(<-c.ch))
+	}
+	got := filterSSEEvents(events, "board-order")
+	if len(got) == 0 {
+		t.Fatalf("no board-order event (all: %v)", events)
+	}
+	if !strings.Contains(got[0], `{"order":[]}`) {
+		t.Errorf("nil order payload = %q, want {\"order\":[]}", got[0])
+	}
+}
+
 // filterSSEEvents returns only the SSE frames whose first line is `event: <name>`.
 func filterSSEEvents(events []string, name string) []string {
 	var out []string

@@ -10,7 +10,11 @@ export interface BoardPaneInfo {
   gitBranch?: string;
 }
 
-/** Board summary (list view). Returned alphabetically by `name`. */
+/**
+ * Board summary (list view). Returned in display order: boards present in the
+ * stored order (`~/.rk/settings.yaml` `board_order:`) first, ranked by their
+ * index, then any unranked boards alphabetically by `name`.
+ */
 export interface BoardSummary {
   name: string;
   pinCount: number;
@@ -87,6 +91,23 @@ export async function unpinWindow(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ server, windowId }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/**
+ * POST /api/boards/order — persist the user-defined board display order. The
+ * client sends the FULL ordered list of board names (rank = index); the backend
+ * writes it to ~/.rk/settings.yaml and broadcasts a server-global
+ * `board-order` SSE event so every client re-sorts live. Mirrors
+ * `setServerOrder`.
+ */
+export async function setBoardOrder(order: string[]): Promise<{ ok: true }> {
+  const res = await fetch("/api/boards/order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ order }),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();

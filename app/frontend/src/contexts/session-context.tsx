@@ -69,6 +69,11 @@ export type SessionContextType = {
   /** Subscribe to board-changed events on any attached server. Returns an
    *  unsubscribe function. The handler receives the source server name. */
   subscribeBoardChange: (handler: (server: string) => void) => () => void;
+  /** Subscribe to the server-global `board-order` event (board list display
+   *  order changed). Returns an unsubscribe function. Fired from both the
+   *  per-server pool streams and the dedicated `?metrics=1` stream, since the
+   *  event is host-global (identical on every stream). */
+  subscribeBoardOrder: (handler: () => void) => () => void;
 };
 
 export const SessionContext = createContext<SessionContextType | null>(null);
@@ -237,6 +242,26 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return () => {
       boardChangeSubscribersRef.current.delete(handler);
     };
+  }, []);
+
+  // Board-order event subscribers (server-global). Same ref-of-handlers pattern
+  // as boardChangeSubscribersRef so the pool + metrics-stream listeners can fire
+  // them without re-running on every subscriber registration.
+  const boardOrderSubscribersRef = useRef<Set<() => void>>(new Set());
+  const subscribeBoardOrder = useCallback((handler: () => void) => {
+    boardOrderSubscribersRef.current.add(handler);
+    return () => {
+      boardOrderSubscribersRef.current.delete(handler);
+    };
+  }, []);
+  const fireBoardOrder = useCallback(() => {
+    for (const handler of boardOrderSubscribersRef.current) {
+      try {
+        handler();
+      } catch {
+        // ignore individual subscriber errors
+      }
+    }
   }, []);
 
   // Effective attach set = currentServer ∪ attachedNonCurrent ∩ knownServers.
@@ -486,6 +511,13 @@ export function SessionProvider({ children }: SessionProviderProps) {
         }
       });
 
+      // board-order — server-global (identical on every stream). Fire the
+      // subscribers so useBoards re-fetches the backend-sorted board list. No
+      // `data.server` filter: host-global, like server-order.
+      es.addEventListener("board-order", () => {
+        fireBoardOrder();
+      });
+
       // preview — pane-text snapshots for the tile grid, keyed by windowId.
       // Bounded server-side to the sessions this connection declared expanded
       // (setPreviewScope).
@@ -577,7 +609,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // cycles in Strict Mode dev. Real cleanup happens implicitly when the
     // window unloads. The pool dedupes via `pool.has(name)` so re-runs are
     // safe without close-then-reopen.
-  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices, applyServerOrder]);
+  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder]);
 
   // Dedicated server-independent host-metrics stream, opened ONLY when no
   // per-server stream is open (`attachedSet` empty — the bare `/` case with
@@ -675,11 +707,17 @@ export function SessionProvider({ children }: SessionProviderProps) {
         // Malformed server-order event — skip
       }
     });
+    // `event: board-order` also rides the server-global broadcast — the Cockpit
+    // BOARDS zone renders with zero attached servers, so the metrics stream must
+    // carry it too or a reorder from another client would not surface on `/`.
+    es.addEventListener("board-order", () => {
+      fireBoardOrder();
+    });
     // No cleanup close() here — the open/close is driven by `hostMetricsWanted`
     // (the effect body closes the stream when it flips false), not by effect
     // teardown. A cleanup close() would tear down the connection on every
     // StrictMode remount and orphan the ref-guarded reopen.
-  }, [hostMetricsWanted, applyHostMetrics, applyHostServices, applyServerOrder]);
+  }, [hostMetricsWanted, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder]);
 
   // Derive per-field Maps from the slice Map. Memoized so unrelated re-renders
   // don't churn consumer references. Each Map is a fresh reference whenever
@@ -756,6 +794,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       markServerPending,
       attachServer,
       subscribeBoardChange,
+      subscribeBoardOrder,
     }),
     [
       sessionsByServer,
@@ -773,6 +812,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       markServerPending,
       attachServer,
       subscribeBoardChange,
+      subscribeBoardOrder,
     ],
   );
 
@@ -865,6 +905,7 @@ export function StandaloneSessionContextProvider({
     markServerPending: value.markServerPending ?? (() => {}),
     attachServer: value.attachServer ?? (() => {}),
     subscribeBoardChange: value.subscribeBoardChange ?? (() => () => {}),
+    subscribeBoardOrder: value.subscribeBoardOrder ?? (() => () => {}),
   };
   return <SessionContext.Provider value={fullValue}>{children}</SessionContext.Provider>;
 }

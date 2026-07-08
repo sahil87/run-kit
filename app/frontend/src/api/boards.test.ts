@@ -7,6 +7,7 @@ import {
   pinWindow,
   unpinWindow,
   reorderPin,
+  setBoardOrder,
 } from "./boards";
 
 beforeAll(() => mswServer.listen({ onUnhandledRequest: "error" }));
@@ -103,6 +104,31 @@ describe("boards API client", () => {
     const r = await reorderPin("default", "@1234", "main", null, "@5678");
     expect(r.newOrderKey).toBe("bm");
     expect(captured).toEqual({ server: "default", windowId: "@1234", before: null, after: "@5678" });
+  });
+
+  it("setBoardOrder POSTs the full ordered list to /api/boards/order", async () => {
+    let captured: unknown = null;
+    let capturedPath = "";
+    mswServer.use(
+      http.post("/api/boards/order", async ({ request }) => {
+        capturedPath = new URL(request.url).pathname;
+        captured = await request.json();
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const r = await setBoardOrder(["reviews", "deploys", "scratch"]);
+    expect(r.ok).toBe(true);
+    expect(capturedPath).toBe("/api/boards/order");
+    expect(captured).toEqual({ order: ["reviews", "deploys", "scratch"] });
+  });
+
+  it("setBoardOrder throws on 400 (invalid board name)", async () => {
+    mswServer.use(
+      http.post("/api/boards/order", () =>
+        HttpResponse.json({ error: "invalid board name: bad name!" }, { status: 400 }),
+      ),
+    );
+    await expect(setBoardOrder(["bad name!"])).rejects.toThrow(/invalid board name/);
   });
 
   it("pinWindow throws on 4xx with backend error message", async () => {

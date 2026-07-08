@@ -221,6 +221,108 @@ func TestParseServerColors_legacyIntBackCompat(t *testing.T) {
 	}
 }
 
+func TestParseBoardOrder(t *testing.T) {
+	s := parse("theme: system\nboard_order:\n  - \"reviews\"\n  - \"deploys\"\n  - scratch\n")
+	want := []string{"reviews", "deploys", "scratch"}
+	if len(s.BoardOrder) != len(want) {
+		t.Fatalf("BoardOrder = %v, want %v", s.BoardOrder, want)
+	}
+	for i, name := range want {
+		if s.BoardOrder[i] != name {
+			t.Errorf("BoardOrder[%d] = %q, want %q", i, s.BoardOrder[i], name)
+		}
+	}
+}
+
+// TestParseNoBoardOrder verifies a legacy settings file predating the
+// board_order: block loads with a nil BoardOrder and no error.
+func TestParseNoBoardOrder(t *testing.T) {
+	s := parse("theme: dracula\nserver_colors:\n  default: 4\n")
+	if s.BoardOrder != nil {
+		t.Errorf("BoardOrder = %v, want nil for a file with no board_order block", s.BoardOrder)
+	}
+}
+
+func TestSerializeEmptyBoardOrderIsByteIdentical(t *testing.T) {
+	// A theme-only Settings with no board order must serialize exactly as before
+	// (no board_order: line), guarding the existing exact-string assertions.
+	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"})
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
+	if got != want {
+		t.Errorf("serialize (empty BoardOrder) = %q, want %q", got, want)
+	}
+}
+
+func TestSerializeBoardOrder(t *testing.T) {
+	s := Settings{
+		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
+		BoardOrder: []string{"reviews", "deploys"},
+	}
+	got := serialize(s)
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nboard_order:\n  - \"reviews\"\n  - \"deploys\"\n"
+	if got != want {
+		t.Errorf("serialize = %q, want %q", got, want)
+	}
+}
+
+func TestBoardOrderRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// Unset → nil.
+	if got := GetBoardOrder(); got != nil {
+		t.Errorf("GetBoardOrder (unset) = %v, want nil", got)
+	}
+
+	order := []string{"b", "a", "c"}
+	if err := SetBoardOrder(order); err != nil {
+		t.Fatalf("SetBoardOrder: %v", err)
+	}
+	got := GetBoardOrder()
+	if len(got) != 3 || got[0] != "b" || got[1] != "a" || got[2] != "c" {
+		t.Errorf("GetBoardOrder = %v, want [b a c]", got)
+	}
+
+	// A full-list rewrite replaces (self-heals stale names).
+	if err := SetBoardOrder([]string{"a"}); err != nil {
+		t.Fatalf("SetBoardOrder rewrite: %v", err)
+	}
+	got = GetBoardOrder()
+	if len(got) != 1 || got[0] != "a" {
+		t.Errorf("GetBoardOrder after rewrite = %v, want [a]", got)
+	}
+
+	// Empty clears.
+	if err := SetBoardOrder(nil); err != nil {
+		t.Fatalf("SetBoardOrder nil: %v", err)
+	}
+	if got := GetBoardOrder(); got != nil {
+		t.Errorf("GetBoardOrder after clear = %v, want nil", got)
+	}
+}
+
+// TestBoardOrderCoexistsWithServerColors verifies board_order and server_colors
+// both persist and load together (distinct nested shapes: sequence vs map).
+func TestBoardOrderCoexistsWithServerColors(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	color := "4"
+	if err := SetServerColor("default", &color); err != nil {
+		t.Fatalf("SetServerColor: %v", err)
+	}
+	if err := SetBoardOrder([]string{"x", "y"}); err != nil {
+		t.Fatalf("SetBoardOrder: %v", err)
+	}
+	loaded := Load()
+	if loaded.ServerColors["default"] != "4" {
+		t.Errorf("ServerColors[default] = %q, want 4", loaded.ServerColors["default"])
+	}
+	if len(loaded.BoardOrder) != 2 || loaded.BoardOrder[0] != "x" || loaded.BoardOrder[1] != "y" {
+		t.Errorf("BoardOrder = %v, want [x y]", loaded.BoardOrder)
+	}
+}
+
 func TestServerColorRoundTrip(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

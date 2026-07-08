@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-08T05:34:31Z"}
+{"args":"Ability to reorder the boards themselves on the board pane (top left) and the cockpit (like you can re-order the servers)","cmd":"fab-new","event":"command","ts":"2026-07-08T05:34:31Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-07-08T05:37:21Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-08T05:39:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-08T05:40:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-08T06:05:13Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-08T06:06:04Z"}
+{"event":"review","result":"failed","ts":"2026-07-08T06:16:09Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-08T06:16:09Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-08T06:17:37Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-08T06:21:31Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-08T06:22:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-08T06:31:29Z"}
+{"event":"review","result":"passed","ts":"2026-07-08T06:31:29Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-08T06:32:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-08T06:38:23Z"}

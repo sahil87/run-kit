@@ -16,6 +16,8 @@ import { Sidebar } from "@/components/sidebar";
 import { HELP_URL } from "@/components/top-bar";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer } from "@/api/client";
+import { setBoardOrder } from "@/api/boards";
+import { computeMoveOrder } from "@/lib/palette-move";
 import { Dialog } from "@/components/dialog";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
@@ -315,6 +317,33 @@ function BoardPageContent({ name }: { name: string }) {
       },
     ];
 
+    // Board: Move up/down — reorder the CURRENT board within the board list,
+    // built on the same `computeMoveOrder` helper + boundary-hidden / no-wraparound
+    // gating as Server: Move up/down (Constitution V; also the touch fallback
+    // where HTML5 DnD does not fire). `boards` is the backend-sorted display
+    // order; the write posts the full computed order.
+    const boardOrderNames = boards.map((b) => b.name);
+    const currentBoardIdx = boardOrderNames.indexOf(name);
+    const moveBoard = (delta: -1 | 1) => {
+      const next = computeMoveOrder(boardOrderNames, currentBoardIdx, delta);
+      if (!next) return; // boundary / not found: no-op
+      setBoardOrder(next).catch((err: Error) => addToast(err.message || "Failed to move board"));
+    };
+    if (currentBoardIdx > 0) {
+      conditional.push({
+        id: "board-move-up",
+        label: "Board: Move up",
+        onSelect: () => moveBoard(-1),
+      });
+    }
+    if (currentBoardIdx >= 0 && currentBoardIdx < boardOrderNames.length - 1) {
+      conditional.push({
+        id: "board-move-down",
+        label: "Board: Move down",
+        onSelect: () => moveBoard(1),
+      });
+    }
+
     const fontEntries: PaletteAction[] = [
       // No `shortcut` — Cmd +/- is deliberately not intercepted.
       { id: "terminal-font-increase", label: "Increase terminal font", onSelect: increaseTerminalFont },
@@ -375,7 +404,7 @@ function BoardPageContent({ name }: { name: string }) {
     }
 
     return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry];
-  }, [boards, name, entries, focusedIndex, unpin, navigate, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
+  }, [boards, name, entries, focusedIndex, unpin, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {

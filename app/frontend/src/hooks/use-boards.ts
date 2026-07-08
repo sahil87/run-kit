@@ -52,9 +52,28 @@ function useBoardChangedSubscription(onEvent: () => void): void {
 }
 
 /**
- * useBoards returns the alphabetical list of boards aggregated across servers
- * with live updates. Initial fetch on mount, plus subscription to
- * board-changed events on every server.
+ * Subscribe to the server-global `board-order` event (board list display order
+ * changed by a reorder on this or another client). Reuses the SessionProvider
+ * SSE pool via subscribeBoardOrder — no new EventSource. The event is
+ * server-global, so no per-server attach is needed here.
+ */
+function useBoardOrderSubscription(onEvent: () => void): void {
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
+  const { subscribeBoardOrder } = useSessionContext();
+  useEffect(() => {
+    return subscribeBoardOrder(() => {
+      onEventRef.current();
+    });
+  }, [subscribeBoardOrder]);
+}
+
+/**
+ * useBoards returns the display-ordered list of boards aggregated across servers
+ * with live updates. The backend-sorted `GET /api/boards` response IS the
+ * display order (single sort choke point). Initial fetch on mount, plus
+ * subscription to board-changed events on every server AND the server-global
+ * board-order event (a reorder re-sorts every client via a debounced re-fetch).
  *
  * Multiple rapid events are debounced into a single re-fetch (REFETCH_DEBOUNCE_MS)
  * so cross-server SSE chatter doesn't trigger N requests.
@@ -93,6 +112,7 @@ export function useBoards(): UseBoardsResult {
   }, [fetchBoards]);
 
   useBoardChangedSubscription(scheduleRefetch);
+  useBoardOrderSubscription(scheduleRefetch);
 
   return { boards, isLoading, error };
 }

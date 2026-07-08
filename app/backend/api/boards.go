@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"rk/internal/settings"
 	"rk/internal/tmux"
 	"rk/internal/validate"
 )
@@ -34,7 +35,46 @@ func (s *Server) handleBoardsList(w http.ResponseWriter, r *http.Request) {
 	if boards == nil {
 		boards = []tmux.BoardSummary{}
 	}
+	// Apply the user-defined display order at the API layer (internal/tmux stays
+	// settings-unaware). ListBoards already returns alphabetical; the response
+	// order IS the display order for every consumer — there is one list source,
+	// so this is the single sort choke point.
+	boards = sortBoardsByStoredOrder(boards, settings.GetBoardOrder())
 	writeJSON(w, http.StatusOK, boards)
+}
+
+// sortBoardsByStoredOrder reorders the alphabetical board list by the stored
+// order: boards present in `order` first (by their index in `order`), then any
+// board absent from `order` after them, alphabetically. Stale names in `order`
+// (boards that no longer exist) are ignored — they simply match nothing. Pure:
+// takes the order slice explicitly so it is unit-testable without touching the
+// filesystem. Mirrors the rank-aware server sort's unranked-last behavior.
+func sortBoardsByStoredOrder(boards []tmux.BoardSummary, order []string) []tmux.BoardSummary {
+	if len(order) == 0 || len(boards) == 0 {
+		return boards
+	}
+	rank := make(map[string]int, len(order))
+	for i, name := range order {
+		// First occurrence wins (defensive against a duplicate in the stored list).
+		if _, seen := rank[name]; !seen {
+			rank[name] = i
+		}
+	}
+	out := make([]tmux.BoardSummary, len(boards))
+	copy(out, boards)
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, iRanked := rank[out[i].Name]
+		rj, jRanked := rank[out[j].Name]
+		switch {
+		case iRanked && jRanked:
+			return ri < rj // both ranked: by stored index
+		case iRanked != jRanked:
+			return iRanked // ranked boards before unranked
+		default:
+			return out[i].Name < out[j].Name // both unranked: alphabetical
+		}
+	})
+	return out
 }
 
 func (s *Server) handleBoardGet(w http.ResponseWriter, r *http.Request) {
@@ -261,6 +301,53 @@ func (s *Server) handleBoardReorder(w http.ResponseWriter, r *http.Request) {
 		OrderKey: newKey,
 	})
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "newOrderKey": newKey})
+}
+
+// handleBoardOrderPost persists the user-defined board display order and
+// broadcasts it to every connected SSE client (server-global — see
+// broadcastBoardOrder). The client sends the FULL ordered list of board names.
+// POST /api/boards/order ← {"order": ["deploys", "reviews", ...]} → 200 {"ok": true}
+//
+// Uniform POST per Constitution IX. Each name is validated with ValidBoardName;
+// an invalid or duplicate name (or a malformed body) is a 400 before any write.
+// Every reorder replaces the full stored list, so stale names self-heal.
+func (s *Server) handleBoardOrderPost(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Order []string `json:"order"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body — expected {\"order\": [\"name\", ...]}")
+		return
+	}
+	if body.Order == nil {
+		body.Order = []string{}
+	}
+	seen := make(map[string]struct{}, len(body.Order))
+	for _, name := range body.Order {
+		if !tmux.ValidBoardName(name) {
+			writeError(w, http.StatusBadRequest, "invalid board name: "+name)
+			return
+		}
+		if _, dup := seen[name]; dup {
+			writeError(w, http.StatusBadRequest, "Duplicate board name in order: "+name)
+			return
+		}
+		seen[name] = struct{}{}
+	}
+
+	if err := settings.SetBoardOrder(body.Order); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Broadcast the new order to every connected SSE client (server-global, so
+	// even the zero-attached-server Cockpit `?metrics=1` stream hears it).
+	s.initSSEHub()
+	s.sseHub.broadcastBoardOrder(body.Order)
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // windowExistsOnServer returns true if the supplied windowID matches a live

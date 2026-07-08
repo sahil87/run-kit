@@ -1,7 +1,10 @@
 /**
- * Pure order-computation helpers for board pane reorder — shared by the
- * drag-and-drop hook (`use-board-pane-reorder.ts`) and the command-palette
- * Move Focused Pane Left/Right actions (`board-page.tsx`).
+ * Pure order-computation helpers for board pane reorder — used by the
+ * command-palette Move Focused Pane Left/Right actions (`board-page.tsx`). The
+ * drag-and-drop hook (`use-board-pane-reorder.ts`) deliberately does NOT import
+ * this module: it derives neighbours inline from its final optimistic override
+ * (see `computeMoveNeighbors`' note below), which is robust to mid-drag entry
+ * churn where index-based arithmetic over the authoritative list is not.
  *
  * The board reorder endpoint (`POST /api/boards/{name}/reorder`) uses fractional
  * indexing: it mints an orderKey strictly between the moved pane's new
@@ -12,8 +15,7 @@
  * immediately AFTER (larger orderKey); each is `null` at the respective edge.
  *
  * Extracting the neighbour arithmetic here (mirroring `palette-move.ts`) keeps
- * it unit-testable without mounting the board, and lets DnD and the palette
- * share one implementation.
+ * the palette's Move Left/Right math unit-testable without mounting the board.
  */
 
 /** Direction of a palette Move Left/Right action. */

@@ -218,6 +218,41 @@ describe("useBoardPaneReorder", () => {
     });
   });
 
+  describe("drop reconciles the override against mid-drag entry churn", () => {
+    it("never POSTs a neighbour removed mid-drag (reconciles against current keys)", () => {
+      // Start [a,b,c,d]; drag @a over @c → optimistic override [b,c,a,d]. Then,
+      // mid-drag, the authoritative entries lose @c (unpin / remote removal).
+      // The RAW override still holds the stale @c immediately before @a, so a
+      // naive `override[landedIdx-1]` would POST before=@c — a windowId no
+      // longer on the board → 400. The drop must reconcile against the current
+      // keys (effective order [b,a,d]) so before=@b, after=@d instead.
+      const initial = [
+        entry("s", "@a"),
+        entry("s", "@b"),
+        entry("s", "@c"),
+        entry("s", "@d"),
+      ];
+      const { result, rerender } = renderHook(
+        ({ entries }: { entries: BoardEntry[] }) =>
+          useBoardPaneReorder(entries, "main", reorder),
+        { initialProps: { entries: initial } },
+      );
+      act(() => result.current.getHandleProps("s", "@a").handle.onDragStart(makeDragEvent()));
+      act(() =>
+        result.current.getHandleProps("s", "@c").drop.onDragOver(makeDragEvent({ types: [MIME] })),
+      );
+      // @c disappears mid-drag; the raw override is still [@b,@c,@a,@d].
+      rerender({ entries: [entry("s", "@a"), entry("s", "@b"), entry("s", "@d")] });
+      act(() =>
+        result.current.getHandleProps("s", "@d").drop.onDrop(makeDragEvent({ types: [MIME] })),
+      );
+      // Reconciled effective order [b,a,d]: @a lands between @b and @d — the
+      // stale @c is never referenced.
+      expect(reorder).toHaveBeenCalledTimes(1);
+      expect(reorder).toHaveBeenCalledWith("s", "@a", "main", "@b", "@d");
+    });
+  });
+
   describe("cancelled drag reverts the preview (T011, A-018)", () => {
     it("clears the override on dragEnd when no drop committed (Escape / release outside)", () => {
       const initial = [entry("s", "@a"), entry("s", "@b"), entry("s", "@c")];

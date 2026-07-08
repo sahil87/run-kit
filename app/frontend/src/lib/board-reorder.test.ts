@@ -6,11 +6,12 @@ import {
   shouldFocusPane,
 } from "./board-reorder";
 
-// These helpers back both the board pane drag-and-drop hook
-// (use-board-pane-reorder) and the command-palette Move Focused Pane
-// Left/Right actions. Covering the insert-before neighbour arithmetic +
-// boundary gating here proves the reorder POST's before/after are correct
-// without mounting the board (mirrors palette-move.test.ts).
+// These helpers back the command-palette Move Focused Pane Left/Right actions.
+// (The drag-and-drop hook, use-board-pane-reorder, deliberately derives
+// neighbours inline from its final optimistic override and does NOT import this
+// module — see board-reorder.ts.) Covering the insert-before neighbour
+// arithmetic + boundary gating here proves the reorder POST's before/after are
+// correct without mounting the board (mirrors palette-move.test.ts).
 
 describe("computeReorderNeighbors (drag insert-before → POST before/after)", () => {
   it("moves an item to the end (drag first over last)", () => {

@@ -208,19 +208,29 @@ export function useBoardPaneReorder(
       dragKeyRef.current = null;
       if (!dragKey || !override) return;
 
-      // The override IS the final optimistic order. Compute the moved pane's
-      // new neighbours by treating the drop as a move from its authoritative
-      // position to its position in the override. Fire exactly ONE reorder
-      // POST — no debounce; fractional indexing is one call per move. The
-      // board-changed SSE echo reconciles the override away.
+      // The override IS the final optimistic order — but reconcile it against
+      // the current authoritative keys first. If `entries` changed mid-drag
+      // (pin/unpin, remote reorder), the raw override can hold a STALE key (a
+      // pane no longer on the board) and OMIT a newly-present one; deriving
+      // neighbours from it would compute a `before`/`after` that mismatches
+      // what the user sees, and can even POST a windowId no longer on the board
+      // → 400. Rebuild the effective order the same way the render does (drop
+      // absent keys, append new-present entries) so the neighbours match the
+      // displayed `orderedEntries`.
       const authoritative = entries.map((en) => paneKey(en.server, en.windowId));
+      const authoritativeSet = new Set(authoritative);
+      const effective = override.filter((k) => authoritativeSet.has(k));
+      for (const key of authoritative) {
+        if (!effective.includes(key)) effective.push(key);
+      }
       const fromIdx = authoritative.indexOf(dragKey);
-      const landedIdx = override.indexOf(dragKey);
+      const landedIdx = effective.indexOf(dragKey);
       if (fromIdx === -1 || landedIdx === -1) return;
-      // Derive neighbours directly from the final override order (correct by
-      // construction — the override already reflects the drop position).
-      const before = landedIdx > 0 ? override[landedIdx - 1] : null;
-      const after = landedIdx < override.length - 1 ? override[landedIdx + 1] : null;
+      // Derive neighbours directly from the reconciled effective order (correct
+      // by construction — it reflects the drop position AND the current board
+      // membership).
+      const before = landedIdx > 0 ? effective[landedIdx - 1] : null;
+      const after = landedIdx < effective.length - 1 ? effective[landedIdx + 1] : null;
       // No-op guard: if the pane did not actually move (neighbours unchanged
       // from its authoritative slot), skip the POST.
       const authBefore = fromIdx > 0 ? authoritative[fromIdx - 1] : null;

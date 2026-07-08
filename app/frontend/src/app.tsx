@@ -253,6 +253,8 @@ function RootTopBar() {
       boards={slot?.boards}
       onCloseFocused={slot?.onCloseFocused}
       closeDisabled={slot?.closeDisabled}
+      autofit={slot?.autofit}
+      onToggleAutofit={slot?.onToggleAutofit}
     />
   );
 }

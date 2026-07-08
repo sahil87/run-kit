@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-08T08:22:08Z"}
+{"args":"Board Autofit toggle — panes auto-resize to fill available screen width, max 4 visible at once, per-board preference (backlog 738w)","cmd":"fab-new","event":"command","ts":"2026-07-08T08:22:08Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-08T08:24:18Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-08T08:59:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-08T08:59:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-08T09:22:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-08T09:46:53Z"}
+{"event":"review","result":"passed","ts":"2026-07-08T09:46:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-08T09:51:46Z"}

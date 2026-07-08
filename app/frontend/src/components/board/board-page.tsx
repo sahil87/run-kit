@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useBoardEntries, useBoards } from "@/hooks/use-boards";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { usePaneWidths, BOARD_PANE_DEFAULT_WIDTH } from "@/hooks/use-pane-widths";
+import { useBoardAutofit } from "@/hooks/use-board-autofit";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
@@ -91,6 +92,10 @@ function BoardPageContent({ name }: { name: string }) {
   const { unpin, reorder } = usePinActions();
   const isMobile = useIsMobile();
   const { getWidth, setWidth } = usePaneWidths(name, PANE_WIDTH_SEED);
+  // Per-board desktop autofit (738w). When on, DesktopRow lays panes out as
+  // equal-share flex items filling the row; stored per-pane widths are left
+  // untouched so toggling off restores the hand-tuned layout.
+  const { autofit, toggleAutofit } = useBoardAutofit(name);
 
   // Session/window/server creation handlers — match AppShell's wiring so the
   // unified Sidebar can fire the same optimistic flows on the board route.
@@ -368,6 +373,14 @@ function BoardPageContent({ name }: { name: string }) {
         label: "Board: Leave Board View",
         onSelect: () => navigate({ to: "/" }),
       },
+      // Autofit toggle (738w) — palette parity for the top-bar button
+      // (Constitution V). Flips the same per-board `autofit` state; a no-op on
+      // mobile (carousel is one full-width pane).
+      {
+        id: "board-toggle-autofit",
+        label: autofit ? "Board: Toggle Autofit (on)" : "Board: Toggle Autofit (off)",
+        onSelect: toggleAutofit,
+      },
     ];
 
     // Board: Move up/down — reorder the CURRENT board within the board list,
@@ -510,7 +523,7 @@ function BoardPageContent({ name }: { name: string }) {
     }
 
     return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry];
-  }, [boards, name, entries, focusedIndex, unpin, reorder, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpin, reorder, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {
@@ -611,6 +624,8 @@ function BoardPageContent({ name }: { name: string }) {
         boards: boardTopBarBoards,
         onCloseFocused: unpinFocused,
         closeDisabled: entries.length === 0,
+        autofit,
+        onToggleAutofit: toggleAutofit,
       }),
       [
         boardConnected,
@@ -621,6 +636,8 @@ function BoardPageContent({ name }: { name: string }) {
         waitingPaneCount,
         boardTopBarBoards,
         unpinFocused,
+        autofit,
+        toggleAutofit,
       ],
     ),
   );
@@ -743,6 +760,7 @@ function BoardPageContent({ name }: { name: string }) {
               board={name}
               reorder={reorder}
               getWidth={(id) => (getWidth(id) || BOARD_PANE_DEFAULT_WIDTH)}
+              autofit={autofit}
               onResizeStart={handleResizeStart}
               onUnpin={(e) => unpin(e.server, e.windowId, name)}
               paneRefs={paneRefs}
@@ -841,6 +859,7 @@ function DesktopRow({
   board,
   reorder,
   getWidth,
+  autofit,
   onResizeStart,
   onUnpin,
   paneRefs,
@@ -853,6 +872,10 @@ function DesktopRow({
   board: string;
   reorder: ReturnType<typeof usePinActions>["reorder"];
   getWidth: (windowId: string) => number;
+  /** Autofit mode (738w): panes become equal-share flex items filling the row
+   *  (≤4 panes) or floor at ~25% + scroll (>4). Resize handles are hidden and
+   *  the pixel width is not passed while on; stored widths are left untouched. */
+  autofit: boolean;
   onResizeStart: (windowId: string, clientX: number) => void;
   onUnpin: (entry: ReturnType<typeof useBoardEntries>["entries"][number]) => void;
   paneRefs: React.MutableRefObject<Array<BoardPaneHandle | null>>;
@@ -999,14 +1022,18 @@ function DesktopRow({
               }
             }}
             entry={entry}
-            width={getWidth(entry.windowId)}
+            // Autofit ignores the stored pixel width (equal-share flex item);
+            // off passes the persisted per-pane width. Not reading `getWidth`
+            // while on keeps the stored widths untouched (non-destructive).
+            width={autofit ? undefined : getWidth(entry.windowId)}
+            autofit={autofit}
             paused={livePanes === null ? false : !livePanes.has(authIdx)}
             isFocused={authIdx === focusedIndex}
             dimmed={draggingKey === key}
             waiting={waitingWindowIds.has(key)}
             onClick={() => onPaneClick(authIdx)}
             onUnpin={() => onUnpin(entry)}
-            showResizeHandle={true}
+            showResizeHandle={!autofit}
             onResizeStart={(clientX) => onResizeStart(entry.windowId, clientX)}
             scrollLocked={scrollLocked}
             dragHandleProps={handle}

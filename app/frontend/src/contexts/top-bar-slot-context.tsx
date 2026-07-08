@@ -44,6 +44,11 @@ export type TopBarSlot = {
   boards?: { name: string }[];
   onCloseFocused?: () => void;
   closeDisabled?: boolean;
+  /** Board-mode autofit toggle (738w): current per-board autofit state and its
+   *  setter, published by `BoardPage` (like `onCloseFocused`). Absent outside
+   *  board mode — the top-bar toggle renders only when both are present. */
+  autofit?: boolean;
+  onToggleAutofit?: () => void;
 } | null;
 
 type TopBarSlotContextValue = {

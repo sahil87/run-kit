@@ -193,7 +193,10 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
   });
 
   const { execute: executeCreateWindowAction } = useOptimisticAction<[string, string, string | undefined]>({
-    action: (srv, targetSession, cwd) => createWindow(srv, targetSession, "zsh", cwd),
+    // No name — tmux auto-names the window to its chosen folder basename via
+    // automatic-rename-format (the -c cwd on create makes this immediate). This
+    // flow sets no optimistic ghost, so there is no ghost label to derive.
+    action: (srv, targetSession, cwd) => createWindow(srv, targetSession, undefined, cwd),
     onError: (err) => {
       setError(err.message || "Failed to create window");
     },

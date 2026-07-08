@@ -373,10 +373,60 @@ func TestWindowCreateInvalidSession(t *testing.T) {
 	}
 }
 
-func TestWindowCreateInvalidWindowName(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+// An omitted/empty window name is now valid on CREATE — it means "let tmux
+// auto-name the window to its folder basename". The handler accepts it (201)
+// and calls CreateWindow with an empty name (tmux.CreateWindow then omits the
+// -n token). This is the spec change for 260707-j66b.
+func TestWindowCreateEmptyNameAccepted(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
 
-	body := `{"name":""}`
+	body := `{"name":"","cwd":"~/code/run-kit"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if !ops.createWindowCalled {
+		t.Error("CreateWindow was not called")
+	}
+	if ops.createWindowName != "" {
+		t.Errorf("name = %q, want empty string (tmux auto-names)", ops.createWindowName)
+	}
+}
+
+// An omitted "name" key (body without name at all) is equally valid.
+func TestWindowCreateOmittedNameAccepted(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"cwd":"~/code/run-kit"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if !ops.createWindowCalled {
+		t.Error("CreateWindow was not called")
+	}
+	if ops.createWindowName != "" {
+		t.Errorf("name = %q, want empty string (tmux auto-names)", ops.createWindowName)
+	}
+}
+
+// A NON-EMPTY name is still validated on CREATE — forbidden characters return
+// 400 and issue no tmux call (only the empty case is relaxed).
+func TestWindowCreateNonEmptyInvalidNameRejected(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"bad;name"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/run-kit/windows", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -384,6 +434,9 @@ func TestWindowCreateInvalidWindowName(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.createWindowCalled {
+		t.Error("CreateWindow must NOT be called for an invalid non-empty name")
 	}
 }
 
@@ -893,6 +946,48 @@ func TestWindowCreateWithIframeType(t *testing.T) {
 	urlOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_url")
 	if !ok || urlOp.Value == nil || *urlOp.Value != "http://localhost:8080/docs" {
 		t.Errorf("@rk_url op = %+v, want value \"http://localhost:8080/docs\"", urlOp)
+	}
+}
+
+// The rkType (typed-window) create path pins an explicit name — CreateWindowWithOptions
+// runs `new-window -n <name>` with automatic-rename disabled, so an empty name would
+// strand the window on an empty name. Unlike the plain terminal create (which omits -n
+// and lets tmux auto-name), a name is REQUIRED here: an empty/omitted name returns 400
+// and CreateWindowWithOptions is never called. This is the R10 hardening for 260707-j66b.
+func TestWindowCreateIframeEmptyNameRejected(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"name":"","rkType":"iframe","rkUrl":"http://localhost:8080/docs"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/dev/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if ops.createWindowWithOptionsCalled {
+		t.Error("CreateWindowWithOptions must NOT be called for a typed window with an empty name")
+	}
+}
+
+// An omitted "name" key on the rkType path is equally rejected (400).
+func TestWindowCreateIframeOmittedNameRejected(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	body := `{"rkType":"iframe","rkUrl":"http://localhost:8080/docs"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/dev/windows", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if ops.createWindowWithOptionsCalled {
+		t.Error("CreateWindowWithOptions must NOT be called for a typed window with an omitted name")
 	}
 }
 

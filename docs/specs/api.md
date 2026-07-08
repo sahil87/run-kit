@@ -163,13 +163,23 @@ Create a new window in a session.
 
 | Field | Type | Required | Validation |
 |-------|------|----------|------------|
-| `name` | `string` | yes | Same rules as session name |
+| `name` | `string` | no | When present and non-empty, same rules as session name. Omitted or empty ⇒ tmux auto-names the window to its folder basename via `automatic-rename-format '#{b:pane_current_path}'` (see below). |
 | `cwd` | `string` | no | Same rules as session CWD |
+| `rkType` | `string` | no | Marks an rk-managed window (e.g. `iframe`). When present, `name` becomes **required** (a non-empty validated name) — see Errors. |
+| `rkUrl` | `string` | no | Target URL for an `rkType` window |
+
+**Behavior:**
+- **Name is optional.** An omitted or empty `name` (with no `rkType`) creates the window without `-n`, so tmux applies the global `automatic-rename-format '#{b:pane_current_path}'` and the window displays — and live-updates — its pane's folder basename. A non-empty `name` is validated and pins the window (automatic-rename off).
+- **`rkType`-present requires a name.** When `rkType` is set, an empty/omitted `name` is rejected (400) so an rk-managed window is never pinned to an empty name with automatic-rename disabled.
 
 **Response** `201`:
 ```json
 { "ok": true }
 ```
+
+**Errors:**
+- `400` — non-empty `name` fails validation, or `rkType` present with an empty/omitted `name`
+- `500` — tmux command failed
 
 #### `POST /api/sessions/:session/windows/:index/kill`
 

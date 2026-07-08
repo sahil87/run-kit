@@ -151,6 +151,31 @@ describe("API client", () => {
     expect(capturedBody.cwd).toBeUndefined();
   });
 
+  it("createWindow sends name when provided", async () => {
+    let capturedBody: Record<string, string> = {};
+    mswServer.use(
+      http.post("/api/sessions/:session/windows", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ ok: true }, { status: 201 });
+      }),
+    );
+    await createWindow("runkit", "run-kit", "editor");
+    expect(capturedBody.name).toBe("editor");
+  });
+
+  it("createWindow omits name when absent (tmux auto-names to folder basename)", async () => {
+    let capturedBody: Record<string, string> = {};
+    mswServer.use(
+      http.post("/api/sessions/:session/windows", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ ok: true }, { status: 201 });
+      }),
+    );
+    await createWindow("runkit", "run-kit", undefined, "/home/user/project");
+    expect(capturedBody.name).toBeUndefined();
+    expect(capturedBody.cwd).toBe("/home/user/project");
+  });
+
   it("killWindow sends POST /api/windows/:windowId/kill with server query", async () => {
     let capturedUrl = "";
     mswServer.use(

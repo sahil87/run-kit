@@ -114,7 +114,7 @@ function BoardPageContent({ name }: { name: string }) {
   });
 
   const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
-    action: (srv, sess) => createWindowApi(srv, sess, "zsh"),
+    action: (srv, sess) => createWindowApi(srv, sess),
     onError: (err) => addToast(err.message || "Failed to create window"),
   });
 

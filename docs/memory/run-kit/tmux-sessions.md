@@ -1,5 +1,5 @@
 ---
-description: Session enumeration, group filtering, direct-attach relay + move-based board pin-sessions (`_rk-pin-*`), window addressing, SSE poll-set reap on dead-server fetch error, unified test-socket naming + `rk reaper`, env-gated `RK_SERVER_ALLOWLIST` test-scoping
+description: Session enumeration, group filtering, direct-attach relay + move-based board pin-sessions (`_rk-pin-*`), window addressing, name-optional managed window creation (`CreateWindow`/`buildCreateWindowArgs` omit `-n` so tmux auto-names to the folder basename via `automatic-rename-format`), SSE poll-set reap on dead-server fetch error, unified test-socket naming + `rk reaper`, env-gated `RK_SERVER_ALLOWLIST` test-scoping
 type: memory
 ---
 # tmux Session Enumeration
@@ -167,6 +167,7 @@ All tmux functions accept a `server string` parameter:
 - `ResolveWindowSession(ctx, server, windowID)` — returns the owning session name for a window ID via a targeted O(1) `display-message -t <windowID> -p '#{session_name}'` lookup (since `260609-enic-restore-display-message-resolve-window`; restored from the prior O(n) `list-windows -a` enumerate + first-match scan, which had been a #205 workaround for a session-group ambiguity that `260602-qn62` later removed). The move-based one-session-per-window invariant (`260602-qn62`) is what makes the targeted lookup unambiguous and safe — the window resolves to its single owning session, a normal home session OR a `_rk-pin-*` pin-session, so no `RelaySessionPrefix` filtering is needed (those ephemerals are gone). Used by the relay (direct attach, on the 5s connect-time budget), `Pin` (to remember the home), the REST `/select` handler, and `ProjectRoot`. A tmux non-zero exit (missing `-t @N`) or an empty result both mean "window not found" — the relay closes with code 4004. See [[resolve-window-session-on-relay-connect]] for the regression this restored
 - `ListPinSessionNames(ctx, server)` — returns every `_rk-pin-*` session name via `list-sessions -F '#{session_name}'`; board-membership reads (`ListBoardEntries`) flow through it. Returns nil (no error) when no server runs. **Replaces** the deleted `ListRawSessionNames` as the only "raw session-name listing" helper, but it is scoped to pin-sessions, not a general escape hatch
 - `CreateSession(name, cwd, server)` — creates sessions on the specified server
+- `CreateWindow(session, name, cwd, server)` — creates a session-scoped window; argv built by the pure `buildCreateWindowArgs(session, name, cwd)` — omits `-n` when `name == ""` (tmux auto-names to the folder basename via `automatic-rename-format`), includes `-n <name>` otherwise (pinned). No follow-up rename. See § Managed Window Creation (since `260707-j66b-unnamed-windows-autoname-folder`)
 - `ReloadConfig(server)` — hot-reloads config via `source-file` on the specified server
 - `KillSession(session, server)` — kills the named session on the specified server (thin `context.Background()` wrapper around `KillSessionCtx`)
 - `KillSessionCtx(ctx, server, session)` — ctx-accepting variant; `Pin`'s rollback/teardown passes `context.Background()` so the kill survives a near-deadline Pin ctx (an expired parent would make the kill a no-op and orphan the session)
@@ -324,6 +325,37 @@ The new windows never appear on the managed `runkit`/`default` servers unless th
 
 `rk riff`'s bare `new-window` is intentionally left unchanged by `260530-v6hm-active-window-event-derivation`: when it lands on a server run-kit observes, the resulting `%session-window-changed` is now what drives the sidebar/URL to follow the new window (event-derived highlight — see § Per-WebSocket Ephemeral Grouped Sessions > Active-window highlight). The fix is creator-agnostic in the derivation path, so `rk riff`, `wt open`, and raw external `new-window` all update the highlight correctly without any creator-local change.
 
+## Managed Window Creation — Name-Optional `CreateWindow` + Folder Auto-Naming
+
+Since `260707-j66b-unnamed-windows-autoname-folder`, a managed window (the plain sidebar/palette/board `+ New Window` paths — NOT `rk riff`, NOT iframe windows) is created **without a name**, so tmux auto-names it to its folder basename and live-updates that name as the pane `cd`s. The name is derived and single-sourced **in tmux** (Constitution II) — run-kit issues no rename and stores nothing; native tmux clients and the status line show the same folder name.
+
+**Two halves make this work:**
+
+1. **`automatic-rename-format` in the embedded configs.** All four `configs/tmux/*.conf` (`default.conf`, `simple.conf`, `poweruser.conf`, `byobu.conf`) set:
+
+   ```tmux
+   set -g automatic-rename-format '#{b:pane_current_path}'
+   ```
+
+   `#{b:...}` is tmux's basename format modifier (verified available on the host's tmux 3.6a). Only the **format** changes — `automatic-rename` itself defaults to `on`, so any window not pinned with an explicit `-n` names itself to the basename of its active pane's current path (was tmux's default `#{pane_current_command}`, i.e. "zsh"/"node"/"vim" — near-useless identity in a worktree-per-change workflow). `byobu.conf` keeps its explicit `set -g automatic-rename on` line above the format line. The canonical `default.conf` is re-staged to the Go-embed copy `app/backend/build/tmux.conf` (staged by `just setup`), which now carries the format line at ~L24. **Windows created with an explicit `-n` stay pinned** — tmux disables `automatic-rename` on an explicit name (this is desired for the deliberate-name paths below).
+
+2. **`CreateWindow` omits `-n` when the name is empty.** `tmux.CreateWindow(session, name, cwd, server)` builds its argv via a pure helper `buildCreateWindowArgs(session, name, cwd string) []string` (mirrors the `buildNewWindowArgs`/`buildSpawnArgvs` pure-arg-builder pattern in `riff.go`, so the `-n`-conditional branch is unit-testable without a live tmux server — `TestBuildCreateWindowArgs`):
+
+   ```
+   name == ""   →  ["new-window", "-a", "-t", session,             "-c", cwd]
+   name != ""   →  ["new-window", "-a", "-t", session, "-n", name, "-c", cwd]
+   ```
+
+   Because `-c cwd` is always passed, an unnamed create names itself to the folder basename **immediately** — there is **no follow-up `rename-window` round-trip** (single tmux invocation).
+
+**Deliberate explicit-name paths are unchanged** (they still pass `-n`, keeping their names pinned): `rk riff` panes (`buildNewWindowArgs`), iframe/service windows via `CreateWindowWithOptions` (the `rkType`-present create branch), the `port-N` service windows, and explicit renames (`RenameWindow` — renaming pins the name, which is the desired tmux behavior). The rename API path is untouched — it still **requires** a non-empty validated name.
+
+### API contract — window name optional on CREATE only
+
+`POST /api/sessions/{session}/windows` (`handleWindowCreate`, `api/windows.go`) makes `name` optional: `validate.ValidateName(body.Name, ...)` runs **only when `body.Name != ""`**. An omitted/empty name (with no `rkType`) is a valid request meaning "let tmux auto-name" → 201, calling `CreateWindow(session, "", cwd, server)`. A **non-empty** name that fails validation still returns 400. **Guard**: when `body.RkType != ""` the handler requires a non-empty name (400 on empty/omitted) — the `rkType` path runs `CreateWindowWithOptions` with `-n <name>` and automatic-rename disabled, so an empty name there would pin the window to an empty name; the shipped UI always supplies one, and the 400 pins that API contract. The rename handler (`handleWindowRename`) is unchanged — empty rename name still 400. Contract documented in `docs/specs/api.md` § window create.
+
+**Out of scope** (intake): existing `-n zsh`-pinned windows are NOT migrated — they have `automatic-rename` off and stay pinned. Unpinning would require a per-window `set -w automatic-rename on` sweep (not trivially cheap).
+
 ## Unified Test-Socket Naming — `rk-test-<role>-<pid>-<ns>`
 
 Since `260530-cf3g-unify-test-socket-reaping`, **every** test tmux-socket name — Go *and* Playwright — follows one umbrella form:
@@ -455,12 +487,12 @@ The `tmuxctl` supervisor is **unaffected**: it does NOT call `ListServers` — i
 
 ## Related Files
 
-- `app/backend/internal/tmux/tmux.go` — `serverArgs()`, `tmuxExecServer()`, `ListSessions()`, `ListServers()` (delegates the raw socket-dir scan to `ScanSocketDir` and the probe to `probeServerAlive`; applies the env-gated `RK_SERVER_ALLOWLIST` filter post-probe), `ServerAllowlistEnv` const + `matchesServerAllowlist(name, allowlist)` pure prefix-match predicate (test-isolation filter; see § `RK_SERVER_ALLOWLIST`), `ScanSocketDir(ctx)`, `socketDirPath()`, `filterSocketEntries()`, `probeServerAlive(ctx, name)`, `IsTestServerName()` (single `HasPrefix("rk-test-")`; consumed only by the tmuxctl supervisor resurrection guard), `LockSocketSuffix`, `ListKeys()`, `KillServer()`, `CreateSession()`, `SelectWindow(windowID, server)`, `ResolveWindowSession()` (first-match owning session — home or `_rk-pin-*`), `resolveWindowSessionIndex()`, `MoveWindow(windowID, dstIndex, server)`, `MoveWindowToSession(windowID, dstSession, server)`, `ReloadConfig()`, `EnsureConfig()`, `ConfigPath()`, plus the pin-session helpers `PinSessionPrefix`/`PinSessionName(windowID)`/`WindowIDFromPinSession(name)`/`ListPinSessionNames(ctx, server)` (since `260602-qn62`; the deleted `RelaySessionPrefix`/`OwnerPIDOption`/`NewGroupedSession`/`SetSessionOwnerPID`/`GetSessionOwnerPID`/`ListRawSessionNames` are gone)
+- `app/backend/internal/tmux/tmux.go` — `serverArgs()`, `tmuxExecServer()`, `ListSessions()`, `ListServers()` (delegates the raw socket-dir scan to `ScanSocketDir` and the probe to `probeServerAlive`; applies the env-gated `RK_SERVER_ALLOWLIST` filter post-probe), `ServerAllowlistEnv` const + `matchesServerAllowlist(name, allowlist)` pure prefix-match predicate (test-isolation filter; see § `RK_SERVER_ALLOWLIST`), `ScanSocketDir(ctx)`, `socketDirPath()`, `filterSocketEntries()`, `probeServerAlive(ctx, name)`, `IsTestServerName()` (single `HasPrefix("rk-test-")`; consumed only by the tmuxctl supervisor resurrection guard), `LockSocketSuffix`, `ListKeys()`, `KillServer()`, `CreateSession()`, `CreateWindow(session, name, cwd, server)` + the pure `buildCreateWindowArgs(session, name, cwd)` (omits `-n` for an empty name; since `260707-j66b`), `SelectWindow(windowID, server)`, `ResolveWindowSession()` (first-match owning session — home or `_rk-pin-*`), `resolveWindowSessionIndex()`, `MoveWindow(windowID, dstIndex, server)`, `MoveWindowToSession(windowID, dstSession, server)`, `ReloadConfig()`, `EnsureConfig()`, `ConfigPath()`, plus the pin-session helpers `PinSessionPrefix`/`PinSessionName(windowID)`/`WindowIDFromPinSession(name)`/`ListPinSessionNames(ctx, server)` (since `260602-qn62`; the deleted `RelaySessionPrefix`/`OwnerPIDOption`/`NewGroupedSession`/`SetSessionOwnerPID`/`GetSessionOwnerPID`/`ListRawSessionNames` are gone)
 - `app/backend/internal/tmux/reaper.go` — brute-force-by-prefix reaper logic: pure `classifyReap(name, prefix, serverLive) ReapAction` (enum `ReapActionSkip`/`ReapActionKill`/`ReapActionRemove`), `probeNeeded(name, prefix)` (gates the kill-vs-remove subprocess probe), the consts `productionDaemonServer = "rk-daemon"` + `minSafePrefixLen = 3`, `ReapResult`/`ReapPlanEntry`, the public `ReapTestServers(ctx, prefix, act, force)` (applies the dangerous-prefix guard), and the test seam `reapCandidates(ctx, dir, prefix, candidates, probe, act)` (log-and-skip per entry via `slog`, aggregate error at end). Tested in `reaper_test.go`
 - `app/backend/cmd/rk/reaper.go` — thin `reaperCmd` (top-level; `--prefix` default `rk-test`, `--yes`/`--force` action gate, `--dry-run` explicit-alias for the default preview); `act := (yes||force) && !dryRun`; calls `tmux.ReapTestServers(ctx, prefix, act, force)` and renders summary/dry-run (`renderReapSummary`/`renderDryRun`); `Long` help states the brute-force/no-liveness-protection/operating contract; no scan/probe/remove/kill in `cmd/rk`
 - `app/backend/internal/sessions/sessions.go` — `FetchSessions(server)` builds the dashboard view, `ProjectSession` has `Name` and `Windows` (no `Server` field); pane-map enrichment re-keys from `session:index` to windowID before joining; `ProjectRoot(ctx, windowID, server)` resolves by window ID
 - `app/backend/api/router.go` — `serverFromRequest()` helper, `TmuxOps` interface with server params, route registration
-- `app/backend/api/windows.go` — window action handlers keyed by `/api/windows/{windowId}` (kill, move, move-to-session, rename, color, url/type PUT, keys, select, split, close-pane); `parseWindowID(r) (string, bool)` helper validates the path param; `handleWindowCreate` stays session-scoped
+- `app/backend/api/windows.go` — window action handlers keyed by `/api/windows/{windowId}` (kill, move, move-to-session, rename, color, url/type PUT, keys, select, split, close-pane); `parseWindowID(r) (string, bool)` helper validates the path param; `handleWindowCreate` stays session-scoped and makes `name` **optional** (validated only when non-empty; empty ⇒ tmux auto-names), except the `rkType`-present branch which requires a non-empty name (400 otherwise) — since `260707-j66b`. The rename handler still requires a non-empty validated name
 - `app/backend/api/servers.go` — server list/create/kill handlers
 - `app/backend/api/keybindings.go` — `GET /api/keybindings` handler (runs `list-keys`, filters via whitelist, returns JSON)
 - `app/backend/api/sse.go` — per-server SSE polling hub

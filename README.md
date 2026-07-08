@@ -64,6 +64,8 @@ rk riff --skill /fab-discuss    # spawn an agent workspace
 
 The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the browser.
 
+The formula also installs `run-kit` as an interchangeable alias of `rk`, so every command here works the same whether you type `rk` or `run-kit`.
+
 To upgrade later, run `rk update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
 
 See the [install & access guide](docs/site/install.md) for prerequisites, `rk doctor`, development setup, and driving rk from your phone over Tailscale HTTPS.

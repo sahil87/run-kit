@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-07T09:25:47Z"}
+{"args":"Allow the command run-kit also to work - maybe make rk an alias of run-kit","cmd":"fab-new","event":"command","ts":"2026-07-07T09:25:47Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-07-07T09:27:31Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-07T09:29:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-07T09:29:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-07T09:33:10Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-07T09:34:04Z"}
+{"event":"review","result":"failed","ts":"2026-07-07T09:40:18Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-07T09:40:18Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-07T09:42:06Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-07T09:42:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-07T09:48:04Z"}
+{"event":"review","result":"passed","ts":"2026-07-07T09:48:04Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-07T09:49:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-07T09:50:32Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-07T09:51:57Z"}
+{"event":"review","result":"passed","ts":"2026-07-07T10:01:22Z"}

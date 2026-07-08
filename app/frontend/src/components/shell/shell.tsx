@@ -1,7 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 
 /**
@@ -45,37 +44,39 @@ function useSidebarKeyboardToggle(toggle: () => void) {
 /**
  * Shell — shared layout wrapper for `AppShell` and `BoardPage`.
  *
+ * The TopBar is NO LONGER part of the Shell grid (260707-4vq2). It mounts once
+ * in the persistent root layout (`RootTopBar` in `app.tsx`), full-width above
+ * this Shell. Because the old grid already spanned the topbar full-width above
+ * the sidebar, dropping the row here and painting the bar above Shell in the
+ * root layout is a geometric no-op — the visual stack is preserved.
+ *
  * Topology (desktop, viewport ≥ 640px):
- *   ┌──────────────────────────┐
- *   │          topbar          │
- *   ├──────────┬───────────────┤
+ *   ┌──────────┬───────────────┐
  *   │ sidebar  │   content     │
  *   │          ├───────────────┤
  *   │          │   bottombar   │
  *   └──────────┴───────────────┘
  *
- * - `grid-template-areas`: `"topbar topbar" / "sidebar content" / "sidebar bottombar"`
- *   (the topbar spans BOTH columns as full-width app chrome; the sidebar
- *   occupies rows 2–3 only, below the topbar).
- * - `grid-template-rows`: `auto 1fr auto`
+ * - `grid-template-areas`: `"sidebar content" / "sidebar bottombar"`.
+ * - `grid-template-rows`: `1fr auto`
  * - `grid-template-columns`: `${sidebarWidth}px 1fr` when `sidebarOpen` is `true`,
  *   else `0 1fr`. CSS transition (~150ms ease-out) animates collapse.
  *
  * Topology (mobile, viewport < 640px):
- *   - Single-column grid (`topbar / content / bottombar`); the `sidebar` slot
+ *   - Single-column grid (`content / bottombar`); the `sidebar` slot
  *     is removed from the grid.
  *   - When `sidebarOpen === true`, the sidebar children render outside the
- *     grid as a fixed-position overlay with a backdrop. The overlay carries
+ *     grid as an absolute overlay with a backdrop. The overlay carries
  *     `role="dialog" aria-modal="true"` for assistive tech.
  *
- * Children must use grid-area placement via `style={{ gridArea: "sidebar" | "topbar" | "content" | "bottombar" }}`.
+ * Children must use grid-area placement via `style={{ gridArea: "sidebar" | "content" | "bottombar" }}`.
  *
- * `useVisualViewport` runs once per mount to keep the iOS keyboard handling
- * in place — this preserves the pre-change behavior previously owned by
- * AppShell directly.
+ * Height is `100%` — Shell fills the root layout's `flex-1` content region.
+ * The `--app-height` var (iOS keyboard handling) is now maintained by
+ * `useVisualViewport()` in `RootWrapper`, whose root layout div is the var's
+ * consumer; Shell no longer calls the hook or reads the var directly.
  */
 export function Shell({ children, sidebarChildren }: { children: ReactNode; sidebarChildren?: ReactNode }) {
-  useVisualViewport();
   const { sidebarOpen, sidebarWidth } = useChromeState();
   const { setSidebarOpen } = useChromeDispatch();
   const isMobile = useIsMobile();
@@ -97,20 +98,19 @@ export function Shell({ children, sidebarChildren }: { children: ReactNode; side
   // of whether the overlay renders.
   const gridStyle: React.CSSProperties = isMobile
     ? {
-        height: "var(--app-height, 100vh)",
+        height: "100%",
         display: "grid",
         gridTemplateColumns: "1fr",
-        gridTemplateRows: "auto 1fr auto",
-        gridTemplateAreas: '"topbar" "content" "bottombar"',
+        gridTemplateRows: "1fr auto",
+        gridTemplateAreas: '"content" "bottombar"',
         position: "relative",
       }
     : {
-        height: "var(--app-height, 100vh)",
+        height: "100%",
         display: "grid",
         gridTemplateColumns: sidebarOpen ? `${sidebarWidth}px 1fr` : "0 1fr",
-        gridTemplateRows: "auto 1fr auto",
-        gridTemplateAreas:
-          '"topbar topbar" "sidebar content" "sidebar bottombar"',
+        gridTemplateRows: "1fr auto",
+        gridTemplateAreas: '"sidebar content" "sidebar bottombar"',
         transition: "grid-template-columns 150ms ease-out",
       };
 
@@ -123,14 +123,15 @@ export function Shell({ children, sidebarChildren }: { children: ReactNode; side
           documented in `fab/project/context.md`: "Mobile sidebar drawer is
           `absolute` inside the main area (not `fixed inset-0`) so the top
           bar stays visible and the logo toggle can close the drawer.").
-          Implementation: a grid child spanning rows 2-3 (content +
-          bottombar) hosts the absolutely-positioned backdrop and aside.
+          Implementation: a grid child spanning both rows (content +
+          bottombar, `gridRow: "1 / 3"`) hosts the absolutely-positioned
+          backdrop and aside.
           Backdrop tap and explicit close both fire `setSidebarOpen(false)`.
           Destination-tap auto-close lives in the consumer (Sidebar callbacks
           already invoke `setSidebarOpen(false)` after navigation). */}
       {isMobile && sidebarOpen && sidebarChildren && (
         <div
-          style={{ gridRow: "2 / 4", gridColumn: 1, position: "relative" }}
+          style={{ gridRow: "1 / 3", gridColumn: 1, position: "relative" }}
           className="z-40 pointer-events-none"
         >
           <div

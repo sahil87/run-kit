@@ -13,7 +13,8 @@ import { useToast } from "@/components/toast";
 import { BottomBar } from "@/components/bottom-bar";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
-import { TopBar, HELP_URL } from "@/components/top-bar";
+import { HELP_URL } from "@/components/top-bar";
+import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import type { PaletteAction } from "@/components/command-palette";
@@ -439,6 +440,56 @@ function BoardPageContent({ name }: { name: string }) {
     if (e) unpin(e.server, e.windowId, name);
   }, [entries, focusedIndex, unpin, name]);
 
+  // Publish the board TopBar's page-owned props into the persistent root bar's
+  // slot (260707-4vq2). `mode` (`board`) and `boardName` are derived at root
+  // from the route; the board extras (counts, waiting badge, board switcher,
+  // ✕-unpin handler) travel through the slot. Session/window props stay
+  // tolerant-empty (board mode has no session context, L1 chrome stays hidden
+  // via `currentWindow: null`). Memoized so the registration effect re-runs
+  // only when a board prop changes.
+  const boardTopBarBoards = useMemo(
+    () => boards.map((b) => ({ name: b.name })),
+    [boards],
+  );
+  const onToggleSidebar = useCallback(
+    () => setSidebarOpen(!sidebarOpen),
+    [setSidebarOpen, sidebarOpen],
+  );
+  useRegisterTopBarSlot(
+    useMemo(
+      () => ({
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        isConnected: boardConnected,
+        sidebarOpen,
+        server: "",
+        onNavigate: () => {},
+        onToggleSidebar,
+        onCreateSession: () => {},
+        onCreateWindow: () => {},
+        paneCount: entries.length,
+        serverCount,
+        waitingPaneCount,
+        boards: boardTopBarBoards,
+        onCloseFocused: unpinFocused,
+        closeDisabled: entries.length === 0,
+      }),
+      [
+        boardConnected,
+        sidebarOpen,
+        onToggleSidebar,
+        entries.length,
+        serverCount,
+        waitingPaneCount,
+        boardTopBarBoards,
+        unpinFocused,
+      ],
+    ),
+  );
+
   // sidebarOpen drives the hamburger animation; setSidebarOpen handles the
   // toggle and mobile destination-tap auto-close. Both are destructured above
   // (alongside the terminal-font mutators) so AppShell and BoardPage share one
@@ -512,39 +563,14 @@ function BoardPageContent({ name }: { name: string }) {
           </aside>
         )}
 
-        {/* Top bar grid area — board mode renders the breadcrumb dropdown +
-            inline pane/server count + cycle hint inside `<TopBar>`. The
-            previous bespoke `<header>` (Board ▸ {name} ▾) is replaced by
-            this single TopBar invocation. L1 terminal-only chrome (split,
-            fixed-width) is hidden by passing `currentWindow={null}`. The board
-            keeps the L2 pair: the terminal-font Aa (board panes are terminals)
-            and the ✕ — repurposed to UNPIN THE FOCUSED PANE (`onCloseFocused`,
-            260704-9o7k), a non-destructive move-out, NOT a tmux kill; per-pane
-            kill/unpin still live on each `BoardPane`. */}
-        <header style={{ gridArea: "topbar" }}>
-          <TopBar
-            mode="board"
-            sessions={[]}
-            currentSession={null}
-            currentWindow={null}
-            sessionName=""
-            windowName=""
-            isConnected={boardConnected}
-            sidebarOpen={sidebarOpen}
-            server=""
-            onNavigate={() => {}}
-            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-            onCreateSession={() => {}}
-            onCreateWindow={() => {}}
-            boardName={name}
-            paneCount={entries.length}
-            serverCount={serverCount}
-            waitingPaneCount={waitingPaneCount}
-            boards={boards.map((b) => ({ name: b.name }))}
-            onCloseFocused={unpinFocused}
-            closeDisabled={entries.length === 0}
-          />
-        </header>
+        {/* Top bar mount moved to the persistent root layout (260707-4vq2).
+            Board mode + `boardName` are derived at root from the route; the
+            board extras (pane/server counts, waiting badge, board switcher,
+            and the ✕ that UNPINS THE FOCUSED PANE — `onCloseFocused`,
+            260704-9o7k, a non-destructive move-out, NOT a tmux kill) are
+            published into the slot context via the `useRegisterTopBarSlot`
+            effect above. L1 terminal-only chrome stays hidden via
+            `currentWindow: null`. */}
 
         {/* Content grid area — horizontal-scroll body. Viewport begins
             flush with sidebar.right (no left gutter). */}

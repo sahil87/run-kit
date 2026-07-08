@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-08T05:46:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-08T05:52:26Z"}
     review: {started_at: "2026-07-08T05:52:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-08T06:00:01Z"}
     hydrate: {started_at: "2026-07-08T06:00:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-08T06:02:40Z"}
-    ship: {started_at: "2026-07-08T06:02:40Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-08T06:02:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-08T06:10:12Z"}
+    review-pr: {started_at: "2026-07-08T06:10:12Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/327
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 377
+    deleted: 7
+    net: 370
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 71
+        deleted: 2
+        net: 69
     tests:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-07-08T06:02:40Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-07-08T06:10:12Z"
+    computed_at_stage: ship
 summary: Added WaitingBadge waiting-count rollup to the sidebar SERVER-panel server tile (fourth badge surface) — inline right-aligned on the 'N sess' flex row, attached-server-only counts via countWaitingInSessions over sessionsByServer
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-08T06:02:40Z
+last_updated: 2026-07-08T06:10:12Z

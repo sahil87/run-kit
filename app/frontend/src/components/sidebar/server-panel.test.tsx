@@ -250,12 +250,19 @@ describe("ServerPanel", () => {
     });
     openPanel();
 
-    // The badge lives inside the `work` tile (sibling of its option button in
-    // the same tile wrapper), so scope to that tile's wrapper via the option.
-    const badge = screen.getByTestId("waiting-badge");
+    // The badge lives inside the `work` tile (a descendant of its `option`
+    // button), so scope the query to that tile — a global query would still
+    // pass if the badge were rendered on the wrong server tile.
+    const workTile = screen.getByRole("option", { name: /work/ });
+    const badge = within(workTile).getByTestId("waiting-badge");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("3");
     expect(badge).toHaveAttribute("aria-label", "3 agents waiting for input");
+
+    // The count is forwarded per-server: the `default` tile (no map entry) has
+    // no badge, proving the badge is not rendered on the wrong tile.
+    const defaultTile = screen.getByRole("option", { name: /default/ });
+    expect(within(defaultTile).queryByTestId("waiting-badge")).not.toBeInTheDocument();
   });
 
   it("renders no waiting badge for a server with count 0 or no map entry", () => {

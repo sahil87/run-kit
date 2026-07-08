@@ -267,6 +267,7 @@ The `waiting` overlay rolls up the hierarchy as a count of waiting windows:
 | Window row (sidebar) / window tile (SessionTiles) / pane-panel header | halo pulse on the existing StatusDot (free — same component) |
 | Session row | count badge when > 0 (e.g. `2⚠` styled per chip vocabulary) |
 | Server tile (Cockpit TMUX SERVERS zone) | count badge; one glance at `/` answers "does anything need me" |
+| Server tile (sidebar SERVER panel) | count badge, right-aligned on the tile's "N sess" line (inline flex, not absolute — avoids the hover-revealed palette/kill action cluster at the tile top-right); same attached-server-only semantics as the Cockpit tile |
 | Board header + board pane | header count; waiting pane gets a pulsing seam (3px, border-width system) — reduced-motion: static seam |
 | Command palette | `Agent: Next waiting` — cycles waiting windows (current server first, then others), the keyboard-first attention nav (Constitution V) |
 | Web Push | `waiting` sustained ≥ 15s → one push per waiting episode (dedupe on the state's epoch; re-arm when the state changes). Body: window + `waiting for input`; carries the question text when a future `@rk_agent_msg` option exists. `idle`/`active` never push |

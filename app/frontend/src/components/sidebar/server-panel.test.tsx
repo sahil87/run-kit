@@ -22,6 +22,7 @@ function renderPanel(overrides: {
   server?: string;
   servers?: ServerInfo[];
   serverColors?: Record<string, string>;
+  waitingCounts?: Map<string, number>;
   onSwitchServer?: (name: string) => void;
   onKillServer?: (name: string) => void;
   onCreateServer?: () => void;
@@ -36,6 +37,7 @@ function renderPanel(overrides: {
       { name: "e2e", sessionCount: 1 },
     ],
     serverColors: overrides.serverColors ?? {},
+    waitingCounts: overrides.waitingCounts,
     onSwitchServer: overrides.onSwitchServer ?? vi.fn(),
     onKillServer: overrides.onKillServer ?? vi.fn(),
     onCreateServer: overrides.onCreateServer ?? vi.fn(),
@@ -235,5 +237,46 @@ describe("ServerPanel", () => {
     expect(
       screen.getByRole("button", { name: /Kill server rk-daemon/ }),
     ).toBeInTheDocument();
+  });
+
+  it("renders a waiting badge with the count on a server that has waiting windows", () => {
+    renderPanel({
+      server: "default",
+      servers: [
+        { name: "default", sessionCount: 4 },
+        { name: "work", sessionCount: 2 },
+      ],
+      waitingCounts: new Map([["work", 3]]),
+    });
+    openPanel();
+
+    // The badge lives inside the `work` tile (a descendant of its `option`
+    // button), so scope the query to that tile — a global query would still
+    // pass if the badge were rendered on the wrong server tile.
+    const workTile = screen.getByRole("option", { name: /work/ });
+    const badge = within(workTile).getByTestId("waiting-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("3");
+    expect(badge).toHaveAttribute("aria-label", "3 agents waiting for input");
+
+    // The count is forwarded per-server: the `default` tile (no map entry) has
+    // no badge, proving the badge is not rendered on the wrong tile.
+    const defaultTile = screen.getByRole("option", { name: /default/ });
+    expect(within(defaultTile).queryByTestId("waiting-badge")).not.toBeInTheDocument();
+  });
+
+  it("renders no waiting badge for a server with count 0 or no map entry", () => {
+    renderPanel({
+      server: "default",
+      servers: [
+        { name: "default", sessionCount: 4 }, // no map entry → count 0
+        { name: "work", sessionCount: 2 }, // explicit 0
+      ],
+      waitingCounts: new Map([["work", 0]]),
+    });
+    openPanel();
+
+    // WaitingBadge returns null at count <= 0, so no badge is present for either.
+    expect(screen.queryByTestId("waiting-badge")).not.toBeInTheDocument();
   });
 });

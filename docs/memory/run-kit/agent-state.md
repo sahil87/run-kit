@@ -325,8 +325,13 @@ deferred out per #314's Assumption 11). `260706-y1ar` is that deferred work — 
   (the pierce rule); the `StatusDotTip` gains an `agent:` line on every tier
   (§ Pane panel four-register view, § Status Dot hover-card).
 - **Attention rollups + nav**: `waiting` counts propagate as `WaitingBadge` chips
-  (session row, Cockpit server tile, board header), a pulsing board-pane seam, and
-  the `Agent: Next waiting` command-palette navigation (§ Attention Surfacing).
+  (session row, Cockpit server tile, board header, and — since
+  `260708-4li7-sidebar-server-tile-waiting-badge` — the sidebar SERVER-panel
+  server tile, the fourth badge surface), a pulsing board-pane seam, and the
+  `Agent: Next waiting` command-palette navigation (§ Attention Surfacing). See
+  [ui-patterns](/run-kit/ui-patterns.md) § Attention Surfacing for the surface
+  list and the sidebar tile's inline-flex placement (distinct from the Cockpit
+  tile's absolute top-right, to avoid the sidebar tile's hover-action cluster).
 - **Web Push on sustained waiting**: the SSE hub fires one push per sustained
   (≥15s) waiting episode — see [architecture](/run-kit/architecture.md)
   § Web Push on Sustained Waiting.

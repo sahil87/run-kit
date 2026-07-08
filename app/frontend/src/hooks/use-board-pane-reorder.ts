@@ -120,13 +120,14 @@ export function useBoardPaneReorder(
   let orderedEntries: BoardEntry[];
   if (effectiveKeys) {
     const byKey = new Map(entries.map((e) => [paneKey(e.server, e.windowId), e]));
+    const effectiveSet = new Set(effectiveKeys);
     const ordered: BoardEntry[] = [];
     for (const key of effectiveKeys) {
       const e = byKey.get(key);
       if (e) ordered.push(e);
     }
     for (const e of entries) {
-      if (!effectiveKeys.includes(paneKey(e.server, e.windowId))) ordered.push(e);
+      if (!effectiveSet.has(paneKey(e.server, e.windowId))) ordered.push(e);
     }
     orderedEntries = ordered;
   } else {
@@ -220,8 +221,12 @@ export function useBoardPaneReorder(
       const authoritative = entries.map((en) => paneKey(en.server, en.windowId));
       const authoritativeSet = new Set(authoritative);
       const effective = override.filter((k) => authoritativeSet.has(k));
+      const effectiveSet = new Set(effective);
       for (const key of authoritative) {
-        if (!effective.includes(key)) effective.push(key);
+        if (!effectiveSet.has(key)) {
+          effective.push(key);
+          effectiveSet.add(key);
+        }
       }
       const fromIdx = authoritative.indexOf(dragKey);
       const landedIdx = effective.indexOf(dragKey);

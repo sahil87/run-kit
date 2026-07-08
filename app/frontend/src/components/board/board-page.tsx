@@ -23,6 +23,8 @@ import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
 import { BoardPane, type BoardPaneHandle } from "./board-pane";
 import { selectLivePanes } from "./select-live-panes";
+import { useBoardPaneReorder } from "@/hooks/use-board-pane-reorder";
+import { computeMoveNeighbors, focusedIndexForKey, shouldFocusPane } from "@/lib/board-reorder";
 import { isWaiting } from "@/lib/waiting";
 import { NotFoundPage } from "@/router";
 
@@ -86,7 +88,7 @@ function BoardPageContent({ name }: { name: string }) {
   const navigate = useNavigate();
   const { entries, isLoading, error } = useBoardEntries(name);
   const { boards } = useBoards();
-  const { unpin } = usePinActions();
+  const { unpin, reorder } = usePinActions();
   const isMobile = useIsMobile();
   const { getWidth, setWidth } = usePaneWidths(name, PANE_WIDTH_SEED);
 
@@ -184,11 +186,67 @@ function BoardPageContent({ name }: { name: string }) {
   const paneRefs = useRef<Array<BoardPaneHandle | null>>([]);
   paneRefs.current = entries.map((_, i) => paneRefs.current[i] ?? null);
 
-  // Focused pane index for keyboard cycling.
+  // Focused pane index for keyboard cycling. The index drives the focus RING
+  // (`isFocused={authIdx === focusedIndex}`) and imperative xterm focus. But a
+  // raw index is not stable across reorders: with `paneRefs` keyed to the
+  // authoritative order, focusing `paneRefs.current[index]` after an order
+  // change (own reorder echo, or a reorder from another client) routes DOM
+  // focus into the DISPLACED NEIGHBOUR's terminal. So focus is tracked by the
+  // focused pane's `server:windowId` KEY (`focusedKeyRef`); the index is
+  // reconciled from the key whenever the order changes (rework must-fix #3).
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const focusedKeyRef = useRef<string | null>(null);
+  // Signature of the previous authoritative order, to distinguish an
+  // ORDER-changed render (index must follow key) from a user-intent index
+  // change (key must follow index) within the single focus effect below.
+  const prevOrderSigRef = useRef<string | null>(null);
+  // Previously-focused index, to gate the imperative `.focus()` on the index
+  // ACTUALLY CHANGING (user intent) vs. a passive SSE refetch that leaves the
+  // focused pane put. Seeded to the initial `focusedIndex` (0) so the first
+  // settled render on board load does NOT auto-focus pane 0's terminal. See
+  // `shouldFocusPane` and the "SSE must not steal focus" invariant
+  // (`docs/memory/run-kit/ui-patterns.md` § Keyboard Navigation).
+  const prevFocusedIndexRef = useRef(0);
+
+  // Single focus authority: keeps `focusedKeyRef` synced, reconciles the index
+  // to the key when the order shifts, and imperatively focuses the terminal —
+  // always by KEY so a keystroke lands in the intended pane both on the
+  // optimistic move (order not yet echoed) and after the authoritative order
+  // settles. Imperative focus fires ONLY on user intent (index change) — a
+  // `board-changed` SSE refetch alone must not yank DOM focus into a terminal
+  // (cycle-2 must-fix #1).
   useEffect(() => {
-    if (focusedIndex >= entries.length && entries.length > 0) setFocusedIndex(0);
-  }, [entries.length, focusedIndex]);
+    const keys = entries.map((e) => `${e.server}:${e.windowId}`);
+    const sig = keys.join("|");
+    const orderChanged = prevOrderSigRef.current !== sig;
+    prevOrderSigRef.current = sig;
+
+    if (orderChanged && focusedKeyRef.current !== null) {
+      // Order shifted underneath (SSE echo — own or cross-client). The index
+      // follows the KEY so the same pane stays focused. Correct the index and
+      // let the re-render re-enter this effect (with orderChanged=false) to
+      // capture the key + focus — never focusing the transient wrong index.
+      // `prevFocusedIndexRef` is deliberately left untouched here so the
+      // re-entered settled pass sees the index change and (for an own move)
+      // focuses the moved pane.
+      const j = focusedIndexForKey(keys, focusedKeyRef.current, focusedIndex);
+      if (j !== focusedIndex) {
+        setFocusedIndex(j);
+        return;
+      }
+    }
+
+    // Index is authoritative for identity now: capture the focused key (always,
+    // so the ref tracks the current pane across passive refetches) and focus
+    // that pane's terminal ONLY when the index actually changed from the last
+    // focused index. `paneRefs` is keyed to the authoritative order (see
+    // DesktopRow), so `focusedIndex` addresses the right handle.
+    focusedKeyRef.current = keys[focusedIndex] ?? null;
+    if (shouldFocusPane(prevFocusedIndexRef.current, focusedIndex)) {
+      paneRefs.current[focusedIndex]?.focus();
+    }
+    prevFocusedIndexRef.current = focusedIndex;
+  }, [entries, focusedIndex]);
 
   // Carousel index for mobile.
   const [carouselIndex, setCarouselIndex] = useState(0);
@@ -212,11 +270,6 @@ function BoardPageContent({ name }: { name: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [entries.length]);
-
-  // Imperative focus when focusedIndex changes.
-  useEffect(() => {
-    paneRefs.current[focusedIndex]?.focus();
-  }, [focusedIndex]);
 
   // Drag-resize state — separate from the persisted widths; live during drag.
   // Handlers live in refs so an unmount cleanup or a `pointercancel` (e.g.
@@ -401,10 +454,63 @@ function BoardPageContent({ name }: { name: string }) {
           if (e) unpin(e.server, e.windowId, name);
         },
       });
+
+      // Keyboard parity for header drag-reorder (Constitution V). Boundary-gated
+      // with NO wraparound — hidden (not disabled) at the edge, matching the
+      // palette Move up/down convention (computeMoveOrder). Acts on the focused
+      // pane: computes before/after via the shared neighbour helper, fires ONE
+      // reorder POST (same single-call path as DnD; fractional indexing).
+      //
+      // Focus follows the moved pane by KEY, NOT by an optimistic index bump:
+      // the palette move does NOT go through the DnD optimistic override, so the
+      // display does not reorder until the board-changed SSE echo. Bumping
+      // `focusedIndex` to `i±1` here would move the ring — and route imperative
+      // xterm focus — into the DISPLACED NEIGHBOUR's terminal (paneRefs are
+      // keyed to the authoritative order, still the OLD order pre-echo). Instead
+      // we leave `focusedIndex` alone: the moved pane IS the focused pane and it
+      // stays visually put until the echo, at which point the key-reconcile
+      // effect repositions `focusedIndex` to the moved pane's new slot. Result:
+      // keystrokes land in the moved pane both before and after the echo
+      // (rework must-fix #3).
+      const orderedIds = entries.map((e) => `${e.server}:${e.windowId}`);
+      const moveFocusedPane = (delta: -1 | 1) => {
+        const e = entries[focusedIndex];
+        if (!e) return;
+        const neighbors = computeMoveNeighbors(orderedIds, focusedIndex, delta);
+        if (!neighbors) return; // boundary no-op (guarded by the gating below too)
+        const stripServer = (k: string | null) =>
+          k === null ? null : k.slice(k.indexOf(":") + 1);
+        // `reorder` (usePinActions) shows a toast AND rethrows on failure; the
+        // palette has no client-side optimistic order to roll back (unlike the
+        // DnD override), so just swallow to avoid an unhandled rejection — the
+        // toast already informed the user, and the absent SSE echo leaves the
+        // order unchanged.
+        reorder(
+          e.server,
+          e.windowId,
+          name,
+          stripServer(neighbors.before),
+          stripServer(neighbors.after),
+        ).catch(() => {});
+      };
+      if (focusedIndex > 0) {
+        conditional.push({
+          id: "board-move-pane-left",
+          label: "Board: Move Focused Pane Left",
+          onSelect: () => moveFocusedPane(-1),
+        });
+      }
+      if (focusedIndex < entries.length - 1) {
+        conditional.push({
+          id: "board-move-pane-right",
+          label: "Board: Move Focused Pane Right",
+          onSelect: () => moveFocusedPane(1),
+        });
+      }
     }
 
     return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry];
-  }, [boards, name, entries, focusedIndex, unpin, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
+  }, [boards, name, entries, focusedIndex, unpin, reorder, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {
@@ -634,6 +740,8 @@ function BoardPageContent({ name }: { name: string }) {
           ) : (
             <DesktopRow
               entries={entries}
+              board={name}
+              reorder={reorder}
               getWidth={(id) => (getWidth(id) || BOARD_PANE_DEFAULT_WIDTH)}
               onResizeStart={handleResizeStart}
               onUnpin={(e) => unpin(e.server, e.windowId, name)}
@@ -730,6 +838,8 @@ function BoardPageContent({ name }: { name: string }) {
 
 function DesktopRow({
   entries,
+  board,
+  reorder,
   getWidth,
   onResizeStart,
   onUnpin,
@@ -740,6 +850,8 @@ function DesktopRow({
   waitingWindowIds,
 }: {
   entries: ReturnType<typeof useBoardEntries>["entries"];
+  board: string;
+  reorder: ReturnType<typeof usePinActions>["reorder"];
   getWidth: (windowId: string) => number;
   onResizeStart: (windowId: string, clientX: number) => void;
   onUnpin: (entry: ReturnType<typeof useBoardEntries>["entries"][number]) => void;
@@ -751,6 +863,16 @@ function DesktopRow({
   waitingWindowIds: Set<string>;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
+
+  // Header-only drag-reorder. Renders `orderedEntries` (the optimistic override
+  // during a drag, else the authoritative `entries`); focus/pane-ref/visibility
+  // bookkeeping stays keyed to the AUTHORITATIVE index so a pane keeps its
+  // identity (focus, live-relay slot) as its display position changes mid-drag.
+  const { orderedEntries, getHandleProps, draggingKey } = useBoardPaneReorder(
+    entries,
+    board,
+    reorder,
+  );
 
   // Relay-suspension feature is plaintext-only: the ~6-connection-per-origin
   // ceiling is an HTTP/1.1 artifact. Over HTTPS/h2 (production via Tailscale)
@@ -847,34 +969,51 @@ function DesktopRow({
       })
     : null;
 
+  // Authoritative index by `server:windowId` key. Bookkeeping (paneRefs,
+  // focus, visibility cap) keys on this so a pane keeps its identity while its
+  // DISPLAY position shifts under the optimistic drag override.
+  const authIdxByKey = new Map<string, number>(
+    entries.map((e, i) => [`${e.server}:${e.windowId}`, i]),
+  );
+
   return (
     <div ref={rowRef} className="h-full w-full overflow-x-auto flex gap-1 p-1">
-      {entries.map((entry, idx) => (
-        <BoardPane
-          key={`${entry.server}:${entry.windowId}`}
-          ref={(el) => {
-            paneRefs.current[idx] = el;
-          }}
-          rootRef={(el) => {
-            if (el) {
-              el.dataset.paneIndex = String(idx);
-              paneElsRef.current.set(idx, el);
-            } else {
-              paneElsRef.current.delete(idx);
-            }
-          }}
-          entry={entry}
-          width={getWidth(entry.windowId)}
-          paused={livePanes === null ? false : !livePanes.has(idx)}
-          isFocused={idx === focusedIndex}
-          waiting={waitingWindowIds.has(`${entry.server}:${entry.windowId}`)}
-          onClick={() => onPaneClick(idx)}
-          onUnpin={() => onUnpin(entry)}
-          showResizeHandle={true}
-          onResizeStart={(clientX) => onResizeStart(entry.windowId, clientX)}
-          scrollLocked={scrollLocked}
-        />
-      ))}
+      {orderedEntries.map((entry) => {
+        const key = `${entry.server}:${entry.windowId}`;
+        // Authoritative index (fallback to a display-stable value if a pane
+        // appears only in the override, e.g. mid-drag pin — should not happen).
+        const authIdx = authIdxByKey.get(key) ?? -1;
+        const { handle, drop } = getHandleProps(entry.server, entry.windowId);
+        return (
+          <BoardPane
+            key={key}
+            ref={(el) => {
+              if (authIdx >= 0) paneRefs.current[authIdx] = el;
+            }}
+            rootRef={(el) => {
+              if (el) {
+                el.dataset.paneIndex = String(authIdx);
+                if (authIdx >= 0) paneElsRef.current.set(authIdx, el);
+              } else if (authIdx >= 0) {
+                paneElsRef.current.delete(authIdx);
+              }
+            }}
+            entry={entry}
+            width={getWidth(entry.windowId)}
+            paused={livePanes === null ? false : !livePanes.has(authIdx)}
+            isFocused={authIdx === focusedIndex}
+            dimmed={draggingKey === key}
+            waiting={waitingWindowIds.has(key)}
+            onClick={() => onPaneClick(authIdx)}
+            onUnpin={() => onUnpin(entry)}
+            showResizeHandle={true}
+            onResizeStart={(clientX) => onResizeStart(entry.windowId, clientX)}
+            scrollLocked={scrollLocked}
+            dragHandleProps={handle}
+            dropTargetProps={drop}
+          />
+        );
+      })}
     </div>
   );
 }

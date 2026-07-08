@@ -3,6 +3,7 @@ import { TerminalClient } from "@/components/terminal-client";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { BoardHeader } from "./board-header";
 import type { BoardEntry } from "@/api/boards";
+import type { BoardPaneDragProps, BoardPaneDropProps } from "@/hooks/use-board-pane-reorder";
 
 export interface BoardPaneHandle {
   focus: () => void;
@@ -26,10 +27,23 @@ interface BoardPaneProps {
    *  reduced-motion — see globals.css `.rk-waiting-seam`). The board-pane form
    *  of the same additive attention signal the status-dot halo carries. */
   waiting?: boolean;
+  /** When `true`, this pane is the drag source — dimmed (`opacity-50`) as
+   *  drag-source feedback, matching the server/session reorder treatment. */
+  dimmed?: boolean;
   onClick: () => void;
   onUnpin: () => void;
   showResizeHandle: boolean;
   onResizeStart?: (clientX: number) => void;
+  /** HTML5 drag-SOURCE props for the pane HEADER (the drag handle:
+   *  draggable + onDragStart/onDragEnd). The pane body / terminal is never
+   *  draggable — a live xterm must not hijack the drag or become the drag
+   *  image. Omitted on mobile (carousel has no reorder). */
+  dragHandleProps?: BoardPaneDragProps;
+  /** HTML5 drop-TARGET props (onDragOver/onDrop) for the whole pane ROOT. Kept
+   *  separate from the header handle so a release anywhere over the pane body
+   *  commits the move — not only over the ~24px header strip (rework
+   *  should-fix #1). Omitted on mobile. */
+  dropTargetProps?: BoardPaneDropProps;
   /** When `true`, this pane's TerminalClient suppresses xterm focus on
    * touchend (long-press scroll-lock). Forwarded from the BoardPage's
    * shell-level scroll-lock state. */
@@ -54,7 +68,7 @@ interface BoardPaneProps {
  * Re-mounting on swipe-in re-establishes the connection.
  */
 export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function BoardPane(
-  { entry, width, paused = false, isFocused, waiting = false, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked, rootRef },
+  { entry, width, paused = false, isFocused, waiting = false, dimmed = false, onClick, onUnpin, showResizeHandle, onResizeStart, scrollLocked, rootRef, dragHandleProps, dropTargetProps },
   ref,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -100,22 +114,31 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       role="group"
       aria-label={`board pane ${entry.windowName}${waiting ? " (agent waiting)" : ""}`}
       onClick={onClick}
+      // Drop TARGET is the whole pane root (not just the header): onDragOver /
+      // onDrop attach here so a release over the pane BODY still commits the
+      // move. The drag SOURCE stays header-only (dragHandleProps below).
+      {...dropTargetProps}
       // Border precedence: a `waiting` pane always shows the 3px pulsing yellow
       // seam (attention is the highest-priority signal); focus is still shown
       // via the accent shadow ring layered on top, so a focused-AND-waiting pane
       // reads both. A non-waiting pane keeps the prior focus/idle border.
       className={`relative flex flex-col shrink-0 h-full bg-bg-primary ${
         width === undefined ? "w-full" : ""
-      } ${
+      } ${dimmed ? "opacity-50" : ""} ${
         waiting
           ? `border-[3px] rk-waiting-seam${isFocused ? " shadow-[0_0_0_1px_var(--color-accent)]" : ""}`
           : isFocused
             ? "border border-accent shadow-[0_0_0_1px_var(--color-accent)]"
-            : "border border-border opacity-90"
+            : // Suppress the unfocused `opacity-90` when this pane is the drag
+              // source: Tailwind emits `.opacity-90` after `.opacity-50`, so
+              // both present lets `.opacity-90` win and the drag dim disappears
+              // for an unfocused source — the common case (cycle-2 should-fix
+              // #1). `dimmed` (opacity-50) then stands alone.
+              `border border-border${dimmed ? "" : " opacity-90"}`
       }`}
       style={width !== undefined ? { width } : undefined}
     >
-      <BoardHeader entry={entry} onUnpin={onUnpin} />
+      <BoardHeader entry={entry} onUnpin={onUnpin} dragHandleProps={dragHandleProps} />
       <div className="flex-1 min-h-0 px-1 py-0.5 flex flex-col">
         {!paused && (
           <TerminalClient

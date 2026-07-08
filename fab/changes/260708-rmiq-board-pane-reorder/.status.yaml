@@ -1,0 +1,55 @@
+id: rmiq
+name: 260708-rmiq-board-pane-reorder
+created: 2026-07-08T05:38:01Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 8
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 92.0
+        reversibility: 88.0
+        competence: 90.5
+        disambiguation: 88.5
+stage_metrics:
+    intake: {started_at: "2026-07-08T05:38:01Z", driver: fab-new, iterations: 1, completed_at: "2026-07-08T05:42:51Z"}
+    apply: {started_at: "2026-07-08T07:19:04Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-08T07:36:27Z"}
+    review: {started_at: "2026-07-08T07:36:27Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-08T07:57:42Z"}
+    hydrate: {started_at: "2026-07-08T07:57:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-08T08:02:40Z"}
+    ship: {started_at: "2026-07-08T08:02:40Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-08T08:02:40Z"
+    computed_at_stage: hydrate
+summary: 'Board pane reorder: DnD (header handle, pane-root drop, x-board-pane-reorder MIME, single reorderPin POST, cancel-revert + rollback) + Board: Move Focused Pane Left/Right palette parity + focus-by-server:windowId key with user-intent gate + cross-server neighbour aggregation in lookupNeighbourKeys'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-08T08:02:40Z

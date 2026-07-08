@@ -55,7 +55,16 @@ export function usePinActions(): PinActions {
       try {
         await reorderPin(server, windowId, board, before, after);
       } catch (err) {
+        // Surface the toast, then RETHROW so the caller can observe the
+        // rejection and roll back its optimistic state. reorder is the one pin
+        // action with an optimistic preview (the board drag override / the
+        // palette focus move); pin/unpin have no client-side optimistic order
+        // to revert, so they still swallow. The board reorder hook attaches a
+        // `.catch()` to clear the override; the palette move `.catch()`es to
+        // avoid an unhandled rejection. Reworked in cycle 1 (was: swallowed,
+        // leaving the failed order rendered indefinitely).
         addToast(err instanceof Error ? err.message : "Failed to reorder pin");
+        throw err;
       }
     },
     [addToast],

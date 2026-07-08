@@ -237,7 +237,7 @@ func (p *prodTmuxOps) UnpinBoard(ctx context.Context, server, windowID, board st
 // order key strictly between the supplied neighbours via fractional indexing,
 // and writes it back. Returns the new key on success.
 func (p *prodTmuxOps) ReorderBoard(ctx context.Context, server, windowID, board, before, after string) (string, error) {
-	beforeKey, afterKey, err := lookupNeighbourKeys(ctx, p, server, board, before, after)
+	beforeKey, afterKey, err := lookupNeighbourKeys(ctx, p, board, before, after)
 	if err != nil {
 		return "", err
 	}
@@ -252,19 +252,44 @@ func (p *prodTmuxOps) ReorderBoard(ctx context.Context, server, windowID, board,
 }
 
 // lookupNeighbourKeys translates neighbour windowIDs into their order keys on
-// the named board+server. Either neighbour may be empty (prepend/append).
-// A non-empty neighbour ID that does not exist on the board returns an error.
+// the named board, resolving them against the board's entries aggregated across
+// ALL reachable servers — mirroring handleGetBoard's cross-server aggregation
+// (a board spans servers, so a neighbour pinned from a different server than the
+// moved pane is a legitimate on-board neighbour). Either neighbour may be empty
+// (prepend/append). A non-empty neighbour ID absent from the board on EVERY
+// server returns errNeighbourNotFound.
 func lookupNeighbourKeys(ctx context.Context, ops interface {
+	ListServers(ctx context.Context) ([]string, error)
 	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
-}, server, board, beforeID, afterID string) (string, string, error) {
-	entries, err := ops.ListBoardEntries(ctx, server)
+}, board, beforeID, afterID string) (string, string, error) {
+	servers, err := ops.ListServers(ctx)
 	if err != nil {
 		return "", "", err
 	}
+	if len(servers) == 0 {
+		servers = []string{"default"}
+	}
+	// Aggregate the board's (windowID → orderKey) map across every server. A
+	// windowID is unique per tmux server but a board spans servers, so the
+	// neighbour may live on a different server than the moved pane. Collisions
+	// across servers are not a concern here: neighbours are addressed by the
+	// same windowIDs the client read from GET /api/boards/{name} (itself a
+	// cross-server aggregation), so a last-writer-wins map matches that source.
 	keys := map[string]string{}
-	for _, e := range entries {
-		if e.Board == board {
-			keys[e.WindowID] = e.OrderKey
+	for _, srv := range servers {
+		entries, lerr := ops.ListBoardEntries(ctx, srv)
+		if lerr != nil {
+			// Skip an unreachable server rather than failing the whole lookup —
+			// matches GetBoard/ListBoards, which log-and-continue per server.
+			// Without the log, an unreachable server that happens to hold the
+			// neighbour silently degrades to a 400; the warning leaves a trace.
+			slog.Warn("board: ListBoardEntries failed", "server", srv, "err", lerr)
+			continue
+		}
+		for _, e := range entries {
+			if e.Board == board {
+				keys[e.WindowID] = e.OrderKey
+			}
 		}
 	}
 	beforeKey := ""

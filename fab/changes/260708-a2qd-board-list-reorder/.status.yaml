@@ -1,0 +1,57 @@
+id: a2qd
+name: 260708-a2qd-board-list-reorder
+created: 2026-07-08T05:34:31Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 20
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 2
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 57.9
+        reversibility: 76.4
+        competence: 79.3
+        disambiguation: 73.6
+stage_metrics:
+    intake: {started_at: "2026-07-08T05:34:31Z", driver: fab-new, iterations: 1, completed_at: "2026-07-08T05:40:22Z"}
+    apply: {started_at: "2026-07-08T06:16:09Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-08T06:21:31Z"}
+    review: {started_at: "2026-07-08T06:21:31Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-08T06:31:29Z"}
+    hydrate: {started_at: "2026-07-08T06:31:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-08T06:38:23Z"}
+    ship: {started_at: "2026-07-08T06:38:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-08T06:39:51Z"}
+    review-pr: {started_at: "2026-07-08T06:39:51Z", driver: git-pr, iterations: 1, completed_at: "2026-07-08T06:48:51Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/328
+change_type_source: explicit
+true_impact:
+    added: 2111
+    deleted: 36
+    net: 2075
+    excluding:
+        added: 1684
+        deleted: 25
+        net: 1659
+    tests:
+        added: 946
+        deleted: 0
+        net: 946
+    computed_at: "2026-07-08T06:39:51Z"
+    computed_at_stage: ship
+summary: 'Board-list drag reorder: shared use-board-list-reorder hook (sidebar BoardsSection + Cockpit BOARDS tiles), POST /api/boards/order + settings.yaml board_order persistence + API-layer rank-aware sort, server-global event: board-order broadcast, palette Board: Move up/down'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-08T06:48:51Z

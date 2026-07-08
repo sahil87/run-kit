@@ -214,6 +214,12 @@ type sseHub struct {
 	// EVERY client (incl. the `?metrics=1` metrics-only stream) and replayed on
 	// connect — mirroring cachedMetricsJSON / cachedServicesJSON.
 	cachedServerOrderJSON string
+	// cachedBoardOrderJSON is the latest server-global `event: board-order`
+	// payload. Like cachedServerOrderJSON, board display order is a HOST-global
+	// concern (a board is an emergent cross-server aggregate), so it is a single
+	// slot fanned to EVERY client (incl. the `?metrics=1` metrics-only stream)
+	// and replayed on connect — NOT the per-server `board-changed` event.
+	cachedBoardOrderJSON string
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
 	// poll path joins onto change-bound windows. nil degrades gracefully (no
 	// PR fields attached) — used by tests and when no collector is wired.
@@ -372,6 +378,17 @@ func (h *sseHub) addClient(c *sseClient) {
 		}
 	}
 
+	// Send cached board-order snapshot immediately (server-global), so a
+	// late-joining client — including the zero-attached-server Cockpit
+	// `?metrics=1` stream — gets the current board display order without a fetch
+	// race.
+	if h.cachedBoardOrderJSON != "" {
+		select {
+		case c.ch <- []byte(fmt.Sprintf("event: board-order\ndata: %s\n\n", h.cachedBoardOrderJSON)):
+		default:
+		}
+	}
+
 	if !h.polling {
 		h.polling = true
 		go h.poll()
@@ -471,6 +488,48 @@ func (h *sseHub) broadcastServerOrder(order []string) {
 			default:
 				if !c.dropped {
 					slog.Warn("SSE event dropped", "event", "server-order")
+					c.dropped = true
+				}
+			}
+		}
+	}
+}
+
+// broadcastBoardOrder pushes a server-global `event: board-order` to EVERY
+// connected client across every server key (including the `?metrics=1`
+// metrics-only stream) and caches the payload so future clients receive it on
+// connect. Board display order is a HOST-global concern — a board is an
+// emergent cross-server aggregate with no owning tmux server — so this fans out
+// to all clients like broadcastServerOrder, NOT to one server's clients like
+// broadcastBoardChanged.
+//
+// nil order is normalized to an empty slice so the cached JSON is always "[]"
+// rather than "null".
+func (h *sseHub) broadcastBoardOrder(order []string) {
+	if order == nil {
+		order = []string{}
+	}
+	payload := struct {
+		Order []string `json:"order"`
+	}{Order: order}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("board-order broadcast marshal failed", "err", err)
+		return
+	}
+	jsonStr := string(jsonBytes)
+	event := []byte(fmt.Sprintf("event: board-order\ndata: %s\n\n", jsonStr))
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cachedBoardOrderJSON = jsonStr
+	for _, cs := range h.clients {
+		for _, c := range cs {
+			select {
+			case c.ch <- event:
+			default:
+				if !c.dropped {
+					slog.Warn("SSE event dropped", "event", "board-order")
 					c.dropped = true
 				}
 			}

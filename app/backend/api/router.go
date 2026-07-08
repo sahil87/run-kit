@@ -367,6 +367,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/sessions/order", s.handleSessionOrderGet)
 	r.Post("/api/sessions/order", s.handleSessionOrderPost)
 	r.Get("/api/boards", s.handleBoardsList)
+	r.Post("/api/boards/order", s.handleBoardOrderPost)
 	r.Get("/api/boards/{name}", s.handleBoardGet)
 	r.Post("/api/boards/{name}/pin", s.handleBoardPin)
 	r.Post("/api/boards/{name}/unpin", s.handleBoardUnpin)

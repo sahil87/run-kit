@@ -337,4 +337,18 @@ describe("ServerListPage — BOARDS zone", () => {
       screen.getByText("Pin a window to start a board"),
     ).toBeInTheDocument();
   });
+
+  it("makes board tiles draggable for reorder (board-list-reorder wiring)", () => {
+    mockBoards = [
+      { name: "main", pinCount: 3 },
+      { name: "review", pinCount: 1 },
+    ];
+    renderPage();
+    // Each board tile is a draggable button (the useBoardListReorder wiring).
+    const mainTile = screen.getByText("main").closest("button");
+    expect(mainTile).not.toBeNull();
+    expect(mainTile).toHaveAttribute("draggable", "true");
+    const reviewTile = screen.getByText("review").closest("button");
+    expect(reviewTile).toHaveAttribute("draggable", "true");
+  });
 });

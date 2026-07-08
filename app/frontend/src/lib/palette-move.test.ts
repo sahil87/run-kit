@@ -98,6 +98,35 @@ describe("computeMoveOrder (Server / Session: Move up/down swap)", () => {
   });
 });
 
+// Board: Move up/down (board-page.tsx boardRouteActions) reuse computeMoveOrder
+// over the ordered board names, gating the same way as Server: Move — the full
+// computed order is POSTed via setBoardOrder. These cover that mapping.
+describe("computeMoveOrder (Board: Move up/down)", () => {
+  it("moves the current board up, POSTing the full new order", () => {
+    // Current board "b" (idx 1) moved up → [b, a, c].
+    expect(computeMoveOrder(["a", "b", "c"], 1, -1)).toEqual(["b", "a", "c"]);
+  });
+
+  it("moves the current board down, POSTing the full new order", () => {
+    // Current board "b" (idx 1) moved down → [a, c, b].
+    expect(computeMoveOrder(["a", "b", "c"], 1, 1)).toEqual(["a", "c", "b"]);
+  });
+
+  it("returns null so Move up is hidden when the current board is first", () => {
+    expect(computeMoveOrder(["a", "b", "c"], 0, -1)).toBeNull();
+  });
+
+  it("returns null so Move down is hidden when the current board is last", () => {
+    expect(computeMoveOrder(["a", "b", "c"], 2, 1)).toBeNull();
+  });
+
+  it("returns null when the current board is not in the list (idx -1)", () => {
+    // indexOf returns -1 for an unknown current board → both actions no-op.
+    expect(computeMoveOrder(["a", "b", "c"], -1, -1)).toBeNull();
+    expect(computeMoveOrder(["a", "b", "c"], -1, 1)).toBeNull();
+  });
+});
+
 describe("computeWindowMoveTarget (Window: Move up/down/left/right)", () => {
   it("returns index-1 for a move toward the start within range", () => {
     expect(computeWindowMoveTarget(2, -1, 0, 3)).toBe(1);

@@ -18,6 +18,11 @@ type Settings struct {
 	// "1+3" for a two-hue blend). Stored as a string so a blend can round-trip;
 	// reads tolerate a legacy bare integer (normalized on load).
 	ServerColors map[string]string
+	// BoardOrder is the user-defined display order of board names; rank = slice
+	// index. Boards absent from the list sort after ranked boards, alphabetically
+	// (the sort itself lives at the API layer — this package only persists the
+	// list). nil when no order has been set (legacy files / never reordered).
+	BoardOrder []string
 }
 
 // Default returns the default settings.
@@ -71,6 +76,7 @@ func Save(s Settings) error {
 func parse(data string) Settings {
 	s := Default()
 	inServerColors := false
+	inBoardOrder := false
 	for _, line := range strings.Split(data, "\n") {
 		raw := line
 		trimmed := strings.TrimSpace(raw)
@@ -81,6 +87,21 @@ func parse(data string) Settings {
 		// Detect indentation: if the raw line starts with whitespace, it's a
 		// nested entry under the current section heading.
 		indented := len(raw) > 0 && (raw[0] == ' ' || raw[0] == '\t')
+
+		if indented && inBoardOrder {
+			// A YAML sequence item: "  - name". Strip the leading "- " marker.
+			if !strings.HasPrefix(trimmed, "-") {
+				continue
+			}
+			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+			// Strip optional surrounding double quotes (the serializer quotes
+			// values so a name is always round-trippable).
+			name = strings.Trim(name, "\"")
+			if name != "" {
+				s.BoardOrder = append(s.BoardOrder, name)
+			}
+			continue
+		}
 
 		if indented && inServerColors {
 			key, value, ok := strings.Cut(trimmed, ":")
@@ -106,6 +127,7 @@ func parse(data string) Settings {
 
 		// Non-indented line — end any active section.
 		inServerColors = false
+		inBoardOrder = false
 
 		key, value, ok := strings.Cut(trimmed, ":")
 		if !ok {
@@ -129,6 +151,8 @@ func parse(data string) Settings {
 			}
 		case "server_colors":
 			inServerColors = true
+		case "board_order":
+			inBoardOrder = true
 		}
 	}
 	return s
@@ -154,6 +178,16 @@ func serialize(s Settings) string {
 			out += "  " + name + ": \"" + s.ServerColors[name] + "\"\n"
 		}
 	}
+
+	// Board order — emitted only when non-empty so a theme-only settings file
+	// serializes byte-identically to the pre-change output. A YAML sequence,
+	// each name quoted so it round-trips unambiguously.
+	if len(s.BoardOrder) > 0 {
+		out += "board_order:\n"
+		for _, name := range s.BoardOrder {
+			out += "  - \"" + name + "\"\n"
+		}
+	}
 	return out
 }
 
@@ -176,6 +210,25 @@ func SetServerColor(server string, color *string) error {
 			s.ServerColors = make(map[string]string)
 		}
 		s.ServerColors[server] = *color
+	}
+	return Save(s)
+}
+
+// GetBoardOrder returns the user-defined board display order (rank = index), or
+// nil when no order has been set. Mirrors GetServerColor.
+func GetBoardOrder() []string {
+	return Load().BoardOrder
+}
+
+// SetBoardOrder persists the full ordered board-name list, replacing any prior
+// order. A nil/empty slice clears the stored order. Mirrors SetServerColor —
+// every reorder writes the whole list, so staleness self-heals.
+func SetBoardOrder(names []string) error {
+	s := Load()
+	if len(names) == 0 {
+		s.BoardOrder = nil
+	} else {
+		s.BoardOrder = names
 	}
 	return Save(s)
 }

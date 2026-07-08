@@ -1,6 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useBoards } from "@/hooks/use-boards";
+import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useActiveBoardName } from "@/hooks/use-active-board";
+import { useToast } from "@/components/toast";
 import { CollapsiblePanel } from "./collapsible-panel";
 
 /**
@@ -23,6 +25,11 @@ import { CollapsiblePanel } from "./collapsible-panel";
  */
 export function BoardsSection() {
   const { boards } = useBoards();
+  const { addToast } = useToast();
+  const { orderedBoards, getTileProps, isDragging, draggingName } = useBoardListReorder(
+    boards,
+    addToast,
+  );
   const navigate = useNavigate();
   const activeBoardName = useActiveBoardName();
 
@@ -46,19 +53,26 @@ export function BoardsSection() {
         </div>
       ) : (
         <ul className="flex flex-col">
-          {boards.map((b) => {
+          {orderedBoards.map((b) => {
             const isActive = b.name === activeBoardName;
+            const drag = getTileProps(b.name);
+            const isDragSource = isDragging && draggingName === b.name;
             return (
               <li key={b.name} className="ml-3">
                 <button
                   type="button"
+                  draggable={drag.draggable}
+                  onDragStart={drag.onDragStart}
+                  onDragOver={drag.onDragOver}
+                  onDragEnd={drag.onDragEnd}
+                  onDrop={drag.onDrop}
                   onClick={() => navigate({ to: "/board/$name", params: { name: b.name } })}
                   aria-current={isActive ? "page" : undefined}
                   className={`w-full flex items-center justify-between gap-2 px-2 py-1 text-left transition-colors min-h-[36px] ${
                     isActive
                       ? "bg-bg-card text-text-primary font-medium"
                       : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
-                  }`}
+                  }${isDragSource ? " opacity-50" : ""}`}
                 >
                   <span className="truncate text-xs">{b.name}</span>
                   <span className="text-xs text-text-secondary shrink-0">{b.pinCount}</span>

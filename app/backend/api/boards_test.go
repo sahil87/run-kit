@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/settings"
 	"rk/internal/tmux"
 )
 
@@ -422,6 +423,186 @@ func TestBoard_Reorder_triggersBroadcast(t *testing.T) {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 	requireBoardEvent(t, client, "reorder")
+}
+
+// --- Board list reorder (260708-a2qd) ---
+
+func TestSortBoardsByStoredOrder(t *testing.T) {
+	boards := []tmux.BoardSummary{
+		{Name: "apple", PinCount: 1},
+		{Name: "deploys", PinCount: 2},
+		{Name: "reviews", PinCount: 3},
+	}
+
+	tests := []struct {
+		name  string
+		order []string
+		want  []string
+	}{
+		{
+			name:  "ranked first by index then unranked alphabetical",
+			order: []string{"reviews", "deploys"},
+			want:  []string{"reviews", "deploys", "apple"},
+		},
+		{
+			name:  "no stored order stays alphabetical",
+			order: nil,
+			want:  []string{"apple", "deploys", "reviews"},
+		},
+		{
+			name:  "stale name in stored order is ignored",
+			order: []string{"ghost", "reviews"},
+			want:  []string{"reviews", "apple", "deploys"},
+		},
+		{
+			name:  "all ranked follow stored order exactly",
+			order: []string{"reviews", "apple", "deploys"},
+			want:  []string{"reviews", "apple", "deploys"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Copy so cross-case mutation can't leak (helper copies internally too).
+			in := make([]tmux.BoardSummary, len(boards))
+			copy(in, boards)
+			got := sortBoardsByStoredOrder(in, tt.order)
+			gotNames := make([]string, len(got))
+			for i, b := range got {
+				gotNames[i] = b.Name
+			}
+			if len(gotNames) != len(tt.want) {
+				t.Fatalf("got %v, want %v", gotNames, tt.want)
+			}
+			for i := range tt.want {
+				if gotNames[i] != tt.want[i] {
+					t.Fatalf("got %v, want %v", gotNames, tt.want)
+				}
+			}
+		})
+	}
+}
+
+// TestBoards_GET_appliesStoredOrder verifies handleBoardsList sorts the
+// ListBoards result by the persisted board order (integration through
+// settings.GetBoardOrder with a temp HOME).
+func TestBoards_GET_appliesStoredOrder(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := settings.SetBoardOrder([]string{"reviews", "deploys"}); err != nil {
+		t.Fatalf("SetBoardOrder: %v", err)
+	}
+	ops := &mockTmuxOps{
+		listBoardsResult: []tmux.BoardSummary{
+			{Name: "apple", PinCount: 1},
+			{Name: "deploys", PinCount: 2},
+			{Name: "reviews", PinCount: 3},
+		},
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+	req := httptest.NewRequest(http.MethodGet, "/api/boards", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var got []tmux.BoardSummary
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"reviews", "deploys", "apple"}
+	if len(got) != 3 {
+		t.Fatalf("got %+v", got)
+	}
+	for i, name := range want {
+		if got[i].Name != name {
+			t.Fatalf("got order %+v, want %v", got, want)
+		}
+	}
+}
+
+func TestHandleBoardOrderPost_WritesAndBroadcasts(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ops := &mockTmuxOps{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	server := &Server{logger: logger, sessions: &mockSessionFetcher{}, tmux: ops, hostname: "test"}
+	server.initSSEHub()
+	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	server.sseHub.addClient(client)
+	defer server.sseHub.removeClient(client)
+	drainSSE(client)
+
+	router := server.buildRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/boards/order", strings.NewReader(`{"order":["reviews","deploys"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	// Persisted?
+	if got := settings.GetBoardOrder(); len(got) != 2 || got[0] != "reviews" || got[1] != "deploys" {
+		t.Errorf("persisted order = %v, want [reviews deploys]", got)
+	}
+	// Broadcast?
+	deadline := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case ev := <-client.ch:
+			s := string(ev)
+			if strings.Contains(s, "event: board-order") {
+				if !strings.Contains(s, `{"order":["reviews","deploys"]}`) {
+					t.Errorf("board-order payload = %q", s)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("did not receive board-order event")
+		}
+	}
+}
+
+func TestHandleBoardOrderPost_InvalidNameRejected(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+	req := httptest.NewRequest(http.MethodPost, "/api/boards/order", strings.NewReader(`{"order":["ok","bad name!"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if got := settings.GetBoardOrder(); got != nil {
+		t.Errorf("no write should have occurred, got %v", got)
+	}
+}
+
+func TestHandleBoardOrderPost_DuplicateNameRejected(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+	req := httptest.NewRequest(http.MethodPost, "/api/boards/order", strings.NewReader(`{"order":["a","b","a"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if got := settings.GetBoardOrder(); got != nil {
+		t.Errorf("no write should have occurred, got %v", got)
+	}
+}
+
+func TestHandleBoardOrderPost_MalformedBodyRejected(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+	req := httptest.NewRequest(http.MethodPost, "/api/boards/order", strings.NewReader(`{"order":"not-an-array"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
 }
 
 func drainSSE(c *sseClient) {

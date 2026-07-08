@@ -9,6 +9,7 @@ import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingInSessions } from "@/lib/waiting";
 import { HostMetrics } from "@/components/host-metrics";
 import { useBoards } from "@/hooks/use-boards";
+import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useServerReorder } from "@/hooks/use-server-reorder";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { SectionHeading } from "@/components/section-heading";
@@ -72,6 +73,14 @@ export function ServerListPage() {
   // Drag-reorder for the TMUX SERVERS tile grid (shared with the sidebar
   // ServerPanel via the same hook). `servers` is already effective-sorted.
   const { orderedServers, getTileProps, isDragging, draggingName } = useServerReorder(servers, addToast);
+  // Drag-reorder for the BOARDS zone tile grid (shared with the sidebar
+  // BoardsSection via the same hook). `boards` is the backend-sorted list.
+  const {
+    orderedBoards,
+    getTileProps: getBoardTileProps,
+    isDragging: isBoardDragging,
+    draggingName: draggingBoardName,
+  } = useBoardListReorder(boards, addToast);
 
   // Reconcile ghost tiles against SessionContext's list: drop any ghost whose
   // real server has appeared. Computed at render time (no effect/local fetch).
@@ -252,22 +261,31 @@ export function ServerListPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {boards.map((b) => (
-                <button
-                  key={b.name}
-                  onClick={() =>
-                    navigate({ to: "/board/$name", params: { name: b.name } })
-                  }
-                  className="bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]"
-                >
-                  <div className="text-text-primary font-medium text-sm">
-                    {b.name}
-                  </div>
-                  <div className="text-text-secondary text-xs mt-1">
-                    {b.pinCount} pin{b.pinCount !== 1 ? "s" : ""}
-                  </div>
-                </button>
-              ))}
+              {orderedBoards.map((b) => {
+                const drag = getBoardTileProps(b.name);
+                const isDragSource = isBoardDragging && draggingBoardName === b.name;
+                return (
+                  <button
+                    key={b.name}
+                    draggable={drag.draggable}
+                    onDragStart={drag.onDragStart}
+                    onDragOver={drag.onDragOver}
+                    onDragEnd={drag.onDragEnd}
+                    onDrop={drag.onDrop}
+                    onClick={() =>
+                      navigate({ to: "/board/$name", params: { name: b.name } })
+                    }
+                    className={`bg-bg-card border border-border rounded p-4 text-left hover:border-text-secondary transition-colors min-h-[60px]${isDragSource ? " opacity-50" : ""}`}
+                  >
+                    <div className="text-text-primary font-medium text-sm">
+                      {b.name}
+                    </div>
+                    <div className="text-text-secondary text-xs mt-1">
+                      {b.pinCount} pin{b.pinCount !== 1 ? "s" : ""}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </section>

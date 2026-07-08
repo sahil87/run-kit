@@ -67,6 +67,18 @@ test.describe("Boards: Pin flow", () => {
       timeout: 10_000,
     });
 
+    // Regression: the board Shell must fill the viewport. Shell sizes to
+    // `height: 100%`, so a missing `h-full` on the board page's wrapper
+    // collapses the grid to content height and the bottom bar floats
+    // mid-page instead of sitting at the viewport bottom.
+    const viewport = page.viewportSize();
+    expect(viewport).toBeTruthy();
+    const bottomBar = await page.locator("footer").boundingBox();
+    expect(bottomBar).toBeTruthy();
+    expect(bottomBar!.y + bottomBar!.height).toBeGreaterThanOrEqual(
+      viewport!.height - 2,
+    );
+
     // Unpin via the pane-header button — verify it's reachable, then assert
     // the API state via the listing endpoint. (We click rather than calling
     // the API directly to exercise the rendered unpin button; we don't poll

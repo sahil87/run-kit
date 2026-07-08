@@ -23,7 +23,9 @@ backend and frontend agree on.
 
 **What it proves:** Pinning a real tmux window through the HTTP API moves
 the system into a state where (1) `GET /api/boards` lists the new board,
-(2) `/board/<name>` renders the pinned window's pane header, and (3)
+(2) `/board/<name>` renders the pinned window's pane header inside a
+full-viewport-height shell (regression guard: a missing `h-full` on the
+board page's wrapper collapses the Shell grid to content height), and (3)
 clicking the pane-header unpin button leaves the route on its empty-state
 copy.
 
@@ -36,6 +38,9 @@ copy.
 4. Navigate directly to `/board/<name>` (waitUntil `domcontentloaded` to
    skip waiting for every WebSocket child to settle).
 5. Assert `win-a` is visible (pane-header content).
-6. Click the pane-header `Unpin…` button.
-7. Poll `GET /api/boards` until the board disappears from the listing
+6. Assert the bottom bar (`footer`) sits at the viewport bottom — the
+   Shell fills the full height (Shell is `height: 100%`, so the board
+   wrapper must carry `h-full`).
+7. Click the pane-header `Unpin…` button.
+8. Poll `GET /api/boards` until the board disappears from the listing
    (empty boards are removed per spec — `Empty board cannot exist`).

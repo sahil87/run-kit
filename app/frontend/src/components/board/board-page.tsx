@@ -698,8 +698,11 @@ function BoardPageContent({ name }: { name: string }) {
     />
   );
 
+  // `h-full` is load-bearing: Shell sizes to `height: 100%` (260707-4vq2), so
+  // this wrapper must span AppLayout's `flex-1` content region or the whole
+  // board collapses to content height.
   return (
-    <div className="bg-bg-primary text-text-primary">
+    <div className="h-full bg-bg-primary text-text-primary">
       <Shell sidebarChildren={sidebarElement}>
         {/* Sidebar grid area (desktop only — Shell removes it on mobile). The
             board route shares the unified Sidebar with AppShell; drag-resize

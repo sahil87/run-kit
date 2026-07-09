@@ -174,3 +174,5 @@ app/backend/build/frontend/*
 app/backend/build/tmux.conf
 
 .status.yaml.lock
+
+!fab/.fab-version

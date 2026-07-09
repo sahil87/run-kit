@@ -55,7 +55,7 @@ From a clean install to a working dashboard with one agent running:
 ```bash
 brew install sahil87/tap/run-kit     # install
 run-kit agent-setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
-run-kit serve -d                # start the dashboard daemon on :3000
+run-kit daemon start            # start the dashboard daemon on :3000
 open http://localhost:3000      # open the dashboard in your browser
 
 # in any tmux session:
@@ -100,16 +100,22 @@ run-kit riff -- --worktree-name pacing-canyon        # name the worktree
 
 See the [riff guide](docs/site/workflows.md) for the full reference.
 
-## `run-kit serve` — the console daemon
+## `run-kit serve` — the HTTP server
 
-Start the HTTP server. Configurable via `RK_HOST` (default `127.0.0.1`) and `RK_PORT` (default `3000`).
+Start the HTTP server in the foreground. Configurable via `RK_HOST` (default `127.0.0.1`) and `RK_PORT` (default `3000`).
 
 ```bash
 run-kit serve                                # foreground on 127.0.0.1:3000
 RK_HOST=0.0.0.0 RK_PORT=8080 run-kit serve   # bind all interfaces, port 8080
-run-kit serve -d                             # background daemon in a tmux session
-run-kit serve --restart                      # idempotent restart
-run-kit serve --stop                         # graceful shutdown
+```
+
+To run it in the background, use the `run-kit daemon` subcommands:
+
+```bash
+run-kit daemon start                         # background daemon in a tmux session
+run-kit daemon restart                       # stop and start
+run-kit daemon stop                          # graceful shutdown
+run-kit daemon status                        # show daemon state and port owner
 ```
 
 The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separate from your sessions. Restart the daemon and everything you're running keeps running — the console reconnects automatically.

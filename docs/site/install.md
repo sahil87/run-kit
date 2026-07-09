@@ -14,7 +14,7 @@ This puts the `run-kit` binary on your `PATH`. The formula also installs `rk` as
 
 ```bash
 run-kit agent-setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
-run-kit serve -d                # start the dashboard daemon on :3000
+run-kit daemon start            # start the dashboard daemon on :3000
 open http://localhost:3000      # open the dashboard in your browser
 
 # in any tmux session:

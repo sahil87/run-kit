@@ -11,22 +11,22 @@ import (
 
 var daemonRestartCmd = &cobra.Command{
 	Use:   "restart",
-	Short: "Restart the rk daemon",
-	Long: `Restart the rk daemon — stop the running daemon (if any) then start
+	Short: "Restart the run-kit daemon",
+	Long: `Restart the run-kit daemon — stop the running daemon (if any) then start
 a new one.
 
-Without --force, behaves like the historical 'rk serve --restart'. If the port
+Without --force, behaves like the historical 'run-kit serve --restart'. If the port
 is held by a non-daemon process at the start step, the underlying port-probe
 refusal surfaces.
 
 With --force, after stopping the daemon the port is probed and any non-daemon
 holder is SIGTERMed BEFORE the new daemon is started. Refuses to --force-kill
-the rk daemon itself (defensive — should not happen after a successful Stop).`,
+the run-kit daemon itself (defensive — should not happen after a successful Stop).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 
 		if daemon.IsRunning() {
-			fmt.Fprintln(cmd.OutOrStdout(), "Restarting rk daemon...")
+			fmt.Fprintln(cmd.OutOrStdout(), "Restarting run-kit daemon...")
 			if err := daemon.Stop(); err != nil {
 				return fmt.Errorf("stopping daemon: %w", err)
 			}
@@ -53,7 +53,7 @@ the rk daemon itself (defensive — should not happen after a successful Stop).`
 		if err := daemon.Start(); err != nil {
 			return fmt.Errorf("starting daemon: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "rk daemon started (%s/%s/%s)\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "run-kit daemon started (%s/%s/%s)\n",
 			daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
 		return nil
 	},

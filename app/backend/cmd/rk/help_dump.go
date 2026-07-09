@@ -84,7 +84,7 @@ func captureNode(cmd *cobra.Command) node {
 // spawning a process or freezing global time.
 func buildDump(root *cobra.Command, version string, now time.Time) dump {
 	return dump{
-		Tool:          "rk",
+		Tool:          "run-kit",
 		Version:       version,
 		CapturedAt:    now.Format(time.RFC3339),
 		SchemaVersion: schemaVersion,

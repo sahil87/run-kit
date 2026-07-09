@@ -78,22 +78,28 @@ func agentStateHookCommand(rkPath, state, comm string) string {
 }
 
 // resolveRkPath returns the absolute path to embed in the installed hook. It
-// prefers exec.LookPath("rk") — on a Homebrew machine this yields the STABLE
-// symlink (/home/linuxbrew/.linuxbrew/bin/rk or /opt/homebrew/bin/rk), NOT the
-// version-pinned Cellar path — and falls back to os.Executable() WITHOUT
-// resolving symlinks. Symlink resolution is deliberately avoided: it would pin
-// the Cellar version and re-freeze the hook (the exact failure this change
-// removes). On total resolution failure it returns "" so validateHookPath fails
-// the install fast with a clear error: a bare-"rk" fallback would reintroduce the
-// PATH dependency the absolute path exists to eliminate, and writing a
-// PATH-dependent hook that silently no-ops when rk is off PATH at fire time is
-// worse than a loud install-time failure the (interactive) user can act on.
+// prefers exec.LookPath("run-kit") — the canonical command name — then
+// exec.LookPath("rk") (the permanent short alias); on a Homebrew machine either
+// yields the STABLE symlink (/home/linuxbrew/.linuxbrew/bin/run-kit or
+// /opt/homebrew/bin/run-kit, and likewise for rk), NOT the version-pinned Cellar
+// path. Both stable symlinks resolve to the same binary, so the order is a
+// canonical-identity preference, not a correctness one. It falls back to
+// os.Executable() WITHOUT resolving symlinks. Symlink resolution is deliberately
+// avoided: it would pin the Cellar version and re-freeze the hook (the exact
+// failure this change removes). On total resolution failure it returns "" so
+// validateHookPath fails the install fast with a clear error: a bare-name
+// fallback would reintroduce the PATH dependency the absolute path exists to
+// eliminate, and writing a PATH-dependent hook that silently no-ops when the
+// binary is off PATH at fire time is worse than a loud install-time failure the
+// (interactive) user can act on.
 func resolveRkPath() string {
-	if p, err := exec.LookPath("rk"); err == nil {
-		if abs, err := filepath.Abs(p); err == nil {
-			return abs
+	for _, name := range []string{"run-kit", "rk"} {
+		if p, err := exec.LookPath(name); err == nil {
+			if abs, err := filepath.Abs(p); err == nil {
+				return abs
+			}
+			return p
 		}
-		return p
 	}
 	if p, err := os.Executable(); err == nil {
 		// Intentionally NOT filepath.EvalSymlinks(p): that would pin the Cellar path.
@@ -123,13 +129,13 @@ const hookUnsafePathChars = "'\"$`\\"
 // interactive, so the user is present to see the error and act on it.
 func validateHookPath(path string) error {
 	if path == "" {
-		return fmt.Errorf("could not resolve the rk binary path; install rk on PATH (or at a conventional Homebrew location) and re-run")
+		return fmt.Errorf("could not resolve the run-kit binary path; install run-kit on PATH (or at a conventional Homebrew location) and re-run")
 	}
 	if !filepath.IsAbs(path) {
-		return fmt.Errorf("resolved rk path %q is not absolute; the hook must embed an absolute path to be PATH-independent at fire time — install rk at a conventional path and re-run", path)
+		return fmt.Errorf("resolved run-kit path %q is not absolute; the hook must embed an absolute path to be PATH-independent at fire time — install run-kit at a conventional path and re-run", path)
 	}
 	if strings.ContainsAny(path, hookUnsafePathChars) {
-		return fmt.Errorf("resolved rk path %q contains a shell-unsafe character (one of %s) and cannot be embedded in the hook command; install rk at a conventional path and re-run", path, hookUnsafePathChars)
+		return fmt.Errorf("resolved run-kit path %q contains a shell-unsafe character (one of %s) and cannot be embedded in the hook command; install run-kit at a conventional path and re-run", path, hookUnsafePathChars)
 	}
 	return nil
 }
@@ -269,7 +275,7 @@ func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPat
 	if uninstall {
 		action = "uninstall"
 	}
-	fmt.Fprintf(out, "%s: will %s rk agent-state hooks in %s\n\n", ac.name, action, ac.settingsPath)
+	fmt.Fprintf(out, "%s: will %s run-kit agent-state hooks in %s\n\n", ac.name, action, ac.settingsPath)
 	fmt.Fprintln(out, "--- current")
 	fmt.Fprintln(out, beforeJSON)
 	fmt.Fprintln(out, "+++ proposed")

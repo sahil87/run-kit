@@ -12,16 +12,16 @@ import (
 
 var daemonStopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "Stop the rk daemon",
-	Long: `Stop the rk daemon.
+	Short: "Stop the run-kit daemon",
+	Long: `Stop the run-kit daemon.
 
-Without --force, behaves like the historical 'rk serve --stop': calls
-daemon.Stop() when running, prints "rk daemon not running" when no daemon
+Without --force, behaves like the historical 'run-kit serve --stop': calls
+daemon.Stop() when running, prints "run-kit daemon not running" when no daemon
 session exists. The port is not probed.
 
 With --force, after stopping the daemon (if running) the port is probed and
 any non-daemon holder is SIGTERMed (with graceful-then-forceful escalation).
-Useful for reclaiming a port held by a foreground 'rk serve' or stale process.`,
+Useful for reclaiming a port held by a foreground 'run-kit serve' or stale process.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 
@@ -30,11 +30,11 @@ Useful for reclaiming a port held by a foreground 'rk serve' or stale process.`,
 			if err := daemon.Stop(); err != nil {
 				return fmt.Errorf("stopping daemon: %w", err)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "rk daemon stopped")
+			fmt.Fprintln(cmd.OutOrStdout(), "run-kit daemon stopped")
 		}
 		if !force {
 			if !wasRunning {
-				fmt.Fprintln(cmd.OutOrStdout(), "rk daemon not running")
+				fmt.Fprintln(cmd.OutOrStdout(), "run-kit daemon not running")
 			}
 			return nil
 		}

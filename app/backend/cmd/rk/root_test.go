@@ -49,7 +49,7 @@ func TestVersionFlag(t *testing.T) {
 	}
 
 	got := strings.TrimSpace(buf.String())
-	want := "rk version dev"
+	want := "run-kit version dev"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -65,7 +65,7 @@ func TestShortVersionFlag(t *testing.T) {
 	}
 
 	got := strings.TrimSpace(buf.String())
-	want := "rk version dev"
+	want := "run-kit version dev"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

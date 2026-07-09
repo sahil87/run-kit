@@ -48,8 +48,8 @@ func TestBuildDumpTopLevelShape(t *testing.T) {
 	fixed := time.Date(2026, 6, 2, 12, 34, 56, 0, time.UTC)
 	doc := buildDump(rootCmd, displayVersion(), fixed)
 
-	if doc.Tool != "rk" {
-		t.Errorf("tool = %q, want %q", doc.Tool, "rk")
+	if doc.Tool != "run-kit" {
+		t.Errorf("tool = %q, want %q", doc.Tool, "run-kit")
 	}
 	if doc.SchemaVersion != 1 {
 		t.Errorf("schema_version = %d, want 1", doc.SchemaVersion)
@@ -57,11 +57,11 @@ func TestBuildDumpTopLevelShape(t *testing.T) {
 	if doc.Version == "" {
 		t.Error("version is empty, want non-empty")
 	}
-	if doc.Root.Name != "rk" {
-		t.Errorf("root.name = %q, want %q", doc.Root.Name, "rk")
+	if doc.Root.Name != "run-kit" {
+		t.Errorf("root.name = %q, want %q", doc.Root.Name, "run-kit")
 	}
-	if doc.Root.Path != "rk" {
-		t.Errorf("root.path = %q, want %q", doc.Root.Path, "rk")
+	if doc.Root.Path != "run-kit" {
+		t.Errorf("root.path = %q, want %q", doc.Root.Path, "run-kit")
 	}
 	if len(doc.Root.Commands) == 0 {
 		t.Error("root.commands is empty, want visible subcommands captured")

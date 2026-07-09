@@ -1,41 +1,41 @@
 # Install & access
 
-How to install `rk`, keep it up to date, check your runtime, set up a development environment, and reach the dashboard over HTTPS.
+How to install `run-kit`, keep it up to date, check your runtime, set up a development environment, and reach the dashboard over HTTPS.
 
 ## Install
 
 run-kit ships as a Homebrew formula:
 
 ```bash
-brew install sahil87/tap/rk
+brew install sahil87/tap/run-kit
 ```
 
-This puts the `rk` binary on your `PATH`. The formula also installs `run-kit` as an interchangeable alias, so every command below works the same whether you type `rk` or `run-kit`. From there, a clean install to a working dashboard with one agent running is:
+This puts the `run-kit` binary on your `PATH`. The formula also installs `rk` as a fully interchangeable short alias, so every command below works the same whether you type `run-kit` or `rk`. From there, a clean install to a working dashboard with one agent running is:
 
 ```bash
-rk agent-setup                  # optional, once per machine: agent busy/waiting/idle in the dashboard
-rk serve -d                     # start the dashboard daemon on :3000
+run-kit agent-setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
+run-kit daemon start            # start the dashboard daemon on :3000
 open http://localhost:3000      # open the dashboard in your browser
 
 # in any tmux session:
-rk riff --skill /fab-discuss    # spawn an agent workspace
+run-kit riff --skill /fab-discuss    # spawn an agent workspace
 ```
 
-`rk agent-setup` installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) so windows running an agent report live **active/waiting/idle** state in the dashboard. It shows the settings diff and asks before writing; re-running is idempotent, and `rk agent-setup --uninstall` removes exactly the rk-owned entries. Until it's run (and agent sessions are restarted so new sessions pick up the hooks), agent state shows `—`. See [Agent state in the README](../../README.md#agent-state--rk-agent-setup) for how the hooks work.
+`run-kit agent-setup` installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) so windows running an agent report live **active/waiting/idle** state in the dashboard. It shows the settings diff and asks before writing; re-running is idempotent, and `run-kit agent-setup --uninstall` removes exactly the run-kit-owned entries. Until it's run (and agent sessions are restarted so new sessions pick up the hooks), agent state shows `—`. See [Agent state in the README](../../README.md#agent-state--run-kit-agent-setup) for how the hooks work.
 
 ## Upgrade
 
 ```bash
-rk update
+run-kit update
 ```
 
-`rk update` pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
+`run-kit update` pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
 
-> **Upgrading from an earlier rk?** Older installs had the agent-hook *logic* inlined in `~/.claude/settings.json`. Run `rk agent-setup` once more to swap in the new delegating wrapper, then restart your agent sessions. Future hook fixes ship in the binary and track `rk update` with no re-setup.
+> **Upgrading from an earlier run-kit?** Older installs had the agent-hook *logic* inlined in `~/.claude/settings.json`. Run `run-kit agent-setup` once more to swap in the new delegating wrapper, then restart your agent sessions. Future hook fixes ship in the binary and track `run-kit update` with no re-setup.
 
 ## Prerequisites
 
-`rk riff` requires:
+`run-kit riff` requires:
 
 - A running tmux session (`$TMUX` set).
 - [`wt`](https://github.com/sahil87/wt) on your `PATH` — install via `brew install sahil87/tap/wt`, or via the toolkit meta-formula `brew install sahil87/tap/all`.
@@ -44,10 +44,10 @@ rk update
 When something breaks, run:
 
 ```bash
-rk doctor
+run-kit doctor
 ```
 
-`rk doctor` checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status. Run this first when something isn't working.
+`run-kit doctor` checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status. Run this first when something isn't working.
 
 ## Development
 
@@ -63,7 +63,7 @@ just prod      # run from built binary
 
 run-kit binds to `127.0.0.1` by default. Some browser features (e.g., copy to clipboard, and Web Push notifications — see below) require a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts), and accessing run-kit from other machines on your tailnet does too. Tailscale Serve handles both with zero TLS config.
 
-> **Web Push & secure contexts**: the `rk notify` command pushes OS-level
+> **Web Push & secure contexts**: the `run-kit notify` command pushes OS-level
 > notifications to subscribed browsers (opt in via the `Cmd+K` palette →
 > **Notifications: Enable push**). Web Push requires a secure context — **HTTPS
 > or `localhost`**. Reaching run-kit on `localhost:3000` directly, or over the
@@ -95,7 +95,7 @@ tailscale serve off
 
 ### Advanced: Custom hostname
 
-Serve run-kit under a stable hostname like `runner1.<tailnet>.ts.net` instead of the machine name — the URL survives moving rk to another host.
+Serve run-kit under a stable hostname like `runner1.<tailnet>.ts.net` instead of the machine name — the URL survives moving run-kit to another host.
 
 Services need a tagged node. Do these in order:
 

@@ -230,12 +230,22 @@ delegating wrapper lifts that freeze — hook *logic* changes now ship with the
 binary on `brew upgrade rk`, no settings churn, no session restarts.
 
 **Install-time path resolution** (`resolveRkPath()`): the `<abs-rk>` embedded in
-the wrapper is resolved once per `runAgentSetup` invocation — prefer
-`exec.LookPath("rk")` (on Homebrew this yields the STABLE symlink
-`/home/linuxbrew/.linuxbrew/bin/rk` or `/opt/homebrew/bin/rk`, NOT the
-version-pinned Cellar path), falling back to `os.Executable()` **without**
-`filepath.EvalSymlinks` (resolution would pin the Cellar version and re-freeze
-the hook — the exact failure this change removes). Before any merge the path is
+the wrapper is resolved once per `runAgentSetup` invocation. Since
+`260709-gidk-swap-canonical-cli-name-run-kit` it prefers
+`exec.LookPath("run-kit")` (the new canonical name), then falls back to
+`exec.LookPath("rk")`, then `os.Executable()`. Either LookPath hit yields the
+STABLE Homebrew symlink (`/home/linuxbrew/.linuxbrew/bin/{run-kit,rk}` or
+`/opt/homebrew/bin/{run-kit,rk}`, NOT the version-pinned Cellar path) — both
+stable symlinks resolve to the same binary, so the order is functionally
+equivalent; run-kit-first just matches the new canonical identity, and the
+existing `resolveRkPath` test is order-agnostic (asserts only non-empty +
+absolute). The `os.Executable()` fallback runs **without** `filepath.EvalSymlinks`
+(resolution would pin the Cellar version and re-freeze the hook — the exact
+failure `260707-qfps` removed). **Installed hooks embedding `…/bin/rk` remain
+valid indefinitely**: `rk` stays a real on-PATH symlink (per the canonical-swap
+invariants — see [architecture](/run-kit/architecture.md) § Homebrew Distribution),
+so a hook resolved to `/opt/homebrew/bin/rk` before the swap keeps working after
+it. Before any merge the path is
 run through `validateHookPath`: a path containing any of `' " $ ` backslash (all
 shell-active inside the wrapper's double-in-single quoting) **fails the install
 with a clear error** — reject-don't-escape (escaping would have to survive three
@@ -415,10 +425,10 @@ command shape, so deferring it loses nothing.
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
 
 ### Reject (don't escape) shell-unsafe rk paths; never Cellar-pin
-**Decision**: resolve `<abs-rk>` via `LookPath("rk")` → `os.Executable()` without
-`EvalSymlinks`, and `validateHookPath`-reject any path containing `' " $ `
-backslash with a clear install-time error rather than escaping it or silently
-falling back to bare `rk`.
+**Decision**: resolve `<abs-rk>` via `LookPath("run-kit")` → `LookPath("rk")` →
+`os.Executable()` without `EvalSymlinks`, and `validateHookPath`-reject any path
+containing `' " $ ` backslash with a clear install-time error rather than escaping
+it or silently falling back to bare `rk`.
 **Why**: hook-env PATH is untrustworthy, so the absolute path must be embedded;
 `EvalSymlinks` would pin the version-locked Cellar path and re-freeze the hook
 (defeating the whole change); escaping would have to survive three nested quoting
@@ -427,6 +437,10 @@ fallback reintroduces the PATH dependency the absolute path exists to remove. Su
 paths never occur under Homebrew/conventional layouts, and agent-setup is
 interactive so the user sees the error and can act.
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
+*Extended by*: `260709-gidk-swap-canonical-cli-name-run-kit` — the LookPath order
+became `run-kit`-first (`rk` fallback) to match the new canonical command name;
+both stable symlinks hit the same binary so the change is functionally equivalent
+and the order-agnostic test is unchanged.
 
 ### Target the pane's server via `tmux.OriginalTMUX`, not `$TMUX`
 **Decision**: derive the `-S <socket>` server-targeting prefix from

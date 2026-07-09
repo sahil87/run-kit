@@ -8,7 +8,7 @@ import (
 )
 
 // withResolveExe swaps resolveExeFn to return the given path/err for the test's
-// duration. Tests use this to satisfy the /Cellar/rk/ Homebrew-install guard
+// duration. Tests use this to satisfy the /Cellar/run-kit/ Homebrew-install guard
 // without depending on the test binary's real location.
 func withResolveExe(t *testing.T, path string, err error) {
 	t.Helper()
@@ -87,7 +87,7 @@ func TestUpdate_SkipBrewUpdateFlag_Registered(t *testing.T) {
 
 func TestUpdate_SkipBrewUpdate_OmitsUpdateButUpgradesAndRestarts(t *testing.T) {
 	resetSkipFlag(t)
-	withResolveExe(t, "/opt/homebrew/Cellar/rk/9.9.9/bin/rk", nil)
+	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
 
 	var rec []string
 	// stable 9.9.9 differs from compiled-in version ("dev"), so the up-to-date
@@ -115,14 +115,14 @@ func TestUpdate_SkipBrewUpdate_OmitsUpdateButUpgradesAndRestarts(t *testing.T) {
 	if restartCalls != 1 {
 		t.Errorf("restartDaemonFn called %d times, want 1", restartCalls)
 	}
-	if !strings.HasSuffix(restartPath, "/bin/rk") {
-		t.Errorf("restart bin path = %q, want it to end with /bin/rk", restartPath)
+	if !strings.HasSuffix(restartPath, "/bin/run-kit") {
+		t.Errorf("restart bin path = %q, want it to end with /bin/run-kit", restartPath)
 	}
 }
 
 func TestUpdate_Default_RunsUpdateAndUpgradeAndRestarts(t *testing.T) {
 	resetSkipFlag(t)
-	withResolveExe(t, "/opt/homebrew/Cellar/rk/9.9.9/bin/rk", nil)
+	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
 
 	var rec []string
 	withBrewRecorder(t, &rec, brewInfoJSON("9.9.9"))
@@ -149,7 +149,7 @@ func TestUpdate_Default_RunsUpdateAndUpgradeAndRestarts(t *testing.T) {
 
 func TestUpdate_SkipBrewUpdate_ShortCircuitsWhenUpToDate(t *testing.T) {
 	resetSkipFlag(t)
-	withResolveExe(t, "/opt/homebrew/Cellar/rk/dev/bin/rk", nil)
+	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/dev/bin/run-kit", nil)
 
 	var rec []string
 	// stable equals compiled-in version ("dev"): up-to-date short-circuit fires.

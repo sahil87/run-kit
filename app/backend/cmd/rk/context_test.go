@@ -106,7 +106,7 @@ func TestContextCapabilitiesSections(t *testing.T) {
 	}
 
 	// All listed subcommands present, including the Web Push notify channel.
-	for _, cmd := range []string{"rk serve", "rk update", "rk doctor", "rk status", "rk context", "rk init-conf", "rk notify"} {
+	for _, cmd := range []string{"run-kit serve", "run-kit update", "run-kit doctor", "run-kit status", "run-kit context", "run-kit init-conf", "run-kit notify"} {
 		if !strings.Contains(output, cmd) {
 			t.Errorf("expected '%s' in CLI commands listing", cmd)
 		}

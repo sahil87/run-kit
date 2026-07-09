@@ -1,4 +1,4 @@
-class Rk < Formula
+class RunKit < Formula
   desc "Tmux session manager with web UI"
   homepage "https://github.com/sahil87/run-kit"
   version "VERSION_PLACEHOLDER"
@@ -27,12 +27,12 @@ class Rk < Formula
   end
 
   def install
-    bin.install "rk"
-    bin.install_symlink bin/"rk" => "run-kit"
+    bin.install "rk" => "run-kit"
+    bin.install_symlink bin/"run-kit" => "rk"
   end
 
   test do
-    assert_match "rk version", shell_output("#{bin}/rk --version")
-    assert_match "rk version", shell_output("#{bin}/run-kit --version")
+    assert_match "run-kit version", shell_output("#{bin}/run-kit --version")
+    assert_match "run-kit version", shell_output("#{bin}/rk --version")
   end
 end

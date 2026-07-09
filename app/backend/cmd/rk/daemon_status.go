@@ -48,15 +48,15 @@ type statusPort struct {
 
 var daemonStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show rk daemon state and current port owner",
-	Long: `Show rk daemon state and current port owner. Read-only — no
+	Short: "Show run-kit daemon state and current port owner",
+	Long: `Show run-kit daemon state and current port owner. Read-only — no
 SIGTERM, SIGKILL, or tmux mutation is issued.
 
 Reports:
   - daemon state (running / not running) with socket, session, window, target
-  - current port owner (free / held by the rk daemon / held by another process)
+  - current port owner (free / held by the run-kit daemon / held by another process)
 
-Not to be confused with 'rk status' (top-level tmux session summary).`,
+Not to be confused with 'run-kit status' (top-level tmux session summary).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		jsonOut, _ := cmd.Flags().GetBool("json")
 
@@ -144,14 +144,14 @@ func writeStatusText(cmd *cobra.Command, running bool, innerPID int, host string
 	case portStateFree:
 		fmt.Fprintf(out, "Port:      %s:%d — free\n", host, port)
 	case portStateHeldByDaemon:
-		fmt.Fprintf(out, "Port:      %s:%d — held by the rk daemon (PID %d)\n", host, port, owner.PID)
+		fmt.Fprintf(out, "Port:      %s:%d — held by the run-kit daemon (PID %d)\n", host, port, owner.PID)
 	case portStateHeldByOther:
 		cmdName := owner.Command
 		if cmdName == "" {
 			cmdName = "unknown"
 		}
 		fmt.Fprintf(out, "Port:      %s:%d — held by PID %d (%s, foreground)\n", host, port, owner.PID, cmdName)
-		fmt.Fprintf(out, "           To reclaim: `rk daemon stop --force` or `kill %d`\n", owner.PID)
+		fmt.Fprintf(out, "           To reclaim: `run-kit daemon stop --force` or `kill %d`\n", owner.PID)
 	case portStateUnknown:
 		fmt.Fprintf(out, "Port:      %s:%d — unknown (lookup failed)\n", host, port)
 		if lookupErr != nil {

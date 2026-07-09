@@ -11,7 +11,7 @@ import (
 var version = "dev"
 
 // displayVersion prefixes a numeric version with "v" to match the sahil87
-// toolkit standard (e.g. "rk version v1.5.3"). The "dev" sentinel used for
+// toolkit standard (e.g. "run-kit version v1.5.3"). The "dev" sentinel used for
 // non-ldflags builds is left untouched so we don't end up with "vdev".
 func displayVersion() string {
 	if version == "dev" || strings.HasPrefix(version, "v") {
@@ -21,8 +21,8 @@ func displayVersion() string {
 }
 
 var rootCmd = &cobra.Command{
-	Use:     "rk",
-	Short:   "rk — tmux session manager with web UI",
+	Use:     "run-kit",
+	Short:   "run-kit — tmux session manager with web UI",
 	Version: displayVersion(),
 	// No-args invocation defaults to serve (backwards compat).
 	RunE: func(cmd *cobra.Command, args []string) error {

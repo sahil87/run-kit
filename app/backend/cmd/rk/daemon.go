@@ -6,10 +6,10 @@ import (
 
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
-	Short: "Manage the background rk daemon (tmux-managed rk serve)",
-	Long: `Manage the background rk daemon — an rk serve instance running in a
+	Short: "Manage the background run-kit daemon (tmux-managed run-kit serve)",
+	Long: `Manage the background run-kit daemon — a run-kit serve instance running in a
 dedicated rk-daemon tmux session. The daemon survives shell exits and SSH
-disconnects; the foreground rk serve does not.
+disconnects; the foreground run-kit serve does not.
 
 Subcommands:
   start    Start the daemon
@@ -17,7 +17,7 @@ Subcommands:
   restart  Stop and start the daemon
   status   Show daemon state and current port owner
 
-See 'rk daemon <subcommand> --help' for flags on each.`,
+See 'run-kit daemon <subcommand> --help' for flags on each.`,
 }
 
 func init() {

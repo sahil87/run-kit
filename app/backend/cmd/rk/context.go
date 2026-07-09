@@ -122,7 +122,7 @@ func writeCapabilities(b *strings.Builder) {
 	b.WriteString("For example, a service on port 8080 is available at `/proxy/8080/`.\n\n")
 
 	b.WriteString("### Visual Display Recipe\n\n")
-	b.WriteString("Canonical 4-step flow to display HTML content to the user in an iframe window. Every step SHALL fail silently if its prerequisite is unavailable (rk missing, port in use, server fails to start) — skip remaining steps without surfacing an error.\n\n")
+	b.WriteString("Canonical 4-step flow to display HTML content to the user in an iframe window. Every step SHALL fail silently if its prerequisite is unavailable (run-kit missing, port in use, server fails to start) — skip remaining steps without surfacing an error.\n\n")
 	b.WriteString("1. **Generate HTML** to a known location (e.g., `~/.agent/diagrams/`, a temp directory, or the project tree).\n")
 	b.WriteString("2. **Serve it** — start a local HTTP server bound to loopback (not exposed on LAN):\n\n")
 	b.WriteString("   ```sh\n")
@@ -134,21 +134,21 @@ func writeCapabilities(b *strings.Builder) {
 	b.WriteString("   tmux set-option -w @rk_type iframe\n")
 	b.WriteString("   tmux set-option -w @rk_url /proxy/<port>/<filename>\n")
 	b.WriteString("   ```\n\n")
-	b.WriteString("4. **Fail silently** — if any step fails (rk missing, port in use, server start fails), skip remaining steps without error.\n\n")
+	b.WriteString("4. **Fail silently** — if any step fails (run-kit missing, port in use, server start fails), skip remaining steps without error.\n\n")
 
 	b.WriteString("### CLI Commands\n\n")
 	b.WriteString("**Server**\n\n")
-	b.WriteString("- `rk serve` — Start the HTTP server\n")
-	b.WriteString("- `rk update` — Update rk to the latest version\n\n")
+	b.WriteString("- `run-kit serve` — Start the HTTP server\n")
+	b.WriteString("- `run-kit update` — Update run-kit to the latest version\n\n")
 	b.WriteString("**Workflow**\n\n")
-	b.WriteString("- `rk riff` — Create a worktree, tmux window, and Claude Code session\n")
-	b.WriteString("- `rk notify <message> [--title]` — Send a Web Push notification to subscribed devices (fail-silent)\n\n")
+	b.WriteString("- `run-kit riff` — Create a worktree, tmux window, and Claude Code session\n")
+	b.WriteString("- `run-kit notify <message> [--title]` — Send a Web Push notification to subscribed devices (fail-silent)\n\n")
 	b.WriteString("**Diagnostics**\n\n")
-	b.WriteString("- `rk doctor` — Check runtime dependencies\n")
-	b.WriteString("- `rk status` — Show tmux session summary\n\n")
+	b.WriteString("- `run-kit doctor` — Check runtime dependencies\n")
+	b.WriteString("- `run-kit status` — Show tmux session summary\n\n")
 	b.WriteString("**Info**\n\n")
-	b.WriteString("- `rk context` — Show agent-optimized environment info\n")
-	b.WriteString("- `rk init-conf` — Scaffold default tmux.conf and tmux.d/ directory\n\n")
+	b.WriteString("- `run-kit context` — Show agent-optimized environment info\n")
+	b.WriteString("- `run-kit init-conf` — Scaffold default tmux.conf and tmux.d/ directory\n\n")
 }
 
 // writeConventions writes the static Conventions section.
@@ -171,7 +171,7 @@ func runContext(cmd *cobra.Command, _ []string) error {
 
 	var b strings.Builder
 
-	b.WriteString("# rk context\n\n")
+	b.WriteString("# run-kit context\n\n")
 
 	writeEnvironment(ctx, &b)
 	writeCapabilities(&b)

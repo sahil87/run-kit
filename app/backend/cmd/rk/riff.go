@@ -92,7 +92,7 @@ Prerequisites:
   - 'fab' on PATH is optional: it is used to resolve the launcher (see below);
     when absent, the default launcher is used.
 
-Flags before -- are parsed by rk; flags after -- are forwarded verbatim to
+Flags before -- are parsed by run-kit; flags after -- are forwarded verbatim to
 wt create (e.g., --worktree-name, --base, --reuse). Run 'wt create --help' to
 see the available passthrough flags.
 
@@ -108,10 +108,10 @@ Launcher resolution:
   PATH or the call fails, falls back to 'claude --dangerously-skip-permissions'.
 
 Presets:
-  Named invocations like 'rk riff ship' or 'rk riff --preset ship' pull
+  Named invocations like 'run-kit riff ship' or 'run-kit riff --preset ship' pull
   layout, panes, and wt_args from fab/project/config.yaml under riff.presets.
   CLI --skill/--cmd flags replace the preset's panes entirely. CLI --layout
-  overrides preset layout. Run 'rk riff --list-presets' to see defined presets.
+  overrides preset layout. Run 'run-kit riff --list-presets' to see defined presets.
 
 Count:
   --count N (short -N) creates N worktree/window pairs in parallel, each with
@@ -120,15 +120,15 @@ Count:
   before returning a non-zero exit.
 
 Examples:
-  rk riff                                                # default: 1 pane, /fab-discuss
-  rk riff --skill /review                                # single-pane with specific skill
-  rk riff --skill /fab-fff --cmd "just dev"              # 2 panes (even-horizontal by default)
-  rk riff --cmd --skill /fab --cmd htop --skill          # 4 interleaved panes (auto-tiled)
-  rk riff --skill /a --cmd x --cmd y --layout main-vertical
-  rk riff ship                                           # invoke the 'ship' preset
-  rk riff --preset investigate                           # named-flag preset alias
-  rk riff ship --count 3                                 # 3 parallel ship workspaces (also: -N 3)
-  rk riff -- --worktree-name pacing-canyon               # name the worktree
+  run-kit riff                                           # default: 1 pane, /fab-discuss
+  run-kit riff --skill /review                           # single-pane with specific skill
+  run-kit riff --skill /fab-fff --cmd "just dev"         # 2 panes (even-horizontal by default)
+  run-kit riff --cmd --skill /fab --cmd htop --skill     # 4 interleaved panes (auto-tiled)
+  run-kit riff --skill /a --cmd x --cmd y --layout main-vertical
+  run-kit riff ship                                      # invoke the 'ship' preset
+  run-kit riff --preset investigate                      # named-flag preset alias
+  run-kit riff ship --count 3                            # 3 parallel ship workspaces (also: -N 3)
+  run-kit riff -- --worktree-name pacing-canyon          # name the worktree
 
 Exit codes:
   0  success
@@ -278,7 +278,7 @@ func runRiff(cmd *cobra.Command, args []string) error {
 
 	// Step 4a: count validation — must be ≥ 1.
 	if riffCountFlag < 1 {
-		return &exitCodeError{code: 1, msg: fmt.Sprintf("rk riff: --count requires a positive integer (got %d)", riffCountFlag)}
+		return &exitCodeError{code: 1, msg: fmt.Sprintf("run-kit riff: --count requires a positive integer (got %d)", riffCountFlag)}
 	}
 
 	// Step 4b: layout validation — resolve to canonical or error with full list.
@@ -342,10 +342,10 @@ func runRiff(cmd *cobra.Command, args []string) error {
 // value via `tmux.OriginalTMUX`, which is captured before init() runs.
 func checkPreconditions() error {
 	if tmux.OriginalTMUX == "" {
-		return preconditionErr("rk riff: not inside a tmux session ($TMUX unset) — start tmux first")
+		return preconditionErr("run-kit riff: not inside a tmux session ($TMUX unset) — start tmux first")
 	}
 	if _, err := exec.LookPath("wt"); err != nil {
-		return preconditionErr("rk riff: wt not found on PATH (required companion tool — see https://github.com/sahil87/wt)")
+		return preconditionErr("run-kit riff: wt not found on PATH (required companion tool — see https://github.com/sahil87/wt)")
 	}
 	return nil
 }
@@ -444,12 +444,12 @@ func resolveActivePreset(args []string, positionalCandidate, presetFlag string, 
 	positionalMatch := positionalCandidate != "" && hasPreset(available, positionalCandidate)
 
 	if presetFlag != "" && positionalMatch {
-		return nil, args, fmt.Errorf("rk riff: positional preset %q and --preset %q are mutually exclusive", positionalCandidate, presetFlag)
+		return nil, args, fmt.Errorf("run-kit riff: positional preset %q and --preset %q are mutually exclusive", positionalCandidate, presetFlag)
 	}
 	if presetFlag != "" {
 		p, ok := available[presetFlag]
 		if !ok {
-			return nil, args, fmt.Errorf("rk riff: unknown preset %q (defined: %s)", presetFlag, joinPresetNames(available))
+			return nil, args, fmt.Errorf("run-kit riff: unknown preset %q (defined: %s)", presetFlag, joinPresetNames(available))
 		}
 		return &p, args, nil
 	}
@@ -525,7 +525,7 @@ func resolveEffectiveSpec(cliPanes []PaneSpec, layoutExplicit bool, layoutCanoni
 	case preset != nil && preset.Layout != "":
 		canonical, err := resolveLayout(preset.Layout)
 		if err != nil {
-			return effectiveSpec{}, &exitCodeError{code: 1, msg: fmt.Sprintf("rk riff: preset layout invalid: %v", err)}
+			return effectiveSpec{}, &exitCodeError{code: 1, msg: fmt.Sprintf("run-kit riff: preset layout invalid: %v", err)}
 		}
 		spec.Layout = canonical
 	default:
@@ -576,15 +576,15 @@ func runWtCreate(parent context.Context, passthrough []string) (string, error) {
 	out, runErr := cmd.CombinedOutput()
 	output := string(out)
 	if runErr != nil {
-		return "", subprocessErr("rk riff: wt create failed: %v\n%s", runErr, output)
+		return "", subprocessErr("run-kit riff: wt create failed: %v\n%s", runErr, output)
 	}
 
 	path := parseWorktreePath(output)
 	if path == "" {
-		return "", subprocessErr("rk riff: could not find 'Path:' line in wt output:\n%s", output)
+		return "", subprocessErr("run-kit riff: could not find 'Path:' line in wt output:\n%s", output)
 	}
 	if info, err := os.Stat(path); err != nil || !info.IsDir() {
-		return "", subprocessErr("rk riff: worktree path %q does not exist or is not a directory\n%s", path, output)
+		return "", subprocessErr("run-kit riff: worktree path %q does not exist or is not a directory\n%s", path, output)
 	}
 	return path, nil
 }
@@ -789,7 +789,7 @@ func spawnRiffReturningName(ctx context.Context, worktreePath string, spec effec
 		// Reaching this branch means a caller bypassed that resolver; fail
 		// fast rather than silently succeeding with no window/panes (which
 		// would leak any worktree already created upstream).
-		return resolvedName, &exitCodeError{code: 1, msg: "rk riff: spawnRiff invariant violated: spec.Panes is empty"}
+		return resolvedName, &exitCodeError{code: 1, msg: "run-kit riff: spawnRiff invariant violated: spec.Panes is empty"}
 	}
 
 	// Pane 0 — `tmux new-window -P -F '#{pane_id}'` so we can target the
@@ -843,11 +843,11 @@ func runTmuxNewWindowCapturePaneID(parent context.Context, argv []string) (strin
 		if errors.As(err, &exitErr) {
 			stderr = string(exitErr.Stderr)
 		}
-		return "", subprocessErr("rk riff: tmux new-window failed: %v\n%s", err, stderr)
+		return "", subprocessErr("run-kit riff: tmux new-window failed: %v\n%s", err, stderr)
 	}
 	id, parseErr := parsePaneID(string(stdout))
 	if parseErr != nil {
-		return "", subprocessErr("rk riff: tmux new-window output parse failed: %v", parseErr)
+		return "", subprocessErr("run-kit riff: tmux new-window output parse failed: %v", parseErr)
 	}
 	return id, nil
 }
@@ -863,7 +863,7 @@ func runTmuxArgv(parent context.Context, argv []string) error {
 	cmd.Env = tmuxChildEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return subprocessErr("rk riff: tmux %s failed: %v\n%s", argv[0], err, string(out))
+		return subprocessErr("run-kit riff: tmux %s failed: %v\n%s", argv[0], err, string(out))
 	}
 	return nil
 }
@@ -1007,7 +1007,7 @@ func runCount(ctx context.Context, spec effectiveSpec) error {
 	if errors.As(firstErr, &ece) {
 		return ece
 	}
-	return subprocessErr("rk riff: fan-out failed: %v", firstErr)
+	return subprocessErr("run-kit riff: fan-out failed: %v", firstErr)
 }
 
 // rollbackFanOut invokes wt delete per worktree and tmux kill-window per
@@ -1020,12 +1020,12 @@ func runCount(ctx context.Context, spec effectiveSpec) error {
 func rollbackFanOut(ctx context.Context, plan rollbackPlan) {
 	for _, wtName := range plan.Worktrees {
 		if err := runWtDelete(ctx, wtName); err != nil {
-			fmt.Fprintf(os.Stderr, "rk riff: rollback warning: wt delete %s failed: %v\n", wtName, err)
+			fmt.Fprintf(os.Stderr, "run-kit riff: rollback warning: wt delete %s failed: %v\n", wtName, err)
 		}
 	}
 	for _, winName := range plan.Windows {
 		if err := runTmuxArgv(ctx, []string{"kill-window", "-t", winName}); err != nil {
-			fmt.Fprintf(os.Stderr, "rk riff: rollback warning: tmux kill-window %s failed: %v\n", winName, err)
+			fmt.Fprintf(os.Stderr, "run-kit riff: rollback warning: tmux kill-window %s failed: %v\n", winName, err)
 		}
 	}
 }
@@ -1094,7 +1094,7 @@ func listWindowNames(ctx context.Context) ([]string, error) {
 	cmd.Env = tmuxChildEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, subprocessErr("rk riff: tmux list-windows failed: %v\n%s", err, string(out))
+		return nil, subprocessErr("run-kit riff: tmux list-windows failed: %v\n%s", err, string(out))
 	}
 
 	var names []string

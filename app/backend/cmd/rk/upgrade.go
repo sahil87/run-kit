@@ -54,7 +54,7 @@ var runBrewFn = func(ctx context.Context, args ...string) ([]byte, error) {
 var restartDaemonFn = daemon.RestartWithBinary
 
 // resolveExeFn is the package-level seam for resolving this binary's on-disk
-// path (used to detect a Homebrew install via the /Cellar/rk/ marker). Defaults
+// path (used to detect a Homebrew install via the /Cellar/run-kit/ marker). Defaults
 // to os.Executable + EvalSymlinks; tests stub it to return a synthetic Cellar
 // path so the upgrade/restart code path is reachable independent of the test
 // binary's real location.
@@ -78,18 +78,17 @@ func init() {
 var updateCmd = &cobra.Command{
 	Use:     "update",
 	Aliases: []string{"upgrade"},
-	Short:   "Update rk to the latest version",
+	Short:   "Update run-kit to the latest version",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		resolved, err := resolveExeFn()
 		if err != nil {
 			return fmt.Errorf("could not determine executable path: %w", err)
 		}
 
-		if !strings.Contains(resolved, "/Cellar/rk/") {
-			fmt.Printf("rk v%s was not installed via Homebrew.\n", version)
+		if !strings.Contains(resolved, "/Cellar/run-kit/") {
+			fmt.Printf("run-kit v%s was not installed via Homebrew.\n", version)
 			fmt.Println("Update manually (git pull && just build), or reinstall with:")
-			fmt.Println("  brew tap sahil87/tap")
-			fmt.Println("  brew install rk")
+			fmt.Println("  brew install sahil87/tap/run-kit")
 			return nil
 		}
 
@@ -109,7 +108,7 @@ var updateCmd = &cobra.Command{
 		infoCtx, infoCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer infoCancel()
 
-		infoOut, err := runBrewFn(infoCtx, "info", "--json=v2", "sahil87/tap/rk")
+		infoOut, err := runBrewFn(infoCtx, "info", "--json=v2", "sahil87/tap/run-kit")
 		if err != nil {
 			return fmt.Errorf("could not determine latest version: %w", err)
 		}
@@ -129,28 +128,28 @@ var updateCmd = &cobra.Command{
 		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewTimeout)
 		defer upgradeCancel()
 
-		if _, err := runBrewFn(upgradeCtx, "upgrade", "sahil87/tap/rk"); err != nil {
+		if _, err := runBrewFn(upgradeCtx, "upgrade", "sahil87/tap/run-kit"); err != nil {
 			return fmt.Errorf("brew upgrade failed: %w", err)
 		}
 
 		fmt.Printf("Updated to v%s.\n", latest)
 
 		// Derive the stable Homebrew bin symlink from the Cellar path.
-		// resolved is e.g. /opt/homebrew/Cellar/rk/0.5.3/bin/rk
-		// We want:         /opt/homebrew/bin/rk
-		cellarIdx := strings.Index(resolved, "/Cellar/rk/")
+		// resolved is e.g. /opt/homebrew/Cellar/run-kit/0.5.3/bin/run-kit
+		// We want:         /opt/homebrew/bin/run-kit
+		cellarIdx := strings.Index(resolved, "/Cellar/run-kit/")
 		if cellarIdx == -1 {
 			return fmt.Errorf("could not derive brew prefix from %s", resolved)
 		}
-		brewBinPath := resolved[:cellarIdx] + "/bin/rk"
+		brewBinPath := resolved[:cellarIdx] + "/bin/run-kit"
 
 		// Restart daemon so it picks up the new binary.
 		// Idempotent: if no daemon is running, this starts one.
-		fmt.Println("Restarting rk daemon...")
+		fmt.Println("Restarting run-kit daemon...")
 		if err := restartDaemonFn(brewBinPath); err != nil {
 			return fmt.Errorf("restarting daemon after upgrade: %w", err)
 		}
-		fmt.Printf("rk daemon started (%s/%s/%s)\n",
+		fmt.Printf("run-kit daemon started (%s/%s/%s)\n",
 			daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
 
 		return nil

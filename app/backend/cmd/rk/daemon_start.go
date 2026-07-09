@@ -24,22 +24,22 @@ const portInUseSubstring = "already serving on"
 
 var daemonStartCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start the rk daemon",
-	Long: `Start the rk daemon — an rk serve instance running in a dedicated
+	Short: "Start the run-kit daemon",
+	Long: `Start the run-kit daemon — a run-kit serve instance running in a dedicated
 rk-daemon tmux session.
 
-Without --force, behaves like the historical 'rk serve -d': calls daemon.Start()
+Without --force, behaves like the historical 'run-kit serve -d': calls daemon.Start()
 and surfaces the port-probe refusal if another process holds the port.
 
 With --force, on a port-in-use refusal: locates the port owner via lsof/ss and
 SIGTERMs it (with graceful-then-forceful escalation), then retries the start.
-Refuses to --force-kill the rk daemon itself.`,
+Refuses to --force-kill the run-kit daemon itself.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 
 		err := daemon.Start()
 		if err == nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "rk daemon started (%s/%s/%s)\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "run-kit daemon started (%s/%s/%s)\n",
 				daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
 			return nil
 		}
@@ -67,7 +67,7 @@ Refuses to --force-kill the rk daemon itself.`,
 		if err := daemon.Start(); err != nil {
 			return fmt.Errorf("starting daemon after --force port reclaim: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "rk daemon started (%s/%s/%s)\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "run-kit daemon started (%s/%s/%s)\n",
 			daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
 		return nil
 	},

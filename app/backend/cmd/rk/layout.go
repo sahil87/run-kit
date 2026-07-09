@@ -42,7 +42,7 @@ func resolveLayout(raw string) (string, error) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	return "", fmt.Errorf("rk riff: unknown --layout %q (valid values: %s)", raw, strings.Join(keys, ", "))
+	return "", fmt.Errorf("run-kit riff: unknown --layout %q (valid values: %s)", raw, strings.Join(keys, ", "))
 }
 
 // autoLayout maps a pane count to the layout that `auto` resolves to:

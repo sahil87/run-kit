@@ -70,11 +70,11 @@ Environment variables:
   RK_PORT    Port to bind (default 3000)
 
 Examples:
-  rk serve                              # foreground on 127.0.0.1:3000
-  RK_HOST=0.0.0.0 RK_PORT=8080 rk serve # bind all interfaces, port 8080
+  run-kit serve                              # foreground on 127.0.0.1:3000
+  RK_HOST=0.0.0.0 RK_PORT=8080 run-kit serve # bind all interfaces, port 8080
 
-To run rk as a background daemon, see 'rk daemon start' (and the rest of the
-'rk daemon' subcommand tree).`,
+To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest of the
+'run-kit daemon' subcommand tree).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.Load()
 

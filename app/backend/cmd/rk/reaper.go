@@ -26,17 +26,17 @@ with the prefix — brute-force-by-prefix, with no liveness protection:
   - matched dead sockets   → removed (the daemon already exited)
   - matched *.lock files   → removed
 
-Bare "rk reaper" is equivalent to "rk reaper --prefix rk-test", matching every
+Bare "run-kit reaper" is equivalent to "run-kit reaper --prefix rk-test", matching every
 rk-test* server, socket, and lock file. Pass --prefix to target a different
 family (e.g. --prefix proj reaps proj*).
 
 There is NO PID-liveness gate: a matched candidate reaps unconditionally, so
 the operator running this asserts that nothing live needs the matched sockets.
-DO NOT run rk reaper (bare or --prefix) while tests are running — it will kill
+DO NOT run run-kit reaper (bare or --prefix) while tests are running — it will kill
 their live tmux servers. The automatic post-sweep in TestMain protects
 concurrent test processes; this manual tool relies on the human.
 
-Dry-run is the DEFAULT. Bare "rk reaper" (and --prefix) print the match list
+Dry-run is the DEFAULT. Bare "run-kit reaper" (and --prefix) print the match list
 with each entry's classified action (kill/remove) and touch NOTHING. Pass --yes
 (or --force) to actually reap.
 

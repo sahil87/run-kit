@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 18
@@ -33,14 +33,14 @@ stage_metrics:
     apply: {started_at: "2026-07-09T13:41:49Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-09T13:48:55Z"}
     review: {started_at: "2026-07-09T13:48:55Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-09T13:55:00Z"}
     hydrate: {started_at: "2026-07-09T13:55:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-09T13:55:00Z"}
-    ship: {started_at: "2026-07-09T13:55:00Z", driver: fab-fff, iterations: 2}
-    review-pr: {iterations: 1}
+    ship: {started_at: "2026-07-09T13:55:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-09T13:56:45Z"}
+    review-pr: {started_at: "2026-07-09T13:56:45Z", driver: git-pr, iterations: 2}
 prs:
     - https://github.com/sahil87/run-kit/pull/333
 true_impact:
-    added: 860
+    added: 866
     deleted: 282
-    net: 578
+    net: 584
     excluding:
         added: 304
         deleted: 250
@@ -49,8 +49,8 @@ true_impact:
         added: 50
         deleted: 36
         net: 14
-    computed_at: "2026-07-09T13:55:00Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-07-09T13:56:45Z"
+    computed_at_stage: ship
 summary: 'Swap canonical CLI command name to run-kit (rk stays a permanent, fully-interchangeable alias): static Cobra Use/Short, help-dump tool: run-kit, formula run-kit.rb with install-time rk->run-kit rename + rk symlink back, upgrade.go /Cellar/run-kit/ + sahil87/tap/run-kit markers, run-kit-first resolveRkPath, dual-name shell completion, docs re-voiced. Internals (module path, cmd/rk/, RK_* env, rk-daemon, ~/.rk/, artifact names) stay rk.'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-09T13:55:00Z
+last_updated: 2026-07-09T13:56:45Z

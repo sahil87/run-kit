@@ -113,7 +113,10 @@ export function ServerPanel({
         scrollSnapType: "x mandatory",
       }
     : {
-        gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
+        // 88px floor (matching the mobile column width): the tile's count row
+        // must fit "N sess" plus the waiting rollup badge side by side — at the
+        // old 72px floor that pair exactly overflowed the padded content box.
+        gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))",
       };
 
   return (

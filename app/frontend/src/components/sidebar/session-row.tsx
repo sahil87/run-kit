@@ -150,7 +150,7 @@ function SessionRowInner({
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <button
           onClick={() => onToggleCollapse(server, name)}
-          className="text-xs text-text-secondary hover:text-text-primary transition-colors shrink-0 min-h-[36px] flex items-center justify-center"
+          className="text-xs text-text-secondary hover:text-text-primary transition-colors shrink-0 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
           aria-expanded={!isCollapsed}
           aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${session.name}`}
         >
@@ -168,7 +168,7 @@ function SessionRowInner({
             e.stopPropagation();
             if (editingSession !== name) onDoubleClickName(server, name);
           }}
-          className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors py-1 min-h-[36px] min-w-0 flex-1"
+          className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors py-px min-h-[24px] coarse:min-h-[36px] min-w-0 flex-1"
           aria-label={`Navigate to ${session.name}`}
         >
           {editingSession === session.name ? (
@@ -206,7 +206,7 @@ function SessionRowInner({
               setShowColorPicker((v) => !v);
             }}
             aria-label={`Set color for ${session.name}`}
-            className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[36px] flex items-center justify-center"
+            className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
           >
             <PaletteIcon />
           </button>
@@ -214,14 +214,14 @@ function SessionRowInner({
         <button
           onClick={() => onCreateWindow(server, name)}
           aria-label={`New window in ${session.name}`}
-          className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
+          className="text-text-secondary hover:text-text-primary transition-colors text-[16px] px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
         >
           +
         </button>
         <button
           onClick={(e) => onKillClick(server, name, session.windows.length, e.ctrlKey || e.metaKey)}
           aria-label={`Kill session ${session.name}`}
-          className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[36px] flex items-center justify-center"
+          className="text-text-secondary hover:text-red-400 transition-colors text-[16px] px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
         >
           {"\u2715"}
         </button>

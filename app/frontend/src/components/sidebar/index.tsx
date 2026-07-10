@@ -1500,7 +1500,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               const sessionRowKey = `${server}:${session.name}`;
               const windowGroupId = `windows-${server}-${session.name}`;
               return (
-                <div key={session.name} className={`mb-2${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
+                <div key={session.name} className={`mb-1${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
                   <SessionRow
                     server={server}
                     session={session}

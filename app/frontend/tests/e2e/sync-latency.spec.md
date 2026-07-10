@@ -76,13 +76,12 @@ expanded).
 1. `setup`.
 2. Assert session B is visible.
 3. If `New window in ${SESSION_B}` button is visible:
-   a. Scope to SESSION_B's window rows — the per-session `div.mb-2` wrapper
-      (unique to the session wrapper in `sidebar/index.tsx`) that `has`
-      SESSION_B's `Navigate to ` button — and count its `[data-window-id]`
-      rows (the stable window-row handle; real `@N` ids and `ghost-<id>`
-      rows alike). Anchoring on `div.mb-2` resolves to exactly SESSION_B's
-      wrapper, so no `.first()` is needed (a bare `div` filter would match
-      the whole-server container and over-count every session's rows).
+   a. Scope to SESSION_B's window rows — the per-session wrapper's stable
+      `data-session-group="${SESSION_B}"` handle (`sidebar/index.tsx`) —
+      and count its `[data-window-id]` rows (the stable window-row handle;
+      real `@N` ids and `ghost-<id>` rows alike). The attribute is keyed by
+      session name, so it selects exactly SESSION_B's wrapper without
+      relational `has` filtering.
    b. Start the timer, then click the `+` button. If a dialog appears (it
       doesn't for the current-server sidebar `+`, which is instant), click
       its `Create` button.

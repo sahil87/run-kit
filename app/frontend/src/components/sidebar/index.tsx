@@ -1500,7 +1500,14 @@ function ServerGroupInner(props: ServerGroupProps) {
               const sessionRowKey = `${server}:${session.name}`;
               const windowGroupId = `windows-${server}-${session.name}`;
               return (
-                <div key={session.name} className={`mb-1${isGhostSession ? " opacity-50 animate-pulse" : ""}`}>
+                <div
+                  key={session.name}
+                  // Stable per-session wrapper handle for tests (e.g.
+                  // sync-latency scopes window-row counts to one session) —
+                  // don't couple selectors to the spacing utility classes.
+                  data-session-group={session.name}
+                  className={`mb-1${isGhostSession ? " opacity-50 animate-pulse" : ""}`}
+                >
                   <SessionRow
                     server={server}
                     session={session}

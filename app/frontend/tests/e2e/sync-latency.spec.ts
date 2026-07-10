@@ -169,25 +169,17 @@ test.describe("Sync Latency Audit", () => {
     const newWinBtn = sidebar.locator(`button[aria-label='New window in ${SESSION_B}']`);
 
     if (await newWinBtn.isVisible().catch(() => false)) {
-      // Scope to SESSION_B's window rows. The session wrapper has no
-      // `data-session` attribute, so we locate it relationally by anchoring on
-      // the per-session wrapper class `div.mb-2` (unique to the session
-      // wrapper at sidebar/index.tsx:1117) that `has` SESSION_B's
-      // `Navigate to ` button, then count its `[data-window-id]` descendants.
-      // `div.mb-2` + `.filter({ has })` resolves to exactly SESSION_B's
-      // wrapper, so `.first()` is deliberately NOT used: a bare
-      // `.locator("div").filter({ has }).first()` would resolve to the
-      // outermost matching ancestor — the whole-server Sessions container
-      // (index.tsx:731) — and over-count every session's rows.
+      // Scope to SESSION_B's window rows via the wrapper's stable
+      // `data-session-group` handle (sidebar/index.tsx) — keyed by session
+      // name, so it selects exactly SESSION_B's wrapper with no relational
+      // `.filter({ has })` anchoring.
       // `[data-window-id]` is the canonical, stable window-row handle (real
       // windows = tmux `@N`, ghost rows = `ghost-<optimisticId>`) — the same
       // one sidebar-window-sync.spec.ts selects by. The auto-derived window
       // name is unpredictable, so we detect "a new row appeared" by a count
       // increase rather than by name, mirroring test 1's session-level
       // row-count poll.
-      const sessionBGroup = sidebar
-        .locator("div.mb-2")
-        .filter({ has: page.locator(`button[aria-label='Navigate to ${SESSION_B}']`) });
+      const sessionBGroup = sidebar.locator(`[data-session-group="${SESSION_B}"]`);
       const winRows = sessionBGroup.locator("[data-window-id]");
       const beforeCount = await winRows.count();
 

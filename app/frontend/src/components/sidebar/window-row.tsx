@@ -183,12 +183,12 @@ function WindowRowInner({
     // border), tint the left border in accent color so the user sees which
     // windows belong to the board they're viewing.
     if (isSelected) {
-      style.borderLeft = `8px solid ${borderColor ?? "var(--color-accent)"}`;
+      style.borderLeft = `4px solid ${borderColor ?? "var(--color-accent)"}`;
     } else if (isPinnedToActiveBoard) {
-      style.borderLeft = "8px solid var(--color-accent)";
+      style.borderLeft = "4px solid var(--color-accent)";
     } else {
       // Always reserve left border space to prevent text shift between states.
-      style.borderLeft = "8px solid transparent";
+      style.borderLeft = "4px solid transparent";
     }
     return Object.keys(style).length > 0 ? style : undefined;
   }, [tint, uncoloredSelectedTint, isSelected, borderColor, isPinnedToActiveBoard]);
@@ -198,7 +198,9 @@ function WindowRowInner({
   const showPinIcon = !ghost && !!server;
   const buttonClass = useMemo(() => {
     const rightPad = showPinIcon ? "pr-[68px]" : "pr-11";
-    const base = `w-full text-left flex items-center justify-between gap-2 py-1 pl-2 ${rightPad} text-sm transition-colors min-h-[36px]`;
+    // Dense rows on fine pointers (24px); touch keeps the 36px target via the
+    // `coarse:` variant (context.md § Mobile Responsive Design).
+    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-2 ${rightPad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
     if (isSelected) {
       // Colored selected uses tint.selected; uncolored selected borrows gray tint — both via buttonStyle.
       return `${base} text-text-primary font-medium`;
@@ -273,7 +275,7 @@ function WindowRowInner({
               onBlur={onRenameBlur}
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
-              className="text-sm bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
+              className="text-xs bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
               aria-label="Rename window"
             />
           ) : (
@@ -310,7 +312,7 @@ function WindowRowInner({
               isPinnedToAny
                 ? "opacity-100 text-text-secondary hover:text-text-primary"
                 : "opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary"
-            } px-0.5 min-h-[36px] flex items-center justify-center`}
+            } px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center`}
           >
             <PinIcon filled={isPinnedToAny} />
           </button>
@@ -324,7 +326,7 @@ function WindowRowInner({
               e.stopPropagation();
               setShowColorPicker((v) => !v);
             }}
-            className="text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-h-[36px] flex items-center justify-center"
+            className="text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
           >
             <PaletteIcon />
           </button>
@@ -336,7 +338,7 @@ function WindowRowInner({
             e.stopPropagation();
             if (!ghost) onKillClick(srv, session, win.windowId, e.ctrlKey || e.metaKey);
           }}
-          className="text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-1 min-h-[36px] flex items-center justify-center"
+          className="text-[14px] text-text-secondary hover:text-red-400 transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-1 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
         >
           {"\u2715"}
         </button>

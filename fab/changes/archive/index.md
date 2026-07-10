@@ -1,5 +1,7 @@
 # Archived Changes
 
+- **260708-738w-board-autofit** — Board Autofit Toggle
+- **260708-rmiq-board-pane-reorder** — Board Pane Reorder UI
 - **260703-w884-riff-launcher-fab-agent-print** — Delegate `rk riff` launcher resolution to `fab agent --print`
 - **260703-p29w-topbar-refresh-button** — Top-Bar Refresh Button
 - **260703-8y2a-cockpit-http-only-services** — Cockpit HTTP-Only Services

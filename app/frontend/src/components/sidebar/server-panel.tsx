@@ -320,7 +320,11 @@ function ServerTile({
               tile's top-right (this is why the Cockpit tile's absolute top-right
               placement is not copied). WaitingBadge renders null at count <= 0,
               so the common (nothing-waiting) layout is unchanged. */}
-          <div className="flex items-center justify-between mt-0.5">
+          {/* h-4 reserves the badge's full height even when no badge renders:
+              the pill is taller than the count text, so without the reserve the
+              tile (and its whole grid row) would jump in height every time an
+              agent starts/stops waiting. */}
+          <div className="flex h-4 items-center justify-between mt-0.5">
             <div className="text-[10px] leading-tight text-text-secondary">
               {sessionCount} sess
             </div>

@@ -490,6 +490,40 @@ func TestKeyPaneEntriesKeyShapes(t *testing.T) {
 	}
 }
 
+// TestKeyPaneEntriesLegacyPositionalCollision verifies that when multiple
+// empty-pane-ID entries collide on the same legacy positional key
+// (session:windowIndex — e.g. splits in one window under older fab JSON that
+// omits pane IDs), keyPaneEntries preserves the "Change > first-seen" tiebreak:
+// a change-bound entry beats an earlier bare one regardless of order.
+func TestKeyPaneEntriesLegacyPositionalCollision(t *testing.T) {
+	change := "260404-dddd-x"
+
+	// Change-bound entry appears AFTER a bare first-seen entry on the same
+	// positional key. The change-bound one must still win.
+	entries := []paneMapEntry{
+		{Session: "dev", WindowIndex: 0, Pane: ""},                  // bare, first-seen
+		{Session: "dev", WindowIndex: 0, Pane: "", Change: &change}, // change-bound, later
+	}
+	m := keyPaneEntries(entries)
+	if len(m) != 1 {
+		t.Fatalf("got %d keys, want 1 (single positional key dev:0): %v", len(m), m)
+	}
+	if e, ok := m["dev:0"]; !ok || derefStr(e.Change) != change {
+		t.Errorf("positional key dev:0: change-bound entry did not win: ok=%v entry=%+v", ok, e)
+	}
+
+	// Reverse order: change-bound entry seen FIRST must not be overwritten by a
+	// later bare one.
+	entriesRev := []paneMapEntry{
+		{Session: "dev", WindowIndex: 0, Pane: "", Change: &change}, // change-bound, first-seen
+		{Session: "dev", WindowIndex: 0, Pane: ""},                  // bare, later
+	}
+	mRev := keyPaneEntries(entriesRev)
+	if e, ok := mRev["dev:0"]; !ok || derefStr(e.Change) != change {
+		t.Errorf("positional key dev:0: later bare entry clobbered change-bound one: ok=%v entry=%+v", ok, e)
+	}
+}
+
 func TestFetchPaneMapFabNotOnPath(t *testing.T) {
 	// When `fab` is not reachable via $PATH, fetchPaneMap MUST return a
 	// non-nil error and a nil map. We force the failure by clearing PATH

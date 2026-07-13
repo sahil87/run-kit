@@ -164,8 +164,12 @@ func paneMapKey(session string, windowIndex int) string {
 // "session:windowIndex" key instead. The two key shapes cannot collide — a real
 // pane ID always begins with '%', which the positional key never does.
 //
-// A duplicate pane ID (should not occur — pane IDs are unique per server) keeps
-// the first-seen entry, mirroring the previous first-seen tiebreak.
+// On key collision the prior "Change > first-seen" preference is preserved: a
+// change-bound entry (Change != nil) beats a bare first-seen one; otherwise the
+// first-seen entry wins. This matters only for the legacy positional key, where
+// multiple empty-pane-ID entries can share a "session:windowIndex" key (splits
+// in one window). A duplicate real pane ID should not occur (pane IDs are unique
+// per server); if one did, the same tiebreak applies.
 func keyPaneEntries(entries []paneMapEntry) map[string]paneMapEntry {
 	m := make(map[string]paneMapEntry, len(entries))
 	for _, e := range entries {
@@ -173,7 +177,13 @@ func keyPaneEntries(entries []paneMapEntry) map[string]paneMapEntry {
 		if key == "" {
 			key = paneMapKey(e.Session, e.WindowIndex)
 		}
-		if _, ok := m[key]; !ok {
+		existing, ok := m[key]
+		if !ok {
+			m[key] = e
+			continue
+		}
+		// Collision. Change-bound entry beats a bare first-seen one.
+		if existing.Change == nil && e.Change != nil {
 			m[key] = e
 		}
 	}

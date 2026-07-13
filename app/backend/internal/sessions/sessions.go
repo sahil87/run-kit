@@ -87,8 +87,9 @@ type paneMapEntry struct {
 }
 
 // fetchPaneMap runs `fab pane map --json --all-sessions` via the fab router on
-// PATH and returns a lookup map keyed by "session:windowIndex". When server is
-// non-empty, it is passed as `-L <server>` so the subprocess targets the same
+// PATH and returns a lookup map keyed by stable tmux pane ID (see
+// keyPaneEntries — entries with no pane ID fall back to a legacy positional
+// key). When server is non-empty, it is passed as `-L <server>` so the subprocess targets the same
 // tmux socket the backend is querying; otherwise fab falls back to $TMUX or
 // the default socket.
 //
@@ -142,30 +143,37 @@ func fetchPaneMap(server string) (map[string]paneMapEntry, error) {
 		return nil, err
 	}
 
-	return dedupEntries(entries), nil
+	return keyPaneEntries(entries), nil
 }
 
-// dedupEntries collapses pane-map entries that belong to the same window,
-// preferring the change-bound pane. Priority: Change > first-seen. The
-// collision key is the window each pane belongs to. The external
-// `fab pane map` tool identifies a window only by (session, window_index), so
-// that pair is the window-grouping key here; FetchSessions then re-keys the
-// result by the window's stable WindowID before joining (see FetchSessions).
+// paneMapKey builds the legacy positional key for an entry's window. It is used
+// only for entries with no stable pane ID (see keyPaneEntries) and by the join's
+// legacy fallback (see FetchSessions), so both sides agree on the exact shape.
+func paneMapKey(session string, windowIndex int) string {
+	return fmt.Sprintf("%s:%d", session, windowIndex)
+}
+
+// keyPaneEntries builds the fetch-time pane-map lookup keyed by the STABLE tmux
+// pane ID (e.g. "%12"), one entry per pane. It performs NO window-level dedup:
+// which window a pane belongs to is only knowable against a fresh tmux snapshot,
+// so the change-bound-vs-first-seen preference among a window's panes moves to
+// join time (see FetchSessions' enrichment loop), not here.
 //
-// The former AgentState tiebreak arm is gone since 260705-dmex: agent state no
-// longer rides the pane map (it comes from the @rk_agent_state pane option), so
-// the only richer-state signal left in the map is Change.
-func dedupEntries(entries []paneMapEntry) map[string]paneMapEntry {
+// Fallback: an entry with an empty Pane field (a hypothetical older fab JSON that
+// omits the pane ID) is stored under the legacy positional
+// "session:windowIndex" key instead. The two key shapes cannot collide — a real
+// pane ID always begins with '%', which the positional key never does.
+//
+// A duplicate pane ID (should not occur — pane IDs are unique per server) keeps
+// the first-seen entry, mirroring the previous first-seen tiebreak.
+func keyPaneEntries(entries []paneMapEntry) map[string]paneMapEntry {
 	m := make(map[string]paneMapEntry, len(entries))
 	for _, e := range entries {
-		key := fmt.Sprintf("%s:%d", e.Session, e.WindowIndex)
-		existing, ok := m[key]
-		if !ok {
-			m[key] = e
-			continue
+		key := e.Pane
+		if key == "" {
+			key = paneMapKey(e.Session, e.WindowIndex)
 		}
-		// Multiple panes in the same window (splits). Priority: Change > first-seen.
-		if e.Change != nil && existing.Change == nil {
+		if _, ok := m[key]; !ok {
 			m[key] = e
 		}
 	}
@@ -566,6 +574,72 @@ func enrichWindowPR(w *tmux.WindowInfo) {
 	}
 }
 
+// sessionData pairs a session's tmux info with its fresh window snapshot. It is
+// the unit FetchSessions fans out per session and the input to the pane-map
+// enrichment join (joinPaneMapByWindow).
+type sessionData struct {
+	info    tmux.SessionInfo
+	windows []tmux.WindowInfo
+}
+
+// joinPaneMapByWindow attributes each fetch-time pane-map entry to a window of
+// the FRESH snapshot and returns a map keyed by the window's stable WindowID
+// (feeding FetchSessions' fab-field assignment). paneMap is keyed by stable pane
+// ID (see keyPaneEntries).
+//
+// For each fresh window, it walks the window's panes IN ORDER and looks each
+// pane's PaneID up in paneMap. Among the matching candidate entries of a single
+// window, selection preserves the prior fetch-time dedup semantics exactly:
+// a change-bound entry (Change != nil) wins; otherwise the first-seen candidate
+// (pane order) wins. If NO pane of the window matched a pane-ID key, it falls
+// back to the legacy positional "session:index" key once, covering empty-pane-ID
+// entries keyed positionally by keyPaneEntries.
+//
+// Because the join key is the stable pane ID against the fresh snapshot, a stale
+// cached paneMap can never misattribute one window's fab state to another across
+// a reorder/move: an entry can only ever attach to the window that actually
+// contains its pane. A pane absent from the fresh snapshot contributes nothing.
+//
+// Pure function (no I/O) so the join is unit-testable directly, mirroring the
+// parseWindows/rollupAgentState/applyActiveWindow split.
+func joinPaneMapByWindow(paneMap map[string]paneMapEntry, data []sessionData) map[string]paneMapEntry {
+	enrichByWindowID := make(map[string]paneMapEntry, len(paneMap))
+	for _, sd := range data {
+		for j := range sd.windows {
+			w := &sd.windows[j]
+			var selected *paneMapEntry
+			matched := false
+			for k := range w.Panes {
+				entry, ok := paneMap[w.Panes[k].PaneID]
+				if !ok {
+					continue
+				}
+				matched = true
+				e := entry
+				if selected == nil {
+					// First candidate pane wins by default (first-seen).
+					selected = &e
+				} else if selected.Change == nil && e.Change != nil {
+					// Change-bound entry beats a bare first-seen one.
+					selected = &e
+				}
+			}
+			if !matched {
+				// Legacy positional fallback: covers empty-pane-ID entries that
+				// keyPaneEntries stored under "session:windowIndex".
+				if entry, ok := paneMap[paneMapKey(sd.info.Name, w.Index)]; ok {
+					e := entry
+					selected = &e
+				}
+			}
+			if selected != nil {
+				enrichByWindowID[w.WindowID] = *selected
+			}
+		}
+	}
+	return enrichByWindowID
+}
+
 // FetchSessions fetches all sessions from the specified server, derives project
 // roots from tmux, enriches with fab state, and applies the two-tier
 // active-window derivation. The provider supplies the event-tracked active
@@ -582,12 +656,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 		return []ProjectSession{}, nil
 	}
 
-	// Fetch windows for all sessions in parallel
-	type sessionData struct {
-		info    tmux.SessionInfo
-		windows []tmux.WindowInfo
-	}
-
+	// Fetch windows for all sessions in parallel.
 	data := make([]sessionData, len(sessionInfos))
 	var wg sync.WaitGroup
 
@@ -624,22 +693,18 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	gitBranches := resolveGitBranches(ctx, allCwds)
 	cwdMissing := resolveCwdMissing(allCwds)
 
-	// Re-key the pane-map enrichment by stable window ID. The external
-	// `fab pane map` tool (wrapped, not reimplemented — constitution §III) emits
-	// only (session, window_index), so we translate each entry to the window ID of
-	// the live window currently at that (session, index) within this same snapshot.
-	// Joining windows by their stable WindowID (rather than by the mutable index)
-	// means a reorder can never misattribute one window's fab/agent state to
-	// another.
-	enrichByWindowID := make(map[string]paneMapEntry, len(paneMap))
-	for _, sd := range data {
-		for j := range sd.windows {
-			indexKey := fmt.Sprintf("%s:%d", sd.info.Name, sd.windows[j].Index)
-			if entry, ok := paneMap[indexKey]; ok {
-				enrichByWindowID[sd.windows[j].WindowID] = entry
-			}
-		}
-	}
+	// Attribute each cached pane-map entry to a window by STABLE PANE ID against
+	// the FRESH snapshot. The `fab pane map` result is cached (5s TTL) while the
+	// window snapshot below is fresh, so the two can disagree on window INDICES
+	// after a reorder/move. The pane ID is the stable join key: it travels with
+	// its window across swap-window / cross-session move exactly like the window
+	// ID, so a stale cached map can never misattribute enrichment across a
+	// reorder — at worst a pane that is absent from the fresh snapshot simply
+	// contributes nothing. (Contrast the former index join, which glued a
+	// window's fab state to whichever window happened to sit at its old index for
+	// the ~5s the cache was stale.) Empty-pane-ID fallback entries are joined by
+	// the legacy positional key. See joinPaneMapByWindow.
+	enrichByWindowID := joinPaneMapByWindow(paneMap, data)
 
 	// Build result with per-window fab enrichment from pane-map and git branches.
 	nowUnix := time.Now().Unix()

@@ -760,5 +760,46 @@ func TestRollupAgentState(t *testing.T) {
 	})
 }
 
+func TestRollupChat(t *testing.T) {
+	t.Run("active pane wins", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{ChatProvider: "claude", ChatSessionRef: "inactive-ref"},
+			{IsActive: true, ChatProvider: "claude", ChatSessionRef: "active-ref"},
+		}
+		provider, ref := rollupChat(panes)
+		if provider != "claude" || ref != "active-ref" {
+			t.Errorf("got (%q, %q), want (claude, active-ref)", provider, ref)
+		}
+	})
+
+	t.Run("falls back to first pane carrying a chat when active pane has none", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{IsActive: true}, // active pane has no chat
+			{ChatProvider: "claude", ChatSessionRef: "first-set"},
+			{ChatProvider: "codex", ChatSessionRef: "later"},
+		}
+		provider, ref := rollupChat(panes)
+		if provider != "claude" || ref != "first-set" {
+			t.Errorf("got (%q, %q), want (claude, first-set)", provider, ref)
+		}
+	})
+
+	t.Run("no chat on any pane yields empty", func(t *testing.T) {
+		panes := []tmux.PaneInfo{{IsActive: true}, {Command: "zsh"}}
+		provider, ref := rollupChat(panes)
+		if provider != "" || ref != "" {
+			t.Errorf("got (%q, %q), want empty", provider, ref)
+		}
+	})
+
+	t.Run("single agent pane (the common case)", func(t *testing.T) {
+		panes := []tmux.PaneInfo{{IsActive: true, ChatProvider: "claude", ChatSessionRef: "solo"}}
+		provider, ref := rollupChat(panes)
+		if provider != "claude" || ref != "solo" {
+			t.Errorf("got (%q, %q), want (claude, solo)", provider, ref)
+		}
+	})
+}
+
 // strPtr is a test helper returning a pointer to s.
 func strPtr(s string) *string { return &s }

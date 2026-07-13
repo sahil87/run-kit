@@ -516,18 +516,24 @@ func TestParseWindowsMixedTypes(t *testing.T) {
 	}
 }
 
-// paneLine builds a 6-field tab-delimited list-panes line.
-// paneLine builds a 7-field tab-delimited list-panes line with an empty
-// @rk_agent_state (the common case). Use paneLineAgent to carry an agent state.
+// paneLine builds an 8-field tab-delimited list-panes line with an empty
+// @rk_agent_state and empty @rk_chat (the common case). Use paneLineAgent to
+// carry an agent state, or paneLineChat to also carry a chat value.
 func paneLine(windowIndex int, paneID string, paneIndex int, cwd, command string, active int) string {
-	return paneLineAgent(windowIndex, paneID, paneIndex, cwd, command, active, "")
+	return paneLineChat(windowIndex, paneID, paneIndex, cwd, command, active, "", "")
 }
 
-// paneLineAgent builds a 7-field tab-delimited list-panes line including the
-// @rk_agent_state field (field 6).
+// paneLineAgent builds an 8-field tab-delimited list-panes line including the
+// @rk_agent_state field (field 6), with an empty @rk_chat.
 func paneLineAgent(windowIndex int, paneID string, paneIndex int, cwd, command string, active int, agentState string) string {
-	return fmt.Sprintf("%d%s%s%s%d%s%s%s%s%s%d%s%s",
-		windowIndex, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState)
+	return paneLineChat(windowIndex, paneID, paneIndex, cwd, command, active, agentState, "")
+}
+
+// paneLineChat builds an 8-field tab-delimited list-panes line including both the
+// @rk_agent_state field (field 6) and the @rk_chat field (field 7).
+func paneLineChat(windowIndex int, paneID string, paneIndex int, cwd, command string, active int, agentState, chat string) string {
+	return fmt.Sprintf("%d%s%s%s%d%s%s%s%s%s%d%s%s%s%s",
+		windowIndex, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, chat)
 }
 
 // totalPanes sums the number of panes across all windows in the map.
@@ -745,6 +751,116 @@ func TestParsePanes(t *testing.T) {
 			t.Errorf("dead pid: AgentState=%q epoch=%d, want empty/0", p.AgentState, p.AgentStateEpoch)
 		}
 	})
+
+	t.Run("chat ref parsed from field 7", func(t *testing.T) {
+		const uuid = "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"
+		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000", "claude:"+uuid)}
+		p := parsePanes(lines)[0][0]
+		if p.ChatProvider != "claude" || p.ChatSessionRef != uuid {
+			t.Errorf("ChatProvider=%q ChatSessionRef=%q, want claude/%s", p.ChatProvider, p.ChatSessionRef, uuid)
+		}
+	})
+
+	t.Run("unset chat yields empty chat fields", func(t *testing.T) {
+		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000", "")}
+		p := parsePanes(lines)[0][0]
+		if p.ChatProvider != "" || p.ChatSessionRef != "" {
+			t.Errorf("unset chat: ChatProvider=%q ChatSessionRef=%q, want empty", p.ChatProvider, p.ChatSessionRef)
+		}
+	})
+
+	t.Run("malformed chat degrades to empty", func(t *testing.T) {
+		for _, raw := range []string{"claude", "claude:", ":abc", "Claude:abc", "claude:has space"} {
+			lines := []string{paneLineChat(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000", raw)}
+			p := parsePanes(lines)[0][0]
+			if p.ChatProvider != "" || p.ChatSessionRef != "" {
+				t.Errorf("raw %q: ChatProvider=%q ChatSessionRef=%q, want empty", raw, p.ChatProvider, p.ChatSessionRef)
+			}
+		}
+	})
+
+	t.Run("back-compat: a 7-field line (no @rk_chat) is skipped by the < 8 guard", func(t *testing.T) {
+		// The 8th field is required now; a pane emitted without it is skipped
+		// (an option that always resolves — tmux emits an empty field for an
+		// unset user option — so a real 7-field line only occurs pre-upgrade).
+		sevenField := fmt.Sprintf("0%s%%1%s0%s/tmp%sclaude%s1%sactive:1751790000",
+			listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
+		valid := paneLineChat(1, "%2", 0, "/tmp", "claude", 1, "", "")
+		byWindow := parsePanes([]string{sevenField, valid})
+		if totalPanes(byWindow) != 1 {
+			t.Fatalf("got %d panes, want 1 (7-field line skipped)", totalPanes(byWindow))
+		}
+		if byWindow[0] != nil {
+			t.Errorf("byWindow[0] should be nil (7-field line skipped), got %v", byWindow[0])
+		}
+	})
+
+	t.Run("dead pid zeros BOTH agent-state and chat", func(t *testing.T) {
+		restore := agentProcessAlive
+		agentProcessAlive = func(int) bool { return false }
+		defer func() { agentProcessAlive = restore }()
+
+		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000:4242", "claude:abc-123")}
+		p := parsePanes(lines)[0][0]
+		if p.AgentState != "" || p.ChatProvider != "" || p.ChatSessionRef != "" {
+			t.Errorf("dead pid: AgentState=%q Chat=%q/%q, want all empty", p.AgentState, p.ChatProvider, p.ChatSessionRef)
+		}
+	})
+
+	t.Run("shell pane with no live pid-bearing agent-state zeros chat", func(t *testing.T) {
+		// Two-segment (legacy / SessionStart-before-first-prompt) agent-state has
+		// no pid, so a plain-shell pane falls to the shell heuristic and never
+		// surfaces chat.
+		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "bash", 1, "active:1751790000", "claude:abc-123")}
+		p := parsePanes(lines)[0][0]
+		if p.ChatProvider != "" || p.ChatSessionRef != "" {
+			t.Errorf("shell pane: Chat=%q/%q, want empty", p.ChatProvider, p.ChatSessionRef)
+		}
+	})
+
+	t.Run("live wrapped pid keeps chat under a bash command", func(t *testing.T) {
+		// The wrapped-launch case: claude under a non-exec'ing bash wrapper, so
+		// pane_current_command is "bash" while the agent runs. PID liveness wins
+		// over the shell heuristic for chat exactly as it does for agent-state.
+		restore := agentProcessAlive
+		agentProcessAlive = func(pid int) bool { return pid == 4242 }
+		defer func() { agentProcessAlive = restore }()
+
+		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "bash", 1, "waiting:1751790000:4242", "claude:abc-123")}
+		p := parsePanes(lines)[0][0]
+		if p.ChatProvider != "claude" || p.ChatSessionRef != "abc-123" {
+			t.Errorf("live wrapped pid: Chat=%q/%q, want claude/abc-123", p.ChatProvider, p.ChatSessionRef)
+		}
+	})
+}
+
+func TestParseChatRef(t *testing.T) {
+	cases := []struct {
+		raw          string
+		wantProvider string
+		wantRef      string
+	}{
+		{"claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37", "claude", "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"},
+		{"codex:thread-abc", "codex", "thread-abc"},                 // unknown-but-well-formed provider tolerated
+		{"claude:seg1:seg2", "claude", "seg1:seg2"},                 // first-colon split; a colon-bearing ref is preserved
+		{" claude:abc ", "claude", "abc"},                           // surrounding whitespace trimmed
+		{"gpt-4o_mini:x", "gpt-4o_mini", "x"},                       // provider with digits/_/-
+		{"", "", ""},                                                // empty
+		{"claude", "", ""},                                          // no colon
+		{"claude:", "", ""},                                         // empty ref
+		{":abc", "", ""},                                            // empty provider
+		{"Claude:abc", "", ""},                                      // uppercase provider rejected
+		{"9claude:abc", "", ""},                                     // provider must start with a-z
+		{"cla ude:abc", "", ""},                                     // space in provider
+		{"claude:has space", "", ""},                                // whitespace in ref
+		{"claude:tab\there", "", ""},                                // control char in ref
+	}
+	for _, c := range cases {
+		provider, ref := parseChatRef(c.raw)
+		if provider != c.wantProvider || ref != c.wantRef {
+			t.Errorf("parseChatRef(%q) = (%q, %q), want (%q, %q)", c.raw, provider, ref, c.wantProvider, c.wantRef)
+		}
+	}
 }
 
 func TestParseAgentState(t *testing.T) {

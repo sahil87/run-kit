@@ -81,7 +81,7 @@ Agents: fill in your row when you create the change; mark Done when the PR merge
 
 | # | Slug (suggested) | Depends on | Change folder | PR | Status |
 |---|------------------|-----------|---------------|----|--------|
-| 1 | `chat-session-identity` | — | | | not started |
+| 1 | `chat-session-identity` | — | `260713-nh86-chat-session-identity` | | in progress |
 | 2 | `chat-read-backend` | 1 | | | not started |
 | 3 | `chat-read-frontend` | 2 | | | not started |
 | 4 | `chat-send` | 3 | | | not started |

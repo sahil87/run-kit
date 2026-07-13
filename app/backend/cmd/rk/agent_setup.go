@@ -144,9 +144,13 @@ func validateHookPath(path string) error {
 // an optional matcher (empty = no matcher), and the fixed state the command
 // writes.
 type agentHook struct {
-	event   string // e.g. "UserPromptSubmit", "PreToolUse", "Notification", "Stop"
+	event   string // e.g. "UserPromptSubmit", "PreToolUse", "Notification", "Stop", "SessionStart"
 	matcher string // optional; empty means the entry carries no "matcher" key
-	state   string // agentStateActive | agentStateWaiting | agentStateIdle
+	// state is the positional token the installed wrapper passes to `rk
+	// agent-hook`: one of agentStateActive|Waiting|Idle (writes @rk_agent_state,
+	// and also stamps @rk_chat when the hook stdin carries a session id) or
+	// agentHookStampToken (writes @rk_chat ONLY — the SessionStart row).
+	state string
 }
 
 // agentConfig is one agent's install target: a display name, the user-global
@@ -186,6 +190,13 @@ func agentRegistry(home string) []agentConfig {
 				{event: "Notification", matcher: "permission_prompt|elicitation_dialog|agent_needs_input", state: agentStateWaiting},
 				{event: "Notification", matcher: "idle_prompt", state: agentStateIdle},
 				{event: "Stop", state: agentStateIdle},
+				// SessionStart stamps @rk_chat only (token "stamp" — see
+				// agentHookStampToken): the pane→session mapping appears within
+				// seconds of session start, before any prompt, and re-stamps on
+				// every session-id rotation (SessionStart fires on startup/resume/
+				// clear/compact). It writes NO agent-state because source=compact
+				// fires mid-turn, where an idle write would clobber a live active.
+				{event: "SessionStart", state: agentHookStampToken},
 			},
 		},
 	}

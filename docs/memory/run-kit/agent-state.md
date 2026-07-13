@@ -1,5 +1,5 @@
 ---
-description: "The `@rk_agent_state` pane-option convention — two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, window rollup, and the `rk agent-setup` installer + `rk agent-hook` binary indirection (stable settings interface, logic in the binary, comm-validated ancestor walk)"
+description: "The `@rk_agent_state` pane-option convention — two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, window rollup, and the `rk agent-setup` installer + `rk agent-hook` binary indirection (stable settings interface, logic in the binary, comm-validated ancestor walk) — plus the sibling `@rk_chat` chat-session-identity convention (`<provider>:<session-ref>` value, stdin-JSON session-id seam in the hook, stamp-only token + SessionStart row, chat reconciliation sharing agent-state's per-pane liveness)"
 type: memory
 ---
 # Agent-State Tier (`@rk_agent_state`)
@@ -351,6 +351,201 @@ The window-level rollup + `waiting > active > idle` precedence + the
 what these surfaces consume — unchanged by `260706-y1ar`, which only added
 consumers.
 
+## Chat Session Identity (`@rk_chat`) — landed `260713-nh86-chat-session-identity`
+
+A **second** pane user option, written by the **same** `rk agent-hook` binary on
+the same hook fires, ties a pane to the **live** agent chat session running in
+it. It is the keystone of the HTML-agent-chat-view stack (chat as a **view over
+the pane** — the pane stays the agent's parent process, Constitution VI): the
+chat-read backend has no key to read a transcript by, and a frontend toggle
+nothing to gate on, without it. This change is backend + hooks + spec only — no
+frontend, no read/stream endpoint (those are later changes in the stack). The
+cross-repo contract is in [`docs/specs/agent-state.md`](../../specs/agent-state.md)
+§ Chat Session Identity; this section records what run-kit actually implemented.
+
+**Why a hook, not derivation.** Claude Code sessions are disk-owned — each
+persists to `~/.claude/projects/<cwd-slug>/<session-id>.jsonl` and any process in
+the cwd can resume by id — but *multiple transcripts share a cwd*, so "which
+session is live in this pane" is underivable from disk/tmux/git. It exists only
+in the hook input JSON, exactly the class of fact **Principle X** reserves for
+hooks.
+
+### The Convention
+
+| Property | Value |
+|----------|-------|
+| Option | `@rk_chat` (const `tmux.ChatOption`) |
+| Scope | tmux **pane** user option (`set-option -p`) |
+| Value | `"<provider>:<session-ref>"` |
+| Example | `claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37` |
+
+- **`<provider>`** — a lowercase token (`[a-z][a-z0-9_-]*`) equal to the
+  `rk agent-setup` registry agent name (v1: `claude`; codex/gemini are additive).
+  The backend routes on this prefix; the frontend gates on presence.
+- **`<session-ref>`** — a provider-defined opaque reference. For `claude` it is
+  the **session UUID only** — NOT the transcript path (the path is derivable from
+  the UUID by glob, so Principle X says carry only the UUID; a colon-free value
+  also keeps parsing trivial). The value is split on the **first** colon
+  (providers never contain a colon; a ref might in principle, so the tail is the
+  ref verbatim).
+- `tmux.ChatOption = "@rk_chat"` is declared **once** in `internal/tmux/tmux.go`;
+  `cmd/rk/agent_hook.go` aliases it (`chatOption = tmux.ChatOption`) rather than
+  re-declaring — one source of truth per binary (A-021), same discipline as
+  `AgentStateOption`.
+
+### Reader: parse + reconcile (`internal/tmux`)
+
+- **`paneFormat` gained an 8th field `#{@rk_chat}`** (after `#{@rk_agent_state}`);
+  `parsePanes`'s skip-guard moved `< 7` → `< 8`. Zero extra subprocess — it rides
+  the existing per-session `list-panes` call.
+- **`PaneInfo` gained `ChatProvider string`** (`json:"chatProvider,omitempty"`)
+  **and `ChatSessionRef string`** (`json:"chatSessionRef,omitempty"`), parsed once
+  in Go so no consumer re-splits the raw value.
+- **`parseChatRef(raw) (provider, ref string)`** — pure helper: trims, splits on
+  the first colon, validates the provider via `isChatProvider` (`[a-z][a-z0-9_-]*`,
+  non-empty) and the ref via `isChatRef` (non-empty, no whitespace/control). Any
+  violation ⇒ `("", "")` (wholly unknown, mirroring `parseAgentState` tolerance).
+  A well-formed **unregistered** provider (e.g. `codex:…`) is NOT rejected —
+  presence-gating is provider-agnostic; adapters are additive.
+- **Chat reconciliation shares agent-state's per-pane liveness decision.**
+  `@rk_chat` carries **no pid of its own** (the two-segment schema is fixed), so
+  liveness comes from the **same pane's `@rk_agent_state`**, written by the same
+  binary on the same fires. This change **restructured** the `parsePanes`
+  reconciler into a single shared `stale` boolean:
+  - agent-state carried a pid (3-segment): `stale = !agentProcessAlive(pid)`.
+  - otherwise (no agent-state yet, or a legacy 2-segment value):
+    `stale = isShellCommand(command)`.
+  - when `stale`, **both** the agent-state fields **and** the chat fields are
+    zeroed. A dead pid zeroes both; a plain-shell/htop pane never surfaces chat.
+  Accepted **false-negative class** (mirrors the agent-state legacy fallback): a
+  *wrapped* launch (`pane_current_command` = `bash` with claude inside) that
+  `SessionStart` stamped but which has no pid-bearing agent-state yet suppresses
+  chat until the first state write lands a pid — it self-heals at the first
+  prompt. A live pid-bearing agent under a `bash` wrapper keeps its chat
+  (liveness wins over the shell heuristic).
+- **No disk validation** — the reconciler does NOT stat
+  `~/.claude/projects/**/<ref>.jsonl`. Per-pane-per-poll filesystem I/O guarding a
+  pathological case; a live agent's transcript exists by construction, and the
+  later chat-read endpoint surfaces a missing transcript naturally as a read
+  error.
+
+### Writer: `rk agent-hook` stdin-JSON seam + chat stamp (`cmd/rk/agent_hook.go`)
+
+Before this change the hook **never read stdin** — state came from the positional
+arg, pid from the process tree, and the payload was ignored (the "read hook JSON
+on stdin" follow-up `260707-qfps` explicitly deferred, scoped here to session
+identity only; state derivation stays in the settings matchers). This change adds
+the stdin seam:
+
+- **`readHookSessionID(r io.Reader) string`** — the conservative stdin parse:
+  - **TTY guard** — if `r` is an `*os.File` in char-device mode
+    (`os.ModeCharDevice`), it is NOT read, so a manual `rk agent-hook` invocation
+    in a terminal never blocks on stdin.
+  - **Bounded** — reads through `io.LimitReader(r, hookStdinReadLimit)` where
+    `hookStdinReadLimit = 1 << 20` (~1 MiB), so a hung/pathological producer can't
+    stall the agent's turn.
+  - **Single object** — `json.Decoder.Decode` into `hookInput{SessionID string
+    json:"session_id"}` returns after ONE complete JSON object, with no dependence
+    on stdin EOF (which the harness docs don't guarantee). Unknown JSON keys are
+    tolerated.
+  - **Validated** — `isValidSessionID` (non-empty, no whitespace/control) mirrors
+    the reader's `isChatRef` so a value the reader would reject is never stamped.
+    (The rule is duplicated in the hook binary because the reader's `isChatRef` is
+    unexported — small and stable, deliberate.)
+  - Injected via the `hookStdinFn` package-var seam (`func() io.Reader { return
+    os.Stdin }`) so tests supply an in-memory reader.
+  - Every failure path returns `""` (no stamp) — never an error.
+- **`writeChat` / `writeChatImpl`** (behind the `writeChatFn` seam, mirroring
+  `writeAgentStateFn`): runs `tmux [-S <socket>] set-option -pt <pane> @rk_chat
+  <provider>:<sessionID>` via `exec.CommandContext` + `agentHookCmdTimeout` (5s),
+  socket derived from **`tmux.OriginalTMUX`** (not `os.Getenv("TMUX")`, same
+  reason as the agent-state write — see § Target the pane's server). `provider` is
+  a fixed registry comm literal and `sessionID` a pre-validated discrete argv
+  element — nothing user-derived is interpolated into a shell string
+  (Constitution I). Errors are swallowed (never-fail).
+- **Token dispatch** — `runAgentHook`'s state param was generalized to a **token**
+  param. `writeState := isAgentState(token)`; a token that is neither a canonical
+  state nor `agentHookStampToken` is a silent no-op. Ordering:
+  1. `active|waiting|idle` → resolve pid via the ancestor walk, `writeAgentState`,
+     **then** stamp `@rk_chat` if stdin yielded a session id. The chat stamp is
+     **ordered after** the agent-state write, so the reader always has the pid it
+     needs to judge chat liveness.
+  2. **stamp-only token** (`agentHookStampToken = "stamp"`) → stamp `@rk_chat`
+     ONLY, no agent-state write. This is the token the SessionStart row uses.
+  3. anything else → no-op.
+- **Stamp on EVERY fire that yields a session id** (states and the stamp token
+  alike), not SessionStart-only, because **session ids rotate on `/clear` and
+  `/compact`** (a one-time stamp goes stale mid-pane-lifetime); every-fire refresh
+  also stamps already-running agents on `brew upgrade rk` with zero settings churn
+  (the `260707-qfps` indirection dividend — the installed wrappers already pipe
+  stdin through to the binary).
+- The never-fail/always-exit-0 contract
+  (`TestAgentHookCmdNeverErrorsOnMalformedInvocation`) is unchanged — the stdin
+  seam adds no new error path.
+
+### Installer: SessionStart registry row (`cmd/rk/agent_setup.go`)
+
+The Claude `agentRegistry` row gained ONE entry:
+
+| Event | Matcher | Writes |
+|-------|---------|--------|
+| `SessionStart` | — | `@rk_chat` **stamp only** (token `stamp`; **no** `@rk_agent_state`) |
+
+- The installed command keeps the exact established wrapper shape via the
+  **unchanged** `agentStateHookCommand(rkPath, state, comm)` — the `state`
+  parameter (renamed conceptually to "the positional token") simply carries the
+  `stamp` literal from `h.state = agentHookStampToken`, producing
+  `sh -c '[ -n "$TMUX_PANE" ] || exit 0; "<abs-rk>" agent-hook --agent claude stamp 2>/dev/null || true'`.
+  **No `rkHookEntry`/`agentStateHookCommand` restructure was needed** — the intake
+  anticipated teaching them to "emit the stamp token", but the token rides the
+  existing `state` field with no code change. The `isRkEntry` marker
+  (`" agent-hook "`) already matches it, so idempotent re-run replacement and
+  `--uninstall` need no marker changes.
+- **SessionStart writes no agent-state** because `source=compact` fires
+  **mid-turn** — an `idle` state write there would clobber a live `active` state.
+  Stamp-only is correct for all four sources (`startup`/`resume`/`clear`/
+  `compact`). SessionStart fires within seconds of session start, so the option
+  appears **before any prompt is submitted** (the acceptance bar) and re-stamps on
+  every session-id rotation.
+- **No `SessionEnd` registration** — writer-side clearing is rejected. Reader-side
+  reconciliation must exist anyway for crash/kill paths, so a `SessionEnd` clear
+  would add a settings entry without removing any reader logic.
+
+### Surfacing: window rollup (`internal/sessions`)
+
+- **`WindowInfo` gained `ChatProvider`/`ChatSessionRef`** (same JSON tags), filled
+  in `FetchSessions` beside the `rollupAgentState` call by the pure
+  **`rollupChat(panes) (provider, ref string)`** helper: the **active pane's**
+  reconciled chat if set, else the **first pane** (in tmux pane order) carrying
+  one; `("", "")` when none. Deterministic — the common case is one agent pane per
+  window; a later change can revisit the multi-pane rule without a backend
+  contract break because **per-pane truth also ships** on
+  `PaneInfo.ChatProvider/ChatSessionRef`.
+- Both `GET /api/sessions` and the SSE `event: sessions` payload carry the new
+  fields automatically via the existing `ProjectSession` marshal — **per window
+  and per pane** — with no new endpoint and no new SSE event type. See
+  [architecture](/run-kit/architecture.md) § API Layer.
+
+### Lifecycle
+
+Same as `@rk_agent_state`: pane options die with the pane — **no GC, no state
+file**. Reader-side reconciliation is the only clearing path (there is
+deliberately no writer-side clear and no `SessionEnd` row, per above).
+
+### Migration — two independent seams
+
+Mirrors the `@rk_agent_state` binary-vs-settings split:
+
+- **Every-fire stamping is binary-only** — it ships in `rk agent-hook` and reaches
+  already-running agents on `brew upgrade rk` with **no settings churn and no
+  session restarts** (the installed wrappers already pipe stdin through).
+- **The `SessionStart` registry row is an event-mapping change** and follows the
+  established rule: **one `rk agent-setup` re-run + session restarts** (harnesses
+  snapshot hook config at session start). Until that re-run lands, running agents
+  still get `@rk_chat` from the every-fire stamping on their existing
+  `active`/`waiting`/`idle` hooks; the SessionStart row only advances *when* the
+  first stamp lands (within seconds of start, before any prompt).
+
 ## Design Decisions
 
 ### Reconciler at `parsePanes` time (`internal/tmux`), rollup at `internal/sessions`
@@ -423,6 +618,12 @@ follow-up.
 settings write regardless; stdin-JSON parsing would not change the installed
 command shape, so deferring it loses nothing.
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
+*Extended by*: `260713-nh86-chat-session-identity` — the deferred stdin-JSON parse
+landed, **scoped to session identity only** (extracting `session_id` for the
+`@rk_chat` stamp), NOT to state derivation. Confirming the deferral's premise: the
+installed command shape was unchanged — the stdin parse is entirely binary-side.
+Agent-*state* is still driven by the settings matchers + the positional token; see
+§ Chat Session Identity → Writer.
 
 ### Reject (don't escape) shell-unsafe rk paths; never Cellar-pin
 **Decision**: resolve `<abs-rk>` via `LookPath("run-kit")` → `LookPath("rk")` →
@@ -441,6 +642,104 @@ interactive so the user sees the error and can act.
 became `run-kit`-first (`rk` fallback) to match the new canonical command name;
 both stable symlinks hit the same binary so the change is functionally equivalent
 and the order-agnostic test is unchanged.
+
+### Session-ref = the session UUID only (not the transcript path)
+**Decision**: `@rk_chat`'s `<session-ref>` for `claude` is the session UUID
+alone, not the transcript path and not both.
+**Why**: the UUID is the official identity for the SDK read APIs, and the
+transcript path is **derivable** from the UUID (the filename IS the UUID —
+`~/.claude/projects/<cwd-slug>/<uuid>.jsonl`, findable by glob), so **Principle X**
+("hooks carry only the underivable") says carry only the UUID. A colon-free value
+also keeps the first-colon split trivial.
+**Rejected**: stamping the full path (redundant with the UUID, and path is
+derivable); stamping both (schema bloat, two sources to keep in sync).
+*Introduced by*: `260713-nh86-chat-session-identity`
+
+### Liveness borrowed from the same pane's `@rk_agent_state` (no pid on `@rk_chat`)
+**Decision**: `@rk_chat` carries no pid segment; the chat reconciler reuses the
+same pane's agent-state pid/shell reconciler outcome (a single shared `stale`
+boolean in `parsePanes`) rather than adding a second liveness source.
+**Why**: one liveness signal per pane, written by the same binary on the same
+fires — a dead agent must zero BOTH agent-state and chat, and it does so from one
+decision. The reconciler restructure (`agentPID > 0 ? !alive : isShellCommand`
+→ `stale`, then zero both field-sets when `stale`) keeps the two tiers provably in
+lockstep.
+**Rejected**: adding a `:<pid>` segment to `@rk_chat` (schema bloat + a duplicate,
+potentially-skewing liveness source); a separate chat-only liveness heuristic.
+*Introduced by*: `260713-nh86-chat-session-identity`
+
+### Every-fire stamp + stamp-only `SessionStart`; no `SessionEnd`
+**Decision**: stamp `@rk_chat` on **every** hook fire that yields a `session_id`
+(the binary reads stdin JSON), **plus** a new SessionStart registry row that is
+**stamp-only** (writes `@rk_chat`, never `@rk_agent_state`). Clearing is
+**reader-side reconciliation only** — no writer-side clear, no `SessionEnd` row.
+**Why**: session ids rotate on `/clear` and `/compact` (re-verified 2026-07-13),
+so a one-time stamp goes stale mid-pane-lifetime — every-fire refresh fixes that
+AND reaches already-running agents on `brew upgrade rk` with zero settings churn
+(binary-only). SessionStart gives "within seconds of session start" before any
+prompt, and is stamp-only because `source=compact` fires mid-turn where an `idle`
+write would clobber a live `active`. Reader reconciliation is mandatory anyway for
+crash/kill paths, so a `SessionEnd` clear adds a settings entry without removing
+any reader logic (mirrors agent-state's no-GC lifecycle).
+**Rejected**: SessionStart-only stamping (goes stale on id rotation); a
+SessionStart *agent-state* write (clobbers a live `active` on compact); a
+`SessionEnd` writer-side clear (redundant with mandatory reconciliation).
+*Introduced by*: `260713-nh86-chat-session-identity`
+
+### Bounded, TTY-guarded, single-object stdin parse; validated before write
+**Decision**: `readHookSessionID` is TTY-guarded (`os.ModeCharDevice` — a manual
+terminal invocation is never read), bounded (`io.LimitReader`, ~1 MiB), decodes a
+**single** JSON object (`json.Decoder.Decode`, no EOF dependence), and validates
+`session_id` with the same rule the reader applies to a ref before stamping.
+Every failure is silent — no stamp — and the agent-state write still proceeds.
+**Why**: the harness docs don't guarantee stdin EOF semantics, so a single-object
+Decode (not `io.ReadAll`) is the correct primitive; the TTY guard keeps a manual
+`rk agent-hook` from blocking; the bound guards a hung producer; validating before
+write keeps a value the reader would reject from ever being stamped (writer/reader
+symmetry). This preserves the tested never-fail contract with no new error path.
+**Rejected**: `io.ReadAll` to EOF (can block indefinitely — no EOF guarantee);
+stamping the raw `session_id` unvalidated (a whitespace/control value the
+reconciler would silently drop).
+*Introduced by*: `260713-nh86-chat-session-identity`
+
+### Subagent (Task-tool) fires carry the ROOT session id — no event restriction
+**Decision**: stamp `@rk_chat` on **all** registered events (no restriction to
+`UserPromptSubmit`/`SessionStart`/`Stop`); the stdin `session_id` on subagent /
+`PreToolUse` fires is treated as the pane's ROOT session, not a sidechain id.
+**Why**: this was the change's one open question (intake Assumption 10, Tentative —
+the harness docs are silent on subagent hook payloads). **Resolved empirically at
+apply**: across **1489** subagent (Task-tool) transcript files on this host, every
+sidechain line carried `sessionId` = the PARENT/root session UUID (subagent
+transcripts nest under `<root-uuid>/subagents/agent-*.jsonl`); **zero** carried a
+distinct id. Root-session identity is exactly what stamping needs, so no event
+restriction is required — upgraded Tentative → Confident.
+**Rejected (as unneeded)**: restricting stamping to
+`UserPromptSubmit`/`SessionStart`/`Stop` — the worst case it guarded against (a
+transiently-wrong sidechain ref that the next main-session fire corrects) does not
+occur.
+*Introduced by*: `260713-nh86-chat-session-identity`
+
+### Window rollup: active pane first, else first set; per-pane truth also ships
+**Decision**: `rollupChat(panes)` returns the active pane's chat if set, else the
+first pane (in tmux order) carrying one; the per-pane `ChatProvider`/
+`ChatSessionRef` are serialized alongside the window rollup.
+**Why**: additive JSON with consumers not yet built (cheap to revise later), the
+common case is one agent pane per window, and shipping per-pane truth means a
+later multi-pane rule change needs no backend contract break. Mirrors
+`rollupAgentState`'s active-first precedence and pure-helper shape.
+**Rejected**: a window-only rollup with no per-pane fields (would force a contract
+break to revisit the multi-pane rule).
+*Introduced by*: `260713-nh86-chat-session-identity`
+
+### No disk validation of the referenced transcript
+**Decision**: the reconciler does NOT stat `~/.claude/projects/**/<ref>.jsonl`.
+**Why**: it would add per-pane-per-poll filesystem I/O to guard a pathological
+case; a live agent's transcript exists by construction, and the later chat-read
+endpoint surfaces a missing transcript naturally as a read error. Keeps chat
+identity derived purely from tmux pane options at request time (Constitution II).
+**Rejected**: stat-on-reconcile (I/O cost with no correctness gain for the live
+case).
+*Introduced by*: `260713-nh86-chat-session-identity`
 
 ### Target the pane's server via `tmux.OriginalTMUX`, not `$TMUX`
 **Decision**: derive the `-S <socket>` server-targeting prefix from

@@ -127,6 +127,14 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Guard the optional engine (NewTestRouter leaves it nil; only NewProdRouter /
+	// NewTestRouterWithRiff wire one). Mirrors the prStatus nil-safe house pattern
+	// — an unwired engine is a server misconfiguration (500), not a client fault.
+	if s.riff == nil {
+		writeError(w, http.StatusInternalServerError, "Riff engine not configured")
+		return
+	}
+
 	// The engine runs the full worktree → window → agent pipeline synchronously
 	// (see the file-header timeout exception). Use a background context bounded
 	// by the aggregate of the engine's own per-subprocess timeouts rather than

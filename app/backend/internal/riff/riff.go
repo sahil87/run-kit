@@ -13,8 +13,8 @@
 //
 //   - The CLI (cmd/rk/riff.go) derives its targets from $TMUX + process cwd and
 //     calls the engine with an EMPTY server label — meaning "target the user's
-//     current tmux server via the restored $TMUX env" (Config.OriginalTMUX),
-//     preserving byte-identical behavior.
+//     current tmux server via the restored $TMUX env" (EffectiveSpec.OriginalTMUX,
+//     sourced from internal/tmux.OriginalTMUX), preserving byte-identical behavior.
 //   - The HTTP handler (api/riff.go) derives its targets from the request +
 //     target session and calls the engine with a NON-EMPTY server label —
 //     meaning "target that tmux server via a `-L <server>` argv prefix" (the

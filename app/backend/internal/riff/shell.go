@@ -150,8 +150,9 @@ func shellWrap(cmd string) string {
 }
 
 // escapeSingleQuotes returns s with every literal ' replaced by the 4-character
-// sequence '\” so the result can be embedded inside a single-quoted shell
-// string (canonical POSIX shell-safe encoding). Pure.
+// sequence '\'' (close the quote, emit a backslash-escaped literal quote, reopen
+// the quote) so the result can be embedded inside a single-quoted shell string
+// (canonical POSIX shell-safe encoding). Pure.
 func escapeSingleQuotes(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)
 }

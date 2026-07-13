@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 16
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-13T16:05:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-13T16:19:02Z"}
     hydrate: {started_at: "2026-07-13T16:19:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-13T16:25:34Z"}
     ship: {started_at: "2026-07-13T16:25:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-13T16:27:38Z"}
-    review-pr: {started_at: "2026-07-13T16:27:38Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-13T16:27:38Z", driver: git-pr, iterations: 1, completed_at: "2026-07-13T16:41:02Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/339
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Added the @rk_chat pane-option chat-session-identity convention: stdin-JSON session-id seam in rk agent-hook, stamp-only SessionStart row, chat reconciliation sharing agent-state liveness, and per-pane/per-window chatProvider/chatSessionRef on GET /api/sessions + SSE'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-13T16:27:38Z
+last_updated: 2026-07-13T16:41:02Z

@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 15
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-13T17:03:13Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-13T17:18:12Z"}
     hydrate: {started_at: "2026-07-13T17:18:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-13T17:27:43Z"}
     ship: {started_at: "2026-07-13T17:27:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-13T17:30:21Z"}
-    review-pr: {started_at: "2026-07-13T17:30:21Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-13T17:30:21Z", driver: git-pr, iterations: 1, completed_at: "2026-07-13T17:40:52Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/341
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Extracted the rk riff spawn engine into internal/riff (parameterized by explicit {server, session, repoRoot}; session threaded on the daemon path) and surfaced it as a web-UI spawn flow: POST /api/riff + GET /api/riff/presets via a dedicated RiffEngine interface with repo-root derived from the target session''s active-pane cwd, plus a spawn-agent dialog with Cmd+K Agent: Spawn and window-switcher + New Agent entry points.'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-13T17:30:21Z
+last_updated: 2026-07-13T17:40:52Z

@@ -56,6 +56,10 @@ type TopBarProps = {
   onToggleSidebar: () => void;
   onCreateSession: () => void;
   onCreateWindow: (session: string) => void;
+  /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
+   *  terminal-mode window-switcher dropdown shows a `+ New Agent` item beside
+   *  `+ New Window`. Absent → no `+ New Agent` (e.g. before AppShell registers). */
+  onSpawnAgent?: (session: string) => void;
   /** Board-mode metadata. Required when `mode === "board"`. */
   boardName?: string;
   paneCount?: number;
@@ -156,6 +160,7 @@ export function TopBar({
   onToggleSidebar,
   onCreateSession,
   onCreateWindow,
+  onSpawnAgent,
   boardName,
   paneCount,
   serverCount,
@@ -339,6 +344,14 @@ export function TopBar({
                 title="Window"
                 onNavigate={handleDropdownNavigate}
                 action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
+                // + New Agent — the second window-switcher entry point for the
+                // web-UI spawn flow (260713-sbk1). Rendered only when AppShell
+                // published an onSpawnAgent handler (terminal route with a session).
+                secondaryAction={
+                  onSpawnAgent
+                    ? { label: "+ New Agent", onAction: () => onSpawnAgent(sessionName) }
+                    : undefined
+                }
                 triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
               />
             </>

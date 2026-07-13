@@ -4,27 +4,14 @@ import (
 	"strings"
 
 	"github.com/spf13/pflag"
+
+	"rk/internal/riff"
 )
 
-// PaneSpec is one pane in the ordered pane list produced by --skill and
-// --cmd flag occurrences (and preset panes lists, after resolution). The
-// Kind field dispatches how Value is interpreted by spawnRiff:
-//
-//	PaneKindSkill: Value is a skill/slash-command string; launched via the
-//	  resolved launcher. Empty Value means "launcher with no skill arg"
-//	  (bare Claude session).
-//	PaneKindCmd: Value is a shell command string. Empty Value means "drop
-//	  into $SHELL" (bare interactive shell).
-type PaneSpec struct {
-	Kind  string // PaneKindSkill or PaneKindCmd
-	Value string
-}
-
-// Reuse constants from internal/fabconfig so there's a single source of truth.
-const (
-	PaneKindSkill = "skill"
-	PaneKindCmd   = "cmd"
-)
+// The pane spec type + kind constants now live in internal/riff (the extracted
+// engine). This file keeps the CLI's argv-parsing machinery (the repeatable
+// --skill/--cmd flag grammar with bare / space / equals forms) and appends into
+// a []riff.PaneSpec that the CLI hands to the engine.
 
 // paneFlag is a pflag.Value implementation that supports three argv forms
 // per occurrence of --skill or --cmd:
@@ -45,7 +32,7 @@ const (
 // behavior (no lookahead). See spec §Design Decisions #1.
 type paneFlag struct {
 	kind   string
-	target *[]PaneSpec
+	target *[]riff.PaneSpec
 	// lookahead, when non-nil, reads the next argv token that pflag is
 	// about to consume as this flag's space-form value. paneFlag cannot
 	// itself see remaining argv (pflag's Value interface is value-only),
@@ -73,13 +60,13 @@ func (p *paneFlag) Set(v string) error {
 	if v == paneBareSentinel {
 		v = ""
 	}
-	*p.target = append(*p.target, PaneSpec{Kind: p.kind, Value: v})
+	*p.target = append(*p.target, riff.PaneSpec{Kind: p.kind, Value: v})
 	return nil
 }
 
 // Type is the type-name shown in --help after the flag, e.g. "--skill <skill>".
 func (p *paneFlag) Type() string {
-	if p.kind == PaneKindSkill {
+	if p.kind == riff.PaneKindSkill {
 		return "skill"
 	}
 	return "cmd"

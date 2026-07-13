@@ -66,10 +66,12 @@ type Checker struct {
 	// package var) so parallel tests don't race a shared seam.
 	fetchFn func(ctx context.Context) (string, error)
 
-	// OnQualify, when set, is invoked with (current, latest) the first time a
-	// check transitions the verdict to qualifying (and again only if it
-	// re-qualifies after being cleared). Wired in serve.go to
-	// sseHub.broadcastUpdateAvailable. Set before Start.
+	// OnQualify, when set, is invoked with (current, latest) whenever a check
+	// changes the qualifying verdict in a way clients must learn about: the first
+	// qualifying transition, a re-qualify after being cleared, AND a
+	// still-qualifying check that reports a newer latest. An unchanged qualifying
+	// latest never re-fires. Wired in serve.go to sseHub.broadcastUpdateAvailable.
+	// Set before Start.
 	OnQualify func(current, latest string)
 }
 

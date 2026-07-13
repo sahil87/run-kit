@@ -78,7 +78,6 @@ type Server struct {
 	services      *ports.Collector
 	prStatus      *prstatus.Collector
 	updateChecker *updatecheck.Checker
-	version       string
 	sseHub        *sseHub
 	sseOnce       sync.Once
 }

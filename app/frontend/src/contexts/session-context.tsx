@@ -245,10 +245,13 @@ export function SessionProvider({ children }: SessionProviderProps) {
   }, []);
 
   // Apply an `event: update-available` payload. Server-global (identical on every
-  // stream), so this arrives once per attached server per tick on multi-server
-  // routes; setting the same {current, latest} object is cheap and idempotent
-  // (React bails out only on identical references, but the churn is bounded to
-  // the ~6h check cadence, not per-tick SSE, so no dedup guard is needed).
+  // stream): the backend delivers it as a cached-on-connect slot (once per SSE
+  // connection, so once per attached server on multi-server routes) and only
+  // re-broadcasts when the qualifying latest changes — NOT on every check tick.
+  // Setting the same {current, latest} object is cheap and idempotent (React
+  // bails out only on identical references, but re-broadcasts are bounded to an
+  // actual version change, far rarer than the ~6h check cadence, so no dedup
+  // guard is needed).
   const applyUpdateAvailable = useCallback((current: string, latest: string) => {
     if (!latest) return;
     setUpdateAvailable((prev) =>

@@ -223,15 +223,12 @@ func (s *Server) SetActiveWindowProvider(provider sessions.ActiveWindowProvider)
 	}
 }
 
-// SetVersion records the running daemon version (ldflags-injected `main.version`)
-// and seeds the SSE hub's server-global `event: version` cached slot. Called from
+// SetVersion seeds the SSE hub's server-global `event: version` cached slot with
+// the running daemon version (ldflags-injected `main.version`). Called from
 // `rk serve` after NewRouterAndServer. Safe to call before any SSE client
 // connects — initSSEHub materialises the hub. The version cannot change for the
-// process lifetime, so the slot is delivered on connect only (no broadcast). The
-// value is also held on the Server so the /api/update handler and the checker
-// wiring can read it.
+// process lifetime, so the slot is delivered on connect only (no broadcast).
 func (s *Server) SetVersion(version string) {
-	s.version = version
 	s.initSSEHub()
 	s.sseHub.setVersion(version)
 }

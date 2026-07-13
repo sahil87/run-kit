@@ -53,7 +53,7 @@ re-splits the raw value. The field rides the existing per-session `list-panes` c
 - **GIVEN** a `list-panes` line carrying an 8th field `claude:<uuid>`
 - **WHEN** `parsePanes` runs
 - **THEN** the resulting `PaneInfo` has `ChatProvider=claude` and `ChatSessionRef=<uuid>`
-- **AND** an existing 7-field line (no `@rk_chat`) still parses with empty chat fields (guard tolerant)
+- **AND** a 7-field line (no `@rk_chat`) is skipped by the `< 8` guard — the 8th field is now required (`@rk_chat` always resolves, tmux emitting an empty field when unset, so a real 7-field line only occurs pre-upgrade)
 
 #### R4: Chat reconciliation colocated with the agent-state reconciler
 In `parsePanes`, immediately after the existing agent-state reconciler, run a chat
@@ -214,7 +214,7 @@ SHALL be filled with this change's folder name.
 
 - [x] T003 Add `#{@rk_chat}` as the 8th `paneFormat` field and move the `parsePanes` skip-guard `< 7` → `< 8`; parse the field via `parseChatRef` into the new `PaneInfo` fields in `app/backend/internal/tmux/tmux.go` <!-- R3 -->
 - [x] T004 Add the chat reconciler in `parsePanes` right after the agent-state reconciler: dead pid (3-segment agent-state) OR shell-command fallback (no pid) zeros the chat fields; a dead pid already zeroing agent-state also zeros chat in `app/backend/internal/tmux/tmux.go` <!-- R4 -->
-- [x] T005 [P] Tests for `parseChatRef` (valid, colon-in-ref, malformed, unknown-provider-tolerated) and for `parsePanes` chat parse + reconciliation (dead pid zeros both; shell zeros chat; live wrapped pid keeps chat; 7-field back-compat) in `app/backend/internal/tmux/tmux_test.go` <!-- R1 R2 R3 R4 -->
+- [x] T005 [P] Tests for `parseChatRef` (valid, colon-in-ref, malformed, unknown-provider-tolerated) and for `parsePanes` chat parse + reconciliation (dead pid zeros both; shell zeros chat; live wrapped pid keeps chat; a 7-field line is skipped by the `< 8` guard) in `app/backend/internal/tmux/tmux_test.go` <!-- R1 R2 R3 R4 -->
 
 ### Phase 3: Writer (stdin JSON + chat stamp + stamp token)
 
@@ -270,7 +270,7 @@ SHALL be filled with this change's folder name.
 
 ### Scenario Coverage
 
-- [x] A-013 R1 R2 R3 R4: `tmux_test.go` exercises `parseChatRef` and `parsePanes` chat parse + all reconciliation branches (dead pid, shell fallback, live wrapped pid, 7-field back-compat).
+- [x] A-013 R1 R2 R3 R4: `tmux_test.go` exercises `parseChatRef` and `parsePanes` chat parse + all reconciliation branches (dead pid, shell fallback, live wrapped pid, a 7-field line skipped by the `< 8` guard).
 - [x] A-014 R5 R6 R7: `agent_hook_test.go` exercises `readHookSessionID`, every-fire dual write, the `stamp`-only path, no-session-id skip, and the extended never-fail contract.
 - [x] A-015 R8: `agent_setup_test.go` exercises SessionStart install, idempotency, and uninstall.
 - [x] A-016 R9: `sessions_test.go` exercises `rollupChat` (active-pane-wins, first-set fallback, none).

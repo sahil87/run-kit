@@ -1,0 +1,55 @@
+id: 4zap
+name: 260713-4zap-update-notify-one-click-upgrade
+created: 2026-07-13T15:55:25Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 18
+    acceptance_count: 26
+    acceptance_completed: 26
+confidence:
+    certain: 9
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 75.6
+        reversibility: 82.4
+        competence: 84.7
+        disambiguation: 80.6
+stage_metrics:
+    intake: {started_at: "2026-07-13T15:55:25Z", driver: fab-new, iterations: 1, completed_at: "2026-07-13T16:01:59Z"}
+    apply: {started_at: "2026-07-13T16:59:35Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-13T17:04:40Z"}
+    review: {started_at: "2026-07-13T17:04:40Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-13T17:14:41Z"}
+    hydrate: {started_at: "2026-07-13T17:14:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-13T17:25:02Z"}
+    ship: {started_at: "2026-07-13T17:25:02Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-13T17:25:02Z"
+    computed_at_stage: hydrate
+summary: 'Update-notify + one-click upgrade: internal/updatecheck GitHub-Releases checker, internal/selfpath shared brew-detection, POST /api/update, SSE event: version + event: update-available, top-bar UpdateChip + palette parity + SSE-reconnect auto-reload'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-13T17:25:02Z

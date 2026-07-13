@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "./command-palette";
+import { buildUpdateActions } from "@/lib/palette-update";
 
 /**
  * Tests for the board-related palette entries — covers conditional visibility
@@ -17,13 +18,22 @@ import { CommandPalette, type PaletteAction } from "./command-palette";
  *     route" rule (`boardRouteActions` renders Leave unconditionally).
  *
  * The mirror is deliberately partial and does NOT reproduce production 1:1: it
- * omits `boardRouteActions`' `fontEntries` (terminal-font trio) and positions
- * `refreshEntry` right after `conditional` rather than after `fontEntries` as
- * production does. It also never executes either production `onSelect` (the
- * mirror wires its own stubs). So these tests verify the entry-shape and
- * visibility RULES the mirror reproduces — not full parity, and not the
- * production selection wiring; treat them as rule checks, not a drift alarm for
- * the parts left out.
+ * omits `boardRouteActions`' `fontEntries` (terminal-font trio) + `helpEntry`
+ * and positions `refreshEntry` right after `conditional` rather than after
+ * `fontEntries` as production does. It also never executes either production
+ * `onSelect` (the mirror wires its own stubs). So these tests verify the
+ * entry-shape and visibility RULES the mirror reproduces — not full parity, and
+ * not the production selection wiring; treat them as rule checks, not a drift
+ * alarm for the parts left out.
+ *
+ * The update entries (`run-kit: Update to v…` / `run-kit: Dismiss Update
+ * Notice`) are the newest AppShell-duplicated block folded into
+ * `boardRouteActions` (260713-4zap) — below `sm` the top-bar UpdateChip is
+ * hidden, so the board palette is a phone user's ONLY update surface. Production
+ * builds them via `buildUpdateActions` (unit-tested in `lib/palette-update.test`
+ * — the source of truth for their shape/gating/wiring); here the mirror only
+ * verifies the qualify-gated presence RULE, matching the `refreshEntry`
+ * treatment.
  */
 
 function openPalette() {
@@ -48,6 +58,12 @@ interface BuildOpts {
    *  assume a populated board) are unaffected. */
   hasEntries?: boolean;
   onUnpinFocused?: () => void;
+  /** A qualifying pending update exists (`qualifies && latest`). Production folds
+   *  the update entries in via `buildUpdateActions`, gated on `qualifies` alone
+   *  (dismissal-independent). Defaults false. */
+  updateLatest?: string | null;
+  onUpdate?: () => void;
+  onDismissUpdate?: () => void;
 }
 
 function buildBoardActions(opts: BuildOpts): PaletteAction[] {
@@ -113,7 +129,17 @@ function buildBoardActions(opts: BuildOpts): PaletteAction[] {
     onSelect: () => opts.onRefresh?.(),
   };
 
-  return [...switchEntries, ...conditional, refreshEntry];
+  // Update entries — folded into boardRouteActions after refresh/help (260713-4zap).
+  // Built via the SAME production helper (`buildUpdateActions`), gated on a
+  // qualifying pending update, dismissal-independent.
+  const updateEntries = buildUpdateActions(
+    opts.updateLatest != null,
+    opts.updateLatest ?? null,
+    () => opts.onUpdate?.(),
+    () => opts.onDismissUpdate?.(),
+  );
+
+  return [...switchEntries, ...conditional, refreshEntry, ...updateEntries];
 }
 
 describe("CmdK Board Actions", () => {
@@ -250,6 +276,46 @@ describe("CmdK Board Actions", () => {
     fireEvent.change(input, { target: { value: "Refresh Page" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("folds in 'run-kit: Update to v…' + 'Dismiss Update Notice' when an update qualifies (260713-4zap)", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      isOnBoardRoute: true,
+      updateLatest: "0.6.0",
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("run-kit: Update to v0.6.0")).toBeInTheDocument();
+    expect(screen.getByText("run-kit: Dismiss Update Notice")).toBeInTheDocument();
+  });
+
+  it("omits the update entries when no update qualifies (260713-4zap)", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      isOnBoardRoute: true,
+      updateLatest: null,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.queryByText(/run-kit: Update to/)).not.toBeInTheDocument();
+    expect(screen.queryByText("run-kit: Dismiss Update Notice")).not.toBeInTheDocument();
+  });
+
+  it("invokes the update handler when 'run-kit: Update to v…' is selected (260713-4zap)", () => {
+    const onUpdate = vi.fn();
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      isOnBoardRoute: true,
+      updateLatest: "0.6.0",
+      onUpdate,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Update to v0.6.0" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onUpdate).toHaveBeenCalledOnce();
   });
 
   it("shows 'Board: Unpin Focused Pane' on a board route with entries (260704-9o7k)", () => {

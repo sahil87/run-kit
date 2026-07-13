@@ -10,10 +10,26 @@ import {
 } from "react";
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
-import { listServers, compareServersRanked, setPreviewScope as apiSetPreviewScope, type ServerInfo } from "@/api/client";
+import { listServers, compareServersRanked, setPreviewScope as apiSetPreviewScope, triggerUpdate, type ServerInfo } from "@/api/client";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
+// localStorage key for per-version update-notice dismissal. The value is the
+// dismissed `latest` version string (e.g. "0.6.0"); a later release with a
+// different version re-shows the chip. No server state (Constitution II).
+const UPDATE_DISMISSED_KEY = "runkit-update-dismissed";
+// Sentinel running version for local (non-ldflags) builds — the update chip and
+// palette actions are suppressed for it.
+const DEV_VERSION = "dev";
+
+/** Pure reload-guard predicate (R10): given the FIRST daemon version this tab
+ *  observed and the NEXT `version` event, decide whether to reload. Reloads only
+ *  when a version was already seen AND the next one differs — never on the first
+ *  connect (firstSeen === null), so there is no reload loop. Exported for unit
+ *  testing; the provider wraps it with a ref + `location.reload()`. */
+export function shouldReloadOnVersion(firstSeen: string | null, next: string): boolean {
+  return firstSeen !== null && next !== firstSeen;
+}
 
 /** Multi-server SessionContext shape. State is keyed by server name; one
  *  EventSource is opened lazily per *attached* server (current server is
@@ -74,6 +90,23 @@ export type SessionContextType = {
    *  per-server pool streams and the dedicated `?metrics=1` stream, since the
    *  event is host-global (identical on every stream). */
   subscribeBoardOrder: (handler: () => void) => () => void;
+  /** The running daemon version reported over the server-global `event: version`
+   *  (no leading "v"). `null` until the first `version` event. */
+  daemonVersion: string | null;
+  /** A pending qualifying (minor/major) update, from the server-global
+   *  `event: update-available`. `null` when no update is pending. */
+  updateAvailable: { current: string; latest: string } | null;
+  /** The latest version the user dismissed the update notice for (localStorage
+   *  `runkit-update-dismissed`), or `null` when none. The chip hides when this
+   *  equals `updateAvailable.latest`; the palette action ignores it. */
+  updateDismissedVersion: string | null;
+  /** Trigger a one-click update: POST /api/update. Best-effort — the daemon
+   *  restart then drops SSE, and the reconnect's differing `version` drives the
+   *  reload guard. Rejects on a non-2xx so the caller can surface an error. */
+  updateNow: () => Promise<void>;
+  /** Dismiss the update notice for the current pending `latest`, persisted
+   *  per-version in localStorage. A later release re-shows the chip. */
+  dismissUpdate: () => void;
 };
 
 export const SessionContext = createContext<SessionContextType | null>(null);
@@ -172,8 +205,69 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // broadcast (`event: services`). Empty array until the first tick — never
   // null, so `/` consumers can map over it unconditionally.
   const [hostServices, setHostServices] = useState<Service[]>([]);
+  // Running daemon version from the server-global `event: version` (no leading
+  // "v"). `null` until the first event. Drives the reload guard + update chip.
+  const [daemonVersion, setDaemonVersion] = useState<string | null>(null);
+  // Pending qualifying update from the server-global `event: update-available`.
+  const [updateAvailable, setUpdateAvailable] = useState<{ current: string; latest: string } | null>(null);
+  // The latest version the user dismissed the notice for (localStorage-backed).
+  const [updateDismissedVersion, setUpdateDismissedVersion] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(UPDATE_DISMISSED_KEY);
+    } catch {
+      return null;
+    }
+  });
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
   const currentServer = useCurrentServerFromRoute();
+
+  // Reload guard (R10): remember the FIRST daemon version this tab observed.
+  // When a LATER `version` event (after an SSE reconnect following a daemon
+  // restart) differs from it, the running binary — and the frontend assets it
+  // embeds — changed under this open tab, so reload once to pick them up. Never
+  // reload on the first connect (firstVersionRef unset), so there is no reload
+  // loop. Held in a ref (not state) so the apply callback is stable and the
+  // comparison never re-runs an effect.
+  const firstVersionRef = useRef<string | null>(null);
+  const applyVersion = useCallback((version: string) => {
+    if (!version) return;
+    setDaemonVersion(version);
+    if (shouldReloadOnVersion(firstVersionRef.current, version)) {
+      // New binary behind the same tab — reload to load its fresh assets.
+      location.reload();
+      return;
+    }
+    // Remember the first version seen (only on the first connect); a later
+    // differing version is handled by the reload branch above.
+    if (firstVersionRef.current === null) {
+      firstVersionRef.current = version;
+    }
+  }, []);
+
+  // Apply an `event: update-available` payload. Server-global (identical on every
+  // stream), so this arrives once per attached server per tick on multi-server
+  // routes; setting the same {current, latest} object is cheap and idempotent
+  // (React bails out only on identical references, but the churn is bounded to
+  // the ~6h check cadence, not per-tick SSE, so no dedup guard is needed).
+  const applyUpdateAvailable = useCallback((current: string, latest: string) => {
+    if (!latest) return;
+    setUpdateAvailable((prev) =>
+      prev && prev.current === current && prev.latest === latest ? prev : { current, latest },
+    );
+  }, []);
+
+  const dismissUpdate = useCallback(() => {
+    const latest = updateAvailable?.latest;
+    if (!latest) return;
+    try {
+      localStorage.setItem(UPDATE_DISMISSED_KEY, latest);
+    } catch {
+      // localStorage unavailable — dismissal is best-effort.
+    }
+    setUpdateDismissedVersion(latest);
+  }, [updateAvailable]);
+
+  const updateNow = useCallback(() => triggerUpdate(), []);
 
   // Last raw host-metrics event payload applied to `hostMetrics`, shared across
   // ALL sources (every per-server stream's `metrics` fan-out + the dedicated
@@ -518,6 +612,31 @@ export function SessionProvider({ children }: SessionProviderProps) {
         fireBoardOrder();
       });
 
+      // version — server-global (sent on connect on every stream). Track the
+      // running daemon version and drive the post-restart reload guard. No
+      // `data.server` filter: host-global, like server-order/board-order.
+      es.addEventListener("version", (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data) as { version?: string };
+          if (typeof data.version === "string") applyVersion(data.version);
+        } catch {
+          // Malformed version event — skip
+        }
+      });
+
+      // update-available — server-global (a pending qualifying update). Store
+      // {current, latest} for the chip + palette. Host-global, no server filter.
+      es.addEventListener("update-available", (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data) as { current?: string; latest?: string };
+          if (typeof data.current === "string" && typeof data.latest === "string") {
+            applyUpdateAvailable(data.current, data.latest);
+          }
+        } catch {
+          // Malformed update-available event — skip
+        }
+      });
+
       // preview — pane-text snapshots for the tile grid, keyed by windowId.
       // Bounded server-side to the sessions this connection declared expanded
       // (setPreviewScope).
@@ -609,7 +728,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // cycles in Strict Mode dev. Real cleanup happens implicitly when the
     // window unloads. The pool dedupes via `pool.has(name)` so re-runs are
     // safe without close-then-reopen.
-  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder]);
+  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, applyVersion, applyUpdateAvailable]);
 
   // Dedicated server-independent host-metrics stream, opened ONLY when no
   // per-server stream is open (`attachedSet` empty — the bare `/` case with
@@ -713,11 +832,33 @@ export function SessionProvider({ children }: SessionProviderProps) {
     es.addEventListener("board-order", () => {
       fireBoardOrder();
     });
+    // `event: version` / `event: update-available` are server-global too, so the
+    // bare `/` Cockpit (zero attached servers) must still learn the daemon
+    // version (reload guard) and any pending update (chip/palette). Mirror the
+    // per-server listeners above.
+    es.addEventListener("version", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data) as { version?: string };
+        if (typeof data.version === "string") applyVersion(data.version);
+      } catch {
+        // Malformed version event — skip
+      }
+    });
+    es.addEventListener("update-available", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data) as { current?: string; latest?: string };
+        if (typeof data.current === "string" && typeof data.latest === "string") {
+          applyUpdateAvailable(data.current, data.latest);
+        }
+      } catch {
+        // Malformed update-available event — skip
+      }
+    });
     // No cleanup close() here — the open/close is driven by `hostMetricsWanted`
     // (the effect body closes the stream when it flips false), not by effect
     // teardown. A cleanup close() would tear down the connection on every
     // StrictMode remount and orphan the ref-guarded reopen.
-  }, [hostMetricsWanted, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder]);
+  }, [hostMetricsWanted, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, applyVersion, applyUpdateAvailable]);
 
   // Derive per-field Maps from the slice Map. Memoized so unrelated re-renders
   // don't churn consumer references. Each Map is a fresh reference whenever
@@ -795,6 +936,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
       attachServer,
       subscribeBoardChange,
       subscribeBoardOrder,
+      daemonVersion,
+      updateAvailable,
+      updateDismissedVersion,
+      updateNow,
+      dismissUpdate,
     }),
     [
       sessionsByServer,
@@ -813,6 +959,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
       attachServer,
       subscribeBoardChange,
       subscribeBoardOrder,
+      daemonVersion,
+      updateAvailable,
+      updateDismissedVersion,
+      updateNow,
+      dismissUpdate,
     ],
   );
 
@@ -837,6 +988,40 @@ export function useSessionContext(): SessionContextType {
   const ctx = useContext(SessionContext);
   if (!ctx) throw new Error("useSessionContext must be used within SessionProvider");
   return ctx;
+}
+
+/** Derived view of the update-notification state, shared by the top-bar chip and
+ *  the command-palette actions so their gating can never drift.
+ *   - `qualifies` — a pending update exists AND the daemon is not the `dev`
+ *     sentinel. (This is the palette's gate; the palette IGNORES dismissal —
+ *     dismissal silences only the ambient chip.)
+ *   - `showChip` — `qualifies` AND not dismissed for the current `latest`. This
+ *     is the chip's visibility gate.
+ *   - `latest` — the pending latest version string (or `null`).
+ *   - `updateNow` / `dismissUpdate` — the context actions, re-exported for
+ *     convenience. */
+export function useUpdateNotification(): {
+  qualifies: boolean;
+  showChip: boolean;
+  latest: string | null;
+  updateNow: () => Promise<void>;
+  dismissUpdate: () => void;
+} {
+  // Tolerant of a missing provider: the update chip/palette are chrome that must
+  // degrade to "no update" (never crash) when mounted outside SessionProvider
+  // — e.g. isolated component tests. Mirrors how NotificationControl's
+  // usePushSubscription never throws without a provider.
+  const ctx = useContext(SessionContext);
+  const daemonVersion = ctx?.daemonVersion ?? null;
+  const updateAvailable = ctx?.updateAvailable ?? null;
+  const updateDismissedVersion = ctx?.updateDismissedVersion ?? null;
+  const updateNow = ctx?.updateNow ?? (() => Promise.resolve());
+  const dismissUpdate = ctx?.dismissUpdate ?? (() => {});
+  const isDev = daemonVersion === DEV_VERSION;
+  const latest = updateAvailable?.latest ?? null;
+  const qualifies = !isDev && latest !== null;
+  const showChip = qualifies && latest !== updateDismissedVersion;
+  return { qualifies, showChip, latest, updateNow, dismissUpdate };
 }
 
 export function useMetrics(): MetricsSnapshot | null {
@@ -906,6 +1091,11 @@ export function StandaloneSessionContextProvider({
     attachServer: value.attachServer ?? (() => {}),
     subscribeBoardChange: value.subscribeBoardChange ?? (() => () => {}),
     subscribeBoardOrder: value.subscribeBoardOrder ?? (() => () => {}),
+    daemonVersion: value.daemonVersion ?? null,
+    updateAvailable: value.updateAvailable ?? null,
+    updateDismissedVersion: value.updateDismissedVersion ?? null,
+    updateNow: value.updateNow ?? (() => Promise.resolve()),
+    dismissUpdate: value.dismissUpdate ?? (() => {}),
   };
   return <SessionContext.Provider value={fullValue}>{children}</SessionContext.Provider>;
 }

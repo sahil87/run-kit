@@ -17,6 +17,7 @@ import (
 	"rk/internal/prstatus"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
+	"rk/internal/updatecheck"
 	"rk/internal/validate"
 )
 
@@ -69,15 +70,17 @@ type TmuxOps interface {
 
 // Server holds handler dependencies.
 type Server struct {
-	logger   *slog.Logger
-	sessions SessionFetcher
-	tmux     TmuxOps
-	hostname string
-	metrics  *metrics.Collector
-	services *ports.Collector
-	prStatus *prstatus.Collector
-	sseHub   *sseHub
-	sseOnce  sync.Once
+	logger        *slog.Logger
+	sessions      SessionFetcher
+	tmux          TmuxOps
+	hostname      string
+	metrics       *metrics.Collector
+	services      *ports.Collector
+	prStatus      *prstatus.Collector
+	updateChecker *updatecheck.Checker
+	version       string
+	sseHub        *sseHub
+	sseOnce       sync.Once
 }
 
 // initSSEHub lazily creates the SSE hub on first use.
@@ -417,6 +420,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
 	r.Post("/api/pr-status/refresh", s.handlePRStatusRefresh)
+	r.Post("/api/update", s.handleUpdate)
 
 	// Server management routes
 	r.Get("/api/servers", s.handleServersList)

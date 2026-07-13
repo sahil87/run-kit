@@ -15,6 +15,7 @@ import (
 	"rk/internal/metrics"
 	"rk/internal/ports"
 	"rk/internal/prstatus"
+	"rk/internal/riff"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 	"rk/internal/updatecheck"
@@ -68,11 +69,28 @@ type TmuxOps interface {
 	ReorderBoard(ctx context.Context, server, windowID, board, before, after string) (string, error)
 }
 
+// RiffEngine is the web-facing seam onto the extracted spawn engine
+// (internal/riff). It is a DEDICATED dependency — deliberately NOT folded into
+// TmuxOps — so the shared mockTmuxOps (used by every handler test) is untouched
+// and the riff handler gets its own focused mock. Mirrors the metrics/services/
+// prStatus collector injection pattern.
+type RiffEngine interface {
+	Spawn(ctx context.Context, opts riff.Options) (riff.Result, error)
+}
+
+// prodRiffEngine wraps the internal/riff package for production use.
+type prodRiffEngine struct{}
+
+func (prodRiffEngine) Spawn(ctx context.Context, opts riff.Options) (riff.Result, error) {
+	return riff.Spawn(ctx, opts)
+}
+
 // Server holds handler dependencies.
 type Server struct {
 	logger        *slog.Logger
 	sessions      SessionFetcher
 	tmux          TmuxOps
+	riff          RiffEngine
 	hostname      string
 	metrics       *metrics.Collector
 	services      *ports.Collector
@@ -354,6 +372,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		logger:   logger,
 		sessions: &prodSessionFetcher{},
 		tmux:     &prodTmuxOps{},
+		riff:     prodRiffEngine{},
 		hostname: hostname,
 		metrics:  mc,
 		services: svc,
@@ -363,11 +382,27 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 }
 
 // NewTestRouter creates a chi router with injectable dependencies for testing.
+// The riff engine is left nil (the riff handler tests inject one directly via
+// NewTestRouterWithRiff); riff-unrelated tests never reach it.
 func NewTestRouter(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, hostname string) chi.Router {
 	s := &Server{
 		logger:   logger,
 		sessions: sf,
 		tmux:     ops,
+		hostname: hostname,
+	}
+	return s.buildRouter()
+}
+
+// NewTestRouterWithRiff is NewTestRouter plus an injected RiffEngine, used by the
+// riff handler tests to supply a mock engine without touching the shared
+// TmuxOps/mockTmuxOps surface.
+func NewTestRouterWithRiff(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, engine RiffEngine, hostname string) chi.Router {
+	s := &Server{
+		logger:   logger,
+		sessions: sf,
+		tmux:     ops,
+		riff:     engine,
 		hostname: hostname,
 	}
 	return s.buildRouter()
@@ -420,6 +455,10 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
 	r.Post("/api/pr-status/refresh", s.handlePRStatusRefresh)
 	r.Post("/api/update", s.handleUpdate)
+
+	// Riff — web-UI agent spawn (POST) + preset list (GET). See api/riff.go.
+	r.Post("/api/riff", s.handleRiffSpawn)
+	r.Get("/api/riff/presets", s.handleRiffPresets)
 
 	// Server management routes
 	r.Get("/api/servers", s.handleServersList)

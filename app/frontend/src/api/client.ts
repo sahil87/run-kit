@@ -611,3 +611,60 @@ export async function subscribePush(subscription: PushSubscriptionJSON): Promise
   });
   if (!res.ok) await throwOnError(res);
 }
+
+// --- Riff (web-UI agent spawn) — 260713-sbk1 ---
+
+/** A riff preset summary for the spawn dialog's dropdown, mirroring the backend
+ *  `GET /api/riff/presets` shape. `layout` is the empty string when unset. */
+export type RiffPreset = {
+  name: string;
+  layout: string;
+  paneCount: number;
+};
+
+/** The response of a successful spawn — enough to navigate to the new window. */
+export type RiffSpawnResult = {
+  server: string;
+  session: string;
+  window: string;
+  windowId: string;
+};
+
+/** Spawn a riff agent window in `session`'s repo. `task` (optional) becomes the
+ *  agent's boot task (auto-submits); an empty task spawns a blank agent session.
+ *  `preset` (optional) selects a riff preset from the session's repo config. On
+ *  success the caller navigates to `/$server/$windowId`. Throws on a non-ok
+ *  response (a 400 carries a human-readable message, e.g. non-repo cwd). */
+export async function spawnRiff(
+  server: string,
+  session: string,
+  task?: string,
+  preset?: string,
+): Promise<RiffSpawnResult> {
+  const body: Record<string, string> = { session };
+  if (task) body.task = task;
+  if (preset) body.preset = preset;
+  const res = await fetch(withServer("/api/riff", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** List the riff presets defined in `session`'s repo (YAML source order; []
+ *  when none). Throws on a non-ok response (e.g. 400 for a non-repo cwd);
+ *  the dialog treats a failure as "no presets" and still allows a task-only
+ *  spawn. */
+export async function getRiffPresets(
+  server: string,
+  session: string,
+): Promise<RiffPreset[]> {
+  const res = await deduplicatedFetch(
+    withServer(`/api/riff/presets?session=${encodeURIComponent(session)}`, server),
+  );
+  if (!res.ok) await throwOnError(res);
+  const data: { presets?: RiffPreset[] } = await res.json();
+  return data.presets ?? [];
+}

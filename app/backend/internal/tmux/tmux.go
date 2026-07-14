@@ -1164,6 +1164,18 @@ func resolveWindowSessionIndex(ctx context.Context, server, windowID string) (st
 // [b a c d]). The source is addressed by its stable window ID; reorder is inherently
 // positional, so the destination remains a numeric index. The window's ID is
 // preserved by the swaps (tmux move-window/swap-window contract).
+//
+// Active-window preservation: tmux pins a session's active window to its *index
+// slot* during swap-window, so after the shuffle a DIFFERENT window would occupy
+// the active slot. To keep the user's viewed terminal from drifting, the session's
+// active window ID is captured before the swaps (from the same list-windows call)
+// and restored with a final session-qualified select-window (-t <session>:@N)
+// appended to the SAME \;-chained invocation — atomic, so no SSE poll or concurrent
+// mutation observes the intermediate active-window state. The target is
+// session-qualified rather than a bare @N because a bare window-id select is
+// ambiguous inside a tmux session group (see SelectWindowInSession). Restoring by
+// stable window ID also handles the edge where the dragged window is itself the
+// active one.
 func MoveWindow(windowID string, dstIndex int, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -1178,16 +1190,29 @@ func MoveWindow(windowID string, dstIndex int, server string) error {
 		return nil
 	}
 
-	// Get sorted window indices so we can bubble via adjacent swaps
-	out, err := tmuxExecServer(ctx, server, "list-windows", "-t", session, "-F", "#{window_index}")
+	// Get sorted window indices so we can bubble via adjacent swaps, and — from the
+	// same call, no extra subprocess — the active window's stable ID so it can be
+	// restored after the shuffle (tmux otherwise pins the active window to its index
+	// slot, drifting it to whatever window lands there).
+	out, err := tmuxExecServer(ctx, server, "list-windows", "-t", session, "-F", "#{window_index}\t#{window_active}\t#{window_id}")
 	if err != nil {
 		return fmt.Errorf("list windows: %w", err)
 	}
 
 	var indices []int
+	var activeWindowID string
 	for _, line := range out {
-		if idx, err := strconv.Atoi(strings.TrimSpace(line)); err == nil {
-			indices = append(indices, idx)
+		fields := strings.Split(strings.TrimSpace(line), "\t")
+		if len(fields) < 3 {
+			continue
+		}
+		idx, err := strconv.Atoi(strings.TrimSpace(fields[0]))
+		if err != nil {
+			continue
+		}
+		indices = append(indices, idx)
+		if strings.TrimSpace(fields[1]) == "1" {
+			activeWindowID = strings.TrimSpace(fields[2])
 		}
 	}
 	sort.Ints(indices)
@@ -1239,8 +1264,22 @@ func MoveWindow(windowID string, dstIndex int, server string) error {
 		dst := fmt.Sprintf("%s:%d", session, indices[pos+step])
 		args = append(args, "swap-window", "-s", src, "-t", dst)
 	}
+	// Restore the pre-shuffle active window by its stable ID, appended to the SAME
+	// chained invocation so the active-window slot is corrected atomically with the
+	// swaps. Reached only on the swap-executing path — the srcIndex==dstIndex and
+	// srcPos==endPos early returns above emit no swaps and no restore.
+	//
+	// The target is session-qualified (<session>:@N), not a bare @N: a bare
+	// window-id select is ambiguous inside a tmux session group — group members
+	// share window membership but keep independent active-window pointers, so a
+	// bare -t @N may set the active window on the wrong member (see
+	// SelectWindowInSession). Qualifying with the owning session pins the restore
+	// to the session whose reorder we just performed.
+	if activeWindowID != "" {
+		args = append(args, ";", "select-window", "-t", fmt.Sprintf("%s:%s", session, activeWindowID))
+	}
 	if _, err := tmuxExecServer(ctx, server, args...); err != nil {
-		return fmt.Errorf("swap-window chain: %w", err)
+		return fmt.Errorf("swap-window/select-window chain: %w", err)
 	}
 	return nil
 }

@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-14T08:04:42Z"}
+{"args":"fix: Dragging a window row in the sidebar to reorder it (or palette Window: Move Up/Down) navigates the viewed terminal to an incorrect window — backend MoveWindow swap-window chain drifts the session's active window (index-pinned during swaps); fix at root by capturing active window ID and appending select-window -t \u003cid\u003e to the same chained tmux invocation","cmd":"fab-new","event":"command","ts":"2026-07-14T08:04:42Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-14T08:06:22Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-14T08:07:41Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-14T08:09:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T08:09:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T08:15:55Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T08:17:04Z"}
+{"event":"review","result":"failed","ts":"2026-07-14T08:28:09Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T08:28:09Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T08:39:39Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T08:41:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-14T08:50:22Z"}
+{"event":"review","result":"passed","ts":"2026-07-14T08:50:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-14T08:53:01Z"}

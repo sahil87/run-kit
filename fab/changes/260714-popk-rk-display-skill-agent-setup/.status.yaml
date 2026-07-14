@@ -1,0 +1,55 @@
+id: popk
+name: 260714-popk-rk-display-skill-agent-setup
+created: 2026-07-14T09:31:19Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 8
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 85.5
+        reversibility: 85.5
+        competence: 89.0
+        disambiguation: 85.5
+stage_metrics:
+    intake: {started_at: "2026-07-14T09:31:19Z", driver: fab-new, iterations: 1, completed_at: "2026-07-14T09:37:30Z"}
+    apply: {started_at: "2026-07-14T09:37:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T09:44:36Z"}
+    review: {started_at: "2026-07-14T09:44:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T09:52:17Z"}
+    hydrate: {started_at: "2026-07-14T09:52:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T09:55:02Z"}
+    ship: {started_at: "2026-07-14T09:55:02Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-14T09:55:02Z"
+    computed_at_stage: hydrate
+summary: rk agent-setup now installs a second artifact — the user-global rk-display Claude Code skill (whole-file, managed-by marker, marker-gated uninstall, thin-pointer body over rk context) — via an applyAgentConfig wrapper over applyAgentHooks + applyAgentSkill
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-14T09:55:02Z

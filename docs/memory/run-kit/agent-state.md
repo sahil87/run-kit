@@ -1,5 +1,5 @@
 ---
-description: "The `@rk_agent_state` pane-option convention — two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, window rollup, and the `rk agent-setup` installer + `rk agent-hook` binary indirection (stable settings interface, logic in the binary, comm-validated ancestor walk) — plus the sibling `@rk_chat` chat-session-identity convention (`<provider>:<session-ref>` value, stdin-JSON session-id seam in the hook, stamp-only token + SessionStart row, chat reconciliation sharing agent-state's per-pane liveness)"
+description: "The `@rk_agent_state` pane-option convention — two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, window rollup, the `rk agent-setup` installer (now two artifacts: settings-hooks merge + whole-file marker-owned `rk-display` skill) + `rk agent-hook` binary indirection (stable settings interface, logic in the binary, comm-validated ancestor walk) — plus the sibling `@rk_chat` chat-session-identity convention (`<provider>:<session-ref>` value, stdin-JSON session-id seam in the hook, stamp-only token + SessionStart row, chat reconciliation sharing agent-state's per-pane liveness)"
 type: memory
 ---
 # Agent-State Tier (`@rk_agent_state`)
@@ -184,10 +184,13 @@ bare invocation (default socket, best effort — the wrapper's `|| true` holds).
 ## `rk agent-setup` — Hook Installer (`cmd/rk/agent_setup.go`)
 
 `rk agent-setup` (registered in `root.go` `init()`) is the explicit opt-in
-installer that writes the hook commands into an agent harness's **user-global**
-config so any session of that agent, anywhere, reports state. Modeled on guppi's
-explicit `agent-setup` command rather than a silent sync ("explicit feels
-honest").
+installer that writes into an agent harness's **user-global** config so any
+session of that agent, anywhere, reports state. Modeled on guppi's explicit
+`agent-setup` command rather than a silent sync ("explicit feels honest").
+Since `260714-popk` it manages **two artifacts per agent** — the settings-hooks
+merge (described here) and the user-global `rk-display` skill (see § Two Managed
+Artifacts). The command surface is unchanged: same `rk agent-setup` /
+`rk agent-setup --uninstall`, now touching two artifacts.
 
 **Per-agent registry** (`agentRegistry(home) []agentConfig`): each `agentConfig`
 carries a display `name`, a `settingsPath`, the agent binary's `comm` (process
@@ -275,18 +278,80 @@ layouts; agent-setup is interactive so the user sees the error and acts).
 - `--uninstall` runs `unmergeHooks`, removing exactly the rk-owned entries; an
   event array that empties is deleted, and a `hooks` object that empties is
   deleted.
-- **Diff + confirm before write**: `applyAgentConfig` renders `current` vs
-  `proposed` as sorted indented JSON; a no-op (identical) is reported and skipped
-  without prompting; otherwise it prints the diff and reads a y/N answer
-  (`confirm`, default No) from an injected `io.Reader` (testable without a TTY).
-  On confirm, `writeSettings` writes mode **0600** (matching user-config
-  sensitivity), creating `~/.claude/` via `MkdirAll` if absent.
+- **Diff + confirm before write**: `applyAgentHooks` (the per-artifact hooks step
+  — see § Two Managed Artifacts) renders `current` vs `proposed` as sorted
+  indented JSON; a no-op (identical) is reported and skipped without prompting;
+  otherwise it prints the diff and reads a y/N answer (`confirm`, default No) from
+  an injected `io.Reader` (testable without a TTY). On confirm, `writeSettings`
+  writes mode **0600** (matching user-config sensitivity), creating `~/.claude/`
+  via `MkdirAll` if absent.
 
 **Tolerant read** (`readSettings`): a missing, empty, or all-whitespace settings
 file is treated as an empty object (never an error — install must work on a fresh
 machine). A genuinely malformed (non-empty, non-JSON) file **surfaces an error
 without writing** — anti-clobber: silently treating it as empty would overwrite
 user config.
+
+## Two Managed Artifacts (`260714-popk`)
+
+`rk agent-setup` manages **two artifacts per agent**, wired through a thin
+`applyAgentConfig` wrapper: it calls `applyAgentHooks` (the settings-hooks merge
+described above — the former `applyAgentConfig`, renamed) and then, only when the
+agent's `skillsDir` is non-empty, `applyAgentSkill` (the new `rk-display` skill).
+Each artifact runs **independently** — its own tolerant read, diff, no-op report,
+and y/N confirm — so declining one does not skip the other. `agentConfig` gained a
+`skillsDir string` field for this; the Claude Code registry row sets it to
+`filepath.Join(home, ".claude", "skills")`, and an **empty `skillsDir` means "no
+skill install for that agent"** (future codex/copilot/gemini/opencode rows may
+leave it empty until they gain a skills convention). The wrapper leaves no
+orphaned symbol — every prior `applyAgentConfig` caller now goes through it.
+
+### Artifact 2 — the `rk-display` skill
+
+A **user-global Claude Code skill** installed at `{skillsDir}/rk-display/SKILL.md`
+(so `~/.claude/skills/rk-display/SKILL.md` for Claude Code). Its purpose: put
+run-kit's visual-display capability into an ordinary agent session's context at
+the moment the user asks to "show/display/render/open/visualize" output — the
+skill's `description:` frontmatter is the always-in-context trigger surface, so the
+agent runs `rk context` on its own instead of the user having to remind it every
+session. (Before this change that knowledge reached only operator skills via
+`_cli-external.md`; ordinary agent sessions never loaded it.)
+
+- **Thin-pointer body, anti-freeze rationale**: the skill content is a fixed Go
+  raw-string `const` (`rkDisplaySkillContent`) shipped in the binary — a
+  compile-time literal with **zero interpolation** (no rk path, no home dir, no
+  user input), so it adds **no new interpolation/path-safety surface** beyond the
+  existing `resolveRkPath`/`validateHookPath` ones (Constitution §I). The body is a
+  **thin pointer** — gate on `command -v rk` + `$TMUX_PANE` (silently fall back to
+  text on failure), run `rk context`, follow its Visual Display Recipe — and
+  deliberately does **NOT** reproduce the recipe, server URL, or pane identity. The
+  agent learns those at use-time from `rk context`. This is the **same anti-freeze
+  principle as the `rk agent-hook` indirection** (`260707-qfps`): capability
+  content ships with the binary via `rk context`, so recipe changes reach agents on
+  `brew upgrade rk` with no skill-file churn. Storage is a `const` (not
+  `//go:embed`) to match `cmd/rk` convention — small fixed text blobs are consts
+  (`shell_init.go`), while `//go:embed` is reserved for external file *trees*
+  (`build/embed.go`).
+- **Whole-file ownership, marker-gated uninstall**: rk owns the **whole file** (no
+  merge into user content — unlike the hooks JSON merge). Ownership is the
+  `managed-by: rk agent-setup` frontmatter marker (`skillManagedByMarker`), checked
+  by the whole-file `skillHasMarker` predicate — the whole-file analogue of
+  `isRkEntry`. On `--uninstall`, `uninstallAgentSkill` removes the **entire
+  `rk-display/` directory** (via `os.RemoveAll`, behind a confirm prompt) **only
+  when the installed file still carries the marker**; a user-rewritten, marker-less
+  file is **left untouched with a skip note** (rk only removes files it owns — a
+  rewrite drops the marker and thereby opts out of rk-managed uninstall). A
+  hand-edited but still-marked file surfaces as a reinstall diff behind the existing
+  confirm gate.
+- **Install flow** (`applyAgentSkill`): tolerant read of the current file
+  (`readSkill` — missing → empty, never an error); if identical to
+  `rkDisplaySkillContent`, report "already installed — nothing to do" and skip
+  without prompting; otherwise render a `--- current` / `+++ proposed` diff and read
+  the y/N confirm; on confirm, `writeSkill` `MkdirAll`s `{skillsDir}/rk-display/`
+  and writes at **mode 0644** (skill text is not a secret — deliberately unlike
+  settings.json's 0600). The 5-line diff-render block is inlined in both
+  `applyAgentHooks` and `applyAgentSkill` (a should-fix the review acknowledged as
+  non-blocking).
 
 ## Lifecycle
 
@@ -572,6 +637,38 @@ satisfiable.
 per-project install (defeats the "any session anywhere" goal — the whole point is
 user-global registration).
 *Introduced by*: `260705-dmex-generic-agent-state-tier`
+*Extended by*: `260714-popk` — the installer now manages a **second artifact**
+(the `rk-display` skill) through a thin `applyAgentConfig` wrapper over
+`applyAgentHooks` + `applyAgentSkill`; the diff-and-confirm-per-artifact discipline
+carries over unchanged (declining one artifact does not skip the other).
+
+### Whole-file skill ownership by frontmatter marker; thin pointer, not embedded recipe
+**Decision**: install the `rk-display` skill as a whole file rk owns outright
+(no merge), gated by the `managed-by: rk agent-setup` frontmatter marker checked
+by `skillHasMarker`; store the content as a fixed Go raw-string `const`
+(`rkDisplaySkillContent`) whose body is a thin pointer (gate → `rk context` →
+follow the Visual Display Recipe), never reproducing recipe content.
+**Why**: the marker is the whole-file analogue of `isRkEntry` — it gates the
+destructive `--uninstall` directory removal (`os.RemoveAll` on `rk-display/`) so a
+user rewrite that drops the marker is left untouched, without any out-of-band
+ownership manifest (Constitution §II — no persistent state store). The thin-pointer
+body is the **same anti-freeze principle as `rk agent-hook`** (`260707-qfps`):
+capability content ships in the binary via `rk context`, so recipe changes reach
+agents on `brew upgrade rk` with no skill-file churn — the fixed literal embeds
+nothing machine-derived, so it adds no new interpolation surface (Constitution §I).
+The 0644 mode (vs settings.json's 0600) reflects that skill text is documentation,
+not a secret.
+**Rejected**: `//go:embed` for one tiny inline literal (diverges from `cmd/rk`
+convention — consts for small blobs, embed for file trees — for no benefit);
+merging into user skill content (rk owns the whole file, so a presence check
+suffices); tracking ownership in a manifest/state file (Constitution §II);
+embedding the recipe/server-URL/pane-identity in the body (re-freezes the exact
+content `rk context` exists to keep current — the failure mode the indirection
+removes); a SessionStart hook / CLAUDE.md pointer / launch-time
+`--append-system-prompt` injection / MCP `display_html` tool (all rejected in
+intake — compaction cost, passivity, missing hand-launched agents, and
+Constitution §IV minimal surface respectively).
+*Introduced by*: `260714-popk-rk-display-skill-agent-setup`
 
 ### One source of truth per binary for the convention strings
 **Decision**: `cmd/rk/agent_setup.go` aliases `tmux.AgentStateOption` /

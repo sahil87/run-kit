@@ -3,17 +3,24 @@ import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 import { IframeWindow } from "./iframe-window";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 
-// Mock the API client — updateWindowType is referenced in the "switch to terminal"
-// button and must be stubbed to avoid throwing during render.
+// Mock the API client. `IframeWindow` now only calls `updateWindowUrl` (the URL
+// bar's Enter-commit — global substrate state). It NO LONGER imports
+// `updateWindowType`: the `>_` button switches views via the `onSwitchToTty`
+// callback (per-viewer view state), never a `@rk_type` mutation.
 vi.mock("@/api/client", () => ({
   updateWindowUrl: vi.fn().mockResolvedValue({ ok: true }),
-  updateWindowType: vi.fn().mockResolvedValue({ ok: true }),
   listServers: vi.fn().mockResolvedValue([]),
 }));
 
 import { updateWindowUrl } from "@/api/client";
 
-function renderIframe(props: React.ComponentProps<typeof IframeWindow>, server = "runkit") {
+function renderIframe(
+  props: Omit<React.ComponentProps<typeof IframeWindow>, "onSwitchToTty"> & {
+    onSwitchToTty?: () => void;
+  },
+  server = "runkit",
+) {
+  const { onSwitchToTty = () => {}, ...rest } = props;
   // Bypass SSE by using StandaloneSessionContextProvider; only `currentServer`
   // matters — IframeWindow reads it directly from useSessionContext.
   return render(
@@ -28,7 +35,7 @@ function renderIframe(props: React.ComponentProps<typeof IframeWindow>, server =
         refreshServers: vi.fn(),
       }}
     >
-      <IframeWindow {...props} />
+      <IframeWindow {...rest} onSwitchToTty={onSwitchToTty} />
     </StandaloneSessionContextProvider>,
   );
 }
@@ -95,5 +102,20 @@ describe("IframeWindow", () => {
 
     const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
     expect(iframe.src).toContain("https://example.com/docs");
+  });
+
+  it("the >_ button invokes onSwitchToTty (view switch), not a @rk_type mutation", () => {
+    const onSwitchToTty = vi.fn();
+    renderIframe({
+      windowId: "@2",
+      rkUrl: "http://localhost:8080/docs",
+      onSwitchToTty,
+    });
+
+    fireEvent.click(screen.getByLabelText("Switch to terminal"));
+    expect(onSwitchToTty).toHaveBeenCalledTimes(1);
+    // No @rk_url mutation from a view switch (the only remaining option-mutating
+    // call is the URL bar's Enter-commit, which we did not trigger here).
+    expect(updateWindowUrl).not.toHaveBeenCalled();
   });
 });

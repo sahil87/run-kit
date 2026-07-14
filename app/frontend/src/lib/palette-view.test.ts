@@ -1,34 +1,37 @@
 import { describe, it, expect, vi } from "vitest";
 import { buildViewActions } from "./palette-view";
 
-describe("buildViewActions", () => {
-  it("returns nothing when chat is unavailable", () => {
-    expect(buildViewActions(false, "terminal", () => {})).toEqual([]);
-    expect(buildViewActions(false, "chat", () => {})).toEqual([]);
+describe("buildViewActions (View: palette parity)", () => {
+  it("offers the OTHER view when both are available (tty current → View: Web)", () => {
+    const actions = buildViewActions(["web", "tty"], "tty", () => {});
+    expect(actions).toHaveLength(1);
+    expect(actions[0].id).toBe("view-web");
+    expect(actions[0].label).toBe("View: Web");
+    expect(actions[0].shortcut).toBe("⌘.");
   });
 
-  it("in terminal view offers only 'View: Chat'", () => {
-    const actions = buildViewActions(true, "terminal", () => {});
-    expect(actions.map((a) => a.id)).toEqual(["view-chat"]);
-    expect(actions[0].label).toBe("View: Chat");
-  });
-
-  it("in chat view offers only 'View: Terminal'", () => {
-    const actions = buildViewActions(true, "chat", () => {});
-    expect(actions.map((a) => a.id)).toEqual(["view-terminal"]);
+  it("offers the OTHER view when web is current (web current → View: Terminal)", () => {
+    const actions = buildViewActions(["web", "tty"], "web", () => {});
+    expect(actions).toHaveLength(1);
+    expect(actions[0].id).toBe("view-tty");
     expect(actions[0].label).toBe("View: Terminal");
   });
 
-  it("surfaces the Ctrl+` shortcut on both actions (discoverability)", () => {
-    expect(buildViewActions(true, "terminal", () => {})[0].shortcut).toBe("Ctrl+`");
-    expect(buildViewActions(true, "chat", () => {})[0].shortcut).toBe("Ctrl+`");
+  it("yields no action for a single-view (tty-only) window", () => {
+    expect(buildViewActions(["tty"], "tty", () => {})).toEqual([]);
   });
 
-  it("the action flips to the opposite view", () => {
-    const onSetView = vi.fn();
-    buildViewActions(true, "terminal", onSetView)[0].onSelect();
-    expect(onSetView).toHaveBeenCalledWith("chat");
-    buildViewActions(true, "chat", onSetView)[0].onSelect();
-    expect(onSetView).toHaveBeenCalledWith("terminal");
+  it("excludes the current view, never offering a switch to where you already are", () => {
+    const labels = buildViewActions(["web", "tty"], "tty", () => {}).map(
+      (a) => a.label,
+    );
+    expect(labels).not.toContain("View: Terminal");
+  });
+
+  it("onSelect switches to the action's own view", () => {
+    const onSwitch = vi.fn();
+    const [action] = buildViewActions(["web", "tty"], "tty", onSwitch);
+    action.onSelect();
+    expect(onSwitch).toHaveBeenCalledWith("web");
   });
 });

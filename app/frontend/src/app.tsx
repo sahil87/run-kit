@@ -1,5 +1,14 @@
 import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback } from "react";
-import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
+import { useNavigate, useMatches, useSearch, Outlet } from "@tanstack/react-router";
+import {
+  availableViews,
+  resolveView,
+  readStoredView,
+  writeStoredView,
+  nextView,
+  shouldSuppressViewChord,
+  type ViewName,
+} from "@/lib/window-view";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
@@ -43,7 +52,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, updateWindowType, isInfraServer, DAEMON_SERVER } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, isInfraServer, DAEMON_SERVER } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -267,6 +276,9 @@ function RootTopBar() {
       view={slot?.view}
       chatAvailable={slot?.chatAvailable}
       onSetView={slot?.onSetView}
+      availableViews={slot?.availableViews}
+      activeView={slot?.activeView}
+      onSelectView={slot?.onSelectView}
     />
   );
 }
@@ -396,6 +408,75 @@ function AppShell() {
   // A chat-less window is always the terminal view, no matter the URL/pref.
   const activeView: "chat" | "terminal" =
     chatAvailable && resolvedView === "chat" ? "chat" : "terminal";
+  // Window-view lens state (260714-t97o-web-view-lens). Which lens THIS viewer
+  // looks through is per-viewer client state: the `?view=` search param (spec
+  // R2), then per-window localStorage, then the window's derived default hint
+  // (spec R5) — all resolved by the pure `resolveView`. Read the param with
+  // `strict:false` because AppShell also mounts on `/$server` (no window, no
+  // `view` param) — a non-strict read returns `view: undefined` there rather
+  // than throwing. An unavailable value (e.g. `?view=web` on a window with no
+  // `rkUrl`) falls through to `tty` inside `resolveView`, so the terminal
+  // renders instead of a broken iframe.
+  // The router module registration (`declare module` in router.tsx) already
+  // types `.view` as `"web" | undefined` across the route union, so no cast is
+  // needed here (`resolveView` accepts it as-is).
+  const search = useSearch({ strict: false });
+  const searchView = search.view;
+  const storedView = windowParam ? readStoredView(server, windowParam) : undefined;
+  const currentViews = useMemo(() => availableViews(currentWindow), [currentWindow]);
+  const resolvedView: ViewName = resolveView(searchView, storedView, currentWindow);
+
+  // Switch the current window's lens (spec R2/R7): persist per-window in
+  // localStorage (survives R6's param-drop on a window switch) AND update the
+  // URL `?view=` param so the state is copy-paste shareable / deep-linkable.
+  // `tty` DROPS the param (clean URL — tty is the always-available default);
+  // `web` sets `?view=web`. Never mutates `@rk_type` (that is substrate state,
+  // not view state). Stable across SSE ticks (deps: server/windowParam/navigate).
+  const switchView = useCallback(
+    (view: ViewName) => {
+      if (!windowParam) return;
+      writeStoredView(server, windowParam, view);
+      navigate({
+        to: "/$server/$window",
+        params: { server, window: windowParam },
+        search: view === "web" ? { view: "web" } : {},
+        replace: true,
+      });
+    },
+    [server, windowParam, navigate],
+  );
+
+  // `Cmd/Ctrl+.` cycles the current window's lenses (Constitution V — every view
+  // action is keyboard-reachable; palette parity is the `View:` actions above).
+  // Chosen against the live chord registry (`⌘K` palette, `⌘\` sidebar, `⌘]`/
+  // `⌘[` board pane-cycle) — a free binding in the `⌘<punctuation>` family;
+  // `Ctrl+.` is inert in readline (unlike `Ctrl+/`→undo or `Ctrl+<letter>`
+  // control chars). Window-level with `preventDefault()` so xterm doesn't also
+  // receive it — the same working pattern as `shell.tsx`'s `⌘\` sidebar toggle,
+  // including its non-xterm-input suppression. The live view/window values are
+  // read via a ref so the listener is stable across SSE ticks.
+  const viewCycleRef = useRef<{ views: ViewName[]; active: ViewName }>({
+    views: currentViews,
+    active: resolvedView,
+  });
+  viewCycleRef.current = { views: currentViews, active: resolvedView };
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== ".") return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      // Suppress only when a "real" (non-xterm) text input has focus — same
+      // rule as shell.tsx's sidebar toggle (extracted to a pure predicate so
+      // the gating is unit-tested).
+      if (shouldSuppressViewChord(e.target)) return;
+      const { views, active } = viewCycleRef.current;
+      const next = nextView(views, active); // null when nothing to cycle
+      if (!next) return;
+      e.preventDefault();
+      switchView(next);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [switchView]);
 
   // Compose buffer open state lives in `FocusedTerminalContext` so the
   // shell-level `<BottomBar>` can open compose for the focused terminal
@@ -909,15 +990,26 @@ function AppShell() {
   // cheap and keeps the callback deps stable — see `switchTransitionRef` above.
   switchTransitionRef.current = {
     order: flatWindows.map((fw) => fw.window.windowId),
-    // A target counts as "iframe" (ungated capture, no first-write seam) only
-    // when it actually renders the IframeWindow branch — which requires BOTH
-    // `rkType === "iframe"` AND `rkUrl` (app.tsx render gate). An iframe-typed
-    // window with no `rkUrl` renders a TerminalClient, so it must stay on the
-    // gated (first-write) path; keeping the predicate aligned prevents that
-    // window from silently skipping the gate.
+    // A target counts as "iframe" (ungated capture, no first-write receipt
+    // seam) exactly when its EFFECTIVE resolved view is `web` — i.e. it will
+    // actually render the IframeWindow branch (260714-t97o-web-view-lens R12).
+    // The URL `?view=` param is NOT known for a not-yet-navigated target, so we
+    // resolve from localStorage + the window's default hint only (URL passed
+    // `undefined`). `resolveView` bakes in availability, so an iframe-typed
+    // window with no `rkUrl`, OR one whose last-view is `tty`, resolves to
+    // `tty` and STAYS on the gated terminal path — getting this wrong
+    // reintroduces the blank-pane/stuck-transition class of bugs
+    // (ui-patterns.md § Window-Switch Slide Transition).
     iframeIds: new Set(
       flatWindows
-        .filter((fw) => fw.window.rkType === "iframe" && fw.window.rkUrl)
+        .filter(
+          (fw) =>
+            resolveView(
+              undefined,
+              readStoredView(server, fw.window.windowId),
+              fw.window,
+            ) === "web",
+        )
         .map((fw) => fw.window.windowId),
     ),
     // A CHAT-active target (260714-r7rq) is the iframe case's analog — it
@@ -1295,22 +1387,10 @@ function AppShell() {
               label: "Window: Set Color",
               onSelect: () => setShowColorPicker("window"),
             },
-            ...(currentWindow.rkType === "iframe" || currentWindow.rkUrl
-              ? [
-                  {
-                    id: "toggle-iframe-terminal",
-                    label: currentWindow.rkType === "iframe" ? "Window: Switch to Terminal" : "Window: Switch to Iframe",
-                    onSelect: () => {
-                      if (sessionName) {
-                        const newType = currentWindow.rkType === "iframe" ? "" : "iframe";
-                        updateWindowType(server, currentWindow.windowId, newType).catch((err) =>
-                          addToast(err.message || "Failed to toggle window type"),
-                        );
-                      }
-                    },
-                  },
-                ]
-              : []),
+            // NOTE: the old `toggle-iframe-terminal` action (which mutated
+            // `@rk_type`) was REPLACED by the `View: Terminal` / `View: Web`
+            // actions in `viewActions` (260714-t97o-web-view-lens) — switching a
+            // lens is per-viewer view state, never a `@rk_type` mutation.
             ...(currentWindow.index > minWindowIndex
               ? [
                   {
@@ -1569,6 +1649,16 @@ function AppShell() {
       // gated on the current window carrying a `chatProvider` (Constitution V
       // keyboard parity for the top-bar chip). Empty when chat is unavailable.
       ...buildViewActions(chatAvailable, activeView, onSetView),
+      // Window-view lens actions (260714-t97o-web-view-lens, Constitution V
+      // palette parity for the L1 ViewSwitcher). Each lens is offered only when
+      // it is AVAILABLE for the current window AND is not the current view — so
+      // the palette shows the destination, never the current lens. `⌘.`
+      // (Cmd/Ctrl+.) cycles views; surfaced as the shortcut hint on each entry.
+      // These REPLACE the retired `toggle-iframe-terminal` action, which mutated
+      // `@rk_type`; switching a lens now never touches the window's identity.
+      // The gating (available AND not-current) lives in the pure `buildViewActions`
+      // (lib/palette-view.ts) so it is unit-testable without mounting the shell.
+      ...buildViewActions(currentViews, resolvedView, switchView),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
@@ -1587,7 +1677,7 @@ function AppShell() {
         onSelect: () => window.location.reload(),
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, chatAvailable, activeView, onSetView, setComposeOpen],
+    [sessionName, fixedWidth, toggleFixedWidth, chatAvailable, activeView, onSetView, setComposeOpen, currentViews, resolvedView, switchView],
   );
 
   // Terminal font-size actions. No `shortcut` — Cmd +/- is deliberately not
@@ -2018,6 +2108,12 @@ function AppShell() {
       view: activeView,
       chatAvailable,
       onSetView,
+      // Window-view lens machinery (260714-t97o-web-view-lens): the L1 switcher
+      // chip + the center-heading prefix both read these. The chip renders only
+      // when `availableViews.length > 1`.
+      availableViews: currentViews,
+      activeView: resolvedView,
+      onSelectView: switchView,
     }),
     [
       sessions,
@@ -2036,6 +2132,9 @@ function AppShell() {
       activeView,
       chatAvailable,
       onSetView,
+      currentViews,
+      resolvedView,
+      switchView,
     ],
   );
   useRegisterTopBarSlot(topBarSlot);
@@ -2143,41 +2242,28 @@ function AppShell() {
                 connected={chatStream.connected}
                 error={chatStream.error}
               />
-            ) : currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? (
+            ) : resolvedView === "web" && currentWindow?.rkUrl ? (
               <div className="flex-1 min-h-0 flex flex-col">
                 <IframeWindow
                   windowId={currentWindow.windowId}
                   rkUrl={currentWindow.rkUrl}
+                  onSwitchToTty={() => switchView("tty")}
                 />
               </div>
             ) : (
-              <>
-                {currentWindow?.rkUrl && (
-                  <div className="shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-bg-primary">
-                    <button
-                      onClick={() => sessionName && currentWindow && updateWindowType(server, currentWindow.windowId, "iframe")}
-                      className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
-                      title="Switch to iframe view"
-                    >
-                      <span className="font-mono">&lt;/&gt;</span>
-                      <span className="truncate max-w-[300px]">{currentWindow.rkUrl}</span>
-                    </button>
-                  </div>
-                )}
-                <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
-                  <TerminalClient
-                    sessionName={sessionName ?? ""}
-                    windowId={windowParam}
-                    server={server}
-                    wsRef={wsRef}
-                    composeOpen={composeOpen}
-                    setComposeOpen={setComposeOpen}
-                    onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
-                    focusRef={focusTerminalRef}
-                    scrollLocked={scrollLocked}
-                  />
-                </div>
-              </>
+              <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
+                <TerminalClient
+                  sessionName={sessionName ?? ""}
+                  windowId={windowParam}
+                  server={server}
+                  wsRef={wsRef}
+                  composeOpen={composeOpen}
+                  setComposeOpen={setComposeOpen}
+                  onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+                  focusRef={focusTerminalRef}
+                  scrollLocked={scrollLocked}
+                />
+              </div>
             )
           ) : (
             <SessionTiles

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
+import type { ViewName } from "@/lib/window-view";
 
 /**
  * TopBar slot context — the prop-delivery channel for the single persistent
@@ -60,6 +61,13 @@ export type TopBarSlot = {
   view?: "chat" | "terminal";
   chatAvailable?: boolean;
   onSetView?: (view: "chat" | "terminal") => void;
+  /** Terminal-mode window-view lens machinery (260714-t97o-web-view-lens),
+   *  registered by `AppShell`. The L1 switcher chip + the center-heading prefix
+   *  read these; the chip renders only when `availableViews.length > 1`. Absent
+   *  on non-terminal routes (BoardPage does not register them). */
+  availableViews?: ViewName[];
+  activeView?: ViewName;
+  onSelectView?: (view: ViewName) => void;
 } | null;
 
 type TopBarSlotContextValue = {

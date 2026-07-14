@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { urlSegmentToWindowId, windowIdToUrlSegment } from "./router";
+import {
+  urlSegmentToWindowId,
+  windowIdToUrlSegment,
+  validateTerminalSearch,
+} from "./router";
 
 // The terminal route serializes the tmux window id (@N) as its numeric part
 // only in the URL. These cover both directions of that mapping and the
@@ -34,5 +38,24 @@ describe("window id ↔ URL segment mapping", () => {
     for (const id of ["@0", "@12", "@7"]) {
       expect(urlSegmentToWindowId(windowIdToUrlSegment(id))).toBe(id);
     }
+  });
+});
+
+// The `?view=` param carries the per-viewer window-view lens (spec R2). Only
+// `web` is valid today; any other/unknown value is DROPPED (treated as absent),
+// never errored, so a stale/garbage deep link degrades to the default view.
+describe("validateTerminalSearch (?view= drop)", () => {
+  it("accepts view=web", () => {
+    expect(validateTerminalSearch({ view: "web" })).toEqual({ view: "web" });
+  });
+
+  it("drops an unknown value without throwing (?view=bogus → view undefined)", () => {
+    expect(() => validateTerminalSearch({ view: "bogus" })).not.toThrow();
+    expect(validateTerminalSearch({ view: "bogus" }).view).toBeUndefined();
+  });
+
+  it("drops an absent param (no view) to an empty search", () => {
+    expect(validateTerminalSearch({})).toEqual({});
+    expect(validateTerminalSearch({ other: "x" }).view).toBeUndefined();
   });
 });

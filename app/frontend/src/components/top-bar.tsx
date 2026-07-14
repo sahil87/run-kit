@@ -12,6 +12,8 @@ import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { prefersReducedMotion } from "@/lib/motion";
 import { WaitingBadge } from "@/components/waiting-badge";
+import { ViewSwitcher } from "@/components/view-switcher";
+import type { ViewName } from "@/lib/window-view";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -91,6 +93,17 @@ type TopBarProps = {
   /** Toggle the current window's view (URL nav + pref write, window-preserving).
    *  Wired from AppShell via the slot context; absent → no chip rendered. */
   onSetView?: (view: "chat" | "terminal") => void;
+  /** Terminal-mode window-view lens machinery (260714-t97o-web-view-lens). The
+   *  capability set of the current window; the switcher chip renders only when
+   *  it exceeds `{tty}`. Absent/`["tty"]` → no chip. */
+  availableViews?: ViewName[];
+  /** The current window's active lens — drives the L1 ViewSwitcher's active
+   *  segment AND the center heading's page-type prefix (`Terminal:` vs `Web:`).
+   *  Absent → treated as `tty` (the pre-lens default). */
+  activeView?: ViewName;
+  /** Handler that switches the current window's lens (URL param + localStorage);
+   *  wired from AppShell's `switchView`. Absent → no switcher rendered. */
+  onSelectView?: (view: ViewName) => void;
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
@@ -183,6 +196,9 @@ export function TopBar({
   view,
   chatAvailable,
   onSetView,
+  availableViews,
+  activeView,
+  onSelectView,
 }: TopBarProps) {
   // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
   // window id (@N) is the only identity in the URL. Selecting a session jumps
@@ -350,7 +366,7 @@ export function TopBar({
                 windowId={currentWindow.windowId}
                 sessionName={sessionName}
                 name={windowName}
-                prefix={view === "chat" ? CHAT_PREFIX : TERMINAL_PREFIX}
+                prefix={terminalHeadingPrefix(activeView)}
               />
               <BreadcrumbDropdown
                 items={windowItems}
@@ -455,6 +471,19 @@ export function TopBar({
               <span className="hidden sm:flex">
                 <FixedWidthToggle />
               </span>
+              {/* Window-view lens switcher (260714-t97o-web-view-lens, spec R4).
+                  Terminal-tier (L1) — rendered only when the current window
+                  offers more than the tty lens (its own `views.length <= 1`
+                  guard also returns null, so this is belt-and-suspenders). */}
+              {onSelectView &&
+                availableViews &&
+                availableViews.length > 1 && (
+                  <ViewSwitcher
+                    views={availableViews}
+                    active={activeView ?? "tty"}
+                    onSelect={onSelectView}
+                  />
+                )}
             </>
           )}
 
@@ -750,9 +779,18 @@ function SweepCells({
 // title-case per the reviewed demo — supersedes PageHeading's lowercase idiom).
 const TERMINAL_PREFIX = "Terminal:";
 const CHAT_PREFIX = "Chat:";
+// The center heading follows the lens (260714-t97o-web-view-lens, spec R4): the
+// terminal-mode heading reads `Web:` when the active view is the web lens, else
+// `Terminal:`. Later lenses add `Chat:`/`Desktop:` prefixes here.
+const WEB_PREFIX = "Web:";
 const BOARD_PREFIX = "Board:";
 const CABIN_PREFIX = "Server Cabin:";
 const COCKPIT_SOLO = "Cockpit";
+
+/** Terminal-mode heading prefix for the active view (spec R4). */
+function terminalHeadingPrefix(activeView: ViewName | undefined): string {
+  return activeView === "web" ? WEB_PREFIX : TERMINAL_PREFIX;
+}
 
 /**
  * Split a boot-sweep cell list into its prefix portion (the `pfx`/`sp` cells)
@@ -841,16 +879,16 @@ function WindowHeading({
   windowId,
   sessionName,
   name,
-  prefix = TERMINAL_PREFIX,
+  prefix,
 }: {
   server: string;
   windowId: string;
   sessionName: string;
   name: string;
-  /** Page-type prefix for the boot-sweep heading. `Terminal:` by default; the
-   *  chat view passes `Chat:` (260714-r7rq) so the same component (boot sweep +
-   *  inline rename) carries both views without forking. */
-  prefix?: string;
+  /** Page-type prefix (`Terminal:` / `Web:`) — follows the active lens (spec
+   *  R4). The boot sweep runs over `prefix + " " + name`, so a prefix change
+   *  (a tty↔web view switch) replays the sweep just like a name change. */
+  prefix: string;
 }) {
   // Shared with the sidebar inline rename (change 5ilm) so both surfaces rename
   // identically (optimistic store rename, rollback + toast, clear on settle).
@@ -879,6 +917,13 @@ function WindowHeading({
   // play path (rather than a separate mount effect) is what keeps mount from
   // double-playing over a name change.
   const prevNameRef = useRef<string | null>(null);
+  // Track the displayed prefix so a lens switch (tty↔web changes `Terminal:`↔
+  // `Web:` with the SAME window name) replays the boot sweep and re-seeds the
+  // sweep cells — otherwise `useBootSweep`'s `cells` state (seeded once from
+  // `rest()`) would stay stale and the heading would show the old prefix. Seeded
+  // with the initial prefix so the mount replay is owned by the name effect
+  // alone (no double-play on mount).
+  const prevPrefixRef = useRef<string>(prefix);
   const editingRef = useRef(editing);
   editingRef.current = editing;
   // Set true by a key-driven commit/cancel (Enter/Escape) so the onBlur that
@@ -929,16 +974,15 @@ function WindowHeading({
     }
   }, [name, sweep]);
 
-  // Prefix change (260714-r7rq): flipping the view (`Terminal:` ↔ `Chat:`) keeps
-  // the same window/name, so the name-change effect above never fires — yet the
-  // boot-sweep cell list is seeded from `prefix` and would otherwise keep the
-  // stale prefix text. Rebuild the cells (resolve — no animated replay) whenever
-  // the prefix changes so the heading reflects the active view immediately.
-  const prevPrefixRef = useRef(prefix);
+  // Lens switch: the page-type prefix flipped (`Terminal:`↔`Web:`) with the
+  // same window name. Replay the sweep (or, while editing, resolve to rest) so
+  // the heading re-seeds `sweep.cells` to the new prefix — the same one-effect
+  // mechanism as the name change, keyed on the prefix instead.
   useEffect(() => {
     if (prefix !== prevPrefixRef.current) {
       prevPrefixRef.current = prefix;
-      if (!editingRef.current) sweep.resolve();
+      if (!editingRef.current) sweep.play();
+      else sweep.resolve();
     }
   }, [prefix, sweep]);
 

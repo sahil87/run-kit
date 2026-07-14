@@ -97,6 +97,23 @@ const serverIndexRoute = createRoute({
   path: "/",
 });
 
+// The `?view=` search param carries the per-viewer window-view lens (change
+// 260714-t97o-web-view-lens, spec R2). It is per-VIEWER client state, NOT part
+// of the window's identity — no new route (Constitution IV). Only `web` is a
+// valid value today (`tty` is the absence of the param — the always-available
+// default lens); any other/unknown value is DROPPED (treated as absent), never
+// errored, so a stale/garbage deep link degrades to the default view rather
+// than a route error. The registry is open-ended: `chat`/`desktop` extend this
+// union when they ship.
+type TerminalSearch = { view?: "web" };
+
+// Exported as a pure function so the unknown-value drop is unit-testable.
+export function validateTerminalSearch(
+  search: Record<string, unknown>,
+): TerminalSearch {
+  return search.view === "web" ? { view: "web" } : {};
+}
+
 const terminalRoute = createRoute({
   getParentRoute: () => serverLayoutRoute,
   // Route is /$server/$window — the window id (@N) is the only window identity.
@@ -107,6 +124,7 @@ const terminalRoute = createRoute({
   // but old bookmarked /$server/%40N deep links still resolve via the idempotent
   // parse (segment decodes to @N → parse leaves it @N, never @@N).
   path: "/$window",
+  validateSearch: validateTerminalSearch,
   params: {
     parse: (params) => ({
       window: urlSegmentToWindowId(params.window),

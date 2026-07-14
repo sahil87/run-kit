@@ -416,7 +416,11 @@ function AppShell() {
   const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<"session" | "window" | null>(null);
   const [showCreateIframeDialog, setShowCreateIframeDialog] = useState(false);
-  const [showSpawnAgentDialog, setShowSpawnAgentDialog] = useState(false);
+  // The spawn-agent dialog's target is explicit `{server, session}` state (not a
+  // boolean): the sidebar bot button can target ANY listed session on ANY server
+  // (cross-server spawn), while the palette/window-switcher pass the CURRENT
+  // `{server, sessionName}`. `null` = closed.
+  const [spawnAgentTarget, setSpawnAgentTarget] = useState<{ server: string; session: string } | null>(null);
   const [iframeWindowName, setIframeWindowName] = useState("");
   const [iframeWindowUrl, setIframeWindowUrl] = useState("");
 
@@ -891,7 +895,7 @@ function AppShell() {
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog || showSpawnAgentDialog;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -1019,13 +1023,13 @@ function AppShell() {
     [server, executeCreateWindow],
   );
 
-  // Open the spawn-agent dialog for the current window's session (260713-sbk1).
-  // Both entry points (Cmd+K `Agent: Spawn`, window-switcher `+ New Agent`)
-  // route here; the dialog reads the target session from state. Gated on a
-  // resolvable session at the call sites (palette action / dropdown), so the
-  // opener itself just flips the dialog on.
-  const handleOpenSpawnAgent = useCallback(() => {
-    setShowSpawnAgentDialog(true);
+  // Open the spawn-agent dialog for an explicit `{server, session}` target
+  // (260713-sbk1; explicit target since gsmu). The palette `Agent: Spawn` action
+  // and the window-switcher `+ New Agent` pass the CURRENT `{server, sessionName}`;
+  // the sidebar bot button passes the ROW's `{server, session}` (any server →
+  // cross-server spawn). Gated on a resolvable session at the call sites.
+  const handleOpenSpawnAgent = useCallback((srv: string, sess: string) => {
+    setSpawnAgentTarget({ server: srv, session: sess });
   }, []);
 
 
@@ -1861,9 +1865,9 @@ function AppShell() {
   const agentSpawnActions: PaletteAction[] = useMemo(
     () =>
       sessionName
-        ? [{ id: "agent-spawn", label: "Agent: Spawn", onSelect: handleOpenSpawnAgent }]
+        ? [{ id: "agent-spawn", label: "Agent: Spawn", onSelect: () => handleOpenSpawnAgent(server, sessionName) }]
         : [],
-    [sessionName, handleOpenSpawnAgent],
+    [server, sessionName, handleOpenSpawnAgent],
   );
 
   const { actions: pushActions } = usePushSubscription();
@@ -1988,6 +1992,14 @@ function AppShell() {
   // stream's health; in terminal/root view it keeps the per-server sessions-SSE
   // slice ("dot-everywhere = per-page live-data health").
   const dotConnected = chatViewActive ? chatStream.connected : isConnected;
+  // The window-switcher `+ New Agent` (TopBar `onSpawnAgent(session)`) targets
+  // the CURRENT server; bind `server` here so the slot handler keeps the
+  // one-arg TopBar signature while feeding the explicit `{server, session}`
+  // target. Cross-server spawn comes from the sidebar, not this entry point.
+  const handleSlotSpawnAgent = useCallback(
+    (sess: string) => handleOpenSpawnAgent(server, sess),
+    [server, handleOpenSpawnAgent],
+  );
   const topBarSlot = useMemo(
     () => ({
       sessions,
@@ -2002,7 +2014,7 @@ function AppShell() {
       onToggleSidebar,
       onCreateSession: handleCreateSessionInstant,
       onCreateWindow: handleCreateWindow,
-      onSpawnAgent: handleOpenSpawnAgent,
+      onSpawnAgent: handleSlotSpawnAgent,
       view: activeView,
       chatAvailable,
       onSetView,
@@ -2020,7 +2032,7 @@ function AppShell() {
       onToggleSidebar,
       handleCreateSessionInstant,
       handleCreateWindow,
-      handleOpenSpawnAgent,
+      handleSlotSpawnAgent,
       activeView,
       chatAvailable,
       onSetView,
@@ -2051,6 +2063,7 @@ function AppShell() {
       onWaitingBadgeClick={handleWaitingBadgeClick}
       onCreateWindow={handleSidebarCreateWindow}
       onCreateSession={handleSidebarCreateSession}
+      onSpawnAgent={handleOpenSpawnAgent}
       onCreateServer={() => setShowCreateServerDialog(true)}
       onKillServer={(name) => setKillServerTarget(name)}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
@@ -2214,12 +2227,27 @@ function AppShell() {
         </Suspense>
       )}
 
-      {showSpawnAgentDialog && sessionName && (
+      {spawnAgentTarget && (
         <Suspense fallback={null}>
           <SpawnAgentDialog
-            session={sessionName}
-            onSpawned={navigateToWindow}
-            onClose={() => setShowSpawnAgentDialog(false)}
+            server={spawnAgentTarget.server}
+            session={spawnAgentTarget.session}
+            onSpawned={(windowId) => {
+              // Navigate to the freshly-spawned window on the TARGET server. When
+              // the target IS the current server, reuse navigateToWindow (its
+              // window-switch transition); otherwise route cross-server via the
+              // 2-segment /$server/$window URL. Mirrors handleSidebarSelectWindow.
+              if (spawnAgentTarget.server === server) {
+                navigateToWindow(windowId);
+              } else {
+                navigate({
+                  to: "/$server/$window",
+                  params: { server: spawnAgentTarget.server, window: windowId },
+                });
+                if (isMobile) setSidebarOpen(false);
+              }
+            }}
+            onClose={() => setSpawnAgentTarget(null)}
           />
         </Suspense>
       )}

@@ -41,3 +41,37 @@ export function PaletteIcon({ size = 13 }: { size?: number }) {
     </svg>
   );
 }
+
+/** Small robot-head icon for the session-row spawn-agent trigger — a lucide
+ *  `bot` silhouette (antenna + rounded head with two eye dots and a side port).
+ *  Line-art matching the sibling `PaletteIcon` idiom (`currentColor` stroke,
+ *  `strokeWidth={2}`, `aria-hidden`, same 24-unit viewBox + 13px default size)
+ *  so it reads as the same weight/color inside the row's hover-revealed icon
+ *  cluster. Sits immediately left of the `+` create-window button. */
+export function BotIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* antenna */}
+      <path d="M12 8V4" />
+      <circle cx="12" cy="3" r="1" fill="currentColor" stroke="none" />
+      {/* head */}
+      <rect x="4" y="8" width="16" height="12" rx="2" />
+      {/* side ports */}
+      <path d="M2 14h2" />
+      <path d="M20 14h2" />
+      {/* eyes */}
+      <circle cx="9" cy="13.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="13.5" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

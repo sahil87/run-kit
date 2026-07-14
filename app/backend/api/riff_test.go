@@ -172,6 +172,28 @@ func TestRiffSpawnWorktreeNameForwarded(t *testing.T) {
 	}
 }
 
+// TestRiffSpawnTierNonFabPermissive: the tier gate is a PRESETS-only, display
+// concern (gsmu R3) — POST /api/riff stays permissive. A well-formed tier
+// against a NON-FAB repo (no fab/project/config.yaml) is still accepted (no new
+// 400) and reaches the engine, which resolves it via the documented silent
+// DefaultLauncher fallback. The dialog never sends a tier when the field is
+// hidden, but the endpoint must not depend on that.
+func TestRiffSpawnTierNonFabPermissive(t *testing.T) {
+	repo := gitRepoDir(t) // git repo, no fab config → not a fab project
+	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+	engine := &mockRiffEngine{result: riff.Result{Server: "work", Session: "s", WindowName: "riff-x", WindowID: "@2"}}
+	rec := postRiff(t, ops, engine, `{"session":"s","tier":"doing"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (permissive tier on a non-fab repo); body=%s", rec.Code, rec.Body.String())
+	}
+	if !engine.called {
+		t.Fatal("engine.Spawn should be called — the tier is accepted, not gated, on POST")
+	}
+	if engine.gotOpts.Tier != "doing" {
+		t.Errorf("engine Tier = %q, want doing (forwarded verbatim)", engine.gotOpts.Tier)
+	}
+}
+
 // TestRiffSpawnNewFieldValidation: the three mockup-v2 fields are validated
 // BEFORE any subprocess/repo derivation — each bad input is a 400 with no engine
 // call (nothing created). A gitRepoDir cwd is supplied so a passing field-check
@@ -389,9 +411,11 @@ func TestRiffPresetsSuccess(t *testing.T) {
 	}
 }
 
-// TestRiffPresetsTiers: the presets response carries a non-empty tiers array
-// (mockup-v2 R8) with the fab-kit built-ins first (`default` first), plus any
-// config-defined names appended.
+// TestRiffPresetsTiers: for a FAB PROJECT (config.yaml present) the presets
+// response carries a non-empty tiers array (mockup-v2 R8) with the fab-kit
+// built-ins first (`default` first), plus any config-defined names appended.
+// The fab gate (gsmu R2) is satisfied because writeFabConfig creates the config
+// — the non-fab tiers:[] case is TestRiffPresetsNonFabRepoTiersEmpty.
 func TestRiffPresetsTiers(t *testing.T) {
 	repo := gitRepoDir(t)
 	writeFabConfig(t, repo, `agent:
@@ -424,8 +448,11 @@ func TestRiffPresetsTiers(t *testing.T) {
 }
 
 // TestRiffPresetsEmpty: a repo with no presets returns 200 with an empty list.
+// A gitRepoDir with no fab config is ALSO a non-fab project, so tiers is [] too
+// (the tier gate — see TestRiffPresetsNonFabRepoTiersEmpty for the dedicated
+// gate assertion).
 func TestRiffPresetsEmpty(t *testing.T) {
-	repo := gitRepoDir(t) // no fab config
+	repo := gitRepoDir(t) // no fab config → non-fab project
 	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
 	rec := getRiffPresets(t, ops, "mysess")
 	if rec.Code != http.StatusOK {
@@ -433,6 +460,7 @@ func TestRiffPresetsEmpty(t *testing.T) {
 	}
 	var got struct {
 		Presets []riffPresetSummary `json:"presets"`
+		Tiers   []string            `json:"tiers"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -442,6 +470,30 @@ func TestRiffPresetsEmpty(t *testing.T) {
 	}
 	if len(got.Presets) != 0 {
 		t.Errorf("presets = %v, want empty", got.Presets)
+	}
+	if got.Tiers == nil {
+		t.Error("tiers should be [] (non-nil), not null, on a non-fab repo")
+	}
+	if len(got.Tiers) != 0 {
+		t.Errorf("tiers = %v, want [] on a non-fab repo", got.Tiers)
+	}
+}
+
+// TestRiffPresetsNonFabRepoTiersEmpty: the tier gate (gsmu R2) — a git repo that
+// is NOT a fab project (no fab/project/config.yaml) returns tiers: [] (present,
+// empty), even though ReadTiers alone would return the built-ins. This is the
+// behavior CHANGE: pre-gate, every repo returned the built-ins; now a non-fab
+// repo returns []. The presets endpoint's other behavior is unchanged.
+func TestRiffPresetsNonFabRepoTiersEmpty(t *testing.T) {
+	repo := gitRepoDir(t) // git repo, but no fab config → not a fab project
+	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+	rec := getRiffPresets(t, ops, "mysess")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	// The tiers key MUST be present (Constitution IX additive shape) and empty.
+	if !strings.Contains(rec.Body.String(), `"tiers":[]`) {
+		t.Errorf("body should carry tiers:[] for a non-fab repo; got %s", rec.Body.String())
 	}
 }
 

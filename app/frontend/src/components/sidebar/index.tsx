@@ -61,6 +61,10 @@ export type SidebarProps = {
   onCreateWindow: (server: string, session: string) => void;
   /** Create a new session against a specific server (per-group "+" button). */
   onCreateSession: (server: string) => void;
+  /** Open the spawn-agent dialog targeting a session-row's `{server, session}`.
+   *  Optional (mirrors `SessionRow.onSpawnAgent`): when omitted (e.g. the
+   *  board-route sidebar) the per-row bot button is hidden. */
+  onSpawnAgent?: (server: string, session: string) => void;
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
@@ -81,6 +85,7 @@ export function Sidebar({
   onSelectWindow,
   onCreateWindow,
   onCreateSession,
+  onSpawnAgent,
   onCreateServer,
   onKillServer,
   onWaitingBadgeClick,
@@ -1164,6 +1169,7 @@ export function Sidebar({
                 onWaitingBadgeClick={onWaitingBadgeClick}
                 onCreateWindow={onCreateWindow}
                 onCreateSession={onCreateSession}
+                onSpawnAgent={onSpawnAgent}
                 onSessionRowKill={handleSessionRowKill}
                 onWindowRowKill={handleWindowRowKill}
                 onSessionStartEditing={handleStartSessionEditing}
@@ -1286,6 +1292,7 @@ type ServerGroupProps = {
   onWaitingBadgeClick?: (server: string, session: string) => void;
   onCreateWindow: (server: string, session: string) => void;
   onCreateSession: (server: string) => void;
+  onSpawnAgent?: (server: string, session: string) => void;
   onSessionRowKill: (server: string, name: string, windowCount: number, ctrl: boolean) => void;
   onWindowRowKill: (server: string, session: string, windowId: string, ctrl: boolean) => void;
   onSessionStartEditing: (server: string, name: string) => void;
@@ -1346,6 +1353,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWaitingBadgeClick,
     onCreateWindow,
     onCreateSession,
+    onSpawnAgent,
     onSessionRowKill,
     onWindowRowKill,
     onSessionStartEditing,
@@ -1550,6 +1558,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                     onDragLeave={onSessionDragLeave}
                     onDrop={onSessionDrop}
                     onColorChange={onSessionColorChange}
+                    onSpawnAgent={onSpawnAgent}
                   />
 
                   {!isCollapsed && (

@@ -2,14 +2,19 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { spawnRiff, getRiffPresets, type RiffPreset, type RiffWhere } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
-import { useSessionContext } from "@/contexts/session-context";
 
 type SpawnAgentDialogProps = {
+  /** The target tmux server — the server that OWNS the target session. Supplied
+   *  explicitly (not read from the current route) so the sidebar can spawn into
+   *  any listed session on any server (cross-server spawn); the client fns are
+   *  per-call server-scoped via `withServer`. */
+  server: string;
   /** The target session — the session the user invoked the spawn from. The new
    *  worktree/window is created in this session's repo. */
   session: string;
-  /** Navigate to the freshly-spawned window (same server). Wired to app.tsx's
-   *  `navigateToWindow`, so it inherits the window-switch transition. */
+  /** Navigate to the freshly-spawned window (on the TARGET server). Wired to
+   *  app.tsx's cross-server-aware navigation, so it inherits the window-switch
+   *  transition when the target IS the current server. */
   onSpawned: (windowId: string) => void;
   onClose: () => void;
 };
@@ -41,10 +46,7 @@ const DEFAULT_TIER = "default";
  * per-step progression because the endpoint is synchronous and emits no
  * per-step events (intake assumption / plan A-9).
  */
-export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDialogProps) {
-  const { currentServer } = useSessionContext();
-  const server = currentServer ?? "";
-
+export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnAgentDialogProps) {
   const [task, setTask] = useState("");
   const [preset, setPreset] = useState("");
   const [presets, setPresets] = useState<RiffPreset[]>([]);
@@ -65,9 +67,17 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
     };
   }, []);
 
-  // Fetch presets + tiers on open — best-effort: a failure (e.g. non-repo cwd)
-  // leaves an empty preset dropdown and the built-in default tier, still allowing
-  // a task-only spawn.
+  // Fetch presets + tiers on open — best-effort.
+  //
+  // The tier list is FAB-GATED at the backend (gsmu): a fab project returns the
+  // built-ins ∪ its `agent.tiers`; a non-fab repo returns `tiers: []`. We mirror
+  // the response verbatim so an empty list HIDES the Agent Tier field (a tier is
+  // inert noise in a non-fab repo — every option resolves to the same launcher).
+  //
+  // The preflight-FAILURE branch is different (R5): on a rejected fetch the
+  // repo's fab-ness is unknown, so we conservatively keep the built-in default
+  // (field shown) rather than hide it — the shipped status quo, still allowing a
+  // task-only spawn.
   useEffect(() => {
     if (!server || !session) return;
     let cancelled = false;
@@ -75,7 +85,7 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
       .then((data) => {
         if (cancelled) return;
         setPresets(data.presets);
-        if (data.tiers.length > 0) setTiers(data.tiers);
+        setTiers(data.tiers);
       })
       .catch(() => {
         if (!cancelled) {
@@ -107,7 +117,10 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
       // Worktree name only applies to worktree mode; the backend rejects it with
       // checkout, so drop it there.
       worktreeName: where === "worktree" ? worktreeName.trim() || undefined : undefined,
-      tier,
+      // The tier is sent ONLY when the Agent Tier field is shown (a fab project
+      // — non-empty tiers). When the field is hidden (non-fab repo) `tier` is
+      // omitted entirely, matching the gate: rk never sends an inert tier.
+      tier: tiers.length > 0 ? tier : undefined,
     })
       .then((res) => {
         if (!mountedRef.current) return;
@@ -123,7 +136,7 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
         setBusy(false);
         setError(err.message || "Failed to spawn agent");
       });
-  }, [busy, server, session, task, preset, where, worktreeName, tier, onClose, onSpawned]);
+  }, [busy, server, session, task, preset, where, worktreeName, tier, tiers, onClose, onSpawned]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
@@ -230,24 +243,30 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
         </div>
       )}
 
-      {/* Agent — the fab tier the launcher resolves. */}
-      <div className="mb-3">
-        <p className="text-xs text-text-secondary mb-1.5">Agent Tier:</p>
-        <select
-          value={tier}
-          onChange={(e) => setTier(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={busy}
-          aria-label="Agent tier"
-          className="w-full bg-bg-primary text-text-primary p-2 border border-border rounded outline-none disabled:opacity-50"
-        >
-          {tiers.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Agent — the fab tier the launcher resolves. Shown ONLY for a fab
+          project (non-empty, fab-gated tiers). In a non-fab repo the tier is
+          inert (every option resolves to the same DefaultLauncher), so the
+          backend returns tiers:[] and the field is hidden entirely — no label,
+          no hint, no disabled control (gsmu). */}
+      {tiers.length > 0 && (
+        <div className="mb-3">
+          <p className="text-xs text-text-secondary mb-1.5">Agent Tier:</p>
+          <select
+            value={tier}
+            onChange={(e) => setTier(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={busy}
+            aria-label="Agent tier"
+            className="w-full bg-bg-primary text-text-primary p-2 border border-border rounded outline-none disabled:opacity-50"
+          >
+            {tiers.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Busy pipeline label — indeterminate (the endpoint is synchronous). */}
       {busy && (

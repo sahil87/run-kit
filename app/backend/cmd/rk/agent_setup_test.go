@@ -583,7 +583,9 @@ func TestApplyAgentSkillUninstallRemovesOnlyWhenMarked(t *testing.T) {
 		if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
 			t.Errorf("marked skill directory should be removed, stat err = %v", err)
 		}
-		_ = skillPath
+		if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
+			t.Errorf("marked SKILL.md should be removed along with the directory, stat err = %v", err)
+		}
 	})
 
 	t.Run("marker-less rewrite → untouched with skip note", func(t *testing.T) {

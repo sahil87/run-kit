@@ -358,12 +358,8 @@ func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath
 	if uninstall {
 		action = "uninstall"
 	}
-	fmt.Fprintf(out, "%s: will %s run-kit agent-state hooks in %s\n\n", ac.name, action, ac.settingsPath)
-	fmt.Fprintln(out, "--- current")
-	fmt.Fprintln(out, beforeJSON)
-	fmt.Fprintln(out, "+++ proposed")
-	fmt.Fprintln(out, afterJSON)
-	fmt.Fprint(out, "\nWrite these changes? [y/N] ")
+	header := fmt.Sprintf("%s: will %s run-kit agent-state hooks in %s", ac.name, action, ac.settingsPath)
+	renderArtifactDiff(out, header, beforeJSON, afterJSON)
 
 	if !confirm(reader) {
 		fmt.Fprintf(out, "%s: skipped (no changes written).\n", ac.name)
@@ -404,16 +400,12 @@ func applyAgentSkill(out io.Writer, reader *bufio.Reader, ac agentConfig, uninst
 		return nil
 	}
 
-	fmt.Fprintf(out, "%s: will install the rk-display skill at %s\n\n", ac.name, skillPath)
-	fmt.Fprintln(out, "--- current")
+	header := fmt.Sprintf("%s: will install the rk-display skill at %s", ac.name, skillPath)
 	// The skill file is a whole-text artifact that ends in a newline; trim a single
-	// trailing newline so the diff renders one clean blank line between sections
-	// rather than a double blank (and so `go vet` doesn't flag the constant's own
-	// trailing newline as redundant with Fprintln's).
-	fmt.Fprintln(out, strings.TrimSuffix(current, "\n"))
-	fmt.Fprintln(out, "+++ proposed")
-	fmt.Fprintln(out, strings.TrimSuffix(rkDisplaySkillContent, "\n"))
-	fmt.Fprint(out, "\nWrite these changes? [y/N] ")
+	// trailing newline on each side so the diff renders one clean blank line between
+	// sections rather than a double blank (and so `go vet` doesn't flag the
+	// constant's own trailing newline as redundant with the render's).
+	renderArtifactDiff(out, header, strings.TrimSuffix(current, "\n"), strings.TrimSuffix(rkDisplaySkillContent, "\n"))
 
 	if !confirm(reader) {
 		fmt.Fprintf(out, "%s: rk-display skill skipped (no changes written).\n", ac.name)
@@ -488,6 +480,26 @@ func writeSkill(path, content string) error {
 		return fmt.Errorf("creating skill directory: %w", err)
 	}
 	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+// renderArtifactDiff prints the shared "will <action> … / --- current / +++
+// proposed / Write these changes?" block used by BOTH managed artifacts (the
+// settings-hooks merge and the rk-display skill). Only the header line and the
+// current/proposed body strings differ per artifact — the surrounding diff
+// framing and confirm prompt are identical, so they live here to keep the two
+// render paths from drifting (spacing, section headers, prompt wording).
+//
+// `current` and `proposed` are the already-formatted body strings (indented JSON
+// for hooks, trailing-newline-trimmed whole text for the skill); this helper adds
+// no further trimming. The header carries no trailing newline — this function
+// appends the blank line that separates it from the diff.
+func renderArtifactDiff(out io.Writer, header, current, proposed string) {
+	fmt.Fprintf(out, "%s\n\n", header)
+	fmt.Fprintln(out, "--- current")
+	fmt.Fprintln(out, current)
+	fmt.Fprintln(out, "+++ proposed")
+	fmt.Fprintln(out, proposed)
+	fmt.Fprint(out, "\nWrite these changes? [y/N] ")
 }
 
 // confirm reads a single line and returns true only for an explicit yes

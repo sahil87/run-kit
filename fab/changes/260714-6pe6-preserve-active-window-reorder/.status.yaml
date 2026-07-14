@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 4
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-14T08:39:39Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-14T08:50:22Z"}
     hydrate: {started_at: "2026-07-14T08:50:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T08:53:01Z"}
     ship: {started_at: "2026-07-14T08:53:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T08:55:12Z"}
-    review-pr: {started_at: "2026-07-14T08:55:12Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-14T08:55:12Z", driver: git-pr, iterations: 1, completed_at: "2026-07-14T09:04:01Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/344
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: MoveWindow now preserves the session's active window across within-session reorders — captures the pre-shuffle active window ID from the existing list-windows call and restores it via a session-qualified select-window in the same \;-chained invocation
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-14T08:55:12Z
+last_updated: 2026-07-14T09:04:01Z

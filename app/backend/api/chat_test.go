@@ -77,12 +77,16 @@ func stageFixtureTranscript(t *testing.T, ref string) {
 	}
 }
 
-// chatSessions builds a session slice with one window carrying a reconciled chat.
+// chatSessions builds a session slice with one window carrying a reconciled
+// chat. The chat identity lives on the ACTIVE pane (the source of truth
+// resolveWindowChat rolls up via sessions.ResolveChatPane); the window-level
+// fields mirror it for read-path compatibility. Pane id "%1" is the chat-send
+// injection target.
 func chatSessions(windowID, provider, ref string) []sessions.ProjectSession {
 	return []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: windowID, ChatProvider: provider, ChatSessionRef: ref,
-				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true}}},
+				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, ChatProvider: provider, ChatSessionRef: ref}}},
 		}},
 	}
 }

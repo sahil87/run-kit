@@ -1,14 +1,17 @@
 # chat-view.spec.ts
 
-Verifies the **read-only HTML chat view** (260714-r7rq — Change 3 of the
-agent-chat-view plan): the `?view=chat` search-param view over the existing
-terminal route, the `Chat: <window>` heading, the message-bubble /
-collapsible-tool-card / pending-question renderer, mobile single-row budget, and
-reduced-motion honoring. The chat lens is reached through the UNIFIED window-view
-`ViewSwitcher` (spec R4, `web-view-lens`): a chat-capable window with no `@rk_url`
-offers `[tty|chat]` segments in the L1 chip (`data-testid="view-toggle"`, gated on
-a non-empty `chatProvider`), the `Chat view` segment flips into chat, and the
-shipped `Ctrl+\`` binding toggles tty↔chat.
+Verifies the **HTML chat view**: the read side (260714-r7rq — Change 3) plus the
+**send** side (260714-jdyg-chat-send — Change 4). Read: the `?view=chat`
+search-param view over the existing terminal route, the `Chat: <window>` heading,
+the message-bubble / collapsible-tool-card / pending-question renderer, mobile
+single-row budget, and reduced-motion honoring. Send: the input footer (replacing
+the old read-only disabled footer) POSTs to the chat-send endpoint, clears on
+success, surfaces a 409 probe failure inline while keeping the text, and shows a
+non-blocking busy hint while the window agent is active. The chat lens is reached
+through the UNIFIED window-view `ViewSwitcher` (spec R4, `web-view-lens`): a
+chat-capable window with no `@rk_url` offers `[tty|chat]` segments in the L1 chip
+(`data-testid="view-toggle"`, gated on a non-empty `chatProvider`), the `Chat view`
+segment flips into chat, and the shipped `Ctrl+\`` binding toggles tty↔chat.
 
 ## Shared setup
 
@@ -27,6 +30,11 @@ shipped `Ctrl+\`` binding toggles tty↔chat.
   markdown message, a `tool_use`/`tool_result` pair, and a tail pending question.
 - `backfillCleared()` — a backfill with two plain messages and a `chat-state`
   `pending: null`.
+- `mockChatSend(page, { status, error })` — routes the chat-send POST
+  (`**/api/windows/*/chat/send*`, trailing `*` for the appended `?server=`),
+  records each request's `text` body, and fulfils either `200 {"ok":true}` or a
+  non-200 `writeError` JSON `{ error }` (so the client's `throwOnError` surfaces
+  the structured message). Used only by the send tests.
 
 ## Tests
 
@@ -77,13 +85,15 @@ the URL `?view=` param in sync, exactly like the switcher segment.
 ### `deep link ?view=chat cold-loads into the chat view`
 
 **What it proves:** a cold navigation straight to `?view=chat` renders the chat
-view (URL precedence over the terminal default), including the disabled
-read-only footer and a markdown-rendered assistant message.
+view (URL precedence over the terminal default), including the live send input
+(the old read-only disabled footer is gone) and a markdown-rendered assistant
+message.
 
 **Steps:**
 1. Navigate directly to `/default/1?view=chat`.
-2. Assert the `chat-view`, the `Chat:` prefix, the disabled `chat-send-disabled`
-   footer, and the assistant text ("done") are all visible.
+2. Assert the `chat-view` and `Chat:` prefix are visible, the
+   `chat-send-disabled` footer has count 0, the `chat-send-input` is visible, and
+   the assistant text ("done") is shown.
 
 ### `renders bubbles + a collapsible tool card, and the pending bubble at the tail`
 
@@ -132,3 +142,58 @@ motion; attention/pending are color + text, never motion-only).
 1. Navigate to `/default/1?view=chat`; assert the `chat-view` is visible.
 2. Evaluate `getComputedStyle(...).animationName` across the view subtree; assert
    none is a running animation (all `none`).
+
+## Tests — Chat send (`Chat send — input, POST, error surfacing, busy hint`)
+
+Shared: each test additionally calls `mockChatSend(page, …)` to route the
+chat-send POST (see Shared setup).
+
+### `typing + Enter fires exactly one POST with the typed body and clears on success`
+
+**What it proves:** typing into the send input and pressing Enter fires EXACTLY
+one chat-send POST carrying the typed text; on a `200` the input clears and no
+inline error shows.
+
+**Steps:**
+1. Mock the backend + `mockChatSend` (200); navigate to `/default/1?view=chat`.
+2. Fill `chat-send-input` with "run the tests" and press Enter.
+3. Assert exactly one recorded POST body equal to "run the tests".
+4. Assert the input is now empty and `chat-send-error` has count 0.
+
+### `a 409 probe failure surfaces the inline error and keeps the text`
+
+**What it proves:** a `409` (probe failure) response renders the server's
+structured error in an inline `role="alert"` line and RETAINS the typed text (so
+the user can retry) — never a silent failure.
+
+**Steps:**
+1. Mock `mockChatSend` with `status: 409` and the probe-failure `error`; navigate
+   to `/default/1?view=chat`.
+2. Fill the input with "ship it" and press Enter.
+3. Assert `chat-send-error` is visible and contains "Enter withheld".
+4. Assert the input still holds "ship it".
+
+### `the busy hint renders when the window agentState is active (input stays enabled)`
+
+**What it proves:** while the current window's `agentState` is `active` (as in the
+shared `@1` payload) the non-blocking busy hint renders and the input stays
+ENABLED (Allow + probe policy — no client-side block).
+
+**Steps:**
+1. Mock the backend + `mockChatSend`; navigate to `/default/1?view=chat`.
+2. Assert the `chat-send-input` and `chat-send-busy-hint` are visible.
+3. Assert the input is enabled.
+
+### `375px: the send input sits below the transcript with no horizontal overflow`
+
+**What it proves:** on a 375px viewport the send input renders as a footer below
+the transcript with no horizontal page overflow (mobile ergonomics — the input is
+inside the pane, not the bars).
+
+**Steps:**
+1. Set the viewport to 375×812; mock the backend + `mockChatSend`; navigate to
+   `/default/1?view=chat`.
+2. Assert the `chat-send-input` is visible.
+3. Assert `document.body.scrollWidth <= 375`.
+4. Assert the input's bounding-box `y` is at or below the `chat-view`'s `y`
+   (footer position).

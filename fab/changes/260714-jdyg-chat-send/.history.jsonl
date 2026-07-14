@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-14T15:49:19Z"}
+{"args":"chat-send — Change 4 (final) of fab/plans/sahil/agent-chat-view.md: send a message from the chat view into the interactive agent pane. Deps merged: chat-read-frontend (#351) + web-view-lens retrofit (#352).","cmd":"fab-new","event":"command","ts":"2026-07-14T15:49:19Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-07-14T15:53:21Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-07-14T15:53:49Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-14T15:55:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T15:55:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T16:15:47Z"}
+{"event":"review","result":"failed","ts":"2026-07-14T16:30:13Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T16:30:13Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T16:38:46Z"}
+{"event":"review","result":"failed","ts":"2026-07-14T16:52:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T16:52:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T17:10:53Z"}
+{"event":"review","result":"failed","ts":"2026-07-14T17:23:36Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T17:23:36Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T17:36:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-14T17:57:16Z"}
+{"event":"review","result":"passed","ts":"2026-07-14T17:57:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-14T18:04:52Z"}

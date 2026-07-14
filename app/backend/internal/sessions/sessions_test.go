@@ -801,5 +801,42 @@ func TestRollupChat(t *testing.T) {
 	})
 }
 
+// TestResolveChatPane covers the paneID surfaced alongside provider/ref — the
+// chat-send injection target (a window target may route to the wrong pane in a
+// split). The active-pane-first / else-first-chat-pane rule is shared with
+// rollupChat via delegation.
+func TestResolveChatPane(t *testing.T) {
+	t.Run("active chat pane wins and its paneID is returned", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{PaneID: "%1", ChatProvider: "claude", ChatSessionRef: "inactive-ref"},
+			{PaneID: "%2", IsActive: true, ChatProvider: "claude", ChatSessionRef: "active-ref"},
+		}
+		provider, ref, paneID := ResolveChatPane(panes)
+		if provider != "claude" || ref != "active-ref" || paneID != "%2" {
+			t.Errorf("got (%q, %q, %q), want (claude, active-ref, %%2)", provider, ref, paneID)
+		}
+	})
+
+	t.Run("active pane has no chat — first chat pane's id is returned", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{PaneID: "%0", IsActive: true}, // active pane has no chat
+			{PaneID: "%1", ChatProvider: "claude", ChatSessionRef: "first-set"},
+			{PaneID: "%2", ChatProvider: "codex", ChatSessionRef: "later"},
+		}
+		provider, ref, paneID := ResolveChatPane(panes)
+		if provider != "claude" || ref != "first-set" || paneID != "%1" {
+			t.Errorf("got (%q, %q, %q), want (claude, first-set, %%1)", provider, ref, paneID)
+		}
+	})
+
+	t.Run("no chat on any pane yields empty paneID", func(t *testing.T) {
+		panes := []tmux.PaneInfo{{PaneID: "%0", IsActive: true}, {PaneID: "%1", Command: "zsh"}}
+		provider, ref, paneID := ResolveChatPane(panes)
+		if provider != "" || ref != "" || paneID != "" {
+			t.Errorf("got (%q, %q, %q), want all empty", provider, ref, paneID)
+		}
+	})
+}
+
 // strPtr is a test helper returning a pointer to s.
 func strPtr(s string) *string { return &s }

@@ -69,6 +69,20 @@ describe("useChatViewShortcut", () => {
     expect(toggle).not.toHaveBeenCalled();
   });
 
+  it("fires from within the chat-send input (.rk-chat-input textarea is exempt)", () => {
+    const toggle = vi.fn();
+    renderHook(() => useChatViewShortcut(true, "chat", toggle));
+    // The chat lens auto-focuses its .rk-chat-input textarea; Ctrl+` must flip
+    // BACK to tty from within it (bailing there would trap the user in the input,
+    // the mirror of the xterm-helper-textarea exemption).
+    const chatInput = document.createElement("textarea");
+    chatInput.className = "rk-chat-input";
+    document.body.appendChild(chatInput);
+    pressBacktick(chatInput);
+    expect(toggle).toHaveBeenCalledTimes(1);
+    expect(toggle).toHaveBeenCalledWith("tty");
+  });
+
   it("no-ops when disabled (the no-chat gate)", () => {
     const toggle = vi.fn();
     renderHook(() => useChatViewShortcut(false, "tty", toggle));

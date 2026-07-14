@@ -50,7 +50,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, isInfraServer, DAEMON_SERVER } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, isInfraServer, DAEMON_SERVER } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -2182,10 +2182,27 @@ function AppShell() {
               // stream is owned by AppShell (`chatStream`) so one EventSource
               // feeds both this and the connection dot's health.
               <ChatView
+                // Key by SERVER + window so switching chat-lens targets REMOUNTS
+                // ChatView (and its ChatSendForm) rather than reusing the mounted
+                // instance: a half-typed draft and a stale inline 409 error must
+                // not carry over to the new pane, and the desktop autofocus must
+                // re-fire for the newly-focused window. The server is part of the
+                // key because two different servers can share a window id (@1 ↔
+                // @1) — a window-only key would fail to remount across a server
+                // switch, carrying one server's draft/error into another's pane.
+                key={`${server}:${windowParam}`}
                 events={chatStream.events}
                 pending={chatStream.pending}
                 connected={chatStream.connected}
                 error={chatStream.error}
+                // AppShell wires the send callback (chat-send POST) + the busy
+                // signal (agentState === "active"); ChatView stays pure. The
+                // chat lens is only active with a real windowParam, so `@N` is a
+                // non-empty string here.
+                onSend={async (text) => {
+                  await sendChatMessage(server, windowParam, text);
+                }}
+                busy={currentWindow?.agentState === "active"}
               />
             ) : resolvedView === "web" && currentWindow?.rkUrl ? (
               // `resolvedView === "web"` already implies web is AVAILABLE (so

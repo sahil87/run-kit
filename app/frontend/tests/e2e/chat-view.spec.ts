@@ -113,6 +113,36 @@ async function mockBackend(page: Page, chatBody: string) {
   );
 }
 
+// mockChatSend routes the chat-send POST and records each request's body text.
+// The trailing `*` is REQUIRED — the client appends `?server=` (glob-fallthrough
+// trap). `opts.status` (default 200) picks the response; a non-200 fulfils the
+// `writeError` JSON shape so the client's throwOnError surfaces `error`.
+//
+// AWAIT the returned promise before navigating: the `page.route` registration
+// must be committed before the page issues the send POST (registration-race
+// hygiene, matching every mockBackend route which is also awaited).
+async function mockChatSend(
+  page: Page,
+  opts: { status?: number; error?: string } = {},
+): Promise<{ bodies: string[] }> {
+  const bodies: string[] = [];
+  const status = opts.status ?? 200;
+  await page.route("**/api/windows/*/chat/send*", async (route) => {
+    const raw = route.request().postData() ?? "{}";
+    bodies.push((JSON.parse(raw) as { text?: string }).text ?? "");
+    if (status === 200) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+    } else {
+      await route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify({ error: opts.error ?? "send failed" }),
+      });
+    }
+  });
+  return { bodies };
+}
+
 test.describe("Chat read frontend — view toggle, heading, rendering", () => {
   test("the tty|chat switcher appears only on a chatProvider window", async ({ page }) => {
     await mockBackend(page, backfillCleared());
@@ -179,8 +209,10 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 
     await expect(page.getByTestId("chat-view")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/Chat:/)).toBeVisible();
-    // The read-only disabled footer affordance points at the terminal view.
-    await expect(page.getByTestId("chat-send-disabled")).toBeVisible();
+    // The read-only disabled footer is GONE (260714-jdyg-chat-send) — the live
+    // send input replaces it.
+    await expect(page.getByTestId("chat-send-disabled")).toHaveCount(0);
+    await expect(page.getByTestId("chat-send-input")).toBeVisible();
     // The assistant markdown message rendered (bold via react-markdown).
     await expect(page.getByTestId("chat-view")).toContainText("done");
   });
@@ -252,5 +284,80 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
       });
     });
     expect(anyAnimating).toBe(false);
+  });
+});
+
+test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
+  test("typing + Enter fires exactly one POST with the typed body and clears on success", async ({ page }) => {
+    await mockBackend(page, backfillCleared());
+    const send = await mockChatSend(page); // 200
+    await page.goto(`/${SERVER}/1?view=chat`);
+
+    const input = page.getByTestId("chat-send-input");
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.fill("run the tests");
+    await input.press("Enter");
+
+    // Exactly one POST with the typed body.
+    await expect.poll(() => send.bodies.length).toBe(1);
+    expect(send.bodies[0]).toBe("run the tests");
+    // Cleared on success.
+    await expect(input).toHaveValue("");
+    // No inline error.
+    await expect(page.getByTestId("chat-send-error")).toHaveCount(0);
+  });
+
+  test("a 409 probe failure surfaces the inline error and keeps the text", async ({ page }) => {
+    await mockBackend(page, backfillCleared());
+    await mockChatSend(page, {
+      status: 409,
+      error:
+        "agent input not ready — message pasted but not echoed; Enter withheld. " +
+        "The text remains in the agent's input — check the terminal view before retrying, as a resend would duplicate it.",
+    });
+    await page.goto(`/${SERVER}/1?view=chat`);
+
+    const input = page.getByTestId("chat-send-input");
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.fill("ship it");
+    await input.press("Enter");
+
+    // The inline role="alert" carries the server's structured 409 message.
+    const err = page.getByTestId("chat-send-error");
+    await expect(err).toBeVisible();
+    await expect(err).toHaveText(/Enter withheld/);
+    // Text is KEPT on failure.
+    await expect(input).toHaveValue("ship it");
+  });
+
+  test("the busy hint renders when the window agentState is active (input stays enabled)", async ({ page }) => {
+    // @1's sessions payload carries agentState: "active" → busy hint shows.
+    await mockBackend(page, backfillCleared());
+    await mockChatSend(page);
+    await page.goto(`/${SERVER}/1?view=chat`);
+
+    await expect(page.getByTestId("chat-send-input")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("chat-send-busy-hint")).toBeVisible();
+    // Allow + probe policy — the input is not disabled while busy.
+    await expect(page.getByTestId("chat-send-input")).toBeEnabled();
+  });
+
+  test("375px: the send input sits below the transcript with no horizontal overflow", async ({ page }) => {
+    await mockBackend(page, backfillCleared());
+    await mockChatSend(page);
+    await page.setViewportSize(MOBILE);
+    await page.goto(`/${SERVER}/1?view=chat`);
+
+    const input = page.getByTestId("chat-send-input");
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    // No horizontal page overflow at 375px.
+    const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
+    expect(bodyWidth).toBeLessThanOrEqual(MOBILE.width);
+    // The input sits below the transcript (footer position).
+    const viewBox = await page.getByTestId("chat-view").boundingBox();
+    const inputBox = await input.boundingBox();
+    expect(viewBox).toBeTruthy();
+    expect(inputBox).toBeTruthy();
+    expect(inputBox!.y).toBeGreaterThanOrEqual(viewBox!.y);
   });
 });

@@ -12,7 +12,11 @@ import type { ViewName } from "@/lib/window-view";
  * the terminal, so it MUST fire while xterm owns focus. It still bails on a
  * "real" text input (INPUT/TEXTAREA/contentEditable that is NOT the xterm helper
  * textarea) so it never steals the backtick from the window-rename input or a
- * dialog field.
+ * dialog field — with ONE further exemption: the chat-send input
+ * (`.rk-chat-input`, 260714-jdyg-chat-send). That textarea is the chat lens's
+ * analog of the xterm helper textarea (the lens's primary focus target, which
+ * this change auto-focuses on activation), so `Ctrl+\`` must flip BACK to tty
+ * from within it — bailing there would trap the user in the chat input.
  *
  * `enabled` gates the whole thing (terminal route + a chat-capable window); when
  * false the listener is a no-op. `currentView`/`toggle` speak the unified
@@ -45,11 +49,14 @@ export function useChatViewShortcut(
       // Bail only for a "real" text input that is NOT the xterm helper textarea
       // (xterm focuses a hidden `.xterm-helper-textarea` whenever a terminal is
       // mounted — that is the common focus state and the whole point of this
-      // shortcut, so we must NOT bail there). Mirrors shell.tsx, inverted intent.
+      // shortcut, so we must NOT bail there) AND is NOT the chat-send input
+      // (`.rk-chat-input` — the chat lens's primary focus target; the toggle must
+      // flip back to tty from within it). Mirrors shell.tsx, inverted intent.
       const target = e.target;
       if (target instanceof HTMLElement) {
         const insideXterm = target.closest(".xterm") != null;
-        if (!insideXterm) {
+        const isChatInput = target.classList.contains("rk-chat-input");
+        if (!insideXterm && !isChatInput) {
           const tag = target.tagName;
           if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
         }

@@ -1,8 +1,8 @@
 ---
 type: memory
-description: "The chat-read subsystem — rk-owned neutral chat event schema (Event/Pending/turn counter), the Adapter interface + provider registry, the Claude JSONL adapter (UUID-glob locate, tolerant line-by-line parse, byte-offset tail), the two window-keyed read/stream endpoints, AND the read-only frontend consumer: the `?view=chat` chat view over the terminal route (dedicated per-view EventSource, four-event contract consumption, react-markdown bubbles + collapsible tool cards + tail pending bubble) — a READ-ONLY, derive-from-disk-per-request view over an agent pane's transcript (Constitution II/VI)"
+description: "The chat subsystem — rk-owned neutral chat event schema (Event/Pending/turn counter), the Adapter interface + provider registry, the Claude JSONL adapter (UUID-glob locate, tolerant line-by-line parse, byte-offset tail), the two window-keyed read/stream endpoints, the frontend consumer: the `?view=chat` chat view over the terminal route (dedicated per-view EventSource, four-event contract consumption, react-markdown bubbles + collapsible tool cards + tail pending bubble), AND the SEND path (Change 4, chat-send): POST /api/windows/{windowId}/chat/send — pane-targeted named-buffer paste + NOVELTY echo probe + gated Enter, per-(server,paneID) whole-sequence lock, allow+probe busy policy, and the ChatView send-form input box. Read stays derive-from-disk-per-request (Constitution II); send types into the pane exactly as a human typist (Constitution VI — the pane stays the agent's parent, no SDK/session ownership)"
 ---
-# Chat Read Subsystem
+# Chat Subsystem
 
 **Domain**: run-kit
 
@@ -34,7 +34,18 @@ connection dot) is the shared lens machinery in
 the § Chat View Frontend requirements below own only the DATA-layer consumer half
 (schema types, EventSource lifecycle, renderer). The push deep-link URL +
 service-worker navigation lives in [architecture](/run-kit/architecture.md)
-§ Web Push Notifications. Send remains out of scope (Change 4, `chat-send`).
+§ Web Push Notifications.
+
+**Change 4 added the SEND path** (`260714-jdyg-chat-send`, the FINAL change of the
+stack): a mutating `POST /api/windows/{windowId}/chat/send` and a send-form input
+box replacing ChatView's read-only disabled footer. Send does NOT make the
+subsystem an agent substrate — rk still never *owns* the session; it types the
+message *into the pane* exactly as a human typist would (a named-buffer bracketed
+paste + a gated Enter), so the pane stays the agent's parent process (Constitution
+VI) and there is no SDK hosting, no SessionStore/queue (Constitution II). The two
+GET read endpoints, the stream, and the schema are unchanged; the generic
+`POST /api/windows/{windowId}/keys` endpoint is left untouched. Protocol-based send
+(Codex JSON-RPC) is a later change — v1 makes no provider branch (§ Send Path).
 
 ## Requirements
 
@@ -288,7 +299,187 @@ property of the reconciled `@rk_chat`, not a server fault; any other adapter rea
 error is a `500`. After SSE headers are committed, an unrecoverable tail error is
 emitted as a best-effort `event: chat-error` frame (`writeSSEError`).
 
-## Chat View Frontend (`260714-r7rq-chat-read-frontend`)
+## Send Path (`260714-jdyg-chat-send`)
+
+The mutating half of the subsystem: a single `POST` endpoint that injects a typed
+message into the window's resolved agent pane. It reuses the read side's
+window-keyed / server-resolved contract (the client supplies only a windowID + the
+text; the pane is re-resolved server-side per request) and the same
+`writeError`/status-mapping vocabulary. Everything lives in `api/chat.go`
+(handler + probe/lock orchestration) over new pane-targeted `internal/tmux`
+primitives; the read endpoints, stream, and schema are untouched.
+
+### Requirement: Send endpoint `POST /api/windows/{windowId}/chat/send`
+The backend SHALL expose `POST /api/windows/{windowId}/chat/send?server={server}`
+(mutation ⇒ POST, Constitution IX), registered next to the two GET chat routes and
+implemented as `handleChatSend`. The JSON body is `{"text": "<message>"}`; the
+handler validates `{windowId}` (`parseWindowID`, `400`), rejects an
+empty/whitespace-only or undecodable body (`400`), then re-resolves the target pane
+server-side (§ Server-resolved pane) before injecting. Success is
+`200 {"ok":true}`. The existing generic `POST /api/windows/{windowId}/keys`
+endpoint SHALL be left untouched (different contract, possible external callers).
+
+#### Scenario: Malformed id or empty text is rejected before any injection
+- **GIVEN** a request with a malformed `{windowId}`, an undecodable body, OR a
+  `text` that is empty/whitespace-only
+- **WHEN** `handleChatSend` runs
+- **THEN** it returns `400` with a `writeError` JSON body and performs no tmux
+  injection.
+
+### Requirement: Server-resolved pane (never trust a client ref)
+The handler SHALL derive the target **pane** server-side by extending
+`resolveWindowChat` to also return the resolved `paneID` — the pane picked by the
+SAME rollup rule as chat read (active-pane-first, else the first chat-carrying
+pane), now the single `sessions.ResolveChatPane(panes) (provider, ref, paneID)`
+helper that `rollupChat` delegates to. Injection targets that `paneID`, NEVER the
+window id: a window `-t` target routes to the session's *active* pane, which in a
+split may not be the agent pane. The client supplies neither a pane nor a session
+ref. A `FetchSessions` failure maps to `500`; a window that is absent or carries no
+reconciled chat maps to `404` — mirroring the read endpoints.
+
+#### Scenario: Injection targets the resolved pane, not the window
+- **GIVEN** a window `@N` whose reconciled chat pane is `%2`
+- **WHEN** the handler resolves the target
+- **THEN** every injection subprocess targets `%2` (the resolved `PaneID`), never
+  `@N`; **AND GIVEN** `FetchSessions` errors → `500`; **AND GIVEN** no reconciled
+  chat → `404`.
+
+### Requirement: Pane-targeted injection sequence via argv slices
+On a resolved pane the handler SHALL inject the message through a discrete
+provider-agnostic seam (`injectChatMessage`) running this exact ordered sequence,
+every subprocess an argv slice (Constitution I) targeting the `paneID`:
+1. **Baseline capture** — `CapturePane` the pane tail BEFORE mutating anything (the
+   probe floor, § Novelty echo probe).
+2. `set-buffer -b rk-chat-send -- <text>` — text as one discrete argv element (no
+   shell string, no stdin — `tmuxExecServer` has no stdin plumbing). The **`--`
+   option terminator is load-bearing**: without it a message that starts with a
+   dash (`--force is broken`) is parsed as `set-buffer` flags and hard-fails; with
+   it, leading-dash text stores verbatim (verified tmux 3.6a). A **named** buffer
+   (`tmux.ChatSendBuffer = "rk-chat-send"`) avoids clobbering the user's anonymous
+   buffer stack.
+3. `paste-buffer -d -p -b rk-chat-send -t <paneID>` — `-p` bracketed paste (the
+   Claude Code TUI enables bracketed paste, so multiline + special characters land
+   as one literal block, no per-line submission); `-d` deletes the buffer after
+   pasting so the buffer set stays clean.
+4. **Probe** (§ Novelty echo probe) — only on success:
+5. `send-keys -t <paneID> Enter` — the literal `Enter` key, sent ONLY after a
+   successful probe.
+
+There SHALL be NO `agentState` gate and NO server-side queue (busy policy =
+Allow + probe, Constitution II). Text is delivered verbatim, including newlines,
+tmux key names (`Enter`, `C-c`), and leading dashes — never interpreted as
+keys/flags nor submitted per-line.
+
+#### Scenario: Key-name / leading-dash text is delivered literally
+- **GIVEN** a resolved pane and text `"--force is broken\necho Enter"`
+- **WHEN** injection runs
+- **THEN** the order is baseline → set-buffer (`--`-terminated) → paste-buffer →
+  probe → send-keys, the text is one literal argv element (never parsed as
+  flags/keys), and Enter is a separate step gated on the probe.
+
+### Requirement: NOVELTY echo probe (fail-closed), settle + bounded retry
+Before Enter the handler SHALL verify the pasted text ECHOED into the pane's live
+input buffer, using **novelty**, not mere presence: it counts a probe **needle**
+(and, for multiline text only, the paste-collapse placeholder) in the pre-paste
+**baseline** capture, then requires that count to strictly INCREASE in a post-paste
+capture. The needle is derived from the LAST non-empty line of the text,
+whitespace-stripped (both needle and capture stripped of ANSI + all whitespace so
+an ~80-col TUI wrap cannot split the fragment) and capped to the last
+`chatSendNeedleMaxLen = 40` runes. The multiline paste-collapse placeholder
+(`[Pasted text #N +M lines]`, matched whitespace-stripped) counts as a successful
+echo — but ONLY for multiline text (single-line pastes never collapse) and ONLY as
+a *fresh* occurrence vs baseline. A short settle (`chatSendProbeSettle = 80ms`)
+precedes the first capture, then up to `chatSendProbeAttempts = 3` captures with a
+`chatSendProbeGap = 80ms` gap (settle/gap are package **vars** solely so tests can
+shrink them). The probe **fails closed**: an empty needle, a pane that scrolls
+between baseline and probe, or a count that never rises → `chatProbeFailure` → no
+Enter, `409`. This is the guard against a blind Enter into e.g. a permission
+dialog. A `CapturePane` subprocess error is distinct (→ `500`, not a clean miss).
+
+#### Scenario: A stale chip / common needle already in-frame does not false-pass
+- **GIVEN** a baseline capture that ALREADY contains the needle or a paste-collapse
+  chip (e.g. a prior send's 409 left its text in the composer, or a short needle
+  like `ok`)
+- **WHEN** the paste does not add a fresh occurrence (or the pane scrolls)
+- **THEN** the count does not strictly increase, so no Enter is sent and the
+  response is `409` — the stale occurrence is a floor to beat, not a false positive.
+- **AND GIVEN** the text (or its multiline paste-collapse chip) newly appears within
+  the retry budget, **THEN** Enter is sent and the response is `200 {"ok":true}`.
+
+### Requirement: 409 on probe failure — Enter withheld, text left recoverable
+On probe failure the handler SHALL send no Enter and return `409` with a structured
+message that names the recoverable state and steers away from a duplicating retry:
+`"agent input not ready — message pasted but not echoed; Enter withheld. The text
+remains in the agent's input — check the terminal view before retrying, as a
+resend would duplicate it."` The pasted text legitimately remains in the TUI input
+box (visible, recoverable) — strictly better than a blind Enter. The failure is
+surfaced, never silent. The retry hint matters because the paste (not the Enter)
+already landed, so an identical resend would paste a SECOND copy and submit doubled
+text.
+
+#### Scenario: Probe failure leaves the paste visible and withholds Enter
+- **GIVEN** a paste whose echo cannot be verified across all retries
+- **WHEN** the probe exhausts
+- **THEN** no Enter is sent, the response is `409` with the retry-hinted message,
+  and the pasted text stays in the agent's composer.
+
+### Requirement: Per-(server,paneID) whole-sequence lock + shared-buffer mutex
+Concurrent sends SHALL be serialized so no two cross texts or double-submit. The
+handler holds a **per-(server,paneID) mutex** (a guarded, never-evicted
+`map[string]*sync.Mutex`, keyed `server\x00paneID`) across the WHOLE sequence
+(baseline → set → paste → probe → Enter/409) so a second send to the SAME pane only
+begins after the first fully finishes — closing the same-pane double-paste window
+(two sends racing one composer both pasting before either probes → merged
+submission). DISTINCT panes stay fully concurrent (each takes its own lock). Because
+the named tmux buffer (`rk-chat-send`) is a single server-wide resource with rk as
+its sole writer, the set → paste critical section is ADDITIONALLY guarded by a small
+package-level mutex (`chatSetPasteMu`) **nested inside** the per-pane lock — held
+only for those two fast subprocesses — so cross-pane sends cannot interleave as
+A-set / B-set / A-paste (pane A would receive B's text; B's own `-d` paste would
+500 on the already-deleted buffer).
+
+#### Scenario: Same-pane sends serialize; distinct panes stay concurrent
+- **GIVEN** two concurrent sends to the same `(server,paneID)`
+- **WHEN** both run
+- **THEN** the second observes the first's completed sequence (never an in-flight
+  paste), so no doubled submission and no crossed text; **AND GIVEN** two sends to
+  DIFFERENT panes, **THEN** they run concurrently (only the brief shared set→paste
+  window serializes across panes).
+
+### Requirement: One shared injection deadline (route stays under 5s)
+The whole injection sequence — up to 6 tmux subprocesses plus the settle/retry
+sleeps — SHALL run under ONE shared context deadline (`chatSendTotalBudget`,
+default `4s`, a package var only so tests can shrink it), derived from the request
+context (a client disconnect also cancels the subprocesses). The individual tmux
+primitives are the caller's-context `*Ctx` variants that do NOT each impose their
+own 10s timeout — so the route can never block for the old worst case of 6 × 10s,
+staying comfortably under the code-review 5s route-blocking rule (probe sleeps
+alone are ≤ 240ms).
+
+#### Scenario: A stalled tmux cannot block the route past the budget
+- **GIVEN** a tmux subprocess that stalls
+- **WHEN** the shared deadline elapses
+- **THEN** the sequence aborts (the ctx cancels every remaining subprocess) rather
+  than blocking the route for multiples of 5s.
+
+### Requirement: New pane-targeted tmux primitives on `TmuxOps`
+`internal/tmux` SHALL carry the pane-targeted primitives the injection needs
+(`SetChatSendBufferCtx`, `PasteChatSendBufferCtx`, `SendEnterToPaneCtx`, plus the
+`ChatSendBuffer` name constant — see [tmux-sessions](/run-kit/tmux-sessions.md)),
+and `api/router.go`'s `TmuxOps` interface (with `prodTmuxOps` + the test
+`mockTmuxOps`) SHALL surface them as `SetChatSendBuffer` / `PasteChatSendBuffer` /
+`SendEnterToPane` / `CapturePane` so the handler is fully testable against the fake
+— the needle-derivation + settle/retry orchestration lives in `api/chat.go`, the
+individual tmux calls are recordable interface methods. `SendKeys` (the
+window-targeted `/keys` helper) is untouched.
+
+#### Scenario: The status matrix is exercisable against a fake tmux
+- **GIVEN** the handler driven by `mockTmuxOps`
+- **WHEN** the test injects capture results / errors per primitive
+- **THEN** the full 400/404/409/500/200 matrix, injection order, and
+  no-Enter-on-probe-failure are exercisable with no live claude pane.
+
+## Chat View Frontend (`260714-r7rq-chat-read-frontend`, send form `260714-jdyg-chat-send`)
 
 The read-only frontend consumer of the backend contract above. The pure schema
 + derivation helpers live in `app/frontend/src/lib/chat-stream.ts`; the
@@ -400,9 +591,9 @@ three-mode theme tokens, animation behind `prefers-reduced-motion`):
 - **Streaming** — stick-to-bottom auto-follow (a `stickRef` gated on ~40px
   from-bottom + a `useLayoutEffect` on `[events, pendingBubble]`) unless the user
   has scrolled up.
-- **No input box** — a visibly **disabled** footer affordance (`aria-disabled`)
-  pointing at the terminal view ("send from the terminal view — coming in
-  chat-send"). Send is Change 4.
+- **Send form footer** — a `shrink-0` `ChatSendForm` (§ Send-form input box,
+  `260714-jdyg-chat-send`); it REPLACED the earlier read-only disabled footer
+  (the `chat-send-disabled` testid is gone).
 - **`chat-error`** — an inline `role="alert"` error state.
 
 #### Scenario: Markdown bubble, collapsed tool card, tail pending
@@ -412,6 +603,53 @@ three-mode theme tokens, animation behind `prefers-reduced-motion`):
 - **THEN** bubbles render markdown, the tool card is collapsed by default and
   expands on click, and the pending bubble shows at the tail and clears when
   `pending` becomes null.
+
+### Requirement: Send-form input box — pure `ChatSendForm`, AppShell-wired (`260714-jdyg-chat-send`)
+`ChatView` SHALL stay a **pure component over passed props**. A `ChatSendForm`
+child replaces the read-only disabled footer; `AppShell` supplies an
+`onSend(text): Promise<void>` callback (wrapping the `sendChatMessage(server,
+windowId, text)` client — `client.ts`, POSTs `{text}` via the shipped
+`withServer` + `throwOnError` shape so the server's structured error, including the
+409 probe message, surfaces as the thrown Error's message) plus a `busy` boolean
+derived from `currentWindow.agentState === "active"`. `ChatView` calls the client
+directly for nothing — it delegates to `onSend`. The lens/switcher machinery
+(`window-view.ts`, `ViewSwitcher`, search-param validation — [ui-patterns](/run-kit/ui-patterns.md)
+§ Window Views) is NOT touched. The input UX:
+- An auto-growing monospace `<textarea>` (`.rk-chat-input`, placeholder
+  `Message the agent…`), bounded max-height then internal scroll, plus a house-chip
+  (`rk-glint`) send button for touch/mouse.
+- **Enter submits; Shift+Enter inserts a newline**; an empty/whitespace-only
+  textarea does not submit. `keydown` **stops propagation** so a `Ctrl+`` toggle or
+  other global chord never hijacks a keystroke while typing — and the textarea is
+  explicitly EXEMPTED from the `Ctrl+`` view-toggle suppression via its
+  `.rk-chat-input` class (see [ui-patterns](/run-kit/ui-patterns.md) § Window Views;
+  the toggle must still fire from inside the chat input or the user is trapped).
+- **In-flight lock**: while a send POST is pending, the submit path is locked
+  (double-Enter / double-click cannot double-send). The textarea KEEPS its text
+  until the POST succeeds — cleared on success, kept on failure.
+- **Inline error**: a failed send renders an inline `role="alert"`
+  (`chat-send-error`) above the input carrying the server's structured error
+  (e.g. the 409 message). Never silent.
+- **Busy hint**: while `busy` (agent `active`), a non-blocking
+  "will be queued" hint (`chat-send-busy-hint`) renders and the input STAYS ENABLED
+  (Allow + probe policy — Claude Code queues typed input natively).
+- **Desktop-only autofocus**: the textarea auto-focuses on mount (the chat lens
+  just activated) UNLESS `(pointer: coarse)` matches — coarse pointers skip
+  autofocus so the on-screen keyboard does not pop unbidden.
+- **Per-(server,windowId) remount**: `AppShell` keys `<ChatView>` by the composite
+  `` `${server}:${windowParam}` `` so switching chat-lens windows — including the
+  same window id across DIFFERENT servers (`@1`↔`@1`) — remounts the form, dropping
+  any draft/stale-error carryover and re-firing autofocus.
+
+#### Scenario: Enter submits and clears; a 409 keeps the text and shows the error
+- **GIVEN** the send form with typed text
+- **WHEN** the user presses Enter and the POST resolves ok
+- **THEN** exactly one POST fires with the typed body, the textarea clears, and any
+  prior error clears; **AND GIVEN** a second Enter while in flight, **THEN** no
+  second POST fires; **AND GIVEN** the POST rejects `409`, **THEN** the text is
+  retained and the server's message renders in a `role="alert"` element.
+- **AND GIVEN** the agent is `active`, **THEN** the queued-message hint is visible
+  and the input stays enabled.
 
 ## Design Decisions
 
@@ -507,3 +745,108 @@ connected, error}` into `ChatView` as props; `ChatView` opens no stream itself.
 second stream would double the connection and desync the two health readings.
 **Rejected**: `ChatView` owning its own hook (two streams, desynced dot).
 *Introduced by*: `260714-r7rq-chat-read-frontend`
+
+### Tmux keystroke injection, not an agent SDK/API send
+**Decision**: Send types the message *into the resolved pane* — a named-buffer
+bracketed paste (`set-buffer -b rk-chat-send -- <text>` → `paste-buffer -d -p`)
+plus a probed `send-keys Enter` — rather than hosting the agent's session or
+calling a provider send API.
+**Why**: The pane stays the agent's parent process (Constitution VI); rk sends
+keystrokes exactly as a human typist would — no SDK hosting, no session ownership,
+no queue state (Constitution II). Mechanically provider-agnostic (it types into any
+TUI), so the injection sits behind a small `injectChatMessage` seam that a later
+protocol-based send (Codex JSON-RPC) can branch on without reshaping the handler;
+v1 makes NO provider branch. `set-buffer` (text as a discrete argv element) beats
+`load-buffer -` because `tmuxExecServer` has no stdin plumbing; the `--` terminator
+is load-bearing for leading-dash text; a NAMED buffer avoids clobbering the user's
+anonymous buffer stack; `-p` matches the TUI's bracketed-paste support so multiline
+lands as one literal block.
+**Rejected**: an agent SDK/protocol send in v1 (session ownership, dependency creep
+— deferred to a later change behind the seam); reusing `POST /keys` (window-target
+routes to the active pane, key-name interpretation of message text, unconditional
+Enter — the stale-prompt trap); `load-buffer -` (no stdin).
+*Introduced by*: `260714-jdyg-chat-send`
+
+### NOVELTY echo probe before Enter, fail-closed
+**Decision**: Never send Enter blindly. Capture the pane tail BEFORE the paste, then
+require a probe needle's (or the multiline paste-collapse chip's) occurrence count
+to strictly INCREASE after the paste; on failure withhold Enter and return `409`
+with the text left recoverable in the composer.
+**Why**: A visible `❯ <text>` line in a capture can be STALE printed output, not the
+live input buffer (a recorded operator lesson) — a mere-presence check would false
+pass on a stale chip (this very handler's 409 path leaves pasted text in-frame) or a
+short/common needle (`ok`), and Enter into e.g. a permission dialog is the exact
+hazard. Novelty (baseline count → strict increase) makes a stale occurrence a floor
+to beat rather than a false positive, and if the pane scrolls between baseline and
+probe the count cannot rise, so it fails CLOSED. Leaving the pasted text on failure
+is visible recoverable state, strictly better than a blind Enter; the 409 message
+names it and warns that a resend would duplicate (the paste, not the Enter, already
+landed).
+**Cost / accepted races**: the capture→Enter gap is inherently TOCTOU-racy (accepted
+worst case, matches operator practice); and because busy sends are ALLOWED, agent
+output could coincidentally add a needle occurrence between baseline and probe — a
+reachable but low-consequence false-positive.
+**Rejected**: mere-presence matching (stale/short-needle false positives);
+reject-while-busy (superseded — Claude Code queues typed input natively, and the
+probe already guards the unsafe cases).
+*Introduced by*: `260714-jdyg-chat-send`
+
+### Allow + probe busy policy — no server-side gate, no queue
+**Decision**: There is NO `agentState` gate on send and NO server-side queue. A busy
+(`active`) agent receives the paste into its TUI input box; the probe is the sole
+guard. The UI shows a non-blocking "will be queued" hint while `active` but keeps
+the input enabled.
+**Why**: User-decided at intake (over the original plan's reject-while-busy
+recommendation) — Claude Code's TUI natively queues messages typed while the agent
+works (steering), and probe-before-Enter already blocks the genuinely unsafe cases.
+A server-side queue is forbidden by Constitution II (no persistent state store).
+**Rejected**: reject-while-busy (unnecessary given native steering); a server-side
+send queue (Constitution II).
+*Introduced by*: `260714-jdyg-chat-send`
+
+### Per-(server,paneID) whole-sequence lock + nested shared-buffer mutex
+**Decision**: Serialize the whole injection sequence per `(server, paneID)` with a
+never-evicted mutex map, and nest a small package-level mutex around just the
+set → paste critical section (which uses the one server-wide named buffer).
+**Why**: Two sends to the SAME pane racing one composer could each paste before
+either probes+Enters, merging into one doubled submission — the per-pane
+whole-sequence lock closes that window while keeping DISTINCT panes concurrent. The
+named buffer `rk-chat-send` is a single server-wide resource with rk as sole writer,
+so without the nested set→paste mutex two cross-pane sends could interleave as
+A-set / B-set / A-paste (wrong text into pane A; B's `-d` paste 500s on the deleted
+buffer). Division of labour: per-pane lock = same-pane sequence ordering; global
+mutex = shared-buffer atomicity across panes. Both are held briefly relative to the
+slow probe captures, so cross-pane throughput stays high.
+**Rejected**: a global set→paste-only lock (leaves the same-pane double-paste window
+open); a per-request unique buffer name (works but the whole-sequence lock is needed
+anyway for the same-pane merge, and a shared named buffer is simpler); evicting map
+entries (reintroduces a drop-last-reference race between two same-pane sends).
+*Introduced by*: `260714-jdyg-chat-send`
+
+### One shared injection deadline threads all subprocesses
+**Decision**: The handler derives ONE `context.WithTimeout(r.Context(),
+chatSendTotalBudget)` (default 4s) and threads it through every step via the `*Ctx`
+tmux variants, rather than granting each of the up-to-6 subprocesses its own 10s
+timeout.
+**Why**: The old per-subprocess-10s design could block the route for a 6 × 10s worst
+case; the code-review 5s route-blocking rule requires one bounded deadline. Deriving
+from the request context also cancels the tmux subprocesses on client disconnect.
+**Rejected**: independent per-primitive timeouts (unbounded route block).
+*Introduced by*: `260714-jdyg-chat-send`
+
+### Follow-ups (non-blocking, recorded at hydrate)
+Recorded for a later change, accepted as non-blocking by review:
+- **Control-byte sanitization of `body.Text`** (should-fix, OPEN): the send handler
+  does not strip C0 control bytes from the message before the buffer paste — a
+  bracketed paste neutralizes the common cases, but a defensive sanitize is the
+  clean fix. Not yet implemented.
+- **Long-single-line paste-collapse assumption** (unverified): the probe only counts
+  the paste-collapse placeholder for MULTILINE text, on the assumption a long
+  single line does not collapse into the chip; not empirically re-verified across
+  TUI widths.
+- **`sendKeys` client wrapper** — a pre-existing zero-production-caller deletion
+  candidate (`app/frontend/src/api/client.ts`; the backend `/keys` endpoint stays —
+  possible external callers — only the frontend wrapper + its test are candidates).
+  Not made redundant *by* this change; chat-send provides the pane-targeted
+  alternative for the only contemplated UI use.
+*Introduced by*: `260714-jdyg-chat-send`

@@ -175,6 +175,88 @@ func TestReadPresets_EmptyRoot(t *testing.T) {
 	}
 }
 
+func TestReadTiers(t *testing.T) {
+	builtins := []string{"default", "doing", "fast", "operator", "review"}
+
+	cases := []struct {
+		name    string
+		writeFn func(t *testing.T, root string)
+		want    []string
+	}{
+		{
+			name:    "no config → built-ins only",
+			writeFn: func(t *testing.T, root string) {},
+			want:    builtins,
+		},
+		{
+			name: "no agent block → built-ins only",
+			writeFn: func(t *testing.T, root string) {
+				writeFabConfig(t, root, "project:\n    name: x\n")
+			},
+			want: builtins,
+		},
+		{
+			name: "no agent.tiers block → built-ins only",
+			writeFn: func(t *testing.T, root string) {
+				writeFabConfig(t, root, "agent:\n    something: else\n")
+			},
+			want: builtins,
+		},
+		{
+			name: "malformed yaml → built-ins only",
+			writeFn: func(t *testing.T, root string) {
+				writeFabConfig(t, root, "agent:\n  tiers:\n    - not a map\n  : broken\n")
+			},
+			want: builtins,
+		},
+		{
+			name: "config-only names appended in source order, deduped",
+			writeFn: func(t *testing.T, root string) {
+				// default+doing overlap the built-ins (deduped); custom+extra are new
+				// and appended in YAML source order after the built-ins.
+				writeFabConfig(t, root, `agent:
+    tiers:
+        default: {model: a}
+        custom: {model: b}
+        doing: {model: c}
+        extra: {model: d}
+`)
+			},
+			want: []string{"default", "doing", "fast", "operator", "review", "custom", "extra"},
+		},
+		{
+			name: "only overlapping names → built-ins unchanged",
+			writeFn: func(t *testing.T, root string) {
+				writeFabConfig(t, root, `agent:
+    tiers:
+        doing: {model: a}
+        review: {model: b}
+`)
+			},
+			want: builtins,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			tc.writeFn(t, root)
+			got := ReadTiers(root)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ReadTiers() = %#v\nwant %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadTiers_EmptyRoot(t *testing.T) {
+	got := ReadTiers("")
+	want := []string{"default", "doing", "fast", "operator", "review"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ReadTiers(\"\") = %#v, want %#v (built-ins)", got, want)
+	}
+}
+
 func TestReadPresetsOrdered_PreservesOrder(t *testing.T) {
 	root := t.TempDir()
 	writeFabConfig(t, root, `riff:

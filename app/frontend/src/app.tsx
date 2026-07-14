@@ -53,6 +53,7 @@ import { useWindowStore } from "@/store/window-store";
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
 const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
+const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").then(m => ({ default: m.SpawnAgentDialog })));
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 
 const { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH } = SIDEBAR_WIDTH_BOUNDS;
@@ -248,6 +249,7 @@ function RootTopBar() {
       onToggleSidebar={slot?.onToggleSidebar ?? (() => {})}
       onCreateSession={slot?.onCreateSession ?? (() => {})}
       onCreateWindow={slot?.onCreateWindow ?? (() => {})}
+      onSpawnAgent={slot?.onSpawnAgent}
       paneCount={slot?.paneCount}
       serverCount={slot?.serverCount}
       waitingPaneCount={slot?.waitingPaneCount}
@@ -388,6 +390,7 @@ function AppShell() {
   const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<"session" | "window" | null>(null);
   const [showCreateIframeDialog, setShowCreateIframeDialog] = useState(false);
+  const [showSpawnAgentDialog, setShowSpawnAgentDialog] = useState(false);
   const [iframeWindowName, setIframeWindowName] = useState("");
   const [iframeWindowUrl, setIframeWindowUrl] = useState("");
 
@@ -805,7 +808,7 @@ function AppShell() {
 
   // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || showCreateServerDialog || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog || showSpawnAgentDialog;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -918,6 +921,15 @@ function AppShell() {
     },
     [server, executeCreateWindow],
   );
+
+  // Open the spawn-agent dialog for the current window's session (260713-sbk1).
+  // Both entry points (Cmd+K `Agent: Spawn`, window-switcher `+ New Agent`)
+  // route here; the dialog reads the target session from state. Gated on a
+  // resolvable session at the call sites (palette action / dropdown), so the
+  // opener itself just flips the dialog on.
+  const handleOpenSpawnAgent = useCallback(() => {
+    setShowSpawnAgentDialog(true);
+  }, []);
 
 
   const handleCreateIframeWindow = useCallback(() => {
@@ -1688,11 +1700,24 @@ function AppShell() {
     return [{ id: "agent-next-waiting", label: "Agent: Next waiting", onSelect }];
   }, [flatWindows, servers, server, windowParam, navigateToWindow, navigate, isMobile, setSidebarOpen, addToast]);
 
+  // Agent: Spawn — Cmd+K parity for the web-UI spawn flow (260713-sbk1;
+  // Constitution V palette parity — the shortcut/registration is documented
+  // here per code-review.md "New keyboard shortcuts must be documented in the
+  // command palette registration"). Gated on a resolvable session (mirrors
+  // Window: Create), since the spawn target IS the current window's session.
+  const agentSpawnActions: PaletteAction[] = useMemo(
+    () =>
+      sessionName
+        ? [{ id: "agent-spawn", label: "Agent: Spawn", onSelect: handleOpenSpawnAgent }]
+        : [],
+    [sessionName, handleOpenSpawnAgent],
+  );
+
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...updateActions, ...maintenanceActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions],
-    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, updateActions, maintenanceActions, serverActions, pushActions, windowSwitchActions, agentActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...updateActions, ...maintenanceActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, updateActions, maintenanceActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -1776,6 +1801,7 @@ function AppShell() {
       onToggleSidebar,
       onCreateSession: handleCreateSessionInstant,
       onCreateWindow: handleCreateWindow,
+      onSpawnAgent: handleOpenSpawnAgent,
     }),
     [
       sessions,
@@ -1790,6 +1816,7 @@ function AppShell() {
       onToggleSidebar,
       handleCreateSessionInstant,
       handleCreateWindow,
+      handleOpenSpawnAgent,
     ],
   );
   useRegisterTopBarSlot(topBarSlot);
@@ -1964,6 +1991,16 @@ function AppShell() {
             session={sessionName}
             defaultPath={currentWindow?.worktreePath}
             onClose={() => setShowCreateWindowAtFolderDialog(false)}
+          />
+        </Suspense>
+      )}
+
+      {showSpawnAgentDialog && sessionName && (
+        <Suspense fallback={null}>
+          <SpawnAgentDialog
+            session={sessionName}
+            onSpawned={navigateToWindow}
+            onClose={() => setShowSpawnAgentDialog(false)}
           />
         </Suspense>
       )}

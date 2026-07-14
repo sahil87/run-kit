@@ -5,17 +5,17 @@ created_by: Sahil Ahuja
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 15
+    acceptance_count: 19
+    acceptance_completed: 19
 confidence:
     certain: 4
     confident: 4
@@ -29,7 +29,28 @@ confidence:
         competence: 83.1
         disambiguation: 78.1
 stage_metrics:
-    intake: {started_at: "2026-07-14T07:32:37Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-07-14T07:32:37Z", driver: fab-new, iterations: 1, completed_at: "2026-07-14T07:51:28Z"}
+    apply: {started_at: "2026-07-14T09:48:18Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-14T09:57:28Z"}
+    review: {started_at: "2026-07-14T09:57:28Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-14T10:16:22Z"}
+    hydrate: {started_at: "2026-07-14T10:16:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T10:24:58Z"}
+    ship: {started_at: "2026-07-14T10:24:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T10:27:40Z"}
+    review-pr: {started_at: "2026-07-14T10:27:40Z", driver: git-pr, iterations: 1, completed_at: "2026-07-14T10:40:54Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/349
+true_impact:
+    added: 5546
+    deleted: 2080
+    net: 3466
+    excluding:
+        added: 4532
+        deleted: 2017
+        net: 2515
+    tests:
+        added: 2142
+        deleted: 1034
+        net: 1108
+    computed_at: "2026-07-14T10:27:40Z"
+    computed_at_stage: ship
+summary: 'Extend web spawn dialog to v2: Where (worktree|checkout) / Worktree name / Agent tier fields, additive POST /api/riff body + {presets,tiers} preflight, tier-parameterized launcher + conditional worktree creation in internal/riff'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-14T07:33:45Z
+last_updated: 2026-07-14T10:40:54Z

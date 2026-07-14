@@ -1,32 +1,44 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
+type DropdownAction = { label: string; onAction: () => void };
+
 type Props = {
   items: BreadcrumbDropdownItem[];
   label?: string;
   icon?: string;
   onNavigate?: (href: string) => void;
-  action?: { label: string; onAction: () => void };
+  action?: DropdownAction;
+  /** Optional SECOND leading action, rendered below `action` (e.g. the
+   *  window switcher's `+ New Agent` beside `+ New Window`). Only honored when
+   *  `action` is also present. Every other call site passes just `action` and
+   *  keeps its single-action behavior unchanged. */
+  secondaryAction?: DropdownAction;
   triggerClassName?: string;
   /** Native tooltip on the trigger — names the crumb's level (e.g. "Session"). */
   title?: string;
 };
 
-export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, triggerClassName, title }: Props) {
+export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, secondaryAction, triggerClassName, title }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const actionRef = useRef<HTMLButtonElement | null>(null);
+  const actionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // When action exists, index 0 = action button, indices 1..N = items.
-  // When no action, indices 0..N-1 = items directly.
-  const offset = action ? 1 : 0;
+  // Leading actions occupy indices 0..offset-1; items follow at offset..N-1.
+  // A secondaryAction is only meaningful alongside a primary action.
+  const leadingActions: DropdownAction[] = action
+    ? secondaryAction
+      ? [action, secondaryAction]
+      : [action]
+    : [];
+  const offset = leadingActions.length;
   const totalCount = items.length + offset;
 
   function getFocusableRef(index: number): HTMLButtonElement | null {
-    if (action && index === 0) return actionRef.current;
+    if (index < offset) return actionRefs.current[index] ?? null;
     return itemRefs.current[index - offset] ?? null;
   }
 
@@ -121,21 +133,24 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, tri
           aria-label={label ? `Switch ${label}` : "Switch"}
           className="absolute top-full left-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] max-w-[240px] z-50 max-h-60 overflow-y-auto"
         >
-          {action && (
+          {leadingActions.length > 0 && (
             <>
-              <button
-                ref={(el) => { actionRef.current = el; }}
-                type="button"
-                role="menuitem"
-                tabIndex={focusedIndex === 0 ? 0 : -1}
-                onClick={() => {
-                  setOpen(false);
-                  action.onAction();
-                }}
-                className="w-full text-left block px-3 py-2 text-sm text-text-primary hover:bg-bg-card transition-colors"
-              >
-                {action.label}
-              </button>
+              {leadingActions.map((la, i) => (
+                <button
+                  key={la.label}
+                  ref={(el) => { actionRefs.current[i] = el; }}
+                  type="button"
+                  role="menuitem"
+                  tabIndex={focusedIndex === i ? 0 : -1}
+                  onClick={() => {
+                    setOpen(false);
+                    la.onAction();
+                  }}
+                  className="w-full text-left block px-3 py-2 text-sm text-text-primary hover:bg-bg-card transition-colors"
+                >
+                  {la.label}
+                </button>
+              ))}
               <div className="border-t border-border" />
             </>
           )}

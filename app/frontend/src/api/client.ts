@@ -641,3 +641,95 @@ export async function subscribePush(subscription: PushSubscriptionJSON): Promise
   });
   if (!res.ok) await throwOnError(res);
 }
+
+// --- Riff (web-UI agent spawn) — 260713-sbk1 ---
+
+/** A riff preset summary for the spawn dialog's dropdown, mirroring the backend
+ *  `GET /api/riff/presets` shape. `layout` is the empty string when unset. */
+export type RiffPreset = {
+  name: string;
+  layout: string;
+  paneCount: number;
+};
+
+/** The response of a successful spawn — enough to navigate to the new window. */
+export type RiffSpawnResult = {
+  server: string;
+  session: string;
+  window: string;
+  windowId: string;
+};
+
+/** Where a spawn's window is rooted: a fresh isolated worktree (default) or the
+ *  session's existing checkout (no worktree created). Mirrors the mockup-v2
+ *  `where` body field. */
+export type RiffWhere = "worktree" | "checkout";
+
+/** The spawn dialog's preflight fetch — presets + the available agent tiers,
+ *  both from the single `GET /api/riff/presets` (mockup-v2). `tiers` is always
+ *  non-empty (fab-kit built-ins ∪ the repo's `agent.tiers`, `default` first). */
+export type RiffPreflight = {
+  presets: RiffPreset[];
+  tiers: string[];
+};
+
+/** The mockup-v2 spawn-shaping options. All optional and additive over the
+ *  shipped `{task, preset}` — omitted fields fall back to the backend defaults
+ *  (worktree isolation, auto-named worktree, default tier). */
+export type SpawnRiffOptions = {
+  task?: string;
+  preset?: string;
+  where?: RiffWhere;
+  worktreeName?: string;
+  tier?: string;
+};
+
+/** Spawn a riff agent window in `session`'s repo. `opts.task` (optional) becomes
+ *  the agent's boot task (auto-submits); an empty task spawns a blank agent
+ *  session. `opts.preset` selects a riff preset; `opts.where` chooses worktree
+ *  (default) vs. the existing checkout; `opts.worktreeName` names the worktree
+ *  (worktree mode only); `opts.tier` picks the fab agent tier. Each field is
+ *  omitted from the POST body when unset/default, so a defaults-only call is
+ *  byte-identical to the shipped two-field path. On success the caller navigates
+ *  to `/$server/$windowId`. Throws on a non-ok response (a 400 carries a
+ *  human-readable message, e.g. non-repo cwd). */
+export async function spawnRiff(
+  server: string,
+  session: string,
+  opts: SpawnRiffOptions = {},
+): Promise<RiffSpawnResult> {
+  const body: Record<string, string> = { session };
+  if (opts.task) body.task = opts.task;
+  if (opts.preset) body.preset = opts.preset;
+  // "worktree" is the backend default — omit it to keep the shipped path's body.
+  if (opts.where && opts.where !== "worktree") body.where = opts.where;
+  if (opts.worktreeName) body.worktreeName = opts.worktreeName;
+  // "default" resolves the same tier as an omitted value — omit it so the
+  // defaults-only body matches the shipped path exactly.
+  if (opts.tier && opts.tier !== "default") body.tier = opts.tier;
+  const res = await fetch(withServer("/api/riff", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Fetch the spawn dialog's preflight for `session`'s repo: the riff presets
+ *  (YAML source order; [] when none) and the available agent tiers (built-ins ∪
+ *  repo config, `default` first). Throws on a non-ok response (e.g. 400 for a
+ *  non-repo cwd); the dialog treats a failure as "no presets, tier `default`
+ *  only" (it cannot enumerate the repo's tiers without this fetch) and still
+ *  allows a task-only spawn. */
+export async function getRiffPresets(
+  server: string,
+  session: string,
+): Promise<RiffPreflight> {
+  const res = await deduplicatedFetch(
+    withServer(`/api/riff/presets?session=${encodeURIComponent(session)}`, server),
+  );
+  if (!res.ok) await throwOnError(res);
+  const data: { presets?: RiffPreset[]; tiers?: string[] } = await res.json();
+  return { presets: data.presets ?? [], tiers: data.tiers ?? [] };
+}

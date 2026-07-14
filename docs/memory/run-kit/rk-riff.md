@@ -1,12 +1,17 @@
 ---
-description: "`rk riff` subcommand — worktree + tmux window + Claude launcher with argv-ordered pane arrays, presets, named layouts, and parallel fan-out"
+description: "`rk riff` spawn engine — worktree + tmux window + Claude launcher with argv-ordered pane arrays, presets, named layouts, and parallel fan-out; extracted into internal/riff (parameterized by explicit {server, session, repoRoot}) with the CLI thinned to flags/preconditions/derivation and the web-UI POST /api/riff as a second frontend; mockup-v2 spawn-shaping inputs (Where worktree|checkout conditional wt-create, WorktreeName --worktree-name passthrough via buildWtCreateArgs, tier-parameterized ResolveLauncher via fabAgentArgs) + fabconfig.ReadTiers enumeration — all CLI-inert (worktree-only, empty-tier)"
 type: memory
 ---
 # `rk riff`
 
-`rk riff` is the Cobra subcommand that creates a git worktree, opens a new tmux window inside it, and launches one or more Claude Code sessions (or arbitrary shell panes) in a multi-pane layout. It generalizes the earlier single-skill riff model to an argv-ordered pane array with presets, named layouts, and parallel fan-out across N worktrees.
+`rk riff` creates a git worktree, opens a new tmux window inside it, and launches one or more Claude Code sessions (or arbitrary shell panes) in a multi-pane layout. It generalizes the earlier single-skill riff model to an argv-ordered pane array with presets, named layouts, and parallel fan-out across N worktrees.
 
-Implementation: `app/backend/cmd/rk/riff.go` (registered in `root.go` via `rootCmd.AddCommand(riffCmd)`). Supporting files: `pane_spec.go` (pflag.Value implementation), `layout.go` (layout alias table), `layout_help.go` (ASCII mocks), `../../internal/fabconfig/fabconfig.go` (`ReadPresets`).
+**Engine extracted into `internal/riff` (since `260713-sbk1-web-spawn-agent`).** The spawn mechanics now live in the package `app/backend/internal/riff/`, parameterized by **explicit `{server, session, repoRoot}` targets** instead of the ambient `$TMUX` / process-cwd state the CLI used to rely on. Two thin frontends drive the same engine:
+
+- **CLI** (`app/backend/cmd/rk/riff.go`, registered in `root.go` via `rootCmd.AddCommand(riffCmd)`) — flag parsing + CLI-only preconditions + param derivation, calling `riff.Run` with an **empty server label** (target the user's current tmux server via the restored `$TMUX`). Byte-identical to pre-extraction behavior. The CLI is **worktree-only, empty-tier**: it never sets `Where`/`WorktreeName`/`Tier` and calls `ResolveLauncher(ctx, repoRoot, "")`, so all the mockup-v2 extensions below are inert on the CLI path.
+- **HTTP handler** (`app/backend/api/riff.go`, `POST /api/riff`) — derives its targets from the request + target session and calls `riff.Spawn` with a **non-empty server label** (`-L <server>` daemon path) — the web-UI agent-spawn surface (see [architecture](/run-kit/architecture.md) § API Layer and [ui-patterns](/run-kit/ui-patterns.md) § Spawn-Agent Dialog). Since `260714-q9cg-spawn-agent-dialog-mockup` the handler also passes the dialog-v2 spawn-shaping inputs (`Where`/`WorktreeName`/`Tier`) into `riff.Options` — see § Isolation Mode (checkout), § Worktree-Name Passthrough, and § Launcher Resolution.
+
+`internal/riff` files: `riff.go` (engine entry `Spawn`/`Run`, `ResolveLauncher`/`fabAgentArgs`, `runWtCreate`/`buildWtCreateArgs`, `spawnRiffReturningName`, the `Where`/`WorktreeName`/`Tier` inputs on `Options`/`EffectiveSpec` + `whereWorktree`/`whereCheckout` consts + `Options.isCheckout()`, fan-out + rollback, targeting seam), `spec.go` (`ResolveActivePreset`, `ResolveEffectiveSpec`, `composePanes`, `presetPaneToSpec`), `shell.go` (pane/argv/shell-string helpers, session-scoped targeting), `layout.go` (`layoutAliases`, `ResolveLayout`, `autoLayout`). CLI-side supporting files: `pane_spec.go` (pflag.Value implementation), `layout_help.go` (ASCII mocks — the mock strings are self-contained and do NOT depend on the moved alias table). Preset + tier-name reads via `../../internal/fabconfig/fabconfig.go` (`ReadPresets`/`ReadPresetsOrdered`/`ReadTiers`).
 
 ## Purpose
 
@@ -76,7 +81,7 @@ Per pane, the trailing tmux argv slot holds a shell string:
 - **Skill panes**: three layers — `<launcher> '<escaped-skill>'` (or bare `<launcher>` when skill is empty), wrapped in `${SHELL:-/bin/sh} -i -c '...'` so `.zshrc`/`.bashrc` aliases reach the launcher, then `shellWrap` appends `; exec "${SHELL:-/bin/sh}"` so the pane stays interactive.
 - **Cmd panes**: two layers — the user's command string directly, then `shellWrap` suffix. No interactive `sh -i -c` wrap (would alter argv semantics of user commands like `just dev`). Empty cmd value produces just `exec "${SHELL:-/bin/sh}"`.
 
-Helpers: `buildSkillShellString(launcher, cmdArg)`, `buildCmdShellString(value)`, `paneShellString(launcher, pane)` dispatcher. `buildNewWindowArgs` retained as a back-compat test-seam for the single-skill-pane shape.
+Helpers (in `internal/riff/shell.go` since `260713-sbk1`): `buildSkillShellString(launcher, cmdArg)`, `buildCmdShellString(value)`, `paneShellString(launcher, pane)` dispatcher. (The former `buildNewWindowArgs` single-skill-pane back-compat test-seam was **deleted** by `260713-sbk1` — `buildNewWindowCaptureArgs` + `buildSpawnArgvs` are the argv seams, covered directly by `TestBuildNewWindowCaptureArgs`/`TestBuildSpawnArgvs`.)
 
 ### Focus Rule
 
@@ -145,12 +150,20 @@ Positional + `--preset` together is **rejected** (exit 1: "positional preset and
 
 ### Resolution Order (spec §Flag resolution order)
 
-Effective values for each field:
+Effective values for each field (`ResolveEffectiveSpec`, in `spec.go`):
 
-1. **Panes**: CLI `--skill`/`--cmd` flags replace preset panes entirely. If no CLI panes AND preset has no panes AND no preset → single `/fab-discuss` skill pane (change-2 compatibility).
-2. **Layout**: explicit CLI `--layout` (anything other than `auto`) > preset `layout` > `autoLayout(paneCount)`.
-3. **Count**: CLI `--count` (short `-N`) only. Presets do not carry a count in this change.
-4. **`wt_args`**: preset `wt_args` prepended to user's `-- <passthrough>` args.
+1. **Panes**: caller-supplied "CLI panes" replace preset panes entirely. If no CLI panes AND preset has no panes AND no preset → single `/fab-discuss` skill pane (change-2 compatibility). **This last fallback is the CLI's** — the HTTP endpoint supplies its own pane BEFORE calling `ResolveEffectiveSpec` (see § Endpoint Pane Composition below), so it never reaches the `/fab-discuss` default.
+2. **Layout**: explicit CLI `--layout` (anything other than `auto`) > preset `layout` > `autoLayout(paneCount)`. `layoutExplicit` distinguishes "user didn't set a layout" (defer to preset) from "user explicitly chose auto" (override preset). The HTTP endpoint passes `layoutExplicit=false` so a preset layout wins, else auto-by-count.
+3. **Count**: CLI `--count` (short `-N`) only. Presets do not carry a count. The HTTP endpoint fixes count at 1.
+4. **`wt_args`**: preset `wt_args` prepended to the caller's `-- <passthrough>` args.
+
+### Endpoint Pane Composition (`composePanes`, since `260713-sbk1`)
+
+The HTTP endpoint maps its `(task, preset)` pair to a CLI-pane slice via the pure `composePanes(task, preset)` helper (in `spec.go`) BEFORE calling `ResolveEffectiveSpec`, so its task-injection rules (R6/R7) ride the same resolution path as the CLI's `--skill`/`--cmd` panes:
+
+- **task non-empty** → a single skill pane carrying the task as its launcher positional arg. This **replaces** any preset panes (via rule 1); the preset still contributes layout + `wt_args`.
+- **task empty, preset panes present** → `nil` CLI panes, so `ResolveEffectiveSpec` falls through to the preset's own panes.
+- **task empty, no preset panes** → a single **BARE** skill pane (bare launcher, blank agent session). This is the endpoint's deliberate blank-agent default — **NOT** the CLI's `/fab-discuss` change-2 fallback, which only fires when NO CLI panes are supplied. `composePanes` always returns a non-nil slice in the task-empty/no-preset-panes case, short-circuiting the fallback. A dedicated table test (`composePanes`) covers this blank-agent-vs-`/fab-discuss` distinction directly.
 
 ### `--list-presets`
 
@@ -181,7 +194,7 @@ On any goroutine failure:
 
 1. The shared `context.CancelFunc` is invoked, propagating cancellation to sibling `exec.CommandContext` calls.
 2. `planFanOutRollback(results, failureIdx)` (pure) computes which worktrees + windows to clean up — excludes the failing goroutine's own artifacts (its `wt create` may have returned no worktree, or its pre-tmux state is the error we're reporting).
-3. `rollbackFanOut` invokes `wt delete --non-interactive <basename>` per worktree then `tmux kill-window -t <name>` per window. The `--non-interactive` flag suppresses `wt`'s `Delete this worktree?` prompt — rollback runs without a tty, and without it `wt` reads EOF on stdin and exits 1, silently leaking worktrees. The basename is passed positionally because `wt` deprecated `--worktree-name`. Argv built by the pure helper `buildWtDeleteArgs(name)`. Rollback errors are logged to stderr but do not mask the primary error. Uses a fresh (non-cancelled) context so rollback runs to completion.
+3. `rollbackFanOut` invokes `wt delete --non-interactive <basename>` per worktree then `tmux kill-window -t <name>` per window. The `--non-interactive` flag suppresses `wt`'s `Delete this worktree?` prompt — rollback runs without a tty, and without it `wt` reads EOF on stdin and exits 1, silently leaking worktrees. The delete basename is passed **positionally** because `wt delete` deprecated its `--worktree-name` flag (distinct from `wt create --worktree-name`, which is live and used by the create-name passthrough — see § Worktree-Name Passthrough). Argv built by the pure helper `buildWtDeleteArgs(name)`. Rollback errors are logged to stderr but do not mask the primary error. Uses a fresh (non-cancelled) context so rollback runs to completion.
 4. The first-reported goroutine error propagates out as a `subprocessErr` (exit 3), unless it already is an `exitCodeError` (in which case its code is preserved).
 
 ### Signal Handling
@@ -190,49 +203,91 @@ On any goroutine failure:
 
 ## Workflow Step Order
 
-`runRiff` in `riff.go`:
+### CLI (`runRiff` in `cmd/rk/riff.go`)
+
+The CLI is the flag/precondition/derivation frontend; the numbered steps below own no spawn mechanics — they assemble an `EffectiveSpec` and hand off to the engine:
 
 1. **`--list-presets` short-circuit** — if set, print presets and return. No subprocess.
-2. **Preconditions** — `$TMUX` set (via `tmux.OriginalTMUX`), `wt` on PATH. Exit 2 on miss.
+2. **Preconditions** — `$TMUX` set (via `tmux.OriginalTMUX`), `wt` on PATH. Exit 2 on miss. **CLI-only** — the engine has no precondition step (the daemon path targets an explicit server + repo root, not `$TMUX`/cwd).
 3. **Signal wrap** — `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`.
 4. **Count validation** — N ≥ 1 or exit 1.
-5. **Layout validation** — `resolveLayout` or exit 1 (error lists all 12 valid values).
-6. **Launcher resolution** — `resolveLauncher` shells out to `fab agent --print` (fab-kit's fully-resolved default-tier session command) via `exec.CommandContext` with `fabTimeout` (10 s); silent best-effort fallback to `defaultLauncher` (`claude --dangerously-skip-permissions`) on any failure. Never errors.
-7. **Preset resolution** — `resolveActivePreset` handles positional/named/conflict/unknown.
-8. **Effective spec assembly** — `resolveEffectiveSpec` merges CLI + preset + defaults.
-9. **Dispatch** — N = 1 calls `runWtCreate` + `spawnRiff` directly; N ≥ 2 calls `runCount` (the orchestrator dispatching by `spec.Count`).
+5. **Layout validation** — `riff.ResolveLayout` or exit 1 (error lists all 12 valid values).
+6. **Repo-root derivation** — process cwd → `config.FindGitRoot` (empty tolerated → engine runs subprocesses in the inherited cwd, matching prior behavior).
+7. **Launcher resolution** — `riff.ResolveLauncher(ctx, repoRoot)` (the engine helper; see § Launcher Resolution). Never errors.
+8. **Preset resolution** — `riff.ResolveActivePreset` handles positional/named/conflict/unknown.
+9. **Effective spec assembly** — `riff.ResolveEffectiveSpec` merges CLI + preset + defaults. The CLI then sets `spec.Launcher`, `spec.Server = ""` (current-server sentinel), `spec.RepoRoot`, and `spec.OriginalTMUX = tmux.OriginalTMUX`.
+10. **Dispatch** — `riff.Run(ctx, spec)`: N = 1 calls `runWtCreate` + `spawnRiffReturningName` directly; N ≥ 2 calls `runCount` (the orchestrator dispatching by `spec.Count`).
 
-`spawnRiff` internally calls `listWindowNames` + `resolveWindowName` for collision resolution, then runs the spawn sequence in three phases: (a) `tmux new-window -P -F '#{pane_id}' …` via `runTmuxNewWindowCapturePaneID` (argv built by pure helper `buildNewWindowCaptureArgs`; pane id parsed by pure helper `parsePaneID` — single trimmed line); (b) the remaining pure-argv slice from `buildSpawnArgvs(worktreePath, resolvedName, spec)` (split-window × N + optional select-layout) via `runTmuxArgv`; (c) `tmux select-pane -t <pane-id>` constructed at runtime from the captured pane id. All subprocesses run with `tmuxTimeout` (10 s) and `tmuxChildEnv`. `buildSpawnArgvs` is a pure helper (test seam) — it no longer emits a trailing `select-pane` row, because the focus target is a runtime value not knowable until `new-window` returns.
+### HTTP handler (`riff.Spawn` via `POST /api/riff`)
+
+`Spawn(ctx, Options{Server, Session, RepoRoot, Task, Preset, Where, WorktreeName, Tier})` (count fixed at 1) resolves the launcher rooted at `RepoRoot` **for `opts.Tier`** (empty → default tier — see § Launcher Resolution), reads the named preset (unknown → `ExitCodeError{Code: ExitValidation}` → the handler maps it to 400), composes the effective pane spec via `composePanes` + `ResolveEffectiveSpec`, **normalizes the isolation inputs at this Spawn seam** (empty `Where` → `whereWorktree` via the `whereWorktree` const; a checkout-mode `WorktreeName` is blanked — the API already rejects that pairing, so this is behavior-preserving defense-in-depth), then **branches on `Where`**: worktree mode runs `runWtCreate` (forwarding `WorktreeName` — § Worktree-Name Passthrough) to get the window root; **checkout mode skips `wt` entirely** and roots the window at `opts.RepoRoot` (§ Isolation Mode). Both converge on the same `spawnRiffReturningName` and return a `Result{Server, Session, WindowName, WindowID}`. It requires a non-empty `RepoRoot` (empty → `ValidationErr`). See [architecture](/run-kit/architecture.md) § API Layer for the handler's repo-root derivation, new-field validation, and 400 discipline.
+
+The `Run` (CLI, count≥1) path is unchanged and **always worktree mode** (its `EffectiveSpec` carries no `Where`, defaulting to worktree), so `rk riff` stays byte-identical.
+
+### Isolation Mode (`Where`: worktree | checkout) — since `260714-q9cg`
+
+`Options.Where` / `EffectiveSpec.Where` select where the tmux window is rooted:
+
+- **`"worktree"` (or `""`, the default)** — today's behavior: `wt create` → tmux window rooted at the new worktree, base `riff-<worktree-basename>`.
+- **`"checkout"`** — the "this checkout" dialog option: **no `wt create`/`wt delete` call at all** — the window is rooted directly at `opts.RepoRoot` (the session's derived repo root), base `riff-<repoRoot-basename>`, resolved via the same `resolveWindowName` collision suffixing. `Options.isCheckout()` is the single predicate (`o.Where == whereCheckout`).
+
+The only per-mode differences are *which directory the window is rooted at* and *whether `wt create` ran* — the entire tmux spawn sequence (collision naming, new-window/split/select-layout/select-pane, window-id capture) is identical, so both modes share `spawnRiffReturningName` (the base is derived from the passed path). `EffectiveSpec.Where`/`WorktreeName` are set before the branch in `Spawn`. Engine-level coverage: `TestSpawn_WhereModes` (stub `wt` on a restricted PATH that fails the test if invoked in checkout mode; worktree mode does invoke it).
+
+### Worktree-Name Passthrough (`--worktree-name`) — since `260714-q9cg`
+
+When `Where=="worktree"` and `WorktreeName != ""`, the engine prepends `--worktree-name <name>` to the `wt create --non-interactive --worktree-open skip <passthrough…>` argv (before the user passthrough) — the verified `wt create` flag that **skips wt's name prompt** and names the worktree (and therefore the `riff-<basename>` window). A blank `WorktreeName` yields the **byte-identical** pre-feature argv. The argv assembly is the pure helper `buildWtCreateArgs(spec, passthrough)` (table-tested); its `spec.Where != whereCheckout` guard keeps it self-contained (checkout never reaches `wt`, and `Spawn` already blanks a checkout-mode name; the CLI/fan-out paths pass no name). The name is validated **at the API layer** before it reaches argv — see § Security / Trust Boundary and [architecture](/run-kit/architecture.md) § API Layer.
+
+### `spawnRiffReturningName` (shared spawn sequence)
+
+`spawnRiffReturningName(ctx, worktreePath, spec)` calls `listWindowNames` + `resolveWindowName` for collision resolution, then runs the spawn sequence in three phases: (a) `tmux new-window -P -F '#{pane_id}' …` via `runTmuxNewWindowCapturePaneID` (argv built by pure helper `buildNewWindowCaptureArgs`; pane id parsed by pure helper `parsePaneID` — single trimmed line); (b) the remaining pure-argv slice from `buildSpawnArgvs(worktreePath, resolvedName, spec)` (split-window × N + optional select-layout) via `runTmuxArgv`; (c) `tmux select-pane -t <pane-id>` constructed at runtime from the captured pane id. It then does a **best-effort window-id resolution** — `resolveWindowIDFromPane` runs `display-message -t <pane-id> -p '#{window_id}'` so the HTTP caller can navigate to `/$server/$window`; a resolve failure returns an empty id (non-fatal — the CLI ignores the id, and the window surfaces via SSE regardless). All subprocesses run with `TmuxTimeout` (10 s) via `runTmuxArgv`/`runTmuxNewWindowCapturePaneID` and `childEnv(spec)`. `buildSpawnArgvs`/`buildNewWindowCaptureArgs` are pure helpers (test seams) — `buildSpawnArgvs` emits no trailing `select-pane` row, because the focus target is a runtime value not knowable until `new-window` returns.
+
+### Server + Session Targeting Seam
+
+The engine targets tmux by two orthogonal seams, both driven off `EffectiveSpec`:
+
+- **Server** — `tmuxArgv(spec, args…)` prepends `-L <server>` when `spec.Server` is non-empty (daemon path); when empty (CLI path) no prefix is added and `childEnv(spec)` restores `$TMUX` from `spec.OriginalTMUX` so bare tmux calls reach the user's current server. `-L` selects only the **socket**, NOT the session.
+- **Session** — `spec.Session` scopes *which session the window is created in* on the daemon path (a bare `-L`-only `new-window` with no attached client would land in the socket's ambient session, not the requested one). When `spec.Session` is non-empty: `new-window` carries `-t <session>` (`sessionTarget`), `split-window`/`select-layout` target `<session>:<name>` (`windowTarget`), and the collision probe reads `list-windows -t <session>`. Empty `Session` (the CLI path) leaves every call unscoped — byte-identical to pre-session behavior. (This session threading was a review must-fix during `260713-sbk1`: the first extraction pass emitted `-L` only and never targeted the requested session; `TestBuildNewWindowCaptureArgs`/`TestBuildSpawnArgvs` now lock both the daemon `-t`-bearing and the CLI unscoped argv shapes.)
 
 ## Exit Code Discipline
 
-`exitCodeError{code, msg}` + local `runRiffWithExitCode` wrapper prints `msg` to stderr and `os.Exit(code)` for non-zero codes. `main.execute()` is shared; generic errors fall through to exit 1.
+Since `260713-sbk1` the exit-code type is the **exported** `riff.ExitCodeError{Code, Msg}` (in `internal/riff/riff.go`) so **both** frontends can classify engine failures without re-parsing error strings. The engine constructs failures via `riff.ValidationErr(...)` (`Code: ExitValidation`) and `riff.SubprocessErr(...)` (`Code: ExitSubprocess`); preconditions (`ExitPrecondition`) stay CLI-side. The exit-code sentinel constants are `ExitValidation=1`, `ExitPrecondition=2`, `ExitSubprocess=3`.
 
-| Exit | Condition |
+- **CLI**: the `runRiffWithExitCode` wrapper (`cmd/rk/riff.go`) `errors.As`-matches `*riff.ExitCodeError`, prints `Msg` to stderr, and `os.Exit(Code)`. `main.execute()` is shared; a non-`ExitCodeError` falls through to exit 1. (The CLI-local `exitCodeError` type still exists in `cmd/rk/exit_code.go` — now used only by `rk shell-init`.)
+- **HTTP handler**: `riffStatusForError` (`api/riff.go`) `errors.As`-matches `*riff.ExitCodeError` and maps `Code == ExitValidation` → `400` (client-correctable: unknown preset / invalid layout, nothing created); everything else → `500`.
+
+| Exit / Status | Condition |
 |------|-----------|
-| 0 | Success |
-| 1 | Validation error (unknown layout, invalid count, unknown/conflicting preset) or generic/unclassified |
-| 2 | Precondition failure (`$TMUX` unset, `wt` not on PATH) |
-| 3 | Subprocess failure (wt / tmux non-zero, output parse failure, timeout) |
+| 0 / 200 | Success |
+| 1 / 400 | Validation error (unknown layout, invalid count, unknown/conflicting/unknown preset) |
+| 2 / — | Precondition failure (`$TMUX` unset, `wt` not on PATH) — CLI-only |
+| 3 / 500 | Subprocess failure (wt / tmux non-zero, output parse failure, timeout) |
 
-## Single-Quote Escaping
+## Single-Quote Escaping and Task Injection
 
-The launcher + skill are concatenated as `<launcher> '<escaped-skill>'` inside the outer `sh -i -c '...'` wrap. `escapeSingleQuotes(s)` replaces every `'` with `'\''` (canonical POSIX shell-safe encoding). The launcher string itself is NOT escaped — shell expansion inside the launcher (e.g., `claude -n "$(basename "$(pwd)")"`) is the documented exception to constitution §I.
+The launcher + skill/task are concatenated as `<launcher> '<escaped-skill>'` inside the outer `sh -i -c '...'` wrap (`buildSkillShellString` in `shell.go`). `escapeSingleQuotes(s)` replaces every `'` with `'\''` (canonical POSIX shell-safe encoding). The launcher string itself is NOT escaped — shell expansion inside the launcher (e.g., `claude -n "$(basename "$(pwd)")"`) is the documented exception to constitution §I.
+
+**Web-UI task injection (since `260713-sbk1`)** reuses this exact seam: `POST /api/riff`'s `task` text is passed as `buildSkillShellString`'s `cmdArg` (a skill pane's `Value`), so a non-empty task becomes the launcher positional arg that auto-submits on boot — the same trust model as `--skill`, single-quote-escaped into the documented launcher exception. This is the deliberate v1 injection mechanism: no timing dependency, no post-boot send-keys. (The paste-unsubmitted-for-human-review variant is **deferred** — it would need send-keys after agent boot, and no boot-complete hook event exists in the `@rk_agent_state` registry. See [architecture](/run-kit/architecture.md) § API Layer and the intake's Out-of-Scope list.)
 
 ## Window-Name Collision Resolution
 
-Before each `tmux new-window`, `listWindowNames(ctx)` runs `tmux list-windows -F '#W'` on the user's server, and `resolveWindowName(existing, base)` picks the first free name starting from `base`, then `base-2`, `base-3`, … (filling gaps). Base is always `riff-<worktree-basename>`. Accepted TOCTOU race between list and new-window — fallback is silent duplicate under tmux's default `allow-rename`.
+Before each `tmux new-window`, `listWindowNames(ctx, spec)` runs `tmux list-windows -F '#W'` on the target server — **scoped to `spec.Session` (`-t <session>`) on the daemon path** so the collision probe reads the SAME session the window will be created in; **unscoped on the CLI path** — and `resolveWindowName(existing, base)` picks the first free name starting from `base`, then `base-2`, `base-3`, … (filling gaps). Base is always `riff-<worktree-basename>`. Accepted TOCTOU race between list and new-window — fallback is silent duplicate under tmux's default `allow-rename`.
 
 ## `internal/fabconfig/` Package
 
-Best-effort `yaml.v3` reader for `fab/project/config.yaml` — **presets only**. Public API:
+Best-effort `yaml.v3` reader for `fab/project/config.yaml` — **presets + tier NAMES**. Public API:
 
 ```go
 fabconfig.ReadPresets(repoRoot string) map[string]Preset
 fabconfig.ReadPresetsOrdered(repoRoot string) []PresetEntry
+fabconfig.ReadTiers(repoRoot string) []string   // since 260714-q9cg
+fabconfig.BuiltinTiers                           // []string{"default","doing","fast","operator","review"}
 ```
 
-The package no longer reads the agent launcher: `ReadSpawnCommand` (and the `fabConfig` struct it decoded) were **deleted** in `260703-w884` because the launcher key it read (`agent.spawn_command`) is dead in the fab-kit 2.13.3 config schema (the launcher now lives at `providers.<name>.session_command` with per-tier profiles under `agent.tiers`). `rk riff` resolves the launcher by shelling out to `fab agent --print` instead of parsing that schema itself (see §Launcher Resolution). `ReadPresets`/`ReadPresetsOrdered` and all preset types are unchanged.
+The package no longer reads the agent launcher: `ReadSpawnCommand` (and the `fabConfig` struct it decoded) were **deleted** in `260703-w884` because the launcher key it read (`agent.spawn_command`) is dead in the fab-kit 2.13.3 config schema (the launcher now lives at `providers.<name>.session_command` with per-tier profiles under `agent.tiers`). `rk riff` resolves the launcher by shelling out to `fab agent [tier] --print` instead of parsing that schema itself (see §Launcher Resolution). `ReadPresets`/`ReadPresetsOrdered` and all preset types are unchanged.
+
+### `ReadTiers` — tier-name enumeration for the dialog (since `260714-q9cg`)
+
+`ReadTiers(repoRoot)` returns the tier names the spawn dialog's Agent dropdown offers: the **union** of the fixed built-in slice `BuiltinTiers` (`{default, doing, fast, operator, review}`, built-ins first in that canonical order, `default` first) and any additional names defined under `agent.tiers` in the repo config (appended in YAML source order, deduped). It is **always non-empty** — built-ins alone on an empty/absent/malformed config — following the same silent-fallback posture as `ReadPresets` (any read/parse failure yields exactly the built-ins, no error, no log). Only tier **names** are read; rk never parses the tier profiles (provider/model/effort) — those are resolved by shelling out to `fab agent <tier> --print`. There is **no `fab` CLI seam to *list* tiers** (`fab resolve-agent <tier>` resolves one, `fab agent [tier]` launches one — neither lists), so the names must come from the config file rk already reads; the built-ins are a fixed constant matching the config-fence documentation. Internals: `readConfiguredTierNames(repoRoot)` walks `*yaml.Node` to `agent`→`tiers` via the shared `findMappingValue` helper (reused from the preset reader), collecting the mapping keys in source order.
 
 `ReadPresets` returns an empty map for any failure path; `ReadPresetsOrdered` preserves YAML source order (walks `*yaml.Node` directly because struct-decoded `*yaml.Node` fields don't populate — yaml.v3 requires top-level Node decoding for node access). `Preset` has `Layout string`, `Panes []PaneSpec`, `WtArgs []string`. `PaneSpec` has `Kind` (one of `PaneKindSkill`/`PaneKindCmd`), `Skill`, `Cmd`.
 
@@ -240,47 +295,70 @@ Callers never get an error or log emission — a silent-fallback posture so repo
 
 ## Launcher Resolution
 
-`resolveLauncher()` (riff.go) resolves the agent launcher by shelling out to **`fab agent --print`**, which prints fab-kit's fully-resolved default-tier session command (tier → provider → `session_command`, with `{model}`/`{effort}` substitution via fab's own `internal/spawn`). Delegating to the fab CLI means rk never parses fab-kit's config schema itself and can't drift from it (constitution §III Wrap, Don't Reinvent) — the design decision that replaced the deleted `fabconfig.ReadSpawnCommand`, which read the now-dead `agent.spawn_command` key.
+`riff.ResolveLauncher(ctx, repoRoot, tier)` (in `internal/riff/riff.go`, exported so both the CLI and the HTTP handler call it) resolves the agent launcher by shelling out to **`fab agent [tier] --print`**, which prints fab-kit's fully-resolved session command for the named tier (tier → provider → `session_command`, with `{model}`/`{effort}` substitution via fab's own `internal/spawn`). Delegating to the fab CLI means rk never parses fab-kit's config schema itself and can't drift from it (constitution §III Wrap, Don't Reinvent) — the design decision that replaced the deleted `fabconfig.ReadSpawnCommand`, which read the now-dead `agent.spawn_command` key.
+
+**Tier positional (since `260714-q9cg`)**: the `tier` parameter selects which fab tier the launcher resolves. A **non-empty** tier emits `fab agent <tier> --print` (the verified positional-tier form); an **empty** tier emits `fab agent --print` (no positional — **byte-identical to the pre-q9cg default-tier resolution**). The argv is built by the pure helper `fabAgentArgs(tier)` (`{"agent","--print"}` for empty, `{"agent",tier,"--print"}` for a named tier). The CLI passes `""` (its implicit default-tier behavior preserved); the HTTP handler passes `opts.Tier` (dialog Agent dropdown, validated via `validate.ValidateTier` before it reaches this argv). The existing `parseFabAgentOutput` single-line contract and silent `DefaultLauncher` fallback are unchanged for both forms.
 
 Mechanics:
 
-- `exec.CommandContext(ctx, "fab", "agent", "--print")` with `ctx` bounded by the named `fabTimeout = 10 * time.Second` constant (in the timeouts `const` block alongside `wtTimeout`/`tmuxTimeout`) — constitution §I Security First + §Process Execution.
+- `exec.CommandContext(ctx, "fab", fabAgentArgs(tier)...)` with `ctx` bounded by the named `FabTimeout = 10 * time.Second` constant (in the timeouts `const` block alongside `WtTimeout`/`TmuxTimeout`) — constitution §I Security First + §Process Execution.
 - Stdout captured via `cmd.Output()` (**not** `CombinedOutput()`) so stderr can't pollute the launcher string.
-- fab discovers the repo from the process cwd; `rk riff` always runs inside the repo, so **no `--repo` flag and no `config.FindGitRoot` walk** are needed in `resolveLauncher` (`FindGitRoot` is still used by the preset helpers — see §Related Files).
+- **Explicit repo-root rooting (since `260713-sbk1`)**: `cmd.Dir` is set to `repoRoot` (when non-empty) so fab's cwd-based repo discovery resolves the **target** project. The CLI passes its process cwd (`rk riff` always runs inside the repo — today's behavior preserved); the HTTP handler passes the request-derived repo root, because the daemon's own cwd is NOT the target repo. An empty `repoRoot` leaves `cmd.Dir` unset (inherited cwd).
 
-**Silent best-effort fallback (never errors):** the pure seam `parseFabAgentOutput(stdout string, err error) (string, bool)` makes the fallback decision. It returns `(trimmed-launcher, true)` only when `err` is nil and stdout trims to a single non-empty line; otherwise `("", false)` and `resolveLauncher` returns `defaultLauncher`. Fallback cases: `fab` absent from PATH, non-zero exit, timeout, empty/whitespace-only stdout, and **multi-line** trimmed output (an embedded newline is treated as malformed — a valid session command is one line). No stderr noise, no returned error — the never-errors posture of runRiff Step 5. The pure helper mirrors riff.go's established test-seam pattern (`parsePaneID`, `parseWorktreePath`, `buildWtDeleteArgs`) so the fallback rules are unit-testable without staging a subprocess.
+**Silent best-effort fallback (never errors):** the pure seam `parseFabAgentOutput(stdout string, err error) (string, bool)` makes the fallback decision. It returns `(trimmed-launcher, true)` only when `err` is nil and stdout trims to a single non-empty line; otherwise `("", false)` and `ResolveLauncher` returns `DefaultLauncher` (`claude --dangerously-skip-permissions`). Fallback cases: `fab` absent from PATH, non-zero exit, timeout, empty/whitespace-only stdout, and **multi-line** trimmed output (an embedded newline is treated as malformed — a valid session command is one line). No stderr noise, no returned error. The pure helper mirrors the established test-seam pattern (`parsePaneID`, `parseWorktreePath`, `buildWtDeleteArgs`) so the fallback rules are unit-testable without staging a subprocess.
 
 > **Duplicate `--effort`**: the resolved command can carry `--effort` twice (once from the user's `session_command` string, once appended by fab's profile injection). Last-wins, harmless — user config hygiene, out of scope for rk.
 
-## `tmux.OriginalTMUX` Usage
+## `tmux.OriginalTMUX` Usage (CLI path)
 
-Same as before: `internal/tmux`'s `init()` strips `$TMUX`, and `checkPreconditions()` + `tmuxChildEnv()` restore it so `rk riff`-spawned tmux subprocesses target the user's current server (not managed `runkit`/`default`).
+`internal/tmux`'s `init()` strips `$TMUX`. The **CLI** reads the original via `tmux.OriginalTMUX` (captured pre-init) in two places: `checkPreconditions()` (the `$TMUX`-set gate) and the `spec.OriginalTMUX` it sets on the `EffectiveSpec`. The engine's `childEnv(spec)` then restores `TMUX=<OriginalTMUX>` into the subprocess env **only on the CLI path** (`spec.Server == ""`), so bare tmux calls target the user's current server (not managed `runkit`/`default`). On the **daemon path** (`spec.Server != ""`) no `$TMUX` is restored — the `-L <server>` prefix selects the socket and `-t <session>` selects the session, so the ambient env is used unchanged.
 
 ## Security / Trust Boundary
 
-Unchanged from prior changes: `fab/project/config.yaml` is a trust boundary equivalent to committed code. Preset `wt_args` and preset `cmd` values are unescaped on their way to tmux's shell. The launcher itself is now the trimmed stdout of `fab agent --print` — fab-kit resolves it from the *same* committed `fab/project/config.yaml` (`providers.<name>.session_command`), so the boundary is unchanged (config ≙ committed code) and actually narrows: rk no longer parses the config for the launcher, the `fab` binary does. Users consuming third-party repos SHOULD audit `fab/project/config.yaml` before running `rk riff` against them.
+Unchanged from prior changes: `fab/project/config.yaml` is a trust boundary equivalent to committed code. Preset `wt_args` and preset `cmd` values are unescaped on their way to tmux's shell. The launcher itself is now the trimmed stdout of `fab agent [tier] --print` — fab-kit resolves it from the *same* committed `fab/project/config.yaml` (`providers.<name>.session_command`), so the boundary is unchanged (config ≙ committed code) and actually narrows: rk no longer parses the config for the launcher, the `fab` binary does. Users consuming third-party repos SHOULD audit `fab/project/config.yaml` before running `rk riff` against them.
+
+**`WorktreeName` + `Tier` are user input crossing into argv (since `260714-q9cg`)** — both are validated at the **API layer** (`api/riff.go`, before `deriveRepoRoot` / any subprocess, constitution §I) and reach the engine only if valid:
+
+- **`WorktreeName`** → `validate.ValidateWorktreeName` — the shared tmux-safe `validate.ValidateName` rule (no shell metacharacters, no colons/periods, ≤128 chars) plus **three riff-seam-only rejections** layered over it: a leading `-` (it becomes a `wt create --worktree-name` argv element that could look like a flag), a `/` (it becomes a worktree directory basename that a slash would split), and any space (it becomes a `riff-<name>` tmux window name). The extra rules are scoped to the riff seam — the shared `ValidateName` used by session/window callers is deliberately left unchanged.
+- **`Tier`** → `validate.ValidateTier` — a strict identifier rule (`^[A-Za-z0-9_][A-Za-z0-9_-]*$`, ≤64 chars) since it becomes a bare `fab agent <tier>` positional; the leading char is constrained to alnum/underscore so a tier can **never** be interpreted as a flag (a leading `-` would make `-doing` look like an option). An empty tier is the "default tier" sentinel and skips the check (callers gate on non-empty).
+
+Everything is still argv-slice `exec.CommandContext` with timeouts — no shell-string construction. See [architecture](/run-kit/architecture.md) § API Layer for the full 400-before-subprocess validation ladder.
 
 ## Tests
 
-- `app/backend/cmd/rk/riff_test.go` — existing helpers (`parseWorktreePath`, `escapeSingleQuotes`, `buildNewWindowArgs`, `shellWrap`, `resolveWindowName`) plus coverage: `rewritePaneSpaceForm`, `paneFlag` parsing (interleaved argv → correct PaneSpec order), `resolveLayout` (all 12 inputs + unknown-value error), `autoLayout`, `resolveActivePreset` (6 scenarios), `resolveEffectiveSpec` (7 resolution rules), `buildSpawnArgvs` (single/2/4-pane shapes, bare skill, bare cmd; no longer emits a trailing `select-pane` row), `buildNewWindowCaptureArgs` (argv shape for the `-P -F '#{pane_id}'` step), `parsePaneID` (single-line trim + empty-input error), `printPresets` (empty + two-preset), `planFanOutRollback` (full success, partial with failure, no failure), `TestRiffCountShortForm` (`-N`/`--count`/`--count=`/default), `TestRiffFanOutFlagRejected` (post-rename hard-rename regression), `TestBuildWtDeleteArgs` (`--non-interactive` + positional name; rejects `--worktree-name`). **Launcher coverage** (`260703-w884`, replacing the deleted config-read tests `TestResolveLauncher`/`TestResolveLauncher_ReadsFromSubdir`/`TestFabconfigIntegration` and the `writeGitDir` helper): `TestParseFabAgentOutput` (pure table — success trims to a single line; leading/trailing whitespace trimmed; error / empty / whitespace-only / multi-line stdout → fallback) and `TestResolveLauncher_StubFab` (end-to-end via a stub `fab` executable on a temp-dir `PATH`: stub prints a launcher → returned verbatim; stub exits non-zero → `defaultLauncher`; empty PATH so `fab` is absent → `defaultLauncher`).
-- `app/backend/internal/fabconfig/fabconfig_test.go` — `ReadPresets` cases (empty file, missing riff block, malformed YAML, valid preset with all fields, pane-with-both-keys discarded, unknown keys tolerated, empty panes list, multiple presets, nested `agent.riff.presets` ignored) and `ReadPresetsOrdered` preserves source order. The `TestReadSpawnCommand`/`TestReadSpawnCommand_EmptyRoot` cases were **deleted** with `ReadSpawnCommand` (`260703-w884`).
+The pure-helper tests **moved with the code** (since `260713-sbk1`): every helper that moved to `internal/riff` has its test in `internal/riff/riff_test.go`; the pane-flag/argv-grammar tests that stay CLI-side remain in `cmd/rk/riff_test.go`. Coverage was not reduced.
+
+- `app/backend/internal/riff/riff_test.go` (moved) — `TestParseWorktreePath`, `TestEscapeSingleQuotes`, `TestBuildSkillShellString`, `TestShellWrap`, `TestResolveWindowName`, `TestResolveLayout` (all 12 inputs + unknown-value error), `TestAutoLayout`, `TestResolveActivePreset` (6 scenarios), `TestResolveEffectiveSpec` (resolution rules), `TestComposePanes` (the endpoint's task/preset → CLI-pane mapping — the **blank-agent-vs-`/fab-discuss`** distinction table), `TestBuildSpawnArgvs` (single/2/4-pane shapes, bare skill/cmd; **daemon `-t`-bearing AND CLI unscoped** subtests; no trailing `select-pane` row), `TestBuildNewWindowCaptureArgs` (the `-P -F '#{pane_id}'` argv — daemon + CLI subtests), `TestParsePaneID`, `TestPlanFanOutRollback`, `TestBuildWtDeleteArgs`, `TestTmuxArgv` (the `-L <server>` prefix seam: empty server → no prefix, non-empty → `-L <server>`). **Launcher coverage** (moved from `260703-w884`, extended by `260714-q9cg`): `TestParseFabAgentOutput` (pure table — success/whitespace-trim; error/empty/whitespace-only/multi-line → fallback) and `TestResolveLauncher_StubFab` (end-to-end via a stub `fab` on a temp-dir `PATH`: stub prints → verbatim; non-zero exit / absent → `DefaultLauncher`; the stub asserts the **tier positional** — a non-empty tier resolves `fab agent <tier> --print` vs. an empty tier's `fab agent --print`, both distinct). **Mockup-v2 coverage** (`260714-q9cg`): `TestBuildWtCreateArgs` (with/without `--worktree-name`; empty name → byte-identical pre-feature argv) and `TestSpawn_WhereModes` (checkout mode issues **no** `wt` call — a stub `wt` on a restricted PATH fails the test if invoked — and roots the window at the repo root; worktree mode does invoke `wt`).
+- `app/backend/cmd/rk/riff_test.go` (stays CLI-side) — `TestRewritePaneSpaceForm`, `TestPaneFlagParsing` (interleaved argv → correct PaneSpec order), `TestPrintPresets` (empty + two-preset), `TestRiffCountShortForm` (`-N`/`--count`/`--count=`/default), `TestRiffFanOutFlagRejected` (post-rename hard-rename regression). These cover the flag grammar + CLI-only glue that did NOT move packages.
+- `app/backend/api/riff_test.go` (new, `260713-sbk1`; extended by `260714-q9cg`) — httptest handler coverage with a dedicated **mock `RiffEngine`** (records its `{Server, Session, RepoRoot, Task, Preset, Where, WorktreeName, Tier}` inputs) and a stub `ListWindows` returning an active-pane cwd (via the shared `mockTmuxOps`, wired through `NewTestRouterWithRiff` — the shared mock is untouched): `TestRiffSpawnSuccess` (200 `{server, session, window, windowId}` + repo-root fed to the engine), `TestRiffSpawnTaskWithSingleQuote` (task text reaches the engine verbatim — the escape itself is unit-tested in `internal/riff`), `TestRiffSpawnEmptySession`/`…NonRepoCwd`/`…SessionReadError`/`…UnknownPreset` (400 with no/short-circuited engine call), `TestRiffSpawnSubprocessError` (engine `ExitSubprocess` → 500). **Mockup-v2 cases** (`260714-q9cg`): `where=checkout`/`tier` reach the mock engine verbatim; 400 for an unknown `where`; 400 for `worktreeName`+`checkout`; 400 for forbidden `worktreeName`/`tier` chars (no engine call); the presets endpoint returns the `tiers` array (built-ins present, `default` first) alongside `presets`. Presets coverage: `TestRiffPresetsSuccess` source-order + `{name, layout, paneCount}`, `TestRiffPresetsEmpty`, `TestRiffPresetsNonRepoCwd` 400.
+- `app/backend/internal/fabconfig/fabconfig_test.go` — `ReadPresets` cases (empty file, missing riff block, malformed YAML, valid preset with all fields, pane-with-both-keys discarded, unknown keys tolerated, empty panes list, multiple presets, nested `agent.riff.presets` ignored) and `ReadPresetsOrdered` preserves source order. **`ReadTiers` cases** (`260714-q9cg`): built-ins-only on empty/absent/malformed config; union + dedup + order when `agent.tiers` defines extra names (config-only names appended, built-ins first, `default` first).
+- `app/backend/internal/validate/validate_test.go` — **`ValidateTier`** (`260714-q9cg`): accepts identifier chars, rejects a leading `-`, forbidden chars, and over-64-char names; **`ValidateWorktreeName`**: the shared `ValidateName` rule plus the riff-seam leading-`-`/`/`/space rejections.
 
 No integration tests invoke real `wt`/`tmux` — the pure helpers remain the unit-test surface. SIGINT propagation and the fan-out goroutine orchestration are deliberately not automated — manual verification against a hung `wt create` + `--count 3` is the acceptance check.
 
 ## Related Files
 
-- `app/backend/cmd/rk/riff.go` — command implementation, incl. `resolveLauncher` / `parseFabAgentOutput` (launcher via `fab agent --print`) and the `fabTimeout` const
-- `app/backend/cmd/rk/pane_spec.go` — `paneFlag` pflag.Value + argv pre-processor
-- `app/backend/cmd/rk/layout.go` — `layoutAliases`, `resolveLayout`, `autoLayout`
-- `app/backend/cmd/rk/layout_help.go` — `renderLayoutMocks`, `layoutFlagUsage`
-- `app/backend/cmd/rk/riff_test.go` — pure-helper unit tests
+- `app/backend/internal/riff/riff.go` — engine entry (`Spawn`/`Run`/`Options`/`Result`/`EffectiveSpec`), `ResolveLauncher`/`fabAgentArgs`/`parseFabAgentOutput`, `runWtCreate`/`buildWtCreateArgs`, `spawnRiffReturningName`, targeting seam (`tmuxArgv`/`childEnv`), the `Where`/`WorktreeName`/`Tier` inputs + `whereWorktree`/`whereCheckout` consts + `Options.isCheckout()`, fan-out + rollback, and the `WtTimeout`/`TmuxTimeout`/`FabTimeout`/`DefaultLauncher`/`DefaultRiffSkill` + `ExitCodeError`/`Exit*` consts
+- `app/backend/internal/riff/spec.go` — `ResolveActivePreset`, `ResolveEffectiveSpec`, `composePanes`, `presetPaneToSpec`, `joinPresetNames`
+- `app/backend/internal/riff/shell.go` — `buildSkillShellString`/`buildCmdShellString`/`paneShellString`, `buildSpawnArgvs`/`buildNewWindowCaptureArgs`, `sessionTarget`/`windowTarget`, `parsePaneID`, `shellWrap`, `escapeSingleQuotes`
+- `app/backend/internal/riff/layout.go` — `layoutAliases`, `ResolveLayout`, `autoLayout`
+- `app/backend/internal/riff/riff_test.go` — moved pure-helper unit tests
+- `app/backend/cmd/rk/riff.go` — CLI FRONTEND (flags/preconditions/derivation + `riff.Run` handoff); `readPresetsForRepo`/`readPresetsOrderedForRepo`/`printPresets`, `checkPreconditions`
+- `app/backend/cmd/rk/pane_spec.go` — `paneFlag` pflag.Value + argv pre-processor (CLI-only)
+- `app/backend/cmd/rk/layout_help.go` — `renderLayoutMocks`, `layoutFlagUsage` (CLI help; self-contained mock strings, no dependency on the moved alias table)
+- `app/backend/cmd/rk/exit_code.go` — the CLI-local `exitCodeError` (now used only by `rk shell-init` — riff's exit-code type moved to `riff.ExitCodeError`)
+- `app/backend/cmd/rk/riff_test.go` — CLI-side flag-grammar tests
 - `app/backend/cmd/rk/root.go` — registration via `rootCmd.AddCommand(riffCmd)`
 - `app/backend/cmd/rk/context.go` — lists `rk riff` under **Workflow** in the CLI Commands section
-- `app/backend/internal/fabconfig/fabconfig.go` — `ReadPresets`, `ReadPresetsOrdered` (presets only; `ReadSpawnCommand` + the `fabConfig` struct were deleted in `260703-w884`)
-- `app/backend/internal/fabconfig/fabconfig_test.go` — fabconfig unit tests
-- `app/backend/internal/config/runkit_yaml.go` — `FindGitRoot(dir)` walk-up helper reused by preset resolution (`readPresetsForRepo`/`readPresetsOrderedForRepo`); `resolveLauncher` no longer uses it (fab does its own cwd-based repo discovery)
-- `app/backend/internal/tmux/tmux.go` — `OriginalTMUX` package-level var
+- `app/backend/api/riff.go` — `handleRiffSpawn` / `handleRiffPresets` + `deriveRepoRoot`; the `where`/`worktreeName`/`tier` body decode + 400-before-subprocess validation ladder, and `ReadTiers` in the presets response (web-UI frontend; see [architecture](/run-kit/architecture.md) § API Layer)
+- `app/backend/api/router.go` — `RiffEngine` interface + `prodRiffEngine` wrapper + `NewTestRouterWithRiff` + route registration
+- `app/backend/internal/fabconfig/fabconfig.go` — `ReadPresets`, `ReadPresetsOrdered`, `ReadTiers`/`BuiltinTiers` (presets + tier NAMES; `ReadSpawnCommand` + the `fabConfig` struct were deleted in `260703-w884`)
+- `app/backend/internal/validate/validate.go` — `ValidateWorktreeName` (shared `ValidateName` + riff-seam leading-`-`/`/`/space rejections) and `ValidateTier` (strict identifier, no leading `-`) — since `260714-q9cg`
+- `app/backend/internal/config/runkit_yaml.go` — `FindGitRoot(dir)` walk-up helper: the CLI uses it for repo-root derivation + preset resolution; the HTTP handler uses it in `deriveRepoRoot`; `ResolveLauncher` no longer walks it (it sets `cmd.Dir` and lets fab discover the repo)
+- `app/backend/internal/tmux/tmux.go` — `OriginalTMUX` package-level var (CLI path)
 
 ## Design Decisions
 
+- **Extract the engine into `internal/riff` parameterized by explicit targets, rather than shell out to `rk riff` from the daemon** (`260713-sbk1-web-spawn-agent`). *Decision*: move the spawn mechanics into a package taking `{server, session, repoRoot}` inputs; the CLI thins to a frontend that derives those from `$TMUX`/cwd; the HTTP handler is a second frontend deriving them from the request. *Why*: the CLI's preconditions (`$TMUX` set, cwd = repo) don't hold in a daemon process, and faking them (env injection, cwd swapping) would be fragile; a parameterized engine gives one recipe with two thin frontends and keeps CLI behavior byte-identical. *Rejected*: shelling out to the `rk riff` CLI from the daemon (fragile precondition-faking); folding the spawn into `TmuxOps` (would churn the shared `mockTmuxOps` used by every handler test — the engine is instead injected as a dedicated `RiffEngine` interface, see [architecture](/run-kit/architecture.md)). The **session must thread through the daemon path** (`-t <session>` on new-window and session-scoped split/select/list targets): `-L <server>` selects only the socket, so a `-L`-only call with no attached client lands the window in the socket's ambient session, not the requested one (a review must-fix during the change).
+- **Mockup-v2 spawn-shaping inputs (`Where`/`WorktreeName`/`Tier`) added at the engine seam, CLI kept worktree-only + empty-tier** (`260714-q9cg-spawn-agent-dialog-mockup`). *Decision*: extend `Options`/`EffectiveSpec` with `Where` (a two-value **string** `"worktree"|"checkout"`, not a bool `Isolated` — mirrors the intake body field + the mockup radio and leaves room for a future third mode), `WorktreeName`, and `Tier`, normalize them once at the `Spawn` seam (via the `whereWorktree` const), branch `runWtCreate` on `Where` only (checkout roots the window at `RepoRoot` and skips `wt`, then both modes converge on the shared `spawnRiffReturningName`), thread `Tier` into `ResolveLauncher`, and factor the wt-create argv into the pure `buildWtCreateArgs`. *Why*: the only per-mode difference is the window root + whether `wt` ran, so a branch around `runWtCreate` beats a parallel checkout spawn function (which would duplicate the tmux sequence). The CLI never sets any of the three, so `rk riff` is byte-identical. *Rejected*: a bool `Isolated` (loses vocabulary parity, awkward JSON); a parallel checkout spawn function (duplicates the tmux sequence); reimplementing wt's name generator or fab's tier resolver in rk (constitution §III — the Worktree field ships blank-with-placeholder since `wt` exposes no name-suggest seam, and tier resolution stays a `fab agent <tier> --print` delegation). Tier enumeration lives in `fabconfig.ReadTiers` (union of `agent.tiers` keys + built-ins) because there is **no `fab` list-tiers seam** — see § `ReadTiers`.
 - **Custom `pflag.Value` + argv pre-processor for repeatable pane flags with bare / space / equals forms** (`260423-jmwu-rk-riff-workflow-features`). pflag's built-in `NoOptDefVal` pattern does not consume a space-form value (the next token) — it only fires when the flag appears with no attached value, leaving the following token as a separate positional arg. To support all three shapes uniformly (`--cmd`, `--cmd htop`, `--cmd=htop`) with repeated occurrences AND preserve interleaved argv order across two flags (`--skill` / `--cmd`), this change combines: (1) a shared `*paneFlag` pflag.Value bound to a single `[]PaneSpec` accumulator, (2) `NoOptDefVal = paneBareSentinel` so pflag fires `Set(sentinel)` on bare occurrences, (3) a pre-parse `rewritePaneSpaceForm(argv)` helper that translates `--flag V` to `--flag=V` in argv iff the next token doesn't start with `-`, stopping at the `--` separator so `wt create` passthrough is preserved verbatim. Future commands needing the same three-form repeatable-flag UX SHOULD reuse this pattern (`pane_spec.go` is the reference implementation).

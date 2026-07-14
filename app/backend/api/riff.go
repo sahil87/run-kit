@@ -91,18 +91,23 @@ func deriveRepoRoot(ctx context.Context, ops TmuxOps, server, session string) (s
 // handleRiffSpawn spawns a riff window in the target session's repo.
 //
 //	POST /api/riff?server=<name>
-//	body: {"task"?: string, "preset"?: string, "session": string}
+//	body: {"task"?: string, "preset"?: string, "session": string,
+//	       "where"?: "worktree"|"checkout", "worktreeName"?: string, "tier"?: string}
 //	200: {"server","session","window","windowId"}
-//	400: invalid session, non-repo cwd, or unknown preset (nothing created)
+//	400: invalid session; unknown where; worktreeName+checkout; forbidden
+//	     worktreeName/tier chars; non-repo cwd; or unknown preset (nothing created)
 //
 // See the file header for the documented 5s-review-rule timeout exception.
 func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 	server := serverFromRequest(r)
 
 	var body struct {
-		Task    string `json:"task"`
-		Preset  string `json:"preset"`
-		Session string `json:"session"`
+		Task         string `json:"task"`
+		Preset       string `json:"preset"`
+		Session      string `json:"session"`
+		Where        string `json:"where"`
+		WorktreeName string `json:"worktreeName"`
+		Tier         string `json:"tier"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -111,6 +116,33 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 	if errMsg := validate.ValidateName(body.Session, "Session name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
+	}
+	// Validate the mockup-v2 fields BEFORE deriving the repo root or touching any
+	// subprocess (constitution §I — nothing is created on a 400). where/
+	// worktreeName/tier are all optional and additive over the shipped body.
+	where := body.Where
+	if where == "" {
+		where = "worktree"
+	}
+	if where != "worktree" && where != "checkout" {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid where %q — must be \"worktree\" or \"checkout\"", body.Where))
+		return
+	}
+	if body.WorktreeName != "" {
+		if where == "checkout" {
+			writeError(w, http.StatusBadRequest, "worktreeName has no meaning with where=\"checkout\" — omit it or use where=\"worktree\"")
+			return
+		}
+		if errMsg := validate.ValidateWorktreeName(body.WorktreeName); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
+	}
+	if body.Tier != "" {
+		if errMsg := validate.ValidateTier(body.Tier); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), riffRepoRootTimeout)
@@ -143,11 +175,14 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 	defer engineCancel()
 
 	res, err := s.riff.Spawn(engineCtx, riff.Options{
-		Server:   server,
-		Session:  body.Session,
-		RepoRoot: repoRoot,
-		Task:     body.Task,
-		Preset:   body.Preset,
+		Server:       server,
+		Session:      body.Session,
+		RepoRoot:     repoRoot,
+		Task:         body.Task,
+		Preset:       body.Preset,
+		Where:        where,
+		WorktreeName: body.WorktreeName,
+		Tier:         body.Tier,
 	})
 	if err != nil {
 		writeError(w, riffStatusForError(err), err.Error())
@@ -171,7 +206,9 @@ const riffSpawnTimeout = 90 * time.Second
 // handleRiffPresets lists the target repo's riff presets.
 //
 //	GET /api/riff/presets?server=<name>&session=<name>
-//	200: {"presets":[{"name","layout","paneCount"}]}  (YAML source order; [] when none)
+//	200: {"presets":[{"name","layout","paneCount"}], "tiers":[...]}
+//	     (presets in YAML source order, [] when none; tiers always non-empty,
+//	      fab-kit built-ins ∪ the repo's agent.tiers, "default" first)
 //	400: invalid session or non-repo cwd
 func (s *Server) handleRiffPresets(w http.ResponseWriter, r *http.Request) {
 	server := serverFromRequest(r)
@@ -202,7 +239,11 @@ func (s *Server) handleRiffPresets(w http.ResponseWriter, r *http.Request) {
 			PaneCount: len(entry.Preset.Panes),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"presets": presets})
+	// tiers rides this one preflight fetch (mockup-v2) so the dialog populates
+	// both dropdowns without a second endpoint (constitution §IV). Always
+	// non-empty (fab-kit built-ins ∪ the repo's agent.tiers, default first).
+	tiers := fabconfig.ReadTiers(repoRoot)
+	writeJSON(w, http.StatusOK, map[string]any{"presets": presets, "tiers": tiers})
 }
 
 // riffPresetSummary is the per-preset shape returned by GET /api/riff/presets —

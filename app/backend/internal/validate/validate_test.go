@@ -238,6 +238,102 @@ func containsStr(s, sub string) bool {
 	return false
 }
 
+func TestValidateTier(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantErr  bool
+		contains string
+	}{
+		{"valid simple", "doing", false, ""},
+		{"valid alphanumeric", "review2", false, ""},
+		{"valid with hyphen", "my-tier", false, ""},
+		{"valid with underscore", "my_tier", false, ""},
+		{"valid leading underscore", "_tier", false, ""},
+		{"valid single char", "d", false, ""},
+		{"empty is rejected by the pattern", "", true, "alphanumeric"},
+		{"leading hyphen rejected", "-doing", true, "must not start with a hyphen"},
+		{"forbidden space", "a b", true, "alphanumeric"},
+		{"forbidden slash", "a/b", true, "alphanumeric"},
+		{"forbidden semicolon", "a;b", true, "alphanumeric"},
+		{"forbidden dollar", "a$b", true, "alphanumeric"},
+		{"at max length", "", false, ""},   // filled below
+		{"exceeds max length", "", true, "maximum length"}, // filled below
+	}
+
+	// Fill the max/over-max cases with 'a' (kept valid-charset so the length
+	// bound, not the pattern, is the failing rule).
+	for i := range tests {
+		if tests[i].name == "at max length" {
+			b := make([]byte, MaxTierNameLength)
+			for j := range b {
+				b[j] = 'a'
+			}
+			tests[i].input = string(b)
+		}
+		if tests[i].name == "exceeds max length" {
+			b := make([]byte, MaxTierNameLength+1)
+			for j := range b {
+				b[j] = 'a'
+			}
+			tests[i].input = string(b)
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateTier(tt.input)
+			if tt.wantErr && result == "" {
+				t.Errorf("ValidateTier(%q) = valid, want error", tt.input)
+			}
+			if !tt.wantErr && result != "" {
+				t.Errorf("ValidateTier(%q) = %q, want valid", tt.input, result)
+			}
+			if tt.contains != "" && result != "" && !contains(result, tt.contains) {
+				t.Errorf("ValidateTier(%q) = %q, want error containing %q", tt.input, result, tt.contains)
+			}
+		})
+	}
+}
+
+func TestValidateWorktreeName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantErr  bool
+		contains string
+	}{
+		{"valid simple", "swift-fox", false, ""},
+		{"valid with underscore", "my_agent", false, ""},
+		{"valid alphanumeric", "agent123", false, ""},
+		// Inherited from the shared ValidateName rule (deliberately unchanged).
+		{"empty rejected", "", true, "cannot be empty"},
+		{"forbidden semicolon", "bad;name", true, "forbidden characters"},
+		{"forbidden dollar", "bad$name", true, "forbidden characters"},
+		{"contains colon", "bad:name", true, "colons or periods"},
+		{"contains period", "bad.name", true, "colons or periods"},
+		// riff-seam-only hardening (NOT applied by the shared ValidateName).
+		{"leading hyphen rejected", "-agent", true, "must not start with a hyphen"},
+		{"slash rejected", "a/b", true, "must not contain a slash"},
+		{"space rejected", "a b", true, "must not contain spaces"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateWorktreeName(tt.input)
+			if tt.wantErr && result == "" {
+				t.Errorf("ValidateWorktreeName(%q) = valid, want error", tt.input)
+			}
+			if !tt.wantErr && result != "" {
+				t.Errorf("ValidateWorktreeName(%q) = %q, want valid", tt.input, result)
+			}
+			if tt.contains != "" && result != "" && !contains(result, tt.contains) {
+				t.Errorf("ValidateWorktreeName(%q) = %q, want error containing %q", tt.input, result, tt.contains)
+			}
+		})
+	}
+}
+
 func TestValidateColorValue(t *testing.T) {
 	// Canonical and whitespace-tolerant forms (parts are trimmed, matching the
 	// frontend parseColorValue), plus leading-zero indices.

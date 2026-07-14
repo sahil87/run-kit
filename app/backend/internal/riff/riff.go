@@ -117,6 +117,14 @@ type EffectiveSpec struct {
 	Session      string
 	RepoRoot     string // working dir for `wt create` / `fab agent --print`; may be "" for the CLI (process cwd)
 	OriginalTMUX string // restored into child env when Server == "" (CLI path)
+	// Where selects isolation: "checkout" opens the window directly in RepoRoot
+	// (no worktree); "worktree" (or "", the default) creates a worktree via wt
+	// first. The CLI never sets this, so it is always the worktree default there.
+	Where string
+	// WorktreeName, when non-empty in worktree mode, is forwarded to
+	// `wt create --worktree-name`. Empty = wt generates the name (today's path).
+	// Ignored in checkout mode. The CLI never sets this.
+	WorktreeName string
 }
 
 // Result is the outcome of a single spawned window, returned by Spawn for the
@@ -137,7 +145,26 @@ type Options struct {
 	RepoRoot string // repo root for wt create / launcher resolution (required)
 	Task     string // optional task text → launcher positional arg (auto-submits)
 	Preset   string // optional preset name from the repo's fab/project/config.yaml
+	// Where selects isolation: "checkout" opens the window directly in RepoRoot
+	// (no worktree); "worktree" or "" (default) creates a worktree first.
+	Where string
+	// WorktreeName, when non-empty in worktree mode, names the created worktree
+	// (`wt create --worktree-name`). Empty = wt auto-generates. Ignored in
+	// checkout mode.
+	WorktreeName string
+	// Tier is the fab agent tier resolved for the launcher (`fab agent <tier>
+	// --print`). Empty = the default tier (`fab agent --print`, today's path).
+	Tier string
 }
+
+// isCheckout reports whether opts requests checkout (non-isolated) mode.
+func (o Options) isCheckout() bool { return o.Where == whereCheckout }
+
+// Where values for Options.Where / EffectiveSpec.Where.
+const (
+	whereWorktree = "worktree"
+	whereCheckout = "checkout"
+)
 
 // Spawn is the single-window entry used by the HTTP handler. It resolves the
 // launcher (rooted at opts.RepoRoot), resolves the preset (if named) from the
@@ -151,14 +178,21 @@ type Options struct {
 //   - task empty, preset panes present → the preset panes.
 //   - task empty, no preset panes      → a single BARE skill pane (blank agent).
 //
-// An unknown preset returns an ExitCodeError{Code: ExitValidation} the handler
-// maps to 400. All subprocess failures return ExitCodeError{Code: ExitSubprocess}.
+// Isolation (opts.Where):
+//   - "worktree" (or "", default) → `wt create` (optionally --worktree-name) then
+//     a tmux window rooted at the new worktree (base riff-<worktree-basename>).
+//   - "checkout"                  → NO wt call; a tmux window rooted at
+//     opts.RepoRoot (base riff-<repoRoot-basename>).
+//
+// The launcher is resolved for opts.Tier (empty = default tier). An unknown
+// preset returns an ExitCodeError{Code: ExitValidation} the handler maps to 400.
+// All subprocess failures return ExitCodeError{Code: ExitSubprocess}.
 func Spawn(ctx context.Context, opts Options) (Result, error) {
 	if opts.RepoRoot == "" {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
 	}
 
-	launcher := ResolveLauncher(ctx, opts.RepoRoot)
+	launcher := ResolveLauncher(ctx, opts.RepoRoot, opts.Tier)
 
 	var preset *fabconfig.Preset
 	if opts.Preset != "" {
@@ -184,12 +218,32 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	spec.Server = opts.Server
 	spec.Session = opts.Session
 	spec.RepoRoot = opts.RepoRoot
-
-	worktreePath, err := runWtCreate(ctx, spec, spec.Passthrough)
-	if err != nil {
-		return Result{}, err
+	// Normalize the isolation inputs at this seam: an empty Where means the
+	// worktree default, and WorktreeName is meaningless in checkout mode (the
+	// API already rejects that pairing — R6 — so this is defense-in-depth). Both
+	// normalizations are behavior-preserving: worktree mode was already the
+	// empty-Where path, and a checkout-mode name never reached wt.
+	spec.Where = opts.Where
+	if spec.Where == "" {
+		spec.Where = whereWorktree
 	}
-	name, windowID, err := spawnRiffReturningName(ctx, worktreePath, spec)
+	spec.WorktreeName = opts.WorktreeName
+	if opts.isCheckout() {
+		spec.WorktreeName = ""
+	}
+
+	// Checkout mode roots the window directly at the repo checkout (no worktree);
+	// worktree mode creates one first. Everything after — the tmux spawn sequence
+	// (collision naming, new-window/split/select-layout/select-pane, window-id
+	// capture) — is identical, so both paths converge on spawnRiffReturningName.
+	windowRoot := opts.RepoRoot
+	if !opts.isCheckout() {
+		windowRoot, err = runWtCreate(ctx, spec, spec.Passthrough)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	name, windowID, err := spawnRiffReturningName(ctx, windowRoot, spec)
 	if err != nil {
 		return Result{}, err
 	}
@@ -219,22 +273,23 @@ func Run(ctx context.Context, spec EffectiveSpec) error {
 }
 
 // ResolveLauncher resolves the agent launcher by shelling out to
-// `fab agent --print`, which prints fab-kit's fully-resolved default-tier
-// session command. Delegating to fab means rk never parses fab-kit's config
-// schema and can't drift from it (constitution §III). The subprocess Dir is set
-// to repoRoot so fab's cwd-based repo discovery resolves the TARGET project (the
-// daemon's own cwd is not the target repo); the CLI passes its process cwd here,
-// preserving today's behavior. Exported so the CLI can resolve the launcher and
-// set it on the EffectiveSpec before calling Run.
+// `fab agent [tier] --print`, which prints fab-kit's fully-resolved session
+// command for the named tier (empty tier → the default tier, `fab agent
+// --print`, byte-identical to today's path). Delegating to fab means rk never
+// parses fab-kit's tier→provider→session_command schema and can't drift from it
+// (constitution §III). The subprocess Dir is set to repoRoot so fab's cwd-based
+// repo discovery resolves the TARGET project (the daemon's own cwd is not the
+// target repo); the CLI passes its process cwd + an empty tier, preserving
+// today's behavior. Exported so both frontends can resolve the launcher.
 //
 // Best-effort and never errors: on ANY failure (fab absent, non-zero exit,
 // timeout, empty / whitespace-only / multi-line stdout) it falls back silently
 // to DefaultLauncher.
-func ResolveLauncher(parent context.Context, repoRoot string) string {
+func ResolveLauncher(parent context.Context, repoRoot, tier string) string {
 	ctx, cancel := context.WithTimeout(parent, FabTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "fab", "agent", "--print")
+	cmd := exec.CommandContext(ctx, "fab", fabAgentArgs(tier)...)
 	if repoRoot != "" {
 		cmd.Dir = repoRoot
 	}
@@ -244,6 +299,16 @@ func ResolveLauncher(parent context.Context, repoRoot string) string {
 		return launcher
 	}
 	return DefaultLauncher
+}
+
+// fabAgentArgs builds the `fab` argv for launcher resolution: `agent --print`
+// for an empty tier (today's default-tier path) or `agent <tier> --print` for a
+// named tier (the positional-tier form). Pure.
+func fabAgentArgs(tier string) []string {
+	if tier == "" {
+		return []string{"agent", "--print"}
+	}
+	return []string{"agent", tier, "--print"}
 }
 
 // parseFabAgentOutput is the pure post-processing seam for resolveLauncher.
@@ -264,14 +329,31 @@ func parseFabAgentOutput(stdout string, err error) (string, bool) {
 	return launcher, true
 }
 
-// runWtCreate invokes `wt create --non-interactive --worktree-open skip
-// <passthrough...>` (with Dir=RepoRoot when set) and parses the `Path:` line for
-// the worktree path. Returns a SubprocessErr on failure/parse-miss/timeout.
+// buildWtCreateArgs returns the argv (after "wt") for worktree creation:
+// `create [--worktree-name <name>] --non-interactive --worktree-open skip
+// <passthrough...>`. A non-empty WorktreeName (worktree mode only) is prepended
+// as `--worktree-name <name>` so it skips wt's name prompt; an empty name yields
+// the byte-identical pre-feature argv. The `spec.Where != whereCheckout` guard
+// keeps the helper self-contained (Spawn already blanks a checkout-mode name,
+// and checkout never reaches wt anyway; the CLI/fan-out paths pass no name). Pure.
+func buildWtCreateArgs(spec EffectiveSpec, passthrough []string) []string {
+	argv := []string{"create"}
+	if spec.Where != whereCheckout && spec.WorktreeName != "" {
+		argv = append(argv, "--worktree-name", spec.WorktreeName)
+	}
+	argv = append(argv, "--non-interactive", "--worktree-open", "skip")
+	return append(argv, passthrough...)
+}
+
+// runWtCreate invokes `wt create [--worktree-name <name>] --non-interactive
+// --worktree-open skip <passthrough...>` (with Dir=RepoRoot when set) and parses
+// the `Path:` line for the worktree path. Returns a SubprocessErr on
+// failure/parse-miss/timeout.
 func runWtCreate(parent context.Context, spec EffectiveSpec, passthrough []string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, WtTimeout)
 	defer cancel()
 
-	argv := append([]string{"create", "--non-interactive", "--worktree-open", "skip"}, passthrough...)
+	argv := buildWtCreateArgs(spec, passthrough)
 	cmd := exec.CommandContext(ctx, "wt", argv...)
 	if spec.RepoRoot != "" {
 		cmd.Dir = spec.RepoRoot

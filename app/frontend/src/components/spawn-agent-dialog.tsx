@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { spawnRiff, getRiffPresets, type RiffPreset } from "@/api/client";
+import { spawnRiff, getRiffPresets, type RiffPreset, type RiffWhere } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useSessionContext } from "@/contexts/session-context";
@@ -14,19 +14,32 @@ type SpawnAgentDialogProps = {
   onClose: () => void;
 };
 
+/** The default tier — matches the backend's "empty tier = default tier" and the
+ *  mockup's `Agent [ default ▾ ]`. Selecting it yields a byte-identical launcher
+ *  to the shipped (tier-less) path. */
+const DEFAULT_TIER = "default";
+
 /**
- * Compact dialog surfacing `rk riff` as a one-action web spawn (260713-sbk1).
- * Two fields — a free-text TASK (optional; empty = blank agent session) and a
- * PRESET dropdown (optional; populated from the session's repo). Enter submits
- * from any field. While the synchronous spawn runs it shows an indeterminate
- * worktree → window → agent pipeline label and disables double-submit; a
- * 400/500 renders in-dialog (nothing was created on a 400) and the dialog stays
- * open for correction. On success it closes and navigates to the new window.
+ * Compact dialog surfacing `rk riff` as a one-action web spawn (260713-sbk1,
+ * extended to the full mockup in 260714-q9cg). Fields in mockup order:
+ *
+ *   Task      — free text, optional (empty = blank agent session)
+ *   Preset    — dropdown, optional (only shown when the repo defines presets)
+ *   Where     — radio: new worktree (default) | this checkout
+ *   Worktree  — editable name, blank = auto-named; hidden when "this checkout"
+ *   Agent     — tier dropdown (built-ins ∪ repo agent.tiers), default = "default"
+ *
+ * The title carries the target session (`Spawn agent in {session}`). Enter
+ * submits from any field. While the synchronous spawn runs it shows an
+ * indeterminate worktree → window → agent pipeline label and disables
+ * double-submit; a 400/500 renders in-dialog (nothing was created on a 400) and
+ * the dialog stays open for correction. On success it closes and navigates to
+ * the new window (guarding a falsy best-effort windowId — SSE surfaces the row).
  *
  * Follows the create-session-dialog patterns (Dialog shell, `text-xs` field
  * labels, disabled-submit styling); the busy state deliberately shows no
  * per-step progression because the endpoint is synchronous and emits no
- * per-step events (intake assumption #5 / plan A-7).
+ * per-step events (intake assumption / plan A-9).
  */
 export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDialogProps) {
   const { currentServer } = useSessionContext();
@@ -35,6 +48,10 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
   const [task, setTask] = useState("");
   const [preset, setPreset] = useState("");
   const [presets, setPresets] = useState<RiffPreset[]>([]);
+  const [where, setWhere] = useState<RiffWhere>("worktree");
+  const [worktreeName, setWorktreeName] = useState("");
+  const [tier, setTier] = useState(DEFAULT_TIER);
+  const [tiers, setTiers] = useState<string[]>([DEFAULT_TIER]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const taskRef = useRef<HTMLInputElement>(null);
@@ -48,17 +65,23 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
     };
   }, []);
 
-  // Fetch presets on open — best-effort: a failure (e.g. non-repo cwd) leaves
-  // the dropdown empty/hidden and still allows a task-only spawn.
+  // Fetch presets + tiers on open — best-effort: a failure (e.g. non-repo cwd)
+  // leaves an empty preset dropdown and the built-in default tier, still allowing
+  // a task-only spawn.
   useEffect(() => {
     if (!server || !session) return;
     let cancelled = false;
     getRiffPresets(server, session)
-      .then((p) => {
-        if (!cancelled) setPresets(p);
+      .then((data) => {
+        if (cancelled) return;
+        setPresets(data.presets);
+        if (data.tiers.length > 0) setTiers(data.tiers);
       })
       .catch(() => {
-        if (!cancelled) setPresets([]);
+        if (!cancelled) {
+          setPresets([]);
+          setTiers([DEFAULT_TIER]);
+        }
       });
     return () => {
       cancelled = true;
@@ -77,7 +100,15 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
     }
     setBusy(true);
     setError("");
-    spawnRiff(server, session, task.trim() || undefined, preset || undefined)
+    spawnRiff(server, session, {
+      task: task.trim() || undefined,
+      preset: preset || undefined,
+      where,
+      // Worktree name only applies to worktree mode; the backend rejects it with
+      // checkout, so drop it there.
+      worktreeName: where === "worktree" ? worktreeName.trim() || undefined : undefined,
+      tier,
+    })
       .then((res) => {
         if (!mountedRef.current) return;
         onClose();
@@ -92,7 +123,7 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
         setBusy(false);
         setError(err.message || "Failed to spawn agent");
       });
-  }, [busy, server, session, task, preset, onClose, onSpawned]);
+  }, [busy, server, session, task, preset, where, worktreeName, tier, onClose, onSpawned]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
@@ -102,7 +133,7 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
   }
 
   return (
-    <Dialog title="Spawn agent" onClose={onClose}>
+    <Dialog title={`Spawn agent in ${session}`} onClose={onClose}>
       {/* Task */}
       <div className="mb-3">
         <p className="text-xs text-text-secondary mb-1.5">Task (optional):</p>
@@ -145,6 +176,78 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
           </select>
         </div>
       )}
+
+      {/* Where — isolation choice (new worktree vs. this checkout). */}
+      <div className="mb-3">
+        <p className="text-xs text-text-secondary mb-1.5">Where:</p>
+        <div role="radiogroup" aria-label="Where" className="flex gap-4">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="radio"
+              name="riff-where"
+              value="worktree"
+              checked={where === "worktree"}
+              onChange={() => setWhere("worktree")}
+              onKeyDown={handleKeyDown}
+              disabled={busy}
+              className="accent-accent disabled:opacity-50"
+            />
+            <span className="text-text-primary">new worktree</span>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="radio"
+              name="riff-where"
+              value="checkout"
+              checked={where === "checkout"}
+              onChange={() => setWhere("checkout")}
+              onKeyDown={handleKeyDown}
+              disabled={busy}
+              className="accent-accent disabled:opacity-50"
+            />
+            <span className="text-text-primary">this checkout</span>
+          </label>
+        </div>
+      </div>
+
+      {/* Worktree name — worktree mode only (no meaning for "this checkout"). */}
+      {where === "worktree" && (
+        <div className="mb-3">
+          <p className="text-xs text-text-secondary mb-1.5">Worktree (optional):</p>
+          <input
+            type="text"
+            value={worktreeName}
+            onChange={(e) => {
+              setWorktreeName(e.target.value);
+              setError("");
+            }}
+            onKeyDown={handleKeyDown}
+            disabled={busy}
+            aria-label="Worktree name"
+            placeholder="auto-named (e.g. swift-fox)"
+            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary disabled:opacity-50"
+          />
+        </div>
+      )}
+
+      {/* Agent — the fab tier the launcher resolves. */}
+      <div className="mb-3">
+        <p className="text-xs text-text-secondary mb-1.5">Agent:</p>
+        <select
+          value={tier}
+          onChange={(e) => setTier(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={busy}
+          aria-label="Agent"
+          className="w-full bg-bg-primary text-text-primary p-2 border border-border rounded outline-none disabled:opacity-50"
+        >
+          {tiers.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {/* Busy pipeline label — indeterminate (the endpoint is synchronous). */}
       {busy && (

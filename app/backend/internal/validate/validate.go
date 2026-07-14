@@ -133,6 +133,58 @@ func ValidateServerName(name string) string {
 	return ""
 }
 
+// tierNamePattern matches a fab agent tier name: alphanumeric plus hyphen and
+// underscore. A tier flows into a subprocess as a bare positional
+// (`fab agent <tier> --print`), so it is validated against this strict identifier
+// shape before use (constitution §I — Security First). Mirrors serverNamePattern.
+// The leading char is constrained to alphanumeric or underscore so a tier can
+// never be interpreted as a flag by `fab agent` — a leading `-` would make the
+// positional a bare `-doing`-style option.
+var tierNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_-]*$`)
+
+// MaxTierNameLength bounds a tier name. Tiers are short config keys
+// (default/doing/fast/…); 64 is generous and matches the server-name bound.
+const MaxTierNameLength = 64
+
+// ValidateTier validates a fab agent tier name. Returns empty string if valid,
+// an error message otherwise. An empty tier is the caller's "default tier"
+// sentinel and is validated separately (callers skip this when the value is
+// empty); this rule applies to a NON-empty tier that will reach argv. A leading
+// `-` is rejected (see tierNamePattern) so the tier can't become a bare flag.
+func ValidateTier(name string) string {
+	if len(name) > MaxTierNameLength {
+		return fmt.Sprintf("Tier name exceeds maximum length of %d characters", MaxTierNameLength)
+	}
+	if !tierNamePattern.MatchString(name) {
+		return "Tier name must contain only alphanumeric characters, hyphens, and underscores, and must not start with a hyphen"
+	}
+	return ""
+}
+
+// ValidateWorktreeName validates a riff worktree name. It layers riff-seam-only
+// hardening over the shared tmux-safe ValidateName rule (which the session/window
+// callers also use — that shared rule is deliberately left unchanged). The extra
+// rejections address how a worktree name is consumed downstream of riff: it
+// becomes a `wt create --worktree-name` argv element (a leading `-` could look
+// like a flag), a worktree directory basename (a `/` would split the path), and
+// a `riff-<name>` tmux window name (a leading space is a surprising, error-prone
+// name). Returns empty string if valid, an error message otherwise.
+func ValidateWorktreeName(name string) string {
+	if msg := ValidateName(name, "Worktree name"); msg != "" {
+		return msg
+	}
+	if strings.HasPrefix(name, "-") {
+		return "Worktree name must not start with a hyphen"
+	}
+	if strings.Contains(name, "/") {
+		return "Worktree name must not contain a slash"
+	}
+	if strings.Contains(name, " ") {
+		return "Worktree name must not contain spaces"
+	}
+	return ""
+}
+
 // ExpandTilde expands a leading ~ to $HOME and resolves the path.
 // Returns the expanded path and an empty error string on success,
 // or an empty path and error message on failure.

@@ -122,6 +122,91 @@ func TestRiffSpawnSuccess(t *testing.T) {
 	}
 }
 
+// TestRiffSpawnDefaultsWhereWorktree: omitting `where` defaults it to "worktree"
+// at the handler, so the engine always sees an explicit mode (mockup-v2 R5).
+func TestRiffSpawnDefaultsWhereWorktree(t *testing.T) {
+	repo := gitRepoDir(t)
+	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+	engine := &mockRiffEngine{result: riff.Result{Server: "work", Session: "s", WindowName: "riff-x", WindowID: "@1"}}
+	rec := postRiff(t, ops, engine, `{"session":"s"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if engine.gotOpts.Where != "worktree" {
+		t.Errorf("engine Where = %q, want defaulted \"worktree\"", engine.gotOpts.Where)
+	}
+}
+
+// TestRiffSpawnCheckoutTierForwarded: where=checkout + tier reach the engine
+// verbatim (mockup-v2 R5); worktreeName is omitted for checkout.
+func TestRiffSpawnCheckoutTierForwarded(t *testing.T) {
+	repo := gitRepoDir(t)
+	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+	engine := &mockRiffEngine{result: riff.Result{Server: "work", Session: "s", WindowName: "riff-repo", WindowID: "@3"}}
+	rec := postRiff(t, ops, engine, `{"session":"s","where":"checkout","tier":"doing"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if engine.gotOpts.Where != "checkout" {
+		t.Errorf("engine Where = %q, want checkout", engine.gotOpts.Where)
+	}
+	if engine.gotOpts.Tier != "doing" {
+		t.Errorf("engine Tier = %q, want doing", engine.gotOpts.Tier)
+	}
+	if engine.gotOpts.WorktreeName != "" {
+		t.Errorf("engine WorktreeName = %q, want empty for checkout", engine.gotOpts.WorktreeName)
+	}
+}
+
+// TestRiffSpawnWorktreeNameForwarded: a worktree-mode name reaches the engine.
+func TestRiffSpawnWorktreeNameForwarded(t *testing.T) {
+	repo := gitRepoDir(t)
+	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+	engine := &mockRiffEngine{result: riff.Result{Server: "work", Session: "s", WindowName: "riff-my-agent", WindowID: "@4"}}
+	rec := postRiff(t, ops, engine, `{"session":"s","where":"worktree","worktreeName":"my-agent"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if engine.gotOpts.WorktreeName != "my-agent" {
+		t.Errorf("engine WorktreeName = %q, want my-agent", engine.gotOpts.WorktreeName)
+	}
+}
+
+// TestRiffSpawnNewFieldValidation: the three mockup-v2 fields are validated
+// BEFORE any subprocess/repo derivation — each bad input is a 400 with no engine
+// call (nothing created). A gitRepoDir cwd is supplied so a passing field-check
+// would proceed; the 400 must come from the field validation, not the repo check.
+func TestRiffSpawnNewFieldValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "unknown where", body: `{"session":"s","where":"sideways"}`},
+		{name: "worktreeName with checkout", body: `{"session":"s","where":"checkout","worktreeName":"x"}`},
+		{name: "forbidden worktreeName char", body: `{"session":"s","worktreeName":"bad;name"}`},
+		{name: "worktreeName with colon", body: `{"session":"s","worktreeName":"a:b"}`},
+		{name: "worktreeName leading hyphen", body: `{"session":"s","worktreeName":"-agent"}`},
+		{name: "worktreeName with slash", body: `{"session":"s","worktreeName":"a/b"}`},
+		{name: "worktreeName with space", body: `{"session":"s","worktreeName":"a b"}`},
+		{name: "forbidden tier char", body: `{"session":"s","tier":"a b"}`},
+		{name: "tier leading hyphen", body: `{"session":"s","tier":"-doing"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := gitRepoDir(t)
+			ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+			engine := &mockRiffEngine{}
+			rec := postRiff(t, ops, engine, tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			if engine.called {
+				t.Error("engine.Spawn should NOT be called on an invalid new-field value")
+			}
+		})
+	}
+}
+
 // TestRiffSpawnTaskWithSingleQuote: a task containing a single quote reaches the
 // engine verbatim (the escaping is the engine's concern; the handler must not
 // mangle it).
@@ -264,6 +349,40 @@ func TestRiffPresetsSuccess(t *testing.T) {
 	}
 	if got.Presets[1].Layout != "v" || got.Presets[1].PaneCount != 1 {
 		t.Errorf("investigate summary = %+v, want layout v, paneCount 1", got.Presets[1])
+	}
+}
+
+// TestRiffPresetsTiers: the presets response carries a non-empty tiers array
+// (mockup-v2 R8) with the fab-kit built-ins first (`default` first), plus any
+// config-defined names appended.
+func TestRiffPresetsTiers(t *testing.T) {
+	repo := gitRepoDir(t)
+	writeFabConfig(t, repo, `agent:
+    tiers:
+        default: {model: a}
+        custom: {model: b}
+`)
+	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+	rec := getRiffPresets(t, ops, "mysess")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Presets []riffPresetSummary `json:"presets"`
+		Tiers   []string            `json:"tiers"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Tiers) == 0 || got.Tiers[0] != "default" {
+		t.Fatalf("tiers = %v, want built-ins first (default first)", got.Tiers)
+	}
+	// Built-ins present and the config-only "custom" appended.
+	joined := strings.Join(got.Tiers, ",")
+	for _, want := range []string{"default", "doing", "fast", "operator", "review", "custom"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("tiers %v missing %q", got.Tiers, want)
+		}
 	}
 }
 

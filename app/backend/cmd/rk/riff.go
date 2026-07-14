@@ -231,8 +231,10 @@ func runRiff(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 5: launcher resolution via the engine helper (rooted at the process
-	// cwd so fab resolves this repo). Never errors — falls back to the default.
-	launcher := riff.ResolveLauncher(ctx, repoRoot)
+	// cwd so fab resolves this repo). An empty tier = the default tier (`fab
+	// agent --print`), preserving today's CLI behavior — the per-tier picker is
+	// a web-UI-only affordance. Never errors — falls back to the default.
+	launcher := riff.ResolveLauncher(ctx, repoRoot, "")
 
 	// Step 6: preset resolution.
 	presets := readPresetsForRepo()

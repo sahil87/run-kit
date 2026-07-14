@@ -4,9 +4,11 @@ import { test, expect, type Page } from "@playwright/test";
 // list via page.route, mock the two riff endpoints, then drive both spawn
 // entry points. See spawn-agent.spec.md for intent + steps.
 //
-// Web-UI Spawn Agent (260713-sbk1). The dialog opens from Cmd+K `Agent: Spawn`
-// AND the window-switcher `+ New Agent`; a task-submit spawns and navigates to
-// the returned window; a 400 renders the error in-dialog.
+// Web-UI Spawn Agent (260713-sbk1; mockup-v2 fields added in 260714-q9cg). The
+// dialog opens from Cmd+K `Agent: Spawn` AND the window-switcher `+ New Agent`,
+// renders the v2 field set (Where / Worktree / Agent tier), a checkout+tier
+// task-submit spawns and navigates to the returned window carrying `where`/
+// `tier` in the POST body, and a 400 renders the error in-dialog.
 //
 // The riff-endpoint mocks use TRAILING `*` globs (`**/api/riff*`,
 // `**/api/riff/presets*`) because the client's withServer appends `?server=` —
@@ -34,12 +36,17 @@ function sessionsPayload() {
   ]);
 }
 
+// The fab-kit built-in tiers, mirrored by the backend's fabconfig.BuiltinTiers.
+const BUILTIN_TIERS = ["default", "doing", "fast", "operator", "review"];
+
 type RiffMock = {
   // When set, POST /api/riff fulfills with this status + body.
   spawnStatus: number;
   spawnBody: string;
   // Presets list returned by GET /api/riff/presets.
   presets: unknown[];
+  // Tiers returned by GET /api/riff/presets (defaults to the built-ins).
+  tiers?: string[];
 };
 
 async function mockBackend(page: Page, riff: RiffMock): Promise<{ spawnBodies: () => Record<string, unknown>[] }> {
@@ -71,7 +78,7 @@ async function mockBackend(page: Page, riff: RiffMock): Promise<{ spawnBodies: (
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ presets: riff.presets }),
+      body: JSON.stringify({ presets: riff.presets, tiers: riff.tiers ?? BUILTIN_TIERS }),
     }),
   );
 
@@ -124,7 +131,8 @@ test.describe("Web-UI Spawn Agent", () => {
 
     await openViaPalette(page);
 
-    await expect(page.getByRole("dialog", { name: "Spawn agent" })).toBeVisible({ timeout: 5_000 });
+    // Title carries the target session (mockup-v2).
+    await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
     await expect(page.getByLabel("Task")).toBeVisible();
   });
 
@@ -134,8 +142,29 @@ test.describe("Web-UI Spawn Agent", () => {
 
     await openViaDropdown(page);
 
-    await expect(page.getByRole("dialog", { name: "Spawn agent" })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
     await expect(page.getByLabel("Task")).toBeVisible();
+  });
+
+  test("renders the mockup-v2 fields (Where radio, Worktree, Agent tier)", async ({ page }) => {
+    await mockBackend(page, OK_SPAWN);
+    await gotoTerminal(page);
+
+    await openViaPalette(page);
+    await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
+
+    // Where radio — new worktree checked by default.
+    await expect(page.getByRole("radio", { name: /new worktree/i })).toBeChecked();
+    await expect(page.getByRole("radio", { name: /this checkout/i })).not.toBeChecked();
+    // Worktree field visible in worktree mode; Agent tier dropdown defaults to
+    // "default". `exact` on the Agent label — a loose match also hits the dialog
+    // (accessible name "Spawn agent in dev" contains "agent").
+    await expect(page.getByLabel("Worktree name")).toBeVisible();
+    await expect(page.getByLabel("Agent", { exact: true })).toHaveValue("default");
+
+    // Selecting "this checkout" hides the Worktree field.
+    await page.getByRole("radio", { name: /this checkout/i }).check();
+    await expect(page.getByLabel("Worktree name")).toBeHidden();
   });
 
   test("submitting a task spawns and navigates to the returned window", async ({ page }) => {
@@ -149,9 +178,36 @@ test.describe("Web-UI Spawn Agent", () => {
 
     // Navigates to the returned windowId (@7 → URL segment `7`).
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/7(?:$|[/?#])`), { timeout: 5_000 });
-    // The POST carried the task + session (server rides ?server=).
+    // The POST carried the task + session (server rides ?server=). Defaults-only
+    // body omits where/tier (worktree + default are the backend defaults).
     await expect.poll(() => spawnBodies().length).toBeGreaterThan(0);
     expect(spawnBodies()[0]).toMatchObject({ task: "fix the bug", session: "dev" });
+    expect(spawnBodies()[0]).not.toHaveProperty("where");
+    expect(spawnBodies()[0]).not.toHaveProperty("tier");
+  });
+
+  test("a checkout + tier task-submit carries where and tier in the POST body", async ({ page }) => {
+    const { spawnBodies } = await mockBackend(page, OK_SPAWN);
+    await gotoTerminal(page);
+
+    await openViaPalette(page);
+    await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
+    await page.getByRole("radio", { name: /this checkout/i }).check();
+    await page.getByLabel("Agent", { exact: true }).selectOption("doing");
+    const task = page.getByLabel("Task");
+    await task.fill("explore the code");
+    await task.press("Enter");
+
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/7(?:$|[/?#])`), { timeout: 5_000 });
+    await expect.poll(() => spawnBodies().length).toBeGreaterThan(0);
+    expect(spawnBodies()[0]).toMatchObject({
+      task: "explore the code",
+      session: "dev",
+      where: "checkout",
+      tier: "doing",
+    });
+    // No worktree name in checkout mode.
+    expect(spawnBodies()[0]).not.toHaveProperty("worktreeName");
   });
 
   test("a 400 renders its error in-dialog and does not navigate", async ({ page }) => {
@@ -169,7 +225,7 @@ test.describe("Web-UI Spawn Agent", () => {
 
     // Error is shown in-dialog; the dialog stays open and the URL is unchanged.
     await expect(page.getByText(/not inside a git repository/i)).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByRole("dialog", { name: "Spawn agent" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
   });
 });

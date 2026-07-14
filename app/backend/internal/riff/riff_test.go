@@ -312,34 +312,112 @@ func TestParseFabAgentOutput(t *testing.T) {
 	}
 }
 
+// TestFabAgentArgs covers the pure argv seam: an empty tier drops the positional
+// (today's default-tier path), a named tier inserts it before --print.
+func TestFabAgentArgs(t *testing.T) {
+	cases := []struct {
+		name string
+		tier string
+		want []string
+	}{
+		{name: "empty tier → no positional", tier: "", want: []string{"agent", "--print"}},
+		{name: "named tier → positional", tier: "doing", want: []string{"agent", "doing", "--print"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fabAgentArgs(tc.tier); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("fabAgentArgs(%q) = %#v, want %#v", tc.tier, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestResolveLauncher_StubFab exercises ResolveLauncher end-to-end by staging a
-// stub `fab` executable on a temp-dir PATH. Covers the fab-present success path,
-// the non-zero exit fallback, and the fab-absent fallback. repoRoot is passed as
-// "" so no Dir is set (the stub does not depend on cwd).
+// stub `fab` executable on a temp-dir PATH. Covers the fab-present success path
+// (default AND named tier), the non-zero exit fallback, and the fab-absent
+// fallback. repoRoot is passed as "" so no Dir is set (the stub ignores cwd).
 func TestResolveLauncher_StubFab(t *testing.T) {
-	t.Run("stub fab prints launcher", func(t *testing.T) {
+	t.Run("stub fab prints launcher (default tier)", func(t *testing.T) {
 		want := "stub-launcher --effort xhigh"
 		dir := stubFab(t, "#!/bin/sh\nprintf '%s\\n' '"+want+"'\n")
 		t.Setenv("PATH", dir)
-		if got := ResolveLauncher(context.Background(), ""); got != want {
+		if got := ResolveLauncher(context.Background(), "", ""); got != want {
 			t.Errorf("ResolveLauncher() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("named tier passes the positional to fab", func(t *testing.T) {
+		// The stub echoes its args so we can assert the tier positional reaches
+		// fab as `agent <tier> --print`.
+		dir := stubFab(t, "#!/bin/sh\nprintf 'args: %s\\n' \"$*\"\n")
+		t.Setenv("PATH", dir)
+		got := ResolveLauncher(context.Background(), "", "doing")
+		if want := "args: agent doing --print"; got != want {
+			t.Errorf("ResolveLauncher(tier=doing) = %q, want %q", got, want)
 		}
 	})
 
 	t.Run("stub fab exits non-zero falls back", func(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\necho boom >&2\nexit 1\n")
 		t.Setenv("PATH", dir)
-		if got := ResolveLauncher(context.Background(), ""); got != DefaultLauncher {
+		if got := ResolveLauncher(context.Background(), "", ""); got != DefaultLauncher {
 			t.Errorf("ResolveLauncher() = %q, want %q (fallback)", got, DefaultLauncher)
 		}
 	})
 
 	t.Run("fab absent from PATH falls back", func(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
-		if got := ResolveLauncher(context.Background(), ""); got != DefaultLauncher {
+		if got := ResolveLauncher(context.Background(), "", "doing"); got != DefaultLauncher {
 			t.Errorf("ResolveLauncher() = %q, want %q (fallback)", got, DefaultLauncher)
 		}
 	})
+}
+
+// TestBuildWtCreateArgs covers the mockup-v2 --worktree-name passthrough: an
+// empty name is byte-identical to the pre-feature argv; a name in worktree mode
+// prepends `--worktree-name <name>`; a name in checkout mode is defensively
+// ignored (checkout never reaches wt, and the name is rejected at the API).
+func TestBuildWtCreateArgs(t *testing.T) {
+	cases := []struct {
+		name        string
+		where       string
+		wtName      string
+		passthrough []string
+		want        []string
+	}{
+		{
+			name: "no name → byte-identical pre-feature argv",
+			want: []string{"create", "--non-interactive", "--worktree-open", "skip"},
+		},
+		{
+			name:   "worktree mode with name",
+			where:  "worktree",
+			wtName: "my-agent",
+			want:   []string{"create", "--worktree-name", "my-agent", "--non-interactive", "--worktree-open", "skip"},
+		},
+		{
+			name:        "name + passthrough",
+			where:       "worktree",
+			wtName:      "my-agent",
+			passthrough: []string{"--base", "main"},
+			want:        []string{"create", "--worktree-name", "my-agent", "--non-interactive", "--worktree-open", "skip", "--base", "main"},
+		},
+		{
+			name:   "checkout mode ignores name",
+			where:  "checkout",
+			wtName: "ignored",
+			want:   []string{"create", "--non-interactive", "--worktree-open", "skip"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := EffectiveSpec{Where: tc.where, WorktreeName: tc.wtName}
+			got := buildWtCreateArgs(spec, tc.passthrough)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("buildWtCreateArgs() = %#v\nwant %#v", got, tc.want)
+			}
+		})
+	}
 }
 
 // stubFab writes an executable `fab` script into a fresh temp dir and returns
@@ -351,6 +429,155 @@ func stubFab(t *testing.T, script string) string {
 		t.Fatalf("WriteFile stub fab: %v", err)
 	}
 	return dir
+}
+
+// writeStub writes an executable script named `name` into `dir`.
+func writeStub(t *testing.T, dir, name, script string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile stub %s: %v", name, err)
+	}
+}
+
+// TestSpawn_WhereModes exercises the Spawn isolation branch end-to-end against
+// stub `wt`/`tmux`/`fab` executables on a temp-dir PATH. It asserts the two facts
+// the checkout branch (T003/T010) is responsible for:
+//
+//   - checkout mode issues NO `wt` call (the stub wt fails the test if invoked)
+//     and roots the window at opts.RepoRoot with base `riff-<repoRoot-basename>`;
+//   - worktree mode DOES invoke `wt create` and roots the window at the
+//     wt-reported Path with base `riff-<worktree-basename>`.
+//
+// The stub tmux logs its `new-window` argv so the test reads back the `-n <name>`
+// (base) and `-c <root>` (working dir) the engine chose. Server is "" so tmux
+// argv carries no `-L` prefix; a single bare skill pane means only new-window +
+// select-pane + display-message run (no split/select-layout).
+func TestSpawn_WhereModes(t *testing.T) {
+	t.Run("checkout mode skips wt and roots at repoRoot", func(t *testing.T) {
+		dir := t.TempDir()
+		repoRoot := filepath.Join(t.TempDir(), "my-checkout")
+		if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+			t.Fatalf("mkdir repoRoot: %v", err)
+		}
+		newWindowLog := filepath.Join(dir, "new-window.log")
+
+		// wt MUST NOT be invoked in checkout mode — if it is, mark a sentinel the
+		// test asserts against (a non-zero exit alone would surface as a spawn
+		// error, but the explicit marker names the violation clearly). The marker
+		// is written via shell redirection, not `touch` — PATH is restricted to
+		// the stub dir, so external commands are unavailable inside the stubs.
+		wtCalled := filepath.Join(dir, "wt-called")
+		writeStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\necho 'wt should not be called in checkout mode' >&2\nexit 1\n")
+		writeStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+		// fab resolves the launcher; a plain single-line print keeps ResolveLauncher happy.
+		writeStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
+		t.Setenv("PATH", dir)
+
+		res, err := Spawn(context.Background(), Options{
+			Server:   "", // CLI-style targeting so tmux argv has no -L prefix
+			Session:  "",
+			RepoRoot: repoRoot,
+			Where:    "checkout",
+		})
+		if err != nil {
+			t.Fatalf("Spawn(checkout) error: %v", err)
+		}
+		if _, statErr := os.Stat(wtCalled); statErr == nil {
+			t.Error("checkout mode invoked wt create; it must skip wt entirely")
+		}
+		gotName, gotRoot := readNewWindowArgs(t, newWindowLog)
+		if want := "riff-my-checkout"; gotName != want {
+			t.Errorf("checkout window name (base) = %q, want %q", gotName, want)
+		}
+		if gotRoot != repoRoot {
+			t.Errorf("checkout window root (-c) = %q, want repoRoot %q", gotRoot, repoRoot)
+		}
+		if res.WindowName != "riff-my-checkout" {
+			t.Errorf("Result.WindowName = %q, want riff-my-checkout", res.WindowName)
+		}
+	})
+
+	t.Run("worktree mode invokes wt and roots at the wt path", func(t *testing.T) {
+		dir := t.TempDir()
+		repoRoot := t.TempDir()
+		worktree := filepath.Join(t.TempDir(), "swift-fox")
+		if err := os.MkdirAll(worktree, 0o755); err != nil {
+			t.Fatalf("mkdir worktree: %v", err)
+		}
+		newWindowLog := filepath.Join(dir, "new-window.log")
+		wtCalled := filepath.Join(dir, "wt-called")
+
+		// wt create prints the `Path:` line the engine parses for the window root.
+		// The marker uses shell redirection (not `touch`) — PATH is stub-only.
+		writeStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+		writeStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+		writeStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
+		t.Setenv("PATH", dir)
+
+		res, err := Spawn(context.Background(), Options{
+			RepoRoot: repoRoot,
+			Where:    "worktree",
+		})
+		if err != nil {
+			t.Fatalf("Spawn(worktree) error: %v", err)
+		}
+		if _, statErr := os.Stat(wtCalled); statErr != nil {
+			t.Error("worktree mode did not invoke wt create")
+		}
+		gotName, gotRoot := readNewWindowArgs(t, newWindowLog)
+		if want := "riff-swift-fox"; gotName != want {
+			t.Errorf("worktree window name (base) = %q, want %q", gotName, want)
+		}
+		if gotRoot != worktree {
+			t.Errorf("worktree window root (-c) = %q, want the wt path %q", gotRoot, worktree)
+		}
+		if res.WindowName != "riff-swift-fox" {
+			t.Errorf("Result.WindowName = %q, want riff-swift-fox", res.WindowName)
+		}
+	})
+}
+
+// stubTmuxScript returns a `tmux` stub that satisfies the single-bare-skill-pane
+// spawn sequence (list-windows → new-window -P → select-pane → display-message)
+// and appends the `new-window` invocation's args to newWindowLog so the test can
+// read back the chosen -n/-c values. Any unhandled subcommand exits 0 (a no-op)
+// so a future extra tmux call never wedges the test on this stub.
+func stubTmuxScript(newWindowLog string) string {
+	return "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"  list-windows) exit 0 ;;\n" + // no existing windows → base is free
+		"  new-window) printf '%s\\n' \"$*\" >> " + newWindowLog + "; echo '%1' ;;\n" +
+		"  select-pane) exit 0 ;;\n" +
+		"  display-message) echo '@7' ;;\n" +
+		"  *) exit 0 ;;\n" +
+		"esac\n"
+}
+
+// readNewWindowArgs parses the stub tmux new-window log and returns the value
+// following `-n` (the window name/base) and the value following `-c` (the working
+// dir). The logged line is the space-joined `$*` of the new-window invocation.
+func readNewWindowArgs(t *testing.T, logPath string) (name, root string) {
+	t.Helper()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read new-window log: %v", err)
+	}
+	fields := strings.Fields(strings.TrimSpace(string(data)))
+	// Take the FIRST occurrence of each flag: the engine emits `-n <base>` and
+	// `-c <root>` BEFORE the trailing shell-string positional, which itself
+	// contains a `-c` (`… -i -c 'claude' …`) that a last-wins scan would pick up.
+	for i := 0; i < len(fields)-1; i++ {
+		if fields[i] == "-n" && name == "" {
+			name = fields[i+1]
+		}
+		if fields[i] == "-c" && root == "" {
+			root = fields[i+1]
+		}
+	}
+	if name == "" || root == "" {
+		t.Fatalf("new-window log missing -n/-c: %q", string(data))
+	}
+	return name, root
 }
 
 // TestResolveLayout covers canonical-name passthrough, shortform resolution, and

@@ -1230,8 +1230,10 @@ func TestEnsureDropInDirNoHomeDir(t *testing.T) {
 	ensureDropInDir()
 }
 
-// windowID reads the stable tmux window id (@N) for session:index on the
-// isolated test server. Fails the test if it cannot be resolved.
+// windowID reads the stable tmux window id (@N) for a display-message target on
+// the isolated test server. A "session:index" target resolves that specific
+// window; a bare "session" target resolves the session's ACTIVE window. Fails the
+// test if it cannot be resolved.
 func windowID(t *testing.T, server, target string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1332,6 +1334,160 @@ func TestMoveWindow_multiStepReorder(t *testing.T) {
 	// Insert-before semantics: moving index 4 to before index 1 lands it at index 1.
 	if gotIndex != 1 {
 		t.Errorf("after multi-step MoveWindow: index = %d, want 1", gotIndex)
+	}
+}
+
+// selectWindowCLI makes target the session's active window via a bare
+// select-window (test setup only — bypasses MoveWindow).
+func selectWindowCLI(t *testing.T, server, target string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "tmux", "-L", server, "select-window", "-t", target).CombinedOutput(); err != nil {
+		t.Fatalf("select-window -t %q: %v\n%s", target, err, string(out))
+	}
+}
+
+// TestMoveWindow_preservesActiveWindow proves the fix: reordering a window the
+// user is NOT viewing must not drift the session's active window. tmux otherwise
+// pins the active window to its index slot during swap-window, so a different
+// window would occupy the active slot after the shuffle. With [0,1*,2,3] (1
+// active), moving window 3 to index 0 must leave window 1 active — not the
+// index-pinned window that lands in slot 1.
+func TestMoveWindow_preservesActiveWindow(t *testing.T) {
+	server := withSessionOrderTmux(t)
+
+	// boot has window 0; add three more so indices are 0..3.
+	for _, name := range []string{"one", "two", "three"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "tmux", "-L", server, "new-window", "-t", "boot", "-n", name).CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Fatalf("new-window %q: %v\n%s", name, err, string(out))
+		}
+	}
+
+	// Make the window at index 1 active (the "viewed" window) and record its id.
+	selectWindowCLI(t, server, "boot:1")
+	wantActive := windowID(t, server, "boot:1")
+
+	// Move the window at index 3 to index 0 — the reorder the user did NOT intend
+	// to change their focus.
+	dragged := windowID(t, server, "boot:3")
+	if err := MoveWindow(dragged, 0, server); err != nil {
+		t.Fatalf("MoveWindow(%q -> 0): %v", dragged, err)
+	}
+
+	// windowID with a bare session target resolves that session's ACTIVE window
+	// (display-message -t boot), so it reads back the post-move active window.
+	if gotActive := windowID(t, server, "boot"); gotActive != wantActive {
+		t.Errorf("after MoveWindow: active window = %q, want %q (active window drifted)", gotActive, wantActive)
+	}
+}
+
+// TestMoveWindow_preservesActiveWindowWhenDragged covers the edge where the moved
+// window IS the active one. Restoring by stable window id (not index) must follow
+// the dragged window to its new slot: with [0,1,2,3*] (3 active), moving window 3
+// to index 0 must leave that same window active AND now at index 0.
+func TestMoveWindow_preservesActiveWindowWhenDragged(t *testing.T) {
+	server := withSessionOrderTmux(t)
+
+	for _, name := range []string{"one", "two", "three"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "tmux", "-L", server, "new-window", "-t", "boot", "-n", name).CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Fatalf("new-window %q: %v\n%s", name, err, string(out))
+		}
+	}
+
+	// The dragged window is the active one.
+	selectWindowCLI(t, server, "boot:3")
+	dragged := windowID(t, server, "boot:3")
+
+	if err := MoveWindow(dragged, 0, server); err != nil {
+		t.Fatalf("MoveWindow(%q -> 0): %v", dragged, err)
+	}
+
+	if gotActive := windowID(t, server, "boot"); gotActive != dragged {
+		t.Errorf("after MoveWindow: active window = %q, want %q (dragged+active window lost focus)", gotActive, dragged)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, gotIndex, err := resolveWindowSessionIndex(ctx, server, dragged)
+	if err != nil {
+		t.Fatalf("resolve after move: %v", err)
+	}
+	if gotIndex != 0 {
+		t.Errorf("after MoveWindow: dragged window index = %d, want 0", gotIndex)
+	}
+}
+
+// TestMoveWindow_preservesActiveWindowInSessionGroup exercises the reorder inside a
+// tmux session GROUP. Members created with `new-session -t <base>` share window
+// membership but keep INDEPENDENT active-window pointers. MoveWindow resolves the
+// dragged window to a single owning session (via resolveWindowSessionIndex) and
+// runs its swaps + the active-window restore scoped to THAT session; the restore
+// target is session-qualified (`select-window -t <session>:@N`) rather than a bare
+// `@N`, which is ambiguous across group members (see SelectWindowInSession). This
+// pins that the qualified restore keeps the reordered session's active window
+// invariant even while a mirror member exists with a different active pointer.
+func TestMoveWindow_preservesActiveWindowInSessionGroup(t *testing.T) {
+	server := withSessionOrderTmux(t)
+
+	// boot has window 0; add three more so indices are 0..3.
+	for _, name := range []string{"one", "two", "three"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "tmux", "-L", server, "new-window", "-t", "boot", "-n", name).CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Fatalf("new-window %q: %v\n%s", name, err, string(out))
+		}
+	}
+
+	// Create a grouped mirror member sharing boot's windows (independent active
+	// pointer). This is the condition under which a bare @N restore is ambiguous.
+	mirrorCtx, mirrorCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if out, err := exec.CommandContext(mirrorCtx, "tmux", "-L", server, "new-session", "-d", "-t", "boot", "-s", "mirror").CombinedOutput(); err != nil {
+		mirrorCancel()
+		t.Fatalf("new-session -t boot -s mirror: %v\n%s", err, string(out))
+	}
+	mirrorCancel()
+
+	// The dragged window (index 3). Resolve the session MoveWindow will operate on
+	// exactly as MoveWindow does — a bare @N can resolve to either group member, so
+	// the assertion below targets whichever session it picks rather than assuming a
+	// name.
+	dragged := windowID(t, server, "boot:3")
+	resolveCtx, resolveCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ownSession, _, err := resolveWindowSessionIndex(resolveCtx, server, dragged)
+	resolveCancel()
+	if err != nil {
+		t.Fatalf("resolve owning session for %q: %v", dragged, err)
+	}
+
+	// Make the owning session's active window a NON-dragged window (index 1), and
+	// point the other member at a different window so the two members' active
+	// pointers diverge — the state under which a bare restore is unsafe.
+	otherSession := "mirror"
+	if ownSession == "mirror" {
+		otherSession = "boot"
+	}
+	selectWindowCLI(t, server, otherSession+":0")
+	selectWindowCLI(t, server, ownSession+":1")
+	wantActive := windowID(t, server, ownSession)
+
+	// Move a window the owning session is NOT viewing (index 3 -> index 0).
+	if err := MoveWindow(dragged, 0, server); err != nil {
+		t.Fatalf("MoveWindow(%q -> 0): %v", dragged, err)
+	}
+
+	// The reordered session's active window must be unchanged. The session-qualified
+	// restore keeps the select scoped to the same member the swaps ran on, rather
+	// than letting a bare @N leak the active-window change to another group member.
+	if gotActive := windowID(t, server, ownSession); gotActive != wantActive {
+		t.Errorf("after MoveWindow in session group: %s active window = %q, want %q (active window drifted)", ownSession, gotActive, wantActive)
 	}
 }
 

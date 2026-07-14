@@ -113,7 +113,10 @@ export function ServerPanel({
         scrollSnapType: "x mandatory",
       }
     : {
-        gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
+        // 88px floor (matching the mobile column width): the tile's count row
+        // must fit "N sess" plus the waiting rollup badge side by side — at the
+        // old 72px floor that pair exactly overflowed the padded content box.
+        gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))",
       };
 
   return (
@@ -317,7 +320,11 @@ function ServerTile({
               tile's top-right (this is why the Cockpit tile's absolute top-right
               placement is not copied). WaitingBadge renders null at count <= 0,
               so the common (nothing-waiting) layout is unchanged. */}
-          <div className="flex items-center justify-between mt-0.5">
+          {/* h-4 reserves the badge's full height even when no badge renders:
+              the pill is taller than the count text, so without the reserve the
+              tile (and its whole grid row) would jump in height every time an
+              agent starts/stops waiting. */}
+          <div className="flex h-4 items-center justify-between mt-0.5">
             <div className="text-[10px] leading-tight text-text-secondary">
               {sessionCount} sess
             </div>

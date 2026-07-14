@@ -1247,6 +1247,15 @@ func MoveWindow(windowID string, dstIndex int, server string) error {
 	if srcPos == endPos {
 		return nil
 	}
+	// Past this point the swap chain WILL run, drifting the active window off its
+	// stable ID. Preserving it depends on having captured that ID above; every
+	// session has exactly one active window, so an empty activeWindowID here means
+	// the list-windows parse failed to find it. Fail before mutating rather than
+	// execute the swaps and silently skip the restore (which would reintroduce the
+	// active-window drift this function exists to prevent).
+	if activeWindowID == "" {
+		return fmt.Errorf("could not determine active window for session %q; refusing to reorder without an active-window ID to restore", session)
+	}
 	step := 1
 	if srcPos > endPos {
 		step = -1
@@ -1267,7 +1276,8 @@ func MoveWindow(windowID string, dstIndex int, server string) error {
 	// Restore the pre-shuffle active window by its stable ID, appended to the SAME
 	// chained invocation so the active-window slot is corrected atomically with the
 	// swaps. Reached only on the swap-executing path — the srcIndex==dstIndex and
-	// srcPos==endPos early returns above emit no swaps and no restore.
+	// srcPos==endPos early returns above emit no swaps and no restore, and the
+	// empty-activeWindowID guard above already bailed, so activeWindowID is non-empty here.
 	//
 	// The target is session-qualified (<session>:@N), not a bare @N: a bare
 	// window-id select is ambiguous inside a tmux session group — group members
@@ -1275,9 +1285,7 @@ func MoveWindow(windowID string, dstIndex int, server string) error {
 	// bare -t @N may set the active window on the wrong member (see
 	// SelectWindowInSession). Qualifying with the owning session pins the restore
 	// to the session whose reorder we just performed.
-	if activeWindowID != "" {
-		args = append(args, ";", "select-window", "-t", fmt.Sprintf("%s:%s", session, activeWindowID))
-	}
+	args = append(args, ";", "select-window", "-t", fmt.Sprintf("%s:%s", session, activeWindowID))
 	if _, err := tmuxExecServer(ctx, server, args...); err != nil {
 		return fmt.Errorf("swap-window/select-window chain: %w", err)
 	}

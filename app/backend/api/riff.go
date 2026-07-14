@@ -70,13 +70,20 @@ func deriveRepoRoot(ctx context.Context, ops TmuxOps, server, session string) (s
 	}
 
 	// Pick the active pane's cwd, else the first pane's, else the window's
-	// worktree path (the list-windows #{pane_current_path}).
+	// worktree path (the list-windows #{pane_current_path}). Only a NON-EMPTY
+	// pane cwd overrides the WorktreePath seed — a pane whose #{pane_current_path}
+	// came back blank (or an empty Panes slice when list-panes failed non-fatally)
+	// must fall through to WorktreePath rather than clobber it with "".
 	cwd := win.WorktreePath
 	if len(win.Panes) > 0 {
-		cwd = win.Panes[0].Cwd
+		if first := win.Panes[0].Cwd; first != "" {
+			cwd = first
+		}
 		for _, p := range win.Panes {
 			if p.IsActive {
-				cwd = p.Cwd
+				if p.Cwd != "" {
+					cwd = p.Cwd
+				}
 				break
 			}
 		}

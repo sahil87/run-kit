@@ -257,6 +257,43 @@ func TestRiffSpawnNonRepoCwd(t *testing.T) {
 	}
 }
 
+// TestRiffSpawnEmptyPaneCwdFallsBackToWorktreePath: a window whose panes report
+// an empty #{pane_current_path} must fall through to the window's WorktreePath
+// rather than clobber it with "" (which would produce a spurious "no active
+// pane" 400 even though a repo-backed WorktreePath was present). Regression
+// guard for the deriveRepoRoot pane-cwd override bug.
+func TestRiffSpawnEmptyPaneCwdFallsBackToWorktreePath(t *testing.T) {
+	repo := gitRepoDir(t)
+	windows := []tmux.WindowInfo{
+		{
+			Index:          0,
+			WindowID:       "@0",
+			Name:           "main",
+			WorktreePath:   repo,
+			IsActiveWindow: true,
+			// Active pane exists but its cwd came back blank — the fallback to
+			// WorktreePath must still resolve the repo root.
+			Panes: []tmux.PaneInfo{
+				{PaneID: "%0", PaneIndex: 0, Cwd: "", IsActive: true},
+			},
+		},
+	}
+	ops := &mockTmuxOps{listWindowsResult: windows}
+	engine := &mockRiffEngine{result: riff.Result{
+		Server: "work", Session: "mysess", WindowName: "riff-x", WindowID: "@1",
+	}}
+	rec := postRiff(t, ops, engine, `{"session":"mysess"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !engine.called {
+		t.Fatal("engine.Spawn was not called — WorktreePath fallback did not resolve the repo root")
+	}
+	if engine.gotOpts.RepoRoot != repo {
+		t.Errorf("engine RepoRoot = %q, want WorktreePath fallback %q", engine.gotOpts.RepoRoot, repo)
+	}
+}
+
 // TestRiffSpawnSessionReadError: a tmux read failure for the target session
 // (nonexistent/gone session) is a 400 naming the session, not a raw 500, and the
 // engine is never called.

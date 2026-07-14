@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  hasWebUrl,
   availableViews,
   defaultView,
   resolveView,
@@ -13,8 +14,26 @@ import {
 
 const iframeWithUrl: ViewWindow = { rkType: "iframe", rkUrl: "http://localhost:8080" };
 const iframeNoUrl: ViewWindow = { rkType: "iframe", rkUrl: "" };
+const iframeWhitespaceUrl: ViewWindow = { rkType: "iframe", rkUrl: "  \t " };
 const plainWithUrl: ViewWindow = { rkUrl: "http://localhost:3000" };
+const plainWhitespaceUrl: ViewWindow = { rkUrl: "   " };
 const plain: ViewWindow = {};
+
+describe("hasWebUrl", () => {
+  it("is true only for a non-whitespace rkUrl", () => {
+    expect(hasWebUrl(iframeWithUrl)).toBe(true);
+    expect(hasWebUrl(plainWithUrl)).toBe(true);
+  });
+
+  it("is false for empty, whitespace-only, or missing rkUrl", () => {
+    expect(hasWebUrl(iframeNoUrl)).toBe(false);
+    expect(hasWebUrl(iframeWhitespaceUrl)).toBe(false);
+    expect(hasWebUrl(plainWhitespaceUrl)).toBe(false);
+    expect(hasWebUrl(plain)).toBe(false);
+    expect(hasWebUrl(null)).toBe(false);
+    expect(hasWebUrl(undefined)).toBe(false);
+  });
+});
 
 describe("availableViews", () => {
   it("offers tty + web when rkUrl is set (any rkType)", () => {
@@ -25,6 +44,13 @@ describe("availableViews", () => {
   it("offers tty ONLY when rkUrl is empty, even for an iframe-typed window", () => {
     expect(availableViews(iframeNoUrl)).toEqual(["tty"]);
     expect(availableViews(plain)).toEqual(["tty"]);
+  });
+
+  it("treats a whitespace-only rkUrl as absent (tty only) — no blank-src iframe", () => {
+    // `@rk_url` can be set to whitespace via external `tmux set-option`; a
+    // bare-truthy check would wrongly expose web + render a blank iframe.
+    expect(availableViews(iframeWhitespaceUrl)).toEqual(["tty"]);
+    expect(availableViews(plainWhitespaceUrl)).toEqual(["tty"]);
   });
 
   it("tolerates null/undefined windows (tty only)", () => {
@@ -45,6 +71,12 @@ describe("defaultView", () => {
 
   it("defaults an iframe-typed window WITHOUT a url to tty (web not available)", () => {
     expect(defaultView(iframeNoUrl)).toBe("tty");
+  });
+
+  it("defaults an iframe-typed window with a WHITESPACE url to tty (not web)", () => {
+    // Consistent with availableViews: a whitespace `@rk_url` is not a usable
+    // web URL, so the legacy iframe-typed default hint must not fire.
+    expect(defaultView(iframeWhitespaceUrl)).toBe("tty");
   });
 
   it("defaults a plain-typed window WITH a url to tty (iframe hint absent)", () => {

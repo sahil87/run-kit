@@ -54,8 +54,13 @@ export function ViewSwitcher({ views, active, onSelect }: ViewSwitcherProps) {
   if (views.length <= 1) return null;
 
   // Render in the fixed display order (tty-first), independent of the incoming
-  // list's order (which is HINT_ORDER, web-first, from `availableViews`).
-  const ordered = DISPLAY_ORDER.filter((v) => views.includes(v));
+  // list's order (which is HINT_ORDER, web-first, from `availableViews`). Any
+  // view not in DISPLAY_ORDER sorts to the END (rather than being dropped), so a
+  // future lens still renders a segment if DISPLAY_ORDER isn't updated in
+  // lockstep — matching the "sorts to the end" contract above.
+  const listed = DISPLAY_ORDER.filter((v) => views.includes(v));
+  const unlisted = views.filter((v) => !DISPLAY_ORDER.includes(v));
+  const ordered = [...listed, ...unlisted];
 
   return (
     <span

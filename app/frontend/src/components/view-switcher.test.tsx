@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { ViewSwitcher } from "./view-switcher";
+import type { ViewName } from "@/lib/window-view";
 
 afterEach(cleanup);
 
@@ -39,6 +40,25 @@ describe("ViewSwitcher", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Terminal view" }));
     expect(onSelect).toHaveBeenCalledWith("tty");
+  });
+
+  it("renders a view not in DISPLAY_ORDER at the END (future lens, not dropped)", () => {
+    // Simulate a future lens (e.g. `chat`) that ships before DISPLAY_ORDER is
+    // updated in lockstep. It must still render a segment (appended last),
+    // matching the component's "sorts to the end" contract — never silently
+    // dropped. Cast because `ViewName` has no such member today.
+    const future = "chat" as ViewName;
+    const { container } = render(
+      <ViewSwitcher views={["web", "tty", future]} active="tty" onSelect={() => {}} />,
+    );
+    // Three segments render (not two) — the unlisted lens was NOT dropped.
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons).toHaveLength(3);
+    // Listed views come first in DISPLAY_ORDER; the unlisted lens is appended
+    // last (its key is the raw view name).
+    const keys = buttons.map((b) => b.getAttribute("aria-label"));
+    expect(keys[0]).toBe("Terminal view");
+    expect(keys[1]).toBe("Web view");
   });
 
   it("renders nothing for a single-view (tty-only) window", () => {

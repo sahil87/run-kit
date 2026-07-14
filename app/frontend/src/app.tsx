@@ -7,6 +7,7 @@ import {
   writeStoredView,
   nextView,
   shouldSuppressViewChord,
+  hasWebUrl,
   type ViewName,
 } from "@/lib/window-view";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
@@ -2242,7 +2243,7 @@ function AppShell() {
                 connected={chatStream.connected}
                 error={chatStream.error}
               />
-            ) : resolvedView === "web" && currentWindow?.rkUrl ? (
+            ) : resolvedView === "web" && currentWindow?.rkUrl && hasWebUrl(currentWindow) ? (
               <div className="flex-1 min-h-0 flex flex-col">
                 <IframeWindow
                   windowId={currentWindow.windowId}

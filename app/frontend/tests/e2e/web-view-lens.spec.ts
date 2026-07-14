@@ -69,7 +69,9 @@ async function makeWindow(
 async function gotoWindow(
   page: Page,
   windowId: string,
-  view?: "web" | "tty",
+  // Only `web` is a supported deep-link value; `tty` is the ABSENCE of the
+  // param (the router drops any non-`web` value), so it is never passed here.
+  view?: "web",
 ): Promise<void> {
   const q = view ? `?view=${view}` : "";
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}${q}`);

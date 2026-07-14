@@ -40,6 +40,19 @@ export type ViewWindow = {
 const HINT_ORDER: ViewName[] = ["web", "tty"];
 
 /**
+ * Whether a window carries a usable web URL. Requires non-whitespace content:
+ * `@rk_url` can be set to whitespace via an external `tmux set-option`, and a
+ * bare-truthy check would then expose the web lens and later render an iframe
+ * with a blank/whitespace `src`. Matches the `.trim()` guard on the URL-bar
+ * submit (`iframe-window.tsx`). The single source of truth for web
+ * availability — `availableViews`, `defaultView`, and the `app.tsx` render gate
+ * all key off this so they cannot drift.
+ */
+export function hasWebUrl(win: ViewWindow | null | undefined): boolean {
+  return (win?.rkUrl ?? "").trim().length > 0;
+}
+
+/**
  * The capability set a window offers (spec R1/R3). `tty` is ALWAYS available;
  * `web` is available exactly when `rkUrl` is non-empty — decoupled from
  * `@rk_type` (an iframe-typed window with no URL offers only `tty`, matching the
@@ -48,7 +61,7 @@ const HINT_ORDER: ViewName[] = ["web", "tty"];
  */
 export function availableViews(win: ViewWindow | null | undefined): ViewName[] {
   const views: ViewName[] = [];
-  if (win?.rkUrl) views.push("web");
+  if (hasWebUrl(win)) views.push("web");
   views.push("tty");
   // Return in HINT_ORDER so the switcher segment order is stable/registry-driven.
   return HINT_ORDER.filter((v) => views.includes(v));
@@ -66,7 +79,7 @@ export function availableViews(win: ViewWindow | null | undefined): ViewName[] {
  */
 export function defaultView(win: ViewWindow | null | undefined): ViewName {
   for (const view of HINT_ORDER) {
-    if (view === "web" && win?.rkType === "iframe" && win?.rkUrl) return "web";
+    if (view === "web" && win?.rkType === "iframe" && hasWebUrl(win)) return "web";
     // (desktop/chat hint clauses slot in here in registry order.)
     if (view === "tty") break; // tty is the terminal fallback, returned below.
   }

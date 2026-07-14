@@ -6,9 +6,10 @@ interface IframeWindowProps {
   windowId: string;
   rkUrl: string;
   /** Switch this window to the tty lens (260714-t97o-web-view-lens). Wired from
-   *  `app.tsx`'s `switchView("tty")` — sets `?view=tty` (param dropped) +
-   *  localStorage. The `>_` button calls THIS; it no longer mutates `@rk_type`
-   *  (view choice is per-viewer client state, not window identity — spec R7). */
+   *  `app.tsx`'s `switchView("tty")` — drops the `?view=` param (tty is the
+   *  clean-URL default) and records tty in localStorage. The `>_` button calls
+   *  THIS; it no longer mutates `@rk_type` (view choice is per-viewer client
+   *  state, not window identity — spec R7). */
   onSwitchToTty: () => void;
 }
 

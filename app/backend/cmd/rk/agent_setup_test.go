@@ -467,6 +467,193 @@ func TestResolveRkPathIsAbsoluteAndNotSymlinkResolved(t *testing.T) {
 	}
 }
 
+// --- rk-display skill artifact ---------------------------------------------------
+
+func TestSkillHasMarker(t *testing.T) {
+	// The shipped content carries the ownership marker.
+	if !skillHasMarker(rkDisplaySkillContent) {
+		t.Error("rkDisplaySkillContent should carry the managed-by marker")
+	}
+	// A file a user rewrote without the frontmatter marker is NOT rk-owned.
+	rewritten := "---\nname: rk-display\ndescription: my own thing\n---\n# my skill\n"
+	if skillHasMarker(rewritten) {
+		t.Error("a marker-less user rewrite must not be recognized as rk-owned")
+	}
+	if skillHasMarker("") {
+		t.Error("empty content must not be recognized as rk-owned")
+	}
+}
+
+func TestApplyAgentSkillInstallWritesAt0644(t *testing.T) {
+	dir := t.TempDir()
+	ac := agentConfig{name: "Test", skillsDir: dir}
+	skillPath := filepath.Join(dir, rkDisplaySkillDir, rkDisplaySkillFile)
+
+	var out bytes.Buffer
+	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, false); err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+	// The full binary literal is written verbatim.
+	got, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatalf("skill file should exist after confirm: %v", err)
+	}
+	if string(got) != rkDisplaySkillContent {
+		t.Errorf("written skill content does not match the binary literal:\n%s", got)
+	}
+	// Mode 0644 — skill text is not a secret (unlike settings.json's 0600).
+	info, err := os.Stat(skillPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o644 {
+		t.Errorf("skill file mode = %o, want 0644", perm)
+	}
+}
+
+func TestApplyAgentSkillDeclineDoesNotWrite(t *testing.T) {
+	dir := t.TempDir()
+	ac := agentConfig{name: "Test", skillsDir: dir}
+	skillPath := filepath.Join(dir, rkDisplaySkillDir, rkDisplaySkillFile)
+
+	var out bytes.Buffer
+	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("n\n")), ac, false); err != nil {
+		t.Fatalf("applyAgentSkill error: %v", err)
+	}
+	if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
+		t.Errorf("declining must not create the skill file; stat err = %v", err)
+	}
+	if !strings.Contains(out.String(), "skipped") {
+		t.Errorf("output should note the skip, got: %s", out.String())
+	}
+}
+
+func TestApplyAgentSkillReinstallIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	ac := agentConfig{name: "Test", skillsDir: dir}
+
+	var out bytes.Buffer
+	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, false); err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+
+	// Second install over an identical skill is a no-op: "nothing to do", no
+	// prompt consumed (empty reader would block if a prompt were read).
+	out.Reset()
+	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("")), ac, false); err != nil {
+		t.Fatalf("reinstall error: %v", err)
+	}
+	if !strings.Contains(out.String(), "nothing to do") {
+		t.Errorf("reinstall should report a no-op, got: %s", out.String())
+	}
+}
+
+func TestApplyAgentSkillDiffRendersCurrentAndProposed(t *testing.T) {
+	dir := t.TempDir()
+	ac := agentConfig{name: "Test", skillsDir: dir}
+
+	var out bytes.Buffer
+	// Decline so we only inspect the rendered diff.
+	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("n\n")), ac, false); err != nil {
+		t.Fatalf("applyAgentSkill error: %v", err)
+	}
+	s := out.String()
+	for _, want := range []string{"--- current", "+++ proposed", "Write these changes? [y/N]", "name: rk-display"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("diff output missing %q; got:\n%s", want, s)
+		}
+	}
+}
+
+func TestApplyAgentSkillUninstallRemovesOnlyWhenMarked(t *testing.T) {
+	t.Run("marked file → directory removed", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		skillDir := filepath.Join(dir, rkDisplaySkillDir)
+		skillPath := filepath.Join(skillDir, rkDisplaySkillFile)
+
+		var out bytes.Buffer
+		if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, false); err != nil {
+			t.Fatalf("install error: %v", err)
+		}
+		out.Reset()
+		if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, true); err != nil {
+			t.Fatalf("uninstall error: %v", err)
+		}
+		if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
+			t.Errorf("marked skill directory should be removed, stat err = %v", err)
+		}
+		if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
+			t.Errorf("marked SKILL.md should be removed along with the directory, stat err = %v", err)
+		}
+	})
+
+	t.Run("marker-less rewrite → untouched with skip note", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		skillDir := filepath.Join(dir, rkDisplaySkillDir)
+		skillPath := filepath.Join(skillDir, rkDisplaySkillFile)
+
+		if err := os.MkdirAll(skillDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		rewritten := "---\nname: rk-display\n---\n# my own version\n"
+		if err := os.WriteFile(skillPath, []byte(rewritten), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		var out bytes.Buffer
+		// Empty reader: a marker-less file must be skipped WITHOUT prompting.
+		if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("")), ac, true); err != nil {
+			t.Fatalf("uninstall error: %v", err)
+		}
+		if _, err := os.Stat(skillPath); err != nil {
+			t.Errorf("marker-less user file must be left untouched, stat err = %v", err)
+		}
+		got, _ := os.ReadFile(skillPath)
+		if string(got) != rewritten {
+			t.Errorf("marker-less user file content changed: %s", got)
+		}
+		if !strings.Contains(out.String(), "leaving it untouched") {
+			t.Errorf("output should note the marker-less skip, got: %s", out.String())
+		}
+	})
+
+	t.Run("absent file → nothing to do", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		var out bytes.Buffer
+		if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("")), ac, true); err != nil {
+			t.Fatalf("uninstall error: %v", err)
+		}
+		if !strings.Contains(out.String(), "nothing to do") {
+			t.Errorf("absent-file uninstall should be a no-op, got: %s", out.String())
+		}
+	})
+}
+
+func TestApplyAgentConfigSkipsSkillWhenSkillsDirEmpty(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "settings.json")
+	// skillsDir empty → the skill artifact must be skipped entirely.
+	ac := agentConfig{name: "NoSkills", settingsPath: settingsPath, comm: "codex", hooks: claudeHooks()}
+
+	var out bytes.Buffer
+	// Only the hooks artifact prompts; a single "y" confirms it. If a skill prompt
+	// were reached, the empty tail of the reader would surface as a decline, not a
+	// hang — so we also assert no skill output appears.
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
+		t.Fatalf("applyAgentConfig error: %v", err)
+	}
+	if strings.Contains(out.String(), "rk-display") {
+		t.Errorf("empty skillsDir must skip the skill artifact entirely, got:\n%s", out.String())
+	}
+	// No rk-display directory was created under the temp dir.
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", rkDisplaySkillDir)); !os.IsNotExist(err) {
+		t.Errorf("no skill directory should be created for an empty skillsDir")
+	}
+}
+
 func TestValidateHookPath(t *testing.T) {
 	// A valid hook path must be a STABLE, PATH-independent absolute path with no
 	// shell-active characters: the rk path is embedded double-quoted inside a

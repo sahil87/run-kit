@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-13T14:40:38Z"}
+{"args":"Fix StatusDot lagging window swaps: re-key the fab pane-map enrichment join by stable pane ID instead of session:window_index in sessions.go","cmd":"fab-new","event":"command","ts":"2026-07-13T14:40:38Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-13T14:42:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-13T15:01:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-13T15:02:04Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-13T15:02:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-13T15:10:53Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-13T15:11:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-13T15:19:14Z"}
+{"event":"review","result":"passed","ts":"2026-07-13T15:19:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-13T15:22:01Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-13T15:25:37Z"}
+{"event":"review","result":"passed","ts":"2026-07-13T15:34:32Z"}

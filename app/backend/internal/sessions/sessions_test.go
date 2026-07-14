@@ -160,35 +160,30 @@ func TestDerefStr(t *testing.T) {
 func TestPaneMapJoinPopulatesPerWindowFabFields(t *testing.T) {
 	// Since 260705-dmex the pane-map join carries only the fab tier proper
 	// (change/stage/display_state); agent state comes from @rk_agent_state, not
-	// the pane map.
+	// the pane map. The join now attributes entries by stable pane ID against
+	// the fresh window snapshot (see joinPaneMapByWindow), not by positional key.
 	change := "260313-abc-feature"
 	stage := "apply"
 
+	// Fetch-time map keyed by pane ID (as keyPaneEntries produces).
 	paneMap := map[string]paneMapEntry{
-		"dev:0": {
-			Session:     "dev",
-			WindowIndex: 0,
-			Change:      &change,
-			Stage:       &stage,
-		},
-		"dev:1": {
-			Session:     "dev",
-			WindowIndex: 1,
-			Change:      &change,
-			Stage:       strPtr("review"),
-		},
+		"%0": {Session: "dev", WindowIndex: 0, Pane: "%0", Change: &change, Stage: &stage},
+		"%1": {Session: "dev", WindowIndex: 1, Pane: "%1", Change: &change, Stage: strPtr("review")},
 	}
 
-	windows := []tmux.WindowInfo{
-		{Index: 0, Name: "main"},
-		{Index: 1, Name: "build"},
-		{Index: 2, Name: "test"},
-	}
+	data := []sessionData{{
+		info: tmux.SessionInfo{Name: "dev"},
+		windows: []tmux.WindowInfo{
+			{Index: 0, WindowID: "@0", Name: "main", Panes: []tmux.PaneInfo{{PaneID: "%0"}}},
+			{Index: 1, WindowID: "@1", Name: "build", Panes: []tmux.PaneInfo{{PaneID: "%1"}}},
+			{Index: 2, WindowID: "@2", Name: "test", Panes: []tmux.PaneInfo{{PaneID: "%2"}}},
+		},
+	}}
 
-	sessionName := "dev"
+	enrich := joinPaneMapByWindow(paneMap, data)
+	windows := data[0].windows
 	for j := range windows {
-		key := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
-		if entry, ok := paneMap[key]; ok {
+		if entry, ok := enrich[windows[j].WindowID]; ok {
 			windows[j].FabChange = derefStr(entry.Change)
 			windows[j].FabStage = derefStr(entry.Stage)
 		}
@@ -210,7 +205,7 @@ func TestPaneMapJoinPopulatesPerWindowFabFields(t *testing.T) {
 		t.Errorf("windows[1].FabStage = %q, want %q", windows[1].FabStage, "review")
 	}
 
-	// Window 2: no pane-map entry — fab fields remain empty
+	// Window 2: no matching pane-map entry — fab fields remain empty
 	if windows[2].FabChange != "" {
 		t.Errorf("windows[2].FabChange = %q, want empty", windows[2].FabChange)
 	}
@@ -223,15 +218,22 @@ func TestPaneMapNilLeavesAllFieldsEmpty(t *testing.T) {
 	// When fetchPaneMap fails, paneMap is nil — all fab fields stay empty.
 	var paneMap map[string]paneMapEntry
 
-	windows := []tmux.WindowInfo{
-		{Index: 0, Name: "main"},
-		{Index: 1, Name: "build"},
+	data := []sessionData{{
+		info: tmux.SessionInfo{Name: "dev"},
+		windows: []tmux.WindowInfo{
+			{Index: 0, WindowID: "@0", Name: "main", Panes: []tmux.PaneInfo{{PaneID: "%0"}}},
+			{Index: 1, WindowID: "@1", Name: "build", Panes: []tmux.PaneInfo{{PaneID: "%1"}}},
+		},
+	}}
+
+	enrich := joinPaneMapByWindow(paneMap, data)
+	if len(enrich) != 0 {
+		t.Fatalf("nil paneMap should yield no enrichment, got %d entries", len(enrich))
 	}
 
-	sessionName := "dev"
+	windows := data[0].windows
 	for j := range windows {
-		key := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
-		if entry, ok := paneMap[key]; ok {
+		if entry, ok := enrich[windows[j].WindowID]; ok {
 			windows[j].FabChange = derefStr(entry.Change)
 			windows[j].FabStage = derefStr(entry.Stage)
 		}
@@ -320,42 +322,26 @@ func TestPaneMapJoinPopulatesDisplayState(t *testing.T) {
 	change := "260612-epqk-x"
 	stage := "review-pr"
 
+	// Fetch-time map keyed by pane ID (as keyPaneEntries produces).
 	paneMap := map[string]paneMapEntry{
 		// Parked change: display_state "done".
-		"dev:0": {
-			Session:      "dev",
-			WindowIndex:  0,
-			Change:       &change,
-			Stage:        &stage,
-			DisplayState: strPtr("done"),
-		},
+		"%0": {Session: "dev", WindowIndex: 0, Pane: "%0", Change: &change, Stage: &stage, DisplayState: strPtr("done")},
 		// Entry present but display_state null/absent (older fab).
-		"dev:1": {
-			Session:      "dev",
-			WindowIndex:  1,
-			Change:       &change,
-			Stage:        &stage,
-			DisplayState: nil,
+		"%1": {Session: "dev", WindowIndex: 1, Pane: "%1", Change: &change, Stage: &stage, DisplayState: nil},
+	}
+
+	data := []sessionData{{
+		info: tmux.SessionInfo{Name: "dev"},
+		windows: []tmux.WindowInfo{
+			{Index: 0, WindowID: "@20", Name: "main", Panes: []tmux.PaneInfo{{PaneID: "%0"}}},
+			{Index: 1, WindowID: "@21", Name: "build", Panes: []tmux.PaneInfo{{PaneID: "%1"}}},
+			{Index: 2, WindowID: "@22", Name: "test", Panes: []tmux.PaneInfo{{PaneID: "%2"}}}, // no matching entry
 		},
-	}
+	}}
 
-	windows := []tmux.WindowInfo{
-		{Index: 0, WindowID: "@20", Name: "main"},
-		{Index: 1, WindowID: "@21", Name: "build"},
-		{Index: 2, WindowID: "@22", Name: "test"}, // no pane-map entry
-	}
-
-	// Mirror the FetchSessions enrichment join faithfully: re-key the
-	// (session, index) pane-map onto each window's stable WindowID, then join
-	// by WindowID and map DisplayState through derefStr.
-	sessionName := "dev"
-	enrichByWindowID := make(map[string]paneMapEntry, len(paneMap))
-	for j := range windows {
-		indexKey := fmt.Sprintf("%s:%d", sessionName, windows[j].Index)
-		if entry, ok := paneMap[indexKey]; ok {
-			enrichByWindowID[windows[j].WindowID] = entry
-		}
-	}
+	// Exercise the real join helper, then map DisplayState through derefStr.
+	enrichByWindowID := joinPaneMapByWindow(paneMap, data)
+	windows := data[0].windows
 	for j := range windows {
 		if entry, ok := enrichByWindowID[windows[j].WindowID]; ok {
 			windows[j].FabStage = derefStr(entry.Stage)
@@ -377,6 +363,164 @@ func TestPaneMapJoinPopulatesDisplayState(t *testing.T) {
 	// Window 2: no pane-map entry → field stays empty.
 	if windows[2].FabDisplayState != "" {
 		t.Errorf("windows[2].FabDisplayState = %q, want empty", windows[2].FabDisplayState)
+	}
+}
+
+// TestPaneMapJoinFollowsWindowIDAcrossSwap is the regression test for the bug
+// this change fixes (260713-d07t). It simulates a `swap-window`: a pane map
+// captured BEFORE the swap (cached, positionally at indices 0/1) is joined
+// against a FRESH snapshot where the two windows' INDICES have swapped but the
+// panes and window IDs travel with their windows. Each window's fab fields MUST
+// follow its window ID (its actual pane), not the list index.
+//
+// This asserts identity is immune to the 5s pane-map cache staleness. Under the
+// OLD positional (session:index) join this test FAILS: window @A would receive
+// window @B's change (and vice-versa) because after the swap @A sits at the
+// index @B's entry was keyed to.
+func TestPaneMapJoinFollowsWindowIDAcrossSwap(t *testing.T) {
+	changeA := "260101-aaaa-window-a"
+	changeB := "260202-bbbb-window-b"
+
+	// Pane map captured BEFORE the swap. keyPaneEntries keys by pane ID, so the
+	// entries carry pane IDs (%10 in window @A, %20 in window @B) and the
+	// pre-swap indices (0 and 1). The cache is not refreshed after the swap.
+	paneMap := map[string]paneMapEntry{
+		"%10": {Session: "dev", WindowIndex: 0, Pane: "%10", Change: &changeA, Stage: strPtr("apply"), DisplayState: strPtr("active")},
+		"%20": {Session: "dev", WindowIndex: 1, Pane: "%20", Change: &changeB, Stage: strPtr("review"), DisplayState: strPtr("failed")},
+	}
+
+	// Fresh snapshot AFTER swap-window: window @A (pane %10) now sits at index 1,
+	// window @B (pane %20) now sits at index 0. Window IDs and panes travel;
+	// indices swapped.
+	data := []sessionData{{
+		info: tmux.SessionInfo{Name: "dev"},
+		windows: []tmux.WindowInfo{
+			{Index: 0, WindowID: "@B", Name: "b", Panes: []tmux.PaneInfo{{PaneID: "%20"}}},
+			{Index: 1, WindowID: "@A", Name: "a", Panes: []tmux.PaneInfo{{PaneID: "%10"}}},
+		},
+	}}
+
+	enrich := joinPaneMapByWindow(paneMap, data)
+
+	// Window @A must still carry changeA (follows its pane, not its new index 1).
+	entryA, ok := enrich["@A"]
+	if !ok {
+		t.Fatalf("no enrichment for window @A")
+	}
+	if derefStr(entryA.Change) != changeA {
+		t.Errorf("@A change = %q, want %q (must follow window ID, not index)", derefStr(entryA.Change), changeA)
+	}
+	if derefStr(entryA.Stage) != "apply" || derefStr(entryA.DisplayState) != "active" {
+		t.Errorf("@A stage/state = %q/%q, want apply/active", derefStr(entryA.Stage), derefStr(entryA.DisplayState))
+	}
+
+	// Window @B must still carry changeB (follows its pane, not its new index 0).
+	entryB, ok := enrich["@B"]
+	if !ok {
+		t.Fatalf("no enrichment for window @B")
+	}
+	if derefStr(entryB.Change) != changeB {
+		t.Errorf("@B change = %q, want %q (must follow window ID, not index)", derefStr(entryB.Change), changeB)
+	}
+	if derefStr(entryB.Stage) != "review" || derefStr(entryB.DisplayState) != "failed" {
+		t.Errorf("@B stage/state = %q/%q, want review/failed", derefStr(entryB.Stage), derefStr(entryB.DisplayState))
+	}
+}
+
+// TestPaneMapJoinEmptyPaneFallback verifies the legacy positional fallback: a
+// fetch-time entry with an empty Pane field (hypothetical older fab JSON that
+// omits the pane ID) is keyed positionally by keyPaneEntries and must still
+// enrich its window via the join's legacy "session:index" fallback, since no
+// pane of the fresh window matches a pane-ID key.
+func TestPaneMapJoinEmptyPaneFallback(t *testing.T) {
+	change := "260303-cccc-legacy"
+
+	// keyPaneEntries stores an empty-Pane entry under the legacy positional key.
+	entries := []paneMapEntry{
+		{Session: "dev", WindowIndex: 1, Pane: "", Change: &change, Stage: strPtr("hydrate")},
+	}
+	paneMap := keyPaneEntries(entries)
+	if _, ok := paneMap["dev:1"]; !ok {
+		t.Fatalf("empty-Pane entry not keyed positionally as dev:1; got keys %v", paneMap)
+	}
+
+	// Fresh window at index 1 whose pane IDs are NOT in the map — join must fall
+	// back to the positional key.
+	data := []sessionData{{
+		info: tmux.SessionInfo{Name: "dev"},
+		windows: []tmux.WindowInfo{
+			{Index: 0, WindowID: "@0", Panes: []tmux.PaneInfo{{PaneID: "%0"}}},
+			{Index: 1, WindowID: "@1", Panes: []tmux.PaneInfo{{PaneID: "%9"}}},
+		},
+	}}
+
+	enrich := joinPaneMapByWindow(paneMap, data)
+
+	got, ok := enrich["@1"]
+	if !ok {
+		t.Fatalf("window @1 not enriched via legacy positional fallback")
+	}
+	if derefStr(got.Change) != change || derefStr(got.Stage) != "hydrate" {
+		t.Errorf("@1 change/stage = %q/%q, want %q/hydrate", derefStr(got.Change), derefStr(got.Stage), change)
+	}
+	// Window @0 has no matching entry and no positional fallback → not enriched.
+	if _, ok := enrich["@0"]; ok {
+		t.Errorf("window @0 unexpectedly enriched")
+	}
+}
+
+// TestKeyPaneEntriesKeyShapes verifies keyPaneEntries keys by pane ID when
+// present, falls back to the legacy positional key for empty Pane, and that the
+// two key shapes never collide (pane IDs start with '%').
+func TestKeyPaneEntriesKeyShapes(t *testing.T) {
+	change := "260404-dddd-x"
+	entries := []paneMapEntry{
+		{Session: "dev", WindowIndex: 0, Pane: "%3", Change: &change},
+		{Session: "dev", WindowIndex: 0, Pane: ""}, // empty Pane → positional key "dev:0"
+	}
+	m := keyPaneEntries(entries)
+	if len(m) != 2 {
+		t.Fatalf("got %d keys, want 2 (pane-ID + positional, no collision): %v", len(m), m)
+	}
+	if e, ok := m["%3"]; !ok || derefStr(e.Change) != change {
+		t.Errorf("pane-ID key %%3 missing or wrong change: ok=%v entry=%+v", ok, e)
+	}
+	if _, ok := m["dev:0"]; !ok {
+		t.Errorf("positional key dev:0 missing for empty-Pane entry")
+	}
+}
+
+// TestKeyPaneEntriesLegacyPositionalCollision verifies that when multiple
+// empty-pane-ID entries collide on the same legacy positional key
+// (session:windowIndex — e.g. splits in one window under older fab JSON that
+// omits pane IDs), keyPaneEntries preserves the "Change > first-seen" tiebreak:
+// a change-bound entry beats an earlier bare one regardless of order.
+func TestKeyPaneEntriesLegacyPositionalCollision(t *testing.T) {
+	change := "260404-dddd-x"
+
+	// Change-bound entry appears AFTER a bare first-seen entry on the same
+	// positional key. The change-bound one must still win.
+	entries := []paneMapEntry{
+		{Session: "dev", WindowIndex: 0, Pane: ""},                  // bare, first-seen
+		{Session: "dev", WindowIndex: 0, Pane: "", Change: &change}, // change-bound, later
+	}
+	m := keyPaneEntries(entries)
+	if len(m) != 1 {
+		t.Fatalf("got %d keys, want 1 (single positional key dev:0): %v", len(m), m)
+	}
+	if e, ok := m["dev:0"]; !ok || derefStr(e.Change) != change {
+		t.Errorf("positional key dev:0: change-bound entry did not win: ok=%v entry=%+v", ok, e)
+	}
+
+	// Reverse order: change-bound entry seen FIRST must not be overwritten by a
+	// later bare one.
+	entriesRev := []paneMapEntry{
+		{Session: "dev", WindowIndex: 0, Pane: "", Change: &change}, // change-bound, first-seen
+		{Session: "dev", WindowIndex: 0, Pane: ""},                  // bare, later
+	}
+	mRev := keyPaneEntries(entriesRev)
+	if e, ok := mRev["dev:0"]; !ok || derefStr(e.Change) != change {
+		t.Errorf("positional key dev:0: later bare entry clobbered change-bound one: ok=%v entry=%+v", ok, e)
 	}
 }
 
@@ -422,7 +566,7 @@ func tmuxSocketDir() string {
 // `tmux list-sessions`, which exits non-zero when the resolved socket has no
 // live server. Relying on whatever server happens to be running (or not) under
 // the test process made this flaky — green inside a tmux pane, red under a bare
-// `go test`. Booting our own server makes the real parse+dedup path
+// `go test`. Booting our own server makes the real parse+key path
 // deterministic and lets us assert it actually returned the session we created.
 func TestFetchPaneMapIntegration(t *testing.T) {
 	if _, err := exec.LookPath("fab"); err != nil {
@@ -456,7 +600,7 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 	})
 
 	// The subprocess call SHALL succeed against the live isolated server, and
-	// the booted session SHALL appear — proving the real parse+dedup path ran,
+	// the booted session SHALL appear — proving the real parse+key path ran,
 	// not merely that "empty is tolerated".
 	paneMap, err := fetchPaneMap(server)
 	if err != nil {
@@ -475,46 +619,70 @@ func TestFetchPaneMapIntegration(t *testing.T) {
 	}
 }
 
-// TestPaneMapDedupFirstSeenWhenNeitherChangeBound verifies that since 260705-dmex
-// (the AgentState tiebreak arm removed), when neither colliding entry is
-// change-bound the FIRST-seen entry is kept regardless of any other field —
-// there is no longer an agent-state tiebreak. Both input orderings are exercised
-// to prove first-seen (not content) decides.
-func TestPaneMapDedupFirstSeenWhenNeitherChangeBound(t *testing.T) {
-	first := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%0", Change: nil}
-	second := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%1", Change: nil}
-
-	m := dedupEntries([]paneMapEntry{first, second})
-	got, ok := m["dev:0"]
-	if !ok {
-		t.Fatalf("map missing key dev:0")
-	}
-	if got.Pane != first.Pane {
-		t.Errorf("got pane %q, want %q (first-seen should win)", got.Pane, first.Pane)
-	}
-}
-
-// TestPaneMapDedupChangeWins verifies rule-1: an entry with non-nil Change beats
-// a bare (nil Change) entry regardless of input order.
-func TestPaneMapDedupChangeWins(t *testing.T) {
-	change := "260313-abc-feature"
-	changeEntry := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%0", Change: &change}
-	bareEntry := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%1", Change: nil}
+// TestPaneMapJoinFirstSeenWhenNeitherChangeBound verifies the join-time
+// selection semantics (formerly asserted at fetch-time dedup): when a single
+// window has two candidate panes and neither is change-bound, the FIRST-seen
+// pane (pane order within the window) is selected. Both pane orderings are
+// exercised to prove pane order — not content — decides.
+func TestPaneMapJoinFirstSeenWhenNeitherChangeBound(t *testing.T) {
+	firstEntry := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%0", Change: nil}
+	secondEntry := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%1", Change: nil}
+	paneMap := map[string]paneMapEntry{"%0": firstEntry, "%1": secondEntry}
 
 	orderings := []struct {
-		name    string
-		entries []paneMapEntry
+		name      string
+		paneOrder []tmux.PaneInfo
+		wantPane  string
 	}{
-		{name: "change-first", entries: []paneMapEntry{changeEntry, bareEntry}},
-		{name: "bare-first", entries: []paneMapEntry{bareEntry, changeEntry}},
+		{name: "pane %0 first", paneOrder: []tmux.PaneInfo{{PaneID: "%0"}, {PaneID: "%1"}}, wantPane: "%0"},
+		{name: "pane %1 first", paneOrder: []tmux.PaneInfo{{PaneID: "%1"}, {PaneID: "%0"}}, wantPane: "%1"},
 	}
 
 	for _, o := range orderings {
 		t.Run(o.name, func(t *testing.T) {
-			m := dedupEntries(o.entries)
-			got, ok := m["dev:0"]
+			data := []sessionData{{
+				info:    tmux.SessionInfo{Name: "dev"},
+				windows: []tmux.WindowInfo{{Index: 0, WindowID: "@0", Panes: o.paneOrder}},
+			}}
+			enrich := joinPaneMapByWindow(paneMap, data)
+			got, ok := enrich["@0"]
 			if !ok {
-				t.Fatalf("map missing key dev:0")
+				t.Fatalf("no enrichment for window @0")
+			}
+			if got.Pane != o.wantPane {
+				t.Errorf("got pane %q, want %q (first-seen in pane order should win)", got.Pane, o.wantPane)
+			}
+		})
+	}
+}
+
+// TestPaneMapJoinChangeWins verifies the join-time selection semantics: within a
+// single window, a change-bound candidate pane (non-nil Change) beats a bare
+// (nil Change) candidate regardless of pane order.
+func TestPaneMapJoinChangeWins(t *testing.T) {
+	change := "260313-abc-feature"
+	changeEntry := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%0", Change: &change}
+	bareEntry := paneMapEntry{Session: "dev", WindowIndex: 0, Pane: "%1", Change: nil}
+	paneMap := map[string]paneMapEntry{"%0": changeEntry, "%1": bareEntry}
+
+	orderings := []struct {
+		name      string
+		paneOrder []tmux.PaneInfo
+	}{
+		{name: "change pane first", paneOrder: []tmux.PaneInfo{{PaneID: "%0"}, {PaneID: "%1"}}},
+		{name: "bare pane first", paneOrder: []tmux.PaneInfo{{PaneID: "%1"}, {PaneID: "%0"}}},
+	}
+
+	for _, o := range orderings {
+		t.Run(o.name, func(t *testing.T) {
+			data := []sessionData{{
+				info:    tmux.SessionInfo{Name: "dev"},
+				windows: []tmux.WindowInfo{{Index: 0, WindowID: "@0", Panes: o.paneOrder}},
+			}}
+			enrich := joinPaneMapByWindow(paneMap, data)
+			got, ok := enrich["@0"]
+			if !ok {
+				t.Fatalf("no enrichment for window @0")
 			}
 			if got.Pane != changeEntry.Pane {
 				t.Errorf("got pane %q, want %q (change entry should win)", got.Pane, changeEntry.Pane)

@@ -3,17 +3,22 @@
 Proves the universal, centered top-bar page heading (change 260703-5ilm's
 editable window heading, extended by 260704-pr0p into a `PageType: name` heading
 on every route with the boot-sweep animation): the current tmux window name is
-the prominent centered identity on the Terminal route (now prefixed
-`Terminal:`), renaming happens in place (click → inline input, Enter/blur
-commit, Escape cancel), the command-palette rename path enters the same inline
-edit, the 375px bar stays single-line, the hover-animation vocabulary classes
-are present and CSS-gated under `prefers-reduced-motion`, and the same centered
-heading fills the Server Cabin (`Server Cabin: <server>`, display-only), the
-Board (`Board: <name>` + relocated ▾ switcher, display-only) and the Cockpit
-(solo `Cockpit`) — with the retired in-page PageHeading row's bracket idiom now
-carried by the Cockpit's `<h2>` section headings. A motion-opted-in block
-additionally asserts the boot sweep itself runs on hover (an inverse-video
-cursor cell attaches inside the top-bar header, then resolves to rest).
+the prominent centered identity on the Terminal route (prefixed by the static
+`Window:` per 260714-uco1, which replaced the retired lens-following
+`Terminal:`/`Web:`/`Chat:` prefix), renaming happens in place (click → inline
+input, Enter/blur commit, Escape cancel), the command-palette rename path enters
+the same inline edit, the 375px bar stays single-line, the hover-animation
+vocabulary classes are present and CSS-gated under `prefers-reduced-motion`, and
+the same centered heading fills the Server Cabin (`Server Cabin: <server>`,
+display-only), the Board (`Board: <name>` + relocated ▾ switcher, display-only)
+and the Cockpit (solo `Cockpit`) — with the retired in-page PageHeading row's
+bracket idiom now carried by the Cockpit's `<h2>` section headings. A separate
+260714-uco1 block asserts the four top-bar heading-nav sub-features: the stable
+left anchor (the heading's left edge does not drift with name length), the
+static `Window:` prefix, the ancestor hierarchy dropdown, and the browser-history
+◀ ▶ arrows. A motion-opted-in block additionally asserts the boot sweep itself
+runs on hover (an inverse-video cursor cell attaches inside the top-bar header,
+then resolves to rest).
 
 ## Shared setup
 
@@ -46,7 +51,7 @@ breadcrumb now ends at the session).
 2. Assert the `Rename window <name>` button is visible and its text equals the
    window name.
 3. Assert the `Breadcrumb` nav does NOT contain the window name (no duplication).
-4. Assert the static `Terminal:` page-type prefix (260704-pr0p) is visible and
+4. Assert the static `Window:` page-type prefix (260714-uco1) is visible and
    is NOT contained inside the rename button — it is a sibling span, so clicking
    it never starts an edit (the edit input binds only to the name).
 
@@ -178,6 +183,62 @@ shows scrambled text.
    `.rk-typed-cursor` cell appears and the label never gains `rk-typed-done` —
    the typed sweep is JS-gated on the same media query, and the rest state IS
    the reduced-motion state.
+
+## Tests — top-bar heading anchor + nav (260714-uco1)
+
+*(A separate describe block in the same file, sharing the file-level session
+lifecycle. Covers the four heading sub-features added by 260714-uco1.)*
+
+### `the heading's left edge does not drift as the window name length changes within the anchor band (sm+)`
+
+**What it proves:** the stable left anchor — the center heading's inner container
+carries a `sm:`-gated min-width (~28ch) with left-aligned content, so for names
+WITHIN that reserved band the heading's left edge stays put as the name
+grows/shrinks (it no longer recenters with name length). Names longer than the
+band grow rightward and the centered box drifts — an accepted tradeoff (intake
+#1) — so the test deliberately exercises the band, not arbitrarily long names.
+
+**Steps:**
+1. Create two windows in the same session with different (band-fitting) name
+   lengths.
+2. Set a desktop viewport (1200px) so the `sm:` min-width anchor is active.
+3. Navigate to the shorter-named window; record the `Window:` prefix's left x.
+4. Navigate to the longer-named window; record the prefix's left x.
+5. Assert the two x values differ by ≤2px (the anchor held; no drift).
+
+### `the heading prefix is a static `Window:` on the terminal route (all lenses)`
+
+**What it proves:** the terminal-route heading prefix is a static `Window:`, never
+the retired lens-following `Terminal:`/`Web:`/`Chat:`.
+
+**Steps:**
+1. Create a plain window; navigate to it.
+2. Assert the `Window:` prefix is visible and that no `Terminal:`/`Web:`/`Chat:`
+   text is present.
+
+### `the hierarchy ▾ lists the ancestor chain and navigates up (Server Cabin → Cockpit)`
+
+**What it proves:** the prefix hierarchy dropdown lists exactly the current page's
+ancestors (Server Cabin then Cockpit on a window route — no window/lateral
+entries) and navigates up when an ancestor is chosen.
+
+**Steps:**
+1. Create a window; navigate to it.
+2. Open the `Switch hierarchy` ▾; assert the `Server Cabin: <server>` and
+   `Cockpit` menuitems are visible.
+3. Click the `Server Cabin: <server>` item; assert the URL is `/<server>` and the
+   `Server Cabin <server>` heading is visible (the up-navigation landed).
+
+### `the ◀ ▶ arrows drive browser history (back returns to the prior window)`
+
+**What it proves:** the ◀ ▶ arrows drive BROWSER HISTORY (`router.history.back()`
+/`.forward()`), NOT sibling-window cycling.
+
+**Steps:**
+1. Create two windows; build a real history stack by visiting the first then the
+   second.
+2. Click `Go back`; assert the URL and heading return to the FIRST window.
+3. Click `Go forward`; assert the URL and heading return to the SECOND window.
 
 ### `section labels type themselves out on hover (typed sweep)`
 

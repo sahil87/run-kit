@@ -52,35 +52,39 @@ the terminal (param inert, dropped by `resolveView`'s availability check).
 2. Navigate to `/default/2`; assert "plain-win" is visible and the `view-toggle`
    has count 0.
 3. Navigate to `/default/2?view=chat`; assert no `chat-view` renders, no
-   `view-toggle` renders, and the `Terminal:` heading prefix shows (the
-   terminal branch mounted despite the param).
+   `view-toggle` renders, and the static `Window:` heading prefix shows (the
+   terminal branch mounted despite the param; 260714-uco1 — the heading is
+   `Window:` in every lens).
 
-### `flipping to chat preserves the window, updates the URL, and reads Chat: <window>`
+### `flipping to chat preserves the window and updates the URL (heading stays Window:)`
 
 **What it proves:** clicking the switcher's chat segment flips the view without
-changing the window — the URL gains `?view=chat` on the same `@1`, the center
-heading changes from `Terminal:` to `Chat:`, and the chat renderer mounts. The
-window rename affordance carries over.
+changing the window — the URL gains `?view=chat` on the same `@1` and the chat
+renderer mounts. The center heading is a static `Window:` throughout (260714-uco1
+— it no longer changes with the lens; the ViewSwitcher chip is the lens
+indicator), so the heading anchor does not jump on the switch. The window rename
+affordance carries over.
 
 **Steps:**
-1. Navigate to `/default/1`; assert the toggle and the `Terminal:` prefix.
+1. Navigate to `/default/1`; assert the toggle and the `Window:` prefix.
 2. Click the `Chat view` segment (by its accessible role/name).
-3. Assert the URL is `/default/1?view=chat`, the `Chat:` prefix shows, the
-   `chat-view` renderer is visible, and the `Rename window agent-win` heading
-   button is present.
+3. Assert the URL is `/default/1?view=chat`, the `chat-view` renderer is visible,
+   the heading still shows the `Window:` prefix, and the `Rename window agent-win`
+   heading button is present.
 
 ### `Ctrl+\` toggles tty↔chat (the shipped keyboard binding)`
 
 **What it proves:** the `Ctrl+\`` binding (plain Ctrl on both platforms — the
 VS-Code "toggle terminal" association) flips the chat lens on and off, keeping
-the URL `?view=` param in sync, exactly like the switcher segment.
+the URL `?view=` param in sync, exactly like the switcher segment. The heading
+stays the static `Window:` throughout (it does not vary with the lens).
 
 **Steps:**
-1. Navigate to `/default/1`; assert the switcher and the `Terminal:` prefix.
+1. Navigate to `/default/1`; assert the switcher and the `Window:` prefix.
 2. Press `Control+\``; assert the URL is `/default/1?view=chat` and `chat-view`
    is visible.
 3. Press `Control+\`` again; assert the `?view` param is dropped and the
-   `Terminal:` prefix returns.
+   `Window:` prefix is still shown.
 
 ### `deep link ?view=chat cold-loads into the chat view`
 
@@ -91,7 +95,7 @@ message.
 
 **Steps:**
 1. Navigate directly to `/default/1?view=chat`.
-2. Assert the `chat-view` and `Chat:` prefix are visible, the
+2. Assert the `chat-view` and static `Window:` prefix are visible, the
    `chat-send-disabled` footer has count 0, the `chat-send-input` is visible, and
    the assistant text ("done") is shown.
 

@@ -61,6 +61,9 @@ per window, and the window-option POST endpoints stay (the URL bar still uses
   - `defaultView(win): ViewName` — `"web"` when `win.rkType === "iframe"` and `rkUrl` is
     set, else `"tty"` (spec R5: `@rk_type=iframe` is demoted from identity to
     creation-time default-view hint; no data migration, existing windows keep working).
+    Structure the helper as spec R5's *hint precedence* (`desktop > chat > web > tty`)
+    with only `web` implemented — capabilities are orthogonal and stack, so desktop/chat
+    later add a hint to this ordered list, not a new code path.
   - `resolveView(searchView, stored, win): ViewName` — precedence: URL param (if that view
     is available) → localStorage (if available) → `defaultView(win)`. Anything unavailable
     falls through to `tty`.

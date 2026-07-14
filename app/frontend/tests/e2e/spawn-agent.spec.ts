@@ -160,7 +160,7 @@ test.describe("Web-UI Spawn Agent", () => {
     // "default". `exact` on the Agent label — a loose match also hits the dialog
     // (accessible name "Spawn agent in dev" contains "agent").
     await expect(page.getByLabel("Worktree name")).toBeVisible();
-    await expect(page.getByLabel("Agent", { exact: true })).toHaveValue("default");
+    await expect(page.getByLabel("Agent tier", { exact: true })).toHaveValue("default");
 
     // Selecting "this checkout" hides the Worktree field.
     await page.getByRole("radio", { name: /this checkout/i }).check();
@@ -193,7 +193,7 @@ test.describe("Web-UI Spawn Agent", () => {
     await openViaPalette(page);
     await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
     await page.getByRole("radio", { name: /this checkout/i }).check();
-    await page.getByLabel("Agent", { exact: true }).selectOption("doing");
+    await page.getByLabel("Agent tier", { exact: true }).selectOption("doing");
     const task = page.getByLabel("Task");
     await task.fill("explore the code");
     await task.press("Enter");

@@ -56,7 +56,7 @@ describe("SpawnAgentDialog", () => {
     // Worktree field visible in worktree mode.
     expect(screen.getByLabelText("Worktree name")).toBeInTheDocument();
     // Agent dropdown defaults to "default" once the tiers arrive.
-    await waitFor(() => expect((screen.getByLabelText("Agent") as HTMLSelectElement).value).toBe("default"));
+    await waitFor(() => expect((screen.getByLabelText("Agent tier") as HTMLSelectElement).value).toBe("default"));
   });
 
   it("hides the Worktree field when 'this checkout' is selected", async () => {
@@ -100,9 +100,9 @@ describe("SpawnAgentDialog", () => {
 
   it("submits checkout + a chosen tier, dropping the worktree name", async () => {
     renderDialog();
-    await waitFor(() => expect((screen.getByLabelText("Agent") as HTMLSelectElement).value).toBe("default"));
+    await waitFor(() => expect((screen.getByLabelText("Agent tier") as HTMLSelectElement).value).toBe("default"));
     fireEvent.click(screen.getByRole("radio", { name: /this checkout/i }));
-    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "doing" } });
+    fireEvent.change(screen.getByLabelText("Agent tier"), { target: { value: "doing" } });
     fireEvent.change(screen.getByLabelText("Task"), { target: { value: "explore" } });
     fireEvent.click(screen.getByRole("button", { name: /^spawn$/i }));
     await waitFor(() =>
@@ -178,7 +178,7 @@ describe("SpawnAgentDialog", () => {
     renderDialog();
     // Agent dropdown still has a usable "default" option and no preset dropdown.
     await waitFor(() => expect(getRiffPresets).toHaveBeenCalled());
-    expect((screen.getByLabelText("Agent") as HTMLSelectElement).value).toBe("default");
+    expect((screen.getByLabelText("Agent tier") as HTMLSelectElement).value).toBe("default");
     expect(screen.queryByLabelText("Preset")).not.toBeInTheDocument();
   });
 });

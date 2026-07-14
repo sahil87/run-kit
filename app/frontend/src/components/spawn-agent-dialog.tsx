@@ -213,7 +213,7 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
       {/* Worktree name — worktree mode only (no meaning for "this checkout"). */}
       {where === "worktree" && (
         <div className="mb-3">
-          <p className="text-xs text-text-secondary mb-1.5">Worktree (optional):</p>
+          <p className="text-xs text-text-secondary mb-1.5">Worktree Name (optional):</p>
           <input
             type="text"
             value={worktreeName}
@@ -232,13 +232,13 @@ export function SpawnAgentDialog({ session, onSpawned, onClose }: SpawnAgentDial
 
       {/* Agent — the fab tier the launcher resolves. */}
       <div className="mb-3">
-        <p className="text-xs text-text-secondary mb-1.5">Agent:</p>
+        <p className="text-xs text-text-secondary mb-1.5">Agent Tier:</p>
         <select
           value={tier}
           onChange={(e) => setTier(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={busy}
-          aria-label="Agent"
+          aria-label="Agent tier"
           className="w-full bg-bg-primary text-text-primary p-2 border border-border rounded outline-none disabled:opacity-50"
         >
           {tiers.map((t) => (

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 15
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-14T12:43:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T12:58:45Z"}
     review: {started_at: "2026-07-14T12:58:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T13:09:16Z"}
     hydrate: {started_at: "2026-07-14T13:09:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T13:15:10Z"}
-    ship: {started_at: "2026-07-14T13:15:10Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-14T13:15:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T13:17:35Z"}
+    review-pr: {started_at: "2026-07-14T13:17:35Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/353
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 706
+    deleted: 104
+    net: 602
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 421
+        deleted: 72
+        net: 349
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-14T13:15:10Z"
-    computed_at_stage: hydrate
+        added: 120
+        deleted: 4
+        net: 116
+    computed_at: "2026-07-14T13:17:35Z"
+    computed_at_stage: ship
 summary: Fab-gate the /api/riff/presets tiers field (fabconfig.IsFabProject → tiers:[] for non-fab repos, dialog hides the Agent Tier field) and add a sidebar session-row bot spawn button (left of +) with an explicit {server, session} target enabling cross-server spawn.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-14T13:15:10Z
+last_updated: 2026-07-14T13:17:35Z

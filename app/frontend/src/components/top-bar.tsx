@@ -233,7 +233,7 @@ export function TopBar({
             title="Cockpit"
             className={`flex items-center gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
           >
-            <img src="/icon.svg" alt="Run Kit" width={20} height={20} />
+            <img src="/icon.svg" alt="Run Kit" width={20} height={20} className="rk-brand-logo" />
             {/* [text-decoration:inherit] — the anchor is a flex container and
                 text-decoration does not propagate into flex items, so an
                 underline-based LINK_CRUMB_CLASS would silently skip the

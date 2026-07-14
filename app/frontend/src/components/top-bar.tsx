@@ -83,23 +83,13 @@ type TopBarProps = {
   /** Board-mode autofit setter (738w) — flips the same state the palette's
    *  `Board: Toggle Autofit` action flips. Absent → no toggle rendered. */
   onToggleAutofit?: () => void;
-  /** Chat view (260714-r7rq, terminal mode only). The active view for the
-   *  current window: `"chat"` or `"terminal"`. Drives the `[tty|chat]` L1 chip's
-   *  active side and the center heading prefix (`Chat:` vs `Terminal:`). */
-  view?: "chat" | "terminal";
-  /** True when the current window has a non-empty `chatProvider` (the sole gate
-   *  for the chat chip + `Chat:` heading). Absent/false → no chat affordance. */
-  chatAvailable?: boolean;
-  /** Toggle the current window's view (URL nav + pref write, window-preserving).
-   *  Wired from AppShell via the slot context; absent → no chip rendered. */
-  onSetView?: (view: "chat" | "terminal") => void;
-  /** Terminal-mode window-view lens machinery (260714-t97o-web-view-lens). The
-   *  capability set of the current window; the switcher chip renders only when
-   *  it exceeds `{tty}`. Absent/`["tty"]` → no chip. */
+  /** Terminal-mode window-view lens machinery (spec R4; chat folded in from
+   *  260714-r7rq). The capability set of the current window; the switcher chip
+   *  renders only when it exceeds `{tty}`. Absent/`["tty"]` → no chip. */
   availableViews?: ViewName[];
   /** The current window's active lens — drives the L1 ViewSwitcher's active
-   *  segment AND the center heading's page-type prefix (`Terminal:` vs `Web:`).
-   *  Absent → treated as `tty` (the pre-lens default). */
+   *  segment AND the center heading's page-type prefix (`Terminal:`/`Web:`/
+   *  `Chat:`). Absent → treated as `tty` (the pre-lens default). */
   activeView?: ViewName;
   /** Handler that switches the current window's lens (URL param + localStorage);
    *  wired from AppShell's `switchView`. Absent → no switcher rendered. */
@@ -193,9 +183,6 @@ export function TopBar({
   closeDisabled,
   autofit,
   onToggleAutofit,
-  view,
-  chatAvailable,
-  onSetView,
   availableViews,
   activeView,
   onSelectView,
@@ -442,17 +429,22 @@ export function TopBar({
               `fixedWidth`). */}
           {currentWindow && (
             <>
-              {/* [tty|chat] view toggle (260714-r7rq). Unlike its L1 siblings
-                  (each `hidden sm:flex`), the chip is visible at ALL breakpoints
-                  — mobile is a primary chat use case (the 80-col tmux pain). Gated
-                  on the current window carrying a `chatProvider` (chatAvailable)
-                  AND a wired setter. */}
-              {chatAvailable && onSetView && (
-                <SegmentedViewToggle
-                  view={view ?? "terminal"}
-                  onSetView={onSetView}
-                />
-              )}
+              {/* Window-view lens switcher (spec R4; the ONE switcher UX for
+                  tty/web/chat). Terminal-tier (L1) but — unlike its `hidden
+                  sm:flex` siblings — visible at ALL breakpoints, because chat is
+                  a primary mobile use case (the 80-col tmux pain). Rendered only
+                  when the current window offers more than the tty lens (its own
+                  `views.length <= 1` guard also returns null, so this is
+                  belt-and-suspenders). */}
+              {onSelectView &&
+                availableViews &&
+                availableViews.length > 1 && (
+                  <ViewSwitcher
+                    views={availableViews}
+                    active={activeView ?? "tty"}
+                    onSelect={onSelectView}
+                  />
+                )}
               <span className="hidden sm:flex">
                 <SplitButton
                   server={server}
@@ -471,19 +463,6 @@ export function TopBar({
               <span className="hidden sm:flex">
                 <FixedWidthToggle />
               </span>
-              {/* Window-view lens switcher (260714-t97o-web-view-lens, spec R4).
-                  Terminal-tier (L1) — rendered only when the current window
-                  offers more than the tty lens (its own `views.length <= 1`
-                  guard also returns null, so this is belt-and-suspenders). */}
-              {onSelectView &&
-                availableViews &&
-                availableViews.length > 1 && (
-                  <ViewSwitcher
-                    views={availableViews}
-                    active={activeView ?? "tty"}
-                    onSelect={onSelectView}
-                  />
-                )}
             </>
           )}
 
@@ -778,18 +757,20 @@ function SweepCells({
 // Page-type prefix words for the universal center heading (change 260704-pr0p,
 // title-case per the reviewed demo — supersedes PageHeading's lowercase idiom).
 const TERMINAL_PREFIX = "Terminal:";
-const CHAT_PREFIX = "Chat:";
-// The center heading follows the lens (260714-t97o-web-view-lens, spec R4): the
-// terminal-mode heading reads `Web:` when the active view is the web lens, else
-// `Terminal:`. Later lenses add `Chat:`/`Desktop:` prefixes here.
+// The center heading follows the lens (spec R4): the terminal-mode heading reads
+// `Web:` for the web lens, `Chat:` for the chat lens, else `Terminal:`. A later
+// `Desktop:` prefix slots in here.
 const WEB_PREFIX = "Web:";
+const CHAT_PREFIX = "Chat:";
 const BOARD_PREFIX = "Board:";
 const CABIN_PREFIX = "Server Cabin:";
 const COCKPIT_SOLO = "Cockpit";
 
 /** Terminal-mode heading prefix for the active view (spec R4). */
 function terminalHeadingPrefix(activeView: ViewName | undefined): string {
-  return activeView === "web" ? WEB_PREFIX : TERMINAL_PREFIX;
+  if (activeView === "web") return WEB_PREFIX;
+  if (activeView === "chat") return CHAT_PREFIX;
+  return TERMINAL_PREFIX;
 }
 
 /**
@@ -1983,58 +1964,6 @@ function FixedWidthToggle() {
         )}
       </svg>
     </button>
-  );
-}
-
-/**
- * `[tty|chat]` segmented view toggle (260714-r7rq). A compact two-state chip in
- * the L1 terminal-only cluster, gated on the current window carrying a
- * `chatProvider` (the caller renders it only when `chatAvailable`). The ACTIVE
- * side is inverse-video (accent fill); the inactive side is a plain hover
- * target. Clicking a side sets that view (a no-op if already active). Carries the
- * CRT-glint hover + `coarse:` touch sizing per the top-bar button vocabulary,
- * and — unlike its L1 siblings — is visible at all breakpoints (mobile is a
- * primary chat use case).
- */
-function SegmentedViewToggle({
-  view,
-  onSetView,
-}: {
-  view: "chat" | "terminal";
-  onSetView: (view: "chat" | "terminal") => void;
-}) {
-  const segClass = (active: boolean) =>
-    `px-1.5 coarse:px-2 coarse:min-h-[30px] flex items-center justify-center transition-colors ${
-      active
-        ? "bg-accent text-bg-primary"
-        : "text-text-secondary hover:text-text-primary"
-    }`;
-  return (
-    <div
-      className="rk-glint flex items-stretch rounded border border-border overflow-hidden min-h-[24px] text-[11px] leading-none"
-      role="group"
-      aria-label="Terminal / chat view"
-      data-testid="view-toggle"
-    >
-      <button
-        type="button"
-        onClick={() => onSetView("terminal")}
-        aria-pressed={view === "terminal"}
-        className={segClass(view === "terminal")}
-        title="Terminal view"
-      >
-        tty
-      </button>
-      <button
-        type="button"
-        onClick={() => onSetView("chat")}
-        aria-pressed={view === "chat"}
-        className={`${segClass(view === "chat")} border-l border-border`}
-        title="Chat view"
-      >
-        chat
-      </button>
-    </div>
   );
 }
 

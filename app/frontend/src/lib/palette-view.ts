@@ -1,10 +1,10 @@
 /**
  * Pure builder for the command-palette window-view lens actions (`View: Web` /
- * `View: Terminal`). Extracted from app.tsx so the visibility gating (available
- * AND not-current) and label composition are unit-testable without mounting the
- * whole shell — mirroring lib/palette-move.ts / lib/palette-update.ts. The
- * action bodies are thin `onSelect` wrappers passed in by the caller (they call
- * `switchView(v)`).
+ * `View: Terminal` / `View: Chat`). Extracted from app.tsx so the visibility
+ * gating (available AND not-current) and label/shortcut composition are
+ * unit-testable without mounting the whole shell — mirroring lib/palette-move.ts
+ * / lib/palette-update.ts. The action bodies are thin `onSelect` wrappers passed
+ * in by the caller (they call `switchView(v)`).
  *
  * Constitution V palette parity for the L1 ViewSwitcher: each lens is offered
  * only when it is AVAILABLE for the current window AND is not the current view,
@@ -24,13 +24,31 @@ export type ViewPaletteAction = {
 const VIEW_ACTION_LABEL: Record<ViewName, string> = {
   tty: "View: Terminal",
   web: "View: Web",
+  chat: "View: Chat",
 };
+
+/** The chat toggle's binding (VS-Code-style "toggle terminal"). */
+const CHAT_SHORTCUT = "Ctrl+`";
+/** The `Cmd/Ctrl+.` view cycle. */
+const CYCLE_SHORTCUT = "⌘.";
+
+/**
+ * The keyboard hint shown on a view-switch entry — the binding that reaches it.
+ * `View: Chat` and (when leaving chat) `View: Terminal` are the two ends of the
+ * `Ctrl+\`` toggle, so they show `Ctrl+\``; every other switch is only reachable
+ * via the `⌘.` cycle. `current` is the view being switched AWAY from.
+ */
+function shortcutFor(target: ViewName, current: ViewName): string {
+  if (target === "chat") return CHAT_SHORTCUT;
+  if (target === "tty" && current === "chat") return CHAT_SHORTCUT;
+  return CYCLE_SHORTCUT;
+}
 
 /**
  * Build the view-switch palette actions. Returns one action per view that is
  * available AND is not the current (`resolved`) view. A single-view window
  * (only `tty` available) yields an empty array — there is nothing to switch to.
- * The `⌘.` cycle shortcut is surfaced as the hint on each entry.
+ * Each entry carries the shortcut hint for the binding that reaches it.
  */
 export function buildViewActions(
   available: ViewName[],
@@ -42,7 +60,7 @@ export function buildViewActions(
     .map((v) => ({
       id: `view-${v}`,
       label: VIEW_ACTION_LABEL[v],
-      shortcut: "⌘.",
+      shortcut: shortcutFor(v, resolved),
       onSelect: () => onSwitch(v),
     }));
 }

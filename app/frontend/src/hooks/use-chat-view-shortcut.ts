@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
+import type { ViewName } from "@/lib/window-view";
 
 /**
  * Ctrl+` toggles tty↔chat on the terminal route (260714-r7rq; Constitution V —
- * keyboard parity for the top-bar `[tty|chat]` chip). Plain Ctrl on BOTH
+ * keyboard parity for the top-bar chip's chat segment). Plain Ctrl on BOTH
  * platforms — NOT Cmd: Cmd+` is macOS window cycling and must not be bound. The
  * association is VS Code's "toggle terminal".
  *
@@ -14,12 +15,14 @@ import { useEffect, useRef } from "react";
  * dialog field.
  *
  * `enabled` gates the whole thing (terminal route + a chat-capable window); when
- * false the listener is a no-op. `toggle` receives the NEXT view to switch to.
+ * false the listener is a no-op. `currentView`/`toggle` speak the unified
+ * `ViewName` vocabulary (`"tty"`, not `"terminal"`): the handler flips between
+ * `chat` and `tty` and passes the target to `toggle` (wired to `switchView`).
  */
 export function useChatViewShortcut(
   enabled: boolean,
-  currentView: "chat" | "terminal",
-  toggle: (next: "chat" | "terminal") => void,
+  currentView: ViewName,
+  toggle: (next: ViewName) => void,
 ) {
   // Hold the latest view/toggle in refs so the listener effect depends only on
   // `enabled` (re-registering on every view flip would be churn, and the flip
@@ -53,7 +56,7 @@ export function useChatViewShortcut(
       }
 
       e.preventDefault();
-      toggleRef.current(viewRef.current === "chat" ? "terminal" : "chat");
+      toggleRef.current(viewRef.current === "chat" ? "tty" : "chat");
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

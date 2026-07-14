@@ -15,11 +15,11 @@
  */
 
 /**
- * A lens over a window's substrate. Only `tty` and `web` are implemented today;
- * the registry (spec § The View Registry) is open-ended — `chat`/`desktop` add
- * a member here, a capability in `availableViews`, and a hint in `defaultView`.
+ * A lens over a window's substrate. `tty`, `web`, and `chat` are implemented;
+ * the registry (spec § The View Registry) is open-ended — `desktop` adds a
+ * member here, a capability in `availableViews`, and a hint in `defaultView`.
  */
-export type ViewName = "tty" | "web";
+export type ViewName = "tty" | "web" | "chat";
 
 /**
  * The minimal window shape the view helpers need. Structural (assignable from
@@ -29,15 +29,19 @@ export type ViewName = "tty" | "web";
 export type ViewWindow = {
   rkType?: string;
   rkUrl?: string;
+  chatProvider?: string;
 };
 
 /**
  * Ordered default-view HINT precedence (spec R5): `desktop > chat > web > tty`.
- * Only `web`/`tty` are wired today; later lenses slot in here rather than
- * branching a new code path. The list is the single source of truth for both
- * availability ordering and default-hint precedence.
+ * `chat`/`web`/`tty` are wired today (`desktop` slots in later without a new
+ * code path). The list is the single source of truth for both availability
+ * ordering and default-hint precedence. NOTE: `chat` appears here for capability
+ * ORDERING only — it contributes no default HINT clause in `defaultView` (a
+ * chat-capable window still defaults to `tty` unless the viewer chose chat),
+ * matching #351's terminal-default behavior.
  */
-const HINT_ORDER: ViewName[] = ["web", "tty"];
+const HINT_ORDER: ViewName[] = ["chat", "web", "tty"];
 
 /**
  * Whether a window carries a usable web URL. Requires non-whitespace content:
@@ -53,14 +57,27 @@ export function hasWebUrl(win: ViewWindow | null | undefined): boolean {
 }
 
 /**
+ * Whether a window offers the chat lens (spec R1) — its pane carries a
+ * `chatProvider` (the SSE-derived routing key, e.g. `claude`). The gate is a
+ * non-empty check, mirroring the backend's own `resolveWindowChat` gating. The
+ * single source of truth for chat availability — `availableViews` keys off it.
+ */
+export function hasChat(win: ViewWindow | null | undefined): boolean {
+  return (win?.chatProvider ?? "").length > 0;
+}
+
+/**
  * The capability set a window offers (spec R1/R3). `tty` is ALWAYS available;
  * `web` is available exactly when `rkUrl` is non-empty — decoupled from
  * `@rk_type` (an iframe-typed window with no URL offers only `tty`, matching the
  * pre-existing render gate's AND-condition, so no existing window changes
- * behavior). Returned in the registry's fixed order (`web` before `tty`).
+ * behavior); `chat` is available exactly when the window carries a
+ * `chatProvider`. Capabilities are orthogonal and stack (spec R5). Returned in
+ * the registry's fixed order (`chat` before `web` before `tty`).
  */
 export function availableViews(win: ViewWindow | null | undefined): ViewName[] {
   const views: ViewName[] = [];
+  if (hasChat(win)) views.push("chat");
   if (hasWebUrl(win)) views.push("web");
   views.push("tty");
   // Return in HINT_ORDER so the switcher segment order is stable/registry-driven.
@@ -79,8 +96,11 @@ export function availableViews(win: ViewWindow | null | undefined): ViewName[] {
  */
 export function defaultView(win: ViewWindow | null | undefined): ViewName {
   for (const view of HINT_ORDER) {
+    // `chat` contributes NO default hint (a chat-capable window still defaults
+    // to `tty` unless the viewer chose chat — preserves #351's terminal
+    // default). It sits in HINT_ORDER only for capability ORDERING.
     if (view === "web" && win?.rkType === "iframe" && hasWebUrl(win)) return "web";
-    // (desktop/chat hint clauses slot in here in registry order.)
+    // (a desktop hint clause slots in here in registry order.)
     if (view === "tty") break; // tty is the terminal fallback, returned below.
   }
   // Fallback: the always-available tty lens (`availableViews` always includes it).
@@ -106,7 +126,7 @@ export function resolveView(
 ): ViewName {
   const available = availableViews(win);
   const isAvailable = (v: string | undefined): v is ViewName =>
-    v === "tty" || v === "web" ? available.includes(v) : false;
+    v === "tty" || v === "web" || v === "chat" ? available.includes(v) : false;
 
   if (isAvailable(searchView)) return searchView;
   if (isAvailable(stored)) return stored;

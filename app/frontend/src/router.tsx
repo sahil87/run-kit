@@ -34,11 +34,6 @@ export function urlSegmentToWindowId(segment: string): string {
   return segment.startsWith("@") ? segment : `@${segment}`;
 }
 
-// Chat-view URL/pref resolution lives in a pure lib module
-// (`@/lib/chat-view-resolve`, unit-testable without evaluating this router
-// module); consumers import it directly (260714-r7rq).
-import { validateTerminalSearch } from "@/lib/chat-view-resolve";
-
 export function NotFoundPage() {
   // Signal the persistent `RootTopBar` to force its minimal `cockpit`-like
   // fallback mode while this page renders. Route params alone can't distinguish
@@ -97,21 +92,23 @@ const serverIndexRoute = createRoute({
   path: "/",
 });
 
-// The `?view=` search param carries the per-viewer window-view lens (change
-// 260714-t97o-web-view-lens, spec R2). It is per-VIEWER client state, NOT part
-// of the window's identity — no new route (Constitution IV). Only `web` is a
-// valid value today (`tty` is the absence of the param — the always-available
-// default lens); any other/unknown value is DROPPED (treated as absent), never
-// errored, so a stale/garbage deep link degrades to the default view rather
-// than a route error. The registry is open-ended: `chat`/`desktop` extend this
-// union when they ship.
-type TerminalSearch = { view?: "web" };
+// The `?view=` search param carries the per-viewer window-view lens (spec R2,
+// change 260714-t97o-web-view-lens; chat lens folded in from 260714-r7rq). It is
+// per-VIEWER client state, NOT part of the window's identity — no new route
+// (Constitution IV). `web` and `chat` are the valid values (`tty` is the absence
+// of the param — the always-available default lens); any other/unknown value is
+// DROPPED (treated as absent), never errored, so a stale/garbage deep link
+// degrades to the default view rather than a route error. The registry is
+// open-ended: `desktop` extends this union when it ships.
+type TerminalSearch = { view?: "web" | "chat" };
 
 // Exported as a pure function so the unknown-value drop is unit-testable.
 export function validateTerminalSearch(
   search: Record<string, unknown>,
 ): TerminalSearch {
-  return search.view === "web" ? { view: "web" } : {};
+  return search.view === "web" || search.view === "chat"
+    ? { view: search.view }
+    : {};
 }
 
 const terminalRoute = createRoute({
@@ -133,11 +130,6 @@ const terminalRoute = createRoute({
       window: windowIdToUrlSegment(params.window),
     }),
   },
-  // First `validateSearch` in the codebase (260714-r7rq): `?view=chat` is the
-  // chat-view state on the terminal route (Constitution IV — no new route). Any
-  // non-`chat` value normalizes to absent, so a deep link like `?view=garbage`
-  // resolves to the terminal.
-  validateSearch: validateTerminalSearch,
 });
 
 const boardRoute = createRoute({

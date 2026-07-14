@@ -93,16 +93,17 @@ Steps:
 4. Navigate back to A WITHOUT a `?view` param; assert the iframe renders and
    `Web view` is active — the persisted last-view resolved.
 
-### 375px mobile: chip is hidden but the web lens still renders via deep link
-What it proves: the L1 switcher is `hidden sm:*` (mobile hides the top-bar
-control cluster), yet the lens itself resolves and renders on mobile without
-horizontal overflow.
+### 375px mobile: the switcher chip is visible and the web lens renders
+What it proves: unlike its `hidden sm:*` L1 siblings, the unified `ViewSwitcher`
+is visible at ALL breakpoints (chat/web are primary mobile use cases), and the
+lens itself resolves and renders on mobile without horizontal overflow.
 Steps:
 1. Set the 375×812 viewport; create a window with `@rk_url`.
 2. Navigate to `…?view=web` and gate on the **iframe** (not the `Connected`
    dot — that dot is `hidden sm:inline`, so it is `display:none` at 375px and
    never becomes visible; window-heading.spec.ts's mobile test gates on the
-   heading for the same reason). Assert the iframe renders and the chip is
-   hidden.
-3. Assert no horizontal page overflow (`body.scrollWidth <= 375`).
-4. Resize to desktop (1280×800); assert the chip is visible again.
+   heading for the same reason). Assert the iframe renders and BOTH chip
+   segments are visible at 375px.
+3. Assert no horizontal page overflow (`body.scrollWidth <= 375`) even with the
+   chip shown.
+4. Resize to desktop (1280×800); assert the chip is still visible.

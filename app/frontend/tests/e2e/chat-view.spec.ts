@@ -6,7 +6,10 @@ import { test, expect, type Page } from "@playwright/test";
 //
 // Chat read frontend (260714-r7rq — Change 3 of the agent-chat-view plan): a
 // read-only HTML chat view over the same agent pane, toggled via `?view=chat`
-// on the existing terminal route.
+// on the existing terminal route. The view toggle is the UNIFIED window-view
+// lens `ViewSwitcher` (spec R4, `web-view-lens`) — a chat-capable window with no
+// `@rk_url` offers `[tty|chat]` segments; the chip carries `data-testid=
+// "view-toggle"` and lowercase segment glyphs.
 
 const SERVER = "default";
 const MOBILE = { width: 375, height: 812 };
@@ -111,7 +114,7 @@ async function mockBackend(page: Page, chatBody: string) {
 }
 
 test.describe("Chat read frontend — view toggle, heading, rendering", () => {
-  test("the [tty|chat] toggle appears only on a chatProvider window", async ({ page }) => {
+  test("the tty|chat switcher appears only on a chatProvider window", async ({ page }) => {
     await mockBackend(page, backfillCleared());
 
     // @1 is chat-capable → the toggle renders.
@@ -140,8 +143,9 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // Terminal view shows the `Terminal:` heading prefix.
     await expect(page.getByText(/Terminal:/)).toBeVisible();
 
-    // Click the "chat" segment (matched by its visible text).
-    await page.getByTestId("view-toggle").getByText("chat", { exact: true }).click();
+    // Click the chat segment of the unified switcher (its accessible name is
+    // "Chat view"; the visible glyph is the lowercase "chat").
+    await page.getByRole("button", { name: "Chat view" }).click();
 
     // Same window (@1 → segment `1`), now with ?view=chat.
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1\\?view=chat`));
@@ -149,6 +153,24 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByText(/Chat:/)).toBeVisible();
     await expect(page.getByTestId("chat-view")).toBeVisible();
     await expect(page.getByRole("button", { name: `Rename window agent-win` })).toBeVisible();
+  });
+
+  test("Ctrl+` toggles tty↔chat (the shipped keyboard binding)", async ({ page }) => {
+    await mockBackend(page, backfillCleared());
+    await page.goto(`/${SERVER}/1`);
+    await expect(page.getByTestId("view-toggle")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Terminal:/)).toBeVisible();
+
+    // Ctrl+` (plain Ctrl on both platforms — the VS-Code "toggle terminal"
+    // association) flips into the chat lens: URL gains ?view=chat, chat mounts.
+    await page.keyboard.press("Control+`");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/1\\?view=chat`));
+    await expect(page.getByTestId("chat-view")).toBeVisible();
+
+    // A second Ctrl+` flips back to tty and drops the ?view param.
+    await page.keyboard.press("Control+`");
+    await expect(page).not.toHaveURL(/\?view=/);
+    await expect(page.getByText(/Terminal:/)).toBeVisible();
   });
 
   test("deep link ?view=chat cold-loads into the chat view", async ({ page }) => {

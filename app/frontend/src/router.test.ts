@@ -41,17 +41,25 @@ describe("window id ↔ URL segment mapping", () => {
   });
 });
 
-// The `?view=` param carries the per-viewer window-view lens (spec R2). Only
-// `web` is valid today; any other/unknown value is DROPPED (treated as absent),
+// The `?view=` param carries the per-viewer window-view lens (spec R2). `web`
+// and `chat` are valid; any other/unknown value is DROPPED (treated as absent),
 // never errored, so a stale/garbage deep link degrades to the default view.
 describe("validateTerminalSearch (?view= drop)", () => {
   it("accepts view=web", () => {
     expect(validateTerminalSearch({ view: "web" })).toEqual({ view: "web" });
   });
 
+  it("accepts view=chat", () => {
+    expect(validateTerminalSearch({ view: "chat" })).toEqual({ view: "chat" });
+  });
+
   it("drops an unknown value without throwing (?view=bogus → view undefined)", () => {
     expect(() => validateTerminalSearch({ view: "bogus" })).not.toThrow();
     expect(validateTerminalSearch({ view: "bogus" }).view).toBeUndefined();
+  });
+
+  it("drops a non-string view (?view=1 → view undefined)", () => {
+    expect(validateTerminalSearch({ view: 1 }).view).toBeUndefined();
   });
 
   it("drops an absent param (no view) to an empty search", () => {

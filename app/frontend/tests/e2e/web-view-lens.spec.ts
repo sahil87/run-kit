@@ -235,11 +235,12 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(webChip(page)).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("375px mobile: chip is hidden but the web lens still renders via deep link", async ({
+  test("375px mobile: the switcher chip is visible and the web lens renders", async ({
     page,
   }) => {
-    // The L1 switcher is `hidden sm:*` (mobile hides the top-bar control
-    // cluster), but the lens itself must still resolve + render on mobile.
+    // Unlike its `hidden sm:*` L1 siblings, the unified ViewSwitcher is visible
+    // at ALL breakpoints (chat/web are primary mobile use cases), and the lens
+    // itself resolves + renders on mobile without horizontal overflow.
     await page.setViewportSize(MOBILE_VIEWPORT);
     const id = await makeWindow(page, `wv-mobile-${Date.now()}`, { url: IFRAME_URL });
     // Do NOT gate on the `Connected` dot here: it is `hidden sm:inline`, so at
@@ -248,13 +249,14 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // Gate directly on the iframe — the thing under test.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?view=web`);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    // Chip is hidden below `sm`.
-    await expect(webChip(page)).toBeHidden();
-    // No horizontal page overflow at 375px.
+    // The chip is visible at 375px (all breakpoints).
+    await expect(webChip(page)).toBeVisible({ timeout: 10_000 });
+    await expect(ttyChip(page)).toBeVisible();
+    // No horizontal page overflow at 375px even with the chip shown.
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
 
-    // Desktop viewport: the chip is visible again.
+    // Still visible after resizing up to desktop.
     await page.setViewportSize(DESKTOP_VIEWPORT);
     await expect(webChip(page)).toBeVisible({ timeout: 10_000 });
   });

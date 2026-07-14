@@ -26,10 +26,13 @@ search param on the existing `/$server/$window` terminal route (Constitution IV
 — no new route). It is a SECOND view over the tmux pane, never a substrate — the
 pane stays the agent's parent (Constitution VI) and the view only *renders* the
 streamed transcript, with nothing cached beyond React state that dies with the
-view (Constitution II analog). The § Chat View Frontend requirements below own
-the consumer half; the top-bar toggle chip, `Chat:` heading, per-window view
-persistence, palette/shortcut parity, and the chat-health connection dot live in
-[ui-patterns](/run-kit/ui-patterns.md) § Chat View; the push deep-link URL +
+view (Constitution II analog). Chat is the `chat` LENS of the unified window-view
+model — its view-state plumbing (the `?view=` param, ViewSwitcher chip, `Chat:`
+heading, value-bearing localStorage, palette/`Ctrl+`` parity, chat-health
+connection dot) is the shared lens machinery in
+[ui-patterns](/run-kit/ui-patterns.md) § Window Views (Lens Model) / § Chat View;
+the § Chat View Frontend requirements below own only the DATA-layer consumer half
+(schema types, EventSource lifecycle, renderer). The push deep-link URL +
 service-worker navigation lives in [architecture](/run-kit/architecture.md)
 § Web Push Notifications. Send remains out of scope (Change 4, `chat-send`).
 
@@ -291,9 +294,10 @@ The read-only frontend consumer of the backend contract above. The pure schema
 + derivation helpers live in `app/frontend/src/lib/chat-stream.ts`; the
 `EventSource` lifecycle in `app/frontend/src/hooks/use-chat-stream.ts`; the
 renderer in `app/frontend/src/components/chat-view.tsx`. The view-state
-plumbing (URL param, toggle chip, heading, persistence, palette, shortcut,
-connection dot) is documented in [ui-patterns](/run-kit/ui-patterns.md) § Chat
-View — this section owns the DATA-layer consumer half only.
+plumbing (the `?view=` param, ViewSwitcher chip, heading, value-bearing
+persistence, palette, `Ctrl+`` shortcut, connection dot) is the UNIFIED lens
+machinery documented in [ui-patterns](/run-kit/ui-patterns.md) § Window Views
+(Lens Model) / § Chat View — this section owns the DATA-layer consumer half only.
 
 ### Requirement: Frontend mirrors the rk-owned schema as TS types
 `chat-stream.ts` SHALL define TypeScript types mirroring the backend schema

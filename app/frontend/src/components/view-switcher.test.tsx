@@ -21,9 +21,17 @@ describe("ViewSwitcher", () => {
     expect(web.className).not.toContain("bg-accent-green");
   });
 
+  it("labels segments with the lowercase view name (spec R4 `[tty|web]` style)", () => {
+    render(<ViewSwitcher views={["web", "tty"]} active="tty" onSelect={() => {}} />);
+    // Visible glyph is the lowercase view name; the accessible name is the
+    // title-case `<Label> view`.
+    expect(screen.getByRole("button", { name: "Terminal view" }).textContent).toBe("tty");
+    expect(screen.getByRole("button", { name: "Web view" }).textContent).toBe("web");
+  });
+
   it("renders segments tty-first regardless of the incoming list order", () => {
-    // The caller passes HINT_ORDER (web-first, from `availableViews`); the
-    // switcher renders the fixed DISPLAY order `[tty|web]` (spec R4 / plan R7).
+    // The caller passes HINT_ORDER (chat/web-first, from `availableViews`); the
+    // switcher renders the fixed DISPLAY order `[tty|web|chat]` (spec R4).
     render(<ViewSwitcher views={["web", "tty"]} active="tty" onSelect={() => {}} />);
     const labels = screen
       .getAllByRole("button")
@@ -42,12 +50,32 @@ describe("ViewSwitcher", () => {
     expect(onSelect).toHaveBeenCalledWith("tty");
   });
 
+  it("renders three segments for a stacked window (tty|web|chat) in DISPLAY_ORDER", () => {
+    const onSelect = vi.fn();
+    render(
+      <ViewSwitcher views={["chat", "web", "tty"]} active="chat" onSelect={onSelect} />,
+    );
+    // All three lenses render, tty-first per DISPLAY_ORDER (independent of the
+    // incoming HINT_ORDER, which is chat-first).
+    const labels = screen
+      .getAllByRole("button")
+      .map((b) => b.getAttribute("aria-label"));
+    expect(labels).toEqual(["Terminal view", "Web view", "Chat view"]);
+    // Chat is the active (inverse-video) segment.
+    const chat = screen.getByRole("button", { name: "Chat view" });
+    expect(chat.getAttribute("aria-pressed")).toBe("true");
+    expect(chat.className).toContain("bg-accent-green");
+    expect(chat.textContent).toBe("chat");
+    fireEvent.click(screen.getByRole("button", { name: "Web view" }));
+    expect(onSelect).toHaveBeenCalledWith("web");
+  });
+
   it("renders a view not in DISPLAY_ORDER at the END (future lens, not dropped)", () => {
-    // Simulate a future lens (e.g. `chat`) that ships before DISPLAY_ORDER is
+    // Simulate a future lens (e.g. `desktop`) that ships before DISPLAY_ORDER is
     // updated in lockstep. It must still render a segment (appended last),
     // matching the component's "sorts to the end" contract — never silently
     // dropped. Cast because `ViewName` has no such member today.
-    const future = "chat" as ViewName;
+    const future = "desktop" as ViewName;
     const { container } = render(
       <ViewSwitcher views={["web", "tty", future]} active="tty" onSelect={() => {}} />,
     );
@@ -59,6 +87,19 @@ describe("ViewSwitcher", () => {
     const keys = buttons.map((b) => b.getAttribute("aria-label"));
     expect(keys[0]).toBe("Terminal view");
     expect(keys[1]).toBe("Web view");
+  });
+
+  it("is visible at all breakpoints (no `hidden sm:*` gate — chat is a mobile use case)", () => {
+    render(<ViewSwitcher views={["web", "tty"]} active="tty" onSelect={() => {}} />);
+    const group = screen.getByRole("group", { name: "Window view" });
+    // The chip container carries no responsive-hide utility; it stays
+    // inline-flex at every width. Check the class TOKENS (not a substring — the
+    // unrelated `overflow-hidden` clipping class contains "hidden").
+    const classes = group.className.split(/\s+/);
+    expect(classes).not.toContain("hidden");
+    expect(classes).toContain("inline-flex");
+    // The unified chip keeps the `view-toggle` e2e handle.
+    expect(group.getAttribute("data-testid")).toBe("view-toggle");
   });
 
   it("renders nothing for a single-view (tty-only) window", () => {

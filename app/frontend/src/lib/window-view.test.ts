@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   hasWebUrl,
+  hasChat,
   availableViews,
   defaultView,
   resolveView,
@@ -18,6 +19,9 @@ const iframeWhitespaceUrl: ViewWindow = { rkType: "iframe", rkUrl: "  \t " };
 const plainWithUrl: ViewWindow = { rkUrl: "http://localhost:3000" };
 const plainWhitespaceUrl: ViewWindow = { rkUrl: "   " };
 const plain: ViewWindow = {};
+const chatWin: ViewWindow = { chatProvider: "claude" };
+const chatAndWebWin: ViewWindow = { chatProvider: "claude", rkUrl: "http://localhost:8080" };
+const chatEmptyProvider: ViewWindow = { chatProvider: "" };
 
 describe("hasWebUrl", () => {
   it("is true only for a non-whitespace rkUrl", () => {
@@ -32,6 +36,20 @@ describe("hasWebUrl", () => {
     expect(hasWebUrl(plain)).toBe(false);
     expect(hasWebUrl(null)).toBe(false);
     expect(hasWebUrl(undefined)).toBe(false);
+  });
+});
+
+describe("hasChat", () => {
+  it("is true only for a non-empty chatProvider", () => {
+    expect(hasChat(chatWin)).toBe(true);
+    expect(hasChat(chatAndWebWin)).toBe(true);
+  });
+
+  it("is false for empty/missing chatProvider", () => {
+    expect(hasChat(chatEmptyProvider)).toBe(false);
+    expect(hasChat(plain)).toBe(false);
+    expect(hasChat(null)).toBe(false);
+    expect(hasChat(undefined)).toBe(false);
   });
 });
 
@@ -51,6 +69,19 @@ describe("availableViews", () => {
     // bare-truthy check would wrongly expose web + render a blank iframe.
     expect(availableViews(iframeWhitespaceUrl)).toEqual(["tty"]);
     expect(availableViews(plainWhitespaceUrl)).toEqual(["tty"]);
+  });
+
+  it("offers chat + tty when chatProvider is set", () => {
+    expect(availableViews(chatWin)).toEqual(["chat", "tty"]);
+  });
+
+  it("ignores an empty chatProvider (tty only)", () => {
+    expect(availableViews(chatEmptyProvider)).toEqual(["tty"]);
+  });
+
+  it("stacks chat + web + tty in registry order (chat > web > tty)", () => {
+    // Capabilities are orthogonal and stack (spec R5); the order is HINT_ORDER.
+    expect(availableViews(chatAndWebWin)).toEqual(["chat", "web", "tty"]);
   });
 
   it("tolerates null/undefined windows (tty only)", () => {
@@ -82,6 +113,20 @@ describe("defaultView", () => {
   it("defaults a plain-typed window WITH a url to tty (iframe hint absent)", () => {
     // rkUrl makes web AVAILABLE, but the default hint requires rkType==="iframe".
     expect(defaultView(plainWithUrl)).toBe("tty");
+  });
+
+  it("defaults a chat-capable window to tty (chat contributes NO default hint)", () => {
+    // A chat-capable window still defaults to the terminal unless the viewer
+    // chose chat (preserves #351's terminal-default). Chat is in HINT_ORDER for
+    // capability ordering only, not as a default hint.
+    expect(defaultView(chatWin)).toBe("tty");
+  });
+
+  it("defaults a chat+web window to web (only the iframe hint fires)", () => {
+    // No `rkType=iframe`, so even the web hint doesn't fire → tty.
+    expect(defaultView(chatAndWebWin)).toBe("tty");
+    // With the iframe type, the web hint wins (chat still contributes none).
+    expect(defaultView({ ...chatAndWebWin, rkType: "iframe" })).toBe("web");
   });
 });
 
@@ -115,6 +160,22 @@ describe("resolveView precedence: URL -> localStorage -> default, unavailable ->
   it("treats unknown/garbage strings as absent (never throws, never renders them)", () => {
     expect(resolveView("bogus", "nonsense", iframeWithUrl)).toBe("web"); // both invalid -> default
     expect(resolveView("bogus", "web", iframeWithUrl)).toBe("web"); // URL invalid, stored valid
+  });
+
+  it("resolves chat from the URL param on a chat-capable window", () => {
+    expect(resolveView("chat", undefined, chatWin)).toBe("chat");
+  });
+
+  it("resolves chat from localStorage when no URL param (chat has no default hint)", () => {
+    // A chat-capable window defaults to tty, so a stored `chat` is the only way
+    // (short of the URL param) it renders the chat lens without an explicit URL.
+    expect(resolveView(undefined, "chat", chatWin)).toBe("chat");
+    expect(resolveView(undefined, undefined, chatWin)).toBe("tty");
+  });
+
+  it("falls a chat URL param through to tty on a chat-LESS window (no empty chat)", () => {
+    expect(resolveView("chat", undefined, plain)).toBe("tty");
+    expect(resolveView("chat", undefined, chatEmptyProvider)).toBe("tty");
   });
 });
 

@@ -2,9 +2,13 @@
 
 Verifies the **read-only HTML chat view** (260714-r7rq — Change 3 of the
 agent-chat-view plan): the `?view=chat` search-param view over the existing
-terminal route, its `[tty|chat]` L1 toggle (gated on a window's `chatProvider`),
-the `Chat: <window>` heading, the message-bubble / collapsible-tool-card /
-pending-question renderer, mobile single-row budget, and reduced-motion honoring.
+terminal route, the `Chat: <window>` heading, the message-bubble /
+collapsible-tool-card / pending-question renderer, mobile single-row budget, and
+reduced-motion honoring. The chat lens is reached through the UNIFIED window-view
+`ViewSwitcher` (spec R4, `web-view-lens`): a chat-capable window with no `@rk_url`
+offers `[tty|chat]` segments in the L1 chip (`data-testid="view-toggle"`, gated on
+a non-empty `chatProvider`), the `Chat view` segment flips into chat, and the
+shipped `Ctrl+\`` binding toggles tty↔chat.
 
 ## Shared setup
 
@@ -26,12 +30,13 @@ pending-question renderer, mobile single-row budget, and reduced-motion honoring
 
 ## Tests
 
-### `the [tty|chat] toggle appears only on a chatProvider window`
+### `the tty|chat switcher appears only on a chatProvider window`
 
-**What it proves:** the top-bar `[tty|chat]` toggle is gated on the current
-window carrying a non-empty `chatProvider` — present on `@1` (claude), absent on
-`@2` (plain) — and a `?view=chat` deep link on a chat-less window degrades
-gracefully to the terminal (param inert).
+**What it proves:** the unified L1 ViewSwitcher chip (`view-toggle`) is gated on
+the current window carrying a non-empty `chatProvider` — present on `@1`
+(claude), absent on `@2` (plain, which offers only `tty` so the chip renders
+null) — and a `?view=chat` deep link on a chat-less window degrades gracefully to
+the terminal (param inert, dropped by `resolveView`'s availability check).
 
 **Steps:**
 1. Mock the backend; navigate to `/default/1` and assert the `view-toggle` is
@@ -44,17 +49,30 @@ gracefully to the terminal (param inert).
 
 ### `flipping to chat preserves the window, updates the URL, and reads Chat: <window>`
 
-**What it proves:** clicking the chat segment flips the view without changing the
-window — the URL gains `?view=chat` on the same `@1`, the center heading changes
-from `Terminal:` to `Chat:`, and the chat renderer mounts. The window rename
-affordance carries over.
+**What it proves:** clicking the switcher's chat segment flips the view without
+changing the window — the URL gains `?view=chat` on the same `@1`, the center
+heading changes from `Terminal:` to `Chat:`, and the chat renderer mounts. The
+window rename affordance carries over.
 
 **Steps:**
 1. Navigate to `/default/1`; assert the toggle and the `Terminal:` prefix.
-2. Click the toggle's "Chat view" segment.
+2. Click the `Chat view` segment (by its accessible role/name).
 3. Assert the URL is `/default/1?view=chat`, the `Chat:` prefix shows, the
    `chat-view` renderer is visible, and the `Rename window agent-win` heading
    button is present.
+
+### `Ctrl+\` toggles tty↔chat (the shipped keyboard binding)`
+
+**What it proves:** the `Ctrl+\`` binding (plain Ctrl on both platforms — the
+VS-Code "toggle terminal" association) flips the chat lens on and off, keeping
+the URL `?view=` param in sync, exactly like the switcher segment.
+
+**Steps:**
+1. Navigate to `/default/1`; assert the switcher and the `Terminal:` prefix.
+2. Press `Control+\``; assert the URL is `/default/1?view=chat` and `chat-view`
+   is visible.
+3. Press `Control+\`` again; assert the `?view` param is dropped and the
+   `Terminal:` prefix returns.
 
 ### `deep link ?view=chat cold-loads into the chat view`
 

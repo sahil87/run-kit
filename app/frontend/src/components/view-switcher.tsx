@@ -1,11 +1,13 @@
 import type { ViewName } from "@/lib/window-view";
 
 /**
- * ViewSwitcher — the ONE switcher UX shared by every window-view lens (spec R4,
- * change 260714-t97o-web-view-lens). A compact segmented chip in the top-bar
- * right cluster's L1 (terminal-only) tier, rendered ONLY when a window's
- * capability set exceeds `{tty}`. Two views render `[tty|web]`; more views grow
- * the segment group (chat/desktop add segments here, NOT a new component).
+ * ViewSwitcher — the ONE switcher UX shared by every window-view lens (spec R4;
+ * change 260714-t97o-web-view-lens, chat folded in from 260714-r7rq). A compact
+ * segmented chip in the top-bar right cluster's L1 (terminal) tier, rendered
+ * ONLY when a window's capability set exceeds `{tty}`. Two views render
+ * `[tty|web]` / `[tty|chat]`; more views grow the segment group (desktop adds a
+ * segment here, NOT a new component). Unlike its `hidden sm:*` L1 siblings the
+ * chip is visible at ALL breakpoints — chat is a primary mobile use case.
  *
  * The active segment is inverse-video (accent-green fill), matching the spec's
  * "active segment inverse-video". Hover uses the house `rk-glint` vocabulary
@@ -19,27 +21,31 @@ import type { ViewName } from "@/lib/window-view";
  * control.
  */
 
-/** Human labels for the segments. Later lenses add entries here. */
+/** Human labels for the segments (the accessible names). Later lenses add
+ *  entries here. */
 const VIEW_LABEL: Record<ViewName, string> = {
   tty: "Terminal",
   web: "Web",
+  chat: "Chat",
 };
 
-/** Short segment glyph (kept compact for the single-row 375px top bar). */
+/** Short segment glyph — the lowercase view name (spec R4's `[tty|chat]` style),
+ *  kept compact for the single-row 375px top bar. */
 const VIEW_SHORT: Record<ViewName, string> = {
-  tty: ">_",
+  tty: "tty",
   web: "web",
+  chat: "chat",
 };
 
 /**
- * Fixed left-to-right DISPLAY order for the segments — `tty` first (spec R4 /
- * plan R7 render `[tty|web]`). This is deliberately DECOUPLED from
- * `window-view.ts`'s `HINT_ORDER` (`desktop > chat > web > tty`), which governs
- * only default-view precedence — the two orderings answer different questions.
- * Later lenses slot into this display order; any view not listed sorts to the
- * end (defensive — every implemented view is listed).
+ * Fixed left-to-right DISPLAY order for the segments — `tty` first (spec R4
+ * renders `[tty|web]` / `[tty|chat]`). This is deliberately DECOUPLED from
+ * `window-view.ts`'s `HINT_ORDER` (`chat > web > tty`), which governs only
+ * default-view / capability ordering — the two orderings answer different
+ * questions. Later lenses slot into this display order; any view not listed
+ * sorts to the end (defensive — every implemented view is listed).
  */
-const DISPLAY_ORDER: ViewName[] = ["tty", "web"];
+const DISPLAY_ORDER: ViewName[] = ["tty", "web", "chat"];
 
 type ViewSwitcherProps = {
   views: ViewName[];
@@ -66,7 +72,11 @@ export function ViewSwitcher({ views, active, onSelect }: ViewSwitcherProps) {
     <span
       role="group"
       aria-label="Window view"
-      className="hidden sm:inline-flex items-center rounded border border-border overflow-hidden"
+      // Visible at ALL breakpoints (no `hidden sm:*` gate) — chat is a primary
+      // mobile use case, and web deep links resolve on mobile too. `view-toggle`
+      // testid is the unified chip's e2e handle (superseding #351's toggle).
+      data-testid="view-toggle"
+      className="inline-flex items-center rounded border border-border overflow-hidden"
     >
       {ordered.map((view) => {
         const isActive = view === active;

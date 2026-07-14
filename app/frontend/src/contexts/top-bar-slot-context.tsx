@@ -54,17 +54,11 @@ export type TopBarSlot = {
    *  board mode — the top-bar toggle renders only when both are present. */
   autofit?: boolean;
   onToggleAutofit?: () => void;
-  /** Chat view (260714-r7rq, terminal mode). The current window's active view,
-   *  whether chat is available (non-empty `chatProvider`), and the toggle setter
-   *  — published by `AppShell`. The top-bar `[tty|chat]` chip renders only when
-   *  `chatAvailable` && `onSetView` are present. */
-  view?: "chat" | "terminal";
-  chatAvailable?: boolean;
-  onSetView?: (view: "chat" | "terminal") => void;
-  /** Terminal-mode window-view lens machinery (260714-t97o-web-view-lens),
-   *  registered by `AppShell`. The L1 switcher chip + the center-heading prefix
-   *  read these; the chip renders only when `availableViews.length > 1`. Absent
-   *  on non-terminal routes (BoardPage does not register them). */
+  /** Terminal-mode window-view lens machinery (spec R4; chat folded in from
+   *  260714-r7rq), registered by `AppShell`. The L1 switcher chip + the
+   *  center-heading prefix read these; the chip renders only when
+   *  `availableViews.length > 1`. Absent on non-terminal routes (BoardPage does
+   *  not register them). */
   availableViews?: ViewName[];
   activeView?: ViewName;
   onSelectView?: (view: ViewName) => void;

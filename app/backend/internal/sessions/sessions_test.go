@@ -427,100 +427,34 @@ func TestPaneMapJoinFollowsWindowIDAcrossSwap(t *testing.T) {
 	}
 }
 
-// TestPaneMapJoinEmptyPaneFallback verifies the legacy positional fallback: a
-// fetch-time entry with an empty Pane field (hypothetical older fab JSON that
-// omits the pane ID) is keyed positionally by keyPaneEntries and must still
-// enrich its window via the join's legacy "session:index" fallback, since no
-// pane of the fresh window matches a pane-ID key.
-func TestPaneMapJoinEmptyPaneFallback(t *testing.T) {
-	change := "260303-cccc-legacy"
-
-	// keyPaneEntries stores an empty-Pane entry under the legacy positional key.
-	entries := []paneMapEntry{
-		{Session: "dev", WindowIndex: 1, Pane: "", Change: &change, Stage: strPtr("hydrate")},
-	}
-	paneMap := keyPaneEntries(entries)
-	if _, ok := paneMap["dev:1"]; !ok {
-		t.Fatalf("empty-Pane entry not keyed positionally as dev:1; got keys %v", paneMap)
-	}
-
-	// Fresh window at index 1 whose pane IDs are NOT in the map — join must fall
-	// back to the positional key.
-	data := []sessionData{{
-		info: tmux.SessionInfo{Name: "dev"},
-		windows: []tmux.WindowInfo{
-			{Index: 0, WindowID: "@0", Panes: []tmux.PaneInfo{{PaneID: "%0"}}},
-			{Index: 1, WindowID: "@1", Panes: []tmux.PaneInfo{{PaneID: "%9"}}},
-		},
-	}}
-
-	enrich := joinPaneMapByWindow(paneMap, data)
-
-	got, ok := enrich["@1"]
-	if !ok {
-		t.Fatalf("window @1 not enriched via legacy positional fallback")
-	}
-	if derefStr(got.Change) != change || derefStr(got.Stage) != "hydrate" {
-		t.Errorf("@1 change/stage = %q/%q, want %q/hydrate", derefStr(got.Change), derefStr(got.Stage), change)
-	}
-	// Window @0 has no matching entry and no positional fallback → not enriched.
-	if _, ok := enrich["@0"]; ok {
-		t.Errorf("window @0 unexpectedly enriched")
-	}
-}
-
-// TestKeyPaneEntriesKeyShapes verifies keyPaneEntries keys by pane ID when
-// present, falls back to the legacy positional key for empty Pane, and that the
-// two key shapes never collide (pane IDs start with '%').
-func TestKeyPaneEntriesKeyShapes(t *testing.T) {
+// TestKeyPaneEntriesDropsEmptyPane verifies keyPaneEntries keys by pane ID and
+// DROPS pane-less entries: every fab version emits the pane ID, so an entry
+// with an empty Pane field can only come from malformed JSON and has no stable
+// key to live under. A dropped entry must not enrich any window via the join.
+func TestKeyPaneEntriesDropsEmptyPane(t *testing.T) {
 	change := "260404-dddd-x"
 	entries := []paneMapEntry{
 		{Session: "dev", WindowIndex: 0, Pane: "%3", Change: &change},
-		{Session: "dev", WindowIndex: 0, Pane: ""}, // empty Pane → positional key "dev:0"
+		{Session: "dev", WindowIndex: 1, Pane: ""}, // pane-less → dropped
 	}
 	m := keyPaneEntries(entries)
-	if len(m) != 2 {
-		t.Fatalf("got %d keys, want 2 (pane-ID + positional, no collision): %v", len(m), m)
+	if len(m) != 1 {
+		t.Fatalf("got %d keys, want 1 (pane-less entry dropped): %v", len(m), m)
 	}
 	if e, ok := m["%3"]; !ok || derefStr(e.Change) != change {
 		t.Errorf("pane-ID key %%3 missing or wrong change: ok=%v entry=%+v", ok, e)
 	}
-	if _, ok := m["dev:0"]; !ok {
-		t.Errorf("positional key dev:0 missing for empty-Pane entry")
-	}
-}
 
-// TestKeyPaneEntriesLegacyPositionalCollision verifies that when multiple
-// empty-pane-ID entries collide on the same legacy positional key
-// (session:windowIndex — e.g. splits in one window under older fab JSON that
-// omits pane IDs), keyPaneEntries preserves the "Change > first-seen" tiebreak:
-// a change-bound entry beats an earlier bare one regardless of order.
-func TestKeyPaneEntriesLegacyPositionalCollision(t *testing.T) {
-	change := "260404-dddd-x"
-
-	// Change-bound entry appears AFTER a bare first-seen entry on the same
-	// positional key. The change-bound one must still win.
-	entries := []paneMapEntry{
-		{Session: "dev", WindowIndex: 0, Pane: ""},                  // bare, first-seen
-		{Session: "dev", WindowIndex: 0, Pane: "", Change: &change}, // change-bound, later
-	}
-	m := keyPaneEntries(entries)
-	if len(m) != 1 {
-		t.Fatalf("got %d keys, want 1 (single positional key dev:0): %v", len(m), m)
-	}
-	if e, ok := m["dev:0"]; !ok || derefStr(e.Change) != change {
-		t.Errorf("positional key dev:0: change-bound entry did not win: ok=%v entry=%+v", ok, e)
-	}
-
-	// Reverse order: change-bound entry seen FIRST must not be overwritten by a
-	// later bare one.
-	entriesRev := []paneMapEntry{
-		{Session: "dev", WindowIndex: 0, Pane: "", Change: &change}, // change-bound, first-seen
-		{Session: "dev", WindowIndex: 0, Pane: ""},                  // bare, later
-	}
-	mRev := keyPaneEntries(entriesRev)
-	if e, ok := mRev["dev:0"]; !ok || derefStr(e.Change) != change {
-		t.Errorf("positional key dev:0: later bare entry clobbered change-bound one: ok=%v entry=%+v", ok, e)
+	// The dropped entry contributes nothing at join time either — its window
+	// stays un-enriched (same degraded behavior as a missing pane map).
+	data := []sessionData{{
+		info: tmux.SessionInfo{Name: "dev"},
+		windows: []tmux.WindowInfo{
+			{Index: 1, WindowID: "@1", Panes: []tmux.PaneInfo{{PaneID: "%9"}}},
+		},
+	}}
+	if enrich := joinPaneMapByWindow(m, data); len(enrich) != 0 {
+		t.Errorf("window unexpectedly enriched from a dropped pane-less entry: %v", enrich)
 	}
 }
 

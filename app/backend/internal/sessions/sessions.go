@@ -88,8 +88,8 @@ type paneMapEntry struct {
 
 // fetchPaneMap runs `fab pane map --json --all-sessions` via the fab router on
 // PATH and returns a lookup map keyed by stable tmux pane ID (see
-// keyPaneEntries — entries with no pane ID fall back to a legacy positional
-// key). When server is non-empty, it is passed as `-L <server>` so the subprocess targets the same
+// keyPaneEntries — entries with no pane ID are dropped). When server is
+// non-empty, it is passed as `-L <server>` so the subprocess targets the same
 // tmux socket the backend is querying; otherwise fab falls back to $TMUX or
 // the default socket.
 //
@@ -146,45 +146,24 @@ func fetchPaneMap(server string) (map[string]paneMapEntry, error) {
 	return keyPaneEntries(entries), nil
 }
 
-// paneMapKey builds the legacy positional key for an entry's window. It is used
-// only for entries with no stable pane ID (see keyPaneEntries) and by the join's
-// legacy fallback (see FetchSessions), so both sides agree on the exact shape.
-func paneMapKey(session string, windowIndex int) string {
-	return fmt.Sprintf("%s:%d", session, windowIndex)
-}
-
 // keyPaneEntries builds the fetch-time pane-map lookup keyed by the STABLE tmux
 // pane ID (e.g. "%12"), one entry per pane. It performs NO window-level dedup:
 // which window a pane belongs to is only knowable against a fresh tmux snapshot,
 // so the change-bound-vs-first-seen preference among a window's panes moves to
 // join time (see FetchSessions' enrichment loop), not here.
 //
-// Fallback: an entry with an empty Pane field (a hypothetical older fab JSON that
-// omits the pane ID) is stored under the legacy positional
-// "session:windowIndex" key instead. The two key shapes cannot collide — a real
-// pane ID always begins with '%', which the positional key never does.
-//
-// On key collision the prior "Change > first-seen" preference is preserved: a
-// change-bound entry (Change != nil) beats a bare first-seen one; otherwise the
-// first-seen entry wins. This matters only for the legacy positional key, where
-// multiple empty-pane-ID entries can share a "session:windowIndex" key (splits
-// in one window). A duplicate real pane ID should not occur (pane IDs are unique
-// per server); if one did, the same tiebreak applies.
+// An entry with an empty Pane field is dropped: every fab version emits the
+// pane ID, so a pane-less entry can only come from malformed JSON and there is
+// no stable key to store it under. Duplicate pane IDs cannot occur (pane IDs
+// are unique per server); if one did, first-seen wins.
 func keyPaneEntries(entries []paneMapEntry) map[string]paneMapEntry {
 	m := make(map[string]paneMapEntry, len(entries))
 	for _, e := range entries {
-		key := e.Pane
-		if key == "" {
-			key = paneMapKey(e.Session, e.WindowIndex)
-		}
-		existing, ok := m[key]
-		if !ok {
-			m[key] = e
+		if e.Pane == "" {
 			continue
 		}
-		// Collision. Change-bound entry beats a bare first-seen one.
-		if existing.Change == nil && e.Change != nil {
-			m[key] = e
+		if _, ok := m[e.Pane]; !ok {
+			m[e.Pane] = e
 		}
 	}
 	return m
@@ -601,9 +580,7 @@ type sessionData struct {
 // pane's PaneID up in paneMap. Among the matching candidate entries of a single
 // window, selection preserves the prior fetch-time dedup semantics exactly:
 // a change-bound entry (Change != nil) wins; otherwise the first-seen candidate
-// (pane order) wins. If NO pane of the window matched a pane-ID key, it falls
-// back to the legacy positional "session:index" key once, covering empty-pane-ID
-// entries keyed positionally by keyPaneEntries.
+// (pane order) wins.
 //
 // Because the join key is the stable pane ID against the fresh snapshot, a stale
 // cached paneMap can never misattribute one window's fab state to another across
@@ -618,27 +595,17 @@ func joinPaneMapByWindow(paneMap map[string]paneMapEntry, data []sessionData) ma
 		for j := range sd.windows {
 			w := &sd.windows[j]
 			var selected *paneMapEntry
-			matched := false
 			for k := range w.Panes {
 				entry, ok := paneMap[w.Panes[k].PaneID]
 				if !ok {
 					continue
 				}
-				matched = true
 				e := entry
 				if selected == nil {
 					// First candidate pane wins by default (first-seen).
 					selected = &e
 				} else if selected.Change == nil && e.Change != nil {
 					// Change-bound entry beats a bare first-seen one.
-					selected = &e
-				}
-			}
-			if !matched {
-				// Legacy positional fallback: covers empty-pane-ID entries that
-				// keyPaneEntries stored under "session:windowIndex".
-				if entry, ok := paneMap[paneMapKey(sd.info.Name, w.Index)]; ok {
-					e := entry
 					selected = &e
 				}
 			}
@@ -712,8 +679,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	// reorder — at worst a pane that is absent from the fresh snapshot simply
 	// contributes nothing. (Contrast the former index join, which glued a
 	// window's fab state to whichever window happened to sit at its old index for
-	// the ~5s the cache was stale.) Empty-pane-ID fallback entries are joined by
-	// the legacy positional key. See joinPaneMapByWindow.
+	// the ~5s the cache was stale.) See joinPaneMapByWindow.
 	enrichByWindowID := joinPaneMapByWindow(paneMap, data)
 
 	// Build result with per-window fab enrichment from pane-map and git branches.

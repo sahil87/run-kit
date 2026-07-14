@@ -89,8 +89,10 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     await expect(nav).not.toContainText(name);
     // The static `Window:` page-type prefix (260714-uco1 — replaced the retired
     // lens-following `Terminal:`/`Web:`/`Chat:` prefix) renders as a static
-    // sibling OUTSIDE the rename button (clicking it must not edit).
-    const prefix = page.getByText(/Window:/);
+    // sibling OUTSIDE the rename button (clicking it must not edit). The
+    // hierarchy ▾ splits the prefix between the word and its colon (`Window ▾:`
+    // — intake §3), so the word run ("Window") is the stable prefix locator.
+    const prefix = page.getByText("Window", { exact: true });
     await expect(prefix).toBeVisible();
     const prefixInButton = await heading.evaluate(
       (btn, pfx) => btn.contains(pfx),
@@ -390,13 +392,16 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     // Desktop viewport so the sm:min-width anchor is active.
     await page.setViewportSize({ width: 1200, height: 800 });
 
+    // The prefix word run ("Window") is the heading's leftmost text; its left
+    // edge is the anchor under test. (The hierarchy ▾ splits the prefix between
+    // the word and its colon, so the word run is the stable prefix locator.)
     await gotoWindow(page, shortId);
-    const shortPrefix = page.getByText(/Window:/);
+    const shortPrefix = page.getByText("Window", { exact: true });
     await expect(shortPrefix).toBeVisible({ timeout: 10_000 });
     const shortX = (await shortPrefix.boundingBox())!.x;
 
     await gotoWindow(page, midId);
-    const midPrefix = page.getByText(/Window:/);
+    const midPrefix = page.getByText("Window", { exact: true });
     await expect(midPrefix).toBeVisible({ timeout: 10_000 });
     const midX = (await midPrefix.boundingBox())!.x;
 
@@ -416,8 +421,10 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     // Static `Window:` — never the retired `Terminal:`/`Web:`/`Chat:` lens
     // prefix. (This plain window offers only the tty lens, so no ViewSwitcher;
     // chat/web lens-switch coverage lives in chat-view/web-view-lens specs,
-    // which now assert `Window:` in every lens.)
-    await expect(page.getByText(/Window:/)).toBeVisible({ timeout: 10_000 });
+    // which now assert `Window:` in every lens.) The hierarchy ▾ splits the
+    // prefix between the word and its colon (`Window ▾:`, intake §3), so assert
+    // the word run ("Window").
+    await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/Terminal:|Web:|Chat:/)).toHaveCount(0);
   });
 

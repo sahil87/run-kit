@@ -163,7 +163,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByText("plain-win").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("chat-view")).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
-    await expect(page.getByText(/Window:/)).toBeVisible();
+    await expect(page.getByText("Window", { exact: true })).toBeVisible();
   });
 
   test("flipping to chat preserves the window and updates the URL (heading stays `Window:`)", async ({ page }) => {
@@ -173,7 +173,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 
     // The heading is a static `Window:` prefix (260714-uco1) — the lens is shown
     // by the ViewSwitcher chip, not the heading.
-    await expect(page.getByText(/Window:/)).toBeVisible();
+    await expect(page.getByText("Window", { exact: true })).toBeVisible();
 
     // Click the chat segment of the unified switcher (its accessible name is
     // "Chat view"; the visible glyph is the lowercase "chat").
@@ -184,7 +184,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // The renderer mounts; the heading stays `Window:` across the lens switch
     // (the anchor no longer jumps). The chat lens is proven by the chat-view.
     await expect(page.getByTestId("chat-view")).toBeVisible();
-    await expect(page.getByText(/Window:/)).toBeVisible();
+    await expect(page.getByText("Window", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: `Rename window agent-win` })).toBeVisible();
   });
 
@@ -192,7 +192,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
     await expect(page.getByTestId("view-toggle")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/Window:/)).toBeVisible();
+    await expect(page.getByText("Window", { exact: true })).toBeVisible();
 
     // Ctrl+` (plain Ctrl on both platforms — the VS-Code "toggle terminal"
     // association) flips into the chat lens: URL gains ?view=chat, chat mounts.
@@ -204,7 +204,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // is the static `Window:` throughout (does not vary with the lens).
     await page.keyboard.press("Control+`");
     await expect(page).not.toHaveURL(/\?view=/);
-    await expect(page.getByText(/Window:/)).toBeVisible();
+    await expect(page.getByText("Window", { exact: true })).toBeVisible();
   });
 
   test("deep link ?view=chat cold-loads into the chat view", async ({ page }) => {
@@ -212,7 +212,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await page.goto(`/${SERVER}/1?view=chat`);
 
     await expect(page.getByTestId("chat-view")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/Window:/)).toBeVisible();
+    await expect(page.getByText("Window", { exact: true })).toBeVisible();
     // The read-only disabled footer is GONE (260714-jdyg-chat-send) — the live
     // send input replaces it.
     await expect(page.getByTestId("chat-send-disabled")).toHaveCount(0);

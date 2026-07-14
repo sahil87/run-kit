@@ -51,9 +51,11 @@ breadcrumb now ends at the session).
 2. Assert the `Rename window <name>` button is visible and its text equals the
    window name.
 3. Assert the `Breadcrumb` nav does NOT contain the window name (no duplication).
-4. Assert the static `Window:` page-type prefix (260714-uco1) is visible and
-   is NOT contained inside the rename button — it is a sibling span, so clicking
-   it never starts an edit (the edit input binds only to the name).
+4. Assert the static `Window:` page-type prefix (260714-uco1) is visible — its
+   `Window` word run is the stable locator, since the hierarchy ▾ splits the
+   prefix between the word and its colon (`Window ▾:`) — and is NOT contained
+   inside the rename button; it is a sibling span, so clicking it never starts
+   an edit (the edit input binds only to the name).
 
 ### `root route shows the centered `Server Cabin: <server>` heading (not a left leaf crumb)`
 
@@ -202,19 +204,21 @@ band grow rightward and the centered box drifts — an accepted tradeoff (intake
 1. Create two windows in the same session with different (band-fitting) name
    lengths.
 2. Set a desktop viewport (1200px) so the `sm:` min-width anchor is active.
-3. Navigate to the shorter-named window; record the `Window:` prefix's left x.
-4. Navigate to the longer-named window; record the prefix's left x.
+3. Navigate to the shorter-named window; record the `Window` prefix word run's
+   left x (the leftmost prefix text — the anchor under test).
+4. Navigate to the longer-named window; record the prefix word run's left x.
 5. Assert the two x values differ by ≤2px (the anchor held; no drift).
 
-### `the heading prefix is a static `Window:` on the terminal route (all lenses)`
+### the heading prefix is a static `Window:` on the terminal route (all lenses)
 
 **What it proves:** the terminal-route heading prefix is a static `Window:`, never
 the retired lens-following `Terminal:`/`Web:`/`Chat:`.
 
 **Steps:**
 1. Create a plain window; navigate to it.
-2. Assert the `Window:` prefix is visible and that no `Terminal:`/`Web:`/`Chat:`
-   text is present.
+2. Assert the `Window` prefix word run is visible (the hierarchy ▾ splits the
+   prefix between the word and its colon, so the assertion targets the `Window`
+   word) and that no `Terminal:`/`Web:`/`Chat:` text is present.
 
 ### `the hierarchy ▾ lists the ancestor chain and navigates up (Server Cabin → Cockpit)`
 

@@ -181,11 +181,17 @@ describe("TopBar", () => {
       const heading = screen.getByRole("button", { name: "Rename window main" });
       // The prefix is a static `Window:` in every lens (260714-uco1 — the
       // lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired; the lens
-      // is shown by the ViewSwitcher, not the heading).
-      const prefix = screen.getByText(/Window:/);
+      // is shown by the ViewSwitcher, not the heading). The hierarchy ▾ splits
+      // the prefix DOM between the word and its colon (`Window ▾:` — intake §3),
+      // so the word ("Window") and the colon (":") render as separate text runs
+      // rather than a single contiguous `Window:` node; assert the word run.
+      const prefix = screen.getByText("Window", { exact: true });
       expect(prefix).toBeInTheDocument();
-      // …but is NOT inside the rename button (clicking it must not start an
-      // edit — it binds only to the name).
+      // The hierarchy ▾ sits between the word and the colon, inside the prefix
+      // region (`Window ▾: name`).
+      expect(screen.getByLabelText("Switch hierarchy")).toBeInTheDocument();
+      // …but the prefix is NOT inside the rename button (clicking it must not
+      // start an edit — the button binds only to the name).
       expect(heading).not.toContainElement(prefix);
     });
 

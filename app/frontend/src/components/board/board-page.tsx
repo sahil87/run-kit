@@ -19,7 +19,7 @@ import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette-move";
-import { buildUpdateActions } from "@/lib/palette-update";
+import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
 import { Dialog } from "@/components/dialog";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
@@ -358,8 +358,16 @@ function BoardPageContent({ name }: { name: string }) {
   // mounts its own palette (DD-8, § Boards Command Palette), so the AppShell
   // `updateActions` (app.tsx) are unreachable here — these are duplicated in for
   // the same reason as the font trio / refresh / help entries below.
-  const { qualifies: updateQualifies, latest: updateLatest, updateNow, dismissUpdate } =
-    useUpdateNotification();
+  const {
+    qualifies: updateQualifies,
+    latest: updateLatest,
+    updateNow,
+    dismissUpdate,
+    daemonVersion,
+    brew,
+    forceUpdateNow,
+    restartNow,
+  } = useUpdateNotification();
 
   // Board-route-scoped command palette actions. Constitution V (Keyboard-First)
   // requires every action be keyboard-reachable — AppShell's palette is not
@@ -471,6 +479,27 @@ function BoardPageContent({ name }: { name: string }) {
       dismissUpdate,
     );
 
+    // Maintenance actions — palette-only force-update / restart, duplicated from
+    // AppShell's `maintenanceActions` for the same reason as updateEntries: the
+    // board route mounts its OWN palette and does NOT render AppShell (DD-8), and
+    // below `sm` the top-bar cluster is hidden, so on a phone /board/$name the
+    // palette is the ONLY maintenance surface. Dev-gated + (for force) brew-gated
+    // inside buildMaintenanceActions; both fire immediately with toast-on-failure.
+    const maintenanceEntries: PaletteAction[] = buildMaintenanceActions(
+      brew,
+      daemonVersion,
+      () => {
+        void forceUpdateNow().catch((err: unknown) =>
+          addToast(err instanceof Error ? err.message : "Update failed"),
+        );
+      },
+      () => {
+        void restartNow().catch((err: unknown) =>
+          addToast(err instanceof Error ? err.message : "Restart failed"),
+        );
+      },
+    );
+
     if (entries.length > 0) {
       conditional.push({
         id: "board-cycle-next",
@@ -551,8 +580,8 @@ function BoardPageContent({ name }: { name: string }) {
       }
     }
 
-    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry, ...updateEntries];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpin, reorder, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateLatest, updateNow, dismissUpdate]);
+    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries];
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpin, reorder, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateLatest, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {

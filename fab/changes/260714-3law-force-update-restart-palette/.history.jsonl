@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-14T10:08:48Z"}
+{"args":"Force-update + daemon-restart command-palette actions, and restart-aware tab reload via a boot ID on the version SSE event. Follow-up to 260713-4zap (PR #340): patch releases unreachable from web (409 no-qualifying-update), wedged daemon needs SSH, plain restart does not refresh open tabs.","cmd":"fab-new","event":"command","ts":"2026-07-14T10:08:48Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-07-14T10:10:59Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-07-14T10:11:17Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-14T10:12:11Z"}
+{"cmd":"git-branch","event":"command","ts":"2026-07-14T10:13:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T10:14:59Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T10:15:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T10:30:59Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T10:31:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-14T10:38:54Z"}
+{"event":"review","result":"passed","ts":"2026-07-14T10:38:54Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T10:39:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-14T10:46:20Z"}

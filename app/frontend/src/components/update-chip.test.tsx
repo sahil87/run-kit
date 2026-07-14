@@ -185,14 +185,14 @@ describe("UpdateChip", () => {
 
 describe("shouldReloadOnVersion (reload guard)", () => {
   it("never reloads on the first version seen", () => {
-    expect(shouldReloadOnVersion(null, "0.5.3")).toBe(false);
+    expect(shouldReloadOnVersion(null, null, "0.5.3", "b1")).toBe(false);
   });
 
-  it("does not reload when the version is unchanged", () => {
-    expect(shouldReloadOnVersion("0.5.3", "0.5.3")).toBe(false);
+  it("does not reload when version and boot are unchanged", () => {
+    expect(shouldReloadOnVersion("0.5.3", "b1", "0.5.3", "b1")).toBe(false);
   });
 
   it("reloads when a later version differs from the first-seen one", () => {
-    expect(shouldReloadOnVersion("0.5.3", "0.6.0")).toBe(true);
+    expect(shouldReloadOnVersion("0.5.3", "b1", "0.6.0", "b1")).toBe(true);
   });
 });

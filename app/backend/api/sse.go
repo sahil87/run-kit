@@ -572,18 +572,26 @@ func (h *sseHub) broadcastBoardOrder(order []string) {
 }
 
 // setVersion seeds the server-global `event: version` cached slot with the
-// running daemon version. Called once at startup via Server.SetVersion. The
-// version cannot change for the process lifetime, so there is deliberately NO
-// broadcast to already-connected clients here — the slot is delivered purely on
-// connect (addClient), which is exactly when the client needs it. An empty
-// version is ignored (leaves the slot empty → no `event: version` sent).
-func (h *sseHub) setVersion(version string) {
+// running daemon version, a per-process boot identity, and the brew-install
+// flag. Called once at startup via Server.SetVersion. The version cannot change
+// for the process lifetime, so there is deliberately NO broadcast to
+// already-connected clients here — the slot is delivered purely on connect
+// (addClient), which is exactly when the client needs it. An empty version is
+// ignored (leaves the slot empty → no `event: version` sent).
+//
+// `boot` and `brew` are ADDITIVE fields — older clients that parse only
+// `version` are unaffected. `boot` is a per-process id (regenerated on every
+// daemon start) that lets a tab detect a same-version restart and reload; `brew`
+// gates the palette's force-update / restart maintenance entries client-side.
+func (h *sseHub) setVersion(version, boot string, brew bool) {
 	if version == "" {
 		return
 	}
 	payload := struct {
 		Version string `json:"version"`
-	}{Version: version}
+		Boot    string `json:"boot"`
+		Brew    bool   `json:"brew"`
+	}{Version: version, Boot: boot, Brew: brew}
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
 		slog.Warn("version slot marshal failed", "err", err)

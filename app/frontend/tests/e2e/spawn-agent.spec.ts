@@ -118,6 +118,16 @@ async function openViaDropdown(page: Page) {
   await page.getByRole("menuitem", { name: "+ New Agent" }).click();
 }
 
+// The sidebar bot button (gsmu) — the third entry point. Its icon cluster is
+// hover-gated (pointer-events-none at rest), so hover the session row before
+// clicking the bot icon (playwright-pointer-events-hover-gate memory).
+async function openViaSidebarBot(page: Page, session: string) {
+  const row = page.locator(`[data-session-row="${SERVER}:${session}"]`);
+  await expect(row).toBeVisible({ timeout: 5_000 });
+  await row.hover();
+  await page.getByLabel(`Spawn agent in ${session}`).click();
+}
+
 const OK_SPAWN: RiffMock = {
   spawnStatus: 200,
   spawnBody: JSON.stringify({ server: SERVER, session: "dev", window: "riff-swift-fox", windowId: "@7" }),
@@ -227,5 +237,29 @@ test.describe("Web-UI Spawn Agent", () => {
     await expect(page.getByText(/not inside a git repository/i)).toBeVisible({ timeout: 5_000 });
     await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
+  });
+
+  test("a non-fab repo (tiers: []) renders the dialog WITHOUT the Agent Tier field", async ({ page }) => {
+    // The fab gate (gsmu): a non-fab repo's presets endpoint returns tiers:[],
+    // so the dialog hides the Agent Tier field entirely.
+    await mockBackend(page, { ...OK_SPAWN, tiers: [] });
+    await gotoTerminal(page);
+
+    await openViaPalette(page);
+    await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
+    // The dialog is up (Task always present) but the Agent Tier field is absent.
+    await expect(page.getByLabel("Task")).toBeVisible();
+    await expect(page.getByLabel("Agent tier", { exact: true })).toHaveCount(0);
+  });
+
+  test("the sidebar bot button opens the dialog titled with the row's session", async ({ page }) => {
+    // The third entry point (gsmu): the session-row bot button, hover-gated.
+    await mockBackend(page, OK_SPAWN);
+    await gotoTerminal(page);
+
+    await openViaSidebarBot(page, "dev");
+
+    await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByLabel("Task")).toBeVisible();
   });
 });

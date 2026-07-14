@@ -156,6 +156,23 @@ func ReadTiers(repoRoot string) []string {
 	return tiers
 }
 
+// IsFabProject reports whether repoRoot is a fab project — true iff
+// <repoRoot>/fab/project/config.yaml exists. It is a single os.Stat: no YAML
+// parse, no subprocess (constitution §I/§II — derived from the filesystem at
+// request time). An empty repoRoot returns false.
+//
+// The absent-vs-malformed split is deliberate and complements ReadTiers: an
+// ABSENT config means "not a fab project" (callers gate tiers to []), while a
+// MALFORMED-but-present config is still a fab project whose ReadTiers falls back
+// to the built-ins. IsFabProject answers only the presence question.
+func IsFabProject(repoRoot string) bool {
+	if repoRoot == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(repoRoot, fabConfigRelPath))
+	return err == nil
+}
+
 // readConfiguredTierNames returns the `agent.tiers` map keys from the repo config
 // in YAML source order, or nil on any failure path (silent-fallback).
 func readConfiguredTierNames(repoRoot string) []string {

@@ -1,3 +1,11 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-14T11:45:11Z"}
 {"args":"Spawn dialog follow-up: hide Agent Tier in non-fab repos; add sidebar session-row spawn-agent button","cmd":"fab-new","event":"command","ts":"2026-07-14T11:45:11Z"}
 {"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-07-14T11:47:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-14T12:42:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T12:43:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T12:58:45Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T13:00:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-14T13:09:16Z"}
+{"event":"review","result":"passed","ts":"2026-07-14T13:09:16Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T13:09:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-14T13:15:10Z"}

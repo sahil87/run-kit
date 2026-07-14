@@ -214,8 +214,9 @@ const riffSpawnTimeout = 90 * time.Second
 //
 //	GET /api/riff/presets?server=<name>&session=<name>
 //	200: {"presets":[{"name","layout","paneCount"}], "tiers":[...]}
-//	     (presets in YAML source order, [] when none; tiers always non-empty,
-//	      fab-kit built-ins ∪ the repo's agent.tiers, "default" first)
+//	     (presets in YAML source order, [] when none; tiers gated on
+//	      fabconfig.IsFabProject — fab-kit built-ins ∪ the repo's agent.tiers
+//	      ("default" first) for a fab project, [] for a non-fab repo)
 //	400: invalid session or non-repo cwd
 func (s *Server) handleRiffPresets(w http.ResponseWriter, r *http.Request) {
 	server := serverFromRequest(r)
@@ -247,9 +248,16 @@ func (s *Server) handleRiffPresets(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	// tiers rides this one preflight fetch (mockup-v2) so the dialog populates
-	// both dropdowns without a second endpoint (constitution §IV). Always
-	// non-empty (fab-kit built-ins ∪ the repo's agent.tiers, default first).
-	tiers := fabconfig.ReadTiers(repoRoot)
+	// both dropdowns without a second endpoint (constitution §IV). Gated on
+	// fab-project detection: a repo with no fab/project/config.yaml is not a fab
+	// project, so tiers would be inert noise (every option resolves to the same
+	// DefaultLauncher) — return [] and let the dialog hide the field. A fab
+	// project (even one with a malformed config) gets ReadTiers's built-ins ∪
+	// agent.tiers, default first. Empty slice, not nil, so the JSON key is [].
+	tiers := []string{}
+	if fabconfig.IsFabProject(repoRoot) {
+		tiers = fabconfig.ReadTiers(repoRoot)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"presets": presets, "tiers": tiers})
 }
 

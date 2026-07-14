@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { useState } from "react";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { SessionRow } from "./session-row";
 import type { ProjectSession } from "@/types";
 
@@ -60,6 +60,33 @@ describe("SessionRow", () => {
     render(<SessionRow {...rowProps(session)} />);
     expect(screen.getByLabelText("New window in agent-work")).toBeInTheDocument();
     expect(screen.getByLabelText("Kill session agent-work")).toBeInTheDocument();
+  });
+
+  // gsmu: the spawn-agent bot button is an OPTIONAL affordance (mirrors
+  // onColorChange) — present only when an onSpawnAgent handler is supplied, and
+  // positioned immediately LEFT of the "+" create-window button so +/✕ keep
+  // their edge positions.
+  describe("spawn-agent bot button", () => {
+    it("is absent when no onSpawnAgent handler is supplied", () => {
+      const session = makeSession({ name: "agent-work" });
+      render(<SessionRow {...rowProps(session)} />);
+      expect(screen.queryByLabelText("Spawn agent in agent-work")).not.toBeInTheDocument();
+    });
+
+    it("renders left of the + button and calls onSpawnAgent(server, name) on click", () => {
+      const onSpawnAgent = vi.fn();
+      const session = makeSession({ name: "agent-work" });
+      render(<SessionRow {...rowProps(session)} onSpawnAgent={onSpawnAgent} />);
+
+      const bot = screen.getByLabelText("Spawn agent in agent-work");
+      const plus = screen.getByLabelText("New window in agent-work");
+      expect(bot).toBeInTheDocument();
+      // DOM order: bot precedes + (Node.DOCUMENT_POSITION_FOLLOWING = 4).
+      expect(bot.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      fireEvent.click(bot);
+      expect(onSpawnAgent).toHaveBeenCalledWith("srv", "agent-work");
+    });
   });
 
   // W3C-APG tree node semantics (Wave 3 sidebar-keyboard-nav). The session row

@@ -1,13 +1,15 @@
 # spawn-agent.spec.ts
 
 Verifies the **web-UI agent spawn** flow (260713-sbk1; extended to the full
-mockup in 260714-q9cg) — surfacing `rk riff` as a one-action spawn dialog. It
-proves the dialog opens from BOTH entry points (Cmd+K `Agent: Spawn` and the
-window-switcher `+ New Agent`), renders the mockup-v2 field set (Where radio /
-Worktree name / Agent tier) with the correct defaults and conditional Worktree
-visibility, that a checkout + tier task-submit spawns and navigates carrying
-`where`/`tier` in the POST body, and that a 400 renders its error in-dialog
-without navigating.
+mockup in 260714-q9cg; fab-gated tier field + sidebar entry in 260714-gsmu) —
+surfacing `rk riff` as a one-action spawn dialog. It proves the dialog opens from
+ALL THREE entry points (Cmd+K `Agent: Spawn`, the window-switcher `+ New Agent`,
+and the sidebar session-row bot button), renders the mockup-v2 field set (Where
+radio / Worktree name / Agent tier) with the correct defaults and conditional
+Worktree visibility, that the Agent Tier field is HIDDEN when the presets
+endpoint returns `tiers: []` (a non-fab repo), that a checkout + tier task-submit
+spawns and navigates carrying `where`/`tier` in the POST body, and that a 400
+renders its error in-dialog without navigating.
 
 ## Shared setup
 
@@ -35,6 +37,10 @@ without navigating.
   presses Enter.
 - `openViaDropdown(page)` clicks the window-switcher trigger (`Switch window`)
   then the `+ New Agent` menu item.
+- `openViaSidebarBot(page, session)` hovers the session row
+  (`[data-session-row="default:{session}"]`) — the icon cluster is
+  pointer-events-none at rest (hover-gate memory) — then clicks the
+  `Spawn agent in {session}` bot button.
 - `OK_SPAWN` is the success mock: `POST /api/riff` → 200
   `{server, session:"dev", window:"riff-swift-fox", windowId:"@7"}`, no presets.
 
@@ -113,3 +119,27 @@ the still-open dialog and performs no navigation (nothing was created).
 2. `gotoTerminal`; `openViaPalette`; fill the `Task` field; press Enter.
 3. Assert the error text is visible, the `Spawn agent in dev` dialog is still
    visible, and the URL is unchanged (`/default/1`).
+
+### `a non-fab repo (tiers: []) renders the dialog WITHOUT the Agent Tier field`
+
+**What it proves:** the fab gate (gsmu) — when the presets endpoint returns
+`tiers: []` (a git repo that is not a fab project), the dialog hides the Agent
+Tier field entirely (no label, no control), while the rest of the dialog is
+unaffected.
+
+**Steps:**
+1. Mock the backend with `{...OK_SPAWN, tiers: []}`; `gotoTerminal`;
+   `openViaPalette`.
+2. Assert the `Spawn agent in dev` dialog and its `Task` field are visible.
+3. Assert the `Agent tier` control has count 0 (absent).
+
+### `the sidebar bot button opens the dialog titled with the row's session`
+
+**What it proves:** the third entry point (gsmu) — the session-row bot button in
+the sidebar opens the spawn dialog targeting that row's session.
+
+**Steps:**
+1. Mock the backend (`OK_SPAWN`); `gotoTerminal`.
+2. `openViaSidebarBot(page, "dev")` — hover the `dev` session row, then click its
+   `Spawn agent in dev` bot button.
+3. Assert the `Spawn agent in dev` dialog and its `Task` field are visible.

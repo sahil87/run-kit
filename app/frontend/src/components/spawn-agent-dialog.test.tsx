@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
-import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { SpawnAgentDialog } from "./spawn-agent-dialog";
 import * as client from "@/api/client";
 
@@ -18,13 +17,15 @@ const spawnRiff = client.spawnRiff as unknown as ReturnType<typeof vi.fn>;
 
 const BUILTIN_TIERS = ["default", "doing", "fast", "operator", "review"];
 
-function renderDialog(overrides?: { onSpawned?: () => void; onClose?: () => void }) {
+// The dialog takes an explicit `server` prop (no SessionContext read since gsmu),
+// so tests supply the target server directly — this is also what enables the
+// cross-server-spawn assertion below.
+function renderDialog(overrides?: { server?: string; onSpawned?: () => void; onClose?: () => void }) {
+  const server = overrides?.server ?? "work";
   const onSpawned = overrides?.onSpawned ?? vi.fn();
   const onClose = overrides?.onClose ?? vi.fn();
   render(
-    <StandaloneSessionContextProvider value={{ currentServer: "work" }}>
-      <SpawnAgentDialog session="mysess" onSpawned={onSpawned} onClose={onClose} />
-    </StandaloneSessionContextProvider>,
+    <SpawnAgentDialog server={server} session="mysess" onSpawned={onSpawned} onClose={onClose} />,
   );
   return { onSpawned, onClose };
 }
@@ -180,5 +181,48 @@ describe("SpawnAgentDialog", () => {
     await waitFor(() => expect(getRiffPresets).toHaveBeenCalled());
     expect((screen.getByLabelText("Agent tier") as HTMLSelectElement).value).toBe("default");
     expect(screen.queryByLabelText("Preset")).not.toBeInTheDocument();
+  });
+
+  // gsmu: the tier is fab-gated at the backend — a non-fab repo returns
+  // `tiers: []`, which hides the Agent Tier field entirely and omits `tier` from
+  // the POST body (a tier is inert in a non-fab repo).
+  it("hides the Agent Tier field when the fetched tiers are empty (non-fab repo)", async () => {
+    getRiffPresets.mockResolvedValue({ presets: [], tiers: [] });
+    renderDialog();
+    await waitFor(() => expect(getRiffPresets).toHaveBeenCalled());
+    // The field is absent entirely — no label, no control.
+    await waitFor(() => expect(screen.queryByLabelText("Agent tier")).not.toBeInTheDocument());
+    // Task-only spawn still works (the field's absence doesn't block it).
+    expect(screen.getByLabelText("Task")).toBeInTheDocument();
+  });
+
+  it("omits tier from the POST body when the Agent Tier field is hidden", async () => {
+    getRiffPresets.mockResolvedValue({ presets: [], tiers: [] });
+    renderDialog();
+    await waitFor(() => expect(screen.queryByLabelText("Agent tier")).not.toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Task"), { target: { value: "do it" } });
+    fireEvent.click(screen.getByRole("button", { name: /^spawn$/i }));
+    await waitFor(() =>
+      expect(spawnRiff).toHaveBeenCalledWith("work", "mysess", {
+        task: "do it",
+        preset: undefined,
+        where: "worktree",
+        worktreeName: undefined,
+        tier: undefined,
+      }),
+    );
+  });
+
+  // gsmu: the dialog runs preflight + spawn against the passed `server` prop
+  // (not the current route server), which is what makes cross-server spawn from
+  // the sidebar work.
+  it("uses the passed target server for preflight and spawn (cross-server)", async () => {
+    renderDialog({ server: "otherbox" });
+    await waitFor(() => expect(getRiffPresets).toHaveBeenCalledWith("otherbox", "mysess"));
+    fireEvent.change(screen.getByLabelText("Task"), { target: { value: "cross" } });
+    fireEvent.click(screen.getByRole("button", { name: /^spawn$/i }));
+    await waitFor(() =>
+      expect(spawnRiff).toHaveBeenCalledWith("otherbox", "mysess", expect.objectContaining({ task: "cross" })),
+    );
   });
 });

@@ -279,3 +279,33 @@ func TestReadPresetsOrdered_PreservesOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestIsFabProject(t *testing.T) {
+	t.Run("present config → true", func(t *testing.T) {
+		root := t.TempDir()
+		writeFabConfig(t, root, "project:\n    name: x\n")
+		if !IsFabProject(root) {
+			t.Error("IsFabProject with a present config.yaml = false, want true")
+		}
+	})
+	t.Run("even a malformed-but-present config → true", func(t *testing.T) {
+		root := t.TempDir()
+		writeFabConfig(t, root, "this: is: not: valid: yaml: [\n")
+		// Presence, not validity, is the question — a fab project with a broken
+		// config still resolves tiers via ReadTiers's built-ins fallback.
+		if !IsFabProject(root) {
+			t.Error("IsFabProject with a malformed-but-present config.yaml = false, want true")
+		}
+	})
+	t.Run("absent config → false", func(t *testing.T) {
+		root := t.TempDir() // no fab/project/config.yaml
+		if IsFabProject(root) {
+			t.Error("IsFabProject with no config.yaml = true, want false")
+		}
+	})
+	t.Run("empty root → false", func(t *testing.T) {
+		if IsFabProject("") {
+			t.Error("IsFabProject(\"\") = true, want false")
+		}
+	})
+}

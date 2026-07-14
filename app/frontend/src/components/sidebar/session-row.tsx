@@ -5,7 +5,7 @@ import type { RowTint } from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingWindows } from "@/lib/waiting";
-import { PaletteIcon } from "./icons";
+import { PaletteIcon, BotIcon } from "./icons";
 
 type SessionRowProps = {
   /** Tmux server this session belongs to — bound into the identity-arg
@@ -47,6 +47,10 @@ type SessionRowProps = {
    *  window in this session (chat-aware — appends `?view=chat` when that window
    *  has a chat). Absent ⇒ the badge stays display-only. */
   onWaitingBadgeClick?: (server: string, session: string) => void;
+  /** Open the spawn-agent dialog targeting THIS row's session. Optional (mirrors
+   *  `onColorChange`): the bot button renders only when supplied — the board-route
+   *  sidebar passes no handler, so the button is hidden there. */
+  onSpawnAgent?: (server: string, session: string) => void;
   /** Roving-tabindex value: `0` for the single roving-focused tree row, `-1`
    *  otherwise. Defaults to `-1`. Only the two affected rows change this per
    *  arrow keypress, preserving the Wave-2 memo tree. */
@@ -94,6 +98,7 @@ function SessionRowInner({
   onDrop,
   onColorChange,
   onWaitingBadgeClick,
+  onSpawnAgent,
   tabIndex = -1,
   ariaSetSize,
   ariaPosInSet,
@@ -219,6 +224,18 @@ function SessionRowInner({
             className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
           >
             <PaletteIcon />
+          </button>
+        )}
+        {onSpawnAgent && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSpawnAgent(server, name);
+            }}
+            aria-label={`Spawn agent in ${session.name}`}
+            className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 coarse:opacity-100 px-0.5 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+          >
+            <BotIcon />
           </button>
         )}
         <button

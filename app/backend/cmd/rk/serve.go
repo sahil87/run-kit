@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,12 +18,43 @@ import (
 	"rk/api"
 	"rk/internal/config"
 	"rk/internal/daemon"
+	"rk/internal/selfpath"
 	"rk/internal/tmux"
 	"rk/internal/tmuxctl"
 	"rk/internal/updatecheck"
 
 	"github.com/spf13/cobra"
 )
+
+// bootIDBytes is the number of random bytes behind the per-process boot id
+// (16 hex chars = 8 bytes). Generated once per `rk serve` start; a fresh id on
+// every restart lets an open tab detect a same-version restart and reload.
+const bootIDBytes = 8
+
+// newBootID returns a random hex boot id for this process, or an empty string
+// if crypto/rand fails (the version slot then carries an empty boot — the
+// reload guard simply never fires on boot, which degrades to version-only
+// reload; no worse than before boot ids existed).
+func newBootID() string {
+	b := make([]byte, bootIDBytes)
+	if _, err := rand.Read(b); err != nil {
+		slog.Warn("boot id generation failed; boot-based reload disabled", "err", err)
+		return ""
+	}
+	return hex.EncodeToString(b)
+}
+
+// resolveBrewInstalled reports whether this daemon binary is a Homebrew install,
+// computed ONCE at startup (resolve the self path, test the Cellar marker).
+// Best-effort: a resolve failure reports false (the palette's brew-gated
+// force-update entry simply stays hidden, which is safe).
+func resolveBrewInstalled() bool {
+	selfPath, err := selfpath.Resolve()
+	if err != nil {
+		return false
+	}
+	return selfpath.IsBrewInstalled(selfPath)
+}
 
 const (
 	// daemonLogDirMode is the permission used for `os.MkdirAll` on the daemon
@@ -110,7 +143,7 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// `event: update-available`. Both surfaces drive the web UI's update chip
 		// and the post-restart auto-reload. The checker suppresses itself for the
 		// "dev" sentinel / unparseable versions and is bound to the serve context.
-		apiServer.SetVersion(version)
+		apiServer.SetVersion(version, newBootID(), resolveBrewInstalled())
 		updateChecker := updatecheck.New(version)
 		updateChecker.OnQualify = apiServer.WireUpdateAvailableBroadcast()
 		updateChecker.Start(ctx)

@@ -80,6 +80,12 @@ type Server struct {
 	updateChecker *updatecheck.Checker
 	sseHub        *sseHub
 	sseOnce       sync.Once
+	// version is the running daemon version (ldflags-injected main.version),
+	// seeded once at startup via SetVersion. Read by handleRestart's dev guard
+	// (a "dev" build must not bounce the real daemon out from under `just dev`'s
+	// air process). In-memory only (Constitution II) — same lifetime as the
+	// SSE version slot.
+	version string
 }
 
 // initSSEHub lazily creates the SSE hub on first use.
@@ -422,6 +428,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
 	r.Post("/api/pr-status/refresh", s.handlePRStatusRefresh)
 	r.Post("/api/update", s.handleUpdate)
+	r.Post("/api/restart", s.handleRestart)
 
 	// Server management routes
 	r.Get("/api/servers", s.handleServersList)

@@ -22,6 +22,8 @@ import {
   setWindowColor,
   updateWindowUrl,
   updateWindowType,
+  triggerForceUpdate,
+  triggerRestart,
   DAEMON_SERVER,
   isInfraServer,
   compareServers,
@@ -561,6 +563,56 @@ describe("POST verb migration + /options contract", () => {
     );
     await setServerColor("default", "1+3");
     expect(capturedBody).toEqual({ server: "default", color: "1+3" });
+  });
+});
+
+describe("maintenance actions (force update + restart)", () => {
+  it("triggerForceUpdate POSTs /api/update with {force:true}", async () => {
+    let capturedMethod = "";
+    let capturedBody: { force?: boolean } = {};
+    mswServer.use(
+      http.post("/api/update", async ({ request }) => {
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as typeof capturedBody;
+        return HttpResponse.json({ status: "updating" }, { status: 202 });
+      }),
+    );
+    await triggerForceUpdate();
+    expect(capturedMethod).toBe("POST");
+    expect(capturedBody).toEqual({ force: true });
+  });
+
+  it("triggerForceUpdate rejects on a non-2xx (e.g. 409 not-brew)", async () => {
+    mswServer.use(
+      http.post("/api/update", () =>
+        HttpResponse.json({ error: "not brew" }, { status: 409 }),
+      ),
+    );
+    await expect(triggerForceUpdate()).rejects.toThrow();
+  });
+
+  it("triggerRestart POSTs /api/restart with an empty body", async () => {
+    let capturedMethod = "";
+    let capturedBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.post("/api/restart", async ({ request }) => {
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as typeof capturedBody;
+        return HttpResponse.json({ status: "restarting" }, { status: 202 });
+      }),
+    );
+    await triggerRestart();
+    expect(capturedMethod).toBe("POST");
+    expect(capturedBody).toEqual({});
+  });
+
+  it("triggerRestart rejects on a non-2xx (e.g. 409 on a dev build)", async () => {
+    mswServer.use(
+      http.post("/api/restart", () =>
+        HttpResponse.json({ error: "dev" }, { status: 409 }),
+      ),
+    );
+    await expect(triggerRestart()).rejects.toThrow();
   });
 });
 

@@ -5,7 +5,7 @@ import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
-import { buildUpdateActions } from "@/lib/palette-update";
+import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
 import { nextWaitingTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
 import { isWaiting } from "@/lib/waiting";
 import {
@@ -1517,8 +1517,16 @@ function AppShell() {
   // The Update action deliberately IGNORES chip dismissal — dismissal silences
   // the ambient chip, but the palette is deliberate discovery — while a
   // companion Dismiss action mirrors the chip's `✕` for keyboard users.
-  const { qualifies: updateQualifies, latest: updateLatest, updateNow, dismissUpdate } =
-    useUpdateNotification();
+  const {
+    qualifies: updateQualifies,
+    latest: updateLatest,
+    updateNow,
+    dismissUpdate,
+    daemonVersion,
+    brew,
+    forceUpdateNow,
+    restartNow,
+  } = useUpdateNotification();
   const updateActions: PaletteAction[] = useMemo(
     () =>
       buildUpdateActions(
@@ -1532,6 +1540,31 @@ function AppShell() {
         dismissUpdate,
       ),
     [updateQualifies, updateLatest, updateNow, dismissUpdate, addToast],
+  );
+
+  // Maintenance actions — palette-only force-update / restart (Constitution V).
+  // Always available (independent of the qualifying-update gate): force update
+  // reaches patch releases; restart bounces a wedged daemon without SSH. Both
+  // fire immediately (no confirmation) — the SSE drop + boot/version reload IS
+  // the feedback; failures land in ~/.rk logs and a toast. Dev-gated + (for
+  // force) brew-gated inside buildMaintenanceActions.
+  const maintenanceActions: PaletteAction[] = useMemo(
+    () =>
+      buildMaintenanceActions(
+        brew,
+        daemonVersion,
+        () => {
+          void forceUpdateNow().catch((err: unknown) =>
+            addToast(err instanceof Error ? err.message : "Update failed", "error"),
+          );
+        },
+        () => {
+          void restartNow().catch((err: unknown) =>
+            addToast(err instanceof Error ? err.message : "Restart failed", "error"),
+          );
+        },
+      ),
+    [brew, daemonVersion, forceUpdateNow, restartNow, addToast],
   );
 
   // Regular-class effective order (infra servers ignore rank and are not
@@ -1658,8 +1691,8 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...updateActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions],
-    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, updateActions, serverActions, pushActions, windowSwitchActions, agentActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...updateActions, ...maintenanceActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions],
+    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, updateActions, maintenanceActions, serverActions, pushActions, windowSwitchActions, agentActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

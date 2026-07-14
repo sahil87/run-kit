@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
-import { listServers, compareServersRanked, setPreviewScope as apiSetPreviewScope, triggerUpdate, type ServerInfo } from "@/api/client";
+import { listServers, compareServersRanked, setPreviewScope as apiSetPreviewScope, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo } from "@/api/client";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
 const SERVER_STORAGE_KEY = "runkit-server";
@@ -22,13 +22,37 @@ const UPDATE_DISMISSED_KEY = "runkit-update-dismissed";
 // palette actions are suppressed for it.
 const DEV_VERSION = "dev";
 
-/** Pure reload-guard predicate (R10): given the FIRST daemon version this tab
- *  observed and the NEXT `version` event, decide whether to reload. Reloads only
- *  when a version was already seen AND the next one differs — never on the first
- *  connect (firstSeen === null), so there is no reload loop. Exported for unit
- *  testing; the provider wraps it with a ref + `location.reload()`. */
-export function shouldReloadOnVersion(firstSeen: string | null, next: string): boolean {
-  return firstSeen !== null && next !== firstSeen;
+/** Pure reload-guard predicate: given the FIRST {version, boot} this tab observed
+ *  and the NEXT `version` event, decide whether to reload. Reloads when a version
+ *  was already seen AND EITHER the version OR the boot id differs — a version
+ *  change means new assets; a same-version boot change means a plain daemon
+ *  restart (config change, wedge recovery, restart from SSH) that reconnected
+ *  this tab to a new process holding possibly-stale in-memory state. Never
+ *  reloads on the first connect (firstVersion === null), so there is no reload
+ *  loop.
+ *
+ *  DEV SUPPRESSION: when the running version is `"dev"`, a boot change is IGNORED
+ *  — under `just dev`, air recompiles the backend on every save, minting a new
+ *  boot id each time; reloading every dev tab on every recompile would be a
+ *  reload storm. A version change is still honored (moot in practice — a dev
+ *  version never changes — but keeps the predicate honest). `nextBoot` may be
+ *  null when an older daemon sends a boot-less payload (mixed-version window):
+ *  a null boot never triggers the boot branch.
+ *
+ *  Exported for unit testing; the provider wraps it with refs + `location.reload()`. */
+export function shouldReloadOnVersion(
+  firstVersion: string | null,
+  firstBoot: string | null,
+  nextVersion: string,
+  nextBoot: string | null,
+): boolean {
+  if (firstVersion === null) return false; // never reload on first connect
+  if (nextVersion !== firstVersion) return true; // new binary/assets
+  // Same version: a boot change means a plain restart — reload UNLESS this is a
+  // dev build (air recompile storm guard). A null nextBoot (older daemon) or an
+  // unchanged boot never triggers.
+  if (nextVersion === DEV_VERSION) return false;
+  return nextBoot !== null && nextBoot !== firstBoot;
 }
 
 /** Multi-server SessionContext shape. State is keyed by server name; one
@@ -107,6 +131,19 @@ export type SessionContextType = {
   /** Dismiss the update notice for the current pending `latest`, persisted
    *  per-version in localStorage. A later release re-shows the chip. */
   dismissUpdate: () => void;
+  /** Whether the daemon is a Homebrew install, from the server-global
+   *  `event: version` `brew` field. `false` until the first version event —
+   *  gates the palette-only `run-kit: Update Now` (force-update) entry. */
+  brew: boolean;
+  /** Force a self-upgrade regardless of the qualifying snapshot: POST
+   *  /api/update `{"force":true}`. Best-effort — the ensuing restart drops SSE
+   *  and the reconnect's differing version/boot drives the reload. Rejects on a
+   *  non-2xx (e.g. 409 not-brew) so the caller can catch it. */
+  forceUpdateNow: () => Promise<void>;
+  /** Restart the daemon: POST /api/restart. Best-effort — the restart drops SSE
+   *  and the reconnect's differing `boot` drives the reload guard even at the
+   *  same version. Rejects on a non-2xx (e.g. 409 on a dev build). */
+  restartNow: () => Promise<void>;
 };
 
 export const SessionContext = createContext<SessionContextType | null>(null);
@@ -208,6 +245,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // Running daemon version from the server-global `event: version` (no leading
   // "v"). `null` until the first event. Drives the reload guard + update chip.
   const [daemonVersion, setDaemonVersion] = useState<string | null>(null);
+  // Whether the daemon is a Homebrew install, from the server-global
+  // `event: version` `brew` field. `false` until the first version event (the
+  // brew-gated `run-kit: Update Now` palette entry stays hidden until observed).
+  const [isBrew, setIsBrew] = useState(false);
   // Pending qualifying update from the server-global `event: update-available`.
   const [updateAvailable, setUpdateAvailable] = useState<{ current: string; latest: string } | null>(null);
   // The latest version the user dismissed the notice for (localStorage-backed).
@@ -221,26 +262,33 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const { setIsConnected: setChromeConnected } = useChromeDispatch();
   const currentServer = useCurrentServerFromRoute();
 
-  // Reload guard (R10): remember the FIRST daemon version this tab observed.
-  // When a LATER `version` event (after an SSE reconnect following a daemon
-  // restart) differs from it, the running binary — and the frontend assets it
-  // embeds — changed under this open tab, so reload once to pick them up. Never
-  // reload on the first connect (firstVersionRef unset), so there is no reload
-  // loop. Held in a ref (not state) so the apply callback is stable and the
-  // comparison never re-runs an effect.
+  // Reload guard: remember the FIRST {version, boot} this tab observed. When a
+  // LATER `version` event (after an SSE reconnect following a daemon restart or
+  // upgrade) differs in EITHER field, the running process changed under this open
+  // tab — a version change means new embedded assets, a same-version boot change
+  // means a plain restart reconnecting the tab to a new process — so reload once
+  // to pick up fresh assets / drop stale in-memory state. Never reload on the
+  // first connect (firstVersionRef unset), so there is no reload loop. Held in
+  // refs (not state) so the apply callback is stable and the comparison never
+  // re-runs an effect. The boot-based branch self-suppresses on `dev` (air
+  // recompile storm guard) inside shouldReloadOnVersion.
   const firstVersionRef = useRef<string | null>(null);
-  const applyVersion = useCallback((version: string) => {
+  const firstBootRef = useRef<string | null>(null);
+  const applyVersion = useCallback((version: string, boot: string | null, brew: boolean) => {
     if (!version) return;
     setDaemonVersion(version);
-    if (shouldReloadOnVersion(firstVersionRef.current, version)) {
-      // New binary behind the same tab — reload to load its fresh assets.
+    setIsBrew(brew);
+    if (shouldReloadOnVersion(firstVersionRef.current, firstBootRef.current, version, boot)) {
+      // New process behind the same tab — reload to load fresh assets / drop
+      // stale in-memory state.
       location.reload();
       return;
     }
-    // Remember the first version seen (only on the first connect); a later
-    // differing version is handled by the reload branch above.
+    // Remember the first {version, boot} seen (only on the first connect); a
+    // later differing pair is handled by the reload branch above.
     if (firstVersionRef.current === null) {
       firstVersionRef.current = version;
+      firstBootRef.current = boot;
     }
   }, []);
 
@@ -271,6 +319,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
   }, [updateAvailable]);
 
   const updateNow = useCallback(() => triggerUpdate(), []);
+  // Maintenance actions (palette-only): force a self-upgrade regardless of the
+  // qualifying snapshot, and bounce the daemon. Thin wrappers over the client
+  // helpers — same shape as updateNow. The ensuing SSE drop + boot/version-driven
+  // reload IS the feedback; the caller catches rejections (no toast).
+  const forceUpdateNow = useCallback(() => triggerForceUpdate(), []);
+  const restartNow = useCallback(() => triggerRestart(), []);
 
   // Last raw host-metrics event payload applied to `hostMetrics`, shared across
   // ALL sources (every per-server stream's `metrics` fan-out + the dedicated
@@ -616,12 +670,20 @@ export function SessionProvider({ children }: SessionProviderProps) {
       });
 
       // version — server-global (sent on connect on every stream). Track the
-      // running daemon version and drive the post-restart reload guard. No
-      // `data.server` filter: host-global, like server-order/board-order.
+      // running daemon version + boot id + brew flag and drive the post-restart
+      // reload guard. `boot`/`brew` are parsed tolerantly (an older daemon sends
+      // a boot-less/brew-less payload — mixed-version window — which must not
+      // break). No `data.server` filter: host-global, like server-order/board-order.
       es.addEventListener("version", (e: MessageEvent) => {
         try {
-          const data = JSON.parse(e.data) as { version?: string };
-          if (typeof data.version === "string") applyVersion(data.version);
+          const data = JSON.parse(e.data) as { version?: string; boot?: string; brew?: boolean };
+          if (typeof data.version === "string") {
+            applyVersion(
+              data.version,
+              typeof data.boot === "string" ? data.boot : null,
+              data.brew === true,
+            );
+          }
         } catch {
           // Malformed version event — skip
         }
@@ -841,8 +903,14 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // per-server listeners above.
     es.addEventListener("version", (e: MessageEvent) => {
       try {
-        const data = JSON.parse(e.data) as { version?: string };
-        if (typeof data.version === "string") applyVersion(data.version);
+        const data = JSON.parse(e.data) as { version?: string; boot?: string; brew?: boolean };
+        if (typeof data.version === "string") {
+          applyVersion(
+            data.version,
+            typeof data.boot === "string" ? data.boot : null,
+            data.brew === true,
+          );
+        }
       } catch {
         // Malformed version event — skip
       }
@@ -944,6 +1012,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
       updateDismissedVersion,
       updateNow,
       dismissUpdate,
+      brew: isBrew,
+      forceUpdateNow,
+      restartNow,
     }),
     [
       sessionsByServer,
@@ -967,6 +1038,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
       updateDismissedVersion,
       updateNow,
       dismissUpdate,
+      isBrew,
+      forceUpdateNow,
+      restartNow,
     ],
   );
 
@@ -1002,13 +1076,23 @@ export function useSessionContext(): SessionContextType {
  *     is the chip's visibility gate.
  *   - `latest` — the pending latest version string (or `null`).
  *   - `updateNow` / `dismissUpdate` — the context actions, re-exported for
- *     convenience. */
+ *     convenience.
+ *   - `daemonVersion` — the running version (or `null`), so the maintenance
+ *     palette entries can dev-gate.
+ *   - `brew` — whether the daemon is a Homebrew install, gating the force-update
+ *     maintenance entry (`false` until the first version event).
+ *   - `forceUpdateNow` / `restartNow` — the maintenance actions, re-exported for
+ *     the palette. */
 export function useUpdateNotification(): {
   qualifies: boolean;
   showChip: boolean;
   latest: string | null;
   updateNow: () => Promise<void>;
   dismissUpdate: () => void;
+  daemonVersion: string | null;
+  brew: boolean;
+  forceUpdateNow: () => Promise<void>;
+  restartNow: () => Promise<void>;
 } {
   // Tolerant of a missing provider: the update chip/palette are chrome that must
   // degrade to "no update" (never crash) when mounted outside SessionProvider
@@ -1020,11 +1104,24 @@ export function useUpdateNotification(): {
   const updateDismissedVersion = ctx?.updateDismissedVersion ?? null;
   const updateNow = ctx?.updateNow ?? (() => Promise.resolve());
   const dismissUpdate = ctx?.dismissUpdate ?? (() => {});
+  const brew = ctx?.brew ?? false;
+  const forceUpdateNow = ctx?.forceUpdateNow ?? (() => Promise.resolve());
+  const restartNow = ctx?.restartNow ?? (() => Promise.resolve());
   const isDev = daemonVersion === DEV_VERSION;
   const latest = updateAvailable?.latest ?? null;
   const qualifies = !isDev && latest !== null;
   const showChip = qualifies && latest !== updateDismissedVersion;
-  return { qualifies, showChip, latest, updateNow, dismissUpdate };
+  return {
+    qualifies,
+    showChip,
+    latest,
+    updateNow,
+    dismissUpdate,
+    daemonVersion,
+    brew,
+    forceUpdateNow,
+    restartNow,
+  };
 }
 
 export function useMetrics(): MetricsSnapshot | null {
@@ -1099,6 +1196,9 @@ export function StandaloneSessionContextProvider({
     updateDismissedVersion: value.updateDismissedVersion ?? null,
     updateNow: value.updateNow ?? (() => Promise.resolve()),
     dismissUpdate: value.dismissUpdate ?? (() => {}),
+    brew: value.brew ?? false,
+    forceUpdateNow: value.forceUpdateNow ?? (() => Promise.resolve()),
+    restartNow: value.restartNow ?? (() => Promise.resolve()),
   };
   return <SessionContext.Provider value={fullValue}>{children}</SessionContext.Provider>;
 }

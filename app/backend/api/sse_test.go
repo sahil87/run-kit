@@ -606,12 +606,12 @@ func TestBroadcastBoardOrderNilNormalizedToEmpty(t *testing.T) {
 
 // TestVersionSlotReplayedOnConnect verifies the server-global `event: version`
 // cached slot: after setVersion, EVERY client (incl. `?metrics=1`) receives the
-// version frame on connect. There is no broadcast path — the slot is delivered
-// on connect only.
+// version frame on connect, carrying the additive `boot` + `brew` fields. There
+// is no broadcast path — the slot is delivered on connect only.
 func TestVersionSlotReplayedOnConnect(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
-	hub.setVersion("0.5.3")
+	hub.setVersion("0.5.3", "abc123", true)
 
 	for name, server := range map[string]string{"default": "default", "metrics-only": metricsOnlyServer} {
 		c := &sseClient{ch: make(chan []byte, 16), server: server}
@@ -625,8 +625,13 @@ func TestVersionSlotReplayedOnConnect(t *testing.T) {
 		if len(got) == 0 {
 			t.Fatalf("%s client received no version event (all: %v)", name, events)
 		}
-		if !strings.Contains(got[0], `{"version":"0.5.3"}`) {
-			t.Errorf("%s client version payload = %q, want {\"version\":\"0.5.3\"}", name, got[0])
+		// Assert each required field independently rather than the exact
+		// serialized object — this tolerates JSON key-order changes and
+		// additive fields (the payload is explicitly additive; see setVersion).
+		for _, want := range []string{`"version":"0.5.3"`, `"boot":"abc123"`, `"brew":true`} {
+			if !strings.Contains(got[0], want) {
+				t.Errorf("%s client version payload = %q, missing %s", name, got[0], want)
+			}
 		}
 	}
 }
@@ -645,6 +650,24 @@ func TestVersionSlotEmptyWhenUnset(t *testing.T) {
 	}
 	if got := filterSSEEvents(events, "version"); len(got) != 0 {
 		t.Errorf("expected no version event when unset, got %v", got)
+	}
+}
+
+// TestVersionSlotEmptyVersionSuppressed verifies an empty version leaves the
+// slot empty (no `event: version` sent) even when boot/brew are provided.
+func TestVersionSlotEmptyVersionSuppressed(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf, nil, nil, nil)
+	hub.setVersion("", "abc123", true)
+	c := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	hub.addClient(c)
+	defer hub.removeClient(c)
+	var events []string
+	for len(c.ch) > 0 {
+		events = append(events, string(<-c.ch))
+	}
+	if got := filterSSEEvents(events, "version"); len(got) != 0 {
+		t.Errorf("expected no version event when version is empty, got %v", got)
 	}
 }
 

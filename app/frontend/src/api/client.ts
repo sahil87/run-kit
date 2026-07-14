@@ -368,6 +368,36 @@ export async function triggerUpdate(): Promise<void> {
   if (!res.ok) await throwOnError(res);
 }
 
+/** Force a self-upgrade regardless of the update checker's qualifying snapshot:
+ *  POST /api/update with `{"force":true}`. The server skips the qualify check
+ *  (but still requires a brew install) and spawns a detached `rk update`, so a
+ *  patch release — unreachable via the qualifying-gated `triggerUpdate()` — is
+ *  installable from the web. Best-effort from the caller's view (the ensuing
+ *  daemon restart drops SSE; the reconnect's differing version/boot drives the
+ *  reload). Rejects on a non-2xx (e.g. 409 not-brew). */
+export async function triggerForceUpdate(): Promise<void> {
+  const res = await fetch("/api/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force: true }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
+/** Restart the daemon: POST /api/restart. The server responds 202 and spawns a
+ *  detached `rk daemon restart` (no brew requirement). Best-effort — the restart
+ *  drops the SSE connection, and the reconnect's differing `boot` id drives the
+ *  reload guard even when the version is unchanged. Rejects on a non-2xx (e.g.
+ *  409 on a dev build). Server-independent (the daemon is one process). */
+export async function triggerRestart(): Promise<void> {
+  const res = await fetch("/api/restart", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
 export async function uploadFile(
   server: string,
   session: string,

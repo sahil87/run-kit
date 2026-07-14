@@ -1,0 +1,57 @@
+id: 3law
+name: 260714-3law-force-update-restart-palette
+created: 2026-07-14T10:08:48Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 18
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 7
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 75.3
+        reversibility: 84.7
+        competence: 87.3
+        disambiguation: 78.3
+stage_metrics:
+    intake: {started_at: "2026-07-14T10:08:48Z", driver: fab-new, iterations: 1, completed_at: "2026-07-14T10:14:59Z"}
+    apply: {started_at: "2026-07-14T10:14:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T10:30:59Z"}
+    review: {started_at: "2026-07-14T10:30:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T10:38:54Z"}
+    hydrate: {started_at: "2026-07-14T10:38:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T10:46:20Z"}
+    ship: {started_at: "2026-07-14T10:46:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T10:48:46Z"}
+    review-pr: {started_at: "2026-07-14T10:48:46Z", driver: git-pr, iterations: 1, completed_at: "2026-07-14T10:57:36Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/350
+change_type_source: explicit
+true_impact:
+    added: 1345
+    deleted: 160
+    net: 1185
+    excluding:
+        added: 869
+        deleted: 142
+        net: 727
+    tests:
+        added: 379
+        deleted: 59
+        net: 320
+    computed_at: "2026-07-14T10:48:46Z"
+    computed_at_stage: ship
+summary: 'Add web-reachable force-update ({"force":true} skips qualify-409, keeps brew-409) + POST /api/restart (202 → detached rk daemon restart, dev-409) via one shared spawnSelfFn seam; event: version gains per-process boot id + brew flag; boot-aware 4-arg shouldReloadOnVersion reloads on same-version restart (dev-suppressed); two palette-only maintenance entries (Update Now brew&&!dev, Restart Daemon !dev) dual-mounted'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-14T10:57:36Z

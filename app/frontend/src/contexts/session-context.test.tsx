@@ -8,6 +8,7 @@ import {
   useHostServices,
   useMetrics,
   StandaloneSessionContextProvider,
+  shouldReloadOnVersion,
 } from "./session-context";
 import { ChromeProvider } from "./chrome-context";
 import type { MetricsSnapshot } from "@/types";
@@ -713,5 +714,38 @@ describe("StandaloneSessionContextProvider — pending-server fallbacks", () => 
     );
     expect(screen.getByTestId("pending").textContent).toBe("null");
     expect(screen.getByTestId("loaded").textContent).toBe("false");
+  });
+});
+
+describe("shouldReloadOnVersion — boot-aware reload guard", () => {
+  it("never reloads on the first connect (first-seen unset), regardless of boot", () => {
+    expect(shouldReloadOnVersion(null, null, "0.5.3", "b1")).toBe(false);
+    expect(shouldReloadOnVersion(null, "b0", "0.5.3", "b1")).toBe(false);
+  });
+
+  it("does not reload when both version and boot are unchanged", () => {
+    expect(shouldReloadOnVersion("0.5.3", "b1", "0.5.3", "b1")).toBe(false);
+  });
+
+  it("reloads when the version changes (regression), even if boot is unchanged", () => {
+    expect(shouldReloadOnVersion("0.5.3", "b1", "0.6.0", "b1")).toBe(true);
+  });
+
+  it("reloads on a same-version boot change (plain daemon restart)", () => {
+    expect(shouldReloadOnVersion("0.5.3", "b1", "0.5.3", "b2")).toBe(true);
+  });
+
+  it("suppresses the boot-based reload on the dev version (air recompile storm guard)", () => {
+    expect(shouldReloadOnVersion("dev", "b1", "dev", "b2")).toBe(false);
+  });
+
+  it("tolerates a boot-less payload (older daemon): a null next boot never reloads at the same version", () => {
+    expect(shouldReloadOnVersion("0.5.3", "b1", "0.5.3", null)).toBe(false);
+    // ...but a version change still reloads even with a null boot.
+    expect(shouldReloadOnVersion("0.5.3", "b1", "0.6.0", null)).toBe(true);
+  });
+
+  it("tolerates a null first boot (first payload was boot-less), reloading when a boot later appears", () => {
+    expect(shouldReloadOnVersion("0.5.3", null, "0.5.3", "b2")).toBe(true);
   });
 });

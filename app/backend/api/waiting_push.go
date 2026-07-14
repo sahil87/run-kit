@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,23 @@ const (
 // within a server).
 func waitingKey(server, windowID string) string { return server + "\x00" + windowID }
 
+// waitingPushURL builds the deep-link target for a waiting-window push
+// (260714-r7rq). The frontend terminal route is `/{server}/{N}` where the URL
+// segment is the window id's numeric part (the tmux `@N` sans `@`, per
+// `windowIdToUrlSegment` in router.tsx). A chat-capable window (non-empty
+// `chatProvider`) deep-links into the chat view (`?view=chat`); otherwise the
+// plain window URL, which resolves the window's own view pref on load. Server
+// and the numeric segment are path-escaped so a name with reserved characters
+// stays a valid same-origin relative URL.
+func waitingPushURL(server, windowID string, hasChat bool) string {
+	seg := strings.TrimPrefix(windowID, "@")
+	base := "/" + url.PathEscape(server) + "/" + url.PathEscape(seg)
+	if hasChat {
+		return base + "?view=chat"
+	}
+	return base
+}
+
 // waitingEpisode is the per-window tracked state: when the current waiting run
 // began and whether it has already pushed. Absent from the map == the window is
 // not currently waiting.
@@ -55,8 +73,8 @@ type waitingPushTracker struct {
 	mu       sync.Mutex
 	episodes map[string]waitingEpisode
 	sustain  time.Duration
-	now      func() time.Time                                    // clock seam for tests
-	notify   func(ctx context.Context, title, body string) error // push seam for tests
+	now      func() time.Time                                         // clock seam for tests
+	notify   func(ctx context.Context, title, body, url string) error // push seam for tests
 }
 
 func newWaitingPushTracker() *waitingPushTracker {
@@ -64,26 +82,32 @@ func newWaitingPushTracker() *waitingPushTracker {
 		episodes: make(map[string]waitingEpisode),
 		sustain:  waitingPushSustain,
 		now:      time.Now,
-		notify: func(ctx context.Context, title, body string) error {
-			_, err := push.Notify(ctx, title, body)
+		notify: func(ctx context.Context, title, body, url string) error {
+			_, err := push.Notify(ctx, title, body, url)
 			return err
 		},
 	}
 }
 
 // waitingPush is one decided push (the pure decision output, before fan-out).
+// `url` is the deep-link target for the notification click (260714-r7rq —
+// `/{server}/{N}?view=chat` for a chat-capable window, else the plain window URL).
 type waitingPush struct {
 	title string
 	body  string
+	url   string
 }
 
 // pushWindow is the minimal per-window shape the decision needs — extracted so
 // the decision is pure and unit-testable without building full ProjectSessions.
+// `hasChat` records whether the window carries a `chatProvider` rollup, which
+// decides the deep-link URL shape (260714-r7rq).
 type pushWindow struct {
 	server   string
 	windowID string
 	name     string
 	waiting  bool
+	hasChat  bool
 }
 
 // decide advances the episode tracker for one server's windows at `now` and
@@ -121,6 +145,7 @@ func (t *waitingPushTracker) decide(wins []pushWindow) []waitingPush {
 			out = append(out, waitingPush{
 				title: w.name,
 				body:  "waiting for input",
+				url:   waitingPushURL(w.server, w.windowID, w.hasChat),
 			})
 			ep.pushed = true
 			t.episodes[key] = ep
@@ -163,6 +188,7 @@ func pushWindowsForServer(server string, sess []sessions.ProjectSession) []pushW
 				windowID: w.WindowID,
 				name:     w.Name,
 				waiting:  w.AgentState == tmux.AgentStateWaiting,
+				hasChat:  w.ChatProvider != "",
 			})
 		}
 	}
@@ -196,7 +222,7 @@ func (t *waitingPushTracker) notifyWaiting(server string, sess []sessions.Projec
 		// returns.
 		go func(ps []waitingPush) {
 			for _, p := range ps {
-				if err := t.notify(context.Background(), p.title, p.body); err != nil {
+				if err := t.notify(context.Background(), p.title, p.body, p.url); err != nil {
 					slog.Warn("waiting-push notify failed", "err", err, "window", p.title)
 				}
 			}

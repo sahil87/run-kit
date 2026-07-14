@@ -53,6 +53,13 @@ export type TopBarSlot = {
    *  board mode — the top-bar toggle renders only when both are present. */
   autofit?: boolean;
   onToggleAutofit?: () => void;
+  /** Chat view (260714-r7rq, terminal mode). The current window's active view,
+   *  whether chat is available (non-empty `chatProvider`), and the toggle setter
+   *  — published by `AppShell`. The top-bar `[tty|chat]` chip renders only when
+   *  `chatAvailable` && `onSetView` are present. */
+  view?: "chat" | "terminal";
+  chatAvailable?: boolean;
+  onSetView?: (view: "chat" | "terminal") => void;
 } | null;
 
 type TopBarSlotContextValue = {

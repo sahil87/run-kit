@@ -6,8 +6,14 @@ import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBar
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
-import { nextWaitingTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
+import { buildViewActions } from "@/lib/palette-view";
+import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
 import { isWaiting } from "@/lib/waiting";
+import { resolveChatView } from "@/lib/chat-view-resolve";
+import { useChatViewPref, readChatViewPrefKey } from "@/hooks/use-chat-view-pref";
+import { useChatStream } from "@/hooks/use-chat-stream";
+import { useChatViewShortcut } from "@/hooks/use-chat-view-shortcut";
+import { ChatView } from "@/components/chat-view";
 import {
   windowSwitchDirection,
   viewTransitionSupported,
@@ -258,6 +264,9 @@ function RootTopBar() {
       closeDisabled={slot?.closeDisabled}
       autofit={slot?.autofit}
       onToggleAutofit={slot?.onToggleAutofit}
+      view={slot?.view}
+      chatAvailable={slot?.chatAvailable}
+      onSetView={slot?.onSetView}
     />
   );
 }
@@ -331,6 +340,10 @@ function AppShell() {
   const matches = useMatches();
   const lastMatch = matches[matches.length - 1];
   const params = (lastMatch?.params ?? {}) as { server?: string; window?: string };
+  // Terminal-route `?view=chat` search param (260714-r7rq). Read from the
+  // deepest match's validated `search` (the terminal route's `validateSearch`
+  // normalizes it to `"chat" | undefined`). Absent on non-terminal routes.
+  const urlView = ((lastMatch?.search ?? {}) as { view?: "chat" }).view;
   // AppShell only mounts under `/$server/...`, so `currentServer` is non-null
   // here in practice. Fall back to URL params during the brief window between
   // navigation and the provider's next render with `currentServer` set.
@@ -370,6 +383,19 @@ function AppShell() {
   // The session name shown in breadcrumbs/title/dropdowns, derived from the
   // snapshot (not the URL). Undefined until the snapshot resolves the window.
   const sessionName = currentSession?.name;
+
+  // Chat view (260714-r7rq). `chatAvailable` gates every chat affordance on the
+  // window carrying a non-empty `chatProvider` (mirrors the backend's own
+  // `resolveWindowChat` gating). The per-window persistence pref feeds the
+  // URL>pref>terminal precedence (`resolveChatView`); a chat-less window renders
+  // the terminal regardless (param/pref stay inert). `currentWindow` can be null
+  // on a cold deep-link before the snapshot resolves — read the fields safely.
+  const chatAvailable = !!currentWindow?.chatProvider;
+  const { chatPref, setChatPref } = useChatViewPref(server, windowParam ?? "");
+  const resolvedView = resolveChatView(urlView, chatPref);
+  // A chat-less window is always the terminal view, no matter the URL/pref.
+  const activeView: "chat" | "terminal" =
+    chatAvailable && resolvedView === "chat" ? "chat" : "terminal";
 
   // Compose buffer open state lives in `FocusedTerminalContext` so the
   // shell-level `<BottomBar>` can open compose for the focused terminal
@@ -536,8 +562,13 @@ function AppShell() {
   const switchTransitionRef = useRef<{
     order: string[];
     iframeIds: Set<string>;
+    /** Window ids carrying a `chatProvider` (260714-r7rq). A chat-CAPABLE
+     *  target uses the ungated capture only when its stored per-window pref is
+     *  chat — that pref is read LAZILY at click time (one localStorage read per
+     *  click) rather than for every window on every render. */
+    chatCapableIds: Set<string>;
     currentWindowId: string;
-  }>({ order: [], iframeIds: new Set(), currentWindowId: "" });
+  }>({ order: [], iframeIds: new Set(), chatCapableIds: new Set(), currentWindowId: "" });
 
   useEffect(() => {
     setCurrentSession(currentSession);
@@ -576,6 +607,10 @@ function AppShell() {
       navigate({
         to: "/$server/$window",
         params: { server, window: target.windowId },
+        // Cross-window redirect (the current window died): clear `?view=chat`
+        // so the fallback window resolves its OWN view pref (260714-r7rq) rather
+        // than inheriting the dead window's chat state.
+        search: {},
         replace: true,
       });
     } else {
@@ -653,6 +688,9 @@ function AppShell() {
     navigate({
       to: "/$server/$window",
       params: { server, window: activeWindow.windowId },
+      // Window switch driven by tmux (SSE writeback): clear `?view=chat` so the
+      // newly-active window resolves its own view pref (260714-r7rq).
+      search: {},
       replace: true,
     });
   }, [activeWindow, sessionName, windowParam, navigate, server]);
@@ -682,6 +720,10 @@ function AppShell() {
         navigate({
           to: "/$server/$window",
           params: { server, window: windowId },
+          // Window switch (sidebar/palette click): clear `?view=chat` so the
+          // target window resolves its own view pref (260714-r7rq). Same-window
+          // view toggles go through `onSetView`, which sets search explicitly.
+          search: {},
           replace: true,
         });
         const posted = selectWindow(server, windowId);
@@ -694,7 +736,7 @@ function AppShell() {
       // support, motion not reduced, an outgoing window in view, and a slide
       // direction resolvable from the flattened sidebar order. Any failure →
       // the instant switch above (progressive enhancement).
-      const { order, iframeIds, currentWindowId } = switchTransitionRef.current;
+      const { order, iframeIds, chatCapableIds, currentWindowId } = switchTransitionRef.current;
       const direction = windowSwitchDirection(order, currentWindowId, windowId);
       // Guard `matchMedia` for non-browser/test envs (jsdom variants, older
       // WebViews) where it may be missing — same pattern as `use-is-mobile.ts`
@@ -744,7 +786,14 @@ function AppShell() {
       // below — it fires a prior PENDING terminal gate (a terminal→iframe switch
       // supersedes an in-flight terminal gate), so it must run before we branch
       // on `targetIsIframe`.
-      const targetIsIframe = iframeIds.has(windowId);
+      //
+      // Chat targets (260714-r7rq) join the ungated set: a chat-CAPABLE target
+      // whose stored per-window pref is chat will render `<ChatView>` (no xterm
+      // first-write seam). The pref is read lazily HERE — one localStorage read
+      // per click — rather than for every window on every render.
+      const targetIsIframe =
+        iframeIds.has(windowId) ||
+        (chatCapableIds.has(windowId) && readChatViewPrefKey(server, windowId));
       const gate = beginWindowSwitchGate();
       // Capture a monotonic token so only the LATEST switch's cleanup may clear
       // the direction attribute (a superseded transition's `finished` still
@@ -790,6 +839,40 @@ function AppShell() {
     [server, navigate, isMobile, setSidebarOpen],
   );
 
+  // Toggle the current window's view (260714-r7rq). Window-preserving: it only
+  // rewrites the `view` search param on the SAME `/$server/$window` route and
+  // persists the per-window pref. `?view=chat` in the URL is set when flipping
+  // to chat and dropped (undefined) when flipping to terminal, so the URL stays
+  // the addressable source of truth (feeds `resolveChatView`'s precedence).
+  const onSetView = useCallback(
+    (next: "chat" | "terminal") => {
+      if (!windowParam) return;
+      navigate({
+        to: "/$server/$window",
+        params: { server, window: windowParam },
+        search: next === "chat" ? { view: "chat" } : {},
+        replace: true,
+      });
+      setChatPref(next === "chat");
+    },
+    [server, windowParam, navigate, setChatPref],
+  );
+
+  // Chat stream (260714-r7rq) — a SINGLE dedicated EventSource, owned here so it
+  // feeds BOTH the `ChatView` renderer (below) and the connection dot's health
+  // (R9). Opened only when the chat view is actually active for a chat-capable
+  // window; the hook is a no-op with empty ids otherwise (it early-returns
+  // without opening a connection), so a terminal-view window never streams.
+  const chatViewActive = activeView === "chat" && chatAvailable;
+  const chatStream = useChatStream(
+    chatViewActive ? server : "",
+    chatViewActive ? windowParam ?? "" : "",
+  );
+
+  // Ctrl+` toggles tty↔chat (Constitution V). Enabled only on a chat-capable
+  // window in view; fires even while xterm owns focus (see the hook).
+  useChatViewShortcut(chatAvailable && !!windowParam, activeView, onSetView);
+
   // Dialog state management
   const dialogs = useDialogState({
     sessionName,
@@ -831,6 +914,20 @@ function AppShell() {
     iframeIds: new Set(
       flatWindows
         .filter((fw) => fw.window.rkType === "iframe" && fw.window.rkUrl)
+        .map((fw) => fw.window.windowId),
+    ),
+    // A CHAT-active target (260714-r7rq) is the iframe case's analog — it
+    // renders `<ChatView>`, which has no xterm first-write seam, so a
+    // first-write gate would never release; it must use the ungated capture.
+    // A target renders chat when it has a `chatProvider` AND its stored
+    // per-window pref is chat (a cross-window switch carries no URL
+    // `?view=chat` — that is a same-window param). Only the cheap capability
+    // set is synced here; the localStorage pref is read LAZILY at click time
+    // in `navigateToWindow` (one read per click, not one per window per
+    // render).
+    chatCapableIds: new Set(
+      flatWindows
+        .filter((fw) => !!fw.window.chatProvider)
         .map((fw) => fw.window.windowId),
     ),
     currentWindowId: windowParam ?? "",
@@ -1225,6 +1322,9 @@ function AppShell() {
                             navigate({
                               to: "/$server/$window",
                               params: { server, window: currentWindow.windowId },
+                              // Same-window move (index only): preserve the
+                              // current view (260714-r7rq).
+                              search: (prev) => prev,
                             });
                           })
                           .catch((err) => {
@@ -1250,6 +1350,9 @@ function AppShell() {
                             navigate({
                               to: "/$server/$window",
                               params: { server, window: currentWindow.windowId },
+                              // Same-window move (index only): preserve the
+                              // current view (260714-r7rq).
+                              search: (prev) => prev,
                             });
                           })
                           .catch((err) => {
@@ -1277,6 +1380,9 @@ function AppShell() {
                             navigate({
                               to: "/$server/$window",
                               params: { server, window: currentWindow.windowId },
+                              // Same-window move (index only): preserve the
+                              // current view (260714-r7rq).
+                              search: (prev) => prev,
                             });
                           })
                           .catch((err) => addToast(err.message || "Failed to move window"));
@@ -1298,6 +1404,9 @@ function AppShell() {
                             navigate({
                               to: "/$server/$window",
                               params: { server, window: currentWindow.windowId },
+                              // Same-window move (index only): preserve the
+                              // current view (260714-r7rq).
+                              search: (prev) => prev,
                             });
                           })
                           .catch((err) => addToast(err.message || "Failed to move window"));
@@ -1452,6 +1561,10 @@ function AppShell() {
             },
           ]
         : []),
+      // View: Chat / View: Terminal (260714-r7rq) — the inactive-side toggle,
+      // gated on the current window carrying a `chatProvider` (Constitution V
+      // keyboard parity for the top-bar chip). Empty when chat is unavailable.
+      ...buildViewActions(chatAvailable, activeView, onSetView),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
@@ -1470,7 +1583,7 @@ function AppShell() {
         onSelect: () => window.location.reload(),
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth],
+    [sessionName, fixedWidth, toggleFixedWidth, chatAvailable, activeView, onSetView, setComposeOpen],
   );
 
   // Terminal font-size actions. No `shortcut` — Cmd +/- is deliberately not
@@ -1640,6 +1753,32 @@ function AppShell() {
     [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer],
   );
 
+  // Navigate to a waiting target while PRESERVING `?view=chat` (260714-r7rq).
+  // A chat-capable target can't reuse `navigateToWindow` (that path hardcodes
+  // `search: {}`, stripping the deep-link), so it navigates directly — but a
+  // SAME-SERVER target still needs the tmux alignment the sidebar/palette path
+  // provides: set `pendingClickRef` + fire `selectWindow` so the URL writeback
+  // (app.tsx:663) doesn't bounce back to the previously-active window (which
+  // would ALSO strip `?view=chat`, since that writeback clears search) before
+  // SSE confirms the switch. Cross-server targets navigate plainly — identity
+  // is window-id-only on the 2-segment route and the destination's mount-time
+  // alignment (app.tsx:633) handles tmux there.
+  const navigateToWaitingTarget = useCallback(
+    (targetServer: string, targetWindowId: string, hasChat: boolean) => {
+      if (targetServer === server) {
+        pendingClickRef.current = { windowId: targetWindowId };
+        selectWindow(server, targetWindowId).catch(() => {});
+      }
+      navigate({
+        to: "/$server/$window",
+        params: { server: targetServer, window: targetWindowId },
+        search: chatSearchForTarget(hasChat),
+      });
+      if (isMobile) setSidebarOpen(false);
+    },
+    [server, navigate, isMobile, setSidebarOpen],
+  );
+
   // Per-window switch entries — one per window across every session. Grouped
   // under the "Window:" family (renamed from the old "Terminal:" prefix) to
   // surface the keyboard switch path (constitution V). Reuses navigateToWindow
@@ -1670,10 +1809,15 @@ function AppShell() {
   const agentActions: PaletteAction[] = useMemo(() => {
     const onSelect = () => {
       const ordered: WaitingTarget[] = [];
+      // `{server}|{windowId}` → whether that target has a chat, so the deep link
+      // appends `?view=chat` for chat-capable windows (260714-r7rq).
+      const chatByKey = new Map<string, boolean>();
+      const key = (srv: string, wid: string) => `${srv}|${wid}`;
       // Current server first, in sidebar order.
       for (const fw of flatWindows) {
         if (isWaiting(fw.window)) {
           ordered.push({ server, windowId: fw.window.windowId });
+          chatByKey.set(key(server, fw.window.windowId), !!fw.window.chatProvider);
         }
       }
       // Then other attached servers (skip the current one — already added).
@@ -1681,7 +1825,10 @@ function AppShell() {
         if (s.name === server) continue;
         for (const sess of sessionsByServerRef.current.get(s.name) ?? []) {
           for (const w of sess.windows) {
-            if (isWaiting(w)) ordered.push({ server: s.name, windowId: w.windowId });
+            if (isWaiting(w)) {
+              ordered.push({ server: s.name, windowId: w.windowId });
+              chatByKey.set(key(s.name, w.windowId), !!w.chatProvider);
+            }
           }
         }
       }
@@ -1690,15 +1837,21 @@ function AppShell() {
         addToast("No agents waiting", "info");
         return;
       }
-      if (target.server === server) {
+      const hasChat = chatByKey.get(key(target.server, target.windowId)) ?? false;
+      if (target.server === server && !hasChat) {
+        // Same-server, non-chat: keep the rich window-switch path (selectWindow
+        // tmux-align + slide transition + mobile-close). It clears search, which
+        // is correct — the target resolves its own terminal view.
         navigateToWindow(target.windowId);
-      } else {
-        navigate({ to: "/$server/$window", params: { server: target.server, window: target.windowId } });
-        if (isMobile) setSidebarOpen(false);
+        return;
       }
+      // A chat-capable target deep-links into `?view=chat` (a same-server chat
+      // target still tmux-aligns via `navigateToWaitingTarget`); a cross-server
+      // target navigates plainly (its pref/URL resolves on render).
+      navigateToWaitingTarget(target.server, target.windowId, hasChat);
     };
     return [{ id: "agent-next-waiting", label: "Agent: Next waiting", onSelect }];
-  }, [flatWindows, servers, server, windowParam, navigateToWindow, navigate, isMobile, setSidebarOpen, addToast]);
+  }, [flatWindows, servers, server, windowParam, navigateToWindow, navigateToWaitingTarget, addToast]);
 
   // Agent: Spawn — Cmd+K parity for the web-UI spawn flow (260713-sbk1;
   // Constitution V palette parity — the shortcut/registration is documented
@@ -1739,9 +1892,13 @@ function AppShell() {
         navigateToWindow(windowId);
       } else {
         // Cross-server: identity is window-id only on the 2-segment route.
+        // Clear `?view=chat` so the target window resolves its own view pref
+        // (260714-r7rq); a cross-server switch never carries the source's chat
+        // state.
         navigate({
           to: "/$server/$window",
           params: { server: srv, window: windowId },
+          search: {},
         });
         if (isMobile) setSidebarOpen(false);
       }
@@ -1774,6 +1931,46 @@ function AppShell() {
     [server, handleCreateSessionInstant, executeCreateSessionInstant],
   );
 
+  // Waiting-badge click (260714-r7rq): navigate to the NEXT waiting window
+  // within the clicked session's scope, reusing the `nextWaitingTarget` cycle
+  // semantics (R12) — so clicking the badge while already ON one of that
+  // session's waiting windows advances to the next (with wraparound) instead of
+  // no-opping on the first. `?view=chat` is appended when the target window has
+  // a chat (chatSearchForTarget). Reads the freshest sessions map by ref so the
+  // callback stays stable across SSE ticks (mirrors the other sidebar
+  // handlers). No-op if the session has no waiting window (the badge only
+  // renders when count > 0, so this is a defensive guard against a stale
+  // snapshot).
+  const handleWaitingBadgeClick = useCallback(
+    (srv: string, sess: string) => {
+      // Read the freshest sessions map by ref (keyed by server) so the callback
+      // stays stable across SSE ticks — `sessionsByServerRef.current.get(server)`
+      // IS `rawSessions` (same source/key), so there is no current-server special
+      // case to keep. Dropping the `rawSessions` dep is what keeps this callback
+      // reference stable, preserving `ServerGroup`'s `React.memo`.
+      const sessionsForSrv = sessionsByServerRef.current.get(srv) ?? [];
+      const sessionEntry = sessionsForSrv.find((s) => s.name === sess);
+      if (!sessionEntry) return;
+      const waitingWindows = sessionEntry.windows.filter((w) => isWaiting(w));
+      const ordered: WaitingTarget[] = waitingWindows.map((w) => ({
+        server: srv,
+        windowId: w.windowId,
+      }));
+      // Current position is keyed on the REAL current (server, window) pair —
+      // nextWaitingTarget keys on both, so a same-numbered window on another
+      // server never spuriously matches; a cross-server badge click always
+      // lands on the session's first waiting window.
+      const target = nextWaitingTarget(ordered, server, windowParam);
+      if (!target) return;
+      const win = waitingWindows.find((w) => w.windowId === target.windowId);
+      // Same-server targets tmux-align (selectWindow + pendingClickRef) so the
+      // URL writeback can't bounce back and strip `?view=chat`; cross-server
+      // navigates plainly. See `navigateToWaitingTarget`.
+      navigateToWaitingTarget(target.server, target.windowId, !!win?.chatProvider);
+    },
+    [server, windowParam, navigateToWaitingTarget],
+  );
+
   // Register AppShell's TopBar props into the persistent root bar's slot
   // (260707-4vq2). The heavy handlers (`navigateToWindow` with its
   // View-Transitions gate, `handleCreateSessionInstant` with optimistic
@@ -1787,6 +1984,10 @@ function AppShell() {
     () => setSidebarOpen(!sidebarOpen),
     [setSidebarOpen, sidebarOpen],
   );
+  // Connection dot semantics (R9): in chat view the dot reports the chat
+  // stream's health; in terminal/root view it keeps the per-server sessions-SSE
+  // slice ("dot-everywhere = per-page live-data health").
+  const dotConnected = chatViewActive ? chatStream.connected : isConnected;
   const topBarSlot = useMemo(
     () => ({
       sessions,
@@ -1794,7 +1995,7 @@ function AppShell() {
       currentWindow,
       sessionName: displaySession,
       windowName: displayName,
-      isConnected,
+      isConnected: dotConnected,
       sidebarOpen,
       server,
       onNavigate: navigateToWindow,
@@ -1802,6 +2003,9 @@ function AppShell() {
       onCreateSession: handleCreateSessionInstant,
       onCreateWindow: handleCreateWindow,
       onSpawnAgent: handleOpenSpawnAgent,
+      view: activeView,
+      chatAvailable,
+      onSetView,
     }),
     [
       sessions,
@@ -1809,7 +2013,7 @@ function AppShell() {
       currentWindow,
       displaySession,
       displayName,
-      isConnected,
+      dotConnected,
       sidebarOpen,
       server,
       navigateToWindow,
@@ -1817,6 +2021,9 @@ function AppShell() {
       handleCreateSessionInstant,
       handleCreateWindow,
       handleOpenSpawnAgent,
+      activeView,
+      chatAvailable,
+      onSetView,
     ],
   );
   useRegisterTopBarSlot(topBarSlot);
@@ -1841,6 +2048,7 @@ function AppShell() {
       currentSession={sessionName ?? null}
       currentWindowId={windowParam ?? null}
       onSelectWindow={handleSidebarSelectWindow}
+      onWaitingBadgeClick={handleWaitingBadgeClick}
       onCreateWindow={handleSidebarCreateWindow}
       onCreateSession={handleSidebarCreateSession}
       onCreateServer={() => setShowCreateServerDialog(true)}
@@ -1911,7 +2119,18 @@ function AppShell() {
               session would needlessly delay the mount on a cold deep-link (and
               briefly flash the Dashboard). */}
           {windowParam ? (
-            currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? (
+            chatViewActive ? (
+              // Chat view (260714-r7rq) — read-only HTML renderer over the same
+              // pane, swapped in ahead of the iframe/terminal branches. The
+              // stream is owned by AppShell (`chatStream`) so one EventSource
+              // feeds both this and the connection dot's health.
+              <ChatView
+                events={chatStream.events}
+                pending={chatStream.pending}
+                connected={chatStream.connected}
+                error={chatStream.error}
+              />
+            ) : currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? (
               <div className="flex-1 min-h-0 flex flex-col">
                 <IframeWindow
                   windowId={currentWindow.windowId}

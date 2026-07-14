@@ -34,6 +34,11 @@ export function urlSegmentToWindowId(segment: string): string {
   return segment.startsWith("@") ? segment : `@${segment}`;
 }
 
+// Chat-view URL/pref resolution lives in a pure lib module
+// (`@/lib/chat-view-resolve`, unit-testable without evaluating this router
+// module); consumers import it directly (260714-r7rq).
+import { validateTerminalSearch } from "@/lib/chat-view-resolve";
+
 export function NotFoundPage() {
   // Signal the persistent `RootTopBar` to force its minimal `cockpit`-like
   // fallback mode while this page renders. Route params alone can't distinguish
@@ -110,6 +115,11 @@ const terminalRoute = createRoute({
       window: windowIdToUrlSegment(params.window),
     }),
   },
+  // First `validateSearch` in the codebase (260714-r7rq): `?view=chat` is the
+  // chat-view state on the terminal route (Constitution IV — no new route). Any
+  // non-`chat` value normalizes to absent, so a deep link like `?view=garbage`
+  // resolves to the terminal.
+  validateSearch: validateTerminalSearch,
 });
 
 const boardRoute = createRoute({

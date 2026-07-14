@@ -43,6 +43,10 @@ type SessionRowProps = {
   onDragLeave: (e: React.DragEvent, server: string, name: string) => void;
   onDrop: (e: React.DragEvent, server: string, name: string) => void;
   onColorChange?: (server: string, name: string, color: string | null) => void;
+  /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
+   *  window in this session (chat-aware — appends `?view=chat` when that window
+   *  has a chat). Absent ⇒ the badge stays display-only. */
+  onWaitingBadgeClick?: (server: string, session: string) => void;
   /** Roving-tabindex value: `0` for the single roving-focused tree row, `-1`
    *  otherwise. Defaults to `-1`. Only the two affected rows change this per
    *  arrow keypress, preserving the Wave-2 memo tree. */
@@ -89,6 +93,7 @@ function SessionRowInner({
   onDragLeave,
   onDrop,
   onColorChange,
+  onWaitingBadgeClick,
   tabIndex = -1,
   ariaSetSize,
   ariaPosInSet,
@@ -195,6 +200,11 @@ function SessionRowInner({
         <WaitingBadge
           count={waitingCount}
           label={`${waitingCount} window(s) in ${session.name} waiting for input`}
+          onClick={
+            onWaitingBadgeClick
+              ? () => onWaitingBadgeClick(server, name)
+              : undefined
+          }
         />
       </div>
       <div className="flex items-center pr-2">

@@ -69,7 +69,9 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(title) == "" {
 		title = "RunKit"
 	}
-	result, err := push.Notify(r.Context(), title, body.Body)
+	// The generic /api/notify path carries no deep-link URL (empty ⇒ the SW
+	// falls back to the app root on click).
+	result, err := push.Notify(r.Context(), title, body.Body, "")
 	if err != nil {
 		// Pruning may have failed; the send summary is still meaningful.
 		s.logger.Warn("notify completed with error", "error", err, "sent", result.Sent, "pruned", result.Pruned)

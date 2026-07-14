@@ -188,3 +188,51 @@ func TestWaitingPush_MultipleWindowsIndependent(t *testing.T) {
 		t.Errorf("each push carries its window name, got %+v", got)
 	}
 }
+
+// TestWaitingPushURL: the deep-link URL strips the tmux `@` from the window id
+// (mirroring the frontend's `windowIdToUrlSegment`), appends `?view=chat` for a
+// chat-capable window, and stays a plain window URL otherwise. Server and
+// segment are path-escaped (260714-r7rq).
+func TestWaitingPushURL(t *testing.T) {
+	cases := []struct {
+		server, windowID string
+		hasChat          bool
+		want             string
+	}{
+		{"default", "@1", true, "/default/1?view=chat"},
+		{"default", "@1", false, "/default/1"},
+		{"default", "@12", true, "/default/12?view=chat"},
+		// A server name with a reserved character is path-escaped.
+		{"my server", "@3", false, "/my%20server/3"},
+	}
+	for _, c := range cases {
+		if got := waitingPushURL(c.server, c.windowID, c.hasChat); got != c.want {
+			t.Errorf("waitingPushURL(%q,%q,%v) = %q, want %q", c.server, c.windowID, c.hasChat, got, c.want)
+		}
+	}
+}
+
+// TestWaitingPush_CarriesChatDeepLink: a sustained-waiting CHAT window's push
+// carries the `?view=chat` deep link; a non-chat window carries the plain URL.
+func TestWaitingPush_CarriesChatDeepLink(t *testing.T) {
+	tr, clock := newTestWaitingTracker(15 * time.Second)
+	chatWin := pushWindow{server: "s", windowID: "@1", name: "chatty", waiting: true, hasChat: true}
+	plainWin := pushWindow{server: "s", windowID: "@2", name: "plain", waiting: true, hasChat: false}
+	wins := []pushWindow{chatWin, plainWin}
+	tr.decide(wins)
+	*clock = clock.Add(16 * time.Second)
+	got := tr.decide(wins)
+	if len(got) != 2 {
+		t.Fatalf("both windows must push, got %d", len(got))
+	}
+	byTitle := map[string]waitingPush{}
+	for _, p := range got {
+		byTitle[p.title] = p
+	}
+	if byTitle["chatty"].url != "/s/1?view=chat" {
+		t.Errorf("chat window url = %q, want /s/1?view=chat", byTitle["chatty"].url)
+	}
+	if byTitle["plain"].url != "/s/2" {
+		t.Errorf("plain window url = %q, want /s/2", byTitle["plain"].url)
+	}
+}

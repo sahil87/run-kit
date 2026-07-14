@@ -17,11 +17,16 @@ const DefaultIcon = "/generated-icons/icon-192.png"
 // the caller (operator loop). Aligns with the Process Execution timeout norms.
 const notifyTimeout = 10 * time.Second
 
-// payload is the JSON the service worker's `push` handler parses.
+// payload is the JSON the service worker's `push` handler parses. `URL` is the
+// optional deep-link target the SW stores on the notification and navigates to
+// on click (260714-r7rq — e.g. `/{server}/{N}?view=chat` for a waiting agent);
+// omitempty so a push with no target sends nothing extra and the SW falls back
+// to the app root.
 type payload struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
 	Icon  string `json:"icon"`
+	URL   string `json:"url,omitempty"`
 }
 
 // NotifyResult summarizes a fan-out. The CLI ignores it; the HTTP handler
@@ -39,8 +44,10 @@ const vapidSubscriber = "https://github.com/sahil87/run-kit"
 // Notify sends a push to every stored subscription, signed with the server's
 // VAPID keypair, under a bounded timeout. Subscriptions the push service
 // reports gone (404/410) are pruned from the store. Individual send failures
-// are tolerated — they neither stop the fan-out nor surface to the caller.
-func Notify(ctx context.Context, title, body string) (NotifyResult, error) {
+// are tolerated — they neither stop the fan-out nor surface to the caller. `url`
+// is an optional deep-link target carried to the service worker (empty ⇒
+// omitted from the payload; the SW falls back to the app root on click).
+func Notify(ctx context.Context, title, body, url string) (NotifyResult, error) {
 	keys, err := LoadOrCreateVAPIDKeys()
 	if err != nil {
 		return NotifyResult{}, err
@@ -51,7 +58,7 @@ func Notify(ctx context.Context, title, body string) (NotifyResult, error) {
 		return NotifyResult{}, nil
 	}
 
-	msg, err := json.Marshal(payload{Title: title, Body: body, Icon: DefaultIcon})
+	msg, err := json.Marshal(payload{Title: title, Body: body, Icon: DefaultIcon, URL: url})
 	if err != nil {
 		return NotifyResult{}, err
 	}

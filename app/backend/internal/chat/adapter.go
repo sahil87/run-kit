@@ -51,13 +51,16 @@ type Adapter interface {
 	// no-disk-validation rationale). ctx bounds the read.
 	Backfill(ctx context.Context, ref string) (*Conversation, error)
 
-	// Tail returns a channel of incremental Updates for ref, starting AFTER the
-	// events already returned by a preceding Backfill (the caller passes the
-	// backfill's end offset via the ref-scoped Backfill+Tail pairing — see the
-	// claude adapter). The channel is closed when ctx is cancelled; no goroutine
-	// outlives ctx (Constitution II — nothing cached beyond the stream). The
-	// implementation MUST NOT block the caller: the poll loop runs on its own
-	// goroutine feeding the returned channel.
+	// Tail returns a channel of incremental Updates for ref. It is self-priming:
+	// the caller passes no offset, and the FIRST Update on the channel is always a
+	// Reset carrying a fresh full backfill (Conv), establishing the starting point
+	// the adapter then tails from; subsequent Updates are incremental appends (or a
+	// further Reset on shrink/rewrite). A stream handler therefore drives both the
+	// initial `chat-backfill` and later increments off this one channel — no
+	// separate Backfill call is required (see the claude adapter). The channel is
+	// closed when ctx is cancelled; no goroutine outlives ctx (Constitution II —
+	// nothing cached beyond the stream). The implementation MUST NOT block the
+	// caller: the poll loop runs on its own goroutine feeding the returned channel.
 	Tail(ctx context.Context, ref string) (<-chan Update, error)
 }
 

@@ -298,8 +298,11 @@ type parser struct {
 	turn      int // current turn number; incremented per user-initiated message
 	malformed int // count of skipped malformed lines (observability)
 	// openToolUses tracks tool_use ids that have NOT yet seen a matching
-	// tool_result, in append order, so pending() can find the unpaired one at the
-	// tail. Value is the index into a parallel toolMeta slice.
+	// tool_result, keyed by id, so pending() can look up the unpaired one's meta.
+	// openOrder holds the SAME still-open ids in append order (both are pruned in
+	// lockstep by closeToolUse when a tool_result lands), so pending() can walk
+	// from the tail to find the newest unpaired tool_use. Keeping openOrder pruned
+	// bounds it to the currently-open set rather than to total tool traffic.
 	openToolUses map[string]toolMeta
 	openOrder    []string
 }
@@ -453,9 +456,12 @@ func (p *parser) appendBlockEvent(env looseEnvelope, b block) {
 			IsError:    b.IsError,
 			Timestamp:  env.Timestamp,
 		})
-		// The matching tool_use is now paired — drop it from the open set.
+		// The matching tool_use is now paired — drop it from both the open map
+		// and the order slice so neither grows unbounded across a long session
+		// (openOrder tracks only still-open ids, keeping pending()'s tail scan
+		// proportional to the pending set, not to total tool traffic).
 		if b.ToolUseID != "" {
-			delete(p.openToolUses, b.ToolUseID)
+			p.closeToolUse(b.ToolUseID)
 		}
 	default:
 		// thinking (v1) and any unknown block type: skipped.
@@ -474,6 +480,24 @@ func (p *parser) pending() *Pending {
 		}
 	}
 	return nil
+}
+
+// closeToolUse removes a now-paired tool_use id from BOTH the open map and the
+// open-order slice, keeping the two in lockstep so openOrder never accumulates
+// paired ids. Order of the remaining (still-open) ids is preserved, so pending()'s
+// tail walk still finds the newest unpaired tool_use. A no-op if id was never open
+// (e.g. a tool_result with no preceding tool_use in this stream).
+func (p *parser) closeToolUse(id string) {
+	if _, ok := p.openToolUses[id]; !ok {
+		return
+	}
+	delete(p.openToolUses, id)
+	for i, oid := range p.openOrder {
+		if oid == id {
+			p.openOrder = append(p.openOrder[:i], p.openOrder[i+1:]...)
+			break
+		}
+	}
 }
 
 // isToolResultCarrier reports whether a user message's blocks are solely

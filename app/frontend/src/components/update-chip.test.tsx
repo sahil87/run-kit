@@ -110,6 +110,27 @@ describe("UpdateChip", () => {
     expect(screen.getByText("⬆ v0.7.0")).toBeInTheDocument();
   });
 
+  it("leaves no empty flex item in the top bar when hidden (gap regression)", () => {
+    // Self-hiding controls must carry their own responsive gating: an
+    // always-rendered call-site wrapper stays in the gap-3 flex row as an
+    // empty item while the child renders null, doubling the gap between
+    // its neighbors.
+    const { container } = renderChip({ daemonVersion: "0.5.3", updateAvailable: null });
+    const emptyHidden = Array.from(container.querySelectorAll(".hidden")).filter(
+      (el) => el.childNodes.length === 0,
+    );
+    expect(emptyHidden).toHaveLength(0);
+  });
+
+  it("carries the responsive `hidden sm:flex` gating on its own root", () => {
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+    });
+    const root = screen.getByLabelText("Update run-kit to v0.6.0").parentElement;
+    expect(root).toHaveClass("hidden", "sm:flex");
+  });
+
   it("clicking the chip triggers updateNow and enters updating…", async () => {
     let resolveUpdate!: () => void;
     const updateNow = vi.fn(

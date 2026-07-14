@@ -63,6 +63,10 @@ export type SidebarProps = {
   onCreateSession: (server: string) => void;
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
+  /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
+   *  window in a session (chat-aware — `?view=chat` when it has a chat). Passed
+   *  to each `SessionRow`; absent ⇒ badges stay display-only. */
+  onWaitingBadgeClick?: (server: string, session: string) => void;
   /** Forwarded to `ServerPanel` → `CollapsiblePanel` as the corner pointerdown
    *  callback. When supplied (desktop only), a corner affordance is rendered at
    *  the bottom-right of the server panel drag handle that also starts a
@@ -79,6 +83,7 @@ export function Sidebar({
   onCreateSession,
   onCreateServer,
   onKillServer,
+  onWaitingBadgeClick,
   onSidebarResizeStart,
 }: SidebarProps) {
   const ctx = useSessionContext();
@@ -1156,6 +1161,7 @@ export function Sidebar({
                 collapsed={collapsed}
                 onToggleSession={toggleSession}
                 onSelectWindow={onSelectWindow}
+                onWaitingBadgeClick={onWaitingBadgeClick}
                 onCreateWindow={onCreateWindow}
                 onCreateSession={onCreateSession}
                 onSessionRowKill={handleSessionRowKill}
@@ -1277,6 +1283,7 @@ type ServerGroupProps = {
 
   onToggleSession: (server: string, name: string) => void;
   onSelectWindow: (server: string, session: string, windowId: string) => void;
+  onWaitingBadgeClick?: (server: string, session: string) => void;
   onCreateWindow: (server: string, session: string) => void;
   onCreateSession: (server: string) => void;
   onSessionRowKill: (server: string, name: string, windowCount: number, ctrl: boolean) => void;
@@ -1336,6 +1343,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     collapsed,
     onToggleSession,
     onSelectWindow,
+    onWaitingBadgeClick,
     onCreateWindow,
     onCreateSession,
     onSessionRowKill,
@@ -1530,6 +1538,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                     onDragEnd={isGhostSession ? undefined : onSessionReorderEnd}
                     onToggleCollapse={onToggleSession}
                     onSelectFirstWindow={onSelectWindow}
+                    onWaitingBadgeClick={onWaitingBadgeClick}
                     onCreateWindow={onCreateWindow}
                     onKillClick={onSessionRowKill}
                     onDoubleClickName={onSessionStartEditing}

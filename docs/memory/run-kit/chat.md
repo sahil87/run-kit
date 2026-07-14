@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat-read subsystem — rk-owned neutral chat event schema (Event/Pending/turn counter), the Adapter interface + provider registry, the Claude JSONL adapter (UUID-glob locate, tolerant line-by-line parse, byte-offset tail), and the two window-keyed read/stream endpoints — a READ-ONLY, derive-from-disk-per-request view over an agent pane's transcript (Constitution II/VI)"
+description: "The chat-read subsystem — rk-owned neutral chat event schema (Event/Pending/turn counter), the Adapter interface + provider registry, the Claude JSONL adapter (UUID-glob locate, tolerant line-by-line parse, byte-offset tail), the two window-keyed read/stream endpoints, AND the read-only frontend consumer: the `?view=chat` chat view over the terminal route (dedicated per-view EventSource, four-event contract consumption, react-markdown bubbles + collapsible tool cards + tail pending bubble) — a READ-ONLY, derive-from-disk-per-request view over an agent pane's transcript (Constitution II/VI)"
 ---
 # Chat Read Subsystem
 
@@ -19,6 +19,19 @@ additions. v1 ships the **Claude** adapter and two window-keyed GET endpoints
 (backfill + SSE stream). No send path, no SDK hosting, no SessionStore/DB (all
 routes are GET). *Shipped by `260714-pmfh-chat-read-backend` (Change 2 of the
 HTML-agent-chat-view stack).*
+
+**Change 3 added the frontend consumer** (`260714-r7rq-chat-read-frontend`): a
+read-only HTML chat view over the SAME agent pane, addressed by a `?view=chat`
+search param on the existing `/$server/$window` terminal route (Constitution IV
+— no new route). It is a SECOND view over the tmux pane, never a substrate — the
+pane stays the agent's parent (Constitution VI) and the view only *renders* the
+streamed transcript, with nothing cached beyond React state that dies with the
+view (Constitution II analog). The § Chat View Frontend requirements below own
+the consumer half; the top-bar toggle chip, `Chat:` heading, per-window view
+persistence, palette/shortcut parity, and the chat-health connection dot live in
+[ui-patterns](/run-kit/ui-patterns.md) § Chat View; the push deep-link URL +
+service-worker navigation lives in [architecture](/run-kit/architecture.md)
+§ Web Push Notifications. Send remains out of scope (Change 4, `chat-send`).
 
 ## Requirements
 
@@ -272,6 +285,130 @@ property of the reconciled `@rk_chat`, not a server fault; any other adapter rea
 error is a `500`. After SSE headers are committed, an unrecoverable tail error is
 emitted as a best-effort `event: chat-error` frame (`writeSSEError`).
 
+## Chat View Frontend (`260714-r7rq-chat-read-frontend`)
+
+The read-only frontend consumer of the backend contract above. The pure schema
++ derivation helpers live in `app/frontend/src/lib/chat-stream.ts`; the
+`EventSource` lifecycle in `app/frontend/src/hooks/use-chat-stream.ts`; the
+renderer in `app/frontend/src/components/chat-view.tsx`. The view-state
+plumbing (URL param, toggle chip, heading, persistence, palette, shortcut,
+connection dot) is documented in [ui-patterns](/run-kit/ui-patterns.md) § Chat
+View — this section owns the DATA-layer consumer half only.
+
+### Requirement: Frontend mirrors the rk-owned schema as TS types
+`chat-stream.ts` SHALL define TypeScript types mirroring the backend schema
+one-to-one: `ChatEvent` (`type`/`id?`/`turn`/`role?`/`text?`/`toolUseId?`/
+`toolName?`/`toolInput?: unknown`/`toolOutput?`/`isError?`/`ts?` — every field
+except `type`/`turn` optional, matching the backend `omitempty`), `ChatPending`
+(`toolUseId?`/`toolName?`/`text?`), and `Conversation` (`{provider, sessionRef,
+events, pending}`, `pending` nullable). `toolInput` is typed `unknown` (verbatim
+provider JSON, rendered pretty-printed) — type narrowing over `as` casts
+(code-quality Frontend rule). No client parsing change was needed for the
+`WindowInfo` gate fields — the backend already emits `chatProvider`/
+`chatSessionRef` on every `/api/sessions` response + SSE `sessions` event; Change
+3 only *typed* them on `WindowInfo` (`types.ts`).
+
+#### Scenario: An event with no `id` is still rendered
+- **GIVEN** a `ChatEvent` whose optional `id` is absent
+- **WHEN** the append/render pipeline runs
+- **THEN** it is not deduped away (dedup keys on `id`; a missing `id` always
+  appends) and it renders like any other event.
+
+### Requirement: Pure derivation helpers (dedup / turn-group / tool-pair / pending)
+`chat-stream.ts` SHALL export the pure helpers the hook + renderer compose, each
+unit-tested without an `EventSource` or a mounted component (mirroring the
+`palette-move.ts` / `palette-agent-nav.ts` extraction pattern):
+- `applyChatBackfill(conv)` — returns `conv.events` verbatim (backfill REPLACES,
+  never appends).
+- `appendChatEvents(existing, incoming)` — appends `incoming` deduped by `id`
+  (an event with no `id` is always appended); preserves order; returns the same
+  array reference when nothing is added (render-stability).
+- `groupEventsByTurn(events)` — groups into ascending-`turn` blocks, events in
+  arrival order within a turn (the counter IS the boundary — no synthetic events).
+- `pairToolEvents(events)` — one `ToolCard` (`{use, result}`) per `tool_use` in
+  arrival order, joined to the FIRST matching `tool_result` by `toolUseId`
+  (`result: null` when unpaired); a `tool_result` matching no `tool_use` is
+  dropped (defensive against a mid-append partial stream).
+- `derivePendingBubble(pending)` — returns `{label, toolName?}` preferring
+  `pending.text`, falling back to `toolName` when text is empty, else `null` so
+  the renderer clears a resolved marker.
+
+#### Scenario: A tool_use/tool_result pair collapses into one card
+- **GIVEN** a turn with a `tool_use` and its matching `tool_result` (same
+  `toolUseId`)
+- **WHEN** `pairToolEvents` runs
+- **THEN** it returns exactly one `ToolCard` joining them, and the renderer
+  draws one collapsible card (the paired `tool_result` is not drawn separately).
+
+### Requirement: Dedicated per-view `EventSource` hook (`use-chat-stream.ts`)
+`useChatStream(server, windowId)` SHALL own EXACTLY ONE `EventSource` per open
+chat view (NOT the shared per-server sessions pool) on `GET
+/api/windows/{windowId}/chat/stream?server={server}` (both segments
+`encodeURIComponent`-escaped). It consumes the landed four-event contract:
+`chat-backfill` (parse `Conversation` → `applyChatBackfill` REPLACE + set
+pending), `chat` (parse `ChatEvent[]` → `appendChatEvents` dedup), `chat-state`
+(parse `{pending}` → set pending, **always applied incl. `null`** so a resolved
+question clears), `chat-error` (parse `{error?|message?}` → set `error` for an
+inline error state). A malformed data frame on any of the three data events is
+swallowed (the stream stays open). It returns `{events, pending, connected,
+error}`. **Health** mirrors the established 3s disconnect debounce
+(`session-context.tsx` `es.onerror`): `onopen` does NOT flip `connected` (wait
+for the first data frame — "data flowing", not "socket opened"); a first
+successful frame marks connected; a sustained `onerror` (>3s, via a single
+`setTimeout` cleared on any frame) marks disconnected — a transient blip during
+`EventSource` auto-reconnect never flaps the dot. `EventSource` auto-reconnect
+handles retry; a reconnect delivers a fresh `chat-backfill` (no cursor). The
+effect **resets view state** (`events=[]`, `pending=null`, `connected=false`,
+`error=null`) at the top of every `[server, windowId]` run so a window switch
+never shows the prior conversation before the first backfill, and its cleanup
+`es.close()`s on unmount AND on any `server`/`windowId` change — no connection
+outlives the view (Constitution II analog; the only retained state dies with the
+component).
+
+#### Scenario: Backfill replaces, appends dedup, unmount closes
+- **GIVEN** an open chat view
+- **WHEN** a `chat-backfill` then a `chat` append then a `chat-state` arrive
+- **THEN** the view replaces its event list on backfill, appends deduped-by-`id`
+  on `chat`, and reflects/clears pending on `chat-state`.
+- **AND GIVEN** the view unmounts (or `windowId`/`server` changes), **THEN** the
+  `EventSource` is closed (no leaked connection).
+
+### Requirement: Read-only renderer (`chat-view.tsx`)
+`ChatView` SHALL be a **pure renderer over passed stream state** (`{events,
+pending, connected, error}`) — `AppShell` owns the single `useChatStream` call
+so ONE `EventSource` feeds both the renderer and the connection dot (§ Web Push
+/ ui-patterns § Chat View). It renders in the house aesthetic (monospace,
+three-mode theme tokens, animation behind `prefers-reduced-motion`):
+- **Message bubbles** grouped by `turn` (`groupEventsByTurn`), user vs assistant
+  visually distinct (right/left, distinct backgrounds); markdown + fenced code
+  via `react-markdown` + `remark-gfm` scoped to a `.chat-markdown` wrapper (whose
+  typography rules live in `globals.css` — code blocks render as plain monospace
+  `<pre>`, no syntax highlighting in v1; links open `target="_blank"
+  rel="noopener noreferrer"`).
+- **Tool-call cards** — one collapsible card per `tool_use`/`tool_result` pair
+  (`pairToolEvents`), **collapsed by default** (`aria-expanded`); header shows
+  `toolName`, body shows pretty-printed `toolInput` JSON + `toolOutput` text; an
+  `isError` result styled as an error. A rare orphan `tool_result` (no matching
+  `tool_use` in its turn) renders bare.
+- **Pending question** — an attention-styled (`role="status"`) bubble at the
+  conversation **tail** carrying `derivePendingBubble`'s label; cleared when
+  `chat-state` sets `pending: null`.
+- **Streaming** — stick-to-bottom auto-follow (a `stickRef` gated on ~40px
+  from-bottom + a `useLayoutEffect` on `[events, pendingBubble]`) unless the user
+  has scrolled up.
+- **No input box** — a visibly **disabled** footer affordance (`aria-disabled`)
+  pointing at the terminal view ("send from the terminal view — coming in
+  chat-send"). Send is Change 4.
+- **`chat-error`** — an inline `role="alert"` error state.
+
+#### Scenario: Markdown bubble, collapsed tool card, tail pending
+- **GIVEN** a conversation with markdown messages, a tool_use/tool_result pair,
+  and a tail pending
+- **WHEN** `ChatView` renders
+- **THEN** bubbles render markdown, the tool card is collapsed by default and
+  expands on click, and the pending bubble shows at the tail and clears when
+  `pending` becomes null.
+
 ## Design Decisions
 
 ### Go JSONL tail, not a node SDK shim
@@ -324,3 +461,45 @@ reconnect") and avoids a backfill/tail gap race; the only retained state is the
 per-connection byte offset, which dies with the connection.
 **Rejected**: A cursor protocol (additive later).
 *Introduced by*: `260714-pmfh-chat-read-backend`
+
+### Dedicated per-view `EventSource` on the frontend, not the sessions pool
+**Decision**: `useChatStream` opens its OWN `EventSource` per open chat view,
+distinct from the per-server sessions SSE pool.
+**Why**: Matches the backend's dedicated per-view stream design (§ Dedicated
+per-view SSE endpoint) and keeps within the 6-per-origin plaintext budget — one
+bounded connection that exists only while a chat view is open (board-pane chat
+is out of scope plan-wide, so at most one per tab). The sessions pool carries no
+transcript-append signal, so scoping onto it would need a new event source
+anyway.
+**Rejected**: A scope on the shared sessions hub (would bloat its dedup/order
+machinery with transcript text and couple chat cadence to structural ticks).
+*Introduced by*: `260714-r7rq-chat-read-frontend`
+
+### `react-markdown` + `remark-gfm` — the frontend's first markdown renderer
+**Decision**: Render message-bubble markdown via `react-markdown` + `remark-gfm`
+(net-new deps — the frontend had no markdown renderer), scoped to a
+`.chat-markdown` wrapper whose typography rules live in `globals.css`; code
+blocks render as plain monospace `<pre>` with no syntax-highlighting dependency
+in v1.
+**Why**: React-idiomatic, no `dangerouslySetInnerHTML` (no XSS surface),
+swappable behind the one `MarkdownText` component. Under Tailwind v4 preflight
+the raw markdown elements render flat (zero margins, no list bullets, uniform
+heading size), so the `.chat-markdown` globals.css rules are load-bearing — they
+restore document flow (paragraph/list/heading/blockquote/table spacing, disc/
+decimal list markers) in the house monospace aesthetic (headings sized by weight
++ color, not scale jumps), all riding the theme custom properties so both light
+and dark are covered. *(This was a review rework: the first cut shipped the class
+with no CSS rules.)*
+**Rejected**: A raw-HTML markdown lib (XSS); a syntax-highlighter dependency
+(v1 minimal-deps ethos — the terminal aesthetic is plain monospace).
+*Introduced by*: `260714-r7rq-chat-read-frontend`
+
+### `ChatView` is a pure renderer; `AppShell` owns the single stream
+**Decision**: `AppShell` calls `useChatStream` once (only when the chat view is
+actually active for a chat-capable window) and passes `{events, pending,
+connected, error}` into `ChatView` as props; `ChatView` opens no stream itself.
+**Why**: ONE `EventSource` feeds BOTH the renderer AND the connection-dot health
+(ui-patterns § Chat View → the dot reports chat-stream health in chat mode) — a
+second stream would double the connection and desync the two health readings.
+**Rejected**: `ChatView` owning its own hook (two streams, desynced dot).
+*Introduced by*: `260714-r7rq-chat-read-frontend`

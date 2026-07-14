@@ -38,3 +38,15 @@ export function nextWaitingTarget(
   if (idx < 0) return ordered[0];
   return ordered[(idx + 1) % ordered.length];
 }
+
+/**
+ * The terminal-route search object for navigating to a waiting target
+ * (260714-r7rq). When the target window has a chat (`hasChat`), the deep link
+ * opens the chat view (`?view=chat`); otherwise the plain window URL (empty
+ * search) — the target then resolves its own view pref. Pure so the append rule
+ * is unit-tested once and reused by both `Agent: Next waiting` and the
+ * `WaitingBadge` click affordance.
+ */
+export function chatSearchForTarget(hasChat: boolean): { view: "chat" } | Record<string, never> {
+  return hasChat ? { view: "chat" } : {};
+}

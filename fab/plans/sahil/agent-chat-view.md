@@ -83,7 +83,7 @@ Agents: fill in your row when you create the change; mark Done when the PR merge
 |---|------------------|-----------|---------------|----|--------|
 | 1 | `chat-session-identity` | — | `260713-nh86-chat-session-identity` | [#339](https://github.com/sahil87/run-kit/pull/339) | Done |
 | 2 | `chat-read-backend` | 1 | `260714-pmfh-chat-read-backend` | | in progress |
-| 3 | `chat-read-frontend` | 2 | | | not started |
+| 3 | `chat-read-frontend` | 2 | `260714-r7rq-chat-read-frontend` | | in progress |
 | 4 | `chat-send` | 3 | | | not started |
 | 5 | `chat-codex-adapter` (optional) | 2, 3 | | | not started |
 | 6 | `chat-gemini-acp-adapter` (optional) | 2, 3 | | | not started |

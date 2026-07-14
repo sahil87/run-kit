@@ -14,14 +14,52 @@
  * color-only. No pulse here (the pulse lives on the per-window dot/seam); the
  * rollup is a quiet count.
  */
-export function WaitingBadge({ count, label }: { count: number; label?: string }) {
+export function WaitingBadge({
+  count,
+  label,
+  onClick,
+}: {
+  count: number;
+  label?: string;
+  /**
+   * Optional click affordance (260714-r7rq). When provided, the badge becomes a
+   * button that navigates to the next waiting window within this surface's scope
+   * (the caller supplies the navigation, reusing the `nextWaitingTarget`
+   * semantics and appending `?view=chat` when that window has a chat). Mount
+   * sites with no navigable context (e.g. the board header) pass none and keep
+   * today's display-only, non-interactive behavior.
+   */
+  onClick?: () => void;
+}) {
   if (count <= 0) return null;
+  const resolvedLabel = label ?? `${count} agent${count === 1 ? "" : "s"} waiting for input`;
+  const className =
+    "shrink-0 text-xs leading-none px-1.5 py-0.5 rounded bg-yellow-400/15 text-yellow-400 font-medium tabular-nums";
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        data-testid="waiting-badge"
+        className={`${className} rk-glint hover:bg-yellow-400/25 transition-colors cursor-pointer`}
+        aria-label={`${resolvedLabel} — go to next waiting`}
+        title={`${resolvedLabel} — go to next waiting`}
+        onClick={(e) => {
+          // Don't let the click bubble to a parent row/tile navigation.
+          e.stopPropagation();
+          onClick();
+        }}
+      >
+        {count}
+        <span aria-hidden="true">{"⚠"}</span>
+      </button>
+    );
+  }
   return (
     <span
       data-testid="waiting-badge"
-      className="shrink-0 text-xs leading-none px-1.5 py-0.5 rounded bg-yellow-400/15 text-yellow-400 font-medium tabular-nums"
-      aria-label={label ?? `${count} agent${count === 1 ? "" : "s"} waiting for input`}
-      title={label ?? `${count} agent${count === 1 ? "" : "s"} waiting for input`}
+      className={className}
+      aria-label={resolvedLabel}
+      title={resolvedLabel}
     >
       {count}
       <span aria-hidden="true">{"⚠"}</span>

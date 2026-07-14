@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-14T09:52:48Z"}
+{"args":"chat-read-frontend — Change 3 of fab/plans/sahil/agent-chat-view.md: read-only HTML chat view over the agent pane (?view=chat on /$server/$window, [tty|chat] L1 top-bar toggle gated on @rk_chat, markdown+tool-card renderer, waiting/push deep-link integration). Depends on Change 2 (chat-read-backend, merged).","cmd":"fab-new","event":"command","ts":"2026-07-14T09:52:48Z"}
+{"delta":"+3.0","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-07-14T09:55:45Z"}
+{"delta":"+0.0","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-07-14T09:56:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-14T10:02:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T10:02:35Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T10:03:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T10:34:45Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T10:35:35Z"}
+{"event":"review","result":"failed","ts":"2026-07-14T10:56:23Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-14T10:56:23Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-14T11:06:48Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T11:07:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-14T11:25:28Z"}
+{"event":"review","result":"passed","ts":"2026-07-14T11:25:28Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-14T11:26:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-14T11:34:04Z"}

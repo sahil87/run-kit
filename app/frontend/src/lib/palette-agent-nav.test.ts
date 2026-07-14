@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextWaitingTarget, type WaitingTarget } from "./palette-agent-nav";
+import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "./palette-agent-nav";
 
 const A: WaitingTarget = { server: "s1", windowId: "@1" };
 const B: WaitingTarget = { server: "s1", windowId: "@2" };
@@ -34,5 +34,15 @@ describe("nextWaitingTarget", () => {
 
   it("handles an undefined current window (returns the first)", () => {
     expect(nextWaitingTarget([A, B], undefined, undefined)).toEqual(A);
+  });
+});
+
+describe("chatSearchForTarget", () => {
+  it("appends ?view=chat for a chat-capable target", () => {
+    expect(chatSearchForTarget(true)).toEqual({ view: "chat" });
+  });
+
+  it("returns empty search for a non-chat target", () => {
+    expect(chatSearchForTarget(false)).toEqual({});
   });
 });

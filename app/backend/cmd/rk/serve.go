@@ -18,6 +18,7 @@ import (
 	"rk/internal/daemon"
 	"rk/internal/tmux"
 	"rk/internal/tmuxctl"
+	"rk/internal/updatecheck"
 
 	"github.com/spf13/cobra"
 )
@@ -101,6 +102,19 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		defer stop()
 
 		router, apiServer := api.NewRouterAndServer(ctx, logger)
+
+		// Expose the running version to clients over SSE (server-global
+		// `event: version`, replayed on connect) and wire the periodic update
+		// checker: it polls the GitHub Releases API on a background tick and, when
+		// a qualifying minor/major release is found, broadcasts a server-global
+		// `event: update-available`. Both surfaces drive the web UI's update chip
+		// and the post-restart auto-reload. The checker suppresses itself for the
+		// "dev" sentinel / unparseable versions and is bound to the serve context.
+		apiServer.SetVersion(version)
+		updateChecker := updatecheck.New(version)
+		updateChecker.OnQualify = apiServer.WireUpdateAvailableBroadcast()
+		updateChecker.Start(ctx)
+		apiServer.SetUpdateChecker(updateChecker)
 
 		// Start the tmuxctl supervisor AFTER tmux.EnsureConfig() (above) and
 		// BEFORE the HTTP listen, so the SSE hub never races an empty Client map

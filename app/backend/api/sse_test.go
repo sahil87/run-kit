@@ -604,6 +604,99 @@ func TestBroadcastBoardOrderNilNormalizedToEmpty(t *testing.T) {
 	}
 }
 
+// TestVersionSlotReplayedOnConnect verifies the server-global `event: version`
+// cached slot: after setVersion, EVERY client (incl. `?metrics=1`) receives the
+// version frame on connect. There is no broadcast path — the slot is delivered
+// on connect only.
+func TestVersionSlotReplayedOnConnect(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf, nil, nil, nil)
+	hub.setVersion("0.5.3")
+
+	for name, server := range map[string]string{"default": "default", "metrics-only": metricsOnlyServer} {
+		c := &sseClient{ch: make(chan []byte, 16), server: server}
+		hub.addClient(c)
+		var events []string
+		for len(c.ch) > 0 {
+			events = append(events, string(<-c.ch))
+		}
+		hub.removeClient(c)
+		got := filterSSEEvents(events, "version")
+		if len(got) == 0 {
+			t.Fatalf("%s client received no version event (all: %v)", name, events)
+		}
+		if !strings.Contains(got[0], `{"version":"0.5.3"}`) {
+			t.Errorf("%s client version payload = %q, want {\"version\":\"0.5.3\"}", name, got[0])
+		}
+	}
+}
+
+// TestVersionSlotEmptyWhenUnset verifies no `event: version` is sent when
+// setVersion was never called (empty slot).
+func TestVersionSlotEmptyWhenUnset(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf, nil, nil, nil)
+	c := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	hub.addClient(c)
+	defer hub.removeClient(c)
+	var events []string
+	for len(c.ch) > 0 {
+		events = append(events, string(<-c.ch))
+	}
+	if got := filterSSEEvents(events, "version"); len(got) != 0 {
+		t.Errorf("expected no version event when unset, got %v", got)
+	}
+}
+
+// TestBroadcastUpdateAvailableFansOutAndReplays verifies the server-global
+// contract for `event: update-available`: a single broadcast reaches EVERY
+// connected client (incl. `?metrics=1`), and the payload is cached + replayed to
+// a client that connects AFTER the broadcast. Mirrors the server-order/board-order
+// fan-out tests.
+func TestBroadcastUpdateAvailableFansOutAndReplays(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf, nil, nil, nil)
+
+	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
+	moClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(rkClient)
+	hub.addClient(moClient)
+	defer hub.removeClient(rkClient)
+	defer hub.removeClient(moClient)
+
+	hub.broadcastUpdateAvailable("0.5.3", "0.6.0")
+
+	for name, c := range map[string]*sseClient{"runkit": rkClient, "metrics-only": moClient} {
+		var events []string
+		for len(c.ch) > 0 {
+			events = append(events, string(<-c.ch))
+		}
+		got := filterSSEEvents(events, "update-available")
+		if len(got) == 0 {
+			t.Fatalf("%s client received no update-available event (all: %v)", name, events)
+		}
+		if !strings.Contains(got[0], `{"current":"0.5.3","latest":"0.6.0"}`) {
+			t.Errorf("%s client update-available payload = %q", name, got[0])
+		}
+	}
+
+	// A client connecting AFTER the broadcast must receive the cached snapshot.
+	lateClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(lateClient)
+	defer hub.removeClient(lateClient)
+	var lateEvents []string
+	for len(lateClient.ch) > 0 {
+		lateEvents = append(lateEvents, string(<-lateClient.ch))
+	}
+	replay := filterSSEEvents(lateEvents, "update-available")
+	if len(replay) == 0 {
+		t.Fatalf("late client did not receive cached update-available snapshot (all: %v)", lateEvents)
+	}
+	if !strings.Contains(replay[0], `{"current":"0.5.3","latest":"0.6.0"}`) {
+		t.Errorf("late client cached update-available snapshot = %q", replay[0])
+	}
+}
+
 // filterSSEEvents returns only the SSE frames whose first line is `event: <name>`.
 func filterSSEEvents(events []string, name string) []string {
 	var out []string

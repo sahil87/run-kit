@@ -7,7 +7,7 @@ import { useBoardAutofit } from "@/hooks/use-board-autofit";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
-import { useSessionContext } from "@/contexts/session-context";
+import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useToast } from "@/components/toast";
@@ -19,6 +19,7 @@ import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette-move";
+import { buildUpdateActions } from "@/lib/palette-update";
 import { Dialog } from "@/components/dialog";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
@@ -350,6 +351,16 @@ function BoardPageContent({ name }: { name: string }) {
   const { sidebarOpen } = useChromeState();
   const { setSidebarOpen, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
 
+  // Update notification (lifted above boardRouteActions so the qualify state +
+  // triggers are in scope for the palette memo). Below `sm` the top-bar L3
+  // cluster — including the UpdateChip — is hidden, so a phone user on
+  // /board/$name has NO update surface unless the palette carries it. The board
+  // mounts its own palette (DD-8, § Boards Command Palette), so the AppShell
+  // `updateActions` (app.tsx) are unreachable here — these are duplicated in for
+  // the same reason as the font trio / refresh / help entries below.
+  const { qualifies: updateQualifies, latest: updateLatest, updateNow, dismissUpdate } =
+    useUpdateNotification();
+
   // Board-route-scoped command palette actions. Constitution V (Keyboard-First)
   // requires every action be keyboard-reachable — AppShell's palette is not
   // mounted here (the board route does not render AppShell, see DD-8), so
@@ -442,6 +453,24 @@ function BoardPageContent({ name }: { name: string }) {
       onSelect: () => window.open(HELP_URL, "_blank", "noopener,noreferrer"),
     };
 
+    // Update actions — duplicated from AppShell's `updateActions` (app.tsx) for
+    // the same reason as refreshEntry/helpEntry: the board route mounts its OWN
+    // palette and does NOT render AppShell (DD-8). Critically, below `sm` the
+    // top-bar UpdateChip is hidden, so on a phone /board/$name the palette is the
+    // ONLY update surface. Gated on `qualifies` only — the palette deliberately
+    // ignores chip dismissal (see lib/palette-update). The Update action wraps
+    // updateNow with the same toast-on-failure handling AppShell uses.
+    const updateEntries: PaletteAction[] = buildUpdateActions(
+      updateQualifies,
+      updateLatest,
+      () => {
+        void updateNow().catch((err: unknown) =>
+          addToast(err instanceof Error ? err.message : "Update failed"),
+        );
+      },
+      dismissUpdate,
+    );
+
     if (entries.length > 0) {
       conditional.push({
         id: "board-cycle-next",
@@ -522,8 +551,8 @@ function BoardPageContent({ name }: { name: string }) {
       }
     }
 
-    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpin, reorder, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont]);
+    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry, ...updateEntries];
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpin, reorder, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateLatest, updateNow, dismissUpdate]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {

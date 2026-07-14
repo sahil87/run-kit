@@ -5,6 +5,7 @@ import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
+import { buildUpdateActions } from "@/lib/palette-update";
 import { nextWaitingTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
 import { isWaiting } from "@/lib/waiting";
 import {
@@ -41,7 +42,7 @@ import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import { deriveNameFromPath } from "@/components/create-session-dialog";
-import { useSessionContext } from "@/contexts/session-context";
+import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
@@ -1511,6 +1512,28 @@ function AppShell() {
     [server, executeReloadConfig, executeResetConfig],
   );
 
+  // Update actions — keyboard-first parity (Constitution V) for the top-bar
+  // update chip. Gated on a qualifying pending update (dev version suppressed).
+  // The Update action deliberately IGNORES chip dismissal — dismissal silences
+  // the ambient chip, but the palette is deliberate discovery — while a
+  // companion Dismiss action mirrors the chip's `✕` for keyboard users.
+  const { qualifies: updateQualifies, latest: updateLatest, updateNow, dismissUpdate } =
+    useUpdateNotification();
+  const updateActions: PaletteAction[] = useMemo(
+    () =>
+      buildUpdateActions(
+        updateQualifies,
+        updateLatest,
+        () => {
+          void updateNow().catch((err: unknown) =>
+            addToast(err instanceof Error ? err.message : "Update failed", "error"),
+          );
+        },
+        dismissUpdate,
+      ),
+    [updateQualifies, updateLatest, updateNow, dismissUpdate, addToast],
+  );
+
   // Regular-class effective order (infra servers ignore rank and are not
   // reorderable). `servers` is already effective-sorted by the context, so this
   // is the visible order. The current server's position within it gates the
@@ -1635,8 +1658,8 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions],
-    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, serverActions, pushActions, windowSwitchActions, agentActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...updateActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions],
+    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, updateActions, serverActions, pushActions, windowSwitchActions, agentActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

@@ -7,6 +7,7 @@ import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
+import { useUpdateNotification } from "@/contexts/session-context";
 import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -466,8 +467,16 @@ export function TopBar({
             </>
           )}
 
-          {/* L3 — always (all four modes): Notification → Theme → Refresh →
-              Help, then the connection dot as the right-most element. */}
+          {/* L3 — always (all four modes): Update chip → Notification → Theme →
+              Refresh → Help, then the connection dot as the right-most element. */}
+
+          {/* Update chip — leads the L3 cluster. Self-contained (reads the
+              update-notification state from SessionContext); renders nothing when
+              no qualifying update is pending, when dismissed for the current
+              latest, or when the daemon reports the `dev` version. */}
+          <span className="hidden sm:flex">
+            <UpdateChip />
+          </span>
 
           {/* Notification control — bell button + dropdown (enable / send test).
               Hides itself when push is unsupported (insecure context / no SW
@@ -1613,6 +1622,74 @@ function TerminalFontControl() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Top-bar update chip (L3 right cluster). Self-contained — reads the
+ * update-notification state from SessionContext via `useUpdateNotification`
+ * (no props threaded through TopBar), mirroring NotificationControl /
+ * ThemeToggle. In-app only: NO Web Push (update notices must not buzz phones).
+ *
+ * Rest: `⬆ v{latest}` with accent styling + CRT-glint hover (`rk-glint`, the
+ * button hover vocabulary). Clicking the chip body triggers POST /api/update and
+ * enters a disabled `updating…` state; the daemon restart then drops SSE, and
+ * the reconnect's differing `version` drives the reload guard (session-context).
+ * A small `✕` dismisses per-version (localStorage `runkit-update-dismissed`).
+ * Renders nothing unless a qualifying, un-dismissed update is pending and the
+ * daemon is not the `dev` version.
+ */
+function UpdateChip() {
+  const { showChip, latest, updateNow, dismissUpdate } = useUpdateNotification();
+  const [updating, setUpdating] = useState(false);
+  const { addToast } = useToast();
+
+  if (!showChip || !latest) return null;
+
+  const handleUpdate = () => {
+    if (updating) return;
+    setUpdating(true);
+    // On success the daemon restarts and the SSE reconnect's version change
+    // reloads the tab, so we never need to clear `updating` on the happy path.
+    // On failure (409 not-brew / no-update, network) surface a toast and
+    // re-enable so the user can retry or read the message.
+    void updateNow().catch((err: unknown) => {
+      setUpdating(false);
+      addToast(err instanceof Error ? err.message : "Update failed", "error");
+    });
+  };
+
+  return (
+    <span className="flex items-center">
+      <button
+        type="button"
+        onClick={handleUpdate}
+        disabled={updating}
+        aria-label={updating ? "Updating run-kit" : `Update run-kit to v${latest}`}
+        title={updating ? "Updating\u2026" : `Update run-kit to v${latest}`}
+        className="rk-glint flex items-center gap-1 h-[24px] coarse:h-[30px] px-1.5 rounded border border-accent-green text-accent-green hover:border-accent-green transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {updating ? (
+          <>
+            <LogoSpinner size={12} />
+            <span>{"updating\u2026"}</span>
+          </>
+        ) : (
+          <span>{`\u2B06 v${latest}`}</span>
+        )}
+      </button>
+      {!updating && (
+        <button
+          type="button"
+          onClick={dismissUpdate}
+          aria-label="Dismiss update notice"
+          title="Dismiss update notice"
+          className="ml-0.5 h-[24px] coarse:h-[30px] w-[16px] coarse:w-[20px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors text-xs"
+        >
+          {"\u2715"}
+        </button>
+      )}
+    </span>
   );
 }
 

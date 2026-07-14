@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"rk/internal/daemon"
+	"rk/internal/selfpath"
 
 	"github.com/spf13/cobra"
 )
@@ -54,21 +54,13 @@ var runBrewFn = func(ctx context.Context, args ...string) ([]byte, error) {
 var restartDaemonFn = daemon.RestartWithBinary
 
 // resolveExeFn is the package-level seam for resolving this binary's on-disk
-// path (used to detect a Homebrew install via the /Cellar/run-kit/ marker). Defaults
-// to os.Executable + EvalSymlinks; tests stub it to return a synthetic Cellar
-// path so the upgrade/restart code path is reachable independent of the test
-// binary's real location.
-var resolveExeFn = func() (string, error) {
-	exePath, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	resolved, err := filepath.EvalSymlinks(exePath)
-	if err != nil {
-		resolved = exePath
-	}
-	return resolved, nil
-}
+// path (used to detect a Homebrew install via the selfpath.CellarMarker).
+// Defaults to the shared selfpath.Resolve (os.Executable + EvalSymlinks) — the
+// same resolver api/update.go uses, so brew-install detection cannot drift
+// between the two entry points; tests stub it to return a synthetic Cellar path
+// so the upgrade/restart code path is reachable independent of the test binary's
+// real location.
+var resolveExeFn = selfpath.Resolve
 
 func init() {
 	updateCmd.Flags().BoolVar(&skipBrewUpdate, "skip-brew-update", false,
@@ -85,7 +77,7 @@ var updateCmd = &cobra.Command{
 			return fmt.Errorf("could not determine executable path: %w", err)
 		}
 
-		if !strings.Contains(resolved, "/Cellar/run-kit/") {
+		if !selfpath.IsBrewInstalled(resolved) {
 			fmt.Printf("run-kit v%s was not installed via Homebrew.\n", version)
 			fmt.Println("Update manually (git pull && just build), or reinstall with:")
 			fmt.Println("  brew install sahil87/tap/run-kit")
@@ -137,7 +129,7 @@ var updateCmd = &cobra.Command{
 		// Derive the stable Homebrew bin symlink from the Cellar path.
 		// resolved is e.g. /opt/homebrew/Cellar/run-kit/0.5.3/bin/run-kit
 		// We want:         /opt/homebrew/bin/run-kit
-		cellarIdx := strings.Index(resolved, "/Cellar/run-kit/")
+		cellarIdx := strings.Index(resolved, selfpath.CellarMarker)
 		if cellarIdx == -1 {
 			return fmt.Errorf("could not derive brew prefix from %s", resolved)
 		}

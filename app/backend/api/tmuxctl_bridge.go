@@ -7,6 +7,7 @@ import (
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 	"rk/internal/tmuxctl"
+	"rk/internal/updatecheck"
 )
 
 // NewSupervisorSubscriber adapts a tmuxctl.Supervisor to the
@@ -219,5 +220,36 @@ func (s *Server) SetWindowChangeSubscriber(sub WindowChangeSubscriber) {
 func (s *Server) SetActiveWindowProvider(provider sessions.ActiveWindowProvider) {
 	if pf, ok := s.sessions.(*prodSessionFetcher); ok {
 		pf.provider = provider
+	}
+}
+
+// SetVersion seeds the SSE hub's server-global `event: version` cached slot with
+// the running daemon version (ldflags-injected `main.version`). Called from
+// `rk serve` after NewRouterAndServer. Safe to call before any SSE client
+// connects — initSSEHub materialises the hub. The version cannot change for the
+// process lifetime, so the slot is delivered on connect only (no broadcast).
+func (s *Server) SetVersion(version string) {
+	s.initSSEHub()
+	s.sseHub.setVersion(version)
+}
+
+// SetUpdateChecker injects the running update checker so the /api/update handler
+// can read its cached verdict (whether a qualifying newer version is pending).
+// Called from `rk serve` after constructing + starting the checker (the checker
+// needs the ldflags version, only known in cmd/rk). A nil checker leaves the
+// handler to report "no update available" (409) for every request.
+func (s *Server) SetUpdateChecker(c *updatecheck.Checker) {
+	s.updateChecker = c
+}
+
+// WireUpdateAvailableBroadcast returns the callback that the update checker
+// invokes when it finds a qualifying newer version. It publishes the
+// server-global `event: update-available` via the SSE hub. Called from `rk serve`
+// to bridge the checker's OnQualify hook into the hub (initSSEHub is invoked so
+// the hub exists even before the first client connects).
+func (s *Server) WireUpdateAvailableBroadcast() func(current, latest string) {
+	s.initSSEHub()
+	return func(current, latest string) {
+		s.sseHub.broadcastUpdateAvailable(current, latest)
 	}
 }

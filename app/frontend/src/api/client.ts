@@ -353,6 +353,21 @@ export async function refreshPrStatus(): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
+/** Trigger a one-click self-upgrade of the daemon: POST /api/update. The server
+ *  responds 202 and spawns a detached `rk update` (which restarts the daemon).
+ *  Best-effort from the caller's view — the ensuing daemon restart drops the SSE
+ *  connection, and the reconnect's differing `version` event drives the tab
+ *  reload. Rejects on a non-2xx (e.g. 409 not-brew / no-update) so the chip can
+ *  surface the failure. Server-independent (the daemon is one process). */
+export async function triggerUpdate(): Promise<void> {
+  const res = await fetch("/api/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
 export async function uploadFile(
   server: string,
   session: string,

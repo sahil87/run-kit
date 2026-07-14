@@ -1,0 +1,23 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-13T15:55:25Z"}
+{"args":"Notify run-kit web-UI users when a new minor/major version is available, with a one-click Update action that upgrades the brew-installed daemon and restarts it","cmd":"fab-new","event":"command","ts":"2026-07-13T15:55:25Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-07-13T15:58:28Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-13T15:59:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-13T16:01:59Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-13T16:03:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-13T16:25:43Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-13T16:27:03Z"}
+{"event":"review","result":"failed","ts":"2026-07-13T16:40:02Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-13T16:40:02Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-13T16:42:02Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-13T16:50:34Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-13T16:51:39Z"}
+{"event":"review","result":"failed","ts":"2026-07-13T16:59:35Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-13T16:59:35Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-13T17:00:46Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-13T17:04:40Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-13T17:06:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-13T17:14:41Z"}
+{"event":"review","result":"passed","ts":"2026-07-13T17:14:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-13T17:25:02Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-13T17:26:37Z"}
+{"event":"review","result":"passed","ts":"2026-07-13T17:38:57Z"}

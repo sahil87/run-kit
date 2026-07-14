@@ -220,6 +220,19 @@ type sseHub struct {
 	// slot fanned to EVERY client (incl. the `?metrics=1` metrics-only stream)
 	// and replayed on connect — NOT the per-server `board-changed` event.
 	cachedBoardOrderJSON string
+	// cachedVersionJSON is the server-global `event: version` payload — the
+	// running daemon version. It is set ONCE from SetVersion (the version cannot
+	// change for the process lifetime), so unlike the order slots there is no
+	// broadcast/poll path: it is replayed on connect only, fanned to EVERY client
+	// (incl. the `?metrics=1` metrics-only stream) — exactly the moment the client
+	// needs it (the reload guard keys off SSE reconnect). Empty until SetVersion.
+	cachedVersionJSON string
+	// cachedUpdateAvailableJSON is the server-global `event: update-available`
+	// payload published when the periodic checker finds a qualifying newer
+	// version. Like the order slots it is a single cached slot fanned to EVERY
+	// client (incl. `?metrics=1`) and replayed on connect for late-joining
+	// clients, updated via broadcastUpdateAvailable. Empty until a check qualifies.
+	cachedUpdateAvailableJSON string
 	// prStatus, when non-nil, supplies the in-memory PR-status snapshot the
 	// poll path joins onto change-bound windows. nil degrades gracefully (no
 	// PR fields attached) — used by tests and when no collector is wired.
@@ -389,6 +402,27 @@ func (h *sseHub) addClient(c *sseClient) {
 		}
 	}
 
+	// Send the cached running-version slot immediately (server-global). Set once
+	// via SetVersion; every client incl. `?metrics=1` receives it on connect so
+	// the frontend can track the daemon version and drive the post-restart reload
+	// guard. No broadcast path — replay-on-connect is the only delivery.
+	if h.cachedVersionJSON != "" {
+		select {
+		case c.ch <- []byte(fmt.Sprintf("event: version\ndata: %s\n\n", h.cachedVersionJSON)):
+		default:
+		}
+	}
+
+	// Send the cached update-available slot immediately (server-global), so a
+	// late-joining client — including the `?metrics=1` stream — learns of a
+	// pending update without waiting for the next 6h check.
+	if h.cachedUpdateAvailableJSON != "" {
+		select {
+		case c.ch <- []byte(fmt.Sprintf("event: update-available\ndata: %s\n\n", h.cachedUpdateAvailableJSON)):
+		default:
+		}
+	}
+
 	if !h.polling {
 		h.polling = true
 		go h.poll()
@@ -530,6 +564,66 @@ func (h *sseHub) broadcastBoardOrder(order []string) {
 			default:
 				if !c.dropped {
 					slog.Warn("SSE event dropped", "event", "board-order")
+					c.dropped = true
+				}
+			}
+		}
+	}
+}
+
+// setVersion seeds the server-global `event: version` cached slot with the
+// running daemon version. Called once at startup via Server.SetVersion. The
+// version cannot change for the process lifetime, so there is deliberately NO
+// broadcast to already-connected clients here — the slot is delivered purely on
+// connect (addClient), which is exactly when the client needs it. An empty
+// version is ignored (leaves the slot empty → no `event: version` sent).
+func (h *sseHub) setVersion(version string) {
+	if version == "" {
+		return
+	}
+	payload := struct {
+		Version string `json:"version"`
+	}{Version: version}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("version slot marshal failed", "err", err)
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cachedVersionJSON = string(jsonBytes)
+}
+
+// broadcastUpdateAvailable pushes a server-global `event: update-available` to
+// EVERY connected client across every server key (including the `?metrics=1`
+// metrics-only stream) and caches the payload so future clients receive it on
+// connect. A pending update is a HOST-global concern (the daemon is one process
+// regardless of how many tmux servers a client views), so this fans out to all
+// clients like broadcastServerOrder/broadcastBoardOrder, NOT to one server's
+// clients. Invoked from the updatecheck OnQualify callback wired in serve.go.
+func (h *sseHub) broadcastUpdateAvailable(current, latest string) {
+	payload := struct {
+		Current string `json:"current"`
+		Latest  string `json:"latest"`
+	}{Current: current, Latest: latest}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("update-available broadcast marshal failed", "err", err)
+		return
+	}
+	jsonStr := string(jsonBytes)
+	event := []byte(fmt.Sprintf("event: update-available\ndata: %s\n\n", jsonStr))
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cachedUpdateAvailableJSON = jsonStr
+	for _, cs := range h.clients {
+		for _, c := range cs {
+			select {
+			case c.ch <- event:
+			default:
+				if !c.dropped {
+					slog.Warn("SSE event dropped", "event", "update-available")
 					c.dropped = true
 				}
 			}

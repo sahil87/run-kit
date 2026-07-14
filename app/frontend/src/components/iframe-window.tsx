@@ -1,14 +1,20 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { updateWindowUrl, updateWindowType } from "@/api/client";
+import { updateWindowUrl } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 
 interface IframeWindowProps {
   windowId: string;
   rkUrl: string;
+  /** Switch this window to the tty lens (260714-t97o-web-view-lens). Wired from
+   *  `app.tsx`'s `switchView("tty")` — drops the `?view=` param (tty is the
+   *  clean-URL default) and records tty in localStorage. The `>_` button calls
+   *  THIS; it no longer mutates `@rk_type` (view choice is per-viewer client
+   *  state, not window identity — spec R7). */
+  onSwitchToTty: () => void;
 }
 
 /** Renders an iframe with a URL bar for proxy windows. */
-export function IframeWindow({ windowId, rkUrl }: IframeWindowProps) {
+export function IframeWindow({ windowId, rkUrl, onSwitchToTty }: IframeWindowProps) {
   // IframeWindow renders only from AppShell terminal routes where currentServer
   // is set. Fall back to empty string when null (action no-ops with bad server).
   const { currentServer } = useSessionContext();
@@ -87,7 +93,7 @@ export function IframeWindow({ windowId, rkUrl }: IframeWindowProps) {
           &#x23ce;
         </span>
         <button
-          onClick={() => updateWindowType(server, windowId, "")}
+          onClick={onSwitchToTty}
           className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
           aria-label="Switch to terminal"
           title="Switch to terminal"

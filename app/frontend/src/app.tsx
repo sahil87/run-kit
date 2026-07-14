@@ -1,5 +1,14 @@
 import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback } from "react";
-import { useNavigate, useMatches, Outlet } from "@tanstack/react-router";
+import { useNavigate, useMatches, useSearch, Outlet } from "@tanstack/react-router";
+import {
+  availableViews,
+  resolveView,
+  readStoredView,
+  writeStoredView,
+  nextView,
+  shouldSuppressViewChord,
+  type ViewName,
+} from "@/lib/window-view";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { FocusedTerminalProvider, useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
@@ -9,8 +18,6 @@ import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-updat
 import { buildViewActions } from "@/lib/palette-view";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
 import { isWaiting } from "@/lib/waiting";
-import { resolveChatView } from "@/lib/chat-view-resolve";
-import { useChatViewPref, readChatViewPrefKey } from "@/hooks/use-chat-view-pref";
 import { useChatStream } from "@/hooks/use-chat-stream";
 import { useChatViewShortcut } from "@/hooks/use-chat-view-shortcut";
 import { ChatView } from "@/components/chat-view";
@@ -43,7 +50,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, updateWindowType, isInfraServer, DAEMON_SERVER } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, getHealth, createServer, killServer as killServerApi, setWindowColor as setWindowColorApi, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, isInfraServer, DAEMON_SERVER } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -264,9 +271,9 @@ function RootTopBar() {
       closeDisabled={slot?.closeDisabled}
       autofit={slot?.autofit}
       onToggleAutofit={slot?.onToggleAutofit}
-      view={slot?.view}
-      chatAvailable={slot?.chatAvailable}
-      onSetView={slot?.onSetView}
+      availableViews={slot?.availableViews}
+      activeView={slot?.activeView}
+      onSelectView={slot?.onSelectView}
     />
   );
 }
@@ -340,10 +347,6 @@ function AppShell() {
   const matches = useMatches();
   const lastMatch = matches[matches.length - 1];
   const params = (lastMatch?.params ?? {}) as { server?: string; window?: string };
-  // Terminal-route `?view=chat` search param (260714-r7rq). Read from the
-  // deepest match's validated `search` (the terminal route's `validateSearch`
-  // normalizes it to `"chat" | undefined`). Absent on non-terminal routes.
-  const urlView = ((lastMatch?.search ?? {}) as { view?: "chat" }).view;
   // AppShell only mounts under `/$server/...`, so `currentServer` is non-null
   // here in practice. Fall back to URL params during the brief window between
   // navigation and the provider's next render with `currentServer` set.
@@ -384,18 +387,76 @@ function AppShell() {
   // snapshot (not the URL). Undefined until the snapshot resolves the window.
   const sessionName = currentSession?.name;
 
-  // Chat view (260714-r7rq). `chatAvailable` gates every chat affordance on the
-  // window carrying a non-empty `chatProvider` (mirrors the backend's own
-  // `resolveWindowChat` gating). The per-window persistence pref feeds the
-  // URL>pref>terminal precedence (`resolveChatView`); a chat-less window renders
-  // the terminal regardless (param/pref stay inert). `currentWindow` can be null
-  // on a cold deep-link before the snapshot resolves — read the fields safely.
-  const chatAvailable = !!currentWindow?.chatProvider;
-  const { chatPref, setChatPref } = useChatViewPref(server, windowParam ?? "");
-  const resolvedView = resolveChatView(urlView, chatPref);
-  // A chat-less window is always the terminal view, no matter the URL/pref.
-  const activeView: "chat" | "terminal" =
-    chatAvailable && resolvedView === "chat" ? "chat" : "terminal";
+  // Window-view lens state (spec R2/R5; chat folded in from 260714-r7rq). Which
+  // lens THIS viewer looks through is per-viewer client state: the `?view=`
+  // search param (spec R2), then per-window localStorage, then the window's
+  // derived default hint (spec R5) — all resolved by the pure `resolveView`.
+  // Read the param with `strict:false` because AppShell also mounts on
+  // `/$server` (no window, no `view` param) — a non-strict read returns
+  // `view: undefined` there rather than throwing. An unavailable value (e.g.
+  // `?view=web` on a window with no `rkUrl`, or `?view=chat` on a window with no
+  // `chatProvider`) falls through inside `resolveView` to the terminal — never a
+  // broken iframe or an empty chat. The router module registration
+  // (`declare module` in router.tsx) types `.view` as `"web" | "chat" |
+  // undefined`, so no cast is needed (`resolveView` accepts it as-is).
+  const search = useSearch({ strict: false });
+  const searchView = search.view;
+  const storedView = windowParam ? readStoredView(server, windowParam) : undefined;
+  const currentViews = useMemo(() => availableViews(currentWindow), [currentWindow]);
+  const resolvedView: ViewName = resolveView(searchView, storedView, currentWindow);
+
+  // Switch the current window's lens (spec R2/R7): persist per-window in
+  // localStorage (survives R6's param-drop on a window switch) AND update the
+  // URL `?view=` param so the state is copy-paste shareable / deep-linkable.
+  // `tty` DROPS the param (clean URL — tty is the always-available default);
+  // `web`/`chat` ride the URL (`?view=web` / `?view=chat`). Never mutates
+  // `@rk_type` (that is substrate state, not view state). Stable across SSE
+  // ticks (deps: server/windowParam/navigate).
+  const switchView = useCallback(
+    (view: ViewName) => {
+      if (!windowParam) return;
+      writeStoredView(server, windowParam, view);
+      navigate({
+        to: "/$server/$window",
+        params: { server, window: windowParam },
+        search: view !== "tty" ? { view } : {},
+        replace: true,
+      });
+    },
+    [server, windowParam, navigate],
+  );
+
+  // `Cmd/Ctrl+.` cycles the current window's lenses (Constitution V — every view
+  // action is keyboard-reachable; palette parity is the `View:` actions above).
+  // Chosen against the live chord registry (`⌘K` palette, `⌘\` sidebar, `⌘]`/
+  // `⌘[` board pane-cycle) — a free binding in the `⌘<punctuation>` family;
+  // `Ctrl+.` is inert in readline (unlike `Ctrl+/`→undo or `Ctrl+<letter>`
+  // control chars). Window-level with `preventDefault()` so xterm doesn't also
+  // receive it — the same working pattern as `shell.tsx`'s `⌘\` sidebar toggle,
+  // including its non-xterm-input suppression. The live view/window values are
+  // read via a ref so the listener is stable across SSE ticks.
+  const viewCycleRef = useRef<{ views: ViewName[]; active: ViewName }>({
+    views: currentViews,
+    active: resolvedView,
+  });
+  viewCycleRef.current = { views: currentViews, active: resolvedView };
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== ".") return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      // Suppress only when a "real" (non-xterm) text input has focus — same
+      // rule as shell.tsx's sidebar toggle (extracted to a pure predicate so
+      // the gating is unit-tested).
+      if (shouldSuppressViewChord(e.target)) return;
+      const { views, active } = viewCycleRef.current;
+      const next = nextView(views, active); // null when nothing to cycle
+      if (!next) return;
+      e.preventDefault();
+      switchView(next);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [switchView]);
 
   // Compose buffer open state lives in `FocusedTerminalContext` so the
   // shell-level `<BottomBar>` can open compose for the focused terminal
@@ -560,19 +621,16 @@ function AppShell() {
   // below) so `navigateToWindow` can read the current order WITHOUT taking
   // `flatWindows`/`windowParam` as deps — those churn every SSE tick and would
   // recreate the callback (and defeat the sidebar-handler memoization) each
-  // tick. `order` is the flattened window-id list (sidebar order); `iframeIds`
-  // marks which targets are iframe windows (the first-paint gate is
-  // terminal-only). Read only on a click, after render, so no TDZ concern.
+  // tick. `order` is the flattened window-id list (sidebar order); `ungatedIds`
+  // marks targets that will render a NON-tty lens (web iframe or chat) — those
+  // have no xterm first-write receipt seam, so they use the ungated capture (the
+  // first-paint gate is terminal-only). Read only on a click, after render, so
+  // no TDZ concern.
   const switchTransitionRef = useRef<{
     order: string[];
-    iframeIds: Set<string>;
-    /** Window ids carrying a `chatProvider` (260714-r7rq). A chat-CAPABLE
-     *  target uses the ungated capture only when its stored per-window pref is
-     *  chat — that pref is read LAZILY at click time (one localStorage read per
-     *  click) rather than for every window on every render. */
-    chatCapableIds: Set<string>;
+    ungatedIds: Set<string>;
     currentWindowId: string;
-  }>({ order: [], iframeIds: new Set(), chatCapableIds: new Set(), currentWindowId: "" });
+  }>({ order: [], ungatedIds: new Set(), currentWindowId: "" });
 
   useEffect(() => {
     setCurrentSession(currentSession);
@@ -724,9 +782,10 @@ function AppShell() {
         navigate({
           to: "/$server/$window",
           params: { server, window: windowId },
-          // Window switch (sidebar/palette click): clear `?view=chat` so the
-          // target window resolves its own view pref (260714-r7rq). Same-window
-          // view toggles go through `onSetView`, which sets search explicitly.
+          // Window switch (sidebar/palette click): clear the `?view=` param so
+          // the target window resolves its OWN view (localStorage + default
+          // hint), not the outgoing window's. Same-window lens switches go
+          // through `switchView`, which sets the param explicitly.
           search: {},
           replace: true,
         });
@@ -740,7 +799,7 @@ function AppShell() {
       // support, motion not reduced, an outgoing window in view, and a slide
       // direction resolvable from the flattened sidebar order. Any failure →
       // the instant switch above (progressive enhancement).
-      const { order, iframeIds, chatCapableIds, currentWindowId } = switchTransitionRef.current;
+      const { order, ungatedIds, currentWindowId } = switchTransitionRef.current;
       const direction = windowSwitchDirection(order, currentWindowId, windowId);
       // Guard `matchMedia` for non-browser/test envs (jsdom variants, older
       // WebViews) where it may be missing — same pattern as `use-is-mobile.ts`
@@ -773,8 +832,8 @@ function AppShell() {
       // the first-write signal, which `TerminalClient` fires at message-receipt
       // time inside `ws.onmessage` (via `notifyFirstWrite`), not at terminal
       // write time (rAF-scheduled writes don't fire during VT suppression).
-      // iframe targets have no such receipt seam, so they use the ungated
-      // capture.
+      // Non-tty targets (web iframe, chat) have no such receipt seam, so they
+      // use the ungated capture.
       //
       // Trade-off (accepted): during the ~180ms slide the View Transitions API
       // paints a snapshot pseudo-element that hit-tests to <html>, so a click
@@ -786,18 +845,15 @@ function AppShell() {
       // Fire-and-forget: `beginWindowSwitchGate` fires any prior in-flight gate
       // so a rapid second switch doesn't stall behind the first's timeout (the
       // VT spec queues the second callback behind the first's returned promise).
-      // NOTE: this call is load-bearing on BOTH paths, including the iframe path
-      // below — it fires a prior PENDING terminal gate (a terminal→iframe switch
+      // NOTE: this call is load-bearing on BOTH paths, including the ungated path
+      // below — it fires a prior PENDING terminal gate (a terminal→non-tty switch
       // supersedes an in-flight terminal gate), so it must run before we branch
-      // on `targetIsIframe`.
+      // on `targetUngated`.
       //
-      // Chat targets (260714-r7rq) join the ungated set: a chat-CAPABLE target
-      // whose stored per-window pref is chat will render `<ChatView>` (no xterm
-      // first-write seam). The pref is read lazily HERE — one localStorage read
-      // per click — rather than for every window on every render.
-      const targetIsIframe =
-        iframeIds.has(windowId) ||
-        (chatCapableIds.has(windowId) && readChatViewPrefKey(server, windowId));
+      // A target is ungated (web iframe or chat) exactly when its EFFECTIVE
+      // resolved view is not `tty` — precomputed into `ungatedIds` at render time
+      // (below) from each window's stored view + default hint.
+      const targetUngated = ungatedIds.has(windowId);
       const gate = beginWindowSwitchGate();
       // Capture a monotonic token so only the LATEST switch's cleanup may clear
       // the direction attribute (a superseded transition's `finished` still
@@ -806,7 +862,7 @@ function AppShell() {
       document.documentElement.dataset.windowSwitchDirection = direction;
       const transition = document.startViewTransition(async () => {
         const posted = runSwitch();
-        if (!targetIsIframe) {
+        if (!targetUngated) {
           // Race-at-entry: arm the ~300ms budget at callback ENTRY. Do NOT await
           // the POST — CHAIN `openForNotify` off it (fire-and-forget) and await
           // only the gate wait, whose timeout clock starts here. This hard-caps
@@ -843,39 +899,29 @@ function AppShell() {
     [server, navigate, isMobile, setSidebarOpen],
   );
 
-  // Toggle the current window's view (260714-r7rq). Window-preserving: it only
-  // rewrites the `view` search param on the SAME `/$server/$window` route and
-  // persists the per-window pref. `?view=chat` in the URL is set when flipping
-  // to chat and dropped (undefined) when flipping to terminal, so the URL stays
-  // the addressable source of truth (feeds `resolveChatView`'s precedence).
-  const onSetView = useCallback(
-    (next: "chat" | "terminal") => {
-      if (!windowParam) return;
-      navigate({
-        to: "/$server/$window",
-        params: { server, window: windowParam },
-        search: next === "chat" ? { view: "chat" } : {},
-        replace: true,
-      });
-      setChatPref(next === "chat");
-    },
-    [server, windowParam, navigate, setChatPref],
-  );
-
   // Chat stream (260714-r7rq) — a SINGLE dedicated EventSource, owned here so it
   // feeds BOTH the `ChatView` renderer (below) and the connection dot's health
-  // (R9). Opened only when the chat view is actually active for a chat-capable
-  // window; the hook is a no-op with empty ids otherwise (it early-returns
-  // without opening a connection), so a terminal-view window never streams.
-  const chatViewActive = activeView === "chat" && chatAvailable;
+  // (R9). The chat lens is active exactly when `resolveView` resolves to `chat`
+  // (which already bakes in the `chatProvider` availability gate, so a chat-less
+  // window never resolves here). Opened only when the chat view is active; the
+  // hook is a no-op with empty ids otherwise (it early-returns without opening a
+  // connection), so a terminal-view window never streams.
+  const chatViewActive = resolvedView === "chat";
   const chatStream = useChatStream(
     chatViewActive ? server : "",
     chatViewActive ? windowParam ?? "" : "",
   );
 
-  // Ctrl+` toggles tty↔chat (Constitution V). Enabled only on a chat-capable
-  // window in view; fires even while xterm owns focus (see the hook).
-  useChatViewShortcut(chatAvailable && !!windowParam, activeView, onSetView);
+  // Ctrl+` toggles tty↔chat (Constitution V; the shipped VS-Code-style "toggle
+  // terminal" binding, whose whole point is firing while xterm owns focus).
+  // Enabled only on a chat-capable window; toggles between the chat lens and tty
+  // via the unified `switchView`. Fires even while xterm owns focus (see the
+  // hook).
+  useChatViewShortcut(
+    currentViews.includes("chat"),
+    resolvedView === "chat" ? "chat" : "tty",
+    (next) => switchView(next),
+  );
 
   // Dialog state management
   const dialogs = useDialogState({
@@ -909,29 +955,28 @@ function AppShell() {
   // cheap and keeps the callback deps stable — see `switchTransitionRef` above.
   switchTransitionRef.current = {
     order: flatWindows.map((fw) => fw.window.windowId),
-    // A target counts as "iframe" (ungated capture, no first-write seam) only
-    // when it actually renders the IframeWindow branch — which requires BOTH
-    // `rkType === "iframe"` AND `rkUrl` (app.tsx render gate). An iframe-typed
-    // window with no `rkUrl` renders a TerminalClient, so it must stay on the
-    // gated (first-write) path; keeping the predicate aligned prevents that
-    // window from silently skipping the gate.
-    iframeIds: new Set(
+    // A target is UNGATED (ungated capture, no xterm first-write receipt seam)
+    // exactly when its EFFECTIVE resolved view is NOT `tty` — i.e. it will
+    // render the IframeWindow (web) or ChatView (chat) branch, neither of which
+    // has the terminal's first-write seam (260714-t97o-web-view-lens R12; chat
+    // folded in from 260714-r7rq). The URL `?view=` param is NOT known for a
+    // not-yet-navigated target, so we resolve from localStorage + the window's
+    // default hint only (URL passed `undefined`). `resolveView` bakes in
+    // availability, so an iframe-typed window with no `rkUrl`, a chat-capable
+    // window whose last-view is `tty`, or any window whose last-view is `tty`
+    // resolves to `tty` and STAYS on the gated terminal path — getting this
+    // wrong reintroduces the blank-pane/stuck-transition class of bugs
+    // (ui-patterns.md § Window-Switch Slide Transition).
+    ungatedIds: new Set(
       flatWindows
-        .filter((fw) => fw.window.rkType === "iframe" && fw.window.rkUrl)
-        .map((fw) => fw.window.windowId),
-    ),
-    // A CHAT-active target (260714-r7rq) is the iframe case's analog — it
-    // renders `<ChatView>`, which has no xterm first-write seam, so a
-    // first-write gate would never release; it must use the ungated capture.
-    // A target renders chat when it has a `chatProvider` AND its stored
-    // per-window pref is chat (a cross-window switch carries no URL
-    // `?view=chat` — that is a same-window param). Only the cheap capability
-    // set is synced here; the localStorage pref is read LAZILY at click time
-    // in `navigateToWindow` (one read per click, not one per window per
-    // render).
-    chatCapableIds: new Set(
-      flatWindows
-        .filter((fw) => !!fw.window.chatProvider)
+        .filter(
+          (fw) =>
+            resolveView(
+              undefined,
+              readStoredView(server, fw.window.windowId),
+              fw.window,
+            ) !== "tty",
+        )
         .map((fw) => fw.window.windowId),
     ),
     currentWindowId: windowParam ?? "",
@@ -1295,22 +1340,10 @@ function AppShell() {
               label: "Window: Set Color",
               onSelect: () => setShowColorPicker("window"),
             },
-            ...(currentWindow.rkType === "iframe" || currentWindow.rkUrl
-              ? [
-                  {
-                    id: "toggle-iframe-terminal",
-                    label: currentWindow.rkType === "iframe" ? "Window: Switch to Terminal" : "Window: Switch to Iframe",
-                    onSelect: () => {
-                      if (sessionName) {
-                        const newType = currentWindow.rkType === "iframe" ? "" : "iframe";
-                        updateWindowType(server, currentWindow.windowId, newType).catch((err) =>
-                          addToast(err.message || "Failed to toggle window type"),
-                        );
-                      }
-                    },
-                  },
-                ]
-              : []),
+            // NOTE: the old `toggle-iframe-terminal` action (which mutated
+            // `@rk_type`) was REPLACED by the `View: Terminal` / `View: Web`
+            // actions in `viewActions` (260714-t97o-web-view-lens) — switching a
+            // lens is per-viewer view state, never a `@rk_type` mutation.
             ...(currentWindow.index > minWindowIndex
               ? [
                   {
@@ -1565,10 +1598,18 @@ function AppShell() {
             },
           ]
         : []),
-      // View: Chat / View: Terminal (260714-r7rq) — the inactive-side toggle,
-      // gated on the current window carrying a `chatProvider` (Constitution V
-      // keyboard parity for the top-bar chip). Empty when chat is unavailable.
-      ...buildViewActions(chatAvailable, activeView, onSetView),
+      // Window-view lens actions (spec R4, Constitution V palette parity for the
+      // L1 ViewSwitcher; chat folded in from 260714-r7rq). Each lens is offered
+      // only when it is AVAILABLE for the current window AND is not the current
+      // view — so the palette shows the destination, never the current lens. The
+      // per-entry shortcut hint tracks the binding that reaches it (`Ctrl+\`` for
+      // the chat toggle, `⌘.` for the cycle). These REPLACE the retired
+      // `toggle-iframe-terminal` action, which mutated `@rk_type`; switching a
+      // lens now never touches the window's identity. The gating (available AND
+      // not-current) + hint composition live in the pure `buildViewActions`
+      // (lib/palette-view.ts) so they are unit-testable without mounting the
+      // shell.
+      ...buildViewActions(currentViews, resolvedView, switchView),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
@@ -1587,7 +1628,7 @@ function AppShell() {
         onSelect: () => window.location.reload(),
       },
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, chatAvailable, activeView, onSetView, setComposeOpen],
+    [sessionName, fixedWidth, toggleFixedWidth, setComposeOpen, currentViews, resolvedView, switchView],
   );
 
   // Terminal font-size actions. No `shortcut` — Cmd +/- is deliberately not
@@ -2015,9 +2056,12 @@ function AppShell() {
       onCreateSession: handleCreateSessionInstant,
       onCreateWindow: handleCreateWindow,
       onSpawnAgent: handleSlotSpawnAgent,
-      view: activeView,
-      chatAvailable,
-      onSetView,
+      // Window-view lens machinery (spec R4; chat folded in from 260714-r7rq):
+      // the L1 switcher chip + the center-heading prefix both read these. The
+      // chip renders only when `availableViews.length > 1`.
+      availableViews: currentViews,
+      activeView: resolvedView,
+      onSelectView: switchView,
     }),
     [
       sessions,
@@ -2033,9 +2077,9 @@ function AppShell() {
       handleCreateSessionInstant,
       handleCreateWindow,
       handleSlotSpawnAgent,
-      activeView,
-      chatAvailable,
-      onSetView,
+      currentViews,
+      resolvedView,
+      switchView,
     ],
   );
   useRegisterTopBarSlot(topBarSlot);
@@ -2143,41 +2187,32 @@ function AppShell() {
                 connected={chatStream.connected}
                 error={chatStream.error}
               />
-            ) : currentWindow?.rkType === "iframe" && currentWindow?.rkUrl ? (
+            ) : resolvedView === "web" && currentWindow?.rkUrl ? (
+              // `resolvedView === "web"` already implies web is AVAILABLE (so
+              // `hasWebUrl` held — `resolveView` bakes availability in); the
+              // `currentWindow?.rkUrl` here is the TS narrowing that proves
+              // `rkUrl` is a non-empty string for the prop below.
               <div className="flex-1 min-h-0 flex flex-col">
                 <IframeWindow
                   windowId={currentWindow.windowId}
                   rkUrl={currentWindow.rkUrl}
+                  onSwitchToTty={() => switchView("tty")}
                 />
               </div>
             ) : (
-              <>
-                {currentWindow?.rkUrl && (
-                  <div className="shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-bg-primary">
-                    <button
-                      onClick={() => sessionName && currentWindow && updateWindowType(server, currentWindow.windowId, "iframe")}
-                      className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
-                      title="Switch to iframe view"
-                    >
-                      <span className="font-mono">&lt;/&gt;</span>
-                      <span className="truncate max-w-[300px]">{currentWindow.rkUrl}</span>
-                    </button>
-                  </div>
-                )}
-                <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
-                  <TerminalClient
-                    sessionName={sessionName ?? ""}
-                    windowId={windowParam}
-                    server={server}
-                    wsRef={wsRef}
-                    composeOpen={composeOpen}
-                    setComposeOpen={setComposeOpen}
-                    onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
-                    focusRef={focusTerminalRef}
-                    scrollLocked={scrollLocked}
-                  />
-                </div>
-              </>
+              <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
+                <TerminalClient
+                  sessionName={sessionName ?? ""}
+                  windowId={windowParam}
+                  server={server}
+                  wsRef={wsRef}
+                  composeOpen={composeOpen}
+                  setComposeOpen={setComposeOpen}
+                  onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
+                  focusRef={focusTerminalRef}
+                  scrollLocked={scrollLocked}
+                />
+              </div>
             )
           ) : (
             <SessionTiles

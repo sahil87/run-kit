@@ -12,6 +12,8 @@ import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { prefersReducedMotion } from "@/lib/motion";
 import { WaitingBadge } from "@/components/waiting-badge";
+import { ViewSwitcher } from "@/components/view-switcher";
+import type { ViewName } from "@/lib/window-view";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -81,16 +83,17 @@ type TopBarProps = {
   /** Board-mode autofit setter (738w) — flips the same state the palette's
    *  `Board: Toggle Autofit` action flips. Absent → no toggle rendered. */
   onToggleAutofit?: () => void;
-  /** Chat view (260714-r7rq, terminal mode only). The active view for the
-   *  current window: `"chat"` or `"terminal"`. Drives the `[tty|chat]` L1 chip's
-   *  active side and the center heading prefix (`Chat:` vs `Terminal:`). */
-  view?: "chat" | "terminal";
-  /** True when the current window has a non-empty `chatProvider` (the sole gate
-   *  for the chat chip + `Chat:` heading). Absent/false → no chat affordance. */
-  chatAvailable?: boolean;
-  /** Toggle the current window's view (URL nav + pref write, window-preserving).
-   *  Wired from AppShell via the slot context; absent → no chip rendered. */
-  onSetView?: (view: "chat" | "terminal") => void;
+  /** Terminal-mode window-view lens machinery (spec R4; chat folded in from
+   *  260714-r7rq). The capability set of the current window; the switcher chip
+   *  renders only when it exceeds `{tty}`. Absent/`["tty"]` → no chip. */
+  availableViews?: ViewName[];
+  /** The current window's active lens — drives the L1 ViewSwitcher's active
+   *  segment AND the center heading's page-type prefix (`Terminal:`/`Web:`/
+   *  `Chat:`). Absent → treated as `tty` (the pre-lens default). */
+  activeView?: ViewName;
+  /** Handler that switches the current window's lens (URL param + localStorage);
+   *  wired from AppShell's `switchView`. Absent → no switcher rendered. */
+  onSelectView?: (view: ViewName) => void;
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
@@ -180,9 +183,9 @@ export function TopBar({
   closeDisabled,
   autofit,
   onToggleAutofit,
-  view,
-  chatAvailable,
-  onSetView,
+  availableViews,
+  activeView,
+  onSelectView,
 }: TopBarProps) {
   // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
   // window id (@N) is the only identity in the URL. Selecting a session jumps
@@ -350,7 +353,7 @@ export function TopBar({
                 windowId={currentWindow.windowId}
                 sessionName={sessionName}
                 name={windowName}
-                prefix={view === "chat" ? CHAT_PREFIX : TERMINAL_PREFIX}
+                prefix={terminalHeadingPrefix(activeView)}
               />
               <BreadcrumbDropdown
                 items={windowItems}
@@ -426,17 +429,22 @@ export function TopBar({
               `fixedWidth`). */}
           {currentWindow && (
             <>
-              {/* [tty|chat] view toggle (260714-r7rq). Unlike its L1 siblings
-                  (each `hidden sm:flex`), the chip is visible at ALL breakpoints
-                  — mobile is a primary chat use case (the 80-col tmux pain). Gated
-                  on the current window carrying a `chatProvider` (chatAvailable)
-                  AND a wired setter. */}
-              {chatAvailable && onSetView && (
-                <SegmentedViewToggle
-                  view={view ?? "terminal"}
-                  onSetView={onSetView}
-                />
-              )}
+              {/* Window-view lens switcher (spec R4; the ONE switcher UX for
+                  tty/web/chat). Terminal-tier (L1) but — unlike its `hidden
+                  sm:flex` siblings — visible at ALL breakpoints, because chat is
+                  a primary mobile use case (the 80-col tmux pain). Rendered only
+                  when the current window offers more than the tty lens (its own
+                  `views.length <= 1` guard also returns null, so this is
+                  belt-and-suspenders). */}
+              {onSelectView &&
+                availableViews &&
+                availableViews.length > 1 && (
+                  <ViewSwitcher
+                    views={availableViews}
+                    active={activeView ?? "tty"}
+                    onSelect={onSelectView}
+                  />
+                )}
               <span className="hidden sm:flex">
                 <SplitButton
                   server={server}
@@ -749,10 +757,21 @@ function SweepCells({
 // Page-type prefix words for the universal center heading (change 260704-pr0p,
 // title-case per the reviewed demo — supersedes PageHeading's lowercase idiom).
 const TERMINAL_PREFIX = "Terminal:";
+// The center heading follows the lens (spec R4): the terminal-mode heading reads
+// `Web:` for the web lens, `Chat:` for the chat lens, else `Terminal:`. A later
+// `Desktop:` prefix slots in here.
+const WEB_PREFIX = "Web:";
 const CHAT_PREFIX = "Chat:";
 const BOARD_PREFIX = "Board:";
 const CABIN_PREFIX = "Server Cabin:";
 const COCKPIT_SOLO = "Cockpit";
+
+/** Terminal-mode heading prefix for the active view (spec R4). */
+function terminalHeadingPrefix(activeView: ViewName | undefined): string {
+  if (activeView === "web") return WEB_PREFIX;
+  if (activeView === "chat") return CHAT_PREFIX;
+  return TERMINAL_PREFIX;
+}
 
 /**
  * Split a boot-sweep cell list into its prefix portion (the `pfx`/`sp` cells)
@@ -841,16 +860,16 @@ function WindowHeading({
   windowId,
   sessionName,
   name,
-  prefix = TERMINAL_PREFIX,
+  prefix,
 }: {
   server: string;
   windowId: string;
   sessionName: string;
   name: string;
-  /** Page-type prefix for the boot-sweep heading. `Terminal:` by default; the
-   *  chat view passes `Chat:` (260714-r7rq) so the same component (boot sweep +
-   *  inline rename) carries both views without forking. */
-  prefix?: string;
+  /** Page-type prefix (`Terminal:` / `Web:`) — follows the active lens (spec
+   *  R4). The boot sweep runs over `prefix + " " + name`, so a prefix change
+   *  (a tty↔web view switch) replays the sweep just like a name change. */
+  prefix: string;
 }) {
   // Shared with the sidebar inline rename (change 5ilm) so both surfaces rename
   // identically (optimistic store rename, rollback + toast, clear on settle).
@@ -879,6 +898,13 @@ function WindowHeading({
   // play path (rather than a separate mount effect) is what keeps mount from
   // double-playing over a name change.
   const prevNameRef = useRef<string | null>(null);
+  // Track the displayed prefix so a lens switch (tty↔web changes `Terminal:`↔
+  // `Web:` with the SAME window name) replays the boot sweep and re-seeds the
+  // sweep cells — otherwise `useBootSweep`'s `cells` state (seeded once from
+  // `rest()`) would stay stale and the heading would show the old prefix. Seeded
+  // with the initial prefix so the mount replay is owned by the name effect
+  // alone (no double-play on mount).
+  const prevPrefixRef = useRef<string>(prefix);
   const editingRef = useRef(editing);
   editingRef.current = editing;
   // Set true by a key-driven commit/cancel (Enter/Escape) so the onBlur that
@@ -929,16 +955,15 @@ function WindowHeading({
     }
   }, [name, sweep]);
 
-  // Prefix change (260714-r7rq): flipping the view (`Terminal:` ↔ `Chat:`) keeps
-  // the same window/name, so the name-change effect above never fires — yet the
-  // boot-sweep cell list is seeded from `prefix` and would otherwise keep the
-  // stale prefix text. Rebuild the cells (resolve — no animated replay) whenever
-  // the prefix changes so the heading reflects the active view immediately.
-  const prevPrefixRef = useRef(prefix);
+  // Lens switch: the page-type prefix flipped (`Terminal:`↔`Web:`) with the
+  // same window name. Replay the sweep (or, while editing, resolve to rest) so
+  // the heading re-seeds `sweep.cells` to the new prefix — the same one-effect
+  // mechanism as the name change, keyed on the prefix instead.
   useEffect(() => {
     if (prefix !== prevPrefixRef.current) {
       prevPrefixRef.current = prefix;
-      if (!editingRef.current) sweep.resolve();
+      if (!editingRef.current) sweep.play();
+      else sweep.resolve();
     }
   }, [prefix, sweep]);
 
@@ -1939,58 +1964,6 @@ function FixedWidthToggle() {
         )}
       </svg>
     </button>
-  );
-}
-
-/**
- * `[tty|chat]` segmented view toggle (260714-r7rq). A compact two-state chip in
- * the L1 terminal-only cluster, gated on the current window carrying a
- * `chatProvider` (the caller renders it only when `chatAvailable`). The ACTIVE
- * side is inverse-video (accent fill); the inactive side is a plain hover
- * target. Clicking a side sets that view (a no-op if already active). Carries the
- * CRT-glint hover + `coarse:` touch sizing per the top-bar button vocabulary,
- * and — unlike its L1 siblings — is visible at all breakpoints (mobile is a
- * primary chat use case).
- */
-function SegmentedViewToggle({
-  view,
-  onSetView,
-}: {
-  view: "chat" | "terminal";
-  onSetView: (view: "chat" | "terminal") => void;
-}) {
-  const segClass = (active: boolean) =>
-    `px-1.5 coarse:px-2 coarse:min-h-[30px] flex items-center justify-center transition-colors ${
-      active
-        ? "bg-accent text-bg-primary"
-        : "text-text-secondary hover:text-text-primary"
-    }`;
-  return (
-    <div
-      className="rk-glint flex items-stretch rounded border border-border overflow-hidden min-h-[24px] text-[11px] leading-none"
-      role="group"
-      aria-label="Terminal / chat view"
-      data-testid="view-toggle"
-    >
-      <button
-        type="button"
-        onClick={() => onSetView("terminal")}
-        aria-pressed={view === "terminal"}
-        className={segClass(view === "terminal")}
-        title="Terminal view"
-      >
-        tty
-      </button>
-      <button
-        type="button"
-        onClick={() => onSetView("chat")}
-        aria-pressed={view === "chat"}
-        className={`${segClass(view === "chat")} border-l border-border`}
-        title="Chat view"
-      >
-        chat
-      </button>
-    </div>
   );
 }
 

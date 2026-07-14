@@ -5,17 +5,17 @@ created_by: Sahil Ahuja
 change_type: feat
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 15
+    acceptance_count: 19
+    acceptance_completed: 19
 confidence:
     certain: 4
     confident: 5
@@ -29,8 +29,29 @@ confidence:
         competence: 84.4
         disambiguation: 79.4
 stage_metrics:
-    intake: {started_at: "2026-07-14T09:43:29Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-07-14T09:43:29Z", driver: fab-new, iterations: 1, completed_at: "2026-07-14T10:07:56Z"}
+    apply: {started_at: "2026-07-14T11:00:37Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-14T11:16:53Z"}
+    review: {started_at: "2026-07-14T11:16:53Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-14T11:43:39Z"}
+    hydrate: {started_at: "2026-07-14T11:43:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T11:50:51Z"}
+    ship: {started_at: "2026-07-14T11:50:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T11:55:17Z"}
+    review-pr: {started_at: "2026-07-14T11:55:17Z", driver: git-pr, iterations: 1, completed_at: "2026-07-14T12:17:06Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/352
 change_type_source: explicit
+true_impact:
+    added: 1610
+    deleted: 89
+    net: 1521
+    excluding:
+        added: 1265
+        deleted: 64
+        net: 1201
+    tests:
+        added: 505
+        deleted: 1
+        net: 504
+    computed_at: "2026-07-14T11:55:17Z"
+    computed_at_stage: ship
+summary: 'Retrofit iframe viewing onto the window-view lens model: per-viewer ?view=web + tty-always-reachable, no @rk_type mutation on view switch; adds the generalized ViewSwitcher machinery'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-14T09:46:49Z
+last_updated: 2026-07-14T12:17:06Z

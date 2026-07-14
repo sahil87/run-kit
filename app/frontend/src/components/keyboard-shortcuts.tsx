@@ -93,6 +93,7 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
             <ShortcutRow label="Command palette" keys={["⌘K"]} />
             <ShortcutRow label="Toggle sidebar" keys={["⌘\\"]} />
             <ShortcutRow label="Toggle chat / terminal" keys={["Ctrl+`"]} />
+            <ShortcutRow label="Cycle view" keys={["⌘."]} />
           </div>
         </div>
 

@@ -473,17 +473,17 @@ export function TopBar({
           {/* Update chip — leads the L3 cluster. Self-contained (reads the
               update-notification state from SessionContext); renders nothing when
               no qualifying update is pending, when dismissed for the current
-              latest, or when the daemon reports the `dev` version. */}
-          <span className="hidden sm:flex">
-            <UpdateChip />
-          </span>
+              latest, or when the daemon reports the `dev` version. Carries its
+              own `hidden sm:flex` gating: a call-site wrapper span would remain
+              in this gap-3 flex row as an empty item while the chip renders
+              null, doubling the gap between its neighbors. */}
+          <UpdateChip />
 
           {/* Notification control — bell button + dropdown (enable / send test).
               Hides itself when push is unsupported (insecure context / no SW
-              support). */}
-          <span className="hidden sm:flex">
-            <NotificationControl />
-          </span>
+              support), and carries its own responsive gating for the same
+              empty-flex-item reason as UpdateChip. */}
+          <NotificationControl />
 
           {/* Theme toggle. */}
           <span className="hidden sm:flex">
@@ -1660,7 +1660,7 @@ function UpdateChip() {
   };
 
   return (
-    <span className="flex items-center">
+    <span className="hidden sm:flex items-center">
       <button
         type="button"
         onClick={handleUpdate}
@@ -1760,7 +1760,7 @@ function NotificationControl() {
     "w-full text-left text-xs text-text-secondary hover:text-text-primary transition-colors py-1.5 px-2 rounded hover:bg-bg-card disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
 
   return (
-    <div ref={containerRef} className="relative inline-flex items-center">
+    <div ref={containerRef} className="relative hidden sm:inline-flex items-center">
       <button
         ref={triggerRef}
         type="button"

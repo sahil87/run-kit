@@ -30,6 +30,7 @@
 | [Short-Term Goal](short-term-goal.md) | Minimum viable product requirements and priorities |
 | [Status Pyramid](status-pyramid.md) | Precedence model for status signals — tier ladder (PR > fab > agent > tmux), channel model (hue/shape/animation), attention overlay, decision table, rollups |
 | [Themes](themes.md) | Theme system architecture: ANSI palettes, derivation, tmux integration, import script |
+| [Window Views](window-views.md) | Rows are substrates, views are lenses — the parallel-view model (tty/web/chat/desktop): derived availability vs per-viewer choice, the shared switcher contract, two-species taxonomy, migration map for iframe / desktop (PR #71) / chat |
 
 ## Wiki
 

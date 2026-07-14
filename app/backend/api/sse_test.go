@@ -625,10 +625,13 @@ func TestVersionSlotReplayedOnConnect(t *testing.T) {
 		if len(got) == 0 {
 			t.Fatalf("%s client received no version event (all: %v)", name, events)
 		}
-		// The additive payload is deterministic (struct field order): version,
-		// then boot, then brew.
-		if !strings.Contains(got[0], `{"version":"0.5.3","boot":"abc123","brew":true}`) {
-			t.Errorf("%s client version payload = %q, want version+boot+brew", name, got[0])
+		// Assert each required field independently rather than the exact
+		// serialized object — this tolerates JSON key-order changes and
+		// additive fields (the payload is explicitly additive; see setVersion).
+		for _, want := range []string{`"version":"0.5.3"`, `"boot":"abc123"`, `"brew":true`} {
+			if !strings.Contains(got[0], want) {
+				t.Errorf("%s client version payload = %q, missing %s", name, got[0], want)
+			}
 		}
 	}
 }

@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 18
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-14T10:30:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T10:38:54Z"}
     hydrate: {started_at: "2026-07-14T10:38:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T10:46:20Z"}
     ship: {started_at: "2026-07-14T10:46:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T10:48:46Z"}
-    review-pr: {started_at: "2026-07-14T10:48:46Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-14T10:48:46Z", driver: git-pr, iterations: 1, completed_at: "2026-07-14T10:57:36Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/350
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Add web-reachable force-update ({"force":true} skips qualify-409, keeps brew-409) + POST /api/restart (202 → detached rk daemon restart, dev-409) via one shared spawnSelfFn seam; event: version gains per-process boot id + brew flag; boot-aware 4-arg shouldReloadOnVersion reloads on same-version restart (dev-suppressed); two palette-only maintenance entries (Update Now brew&&!dev, Restart Daemon !dev) dual-mounted'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-14T10:48:46Z
+last_updated: 2026-07-14T10:57:36Z

@@ -677,10 +677,15 @@ func (s *Server) setAndPaste(ctx context.Context, server, paneID, text string) e
 // caller's ctx deadline, so the loop stays well under the route budget.
 func (s *Server) probeChatEcho(ctx context.Context, server, paneID, needle string, multiline bool, baseCount int) error {
 	for attempt := 0; attempt < chatSendProbeAttempts; attempt++ {
+		d := chatSendProbeGap
 		if attempt == 0 {
-			time.Sleep(chatSendProbeSettle)
-		} else {
-			time.Sleep(chatSendProbeGap)
+			d = chatSendProbeSettle
+		}
+		// ctx-aware settle/gap: on a client disconnect or the shared deadline
+		// firing, abort the probe promptly rather than sleeping out the full
+		// interval before the next capture would notice the cancelled ctx.
+		if err := sleepCtx(ctx, d); err != nil {
+			return err
 		}
 		capture, err := s.tmux.CapturePane(ctx, paneID, chatSendProbeCaptureLines, server)
 		if err != nil {
@@ -691,6 +696,22 @@ func (s *Server) probeChatEcho(ctx context.Context, server, paneID, needle strin
 		}
 	}
 	return chatProbeFailure{}
+}
+
+// sleepCtx sleeps for d but returns early with ctx.Err() if ctx is cancelled or
+// its deadline fires first. Used by the echo probe so a client disconnect (or
+// the shared chatSendTotalBudget deadline) aborts the settle/gap wait promptly
+// instead of sleeping out the full interval. A ctx error propagates up as the
+// injection error (→ 500), never a false chatProbeFailure.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // ansiEscapeRe matches the ANSI CSI / OSC escape sequences CapturePane preserves

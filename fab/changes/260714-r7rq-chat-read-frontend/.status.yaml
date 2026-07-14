@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 27
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-14T11:06:48Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-14T11:25:28Z"}
     hydrate: {started_at: "2026-07-14T11:25:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T11:34:04Z"}
     ship: {started_at: "2026-07-14T11:34:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-14T11:37:08Z"}
-    review-pr: {started_at: "2026-07-14T11:37:08Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-14T11:37:08Z", driver: git-pr, iterations: 1, completed_at: "2026-07-14T11:54:41Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/351
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Added the read-only HTML chat view frontend over the terminal route (?view=chat search param, [tty|chat] L1 toggle, Chat: heading, dedicated per-view EventSource, react-markdown renderer, Ctrl+backtick shortcut, per-window pref, push deep-link URL + sw.js navigation)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-14T11:37:08Z
+last_updated: 2026-07-14T11:54:41Z

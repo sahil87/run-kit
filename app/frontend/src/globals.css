@@ -104,7 +104,8 @@ summary {
 
 /* ── Hover-animation vocabulary (change 260703-5ilm; boot sweep 260704-pr0p) ──
    One motion treatment per element category, so motion carries meaning:
-     glitch      = brand (rk-brand-glitch)
+     glitch      = brand (rk-brand-glitch; the logo inside additionally
+                   kickstart-spins — rk-brand-logo)
      boot sweep  = top-bar page heading (JS, in top-bar.tsx — one inverse-video
                    cursor sweeps the `PageType: name` string: TypedLabel-style
                    over the prefix, decode glyph churn over the name; reuses the
@@ -175,6 +176,18 @@ summary {
 .rk-brand-glitch:hover {
   animation: rk-glitch 300ms steps(2) 1;
   color: var(--color-accent-green);
+}
+
+/* The logo rides the glitch with a kickstart spin: four full turns in 600ms,
+   launched at full speed and decelerating into the landing. 1440° is a 360°
+   multiple so the hexagon always lands aligned; at this speed the launch reads
+   as flicker (the glitch's texture) and the decelerating tail is where the
+   rotation becomes visible. Scoped to the logo — the wordmark only glitches. */
+@keyframes rk-brand-spin {
+  to { transform: rotate(1440deg); }
+}
+.rk-brand-glitch:hover .rk-brand-logo {
+  animation: rk-brand-spin 600ms cubic-bezier(0.16, 0.84, 0.32, 1) 1;
 }
 
 /* Blink for the SectionHeading reserved caret (.rk-bracket-caret) on hover. */
@@ -275,6 +288,7 @@ summary {
   .rk-glint::after,
   .rk-glint:hover::after { animation: none; opacity: 0; }
   .rk-brand-glitch:hover { animation: none; }
+  .rk-brand-glitch:hover .rk-brand-logo { animation: none; }
   /* (typed-label sweep is skipped in JS — no CSS gate needed) */
   .rk-bracket-group .rk-bracket,
   .rk-bracket-group:hover .rk-bracket-open,

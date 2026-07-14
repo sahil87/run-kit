@@ -19,6 +19,11 @@ describe("buildViewActions", () => {
     expect(actions[0].label).toBe("View: Terminal");
   });
 
+  it("surfaces the Ctrl+` shortcut on both actions (discoverability)", () => {
+    expect(buildViewActions(true, "terminal", () => {})[0].shortcut).toBe("Ctrl+`");
+    expect(buildViewActions(true, "chat", () => {})[0].shortcut).toBe("Ctrl+`");
+  });
+
   it("the action flips to the opposite view", () => {
     const onSetView = vi.fn();
     buildViewActions(true, "terminal", onSetView)[0].onSelect();

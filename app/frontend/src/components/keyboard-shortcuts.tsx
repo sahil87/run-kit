@@ -92,6 +92,7 @@ export function KeyboardShortcuts({ onClose }: KeyboardShortcutsProps) {
           <div className="space-y-1">
             <ShortcutRow label="Command palette" keys={["⌘K"]} />
             <ShortcutRow label="Toggle sidebar" keys={["⌘\\"]} />
+            <ShortcutRow label="Toggle chat / terminal" keys={["Ctrl+`"]} />
           </div>
         </div>
 

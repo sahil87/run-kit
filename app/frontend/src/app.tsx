@@ -1753,6 +1753,32 @@ function AppShell() {
     [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer],
   );
 
+  // Navigate to a waiting target while PRESERVING `?view=chat` (260714-r7rq).
+  // A chat-capable target can't reuse `navigateToWindow` (that path hardcodes
+  // `search: {}`, stripping the deep-link), so it navigates directly — but a
+  // SAME-SERVER target still needs the tmux alignment the sidebar/palette path
+  // provides: set `pendingClickRef` + fire `selectWindow` so the URL writeback
+  // (app.tsx:663) doesn't bounce back to the previously-active window (which
+  // would ALSO strip `?view=chat`, since that writeback clears search) before
+  // SSE confirms the switch. Cross-server targets navigate plainly — identity
+  // is window-id-only on the 2-segment route and the destination's mount-time
+  // alignment (app.tsx:633) handles tmux there.
+  const navigateToWaitingTarget = useCallback(
+    (targetServer: string, targetWindowId: string, hasChat: boolean) => {
+      if (targetServer === server) {
+        pendingClickRef.current = { windowId: targetWindowId };
+        selectWindow(server, targetWindowId).catch(() => {});
+      }
+      navigate({
+        to: "/$server/$window",
+        params: { server: targetServer, window: targetWindowId },
+        search: chatSearchForTarget(hasChat),
+      });
+      if (isMobile) setSidebarOpen(false);
+    },
+    [server, navigate, isMobile, setSidebarOpen],
+  );
+
   // Per-window switch entries — one per window across every session. Grouped
   // under the "Window:" family (renamed from the old "Terminal:" prefix) to
   // surface the keyboard switch path (constitution V). Reuses navigateToWindow
@@ -1819,17 +1845,13 @@ function AppShell() {
         navigateToWindow(target.windowId);
         return;
       }
-      // A chat-capable target deep-links into `?view=chat`; a cross-server
+      // A chat-capable target deep-links into `?view=chat` (a same-server chat
+      // target still tmux-aligns via `navigateToWaitingTarget`); a cross-server
       // target navigates plainly (its pref/URL resolves on render).
-      navigate({
-        to: "/$server/$window",
-        params: { server: target.server, window: target.windowId },
-        search: chatSearchForTarget(hasChat),
-      });
-      if (isMobile) setSidebarOpen(false);
+      navigateToWaitingTarget(target.server, target.windowId, hasChat);
     };
     return [{ id: "agent-next-waiting", label: "Agent: Next waiting", onSelect }];
-  }, [flatWindows, servers, server, windowParam, navigateToWindow, navigate, isMobile, setSidebarOpen, addToast]);
+  }, [flatWindows, servers, server, windowParam, navigateToWindow, navigateToWaitingTarget, addToast]);
 
   // Agent: Spawn — Cmd+K parity for the web-UI spawn flow (260713-sbk1;
   // Constitution V palette parity — the shortcut/registration is documented
@@ -1921,8 +1943,12 @@ function AppShell() {
   // snapshot).
   const handleWaitingBadgeClick = useCallback(
     (srv: string, sess: string) => {
-      const sessionsForSrv =
-        srv === server ? sessionsByServerRef.current.get(srv) ?? rawSessions : sessionsByServerRef.current.get(srv) ?? [];
+      // Read the freshest sessions map by ref (keyed by server) so the callback
+      // stays stable across SSE ticks — `sessionsByServerRef.current.get(server)`
+      // IS `rawSessions` (same source/key), so there is no current-server special
+      // case to keep. Dropping the `rawSessions` dep is what keeps this callback
+      // reference stable, preserving `ServerGroup`'s `React.memo`.
+      const sessionsForSrv = sessionsByServerRef.current.get(srv) ?? [];
       const sessionEntry = sessionsForSrv.find((s) => s.name === sess);
       if (!sessionEntry) return;
       const waitingWindows = sessionEntry.windows.filter((w) => isWaiting(w));
@@ -1937,14 +1963,12 @@ function AppShell() {
       const target = nextWaitingTarget(ordered, server, windowParam);
       if (!target) return;
       const win = waitingWindows.find((w) => w.windowId === target.windowId);
-      navigate({
-        to: "/$server/$window",
-        params: { server: target.server, window: target.windowId },
-        search: chatSearchForTarget(!!win?.chatProvider),
-      });
-      if (isMobile) setSidebarOpen(false);
+      // Same-server targets tmux-align (selectWindow + pendingClickRef) so the
+      // URL writeback can't bounce back and strip `?view=chat`; cross-server
+      // navigates plainly. See `navigateToWaitingTarget`.
+      navigateToWaitingTarget(target.server, target.windowId, !!win?.chatProvider);
     },
-    [server, windowParam, rawSessions, navigate, isMobile, setSidebarOpen],
+    [server, windowParam, navigateToWaitingTarget],
   );
 
   // Register AppShell's TopBar props into the persistent root bar's slot

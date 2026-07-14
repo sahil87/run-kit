@@ -75,12 +75,15 @@ describe("useChatViewShortcut", () => {
     expect(toggle).not.toHaveBeenCalled();
   });
 
-  it("requires plain Ctrl: Meta+` and bare ` never fire (Cmd+` is macOS window cycling)", () => {
+  it("requires plain Ctrl: Meta/Alt/Shift-modified and bare ` never fire (Cmd+` is macOS window cycling)", () => {
     const toggle = vi.fn();
     renderHook(() => useChatViewShortcut(true, "terminal", toggle));
     pressBacktick(window, { ctrlKey: false, metaKey: true });
     pressBacktick(window, { ctrlKey: false });
     pressBacktick(window, { ctrlKey: true, altKey: true });
+    // Shift is excluded explicitly: Ctrl+Shift+` must not fire even on a layout
+    // where Shift+` still resolves to "`".
+    pressBacktick(window, { ctrlKey: true, shiftKey: true });
     expect(toggle).not.toHaveBeenCalled();
   });
 

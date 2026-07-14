@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -280,8 +280,15 @@ function MarkdownText({ text }: { text: string }) {
             </pre>
           ),
           code: ({ className, children, ...props }) => {
-            // Inline code (no language class, not inside a pre): tint it.
-            const isBlock = /language-/.test(className ?? "");
+            // Distinguish fenced/indented code blocks (rendered inside the styled
+            // `<pre>` above) from inline code. react-markdown v10 dropped the
+            // `inline` prop, and a fenced block WITHOUT a language has no
+            // `language-*` class — so a class check alone would mis-tint it as
+            // inline and double-box it inside the already-styled `<pre>`. Block
+            // code content always carries a trailing newline; inline never does,
+            // so a newline in the text is the reliable block signal.
+            const text = childrenToText(children);
+            const isBlock = /language-/.test(className ?? "") || text.includes("\n");
             if (isBlock) {
               return (
                 <code className={className} {...props}>
@@ -289,6 +296,7 @@ function MarkdownText({ text }: { text: string }) {
                 </code>
               );
             }
+            // Inline code (single-line, no language class): tint it.
             return (
               <code className="bg-bg-inset rounded px-1 py-0.5" {...props}>
                 {children}
@@ -311,6 +319,18 @@ function MarkdownText({ text }: { text: string }) {
       </ReactMarkdown>
     </div>
   );
+}
+
+/**
+ * Flatten react-markdown `code` children to their text content so a fenced
+ * block can be detected by its trailing newline (react-markdown v10 has no
+ * `inline` prop, and a language-less fence carries no `language-*` class).
+ * Children are typically a single string; guard the array/other cases.
+ */
+function childrenToText(children: ReactNode): string {
+  if (typeof children === "string") return children;
+  if (Array.isArray(children)) return children.map(childrenToText).join("");
+  return "";
 }
 
 function prettyJson(value: unknown): string {

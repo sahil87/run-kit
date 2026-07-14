@@ -33,9 +33,11 @@ export function useChatViewShortcut(
     if (!enabled) return;
     function onKey(e: KeyboardEvent) {
       // Backtick, plain Ctrl only (no Cmd/Alt/Shift). `e.key` reads the resolved
-      // character; on most layouts Ctrl+` yields "`".
+      // character; on most layouts Ctrl+` yields "`". Shift is excluded
+      // explicitly so Ctrl+Shift+` never fires (layouts where Shift+` still
+      // resolves to "`" would otherwise slip through the key check).
       if (e.key !== "`") return;
-      if (!e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
 
       // Bail only for a "real" text input that is NOT the xterm helper textarea
       // (xterm focuses a hidden `.xterm-helper-textarea` whenever a terminal is

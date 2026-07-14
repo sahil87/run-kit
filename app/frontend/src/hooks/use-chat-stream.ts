@@ -111,6 +111,12 @@ export function useChatStream(
         if (typeof e.data === "string" && e.data.trim()) message = e.data;
       }
       setError(message);
+      // Fatal stream event — drop `connected` so the connection dot reflects the
+      // error state (it reads `chatStream.connected`), not a stale "connected".
+      // A subsequent successful `chat-backfill` re-marks connected and clears the
+      // error, mirroring the normal recovery path.
+      clearDisconnectTimer();
+      setConnected(false);
     });
 
     es.onopen = () => {

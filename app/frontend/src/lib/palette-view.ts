@@ -12,8 +12,14 @@
 export type ViewPaletteAction = {
   id: string;
   label: string;
+  shortcut: string;
   onSelect: () => void;
 };
+
+// Ctrl+` toggles tty↔chat (`useChatViewShortcut`). Surfaced on the palette
+// entries so the binding is discoverable (Constitution V; code-review.md
+// "new keyboard shortcuts must be documented in the command palette").
+const CHAT_VIEW_SHORTCUT = "Ctrl+`";
 
 /**
  * Build the view-toggle palette action(s). Returns an empty array when chat is
@@ -33,6 +39,7 @@ export function buildViewActions(
       {
         id: "view-terminal",
         label: "View: Terminal",
+        shortcut: CHAT_VIEW_SHORTCUT,
         onSelect: () => onSetView("terminal"),
       },
     ];
@@ -41,6 +48,7 @@ export function buildViewActions(
     {
       id: "view-chat",
       label: "View: Chat",
+      shortcut: CHAT_VIEW_SHORTCUT,
       onSelect: () => onSetView("chat"),
     },
   ];

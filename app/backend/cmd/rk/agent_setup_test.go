@@ -10,15 +10,11 @@ import (
 	"testing"
 )
 
-// claudeHooks builds the registry's Claude hook set for merge tests.
+// claudeHooks builds the registry's Claude hook set for merge tests. It reads
+// the real registry so the fixture can never drift from what agent-setup
+// installs (the SessionStart stamp-only row included).
 func claudeHooks() []agentHook {
-	return []agentHook{
-		{event: "UserPromptSubmit", state: agentStateActive},
-		{event: "PreToolUse", state: agentStateActive},
-		{event: "Notification", matcher: "permission_prompt|elicitation_dialog|agent_needs_input", state: agentStateWaiting},
-		{event: "Notification", matcher: "idle_prompt", state: agentStateIdle},
-		{event: "Stop", state: agentStateIdle},
-	}
+	return agentRegistry("")[0].hooks
 }
 
 // countRkEntries counts rk-owned entries across all event arrays under hooks.
@@ -57,9 +53,9 @@ func TestMergeHooksAddsEntriesAndPreservesExisting(t *testing.T) {
 	if existing["model"] != "opus" {
 		t.Errorf("model config lost: %v", existing["model"])
 	}
-	// Five rk entries installed (one per hook).
-	if got := countRkEntries(existing); got != 5 {
-		t.Errorf("rk entries = %d, want 5", got)
+	// Six rk entries installed (one per hook: 5 agent-state + 1 SessionStart chat stamp).
+	if got := countRkEntries(existing); got != 6 {
+		t.Errorf("rk entries = %d, want 6", got)
 	}
 	// The pre-existing Bash guard must still be present.
 	preTool := asSlice(asMap(existing["hooks"])["PreToolUse"])
@@ -92,8 +88,8 @@ func TestMergeHooksIdempotent(t *testing.T) {
 	if string(first) != string(second) {
 		t.Errorf("merge not idempotent:\nfirst:  %s\nsecond: %s", first, second)
 	}
-	if got := countRkEntries(settings); got != 5 {
-		t.Errorf("rk entries after double-merge = %d, want 5 (no duplicates)", got)
+	if got := countRkEntries(settings); got != 6 {
+		t.Errorf("rk entries after double-merge = %d, want 6 (no duplicates)", got)
 	}
 }
 
@@ -278,6 +274,76 @@ func TestAgentStateHookCommandShape(t *testing.T) {
 	}
 }
 
+// findRkCommands returns every rk-owned command string under the given event.
+func findRkCommands(settings map[string]any, event string) []string {
+	var out []string
+	for _, e := range asSlice(asMap(settings["hooks"])[event]) {
+		entry := asMap(e)
+		if !isRkEntry(entry) {
+			continue
+		}
+		for _, hv := range asSlice(entry["hooks"]) {
+			if cmd, ok := asMap(hv)["command"].(string); ok {
+				out = append(out, cmd)
+			}
+		}
+	}
+	return out
+}
+
+func TestSessionStartRegistryRowStampsChatOnly(t *testing.T) {
+	// The registry must carry exactly one SessionStart row whose token is `stamp`.
+	var sessionStart []agentHook
+	for _, h := range agentRegistry("")[0].hooks {
+		if h.event == "SessionStart" {
+			sessionStart = append(sessionStart, h)
+		}
+	}
+	if len(sessionStart) != 1 {
+		t.Fatalf("registry SessionStart rows = %d, want 1", len(sessionStart))
+	}
+	if sessionStart[0].state != agentHookStampToken {
+		t.Errorf("SessionStart token = %q, want %q (stamp-only)", sessionStart[0].state, agentHookStampToken)
+	}
+	if sessionStart[0].matcher != "" {
+		t.Errorf("SessionStart matcher = %q, want empty (no matcher)", sessionStart[0].matcher)
+	}
+}
+
+func TestMergeHooksInstallsSessionStartStampEntry(t *testing.T) {
+	settings := map[string]any{}
+	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+
+	cmds := findRkCommands(settings, "SessionStart")
+	if len(cmds) != 1 {
+		t.Fatalf("SessionStart rk entries = %d, want 1", len(cmds))
+	}
+	cmd := cmds[0]
+	// The installed command keeps the established wrapper shape and passes `stamp`.
+	for _, want := range []string{
+		`[ -n "$TMUX_PANE" ] || exit 0`,
+		" agent-hook --agent claude stamp ",
+		"2>/dev/null",
+		"|| true",
+	} {
+		if !strings.Contains(cmd, want) {
+			t.Errorf("SessionStart command missing %q: %s", want, cmd)
+		}
+	}
+
+	// Idempotent re-run: still exactly one SessionStart entry.
+	mergeHooks(settings, claudeHooks(), "/opt/homebrew/bin/rk", "claude")
+	if got := len(findRkCommands(settings, "SessionStart")); got != 1 {
+		t.Errorf("SessionStart rk entries after re-merge = %d, want 1 (idempotent)", got)
+	}
+
+	// Uninstall removes the SessionStart entry.
+	unmergeHooks(settings)
+	if got := len(findRkCommands(settings, "SessionStart")); got != 0 {
+		t.Errorf("SessionStart rk entries after uninstall = %d, want 0", got)
+	}
+}
+
 // legacyRkEntry builds an old-generation rk hook entry (the pre-indirection
 // self-contained one-liner that inlined @rk_agent_state) for migration tests.
 func legacyRkEntry(state string) map[string]any {
@@ -327,8 +393,8 @@ func TestMergeHooksReplacesLegacyEntriesInPlace(t *testing.T) {
 
 	// Exactly five rk entries — the legacy ones were REPLACED in place, not
 	// duplicated alongside the new ones.
-	if got := countRkEntries(settings); got != 5 {
-		t.Errorf("rk entries after migrating a legacy file = %d, want 5 (replace, not duplicate)", got)
+	if got := countRkEntries(settings); got != 6 {
+		t.Errorf("rk entries after migrating a legacy file = %d, want 6 (replace, not duplicate)", got)
 	}
 	// No legacy-form command survives.
 	root := asMap(settings["hooks"])

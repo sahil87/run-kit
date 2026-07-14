@@ -218,6 +218,17 @@ const (
 	AgentStateIdle    = "idle"
 )
 
+// ChatOption is the tmux PANE-scoped user option that ties a pane to the live
+// agent chat session running in it. Value schema: "<provider>:<session-ref>"
+// (e.g. "claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"). <provider> is the
+// rk agent-setup registry agent name; <session-ref> is a provider-defined opaque
+// reference (the session UUID for claude). It is written by the same
+// `rk agent-hook` binary that writes @rk_agent_state, on the same fires. The
+// pane→session mapping is underivable from disk/tmux/git (multiple transcripts
+// share a cwd), which is exactly the class of fact Constitution X reserves for
+// hooks. See docs/specs/agent-state.md § Chat Session Identity.
+const ChatOption = "@rk_chat"
+
 // shellCommands is the set of plain-shell pane_current_command values that the
 // LEGACY reconciler fallback treats as "no agent" — applied only to
 // two-segment @rk_agent_state values (no pid segment, older writers). A pane
@@ -289,6 +300,71 @@ func parseAgentState(raw string) (string, int64, int) {
 	return state, epoch, pid
 }
 
+// parseChatRef parses a raw @rk_chat value of the form
+// "<provider>:<session-ref>" into a validated (provider, ref) pair. It trims the
+// value, splits on the FIRST colon (providers never contain a colon; a ref might
+// in principle, so the tail after the first colon is the ref verbatim), and
+// validates the provider shape ([a-z][a-z0-9_-]*, non-empty) and the ref
+// (non-empty, no whitespace or control chars). Any violation — empty value,
+// missing colon, empty/invalid provider, empty/whitespace ref — yields ("", "")
+// (wholly unknown, mirroring parseAgentState's never-partially-trust tolerance).
+// An unknown-but-well-formed provider is NOT rejected: presence-gating is
+// provider-agnostic and codex/gemini adapters are additive.
+func parseChatRef(raw string) (provider, ref string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+	i := strings.IndexByte(raw, ':')
+	if i < 0 {
+		return "", ""
+	}
+	provider = raw[:i]
+	ref = raw[i+1:]
+	if !isChatProvider(provider) || !isChatRef(ref) {
+		return "", ""
+	}
+	return provider, ref
+}
+
+// isChatProvider reports whether p matches [a-z][a-z0-9_-]* (a lowercase token,
+// the shape of an rk agent-setup registry agent name). Non-empty is implied by
+// the leading-char requirement.
+func isChatProvider(p string) bool {
+	if p == "" {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if i == 0 {
+			if c < 'a' || c > 'z' {
+				return false
+			}
+			continue
+		}
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// isChatRef reports whether r is a valid session-ref: non-empty with no
+// whitespace or control characters (a well-formed opaque token; the provider
+// defines its inner structure). A ref carrying whitespace/control bytes is a
+// malformed value the reader must not trust.
+func isChatRef(r string) bool {
+	if r == "" {
+		return false
+	}
+	for _, c := range r {
+		if c <= ' ' || c == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 // PaneInfo describes a single tmux pane within a window.
 type PaneInfo struct {
 	PaneID    string `json:"paneId"`
@@ -310,6 +386,14 @@ type PaneInfo struct {
 	// computed rk-side.
 	AgentState      string `json:"agentState,omitempty"`
 	AgentStateEpoch int64  `json:"agentStateEpoch,omitempty"`
+	// ChatProvider / ChatSessionRef are the pre-parsed halves of the pane's
+	// @rk_chat option (provider = the agent-setup registry name, ref = the
+	// provider-defined session reference; both empty = no chat), after the same
+	// reconciler that governs the agent-state fields (a dead-pid or shell pane
+	// never surfaces chat). Parsed once here via parseChatRef so no consumer
+	// re-splits the raw value. See ChatOption / docs/specs/agent-state.md.
+	ChatProvider   string `json:"chatProvider,omitempty"`
+	ChatSessionRef string `json:"chatSessionRef,omitempty"`
 }
 
 // WindowInfo describes a single tmux window within a session.
@@ -325,6 +409,12 @@ type WindowInfo struct {
 	Color             *string `json:"color,omitempty"`
 	AgentState        string  `json:"agentState,omitempty"`
 	AgentIdleDuration string `json:"agentIdleDuration,omitempty"`
+	// ChatProvider / ChatSessionRef are the window-level rollup of the panes'
+	// reconciled @rk_chat (the active pane's chat if set, else the first pane
+	// carrying one), computed rk-side in FetchSessions by rollupChat. Per-pane
+	// truth is preserved on Panes[].ChatProvider/ChatSessionRef. See ChatOption.
+	ChatProvider      string `json:"chatProvider,omitempty"`
+	ChatSessionRef    string `json:"chatSessionRef,omitempty"`
 	FabChange         string `json:"fabChange,omitempty"`
 	FabStage          string `json:"fabStage,omitempty"`
 	FabDisplayState   string `json:"fabDisplayState,omitempty"` // pipeline state of the displayed stage; empty when fab reports null/omits the field
@@ -538,10 +628,10 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 }
 
 // parsePanes parses tmux list-panes output lines into a window-index→[]PaneInfo map.
-// Lines are 7-field tab-delimited: window_index, pane_id, pane_index, cwd,
-// command, is_active, @rk_agent_state. Field 0 (window_index) is consumed for
-// grouping and not stored in PaneInfo. Lines with fewer than 7 fields are
-// silently skipped. Empty input returns nil.
+// Lines are 8-field tab-delimited: window_index, pane_id, pane_index, cwd,
+// command, is_active, @rk_agent_state, @rk_chat. Field 0 (window_index) is
+// consumed for grouping and not stored in PaneInfo. Lines with fewer than 8
+// fields are silently skipped. Empty input returns nil.
 //
 // The @rk_agent_state field (field 6) is parsed into
 // AgentState/AgentStateEpoch (+ an optional agent pid) via parseAgentState,
@@ -551,6 +641,13 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 // agent — the guppi auto-clear lesson that prevents a stranded `active` after
 // a kill).
 //
+// The @rk_chat field (field 7) is parsed into ChatProvider/ChatSessionRef via
+// parseChatRef and reconciled by the SAME liveness signal: @rk_chat carries no
+// pid, so a dead agent (or a plain-shell pane with no live pid-bearing
+// agent-state) must not leave a live-looking chat ref (plan risk #4). The chat
+// fields are zeroed on exactly the same condition that zeros the agent-state
+// fields — a dead pid, or the shell-command fallback.
+//
 // Accessible to same-package tests.
 func parsePanes(lines []string) map[int][]PaneInfo {
 	if len(lines) == 0 {
@@ -559,7 +656,7 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 	byWindow := make(map[int][]PaneInfo)
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
-		if len(parts) < 7 {
+		if len(parts) < 8 {
 			continue
 		}
 		windowIndex, err := strconv.Atoi(strings.TrimSpace(parts[0]))
@@ -574,6 +671,7 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 		isActive := strings.TrimSpace(parts[5]) == "1"
 		command := strings.TrimSpace(parts[4])
 		agentState, agentEpoch, agentPID := parseAgentState(parts[6])
+		chatProvider, chatRef := parseChatRef(parts[7])
 		// Reconciler. Primary form (pid-carrying values from current
 		// agent-setup hooks): PID liveness — the state is trusted iff the agent
 		// process is still alive, regardless of the pane's command name. This
@@ -583,12 +681,21 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 		// killed/crashed agent. Legacy fallback (two-segment values, no pid):
 		// the original shell-command heuristic — a plain-shell pane has no
 		// agent regardless of a leftover value.
+		//
+		// stale is the single dead/no-agent decision shared by both tiers:
+		// @rk_chat has no pid of its own, so it borrows the same pane's
+		// agent-state liveness (written by the same binary on the same fires) —
+		// a dead agent zeros BOTH the agent-state and chat fields, and a
+		// plain-shell pane never surfaces chat.
+		stale := false
 		if agentPID > 0 {
-			if !agentProcessAlive(agentPID) {
-				agentState, agentEpoch = "", 0
-			}
-		} else if isShellCommand(command) {
+			stale = !agentProcessAlive(agentPID)
+		} else {
+			stale = isShellCommand(command)
+		}
+		if stale {
 			agentState, agentEpoch = "", 0
+			chatProvider, chatRef = "", ""
 		}
 		p := PaneInfo{
 			PaneID:          strings.TrimSpace(parts[1]),
@@ -598,6 +705,8 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 			IsActive:        isActive,
 			AgentState:      agentState,
 			AgentStateEpoch: agentEpoch,
+			ChatProvider:    chatProvider,
+			ChatSessionRef:  chatRef,
 		}
 		byWindow[windowIndex] = append(byWindow[windowIndex], p)
 	}
@@ -666,10 +775,11 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 }
 
 // paneFormat is the list-panes format string: window_index, pane_id, pane_index,
-// pane_current_path, pane_current_command, pane_active, @rk_agent_state (7
-// fields). The @rk_agent_state field carries the generic agent-lifecycle state
-// (see AgentStateOption / docs/specs/agent-state.md); it costs no extra
-// subprocess since it rides the existing list-panes call.
+// pane_current_path, pane_current_command, pane_active, @rk_agent_state, @rk_chat
+// (8 fields). The @rk_agent_state field carries the generic agent-lifecycle state
+// and @rk_chat the pane→chat-session mapping (see AgentStateOption / ChatOption /
+// docs/specs/agent-state.md); both cost no extra subprocess since they ride the
+// existing list-panes call.
 var paneFormat = strings.Join([]string{
 	"#{window_index}",
 	"#{pane_id}",
@@ -678,6 +788,7 @@ var paneFormat = strings.Join([]string{
 	"#{pane_current_command}",
 	"#{pane_active}",
 	"#{@rk_agent_state}",
+	"#{@rk_chat}",
 }, listDelim)
 
 // ListWindows returns windows for a given session on the specified server.

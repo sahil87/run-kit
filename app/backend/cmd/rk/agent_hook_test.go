@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"io"
+	"strings"
 	"testing"
 )
 
@@ -188,6 +190,193 @@ func TestRunAgentHookWritesTwoSegmentWhenWalkFails(t *testing.T) {
 	}
 }
 
+// chatCall records a single writeChat invocation for the test seam.
+type chatCall struct {
+	called             bool
+	pane, provider, id string
+}
+
+// captureChat swaps the writeChat seam for one that records its arguments.
+func captureChat(t *testing.T) *chatCall {
+	t.Helper()
+	rec := &chatCall{}
+	orig := writeChatFn
+	writeChatFn = func(_ context.Context, pane, provider, sessionID string) {
+		rec.called = true
+		rec.pane, rec.provider, rec.id = pane, provider, sessionID
+	}
+	t.Cleanup(func() { writeChatFn = orig })
+	return rec
+}
+
+// setHookStdin swaps the stdin seam for a reader over the given payload.
+func setHookStdin(t *testing.T, payload string) {
+	t.Helper()
+	orig := hookStdinFn
+	hookStdinFn = func() io.Reader { return strings.NewReader(payload) }
+	t.Cleanup(func() { hookStdinFn = orig })
+}
+
+func TestReadHookSessionID(t *testing.T) {
+	const uuid = "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{"valid", `{"session_id":"` + uuid + `","transcript_path":"/x/y.jsonl","hook_event_name":"Stop"}`, uuid},
+		{"extra unknown keys tolerated", `{"cwd":"/tmp","session_id":"` + uuid + `"}`, uuid},
+		{"absent session_id", `{"hook_event_name":"Stop"}`, ""},
+		{"empty session_id", `{"session_id":""}`, ""},
+		{"whitespace session_id rejected", `{"session_id":"has space"}`, ""},
+		{"empty stdin", "", ""},
+		{"non-JSON stdin", "not json at all", ""},
+		{"leading object only (single-object decode)", `{"session_id":"` + uuid + `"}{"session_id":"other"}`, uuid},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := readHookSessionID(strings.NewReader(c.payload))
+			if got != c.want {
+				t.Errorf("readHookSessionID(%q) = %q, want %q", c.payload, got, c.want)
+			}
+		})
+	}
+}
+
+func TestReadHookSessionIDOversizedIsRejectedNotHung(t *testing.T) {
+	// A > 1 MiB payload whose closing brace lies beyond the LimitReader bound: the
+	// decode fails (unexpected EOF) and yields "" — bounded, never blocks.
+	var b strings.Builder
+	b.WriteString(`{"session_id":"`)
+	b.WriteString(strings.Repeat("a", (1<<20)+16))
+	b.WriteString(`"}`)
+	if got := readHookSessionID(strings.NewReader(b.String())); got != "" {
+		t.Errorf("oversized payload = %q, want empty (bounded read)", got)
+	}
+}
+
+func TestReadHookSessionIDNilReader(t *testing.T) {
+	if got := readHookSessionID(nil); got != "" {
+		t.Errorf("nil reader = %q, want empty", got)
+	}
+}
+
+func TestRunAgentHookStampsChatOnStateFire(t *testing.T) {
+	const uuid = "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"
+	t.Setenv("TMUX_PANE", "%7")
+	rec := captureWrite(t)
+	chat := captureChat(t)
+	setHookStdin(t, `{"session_id":"`+uuid+`"}`)
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "claude" }
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "claude", "active")
+
+	if !rec.called || rec.state != agentStateActive {
+		t.Errorf("agent-state write: called=%v state=%q, want true/active", rec.called, rec.state)
+	}
+	if !chat.called {
+		t.Fatal("a state fire with a session id must ALSO stamp @rk_chat")
+	}
+	if chat.pane != "%7" || chat.provider != "claude" || chat.id != uuid {
+		t.Errorf("chat stamp = (pane=%q provider=%q id=%q), want (%%7, claude, %s)", chat.pane, chat.provider, chat.id, uuid)
+	}
+}
+
+func TestRunAgentHookStateFireNoSessionIDNoChat(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%7")
+	rec := captureWrite(t)
+	chat := captureChat(t)
+	setHookStdin(t, `{"hook_event_name":"Stop"}`) // no session_id
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "claude" }
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "claude", "idle")
+
+	if !rec.called {
+		t.Error("agent-state must still be written when there is no session id")
+	}
+	if chat.called {
+		t.Error("no session id must mean no chat stamp")
+	}
+}
+
+func TestRunAgentHookStampTokenWritesChatOnly(t *testing.T) {
+	const uuid = "abc-123-def"
+	t.Setenv("TMUX_PANE", "%9")
+	rec := captureWrite(t)
+	chat := captureChat(t)
+	setHookStdin(t, `{"session_id":"`+uuid+`"}`)
+	// The walk seam must not even be consulted for a stamp-only fire (no agent-state).
+	origComm := processCommFn
+	processCommFn = func(context.Context, int) string {
+		t.Fatal("stamp-only fire must not resolve an agent pid (no agent-state write)")
+		return ""
+	}
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "claude", agentHookStampToken)
+
+	if rec.called {
+		t.Error("the stamp token must NOT write @rk_agent_state")
+	}
+	if !chat.called || chat.pane != "%9" || chat.provider != "claude" || chat.id != uuid {
+		t.Errorf("stamp chat = (called=%v pane=%q provider=%q id=%q), want (true, %%9, claude, %s)", chat.called, chat.pane, chat.provider, chat.id, uuid)
+	}
+}
+
+func TestRunAgentHookStampTokenNoSessionIDNoWrite(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%9")
+	rec := captureWrite(t)
+	chat := captureChat(t)
+	setHookStdin(t, ``) // no stdin → no session id
+	runAgentHook(context.Background(), "claude", agentHookStampToken)
+	if rec.called || chat.called {
+		t.Errorf("stamp with no session id must write nothing (state=%v chat=%v)", rec.called, chat.called)
+	}
+}
+
+func TestRunAgentHookUnknownTokenNoWrite(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%9")
+	rec := captureWrite(t)
+	chat := captureChat(t)
+	setHookStdin(t, `{"session_id":"abc-123"}`)
+	runAgentHook(context.Background(), "claude", "busy") // neither a state nor stamp
+	if rec.called || chat.called {
+		t.Errorf("an unknown token must write nothing (state=%v chat=%v)", rec.called, chat.called)
+	}
+}
+
+func TestRunAgentHookMalformedSessionIDNotStamped(t *testing.T) {
+	t.Setenv("TMUX_PANE", "%7")
+	captureWrite(t)
+	chat := captureChat(t)
+	setHookStdin(t, `{"session_id":"has space"}`) // rejected by isValidSessionID
+	origComm := processCommFn
+	processCommFn = func(_ context.Context, _ int) string { return "claude" }
+	t.Cleanup(func() { processCommFn = origComm })
+
+	runAgentHook(context.Background(), "claude", "active")
+	if chat.called {
+		t.Error("a whitespace-bearing session id must never be stamped")
+	}
+}
+
+func TestIsValidSessionID(t *testing.T) {
+	for _, s := range []string{"abc", "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37", "seg1:seg2"} {
+		if !isValidSessionID(s) {
+			t.Errorf("isValidSessionID(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"", " ", "has space", "line\nbreak", "tab\there", "del\x7f"} {
+		if isValidSessionID(s) {
+			t.Errorf("isValidSessionID(%q) = true, want false", s)
+		}
+	}
+}
+
 func TestFormatAgentStateValue(t *testing.T) {
 	// The cross-repo @rk_agent_state value contract, byte-for-byte
 	// (docs/specs/agent-state.md § The Option): three segments with a pid, two
@@ -253,7 +442,9 @@ func TestAgentHookCmdNeverErrorsOnMalformedInvocation(t *testing.T) {
 		{"agent-hook", "--agent", "claude", "a", "b"}, // extra args
 		{"agent-hook", "--bogus", "x"},                // unknown flag
 		{"agent-hook", "--agent"},                     // KNOWN flag missing its value (pflag error before RunE — needs SetFlagErrorFunc)
-		{"agent-hook", "--agent", "claude", "active"}, // valid (no pane → no-op)
+		{"agent-hook", "--agent", "claude", "active"}, // valid state (no pane → no-op)
+		{"agent-hook", "--agent", "claude", "stamp"},  // stamp-only token (no pane → no-op)
+		{"agent-hook", "--agent", "claude", "bogus"},  // unknown token (no-op)
 	}
 	for _, args := range cases {
 		agentHookAgent = "claude" // reset the package-level flag binding between runs

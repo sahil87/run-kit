@@ -505,6 +505,27 @@ func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, durat
 	return state, duration
 }
 
+// rollupChat derives the window-level chat identity from the window's panes
+// (post-reconciler): the ACTIVE pane's chat if it carries one, else the FIRST
+// pane (in tmux pane order) that carries one. Deterministic — the common case is
+// a single agent pane per window; Change 3 can revisit the multi-pane rule
+// without a backend contract break since per-pane truth also ships on
+// PaneInfo.ChatProvider/ChatSessionRef. Returns ("", "") when no pane carries a
+// chat. Pure function (no I/O), mirroring rollupAgentState.
+func rollupChat(panes []tmux.PaneInfo) (provider, ref string) {
+	for _, p := range panes {
+		if p.IsActive && p.ChatProvider != "" {
+			return p.ChatProvider, p.ChatSessionRef
+		}
+	}
+	for _, p := range panes {
+		if p.ChatProvider != "" {
+			return p.ChatProvider, p.ChatSessionRef
+		}
+	}
+	return "", ""
+}
+
 // windowBranchRepo returns the (repoDir, branch) to derive a window's PR from:
 // the active pane's cwd/branch when the active pane is on a branch, else the
 // first pane that has a resolved branch. A window is the UI unit that carries a
@@ -706,6 +727,11 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// the panes' @rk_agent_state (waiting > active > idle), with the
 			// idle/waiting duration computed rk-side from the epoch.
 			sd.windows[j].AgentState, sd.windows[j].AgentIdleDuration = rollupAgentState(sd.windows[j].Panes, nowUnix)
+			// Chat identity tier (260713-nh86): window-level rollup over the
+			// panes' reconciled @rk_chat (active pane first, else first set). Per-
+			// pane truth is preserved on the Panes entries; both ride the existing
+			// ProjectSession marshal to GET /api/sessions and SSE event: sessions.
+			sd.windows[j].ChatProvider, sd.windows[j].ChatSessionRef = rollupChat(sd.windows[j].Panes)
 			// PR-from-branch derivation (260705-dmex): register the window's
 			// branch with the prstatus refresher and join its last-good PR from
 			// the in-memory snapshot — no subprocess on this hot path.

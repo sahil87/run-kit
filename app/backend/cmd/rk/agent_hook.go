@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -48,6 +50,25 @@ const agentHookCmdTimeout = 5 * time.Second
 // (claude → hook shell → sh -c → rk, and sh may or may not exec the final rk),
 // so a few extra bounded hops are cheap and cover the deeper chain.
 const agentHookAncestorHops = 5
+
+// agentHookStampToken is the distinguished positional token that writes ONLY the
+// @rk_chat pane option (the pane→session mapping) and NOT @rk_agent_state. It is
+// used by the SessionStart registry row: SessionStart fires on startup/resume/
+// clear/compact, and source=compact fires MID-TURN — an idle agent-state write
+// there would clobber a live `active` state, so SessionStart stamps chat only.
+// The three canonical agent states plus this token are the only tokens that
+// write anything; any other is a silent no-op.
+const agentHookStampToken = "stamp"
+
+// hookStdinReadLimit bounds the stdin JSON read (~1 MiB). The hook payload is a
+// small JSON object; the bound guards against a pathological/hung producer
+// blocking the agent's turn while we read.
+const hookStdinReadLimit = 1 << 20
+
+// chatOption is the @rk_chat pane-option name, aliased from internal/tmux so the
+// cross-repo convention has ONE source of truth per binary (A-021) — the writer
+// and the reader (internal/tmux) never drift.
+const chatOption = tmux.ChatOption
 
 var agentHookAgent string
 
@@ -98,10 +119,21 @@ func init() {
 }
 
 // runAgentHook is the testable core: guard on $TMUX_PANE, validate the agent and
-// state, resolve the agent pid via the comm-validated ancestor walk, and write
-// the pane option. Every failure is silent — it returns without error on every
-// path so the caller always exits 0.
-func runAgentHook(parent context.Context, agent, state string) {
+// token, and — depending on the token — write @rk_agent_state (with a
+// comm-validated ancestor-walk pid) and/or stamp @rk_chat from the hook stdin
+// session id. Every failure is silent — it returns without error on every path
+// so the caller always exits 0.
+//
+// Token dispatch:
+//   - active|waiting|idle → write @rk_agent_state, AND stamp @rk_chat if the
+//     hook stdin carries a session id (every-fire refresh: session ids rotate on
+//     /clear + /compact, and this also stamps already-running agents on
+//     `brew upgrade rk` with zero settings churn).
+//   - stamp → stamp @rk_chat ONLY (no agent-state write). Used by the SessionStart
+//     registry row, whose source=compact fires mid-turn where an idle write would
+//     clobber a live active state.
+//   - anything else → silent no-op.
+func runAgentHook(parent context.Context, agent, token string) {
 	if parent == nil {
 		parent = context.Background()
 	}
@@ -113,9 +145,11 @@ func runAgentHook(parent context.Context, agent, state string) {
 		return
 	}
 
-	// Validate the state against the canonical tokens (aliased from internal/tmux,
-	// A-021 — one source of truth per binary). An unknown token writes nothing.
-	if !isAgentState(state) {
+	// Validate the token: the three canonical agent states (aliased from
+	// internal/tmux, A-021) write agent-state; the stamp token writes chat only.
+	// Any other token writes nothing.
+	writeState := isAgentState(token)
+	if !writeState && token != agentHookStampToken {
 		return
 	}
 
@@ -128,15 +162,94 @@ func runAgentHook(parent context.Context, agent, state string) {
 		return
 	}
 
-	// Resolve the agent pid via the bounded, comm-validated ancestor walk. 0 means
-	// "could not validate an ancestor" → the pid segment is omitted (a two-segment
-	// value that degrades to the reader's legacy shell-name fallback), never a
-	// wrong pid.
 	ctx, cancel := context.WithTimeout(parent, agentHookCmdTimeout)
 	defer cancel()
-	pid := resolveAgentPID(ctx, os.Getppid(), comm)
 
-	writeAgentState(ctx, pane, state, pid)
+	if writeState {
+		// Resolve the agent pid via the bounded, comm-validated ancestor walk. 0
+		// means "could not validate an ancestor" → the pid segment is omitted (a
+		// two-segment value that degrades to the reader's legacy shell-name
+		// fallback), never a wrong pid.
+		pid := resolveAgentPID(ctx, os.Getppid(), comm)
+		writeAgentState(ctx, pane, token, pid)
+	}
+
+	// Stamp @rk_chat from the hook stdin session id, on EVERY fire that yields
+	// one (states and the stamp token alike). Absent/malformed/oversized stdin →
+	// no stamp; the agent-state write above still proceeded.
+	if sessionID := readHookSessionID(hookStdin()); sessionID != "" {
+		writeChat(ctx, pane, comm, sessionID)
+	}
+}
+
+// hookInput is the subset of the agent-harness hook stdin JSON the writer reads.
+// All hook events carry session_id (docs re-verified 2026-07-13); every other
+// field is ignored. Unknown JSON keys are tolerated by encoding/json.
+type hookInput struct {
+	SessionID string `json:"session_id"`
+}
+
+// hookStdinFn is a package-level seam so runAgentHook can be tested with an
+// injected reader instead of the process's real stdin.
+var hookStdinFn = func() io.Reader { return os.Stdin }
+
+func hookStdin() io.Reader { return hookStdinFn() }
+
+// readHookSessionID reads the hook payload from r and returns a validated
+// session id, or "" on any failure. It is deliberately conservative:
+//
+//   - TTY guard: if r is os.Stdin attached to a terminal (os.ModeCharDevice), it
+//     is NOT read — a manual `rk agent-hook` invocation in a terminal must never
+//     block waiting for stdin.
+//   - Bounded: reads through an io.LimitReader (~1 MiB) so a hung/pathological
+//     producer can't stall the agent's turn.
+//   - Single object: json.Decoder.Decode returns after ONE complete JSON object,
+//     so it does not depend on stdin EOF (which the harness docs don't guarantee).
+//   - Validated: the session id is checked with the SAME rule the reader applies
+//     to a chat ref (non-empty, no whitespace/control), so a value the reader
+//     would reject is never stamped.
+//
+// Every failure path returns "" (no stamp) — never an error, preserving the
+// never-fail contract.
+func readHookSessionID(r io.Reader) string {
+	if r == nil {
+		return ""
+	}
+	// TTY guard: skip a terminal stdin outright (manual invocation).
+	if f, ok := r.(*os.File); ok {
+		info, err := f.Stat()
+		if err != nil {
+			return ""
+		}
+		if info.Mode()&os.ModeCharDevice != 0 {
+			return ""
+		}
+	}
+	dec := json.NewDecoder(io.LimitReader(r, hookStdinReadLimit))
+	var in hookInput
+	if err := dec.Decode(&in); err != nil {
+		return ""
+	}
+	if !isValidSessionID(in.SessionID) {
+		return ""
+	}
+	return in.SessionID
+}
+
+// isValidSessionID mirrors internal/tmux's chat-ref validation (non-empty, no
+// whitespace or control chars) so the writer never stamps a value the reader
+// would reject. Kept in this binary (the reader's isChatRef is unexported); the
+// rule is small and stable.
+func isValidSessionID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c <= ' ' || c == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // isAgentState reports whether s is one of the three canonical agent states.
@@ -290,6 +403,34 @@ func writeAgentStateImpl(ctx context.Context, pane, state string, pid int) {
 	value := formatAgentStateValue(state, time.Now().Unix(), pid)
 	args := tmuxSocketArgs(tmux.OriginalTMUX)
 	args = append(args, "set-option", "-pt", pane, tmux.AgentStateOption, value)
+	cctx, cancel := context.WithTimeout(ctx, agentHookCmdTimeout)
+	defer cancel()
+	// Errors are intentionally ignored (never-fail contract).
+	_ = exec.CommandContext(cctx, "tmux", args...).Run()
+}
+
+// writeChatFn is a package-level seam so runAgentHook can be tested without
+// spawning tmux; the default writes via exec.CommandContext.
+var writeChatFn = writeChatImpl
+
+// writeChat writes the @rk_chat pane option with value "<provider>:<sessionID>".
+// Indirects through the test seam.
+func writeChat(ctx context.Context, pane, provider, sessionID string) {
+	writeChatFn(ctx, pane, provider, sessionID)
+}
+
+// writeChatImpl runs `tmux [-S <socket>] set-option -pt <pane> @rk_chat
+// <provider>:<sessionID>` via exec.CommandContext with a timeout
+// (Constitution §I). Nothing user-provided is interpolated into a shell: provider
+// is a fixed registry comm literal, sessionID is a pre-validated argv element
+// (isValidSessionID rejects whitespace/control), and pane/socket are discrete
+// argv elements. The server is targeted the same way writeAgentStateImpl targets
+// it — via `-S <socket>` derived from tmux.OriginalTMUX (see that function for
+// why OriginalTMUX, not os.Getenv("TMUX")). Any error is swallowed (never-fail).
+func writeChatImpl(ctx context.Context, pane, provider, sessionID string) {
+	value := fmt.Sprintf("%s:%s", provider, sessionID)
+	args := tmuxSocketArgs(tmux.OriginalTMUX)
+	args = append(args, "set-option", "-pt", pane, chatOption, value)
 	cctx, cancel := context.WithTimeout(ctx, agentHookCmdTimeout)
 	defer cancel()
 	// Errors are intentionally ignored (never-fail contract).

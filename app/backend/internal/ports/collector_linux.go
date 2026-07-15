@@ -4,6 +4,7 @@ package ports
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"os"
 	"sort"
@@ -18,11 +19,16 @@ var procNetTCPFiles = []string{"/proc/net/tcp", "/proc/net/tcp6"}
 // tcpStateListen is the /proc/net/tcp `st` column value for a LISTEN socket.
 const tcpStateListen = "0A"
 
-// readListeningPorts parses the procfs TCP tables and returns the set of
-// listening ports as Services, sorted by port ascending. Any error (file
-// missing, unreadable) degrades gracefully to whatever was parsed so far —
-// mirroring the metrics collector's zero-on-error discipline.
-func readListeningPorts() []Service {
+// readListeningPorts parses the procfs TCP tables for the authoritative set of
+// listening ports, then JOINS best-effort lsof process attribution onto that
+// set by port. procfs is the port SOURCE — every listening port is returned
+// regardless of lsof (a non-root lsof only sees the invoking user's processes,
+// so an lsof-only enumeration would silently drop root-owned listeners like
+// sshd :22). Ports lsof cannot attribute render bare (Process/PID zero-valued).
+// Any error (procfs file missing/unreadable) degrades gracefully to whatever was
+// parsed so far, and lsof failure/absence degrades to bare ports — mirroring the
+// collector's zero-on-error discipline. Result is sorted by port ascending.
+func readListeningPorts(ctx context.Context) []Service {
 	seen := make(map[int]struct{})
 
 	for _, path := range procNetTCPFiles {
@@ -36,9 +42,17 @@ func readListeningPorts() []Service {
 		f.Close()
 	}
 
+	// Best-effort attribution: an empty map (lsof missing/failing) leaves every
+	// procfs port bare, which is exactly the pre-attribution Linux behavior.
+	attribution := lsofAttribution(ctx)
+
 	services := make([]Service, 0, len(seen))
 	for port := range seen {
-		services = append(services, Service{Port: port})
+		if svc, ok := attribution[port]; ok {
+			services = append(services, svc)
+		} else {
+			services = append(services, Service{Port: port})
+		}
 	}
 	sort.Slice(services, func(i, j int) bool {
 		return services[i].Port < services[j].Port

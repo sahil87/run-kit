@@ -3,6 +3,8 @@
 package ports
 
 import (
+	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -81,7 +83,7 @@ func TestReadListeningPorts_DedupesAndSorts(t *testing.T) {
 	procNetTCPFiles = []string{v4, v6}
 	t.Cleanup(func() { procNetTCPFiles = orig })
 
-	services := readListeningPorts()
+	services := readListeningPorts(context.Background())
 
 	// Union: {8080, 3000} from v4, {8080, 5173} from v6 → deduped {3000, 5173, 8080}.
 	var got []int
@@ -107,4 +109,91 @@ func writeTempFixture(t *testing.T, content string) string {
 		t.Fatalf("write fixture: %v", err)
 	}
 	return path
+}
+
+// stubProcfs points procNetTCPFiles at temp files with the given content.
+func stubProcfs(t *testing.T, contents ...string) {
+	t.Helper()
+	paths := make([]string, len(contents))
+	for i, c := range contents {
+		paths[i] = writeTempFixture(t, c)
+	}
+	orig := procNetTCPFiles
+	procNetTCPFiles = paths
+	t.Cleanup(func() { procNetTCPFiles = orig })
+}
+
+// stubLsof swaps the lsofRun seam for the duration of a test.
+func stubLsof(t *testing.T, fn func(context.Context) ([]byte, error)) {
+	t.Helper()
+	orig := lsofRun
+	lsofRun = fn
+	t.Cleanup(func() { lsofRun = orig })
+}
+
+// TestReadListeningPorts_JoinsLsofAttribution proves the load-bearing join:
+// procfs is the authoritative port set (all listening ports appear), and lsof
+// attribution is joined by port. A port lsof CANNOT attribute — e.g. a
+// root-owned listener invisible to a non-root lsof — still appears, bare. The
+// v4 fixture lists LISTEN on 8080 (0x1F90) and 3000 (0x0BB8); lsof attributes
+// only 3000 here.
+func TestReadListeningPorts_JoinsLsofAttribution(t *testing.T) {
+	stubProcfs(t, tcpV4Fixture) // procfs: {8080, 3000}
+	stubLsof(t, func(context.Context) ([]byte, error) {
+		// lsof sees only 3000 (node) — 8080 is, say, a root-owned listener the
+		// non-root lsof cannot see.
+		return []byte("p42\ncnode\nPTCP\nn*:3000\n"), nil
+	})
+
+	services := readListeningPorts(context.Background())
+
+	byPort := make(map[int]Service, len(services))
+	for _, s := range services {
+		byPort[s.Port] = s
+	}
+	if len(services) != 2 {
+		t.Fatalf("expected 2 services (full procfs set), got %d: %+v", len(services), services)
+	}
+	// 3000 is attributed from the lsof join.
+	if got := byPort[3000]; got.Process != "node" || got.PID != 42 {
+		t.Errorf("port 3000 = %+v; want attribution {node, 42} from the lsof join", got)
+	}
+	// 8080 is present (procfs is authoritative) but bare — lsof couldn't see it.
+	if got := byPort[8080]; got.Process != "" || got.PID != 0 {
+		t.Errorf("port 8080 = %+v; want bare (unattributed procfs port stays zero-valued)", got)
+	}
+	// Sorted ascending.
+	if services[0].Port != 3000 || services[1].Port != 8080 {
+		t.Errorf("ports not sorted ascending: %+v", services)
+	}
+}
+
+// TestReadListeningPorts_LsofMissingDegradesToBareProcfs proves that when lsof
+// fails/absents (empty output + error), the FULL procfs port set is still
+// published, all bare — the enumeration is unaffected by the attribution
+// failure.
+func TestReadListeningPorts_LsofMissingDegradesToBareProcfs(t *testing.T) {
+	stubProcfs(t, tcpV4Fixture, tcpV6Fixture) // {8080, 3000} ∪ {8080, 5173}
+	stubLsof(t, func(context.Context) ([]byte, error) {
+		return nil, errors.New("lsof: not found")
+	})
+
+	services := readListeningPorts(context.Background())
+
+	got := make([]int, len(services))
+	for i, s := range services {
+		got[i] = s.Port
+		if s.Process != "" || s.PID != 0 {
+			t.Errorf("port %d attributed despite lsof failure: %+v", s.Port, s)
+		}
+	}
+	want := []int{3000, 5173, 8080} // deduped, sorted, all bare
+	if len(got) != len(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+	}
 }

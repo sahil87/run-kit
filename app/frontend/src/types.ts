@@ -24,8 +24,9 @@ export type MetricsSnapshot = {
 };
 
 /** A single listening TCP service on the host (from the `event: services` SSE
- *  broadcast). v1 is port-only; `process`/`pid` are best-effort and absent when
- *  attribution is unavailable. */
+ *  broadcast). `process`/`pid` are best-effort process attribution (lsof on
+ *  both darwin and Linux) and absent when attribution is unavailable — e.g. a
+ *  root-owned listener invisible to a non-root lsof still appears, bare. */
 export type Service = {
   port: number;
   process?: string;

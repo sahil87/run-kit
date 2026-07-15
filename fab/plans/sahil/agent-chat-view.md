@@ -3,7 +3,12 @@
 **Authored**: 2026-07-13
 **Author**: discussion session with Claude (`/fab-discuss`)
 **Executor**: agents picking up changes one by one, each via the normal fab pipeline
-**Status**: Plan only — no changes drafted yet
+**Status**: Changes 1–4 shipped and merged (2026-07-13/14). Only the optional adapters
+(5–6) remain. Shipped behavior is documented in `docs/memory/run-kit/chat.md` (the
+authoritative record — this plan's change 1–4 sections are kept as written for
+provenance); the view/lens plumbing is now governed by `docs/specs/window-views.md`
+(introduced alongside change `260714-t97o-web-view-lens`, PR #352). See § Post-ship
+addendum for decisions that were resolved or superseded during execution.
 
 ## Goal
 
@@ -66,10 +71,17 @@ them for generic web apps.
   splits + fixed-width live). Rendered only when `@rk_chat` is present on the window's
   pane. Palette parity (`View: Chat` / `View: Terminal`) + a keyboard shortcut are
   mandatory (Constitution V). Center heading follows the view: `Chat: <window>`.
+  *SUPERSEDED in part (post-ship): the chip generalized into the shared `ViewSwitcher`
+  (all lenses, segments grow with the capability set — `window-views.md` R4), and the
+  heading-follows-view half was REVERSED by `260714-uco1-topbar-heading-anchor-nav`
+  (#354): the heading is a static `Window: <window>` in every lens; the switcher is the
+  sole lens indicator.*
 - **Connection dot semantics unchanged**: in chat mode the dot reports chat
   event-stream health ("dot-everywhere = per-page live-data health").
 - **Persistence**: last view per window in localStorage, `board-autofit`-style
-  (key present = chat, absent = terminal default).
+  (key present = chat, absent = terminal default). *SUPERSEDED (post-ship): shipped as
+  a value-bearing key per `window-views.md` R2 — stores the view name; absent = the
+  window's default view. Value-bearing generalizes past two states.*
 - **Read-first**: the read-only view ships before any send path. Send is its own change.
 - **rk-owned neutral chat event schema** from day one (roles, text, tool_use/tool_result,
   turn boundaries, pending question) so Codex/Gemini adapters are backend-only work.
@@ -84,7 +96,7 @@ Agents: fill in your row when you create the change; mark Done when the PR merge
 | 1 | `chat-session-identity` | — | `260713-nh86-chat-session-identity` | [#339](https://github.com/sahil87/run-kit/pull/339) | Done |
 | 2 | `chat-read-backend` | 1 | `260714-pmfh-chat-read-backend` | [#345](https://github.com/sahil87/run-kit/pull/345) | Done |
 | 3 | `chat-read-frontend` | 2 | `260714-r7rq-chat-read-frontend` | [#351](https://github.com/sahil87/run-kit/pull/351) | Done |
-| 4 | `chat-send` | 3 | `260714-jdyg-chat-send` | | in progress |
+| 4 | `chat-send` | 3 | `260714-jdyg-chat-send` | [#355](https://github.com/sahil87/run-kit/pull/355) | Done |
 | 5 | `chat-codex-adapter` (optional) | 2, 3 | | | not started |
 | 6 | `chat-gemini-acp-adapter` (optional) | 2, 3 | | | not started |
 
@@ -213,8 +225,23 @@ and sends over the protocol (send bypasses tmux send-keys entirely, so this chan
 NOT depend on change 4).
 
 **UX nuance**: a codex-server pane is headless — its terminal view is just server logs.
-Keep both toggle sides (watching the raw process is the run-kit ethos) but default such
-panes to `?view=chat` (default derived from the provider prefix).
+The lens model already codifies this: the tty stays reachable (`window-views.md` R3),
+and defaulting such panes to chat is R5's default-view hint (fixed precedence
+`desktop > chat > web > tty`; user's URL/localStorage choice always outranks hints).
+No switcher work needed — the shared `ViewSwitcher` grows segments from the capability
+set automatically.
+
+**Wiring (post-ship — where this change plugs in)**:
+- **Read side**: implement the `Adapter` interface in `internal/chat/adapter.go`
+  (`Provider()` / `Backfill` / `Tail` with the Reset-first Update contract) and
+  `Register("codex", …)` — the registry + `ErrNoAdapter` were built for exactly this;
+  the API layer and frontend need zero changes for read.
+- **Send side**: branch inside the `injectChatMessage` seam in `api/chat.go` — change 4
+  deliberately made no provider branch and named this seam as where a protocol-based
+  (JSON-RPC) send plugs in without reshaping the handler.
+- Read `docs/memory/run-kit/chat.md` in full before the intake — it records the shipped
+  contracts (four-event stream, rotation re-resolve, lazy-transcript tolerance) this
+  adapter must honor.
 
 **Verify at pickup (post-knowledge-cutoff)**: current codex-server invocation, protocol
 surface (thread create/resume/subscribe), and whether an interactive `codex` TUI session
@@ -233,16 +260,44 @@ JSON-RPC; Gemini CLI speaks it natively, Claude Code has a `claude-code-acp` ada
 **Shape**: same as change 5 with a different protocol: an ACP-speaking agent process in
 a pane, rk as ACP client, normalized into the rk chat schema. Consider building this as
 a *generic* ACP adapter rather than Gemini-specific — that makes "add any ACP agent"
-zero-frontend work.
+zero-frontend work. Same wiring seams as change 5: `internal/chat` adapter registry for
+read, the `injectChatMessage` seam for protocol send.
 
 **Verify at pickup**: ACP spec maturity + Gemini CLI's ACP server mode invocation.
 
 ---
 
+## Post-ship addendum (2026-07-15) — what execution resolved or superseded
+
+Recorded so the change-5/6 agent doesn't inherit stale "Certain" facts:
+
+- **The lens model is now authoritative.** `docs/specs/window-views.md` (landed with
+  `260714-t97o-web-view-lens`, #352) generalizes the chat toggle into a view registry
+  (`tty` / `web` / `chat` / `desktop`): availability = derived capability set, choice =
+  per-viewer `?view=` + value-bearing localStorage, one shared `ViewSwitcher`
+  (`window-view.ts`, `view-switcher.tsx`). Changes 5/6 touch NO frontend view plumbing.
+- **Heading decision reversed** by `260714-uco1-topbar-heading-anchor-nav` (#354): the
+  center heading reads a static `Window: <window>` in every lens; the ViewSwitcher is
+  the sole lens indicator.
+- **The Go↔SDK boundary (change 2's open decision) resolved as (b): direct Go JSONL
+  tail** — UUID-glob locate, tolerant line-by-line parse, byte-offset stat-poll. The SDK
+  read APIs (architecture fact 3) turned out one-shot with no tail/subscribe, and the
+  experimental V2 session API was removed in TS SDK 0.3.142 — so fact 3's "supported
+  way" did NOT survive contact; the drift risk is instead mitigated by the tolerant
+  parser + a pinned fixture (Claude Code 2.1.209 at ship).
+- **Change 4's busy policy resolved as Allow + probe** (user-decided over the plan's
+  reject-recommendation): Claude Code's TUI natively queues typed input; a NOVELTY echo
+  probe (baseline count must strictly increase) gates Enter, fails closed with a 409.
+- **Session rotation handling shipped beyond plan scope**: `@rk_chat` re-stamps on
+  `/clear`/`/compact` and the stream re-resolves every ~2s on the same connection, with
+  lazy-transcript "not yet" tolerance — adapters implementing `Tail` must fit this
+  contract (see `chat.md` § rotation / § lazy-transcript).
+
 ## Pickup protocol (for the agent taking the next change)
 
 1. Read this plan in full, plus: `fab/project/constitution.md`,
-   `docs/specs/agent-state.md`, the `ui-patterns` and `architecture` memory files,
+   `docs/specs/agent-state.md`, **`docs/specs/window-views.md`**, the `chat`,
+   `ui-patterns` and `architecture` memory files,
    and `docs/wiki/competitive-landscape.md` (the "why").
 2. Check the tracking table above + `fab change list` — take the lowest-numbered
    change whose dependencies are **merged to main** (not just PR-open).

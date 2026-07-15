@@ -6,6 +6,18 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
 
+// TopBar is rendered without a RouterProvider here, so stub the two router
+// hooks it (and its sub-components: BoardSwitcher, HierarchyDropdown, HistoryNav)
+// consume — `useNavigate` and `useRouter().history.back()/.forward()` (the
+// 260714-uco1 history arrows). Mirrors the sidebar tests' router-mock pattern.
+const mockNavigate = vi.fn();
+const mockHistoryBack = vi.fn();
+const mockHistoryForward = vi.fn();
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mockNavigate,
+  useRouter: () => ({ history: { back: mockHistoryBack, forward: mockHistoryForward } }),
+}));
+
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
   return {
@@ -164,14 +176,22 @@ describe("TopBar", () => {
   });
 
   describe("universal center heading (260704-pr0p)", () => {
-    it("renders a static `Terminal:` prefix sibling OUTSIDE the rename button on terminal routes", () => {
+    it("renders a static `Window:` prefix sibling OUTSIDE the rename button on terminal routes", () => {
       renderTopBar();
       const heading = screen.getByRole("button", { name: "Rename window main" });
-      // The prefix is present at rest…
-      const prefix = screen.getByText(/Terminal:/);
+      // The prefix is a static `Window:` in every lens (260714-uco1 — the
+      // lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired; the lens
+      // is shown by the ViewSwitcher, not the heading). The hierarchy ▾ splits
+      // the prefix DOM between the word and its colon (`Window ▾:` — intake §3),
+      // so the word ("Window") and the colon (":") render as separate text runs
+      // rather than a single contiguous `Window:` node; assert the word run.
+      const prefix = screen.getByText("Window", { exact: true });
       expect(prefix).toBeInTheDocument();
-      // …but is NOT inside the rename button (clicking it must not start an
-      // edit — it binds only to the name).
+      // The hierarchy ▾ sits between the word and the colon, inside the prefix
+      // region (`Window ▾: name`).
+      expect(screen.getByLabelText("Switch hierarchy")).toBeInTheDocument();
+      // …but the prefix is NOT inside the rename button (clicking it must not
+      // start an edit — the button binds only to the name).
       expect(heading).not.toContainElement(prefix);
     });
 
@@ -212,8 +232,69 @@ describe("TopBar", () => {
       const solo = screen.getByLabelText("Cockpit");
       expect(solo).toBeInTheDocument();
       expect(solo).toHaveTextContent("Cockpit");
-      // No `Server Cabin:` / `Board:` / `Terminal:` prefix on the solo word.
-      expect(screen.queryByText(/Server Cabin:|Board:|Terminal:/)).not.toBeInTheDocument();
+      // No `Server Cabin:` / `Board:` / `Window:` prefix on the solo word.
+      expect(screen.queryByText(/Server Cabin:|Board:|Window:/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("history nav arrows + hierarchy dropdown (260714-uco1)", () => {
+    beforeEach(() => {
+      mockNavigate.mockReset();
+      mockHistoryBack.mockReset();
+      mockHistoryForward.mockReset();
+    });
+
+    it("renders ◀ ▶ browser-history arrows on the terminal route and wires them to router.history", () => {
+      renderTopBar();
+      const back = screen.getByRole("button", { name: "Go back" });
+      const forward = screen.getByRole("button", { name: "Go forward" });
+      fireEvent.click(back);
+      fireEvent.click(forward);
+      expect(mockHistoryBack).toHaveBeenCalledTimes(1);
+      expect(mockHistoryForward).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the history arrows on the cockpit (solo) heading too — history is global", () => {
+      renderTopBar({
+        mode: "cockpit",
+        sessions: [],
+        currentSession: null,
+        currentWindow: null,
+        sessionName: "",
+        windowName: "",
+        server: "",
+      });
+      expect(screen.getByRole("button", { name: "Go back" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Go forward" })).toBeInTheDocument();
+      // …but NO hierarchy ▾ on the root of the hierarchy.
+      expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
+    });
+
+    it("renders a hierarchy ▾ on the terminal route listing the ancestor chain (Server Cabin → Cockpit)", () => {
+      renderTopBar();
+      const trigger = screen.getByLabelText("Switch hierarchy");
+      expect(trigger).toBeInTheDocument();
+      fireEvent.click(trigger);
+      // Ancestors only — nearest-first — no window/lateral entries. The item
+      // label carries the `Server Cabin:` type prefix (assumption #6).
+      expect(screen.getByRole("menuitem", { name: "Server Cabin: runkit" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "Cockpit" })).toBeInTheDocument();
+    });
+
+    it("hierarchy ▾ navigates up when an ancestor is chosen (never enters rename)", () => {
+      renderTopBar();
+      fireEvent.click(screen.getByLabelText("Switch hierarchy"));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Server Cabin: runkit" }));
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "runkit" } });
+      // The rename edit input never appeared.
+      expect(screen.queryByRole("textbox", { name: "Window name" })).not.toBeInTheDocument();
+    });
+
+    it("board/root hierarchy ▾ lists only Cockpit (no Server Cabin ancestor)", () => {
+      renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+      fireEvent.click(screen.getByLabelText("Switch hierarchy"));
+      expect(screen.getByRole("menuitem", { name: "Cockpit" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: /Server Cabin/ })).not.toBeInTheDocument();
     });
   });
 

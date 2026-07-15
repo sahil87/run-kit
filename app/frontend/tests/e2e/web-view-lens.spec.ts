@@ -168,8 +168,11 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // Cold load resolves straight to the web lens.
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(webChip(page)).toHaveAttribute("aria-pressed", "true");
-    // The center heading follows the lens.
-    await expect(page.getByText(/Web:/)).toBeVisible();
+    // The center heading is a STATIC `Window:` in every lens (260714-uco1 — the
+    // heading no longer follows the lens; the ViewSwitcher chip, asserted above,
+    // is the lens indicator). The hierarchy ▾ splits the prefix between the word
+    // and its colon (`Window ▾:`), so assert the word run ("Window").
+    await expect(page.getByText("Window", { exact: true })).toBeVisible();
   });
 
   test("?view=web on a window with no @rk_url falls back to the terminal", async ({

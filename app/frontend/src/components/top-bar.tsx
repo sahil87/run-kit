@@ -1,5 +1,5 @@
 import { useCallback, useState, useRef, useEffect } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
@@ -158,6 +158,130 @@ function BreadcrumbSeparator() {
  */
 const LINK_CRUMB_CLASS =
   "rounded border border-border hover:border-text-secondary px-1.5 py-0.5 text-text-secondary hover:text-text-primary transition-colors";
+
+/**
+ * Browser-history Back/Forward arrows (260714-uco1). Fixed-width ◀ ▶ buttons
+ * left of the heading prefix, inside the anchored center box (§ HistoryNav
+ * placement) — being fixed-width they never shift the heading's text anchor.
+ * Rendered on ALL four page modes (history is global). Semantics are BROWSER
+ * HISTORY via TanStack Router's `router.history.back()` / `.forward()` —
+ * explicitly NOT previous/next sibling-window cycling.
+ *
+ * Forward is always-active (browser-chrome style): `canGoForward` is not
+ * reliably exposed by browsers, so a dim/disabled forward state is best-effort
+ * only and deliberately omitted — clicking forward with no forward entry is a
+ * harmless no-op. The same two actions are reachable from the command palette
+ * (`Go: Back` / `Go: Forward`, Constitution V; see lib/palette-nav.ts).
+ *
+ * Styling matches the top-bar icon-button convention (`rk-glint`, `coarse:`
+ * touch sizing, bordered chip). The pair sits in its own `shrink-0` group so
+ * the arrows keep a stable width regardless of heading length.
+ */
+function HistoryNav() {
+  const router = useRouter();
+  const arrowClass =
+    "rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center shrink-0";
+  return (
+    <span className="flex items-center gap-1 mr-1.5 shrink-0">
+      <button
+        type="button"
+        onClick={() => router.history.back()}
+        aria-label="Go back"
+        title="Back"
+        className={arrowClass}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {/* chevron-left */}
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={() => router.history.forward()}
+        aria-label="Go forward"
+        title="Forward"
+        className={arrowClass}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {/* chevron-right */}
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
+    </span>
+  );
+}
+
+/**
+ * Hierarchy dropdown (260714-uco1) — a bare-▾ `BreadcrumbDropdown` bound to the
+ * heading prefix, listing exactly the CURRENT PAGE'S ANCESTOR CHAIN (no lateral
+ * jumps, to stay predictable). Reuses `BreadcrumbDropdown` (which already owns
+ * the menu a11y: `role="menu"`/`menuitem`, Escape, ArrowUp/Down, outside-click)
+ * so this is a thin item-builder, not a new dropdown.
+ *
+ * Ancestor chains by mode:
+ *   - `terminal` (`/{server}/{window}`): `Server Cabin: {server}` (→ `/{server}`)
+ *     then `Cockpit` (→ `/`).
+ *   - `board` / `root`: `Cockpit` (→ `/`) — their only ancestor.
+ *   - solo `cockpit`: NONE — the caller does not render this component there.
+ *
+ * It is a SIBLING of the rename button (not inside it), so clicking it never
+ * enters inline edit. It is `hidden sm:inline-flex` — below `sm` it rides with
+ * the hidden prefix span (the hamburger/sidebar covers mobile navigation). It
+ * is passed as the prefix `caret`, so `HeadingPrefix` renders it BETWEEN the
+ * prefix word and its trailing colon (reads `Window ▾: name`, intake §3 —
+ * "the hierarchy ▾ binds to the prefix, before the colon"). The single
+ * boot-sweep cursor pass is preserved: the caret splits only the prefix's DOM
+ * at render time, never the swept cell array.
+ */
+function HierarchyDropdown({
+  mode,
+  server,
+}: {
+  mode: "terminal" | "board" | "root";
+  server: string;
+}) {
+  const navigate = useNavigate();
+
+  // Ancestor items, nearest-first (Server Cabin above Cockpit on a window
+  // route). `current: false` throughout — an ancestor is never the current page.
+  const items: BreadcrumbDropdownItem[] = [];
+  if (mode === "terminal" && server) {
+    items.push({
+      label: `${CABIN_PREFIX} ${server}`,
+      href: `/${encodeURIComponent(server)}`,
+      current: false,
+    });
+  }
+  items.push({ label: COCKPIT_SOLO, href: "/", current: false });
+
+  const handleNavigate = useCallback(
+    (href: string) => {
+      // `/` → Cockpit (index route); `/{server}` → Server Cabin. Route via the
+      // typed navigator so params are validated (mirrors BoardSwitcher).
+      if (href === "/") {
+        navigate({ to: "/" });
+        return;
+      }
+      const match = href.match(/^\/([^/]+)$/);
+      if (match) {
+        navigate({ to: "/$server", params: { server: decodeURIComponent(match[1]) } });
+      }
+    },
+    [navigate],
+  );
+
+  return (
+    <span className="hidden sm:inline-flex items-center shrink-0 ml-0.5">
+      <BreadcrumbDropdown
+        items={items}
+        label="hierarchy"
+        title="Navigate up"
+        onNavigate={handleNavigate}
+        triggerClassName="text-text-secondary hover:text-text-primary transition-colors shrink-0"
+      />
+    </span>
+  );
+}
 
 export function TopBar({
   mode = "terminal",
@@ -340,69 +464,105 @@ export function TopBar({
             cursor visibly crosses it) — a `gap-1` on top of it double-spaced
             them (260704-pr0p rework N4). The ▾ switchers carry their own `ml-1`
             so only the switcher gets separated from the name. */}
+        {/* The OUTER cell stays centered in the `auto` grid column; the INNER
+            container (260714-uco1) carries a `sm:`-gated min-width with
+            left-aligned content so the heading's LEFT EDGE stops drifting as the
+            instance name length changes. Below `sm` the min-width is absent
+            (space is scarce at 375px) so current behavior is unchanged. The
+            history arrows + hierarchy ▾ live inside this anchored box. */}
         <div className="flex items-center justify-center min-w-0">
-          {mode === "terminal" && currentWindow && (
-            <>
-              {/* No `key` on the route identity: the instance persists across
-                  window switches so the boot sweep replays on navigation and an
-                  in-progress edit survives long enough to be intentionally
-                  cancelled (see WindowHeading's identity-change guard) rather
-                  than silently destroyed by a remount. */}
-              <WindowHeading
-                server={server}
-                windowId={currentWindow.windowId}
-                sessionName={sessionName}
-                name={windowName}
-                prefix={terminalHeadingPrefix(activeView)}
-              />
-              <BreadcrumbDropdown
-                items={windowItems}
-                label="window"
-                title="Window"
-                onNavigate={handleDropdownNavigate}
-                action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
-                // + New Agent — the second window-switcher entry point for the
-                // web-UI spawn flow (260713-sbk1). Rendered only when AppShell
-                // published an onSpawnAgent handler (terminal route with a session).
-                secondaryAction={
-                  onSpawnAgent
-                    ? { label: "+ New Agent", onAction: () => onSpawnAgent(sessionName) }
-                    : undefined
-                }
-                triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
-              />
-            </>
-          )}
+          <div className="flex items-center justify-start min-w-0 sm:min-w-[28ch]">
+            {/* Browser-history ◀ ▶ arrows (260714-uco1) — fixed-width so they
+                never shift the heading's text anchor, rendered on ALL four modes
+                (history is global; also keeps the center box uniform, e.g.
+                `◀ ▶  Cockpit`). Left of the prefix, inside the anchored box. */}
+            <HistoryNav />
 
-          {mode === "board" && boardName && (
-            <>
-              {/* Board name is display-only (boards have no rename API); the ▾
-                  board switcher moved here from the left breadcrumb. */}
+            {mode === "terminal" && currentWindow && (
+              <>
+                {/* No `key` on the route identity: the instance persists across
+                    window switches so the boot sweep replays on navigation and
+                    an in-progress edit survives long enough to be intentionally
+                    cancelled (see WindowHeading's identity-change guard) rather
+                    than silently destroyed by a remount. The prefix is now a
+                    STATIC `Window:` in every lens (260714-uco1) — the lens is
+                    shown by the L1 ViewSwitcher, not the heading.
+
+                    Hierarchy ▾ (260714-uco1) — the current page's ANCESTOR chain
+                    (Server Cabin → Cockpit on a window route). Passed as the
+                    prefix `caret` so it renders BEFORE the colon (`Window ▾:
+                    name`, intake §3), bound to the prefix and hidden with it
+                    below `sm`. It is a sibling of the rename button (not inside
+                    it), so clicking it never enters inline edit. */}
+                <WindowHeading
+                  server={server}
+                  windowId={currentWindow.windowId}
+                  sessionName={sessionName}
+                  name={windowName}
+                  prefix={WINDOW_PREFIX}
+                  caret={<HierarchyDropdown mode="terminal" server={server} />}
+                />
+                <BreadcrumbDropdown
+                  items={windowItems}
+                  label="window"
+                  title="Window"
+                  onNavigate={handleDropdownNavigate}
+                  action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
+                  // + New Agent — the second window-switcher entry point for the
+                  // web-UI spawn flow (260713-sbk1). Rendered only when AppShell
+                  // published an onSpawnAgent handler (terminal route with a session).
+                  secondaryAction={
+                    onSpawnAgent
+                      ? { label: "+ New Agent", onAction: () => onSpawnAgent(sessionName) }
+                      : undefined
+                  }
+                  triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
+                />
+              </>
+            )}
+
+            {mode === "board" && boardName && (
+              <>
+                {/* Board name is display-only (boards have no rename API); the ▾
+                    board switcher moved here from the left breadcrumb. The
+                    hierarchy ▾ lists this board's ancestor (Cockpit) and is
+                    passed as the prefix `caret` so it renders BEFORE the colon
+                    (`Board ▾: name`, matching the window heading's placement). */}
+                <PageHeadingDisplay
+                  prefix={BOARD_PREFIX}
+                  name={boardName}
+                  ariaLabel={`Board ${boardName}`}
+                  caret={<HierarchyDropdown mode="board" server={server} />}
+                />
+                <BoardSwitcher boardName={boardName} boards={boards ?? []} />
+              </>
+            )}
+
+            {mode === "root" && server && (
+              <>
+                {/* Hierarchy ▾ passed as the prefix `caret` so it renders BEFORE
+                    the colon (`Server Cabin ▾: name`), matching the window
+                    heading's `Window ▾: name` placement (260714-uco1). */}
+                <PageHeadingDisplay
+                  prefix={CABIN_PREFIX}
+                  name={server}
+                  ariaLabel={`Server Cabin ${server}`}
+                  caret={<HierarchyDropdown mode="root" server={server} />}
+                />
+              </>
+            )}
+
+            {mode === "cockpit" && (
+              // Solo `Cockpit` — the root of the hierarchy, so NO hierarchy ▾
+              // (it has no ancestors). The history arrows still render (above).
               <PageHeadingDisplay
-                prefix={BOARD_PREFIX}
-                name={boardName}
-                ariaLabel={`Board ${boardName}`}
+                prefix=""
+                name={COCKPIT_SOLO}
+                solo
+                ariaLabel="Cockpit"
               />
-              <BoardSwitcher boardName={boardName} boards={boards ?? []} />
-            </>
-          )}
-
-          {mode === "root" && server && (
-            <PageHeadingDisplay
-              prefix={CABIN_PREFIX}
-              name={server}
-              ariaLabel={`Server Cabin ${server}`}
-            />
-          )}
-
-          {mode === "cockpit" && (
-            <PageHeadingDisplay
-              prefix=""
-              name={COCKPIT_SOLO}
-              solo
-              ariaLabel="Cockpit"
-            />
-          )}
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-self-end gap-3 text-xs text-text-secondary shrink-0">
@@ -756,22 +916,19 @@ function SweepCells({
 
 // Page-type prefix words for the universal center heading (change 260704-pr0p,
 // title-case per the reviewed demo — supersedes PageHeading's lowercase idiom).
-const TERMINAL_PREFIX = "Terminal:";
-// The center heading follows the lens (spec R4): the terminal-mode heading reads
-// `Web:` for the web lens, `Chat:` for the chat lens, else `Terminal:`. A later
-// `Desktop:` prefix slots in here.
-const WEB_PREFIX = "Web:";
-const CHAT_PREFIX = "Chat:";
+//
+// The terminal-route prefix is a STATIC `Window:` in every lens (change
+// 260714-uco1 — a deliberate reversal of window-views spec R4's "the center
+// page heading follows the lens"). The heading identifies the WINDOW (the
+// substrate); which lens you look through is shown by the L1 `ViewSwitcher`, not
+// the heading (per docs/specs/window-views.md "rows are substrates, views are
+// lenses"). This also fixes the anchor jumping on lens switches — the prefix
+// width no longer changes with the lens. The retired lens-following
+// `terminalHeadingPrefix()` + `WEB_PREFIX`/`CHAT_PREFIX` were removed with it.
+const WINDOW_PREFIX = "Window:";
 const BOARD_PREFIX = "Board:";
 const CABIN_PREFIX = "Server Cabin:";
 const COCKPIT_SOLO = "Cockpit";
-
-/** Terminal-mode heading prefix for the active view (spec R4). */
-function terminalHeadingPrefix(activeView: ViewName | undefined): string {
-  if (activeView === "web") return WEB_PREFIX;
-  if (activeView === "chat") return CHAT_PREFIX;
-  return TERMINAL_PREFIX;
-}
 
 /**
  * Split a boot-sweep cell list into its prefix portion (the `pfx`/`sp` cells)
@@ -801,6 +958,7 @@ function HeadingPrefix({
   scrambling,
   onMouseEnter,
   onMouseLeave,
+  caret,
 }: {
   cells: SweepCell[];
   scrambling: boolean;
@@ -810,14 +968,48 @@ function HeadingPrefix({
   // pass none: their outer wrapper already owns the hover.
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
+  // Optional element rendered BEFORE the trailing `:` of the prefix word
+  // (260714-uco1 — the hierarchy ▾ binds to the prefix "before the colon" per
+  // intake §3, rendering `Window ▾: name`). When present, the prefix cells are
+  // split at their final `:` cell so the caret sits between the word run and the
+  // colon run WITHOUT breaking the single boot-sweep cursor pass — the cell
+  // array (and its ordering) is untouched; only the DOM is split at render time.
+  caret?: React.ReactNode;
 }) {
+  // No caret: emit the prefix as one swept run (the original single-span path;
+  // keeps `Window:` contiguous for headings with no hierarchy ▾).
+  if (!caret) {
+    return (
+      <span
+        className="hidden sm:inline text-sm text-text-secondary whitespace-pre shrink-0"
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+      >
+        <SweepCells cells={cells} scrambling={scrambling} />
+      </span>
+    );
+  }
+
+  // Caret present: split the prefix cells at the LAST `:` so the caret renders
+  // between the word (`Window`) and the colon (`:`). The `sp` separating space
+  // cell rides in the tail with the colon so the cursor still visibly crosses
+  // it before the name (splitSweepCells keeps `sp` in the prefix portion).
+  const colonIdx = cells.map((c) => c.ch).lastIndexOf(":");
+  const wordCells = colonIdx >= 0 ? cells.slice(0, colonIdx) : cells;
+  const tailCells = colonIdx >= 0 ? cells.slice(colonIdx) : [];
   return (
     <span
-      className="hidden sm:inline text-sm text-text-secondary whitespace-pre shrink-0"
+      className="hidden sm:inline-flex items-center text-sm text-text-secondary whitespace-pre shrink-0"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <SweepCells cells={cells} scrambling={scrambling} />
+      <span className="whitespace-pre">
+        <SweepCells cells={wordCells} scrambling={scrambling} />
+      </span>
+      {caret}
+      <span className="whitespace-pre">
+        <SweepCells cells={tailCells} scrambling={scrambling} />
+      </span>
     </span>
   );
 }
@@ -861,6 +1053,7 @@ function WindowHeading({
   sessionName,
   name,
   prefix,
+  caret,
 }: {
   server: string;
   windowId: string;
@@ -870,6 +1063,10 @@ function WindowHeading({
    *  R4). The boot sweep runs over `prefix + " " + name`, so a prefix change
    *  (a tty↔web view switch) replays the sweep just like a name change. */
   prefix: string;
+  /** Optional element rendered inside the prefix, BEFORE its trailing `:`
+   *  (260714-uco1 — the hierarchy ▾ binds to the prefix "before the colon",
+   *  rendering `Window ▾: name`). Passed through to `HeadingPrefix`. */
+  caret?: React.ReactNode;
 }) {
   // Shared with the sidebar inline rename (change 5ilm) so both surfaces rename
   // identically (optimistic store rename, rollback + toast, clear on settle).
@@ -1014,7 +1211,7 @@ function WindowHeading({
   if (editing) {
     return (
       <>
-        <HeadingPrefix cells={prefixCells} scrambling={false} />
+        <HeadingPrefix cells={prefixCells} scrambling={false} caret={caret} />
         <input
           ref={inputRef}
           type="text"
@@ -1043,10 +1240,13 @@ function WindowHeading({
             }
           }}
           aria-label="Window name"
-          // Identically-styled to the display heading: monospace, centered,
-          // weight-600 primary color, sized in ch and growing with content.
+          // Identically-styled to the display heading: monospace, LEFT-aligned
+          // (260714-uco1 — dropped `text-center` so the name doesn't jump
+          // horizontally when entering edit mode, now that the heading is
+          // left-anchored), weight-600 primary color, sized in ch and growing
+          // with content.
           style={{ width: `${Math.max(draft.length + 1, 3)}ch` }}
-          className="bg-transparent text-center text-sm font-semibold text-text-primary outline-none border-b border-accent min-w-0"
+          className="bg-transparent text-left text-sm font-semibold text-text-primary outline-none border-b border-accent min-w-0"
         />
       </>
     );
@@ -1065,6 +1265,7 @@ function WindowHeading({
         scrambling={sweep.scrambling}
         onMouseEnter={sweep.playDeferred}
         onMouseLeave={sweep.resolve}
+        caret={caret}
       />
       <button
         type="button"
@@ -1125,11 +1326,18 @@ function PageHeadingDisplay({
   name,
   solo = false,
   ariaLabel,
+  caret,
 }: {
   prefix: string;
   name: string;
   solo?: boolean;
   ariaLabel: string;
+  /** Optional element rendered inside the prefix, BEFORE its trailing `:`
+   *  (260714-uco1 — the hierarchy ▾ binds to the prefix "before the colon",
+   *  rendering `Board ▾: name` / `Server Cabin ▾: name`, matching the window
+   *  heading's `Window ▾: name`). Not applicable to the solo shape (no prefix).
+   *  Passed through to `HeadingPrefix`. */
+  caret?: React.ReactNode;
 }) {
   const sweep = useBootSweep(prefix, name, solo);
   // Seeded `null` so the name-effect fires ONCE on mount — the mount /
@@ -1177,7 +1385,7 @@ function PageHeadingDisplay({
       onMouseLeave={sweep.resolve}
       className="inline-flex items-center min-w-0 coarse:min-h-[30px]"
     >
-      <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} />
+      <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} caret={caret} />
       {/* Name keeps its REST color throughout the sweep (green lives only on
           the per-cell churn/cursor spans) so resolved cells settle to
           `text-text-primary` as the cursor passes (260704-pr0p rework M2). */}

@@ -99,10 +99,14 @@ tier), rendered only when the capability set exceeds `{tty}`: two states
 render `[tty|chat]`-style, more render as a compact segmented group. Active
 segment inverse-video. Palette parity (`View: Terminal` / `View: Web` / …)
 and a keyboard shortcut are mandatory (Constitution V). The center page
-heading follows the lens: `Terminal: <window>`, `Web: <window>`,
-`Chat: <window>`, `Desktop: <window>`. Whichever change ships first
-(`web-view-lens` or chat change 3) builds the generalized switcher; the other
-reuses it.
+heading does **not** follow the lens — it reads a static `Window: <window>` in
+every lens (reversed by change `260714-uco1-topbar-heading-anchor-nav`; it
+formerly read `Terminal:`/`Web:`/`Chat:`/`Desktop:` per the active lens). The
+heading identifies the *substrate* (the tmux window); which *lens* you look
+through is shown by this switcher, not the heading — so the switcher is the
+sole lens indicator, and the heading's left anchor no longer jumps on a lens
+switch. Whichever change ships first (`web-view-lens` or chat change 3) builds
+the generalized switcher; the other reuses it.
 
 ### R5 — Default view is a derived hint, not a lock
 

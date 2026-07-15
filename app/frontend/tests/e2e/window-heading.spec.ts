@@ -87,9 +87,12 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // The window name is NOT duplicated as a breadcrumb crumb.
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(nav).not.toContainText(name);
-    // The universal `Terminal:` page-type prefix (260704-pr0p) renders as a
-    // static sibling OUTSIDE the rename button (clicking it must not edit).
-    const prefix = page.getByText(/Terminal:/);
+    // The static `Window:` page-type prefix (260714-uco1 — replaced the retired
+    // lens-following `Terminal:`/`Web:`/`Chat:` prefix) renders as a static
+    // sibling OUTSIDE the rename button (clicking it must not edit). The
+    // hierarchy ▾ splits the prefix between the word and its colon (`Window ▾:`
+    // — intake §3), so the word run ("Window") is the stable prefix locator.
+    const prefix = page.getByText("Window", { exact: true });
     await expect(prefix).toBeVisible();
     const prefixInButton = await heading.evaluate(
       (btn, pfx) => btn.contains(pfx),
@@ -357,6 +360,121 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     await expect(reducedLabel).not.toHaveClass(/rk-typed-done/);
 
     await reducedCtx.close();
+  });
+});
+
+/**
+ * Top-bar heading anchor + nav block (260714-uco1). Covers the four sub-features
+ * added to the center heading: (1) the stable left anchor (min-width, left
+ * content) so the heading's left edge does not drift with name length; (2) the
+ * static `Window:` prefix persisting across a lens switch; (3) the ancestor
+ * hierarchy dropdown; (4) the browser-history ◀ ▶ arrows. Uses the file-level
+ * session lifecycle above.
+ */
+test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (260714-uco1)", () => {
+  test("the heading's left edge does not drift as the window name length changes within the anchor band (sm+)", async ({
+    page,
+  }) => {
+    // Two windows whose `Window: <name>` fits WITHIN the reserved min-width
+    // band (~28ch incl. the 8ch `Window: ` prefix), differing in name length.
+    // The heading is left-anchored (sm:min-w + left content), so within the
+    // band the prefix's left edge stays put — it no longer recenters with the
+    // name. (Names LONGER than the band grow rightward and the centered box
+    // drifts — an accepted tradeoff, intake #1 — so this asserts the band, not
+    // arbitrarily long names.)
+    const shortName = `hx-a${Date.now().toString().slice(-3)}`; // ~7 chars
+    const midName = `hx-bcd-${Date.now().toString().slice(-4)}`; // ~11 chars
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${shortName}"`, { stdio: "ignore" });
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${midName}"`, { stdio: "ignore" });
+    const shortId = await resolveWindow(page, shortName);
+    const midId = await resolveWindow(page, midName);
+
+    // Desktop viewport so the sm:min-width anchor is active.
+    await page.setViewportSize({ width: 1200, height: 800 });
+
+    // The prefix word run ("Window") is the heading's leftmost text; its left
+    // edge is the anchor under test. (The hierarchy ▾ splits the prefix between
+    // the word and its colon, so the word run is the stable prefix locator.)
+    await gotoWindow(page, shortId);
+    const shortPrefix = page.getByText("Window", { exact: true });
+    await expect(shortPrefix).toBeVisible({ timeout: 10_000 });
+    const shortX = (await shortPrefix.boundingBox())!.x;
+
+    await gotoWindow(page, midId);
+    const midPrefix = page.getByText("Window", { exact: true });
+    await expect(midPrefix).toBeVisible({ timeout: 10_000 });
+    const midX = (await midPrefix.boundingBox())!.x;
+
+    // The prefix's left edge is pinned by the min-width container — within the
+    // band it must not jump as the name grows (allow a small sub-pixel margin).
+    expect(Math.abs(midX - shortX)).toBeLessThanOrEqual(2);
+  });
+
+  test("the heading prefix is a static `Window:` on the terminal route (all lenses)", async ({
+    page,
+  }) => {
+    const name = `hx-prefix-${Date.now()}`;
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, { stdio: "ignore" });
+    const id = await resolveWindow(page, name);
+    await gotoWindow(page, id);
+
+    // Static `Window:` — never the retired `Terminal:`/`Web:`/`Chat:` lens
+    // prefix. (This plain window offers only the tty lens, so no ViewSwitcher;
+    // chat/web lens-switch coverage lives in chat-view/web-view-lens specs,
+    // which now assert `Window:` in every lens.) The hierarchy ▾ splits the
+    // prefix between the word and its colon (`Window ▾:`, intake §3), so assert
+    // the word run ("Window").
+    await expect(page.getByText("Window", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Terminal:|Web:|Chat:/)).toHaveCount(0);
+  });
+
+  test("the hierarchy ▾ lists the ancestor chain and navigates up (Server Cabin → Cockpit)", async ({
+    page,
+  }) => {
+    const name = `hx-nav-${Date.now()}`;
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${name}"`, { stdio: "ignore" });
+    const id = await resolveWindow(page, name);
+    await gotoWindow(page, id);
+
+    // Open the prefix ▾ — its accessible name is "Switch hierarchy".
+    await page.getByLabel("Switch hierarchy").click();
+    // Ancestors only: Server Cabin (the server) then Cockpit. No window/lateral.
+    await expect(page.getByRole("menuitem", { name: `Server Cabin: ${TMUX_SERVER}` })).toBeVisible();
+    const cockpitItem = page.getByRole("menuitem", { name: "Cockpit" });
+    await expect(cockpitItem).toBeVisible();
+
+    // Selecting the Server Cabin ancestor navigates up to `/{server}`.
+    await page.getByRole("menuitem", { name: `Server Cabin: ${TMUX_SERVER}` }).click();
+    await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}$`));
+    // The Server Cabin heading confirms the up-navigation landed.
+    await expect(page.getByLabel(`Server Cabin ${TMUX_SERVER}`)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("the ◀ ▶ arrows drive browser history (back returns to the prior window)", async ({
+    page,
+  }) => {
+    const first = `hx-hist-a-${Date.now().toString().slice(-5)}`;
+    const second = `hx-hist-b-${Date.now().toString().slice(-5)}`;
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${first}"`, { stdio: "ignore" });
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${second}"`, { stdio: "ignore" });
+    const firstId = await resolveWindow(page, first);
+    const secondId = await resolveWindow(page, second);
+
+    // Build a real history stack: visit the first window, then the second.
+    await gotoWindow(page, firstId);
+    await expect(page.getByRole("button", { name: `Rename window ${first}` })).toBeVisible({ timeout: 10_000 });
+    await gotoWindow(page, secondId);
+    await expect(page.getByRole("button", { name: `Rename window ${second}` })).toBeVisible({ timeout: 10_000 });
+
+    // ◀ (browser back) returns to the first window's URL — NOT sibling cycling.
+    await page.getByLabel("Go back").click();
+    await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}/${encodeURIComponent(firstId)}$`));
+    await expect(page.getByRole("button", { name: `Rename window ${first}` })).toBeVisible({ timeout: 10_000 });
+
+    // ▶ (browser forward) returns to the second window.
+    await page.getByLabel("Go forward").click();
+    await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}/${encodeURIComponent(secondId)}$`));
+    await expect(page.getByRole("button", { name: `Rename window ${second}` })).toBeVisible({ timeout: 10_000 });
   });
 });
 

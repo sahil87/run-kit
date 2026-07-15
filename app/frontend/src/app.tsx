@@ -1116,7 +1116,17 @@ function AppShell() {
         // window, or no direction). Arm the grace mask for a gated (tty) target
         // — non-tty (web/chat) targets stay mask-less, matching the gated path.
         const { ungatedIds } = switchTransitionRef.current;
-        runSwitch(!ungatedIds.has(windowId));
+        const targetUngated = ungatedIds.has(windowId);
+        // A fresh switch owns ALL feedback — clear any mask/gate a prior
+        // timed-out switch left showing. The gated instant path gets this for
+        // free (`armGraceMask` supersedes + tears down, via `beginPendingSwitch`
+        // below), and so does the animated path (`beginWindowSwitchGate`). The
+        // ungated instant path arms NEITHER, so without this an already-armed
+        // mask from a prior gated switch would linger over the new non-tty view
+        // until SSE confirmation — contradicting the "non-tty targets stay
+        // mask-less" semantics and briefly blocking interaction (Copilot).
+        if (targetUngated) abandonSwitchFeedback();
+        runSwitch(!targetUngated);
         return;
       }
 

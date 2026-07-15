@@ -1,0 +1,55 @@
+id: ifco
+name: 260715-ifco-expose-running-version-ui
+created: 2026-07-15T03:15:15Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 10
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 80.3
+        reversibility: 89.7
+        competence: 87.0
+        disambiguation: 82.3
+stage_metrics:
+    intake: {started_at: "2026-07-15T03:15:15Z", driver: fab-new, iterations: 1, completed_at: "2026-07-15T03:21:22Z"}
+    apply: {started_at: "2026-07-15T03:21:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T03:31:43Z"}
+    review: {started_at: "2026-07-15T03:31:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T03:41:39Z"}
+    hydrate: {started_at: "2026-07-15T03:41:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T03:45:56Z"}
+    ship: {started_at: "2026-07-15T03:45:56Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-15T03:45:57Z"
+    computed_at_stage: hydrate
+summary: 'Expose the running run-kit version in the web UI: command-palette version entry (pure buildVersionAction in lib/palette-version.ts, dual-mounted, copy-on-select), connection-dot title, Cockpit footer stamp, and UpdateChip v{current}→v{latest} transition via a new current field on useUpdateNotification(); copyToClipboard widened to Promise<boolean>.'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-15T03:45:57Z

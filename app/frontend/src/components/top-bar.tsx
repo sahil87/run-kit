@@ -8,6 +8,7 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { useUpdateNotification } from "@/contexts/session-context";
+import { displayVersion } from "@/lib/palette-version";
 import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -311,6 +312,19 @@ export function TopBar({
   activeView,
   onSelectView,
 }: TopBarProps) {
+  // The connection dot represents "the daemon's stream" — extend its hover title
+  // with the running version. `daemonVersion` comes from the same
+  // SSE-fed session context the UpdateChip reads (tolerant of a missing
+  // provider). Omit the version fragment until the first `event: version` so we
+  // never render `vundefined`; the aria-label stays the concise Connected/
+  // Disconnected on the live region (version is hover-discovery detail only).
+  const { daemonVersion } = useUpdateNotification();
+  const dotTitle = !isConnected
+    ? "Disconnected"
+    : daemonVersion
+      ? `Connected — run-kit ${displayVersion(daemonVersion)}`
+      : "Connected";
+
   // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
   // window id (@N) is the only identity in the URL. Selecting a session jumps
   // to its first window; the owning session is derived from the snapshot.
@@ -721,6 +735,7 @@ export function TopBar({
                 isConnected ? "bg-accent-green" : "bg-text-secondary"
               }`}
               aria-label={isConnected ? "Connected" : "Disconnected"}
+              title={dotTitle}
             />
           </span>
         </div>
@@ -1930,11 +1945,18 @@ function TerminalFontControl() {
  * daemon is not the `dev` version.
  */
 function UpdateChip() {
-  const { showChip, latest, updateNow, dismissUpdate } = useUpdateNotification();
+  const { showChip, latest, current, updateNow, dismissUpdate } = useUpdateNotification();
   const [updating, setUpdating] = useState(false);
   const { addToast } = useToast();
 
   if (!showChip || !latest) return null;
+
+  // Show the `v{current} → v{latest}` transition when the current version is
+  // known (it always is whenever the chip renders — the update-available event
+  // carries both fields), else fall back to the target-only wording.
+  const restLabel = current
+    ? `Update run-kit: v${current} → v${latest}`
+    : `Update run-kit to v${latest}`;
 
   const handleUpdate = () => {
     if (updating) return;
@@ -1955,8 +1977,8 @@ function UpdateChip() {
         type="button"
         onClick={handleUpdate}
         disabled={updating}
-        aria-label={updating ? "Updating run-kit" : `Update run-kit to v${latest}`}
-        title={updating ? "Updating\u2026" : `Update run-kit to v${latest}`}
+        aria-label={updating ? "Updating run-kit" : restLabel}
+        title={updating ? "Updating\u2026" : restLabel}
         className="rk-glint flex items-center gap-1 h-[24px] coarse:h-[30px] px-1.5 rounded border border-accent-green text-accent-green hover:border-accent-green transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed"
       >
         {updating ? (

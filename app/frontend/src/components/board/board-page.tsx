@@ -20,6 +20,8 @@ import { createSession, createWindow as createWindowApi, killServer as killServe
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette-move";
 import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
+import { buildVersionAction, displayVersion } from "@/lib/palette-version";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Dialog } from "@/components/dialog";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
@@ -500,6 +502,21 @@ function BoardPageContent({ name }: { name: string }) {
       },
     );
 
+    // Version entry — duplicated from AppShell's `versionActions` (app.tsx) for
+    // the same reason as updateEntries: the board route mounts its OWN palette
+    // and does NOT render AppShell (DD-8), and below `sm` the top-bar cluster
+    // (which has no version chip anyway) is hidden, so on a phone /board/$name
+    // the palette is the ONLY version surface. Shown whenever daemonVersion is
+    // known, including `dev` (pure display). Copies the displayed form; success
+    // → info toast, failure defaults to the board's error toast.
+    const versionEntries: PaletteAction[] = buildVersionAction(daemonVersion, () => {
+      if (!daemonVersion) return;
+      void copyToClipboard(displayVersion(daemonVersion)).then((ok) => {
+        if (ok) addToast("Version copied", "info");
+        else addToast("Copy failed");
+      });
+    });
+
     if (entries.length > 0) {
       conditional.push({
         id: "board-cycle-next",
@@ -580,7 +597,7 @@ function BoardPageContent({ name }: { name: string }) {
       }
     }
 
-    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries];
+    return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries, ...versionEntries];
   }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpin, reorder, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateLatest, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.

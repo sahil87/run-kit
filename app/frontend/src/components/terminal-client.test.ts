@@ -33,8 +33,9 @@ describe("copyToClipboard", () => {
       configurable: true,
     });
 
-    await copyToClipboard("hello");
+    const result = await copyToClipboard("hello");
 
+    expect(result).toBe(true);
     expect(writeText).toHaveBeenCalledWith("hello");
     expect(execCommandSpy).not.toHaveBeenCalled();
   });
@@ -47,8 +48,9 @@ describe("copyToClipboard", () => {
       configurable: true,
     });
 
-    await copyToClipboard("fallback text");
+    const result = await copyToClipboard("fallback text");
 
+    expect(result).toBe(true);
     expect(writeText).toHaveBeenCalledWith("fallback text");
     expect(execCommandSpy).toHaveBeenCalledWith("copy");
   });
@@ -88,9 +90,23 @@ describe("copyToClipboard", () => {
     });
 
     const bodyChildCountBefore = document.body.children.length;
-    // Should resolve (not reject) — both mechanisms failing is silently ignored
-    await copyToClipboard("error test");
+    // Should resolve (not reject) — both mechanisms failing returns false so the
+    // caller can surface an error toast rather than crashing.
+    const result = await copyToClipboard("error test");
+    expect(result).toBe(false);
     expect(document.body.children.length).toBe(bodyChildCountBefore);
+  });
+
+  it("returns false when execCommand reports the copy did not happen", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+    execCommandSpy.mockReturnValue(false);
+
+    const result = await copyToClipboard("execCommand false");
+    expect(result).toBe(false);
   });
 });
 

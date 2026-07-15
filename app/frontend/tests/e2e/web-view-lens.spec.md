@@ -56,7 +56,8 @@ Steps:
 1. Create a window with `@rk_url`.
 2. Navigate to `…?view=web`.
 3. Assert the iframe renders, the `Web view` segment is `aria-pressed`, and the
-   center heading shows the `Web:` prefix (heading follows the lens, R4).
+   center heading shows the static `Window:` prefix (260714-uco1 — the heading
+   no longer follows the lens; the switcher chip is the lens indicator).
 
 ### ?view=web on a window with no @rk_url falls back to the terminal
 What it proves: an unavailable view degrades to tty, not a broken iframe

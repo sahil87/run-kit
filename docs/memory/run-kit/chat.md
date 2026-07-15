@@ -27,10 +27,13 @@ search param on the existing `/$server/$window` terminal route (Constitution IV
 pane stays the agent's parent (Constitution VI) and the view only *renders* the
 streamed transcript, with nothing cached beyond React state that dies with the
 view (Constitution II analog). Chat is the `chat` LENS of the unified window-view
-model — its view-state plumbing (the `?view=` param, ViewSwitcher chip, `Chat:`
-heading, value-bearing localStorage, palette/`Ctrl+`` parity, chat-health
+model — its view-state plumbing (the `?view=` param, ViewSwitcher chip,
+value-bearing localStorage, palette/`Ctrl+`` parity, chat-health
 connection dot) is the shared lens machinery in
-[ui-patterns](/run-kit/ui-patterns.md) § Window Views (Lens Model) / § Chat View;
+[ui-patterns](/run-kit/ui-patterns.md) § Window Views (Lens Model) / § Chat View.
+(The top-bar center heading no longer names the lens — since
+`260714-uco1-topbar-heading-anchor-nav` it reads a static `Window: <window>` in
+every lens; lens indication belongs to the L1 ViewSwitcher, not the heading.)
 the § Chat View Frontend requirements below own only the DATA-layer consumer half
 (schema types, EventSource lifecycle, renderer). The push deep-link URL +
 service-worker navigation lives in [architecture](/run-kit/architecture.md)

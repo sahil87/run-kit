@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback } from "react";
-import { useNavigate, useMatches, useSearch, Outlet } from "@tanstack/react-router";
+import { useNavigate, useMatches, useSearch, useRouter, Outlet } from "@tanstack/react-router";
 import {
   availableViews,
   resolveView,
@@ -15,8 +15,11 @@ import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBar
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
+import { buildVersionAction, displayVersion } from "@/lib/palette-version";
+import { copyToClipboard } from "@/lib/clipboard";
 import { buildViewActions } from "@/lib/palette-view";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
+import { buildNavActions } from "@/lib/palette-nav";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
 import { isWaiting } from "@/lib/waiting";
 import { useChatStream } from "@/hooks/use-chat-stream";
@@ -363,6 +366,10 @@ function AppShell() {
   const { sidebarOpen, sidebarWidth, fixedWidth } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
   const navigate = useNavigate();
+  // Router handle for the browser-history palette actions (`Go: Back` /
+  // `Go: Forward`, 260714-uco1) — the same `router.history` the top-bar arrows
+  // drive. Stable across renders.
+  const router = useRouter();
   const isMobile = useIsMobile();
   const wsRef = useRef<WebSocket | null>(null);
   const focusTerminalRef = useRef<(() => void) | null>(null);
@@ -1632,6 +1639,25 @@ function AppShell() {
     [sessionName, fixedWidth, toggleFixedWidth, setComposeOpen, currentViews, resolvedView, switchView],
   );
 
+  // Navigation actions (260714-uco1) — palette parity (Constitution V) for the
+  // top-bar history arrows + hierarchy dropdown. `Go: Back` / `Go: Forward`
+  // drive browser history (the same `router.history` the arrows use); the
+  // ancestor entries mirror the hierarchy dropdown for THIS route. AppShell
+  // mounts only under `/$server/...`, so the mode here is `terminal` (a window
+  // route) or `root` (the Server Cabin) — never board/cockpit (those routes
+  // mount their own palette or none). The gating/labels live in the pure
+  // `buildNavActions` (lib/palette-nav.ts) so they are unit-testable.
+  const navActions: PaletteAction[] = useMemo(
+    () =>
+      buildNavActions(windowParam ? "terminal" : "root", server, {
+        onBack: () => router.history.back(),
+        onForward: () => router.history.forward(),
+        onServerCabin: () => navigate({ to: "/$server", params: { server } }),
+        onCockpit: () => navigate({ to: "/" }),
+      }),
+    [windowParam, server, router, navigate],
+  );
+
   // Terminal font-size actions. No `shortcut` — Cmd +/- is deliberately not
   // intercepted (native browser zoom stays available); the palette + the
   // top-bar combo are the only font levers. Global setting → applies to every
@@ -1746,6 +1772,22 @@ function AppShell() {
         },
       ),
     [brew, daemonVersion, forceUpdateNow, restartNow, addToast],
+  );
+
+  // Version palette entry — surfaces the running version and copies it on
+  // select (useful for bug reports). Shown whenever `daemonVersion` is known,
+  // INCLUDING the `dev` sentinel (pure display, unlike the dev-gated
+  // update/restart actions above). What-you-see-is-what-you-copy: the copied
+  // string is the displayed form. Success → info toast, failure → error toast.
+  const versionActions: PaletteAction[] = useMemo(
+    () =>
+      buildVersionAction(daemonVersion, () => {
+        if (!daemonVersion) return;
+        void copyToClipboard(displayVersion(daemonVersion)).then((ok) => {
+          addToast(ok ? "Version copied" : "Copy failed", ok ? "info" : "error");
+        });
+      }),
+    [daemonVersion, addToast],
   );
 
   // Regular-class effective order (infra servers ignore rank and are not
@@ -1925,8 +1967,8 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...terminalFontActions, ...themeActions, ...configActions, ...statusRefreshActions, ...updateActions, ...maintenanceActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
-    [sessionActions, windowActions, boardActions, viewActions, terminalFontActions, themeActions, configActions, statusRefreshActions, updateActions, maintenanceActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...statusRefreshActions, ...updateActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+    [sessionActions, windowActions, boardActions, viewActions, navActions, terminalFontActions, themeActions, configActions, statusRefreshActions, updateActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

@@ -57,35 +57,47 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
   const { updating, triggerUpdate } = useUpdateClick();
 
   const [open, setOpen] = useState(false);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
+  // True once the version row currently holds keyboard focus — drives its roving
+  // tabIndex (it is the only always-present focusable, so it owns the initial
+  // tab stop until arrow-nav moves focus into an overflowed row).
+  const [versionRowFocused, setVersionRowFocused] = useState(true);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  // Wrapper divs, one per overflowed row; the focusable control is the wrapper's
-  // first focusable descendant (resolved at focus time so rows stay presentational).
-  const rowWrapRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const versionRowRef = useRef<HTMLButtonElement>(null);
 
-  // The version row is always the LAST focusable menu item; overflowed rows
-  // occupy indices 0..rows.length-1, the version row is at rows.length.
-  const versionIdx = rows.length;
-  const totalCount = rows.length + 1;
+  // Selector matching every keyboard-focusable menu control. Rows stay
+  // presentational: a row may render ONE control (most) or SEVERAL (the
+  // notification row's two buttons, the font stepper's − / +), so navigation
+  // enumerates the flat list of focusable controls in DOM order (= visual
+  // order) rather than one-focusable-per-row — otherwise the second+ control in
+  // a multi-control row is keyboard-unreachable (Constitution V).
+  const FOCUSABLE_SELECTOR = "button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])";
 
-  const focusIndex = useCallback(
-    (index: number) => {
-      if (index === versionIdx) {
-        versionRowRef.current?.focus();
-        return;
-      }
-      const wrap = rowWrapRefs.current[index];
-      const focusable = wrap?.querySelector<HTMLElement>(
-        "button:not([disabled]), a[href], [tabindex]",
-      );
-      focusable?.focus();
+  // All focusable controls currently in the menu panel, in DOM order. Resolved
+  // at navigation time so it always reflects the live rows (a row's enabled
+  // controls can change, e.g. the font stepper's − / + gating at bounds).
+  const focusables = useCallback((): HTMLElement[] => {
+    const menu = menuRef.current;
+    if (!menu) return [];
+    return Array.from(menu.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+  }, []);
+
+  // Move focus by `delta` (+1 down, -1 up) through the flat focusable list,
+  // wrapping at both ends. Anchors off the currently-focused control's position
+  // so navigation is stable even as the list shifts.
+  const moveFocus = useCallback(
+    (delta: number) => {
+      const items = focusables();
+      if (items.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const curr = active ? items.indexOf(active) : -1;
+      const base = curr === -1 ? (delta > 0 ? -1 : 0) : curr;
+      const next = (base + delta + items.length) % items.length;
+      items[next]?.focus();
     },
-    [versionIdx],
+    [focusables],
   );
 
   // Outside-click close (mousedown, like BreadcrumbDropdown).
@@ -113,34 +125,28 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         e.stopPropagation();
-        setFocusedIndex((prev) => {
-          const next = prev < totalCount - 1 ? prev + 1 : 0;
-          focusIndex(next);
-          return next;
-        });
+        moveFocus(1);
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
         e.stopPropagation();
-        setFocusedIndex((prev) => {
-          const next = prev > 0 ? prev - 1 : totalCount - 1;
-          focusIndex(next);
-          return next;
-        });
+        moveFocus(-1);
       }
     }
     document.addEventListener("keydown", handleKey, { capture: true });
     return () => document.removeEventListener("keydown", handleKey, { capture: true });
-  }, [open, totalCount, focusIndex]);
+  }, [open, moveFocus]);
 
-  // On open, focus the first item.
+  // On open, restore the version row as the default tab stop and focus the
+  // first focusable control.
   useEffect(() => {
     if (!open) return;
-    setFocusedIndex(0);
+    setVersionRowFocused(true);
     requestAnimationFrame(() => {
-      focusIndex(0);
+      const items = focusables();
+      items[0]?.focus();
     });
-  }, [open, focusIndex]);
+  }, [open, focusables]);
 
   // Anchor the fixed menu to the chevron's viewport rect: top just below the
   // trigger, right-aligned to the trigger's right edge (the chevron lives at the
@@ -257,24 +263,19 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           style={{ top: menuPos.top, right: menuPos.right }}
           className="fixed bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[200px] max-w-[280px] z-50 max-h-[70vh] overflow-y-auto"
         >
-          {rows.map((row, i) => (
-            <div
-              key={row.id}
-              data-menu-row
-              ref={(el) => {
-                rowWrapRefs.current[i] = el;
-              }}
-            >
+          {rows.map((row) => (
+            <div key={row.id} data-menu-row>
               {row.node}
             </div>
           ))}
           {rows.length > 0 && <div className="border-t border-border my-1" />}
           {asUpdateSurface ? (
             <button
-              ref={versionRowRef}
               type="button"
               role="menuitem"
-              tabIndex={focusedIndex === versionIdx ? 0 : -1}
+              tabIndex={versionRowFocused ? 0 : -1}
+              onFocus={() => setVersionRowFocused(true)}
+              onBlur={() => setVersionRowFocused(false)}
               disabled={updating}
               onClick={triggerUpdate}
               aria-label={updating ? "Updating run-kit" : updateLabel}
@@ -291,10 +292,11 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
             </button>
           ) : (
             <button
-              ref={versionRowRef}
               type="button"
               role="menuitem"
-              tabIndex={focusedIndex === versionIdx ? 0 : -1}
+              tabIndex={versionRowFocused ? 0 : -1}
+              onFocus={() => setVersionRowFocused(true)}
+              onBlur={() => setVersionRowFocused(false)}
               onClick={handleCopy}
               aria-label={daemonVersion ? `${versionText} (copy)` : "Run Kit"}
               title={daemonVersion ? "Copy version" : undefined}

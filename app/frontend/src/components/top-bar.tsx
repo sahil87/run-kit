@@ -73,11 +73,15 @@ type TopBarProps = {
   waitingPaneCount?: number;
   /** Board-mode list of all boards (for the board switcher dropdown). */
   boards?: { name: string }[];
-  /** Board-mode ✕ handler — unpins the board's focused pane (non-destructive).
-   *  Wired from `board-page.tsx`; the terminal ✕ keeps its own kill path. */
-  onCloseFocused?: () => void;
-  /** Disable the board-mode ✕ (e.g. the board has zero panes). */
-  closeDisabled?: boolean;
+  /** Board-mode split/close target (260715-6jwn): the focused tile's window.
+   *  Feeds the two top-bar SplitButtons AND the ✕ (now a real close-pane,
+   *  uniform with terminal mode — NOT unpin). `null` when the board is empty →
+   *  splits absent, ✕ disabled. `cwd` seeds the split's working directory. */
+  focusedPane?: { server: string; windowId: string; cwd?: string } | null;
+  /** Board-mode self-heal hook (260715-6jwn): invoked after a successful ✕ kill
+   *  so `BoardPage` can schedule an entries refetch (a window-killing kill
+   *  collapses the pin-session with no `board-changed` event). */
+  onPaneClosed?: () => void;
   /** Board-mode autofit state (738w) — reflected by the L2 toggle's
    *  `aria-pressed`. Wired from `board-page.tsx` via the slot context. */
   autofit?: boolean;
@@ -311,8 +315,8 @@ export function TopBar({
   serverCount,
   waitingPaneCount,
   boards,
-  onCloseFocused,
-  closeDisabled,
+  focusedPane,
+  onPaneClosed,
   autofit,
   onToggleAutofit,
   availableViews,
@@ -614,27 +618,34 @@ export function TopBar({
         </div>
 
         <div className="flex items-center justify-self-end gap-3 text-xs text-text-secondary shrink-0">
-          {/* Right-cluster button pyramid (260704-9o7k). A strict cumulative
-              pyramid, growing LEFTWARD from a stable always-block pinned right,
-              so no shared button ever changes screen position between pages:
+          {/* Right-cluster button pyramid (260704-9o7k; splits extended to board
+              260715-6jwn). A strict cumulative pyramid, growing LEFTWARD from a
+              stable always-block pinned right, so no shared button ever changes
+              screen position between pages:
 
-                L1 — terminal only  : SplitButton ×2 · FixedWidthToggle
+                L1 — splits terminal+board, FixedWidthToggle terminal-only :
+                      SplitButton ×2 · FixedWidthToggle
                 L2 — terminal+board : TerminalFontControl (Aa) · ClosePaneButton (✕)
                 L3 — all four modes : Notification · Theme · Refresh · Help
                                       + connection dot (right-most status terminator)
 
-              L1's absence on non-terminal pages just widens the gap to the
-              breadcrumb; the L3 always-block keeps its fixed right edge (the
-              brand anchor moved to the left nav as the root crumb). The dot is
-              the right-most element in every mode. */}
+              L1 on terminal: ViewSwitcher (all breakpoints) + splits + fixed-width.
+              L1 on board: the same two splits, wired to the focused tile's window
+              (`focusedPane`) instead of `currentWindow` — the split lands relative
+              to that window's active pane and appears live inside the tile. Absent
+              when the board is empty (no `focusedPane`). FixedWidthToggle stays
+              terminal-only. L1's absence on cockpit/root just widens the gap to the
+              breadcrumb; the L3 always-block keeps its fixed right edge (the brand
+              anchor moved to the left nav as the root crumb). The dot is the
+              right-most element in every mode. */}
 
-          {/* L1 — terminal-only: split vertical · split horizontal · fixed-width.
-              FixedWidthToggle is terminal-only (260704-9o7k): the 900px maxWidth
-              wrapper lives in AppShell (app.tsx), which renders both `terminal`
-              and `root`, so Server Cabin keeps the constraint AND the palette
-              access (`View: Fixed Width`); only the button is terminal-scoped.
-              It was already a no-op on Board/Cockpit (their pages never read
-              `fixedWidth`). */}
+          {/* L1 (terminal) — ViewSwitcher · split vertical · split horizontal ·
+              fixed-width. FixedWidthToggle is terminal-only (260704-9o7k): the
+              900px maxWidth wrapper lives in AppShell (app.tsx), which renders
+              both `terminal` and `root`, so Server Cabin keeps the constraint AND
+              the palette access (`View: Fixed Width`); only the button is
+              terminal-scoped. It was already a no-op on Board/Cockpit (their pages
+              never read `fixedWidth`). */}
           {currentWindow && (
             <>
               {/* Window-view lens switcher (spec R4; the ONE switcher UX for
@@ -674,13 +685,45 @@ export function TopBar({
             </>
           )}
 
-          {/* L2 — terminal + board: terminal-font (Aa) + close/unpin (✕). Both
+          {/* L1 (board) — the same two SplitButtons, wired to the focused tile's
+              window via `focusedPane` (260715-6jwn). Window IDs are server-unique,
+              so targeting a pinned window's ID works even though it lives in a
+              hidden `_rk-pin-*` session; the split lands relative to that window's
+              active pane and renders live inside the tile. Absent when the board
+              is empty (no focused tile). Same `hidden sm:flex` gating as terminal
+              — no mobile change. */}
+          {mode === "board" && focusedPane && (
+            <>
+              <span className="hidden sm:flex">
+                <SplitButton
+                  server={focusedPane.server}
+                  windowId={focusedPane.windowId}
+                  cwd={focusedPane.cwd}
+                />
+              </span>
+              <span className="hidden sm:flex">
+                <SplitButton
+                  horizontal
+                  server={focusedPane.server}
+                  windowId={focusedPane.windowId}
+                  cwd={focusedPane.cwd}
+                />
+              </span>
+            </>
+          )}
+
+          {/* L2 — terminal + board: terminal-font (Aa) + close-pane (✕). Both
               gate on the L2 predicate (`terminal` || `board`). Aa sizes a
               terminal surface (the single window or a board pane); it is gated
               out of `root`/`cockpit`, which have no terminal to size. The ✕ is
-              close-pane on Terminal (kills the active pane) and unpin-focused on
-              Board (removes the focused pane from the board, non-destructive —
-              see board-page.tsx). */}
+              close-pane in BOTH modes now (260715-6jwn — a deliberate reversal of
+              the prior board-✕-unpin decision): Terminal kills the current
+              window's active pane; Board kills the focused tile's active pane
+              (`focusedPane`). No confirmation in either mode — the focused-tile
+              ring disambiguates on board. Unpin moved off the ✕ entirely: it lives
+              only on the tile header + the `Board: Unpin Focused Pane` palette
+              action (see board-page.tsx). Disabled on board when there is no
+              focused tile. */}
           {(mode === "terminal" || mode === "board") && (
             <>
               <span className="hidden sm:flex">
@@ -700,14 +743,15 @@ export function TopBar({
               )}
               <span className="hidden sm:flex">
                 {mode === "board" ? (
+                  // Board ✕ = kill the focused tile's active pane, uniform with
+                  // terminal. Disabled with no focused tile (empty board). After
+                  // a successful kill, `onPaneClosed` lets BoardPage self-heal a
+                  // window-killing kill (no `board-changed` fires on that path).
                   <ClosePaneButton
-                    onUnpin={onCloseFocused}
-                    // Board mode has no terminal to close: without an `onUnpin`
-                    // handler the ✕ would fall through to `closePane("", "")`
-                    // (empty server/window). Disable it when the handler is
-                    // absent so the button can never trigger that no-op path.
-                    disabled={closeDisabled || !onCloseFocused}
-                    label="Unpin pane from board"
+                    server={focusedPane?.server ?? ""}
+                    windowId={focusedPane?.windowId ?? ""}
+                    disabled={!focusedPane}
+                    onClosed={onPaneClosed}
                   />
                 ) : (
                   currentWindow && (
@@ -1682,52 +1726,56 @@ function SplitButton({
 }
 
 /**
- * The L2 ✕ chip — mode-aware (260704-9o7k). Two behaviors, one component:
- *  - Terminal (default): `closePane(server, windowId)` kills the active pane of
- *    the current window (unchanged optimistic path, spinner while pending).
- *  - Board (`onUnpin` provided): calls `onUnpin` to unpin the board's focused
- *    pane — a non-destructive move-out, NOT a kill. Board wiring passes a
- *    board-specific `label` ("Unpin pane from board") and `disabled` (zero
- *    panes). One component keeps the shared chip styling/spinner in one place.
+ * The L2 ✕ chip — a real close-pane in BOTH terminal and board mode
+ * (260715-6jwn reversed the prior board-✕-unpin behavior). `closePane(server,
+ * windowId)` kills the addressed window's active pane via the optimistic path
+ * (spinner while pending, toast on error). Terminal passes the current window;
+ * board passes the focused tile's window (`focusedPane`) and a `disabled` when
+ * the board is empty, plus an `onClosed` callback fired after a successful kill
+ * so BoardPage can self-heal a window-killing kill (no `board-changed` fires on
+ * that path). One component, one kill path — the earlier `onUnpin` board branch
+ * is gone (unpin lives on the tile header + palette).
  */
 function ClosePaneButton({
   server,
   windowId,
-  onUnpin,
   disabled,
+  onClosed,
   label = "Close pane",
 }: {
   server?: string;
   windowId?: string;
-  onUnpin?: () => void;
   disabled?: boolean;
+  /** Called after a successful kill (board self-heal seam). */
+  onClosed?: () => void;
   label?: string;
 }) {
   const { addToast } = useToast();
 
-  // Terminal kill path — only meaningful when there is no `onUnpin` override.
   const { execute, isPending } = useOptimisticAction<[]>({
     action: () => closePane(server ?? "", windowId ?? ""),
+    // Self-heal seam (board): fire after a successful kill so BoardPage can
+    // refetch entries and drop a now-dead tile. `onSettled` (guarded, mounted-
+    // only) is correct — the board page stays mounted on an empty board (it
+    // renders the empty state), and the callback drives the board hook's state.
+    onSettled: () => onClosed?.(),
     onError: (err) => {
       addToast(err.message || "Failed to close pane");
     },
   });
 
-  // Board unpin is synchronous (no await/spinner); terminal close shows the
-  // optimistic spinner and disables while the kill is in flight.
-  const busy = onUnpin ? false : isPending;
-  const isDisabled = disabled || busy;
+  const isDisabled = disabled || isPending;
 
   return (
     <button
       type="button"
-      onClick={() => (onUnpin ? onUnpin() : execute())}
+      onClick={() => execute()}
       disabled={isDisabled}
       aria-label={label}
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
       title={label}
     >
-      {busy ? (
+      {isPending ? (
         <LogoSpinner size={14} />
       ) : (
         <svg

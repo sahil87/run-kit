@@ -752,8 +752,9 @@ describe("TopBar", () => {
     expect(closePane).toHaveBeenCalledWith("runkit", "@0");
   });
 
-  describe("board-mode ✕ = unpin focused pane (260704-9o7k)", () => {
-    /** Board mode passes tolerant-empty session props plus the unpin wiring. */
+  describe("board-mode ✕ = close the focused tile's pane (260715-6jwn)", () => {
+    /** Board mode passes tolerant-empty session props plus the focused-tile
+     *  split/close target (`focusedPane`) the top bar now keys on. */
     function renderBoard(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
       return renderTopBar({
         mode: "board",
@@ -767,35 +768,69 @@ describe("TopBar", () => {
         paneCount: 1,
         serverCount: 1,
         boards: [{ name: "b" }],
+        focusedPane: { server: "runkit", windowId: "@7", cwd: "~/code/x" },
         ...overrides,
       });
     }
 
-    it("labels the ✕ as unpin (not 'Close pane') and calls onCloseFocused, never closePane", async () => {
+    it("labels the ✕ as 'Close pane' (uniform with terminal) and calls closePane with the focused tile's target, not any unpin", async () => {
       const { closePane } = await import("@/api/client");
-      // The module-level closePane mock accumulates calls across tests; measure
-      // the delta around THIS click rather than an absolute never-called.
+      renderBoard();
+      // The board ✕ carries the terminal label now (no more "Unpin pane from board").
+      expect(screen.queryByLabelText("Unpin pane from board")).not.toBeInTheDocument();
+      const close = screen.getByLabelText("Close pane");
+      await act(async () => {
+        fireEvent.click(close);
+      });
+      expect(closePane).toHaveBeenCalledWith("runkit", "@7");
+    });
+
+    it("fires onPaneClosed after a successful board ✕ kill (self-heal seam)", async () => {
+      const onPaneClosed = vi.fn();
+      renderBoard({ onPaneClosed });
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText("Close pane"));
+      });
+      expect(onPaneClosed).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables the ✕ when the board has no focused tile (empty board)", async () => {
+      const { closePane } = await import("@/api/client");
       const before = vi.mocked(closePane).mock.calls.length;
-      const onCloseFocused = vi.fn();
-      renderBoard({ onCloseFocused });
-      // Distinct accessible name from the terminal kill button.
-      expect(screen.queryByLabelText("Close pane")).not.toBeInTheDocument();
-      const unpin = screen.getByLabelText("Unpin pane from board");
-      fireEvent.click(unpin);
-      expect(onCloseFocused).toHaveBeenCalledTimes(1);
+      renderBoard({ focusedPane: null, paneCount: 0 });
+      const close = screen.getByLabelText("Close pane");
+      expect(close).toBeDisabled();
+      await act(async () => {
+        fireEvent.click(close);
+      });
       expect(vi.mocked(closePane).mock.calls.length).toBe(before);
     });
 
-    it("disables the ✕ when the board has zero panes (closeDisabled)", () => {
-      const onCloseFocused = vi.fn();
-      renderBoard({ onCloseFocused, closeDisabled: true, paneCount: 0 });
-      const unpin = screen.getByLabelText("Unpin pane from board");
-      expect(unpin).toBeDisabled();
-      fireEvent.click(unpin);
-      expect(onCloseFocused).not.toHaveBeenCalled();
+    it("renders both SplitButtons on board mode, wired to the focused tile", async () => {
+      const { splitWindow } = await import("@/api/client");
+      renderBoard();
+      const vsplit = screen.getByLabelText("Split vertically");
+      const hsplit = screen.getByLabelText("Split horizontally");
+      expect(vsplit).toBeInTheDocument();
+      expect(hsplit).toBeInTheDocument();
+      await act(async () => {
+        fireEvent.click(vsplit);
+      });
+      expect(splitWindow).toHaveBeenCalledWith("runkit", "@7", false, "~/code/x");
     });
 
-    it("terminal-mode ✕ still calls closePane (kill), not unpin", async () => {
+    it("renders no SplitButtons on an empty board (no focused tile)", () => {
+      renderBoard({ focusedPane: null, paneCount: 0 });
+      expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Split horizontally")).not.toBeInTheDocument();
+    });
+
+    it("does NOT render FixedWidthToggle on board mode (terminal-only)", () => {
+      renderBoard();
+      expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
+    });
+
+    it("terminal-mode ✕ still calls closePane (kill) with the current window", async () => {
       const { closePane } = await import("@/api/client");
       renderTopBar(); // terminal mode default
       await act(async () => {

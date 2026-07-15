@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-15T14:39:09Z"}
+{"args":"Board page: un-hide top-bar split buttons wired to focused tile, top-bar X becomes real close-pane (kill) uniform with terminal mode, per-tile board header unpin icon changes from X to pin glyph","cmd":"fab-new","event":"command","ts":"2026-07-15T14:39:09Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-07-15T14:42:27Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-15T14:43:48Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-15T14:46:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T14:46:25Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T14:47:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T15:00:17Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T15:01:34Z"}
+{"event":"review","result":"failed","ts":"2026-07-15T15:16:49Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T15:16:49Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T15:18:15Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T15:25:24Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T15:26:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-15T15:35:40Z"}
+{"event":"review","result":"passed","ts":"2026-07-15T15:35:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-15T15:42:06Z"}

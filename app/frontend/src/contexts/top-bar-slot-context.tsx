@@ -47,10 +47,21 @@ export type TopBarSlot = {
   serverCount?: number;
   waitingPaneCount?: number;
   boards?: { name: string }[];
-  onCloseFocused?: () => void;
-  closeDisabled?: boolean;
+  /** Board mode: the focused tile's kill/split target (260715-6jwn). Feeds the
+   *  top-bar SplitButtons and the ✕ (now a real close-pane, uniform with
+   *  terminal mode). `null` when the board is empty (no focused tile) → the
+   *  splits are absent and the ✕ is disabled. The board ✕ NO LONGER unpins;
+   *  unpin lives only on the tile header + the `Board: Unpin Focused Pane`
+   *  palette action (see `board-page.tsx`). */
+  focusedPane?: { server: string; windowId: string; cwd?: string } | null;
+  /** Board mode: called after a successful top-bar ✕ kill so `BoardPage` can
+   *  self-heal (schedule an entries refetch). Killing the last pane of a window
+   *  collapses its pin-session with NO `board-changed` event, and
+   *  `useBoardEntries` subscribes only to `board-changed`, so the dead tile
+   *  would otherwise linger. Absent outside board mode. */
+  onPaneClosed?: () => void;
   /** Board-mode autofit toggle (738w): current per-board autofit state and its
-   *  setter, published by `BoardPage` (like `onCloseFocused`). Absent outside
+   *  setter, published by `BoardPage` (like `focusedPane`). Absent outside
    *  board mode — the top-bar toggle renders only when both are present. */
   autofit?: boolean;
   onToggleAutofit?: () => void;

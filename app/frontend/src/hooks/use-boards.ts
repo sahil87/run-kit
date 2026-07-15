@@ -20,6 +20,12 @@ interface UseBoardEntriesResult {
   entries: BoardEntry[];
   isLoading: boolean;
   error: Error | null;
+  /** Force a re-fetch of this board's entries, bypassing the SSE debounce.
+   *  Used for board-mode self-heal (260715-6jwn): a top-bar ✕ that kills the
+   *  last pane of a window collapses its pin-session WITHOUT emitting a
+   *  `board-changed` event, so the caller schedules this refetch to drop the
+   *  now-dead tile (`getBoard` skips vanished pin-sessions). */
+  refetch: () => void;
 }
 
 /**
@@ -157,5 +163,5 @@ export function useBoardEntries(name: string): UseBoardEntriesResult {
 
   useBoardChangedSubscription(scheduleRefetch);
 
-  return { entries, isLoading, error };
+  return { entries, isLoading, error, refetch: fetchEntries };
 }

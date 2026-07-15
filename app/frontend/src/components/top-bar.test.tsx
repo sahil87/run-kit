@@ -237,6 +237,96 @@ describe("TopBar", () => {
     });
   });
 
+  describe("boot sweep hover — single owner for the whole heading", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      // The sweep must actually RUN here: re-stub matchMedia query-sensitively
+      // (the suite default stubs `matches: true` for EVERY query, which makes
+      // `prefersReducedMotion()` true and skips the sweep entirely). Dark theme
+      // still matches; reduced-motion does not.
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn().mockImplementation((query: string) => ({
+          matches: query.includes("prefers-color-scheme"),
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+        })),
+      );
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // `Window: main` = 7 prefix + 1 space + 4 name cells at 28ms/cell; the
+    // mount replay (name-effect null seed) must be flushed before hovering.
+    const SWEEP_MS = (7 + 1 + 4 + 2) * 28;
+    const INTENT_MS = 140;
+
+    function renderAndSettle() {
+      renderTopBar();
+      act(() => {
+        vi.advanceTimersByTime(SWEEP_MS + 100);
+      });
+      const button = screen.getByRole("button", { name: "Rename window main" });
+      const wrapper = button.parentElement!;
+      const prefixWord = screen.getByText("Window", { exact: true });
+      // Structure: ONE wrapper span owns both the prefix and the name button —
+      // it is the single hover owner for the sweep.
+      expect(wrapper).toContainElement(prefixWord);
+      return { button, wrapper, prefixWord };
+    }
+
+    const cursorIn = (wrapper: HTMLElement) => wrapper.querySelector(".rk-typed-cursor");
+
+    it("does NOT restart the sweep when the pointer crosses the prefix → name boundary", () => {
+      const { button, wrapper, prefixWord } = renderAndSettle();
+
+      // Enter the heading over the prefix: hover-intent delay, then sweep starts.
+      fireEvent.mouseOver(prefixWord, { relatedTarget: document.body });
+      act(() => {
+        vi.advanceTimersByTime(INTENT_MS + 28 * 2);
+      });
+      expect(cursorIn(wrapper)).not.toBeNull();
+
+      // Cross from the prefix onto the name button. With per-sibling hover
+      // handlers this fired resolve() (cursor snapped away) plus a deferred
+      // replay; with the wrapper as the single owner it is a non-event — the
+      // in-flight sweep continues uninterrupted.
+      fireEvent.mouseOut(prefixWord, { relatedTarget: button });
+      fireEvent.mouseOver(button, { relatedTarget: prefixWord });
+      expect(cursorIn(wrapper)).not.toBeNull();
+
+      // The same pass runs to completion and settles to rest.
+      act(() => {
+        vi.advanceTimersByTime(SWEEP_MS + 100);
+      });
+      expect(cursorIn(wrapper)).toBeNull();
+      expect(wrapper.textContent).toContain("Window");
+      expect(wrapper.textContent).toContain("main");
+    });
+
+    it("resolves the sweep when the pointer leaves the whole heading", () => {
+      const { button, wrapper } = renderAndSettle();
+
+      fireEvent.mouseOver(button, { relatedTarget: document.body });
+      act(() => {
+        vi.advanceTimersByTime(INTENT_MS + 28);
+      });
+      expect(cursorIn(wrapper)).not.toBeNull();
+
+      // Leaving the wrapper entirely resolves immediately to rest.
+      fireEvent.mouseOut(button, { relatedTarget: document.body });
+      expect(cursorIn(wrapper)).toBeNull();
+      expect(wrapper.textContent).toContain("main");
+    });
+  });
+
   describe("history nav arrows + hierarchy dropdown (260714-uco1)", () => {
     beforeEach(() => {
       mockNavigate.mockReset();

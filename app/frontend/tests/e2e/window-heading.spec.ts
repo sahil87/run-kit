@@ -476,6 +476,74 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}/${encodeURIComponent(secondId)}$`));
     await expect(page.getByRole("button", { name: `Rename window ${second}` })).toBeVisible({ timeout: 10_000 });
   });
+
+  test("in-app window switches push history entries (Back/Forward retrace within-server hops, no dedup)", async ({
+    page,
+  }) => {
+    // The fix (260715-m4xy): `navigateToWindow`'s `runSwitch` used to navigate
+    // with `replace: true`, so IN-APP window switches (sidebar click, ▾,
+    // palette, shortcut) REPLACED the current history entry — every
+    // within-server hop was eaten, and Back skipped straight past them. The
+    // arrows test above builds its stack with `page.goto` (full navigations
+    // always push), so it never exercised this path. This test drives the
+    // in-app switch path and asserts push semantics: three switches → three
+    // retraceable entries, no dedup.
+    const a = `hx-push-a-${Date.now().toString().slice(-5)}`;
+    const b = `hx-push-b-${Date.now().toString().slice(-5)}`;
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${a}"`, { stdio: "ignore" });
+    execSync(`tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${b}"`, { stdio: "ignore" });
+    const aId = await resolveWindow(page, a);
+    const bId = await resolveWindow(page, b);
+
+    const sidebar = page.locator("nav[aria-label='Sessions']");
+    // The in-app switch (`navigateToWindow`) writes the URL via the router,
+    // whose param serialization carries the window id's NUMERIC part (`@5` →
+    // `5`), NOT the `encodeURIComponent("@5")` = `%405` form a `page.goto`
+    // produces. So assert on `windowId.slice(1)` (the segment the router
+    // carries; parse restores `@N`) — unlike the arrows test above, whose
+    // `%40N` stack was built with `page.goto`.
+    const urlFor = (id: string): RegExp =>
+      new RegExp(`/${TMUX_SERVER}/${id.slice(1)}(?:$|[/?#])`);
+    // Click a sidebar window row — a REAL client-side switch through
+    // `navigateToWindow` (the path the fix touches), settling on
+    // `aria-current="page"` (selection accepted) then its heading (tmux
+    // aligned + terminal rendered). Distinct from `page.goto`, which the
+    // arrows test uses and which always pushes.
+    const switchTo = async (id: string, name: string): Promise<void> => {
+      const row = sidebar.locator(`[data-window-id="${id}"]`).getByRole("button").first();
+      await expect(row).toBeVisible({ timeout: 10_000 });
+      await row.click();
+      await expect(row).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
+      await expect(page).toHaveURL(urlFor(id));
+      await expect(page.getByRole("button", { name: `Rename window ${name}` })).toBeVisible({ timeout: 10_000 });
+    };
+
+    // Land on the server root so the first in-app click is unambiguous, then
+    // build the stack ENTIRELY via in-app switches: a → b → a (the no-dedup
+    // shape — revisiting `a` still pushes a third entry).
+    await page.goto(`/${TMUX_SERVER}`);
+    await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 10_000 });
+    await switchTo(aId, a);
+    await switchTo(bId, b);
+    await switchTo(aId, a);
+
+    // Back (browser history — equivalent to the ◀ arrow) retraces to `b`: proof
+    // the a→b switch pushed an entry rather than replacing it.
+    await page.goBack();
+    await expect(page).toHaveURL(urlFor(bId));
+    await expect(page.getByRole("button", { name: `Rename window ${b}` })).toBeVisible({ timeout: 10_000 });
+
+    // A further Back retraces to the FIRST `a` entry — the b→a revisit did NOT
+    // dedup against the earlier `a`; every hop is retained.
+    await page.goBack();
+    await expect(page).toHaveURL(urlFor(aId));
+    await expect(page.getByRole("button", { name: `Rename window ${a}` })).toBeVisible({ timeout: 10_000 });
+
+    // Forward returns to `b` (history intact in both directions).
+    await page.goForward();
+    await expect(page).toHaveURL(urlFor(bId));
+    await expect(page.getByRole("button", { name: `Rename window ${b}` })).toBeVisible({ timeout: 10_000 });
+  });
 });
 
 /**

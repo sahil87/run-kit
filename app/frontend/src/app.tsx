@@ -794,7 +794,13 @@ function AppShell() {
           // hint), not the outgoing window's. Same-window lens switches go
           // through `switchView`, which sets the param explicitly.
           search: {},
-          replace: true,
+          // PUSH (no `replace`): a user-initiated window switch IS a
+          // navigation, so it creates a history entry the top-bar ◀ ▶ arrows
+          // can retrace (260715-m4xy). No dedup — w1→w5→w1 pushes three
+          // entries and Back retraces every hop. The two tmux/preference-driven
+          // navigates that MUST stay `replace` are the SSE URL-writeback effect
+          // (tmux corrections aren't user intent) and `switchView` (per-viewer
+          // lens toggles) — do not add `replace` back here.
         });
         const posted = selectWindow(server, windowId);
         posted.catch(() => {}); // ignore errors (fire-and-forget)

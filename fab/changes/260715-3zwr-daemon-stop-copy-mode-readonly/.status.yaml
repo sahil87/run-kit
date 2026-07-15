@@ -1,0 +1,55 @@
+id: 3zwr
+name: 260715-3zwr-daemon-stop-copy-mode-readonly
+created: 2026-07-15T08:22:18Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 5
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 75.6
+        reversibility: 82.8
+        competence: 83.9
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-07-15T08:22:18Z", driver: fab-new, iterations: 1, completed_at: "2026-07-15T08:28:05Z"}
+    apply: {started_at: "2026-07-15T08:28:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T08:36:12Z"}
+    review: {started_at: "2026-07-15T08:36:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T08:46:52Z"}
+    hydrate: {started_at: "2026-07-15T08:46:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T08:50:57Z"}
+    ship: {started_at: "2026-07-15T08:50:57Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-15T08:50:57Z"
+    computed_at_stage: hydrate
+summary: daemon Stop() now runs a best-effort copy-mode -q pre-cancel before C-c and falls through (Warn) to the grace/kill fallback on send-keys failure, unwedging stop against a read-only -CC bridge client
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-15T08:50:57Z

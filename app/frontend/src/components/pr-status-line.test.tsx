@@ -1,16 +1,15 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import { PrStatusLine, prDotState } from "./pr-status-line";
+import { describe, it, expect, afterEach } from "vitest";
+import { cleanup } from "@testing-library/react";
+import { prDotState } from "./pr-status-line";
 import type { WindowInfo } from "@/types";
 
-vi.mock("@/api/client", () => ({
-  refreshPrStatus: vi.fn(() => Promise.resolve({ ok: true })),
-}));
-import { refreshPrStatus } from "@/api/client";
+// NOTE (260715-jykd): the `PrStatusLine` component (and its render tests) were
+// retired — it had zero live mount sites. This module now exercises the RETAINED
+// exports of pr-status-line.tsx; the `prDotState` precedence coverage below is
+// the live behavior that still ships.
 
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
 });
 
 function makeWindow(overrides: Partial<WindowInfo>): WindowInfo {
@@ -25,128 +24,6 @@ function makeWindow(overrides: Partial<WindowInfo>): WindowInfo {
     ...overrides,
   };
 }
-
-describe("PrStatusLine", () => {
-  it("returns null when not change-bound", () => {
-    const { container } = render(
-      <PrStatusLine win={makeWindow({ prNumber: 1, fabChange: undefined })} />,
-    );
-    expect(container.firstChild).toBeNull();
-  });
-
-  it("returns null when there is no prNumber", () => {
-    const { container } = render(
-      <PrStatusLine win={makeWindow({ fabChange: "260610-x", prNumber: undefined })} />,
-    );
-    expect(container.firstChild).toBeNull();
-  });
-
-  it("renders state, checks, and review summary", () => {
-    render(
-      <PrStatusLine
-        win={makeWindow({
-          fabChange: "260610-x",
-          prNumber: 386,
-          prUrl: "https://x/pull/386",
-          prState: "open",
-          prChecks: "pass",
-          prReview: "approved",
-        })}
-      />,
-    );
-    const line = screen.getByTestId("pr-status-line");
-    expect(line).toHaveTextContent("PR #386");
-    expect(line).toHaveTextContent("open");
-    expect(line).toHaveTextContent("checks pass");
-    expect(line).toHaveTextContent("review: approved");
-  });
-
-  it("renders the merged glyph and state for a merged PR", () => {
-    render(
-      <PrStatusLine
-        win={makeWindow({ fabChange: "260610-x", prNumber: 386, prState: "merged" })}
-      />,
-    );
-    const line = screen.getByTestId("pr-status-line");
-    expect(line).toHaveTextContent("\u2713"); // ✓
-    expect(line).toHaveTextContent("merged");
-  });
-
-  it("renders the closed glyph and state for a closed PR", () => {
-    render(
-      <PrStatusLine
-        win={makeWindow({ fabChange: "260610-x", prNumber: 386, prState: "closed" })}
-      />,
-    );
-    const line = screen.getByTestId("pr-status-line");
-    expect(line).toHaveTextContent("\u2717"); // ✗
-    expect(line).toHaveTextContent("closed");
-  });
-
-  it("colors the failing-checks segment red (per-segment, not the whole line)", () => {
-    render(
-      <PrStatusLine
-        win={makeWindow({ fabChange: "x", prNumber: 9, prState: "open", prChecks: "fail" })}
-      />,
-    );
-    // Container stays neutral; only the checks segment takes the red token.
-    expect(screen.getByTestId("pr-status-line").className).toContain("text-text-secondary");
-    expect(screen.getByText(/checks fail/).className).toContain("text-red-400");
-  });
-
-  it("colors the changes-requested review segment red", () => {
-    render(
-      <PrStatusLine
-        win={makeWindow({
-          fabChange: "x",
-          prNumber: 9,
-          prState: "open",
-          prReview: "changes_requested",
-        })}
-      />,
-    );
-    expect(screen.getByText(/review: changes requested/).className).toContain("text-red-400");
-  });
-
-  it("colors the state word by GitHub state — merged is purple, matching the dot and panel", () => {
-    render(
-      <PrStatusLine
-        win={makeWindow({ fabChange: "x", prNumber: 9, prState: "merged", prChecks: "pass" })}
-      />,
-    );
-    expect(screen.getByText(/merged/).className).toContain("text-purple-400");
-  });
-
-  it("colors a passing-checks segment green on an open PR", () => {
-    render(
-      <PrStatusLine
-        win={makeWindow({ fabChange: "x", prNumber: 9, prState: "open", prChecks: "pass" })}
-      />,
-    );
-    expect(screen.getByText(/open/).className).toContain("text-accent-green");
-    expect(screen.getByText(/checks pass/).className).toContain("text-accent-green");
-  });
-
-  it("triggers refresh when the line (not the link) is clicked", () => {
-    render(
-      <PrStatusLine
-        win={makeWindow({ fabChange: "x", prNumber: 9, prUrl: "https://x/pull/9", prState: "open" })}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("pr-status-line"));
-    expect(refreshPrStatus).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not refresh when the PR link itself is clicked", () => {
-    render(
-      <PrStatusLine
-        win={makeWindow({ fabChange: "x", prNumber: 9, prUrl: "https://x/pull/9", prState: "open" })}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("pr-status-link"));
-    expect(refreshPrStatus).not.toHaveBeenCalled();
-  });
-});
 
 describe("prDotState precedence", () => {
   it("returns merged first, even with historical failing checks", () => {

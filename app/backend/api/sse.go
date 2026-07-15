@@ -108,7 +108,7 @@ const (
 	// its single batched `gh` call. Deliberately slow (~40 calls/hr vs. the
 	// 5000/hr authenticated limit) — the SSE hot path reads the cached
 	// snapshot, never gh, so PR-status freshness is decoupled from the SSE
-	// cadence. On-demand refresh (POST /api/pr-status/refresh) covers the
+	// cadence. On-demand refresh (POST /api/status/refresh) covers the
 	// "I want it now" case.
 	prStatusPollInterval = 90 * time.Second
 	// sseHeartbeatPeriod is the time after which a connection without

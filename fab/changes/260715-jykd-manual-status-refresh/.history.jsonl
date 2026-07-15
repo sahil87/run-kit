@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-15T03:23:20Z"}
+{"args":"Manual status refresh: POST /api/status/refresh kicks both PR pollers (viewer collector + branch refresher) in a detached goroutine with coalescing and a min-interval throttle, returning 202; retire the orphaned POST /api/pr-status/refresh + PrStatusLine; add a PANE-panel header refresh button and a command-palette action so a just-merged PR's done-square lands without waiting out the 90s poll","cmd":"fab-new","event":"command","ts":"2026-07-15T03:23:20Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-07-15T03:25:36Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-15T03:26:45Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-15T03:28:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T03:28:57Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T03:31:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T03:42:49Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T03:43:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-15T03:55:08Z"}
+{"event":"review","result":"passed","ts":"2026-07-15T03:55:08Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T03:55:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-15T04:03:47Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-15T04:05:57Z"}
+{"event":"review","result":"passed","ts":"2026-07-15T04:15:25Z"}

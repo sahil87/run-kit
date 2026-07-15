@@ -227,6 +227,16 @@ func (r *BranchRefresher) Snapshot(repoDir, branch string) (*BranchPR, bool) {
 	return &pr, true
 }
 
+// RefreshNow triggers an on-demand re-resolve of every registered
+// (repo, branch) pair (used by the POST /api/status/refresh endpoint). It
+// delegates to the same private refresh the background tick runs, mirroring
+// Collector.RefreshNow. Best-effort: errors are swallowed per pair
+// (stale-while-revalidate) — a transient gh failure keeps the last-good entry
+// rather than downgrading it, exactly as the tick-driven path behaves.
+func (r *BranchRefresher) RefreshNow(ctx context.Context) {
+	r.refresh(ctx)
+}
+
 // Start begins the background refresh goroutine. It runs one refresh
 // immediately (so the snapshot warms before the first tick) then ticks on the
 // interval, exiting when ctx is cancelled — the same lifecycle as

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
+import { refreshStatus } from "@/api/client";
 import { useNow } from "@/hooks/use-now";
 import { BrailleSnake } from "@/components/braille-snake";
 import { ClockSpinner } from "@/components/clock-spinner";
@@ -100,8 +101,8 @@ type PrSegment = { text: string; color: string };
  * review segments here plus the sidebar dot. A draft is not dimmed: its state
  * follows PR_STATE_COLORS like any open PR, so an open draft shows green. This
  * reflects the project's "green = health, not merge-readiness" story (a draft
- * with passing checks is healthy, just not flipped to ready) and keeps all
- * three PR surfaces (sidebar dot, these segments, PrStatusLine) consistent.
+ * with passing checks is healthy, just not flipped to ready) and keeps both
+ * remaining PR surfaces (sidebar dot, these segments) consistent.
  */
 function getPrSegments(win: WindowInfo): PrSegment[] | null {
   if (!win.prNumber) return null;
@@ -125,6 +126,63 @@ function getPrSegments(win: WindowInfo): PrSegment[] | null {
   return segments;
 }
 
+/**
+ * PANE-header refresh button (260715-jykd). Kicks a server-side on-demand
+ * refresh of BOTH PR pollers via POST /api/status/refresh (`refreshStatus`); the
+ * fresh state lands via SSE within ~2.5s. Shows a busy/spinning state while the
+ * POST is in flight, cleared when it settles. Scope-honest: this refreshes
+ * PR/status freshness (the other PANE registers are already fresh within ~7.5s).
+ *
+ * Rendered via CollapsiblePanel's `headerAction` (whose clicks are stopped from
+ * toggling the panel — not `headerRight`, which is the StatusDot+name slot inside
+ * the toggle button). Follows the top-bar/board RefreshButton CRT-glint
+ * vocabulary (`rk-glint`). The refresh is server-global, so it renders whether or
+ * not a window is selected. Best-effort/fire-and-forget: server-side coalescing +
+ * a min-interval throttle make it safe to over-fire, so errors are swallowed.
+ */
+function PaneRefreshButton() {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (busy) return;
+        setBusy(true);
+        // Best-effort/fire-and-forget: refreshStatus() rejects on a non-2xx (it
+        // shares throwOnError with the other client fns), so swallow the
+        // rejection to avoid an unhandled promise rejection on network/server
+        // failure — mirroring the palette caller (app.tsx). The server-side
+        // coalesce + min-interval throttle already make it safe to over-fire.
+        void refreshStatus()
+          .catch(() => {})
+          .finally(() => setBusy(false));
+      }}
+      disabled={busy}
+      aria-label="Refresh PR status"
+      title="Refresh PR status"
+      data-testid="pane-refresh"
+      className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-60"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className={busy ? "animate-spin" : undefined}
+      >
+        {/* lucide rotate-cw: circular arrow with a top-right arrowhead */}
+        <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+        <path d="M21 3v5h-5" />
+      </svg>
+    </button>
+  );
+}
+
 export function WindowPanel({ window: win }: WindowPanelProps) {
   const headerRight = win ? (
     <span className="flex min-w-0 items-center gap-1.5 text-text-secondary font-mono">
@@ -134,7 +192,13 @@ export function WindowPanel({ window: win }: WindowPanelProps) {
   ) : null;
 
   return (
-    <CollapsiblePanel title="Pane" storageKey="runkit-panel-window" defaultOpen={true} headerRight={headerRight}>
+    <CollapsiblePanel
+      title="Pane"
+      storageKey="runkit-panel-window"
+      defaultOpen={true}
+      headerRight={headerRight}
+      headerAction={<PaneRefreshButton />}
+    >
       {!win ? (
         <span className="text-xs text-text-secondary">No window selected</span>
       ) : (

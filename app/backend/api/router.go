@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -20,6 +21,21 @@ import (
 	"rk/internal/tmux"
 	"rk/internal/updatecheck"
 	"rk/internal/validate"
+)
+
+const (
+	// statusRefreshMinInterval is the server-side minimum interval between forced
+	// refreshes started by POST /api/status/refresh. This handler is the single
+	// frequency-control choke point, so ANY trigger (button-mashing, multiple
+	// tabs, future auto-triggers) is safe to over-fire: a call arriving within
+	// this window returns 202 without starting a refresh. Mash-safe and well
+	// under both poller tick cadences (viewer 90s, branch 30s).
+	statusRefreshMinInterval = 10 * time.Second
+	// statusRefreshTimeout bounds the detached refresh goroutine's own context.
+	// The viewer collector's gh call is 10s-bounded internally; the branch pass
+	// is one gh-per-registered-pair, so 60s bounds the whole pass without
+	// truncating it. NOT r.Context() (which dies when the handler returns).
+	statusRefreshTimeout = 60 * time.Second
 )
 
 // SessionFetcher fetches enriched session data.
@@ -114,6 +130,36 @@ type Server struct {
 	// air process). In-memory only (Constitution II) — same lifetime as the
 	// SSE version slot.
 	version string
+
+	// Manual status-refresh (POST /api/status/refresh) — the single frequency
+	// choke point for forced refreshes of BOTH PR pollers.
+	//
+	// refreshCollectorFn / refreshBranchFn are the two on-demand kicks. Function
+	// fields (mirroring the collector-injection house pattern) so handler tests
+	// can assert both fire without spawning gh. Defaulted in NewRouterAndServer;
+	// nil is a no-op (either kick may be absent on a partially-wired server).
+	refreshCollectorFn func(context.Context)
+	refreshBranchFn    func(context.Context)
+	// refreshStatusMu guards the coalesce/throttle state below.
+	refreshStatusMu sync.Mutex
+	// refreshStatusInFlight is true while a detached refresh goroutine runs — a
+	// concurrent POST coalesces onto it (no second refresh).
+	refreshStatusInFlight bool
+	// refreshStatusLast is the start time of the most recent forced refresh, used
+	// for the min-interval throttle.
+	refreshStatusLast time.Time
+	// nowFn is a clock seam (defaults to time.Now) so throttle behavior is
+	// deterministically testable without real sleeps.
+	nowFn func() time.Time
+}
+
+// now returns the server clock, defaulting to time.Now when unseeded (the test
+// router leaves nowFn nil).
+func (s *Server) now() time.Time {
+	if s.nowFn != nil {
+		return s.nowFn()
+	}
+	return time.Now()
 }
 
 // initSSEHub lazily creates the SSE hub on first use.
@@ -406,6 +452,16 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		services: svc,
 		prStatus: pc,
 	}
+	// Wire the two on-demand PR-refresh kicks for POST /api/status/refresh. The
+	// collector kick nil-guards its own pointer (a partially-wired server may
+	// have none); the branch kick targets the process-wide default refresher
+	// Start()ed above.
+	s.refreshCollectorFn = func(ctx context.Context) {
+		if s.prStatus != nil {
+			s.prStatus.RefreshNow(ctx)
+		}
+	}
+	s.refreshBranchFn = prstatus.DefaultBranchRefresher.RefreshNow
 	return s.buildRouter(), s
 }
 
@@ -484,7 +540,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/preview-scope", s.handlePreviewScope)
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
-	r.Post("/api/pr-status/refresh", s.handlePRStatusRefresh)
+	r.Post("/api/status/refresh", s.handleStatusRefresh)
 	r.Post("/api/update", s.handleUpdate)
 	r.Post("/api/restart", s.handleRestart)
 

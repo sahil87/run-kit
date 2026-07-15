@@ -122,5 +122,3 @@ No production code was made redundant — the fix adds a pre-cancel step and rem
 | 6 | Confident | Send-failure fall-through test uses a wrong-window-name proxy: the daemon session is started on the isolated test socket with its window named `other` (not `serve`), so `send-keys`/`copy-mode -q` to `=<session>:=serve` fail deterministically ("can't find window: serve") while `has-session`/`kill-session -t =<session>` still resolve; `withStopTiming(nanosecond grace)` forces the kill branch | Intake row 7 (Confident) leaves the exact mechanism as an apply-time decide-and-record. Chosen this over a dead-socket repoint because `serverSocket` is used by BOTH the initial `runningSessionCtx` lookup AND the kill — a dead socket would make the lookup return "" and `Stop()` no-op early. A wrong-window session on the live socket keeps lookup+kill working while failing only the window-targeted send; needs no attached `-CC -r` client and reuses existing seams. Verified on tmux 3.6a. | S:60 R:80 A:80 D:70 |
 
 6 assumptions (2 certain, 4 confident, 0 tentative).
-</content>
-</invoke>

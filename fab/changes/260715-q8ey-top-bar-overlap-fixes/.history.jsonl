@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-15T08:28:01Z"}
+{"args":"Fix top-bar center-section overlap at mid widths: crumb truncation min-w-0, nav clip backstop + min-width, center heading min-width protection, server crumb md: demotion","cmd":"fab-new","event":"command","ts":"2026-07-15T08:28:01Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-07-15T08:29:32Z"}

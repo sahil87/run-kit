@@ -404,7 +404,10 @@ export function TopBar({
             title="Cockpit"
             className={`flex items-center gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
           >
-            <img src="/icon.svg" alt="Run Kit" width={20} height={20} className="rk-brand-logo" />
+            {/* Inline SVG (LogoSpinner at rest), not the /icon.svg img — the
+                hover spin rotates the border ring (.rk-logo-ring) while the
+                cube faces stay pinned, which CSS can't reach inside an img. */}
+            <LogoSpinner size={20} loading={false} />
             {/* [text-decoration:inherit] — the anchor is a flex container and
                 text-decoration does not propagate into flex items, so an
                 underline-based LINK_CRUMB_CLASS would silently skip the

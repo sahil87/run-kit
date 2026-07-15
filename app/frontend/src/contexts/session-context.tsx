@@ -1075,6 +1075,9 @@ export function useSessionContext(): SessionContextType {
  *   - `showChip` — `qualifies` AND not dismissed for the current `latest`. This
  *     is the chip's visibility gate.
  *   - `latest` — the pending latest version string (or `null`).
+ *   - `current` — the currently-running version at the time the update was
+ *     announced (`updateAvailable?.current ?? null`), so the chip can render the
+ *     `v{current} → v{latest}` transition.
  *   - `updateNow` / `dismissUpdate` — the context actions, re-exported for
  *     convenience.
  *   - `daemonVersion` — the running version (or `null`), so the maintenance
@@ -1087,6 +1090,7 @@ export function useUpdateNotification(): {
   qualifies: boolean;
   showChip: boolean;
   latest: string | null;
+  current: string | null;
   updateNow: () => Promise<void>;
   dismissUpdate: () => void;
   daemonVersion: string | null;
@@ -1109,12 +1113,18 @@ export function useUpdateNotification(): {
   const restartNow = ctx?.restartNow ?? (() => Promise.resolve());
   const isDev = daemonVersion === DEV_VERSION;
   const latest = updateAvailable?.latest ?? null;
+  // The version the daemon is currently on, per the pending update-available
+  // event. Surfaced so the UpdateChip can render the `v{current} → v{latest}`
+  // transition instead of only the target. Null when no update is pending (the
+  // chip falls back to target-only wording).
+  const current = updateAvailable?.current ?? null;
   const qualifies = !isDev && latest !== null;
   const showChip = qualifies && latest !== updateDismissedVersion;
   return {
     qualifies,
     showChip,
     latest,
+    current,
     updateNow,
     dismissUpdate,
     daemonVersion,

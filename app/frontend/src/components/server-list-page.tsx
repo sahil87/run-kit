@@ -13,6 +13,7 @@ import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useServerReorder } from "@/hooks/use-server-reorder";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { SectionHeading } from "@/components/section-heading";
+import { displayVersion } from "@/lib/palette-version";
 
 export function ServerListPage() {
   // Read the server list from SessionContext — the SAME source the AppShell
@@ -26,6 +27,7 @@ export function ServerListPage() {
     refreshServers,
     markServerPending,
     sessionsByServer,
+    daemonVersion,
   } = useSessionContext();
   // Local optimistic pulsing tiles for a create in flight. Self-contained and
   // unrelated to the guard (the OptimisticContext server-level ghosts are
@@ -407,6 +409,21 @@ export function ServerListPage() {
             </div>
           )}
         </section>
+
+        {/* Version stamp (260715-ifco): a small, passive BIOS/boot-style footer
+            line at the bottom of the scroll container, after the zone hierarchy.
+            On-brand with the CRT/terminal aesthetic — monospace, text-secondary,
+            no border, no interaction, no hover treatment (passive means passive;
+            the hover-animation vocabulary categories don't apply to inert text).
+            Hidden entirely until the first `event: version` (never `vundefined`).
+            The Cockpit `/` is the only page without a top-bar version surface on
+            phones, and its BIOS-footer aesthetic fits the running-version stamp
+            better than any other surface. */}
+        {daemonVersion && (
+          <div className="mt-2 text-xs text-text-secondary font-mono">
+            run-kit {displayVersion(daemonVersion)}
+          </div>
+        )}
       </div>
 
       {showCreateDialog && (

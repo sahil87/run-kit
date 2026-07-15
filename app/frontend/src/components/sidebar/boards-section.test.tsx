@@ -19,7 +19,7 @@ vi.mock("@/hooks/use-boards", () => ({
 
 // Toast seam: BoardsSection wires useToast().addToast into useBoardListReorder as
 // the reorder-POST onError handler. Mock at the hook boundary (mirrors the
-// Cockpit server-list-page test) so no ToastProvider tree is needed here.
+// Host host-overview-page test) so no ToastProvider tree is needed here.
 const addToastMock = vi.fn();
 vi.mock("@/components/toast", () => ({
   useToast: () => ({ addToast: addToastMock }),

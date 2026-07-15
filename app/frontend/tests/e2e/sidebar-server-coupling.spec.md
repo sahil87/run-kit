@@ -71,7 +71,7 @@ without losing any server's `ServerGroup`.
 
 > **Note:** the `currentServer === null` empty-state hint (`Select a server
 > above to see its sessions.`) is no longer covered here. It previously had
-> an e2e case targeting `/`, but `/` now renders `ServerListPage` (no
+> an e2e case targeting `/`, but `/` now renders `HostOverviewPage` (no
 > sidebar) — the `<Sidebar currentServer={null}>` state lives on the
 > `/board/$name` route. The hint's render logic remains covered by the unit
 > test `src/components/sidebar/index.test.tsx` ("renders the empty-state

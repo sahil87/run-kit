@@ -1,0 +1,54 @@
+id: zs1y
+name: 260715-zs1y-host-tmux-server-rename
+created: 2026-07-15T14:43:19Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 18
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 8
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 77.1
+        reversibility: 83.8
+        competence: 86.7
+        disambiguation: 82.9
+stage_metrics:
+    intake: {started_at: "2026-07-15T14:43:19Z", driver: fab-new, iterations: 1, completed_at: "2026-07-15T16:47:16Z"}
+    apply: {started_at: "2026-07-15T18:01:33Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-15T18:03:45Z"}
+    review: {started_at: "2026-07-15T18:03:45Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-15T18:13:08Z"}
+    hydrate: {started_at: "2026-07-15T18:13:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T18:29:21Z"}
+    ship: {started_at: "2026-07-15T18:29:21Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-15T18:29:21Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-15T18:29:21Z

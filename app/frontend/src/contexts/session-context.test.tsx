@@ -533,7 +533,7 @@ describe("SessionProvider — server-independent host metrics", () => {
   });
 });
 
-describe("SessionProvider — hostMetricsConnected (Cockpit dot, 260704-9o7k)", () => {
+describe("SessionProvider — hostMetricsConnected (Host dot, 260704-9o7k)", () => {
   it("is false before the first dedicated metrics event, true after (no server attached)", async () => {
     setMockMatches([{ params: {} }]); // `/` — dedicated stream is the source
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });

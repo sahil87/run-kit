@@ -139,7 +139,7 @@ export function useTopBarSlot(): TopBarSlot {
 
 /**
  * Read whether the not-found page is currently rendered. `RootTopBar` uses this
- * to force the minimal `cockpit`-like fallback mode: TanStack Router's fuzzy
+ * to force the minimal `host`-like fallback mode: TanStack Router's fuzzy
  * not-found handling retains the partially-matched route params in
  * `useMatches()` (e.g. `/board/x/y` keeps `name=x`), so route params alone
  * would derive `board` mode ("Board: x") over the not-found body. This explicit
@@ -157,7 +157,7 @@ export function useTopBarNotFound(): boolean {
 /**
  * Signal that the not-found page is rendered — sets the shared `notFound` flag
  * true on mount and clears it on unmount. Call once from `NotFoundPage`'s render
- * body so `RootTopBar` forces the cockpit fallback for the lifetime of that
+ * body so `RootTopBar` forces the host fallback for the lifetime of that
  * page (see `useTopBarNotFound`). Throws outside a provider.
  */
 export function useSignalTopBarNotFound(): void {

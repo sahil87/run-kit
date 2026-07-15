@@ -28,7 +28,7 @@ vi.mock("@/api/client", async () => {
   };
 });
 
-// --- Push lib mock: the shared TopBar (cockpit mode) mounts NotificationControl,
+// --- Push lib mock: the shared TopBar (host mode) mounts NotificationControl,
 // which calls getPushState() on mount. Keep it deterministic + supported-off so
 // the bell renders without touching real serviceWorker / Notification. ---
 vi.mock("@/lib/push", () => ({
@@ -44,7 +44,7 @@ vi.mock("@/components/toast", () => ({
 }));
 
 // --- Context hooks mock: drive host services + the server list + session map
-// directly. Since 260701-f4e5, ServerListPage reads `servers`/`serversLoaded`
+// directly. Since 260701-f4e5, HostOverviewPage reads `servers`/`serversLoaded`
 // from SessionContext (not its own listServers() fetch), so the servers are
 // supplied here rather than via an API mock. ---
 let mockServices: Service[] = [];
@@ -61,7 +61,7 @@ vi.mock("@/contexts/session-context", () => ({
     refreshServers: refreshServersMock,
     markServerPending: markServerPendingMock,
     sessionsByServer: mockSessionsByServer,
-    // Cockpit connection dot source (260704-9o7k) — gray in these tests; the
+    // Host connection dot source (260704-9o7k) — gray in these tests; the
     // dot's presence (not its color) is what the TopBar tests assert.
     hostMetricsConnected: false,
   }),
@@ -81,11 +81,11 @@ vi.mock("@/hooks/use-boards", () => ({
   useBoards: () => ({ boards: mockBoards, isLoading: false, error: null }),
 }));
 
-import { ServerListPage } from "./server-list-page";
+import { HostOverviewPage } from "./host-overview-page";
 import { createSession, createWindow, getSessions } from "@/api/client";
 
 /**
- * Render the page inside the providers the shared cockpit-mode TopBar depends on
+ * Render the page inside the providers the shared host-mode TopBar depends on
  * (Theme + Chrome). Toast + router are module-mocked above; the push lib is
  * mocked so NotificationControl mounts cleanly.
  */
@@ -94,7 +94,7 @@ function renderPage() {
     <ThemeProvider>
       <ChromeProvider>
         <TopBarSlotProvider>
-          <ServerListPage />
+          <HostOverviewPage />
         </TopBarSlotProvider>
       </ChromeProvider>
     </ThemeProvider>,
@@ -128,7 +128,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("ServerListPage — Services zone", () => {
+describe("HostOverviewPage — Services zone", () => {
   it("renders a 'No services' fallback when the services list is empty", async () => {
     mockServices = [];
     renderPage();
@@ -310,33 +310,44 @@ describe("ServerListPage — Services zone", () => {
   });
 });
 
-describe("ServerListPage — TopBar mount moved to root (260707-4vq2)", () => {
-  // The cockpit-mode TopBar mount was lifted to the persistent root layout
-  // (`RootTopBar` in app.tsx). `ServerListPage` no longer renders a TopBar of
+describe("HostOverviewPage — TopBar mount moved to root (260707-4vq2)", () => {
+  // The host-mode TopBar mount was lifted to the persistent root layout
+  // (`RootTopBar` in app.tsx). `HostOverviewPage` no longer renders a TopBar of
   // its own — it only publishes the connection-dot data into the slot context.
-  // The TopBar's own rendering (brand crumb, controls, `Cockpit` heading,
+  // The TopBar's own rendering (brand crumb, controls, `Host` heading,
   // no-hamburger) is now covered by top-bar.test.tsx (which renders TopBar in
-  // cockpit mode directly) and the top-bar-persistence e2e; asserting those
+  // host mode directly) and the top-bar-persistence e2e; asserting those
   // internals on this component — which no longer mounts them — would be a
   // false test (Test Integrity: tests conform to the current structure).
 
   it("renders NO TopBar of its own — the brand crumb / controls / heading are not this component's DOM", () => {
     renderPage();
-    // None of the shared TopBar's landmarks render from ServerListPage now.
+    // None of the shared TopBar's landmarks render from HostOverviewPage now.
     expect(screen.queryByLabelText("Run Kit home")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Refresh page")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Cockpit")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Host")).not.toBeInTheDocument();
   });
 
-  it("still renders no in-page PageHeading row — the Cockpit identity lives in the root top-bar center heading (260704-pr0p)", () => {
+  it("still renders no in-page PageHeading <h1> row — page identity lives in the root top-bar center heading (260704-pr0p)", () => {
     renderPage();
-    // The old `[ cockpit ]` <h1> PageHeading row remains gone; the page body
+    // The old `[ host ]` <h1> PageHeading row remains gone; the page body
     // carries no level-1 heading of its own (page identity rides the root bar).
     expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
   });
+
+  it("renders the in-page `Host Overview` section heading above the zones (260715-zs1y)", () => {
+    renderPage();
+    // The page-level long-form name is an <h2> SectionHeading (bracket +
+    // typed-sweep idiom), rendered above the HOST HEALTH zone.
+    const overview = screen.getByRole("heading", { level: 2, name: "Host Overview" });
+    expect(overview).toBeInTheDocument();
+    // It is the FIRST level-2 heading (sits above Host Health).
+    const h2s = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(h2s[0]).toBe("Host Overview");
+  });
 });
 
-describe("ServerListPage — BOARDS zone", () => {
+describe("HostOverviewPage — BOARDS zone", () => {
   it("renders board tiles above TMUX SERVERS and navigates on click", () => {
     mockBoards = [
       { name: "main", pinCount: 3 },
@@ -344,11 +355,13 @@ describe("ServerListPage — BOARDS zone", () => {
     ];
     renderPage();
 
-    // Section order: Host Health → Boards → Tmux Servers → Services.
+    // Heading order: the "Host Overview" page heading, then the zones
+    // Host Health → Boards → Tmux Servers → Services.
     const headings = screen
       .getAllByRole("heading", { level: 2 })
       .map((h) => h.textContent);
     expect(headings).toEqual([
+      "Host Overview",
       "Host Health",
       "Boards",
       "Tmux Servers",

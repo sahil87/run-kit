@@ -58,7 +58,7 @@ containing `"bad name!"` (fails `ValidateServerName`) returns HTTP 400.
 
 **What it proves:** A successful order POST fans out an `event: server-order`
 frame to a client on the server-neutral `?metrics=1` stream (which has no
-attached tmux server), proving the broadcast is server-global — the Cockpit
+attached tmux server), proving the broadcast is server-global — the Host
 with zero attached servers still hears order changes.
 
 **Steps:**

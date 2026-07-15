@@ -26,7 +26,7 @@ export function countWaitingWindows(windows: Pick<WindowInfo, "agentState">[]): 
   return n;
 }
 
-/** Count of waiting windows across a server's sessions (Cockpit server tile). */
+/** Count of waiting windows across a server's sessions (Host server tile). */
 export function countWaitingInSessions(sessions: ProjectSession[]): number {
   let n = 0;
   for (const s of sessions) n += countWaitingWindows(s.windows);

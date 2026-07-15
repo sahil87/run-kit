@@ -16,7 +16,7 @@ server-reorder e2e exercises the endpoint/SSE surface instead of the drag). The
 derive-over-store override, render-time reconcile, MIME discrimination, self-
 target snap-back fix, debounce/flush, and palette Move actions are all covered by
 Vitest unit tests (`use-board-list-reorder.test.ts`, `palette-move.test.ts`,
-`boards.test.ts`, `boards-section.test.tsx`, `server-list-page.test.tsx`). This
+`boards.test.ts`, `boards-section.test.tsx`, `host-overview-page.test.tsx`). This
 spec exercises the load-bearing new backend surface — the order endpoint, its
 API-layer rank-aware sort, and the server-global SSE echo — end-to-end against
 the live backend, which IS deterministic.
@@ -77,11 +77,11 @@ of `[BOARD_Z, BOARD_A]` returns `{ok: true}` and `GET /api/boards` then returns
 
 **What it proves:** A successful order POST fans out an `event: board-order`
 frame to a client on the server-neutral `?metrics=1` stream (which has no
-attached tmux server), proving the broadcast is server-global — the Cockpit
+attached tmux server), proving the broadcast is server-global — the Host
 BOARDS zone with zero attached servers still re-sorts live.
 
 **Steps:**
-1. Navigate to `/` (the Cockpit home — zero attached tmux servers, so its
+1. Navigate to `/` (the Host home — zero attached tmux servers, so its
    `?metrics=1` stream is the server-neutral one) and wait for the HOST HEALTH
    region as the readiness signal.
 2. In the page context, open an `EventSource` on `/api/sessions/stream?metrics=1`

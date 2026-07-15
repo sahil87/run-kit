@@ -41,7 +41,7 @@ export type UseBoardListReorder = {
 };
 
 /** Shared HTML5 drag-reorder for the two board-list surfaces (sidebar
- *  BoardsSection + Cockpit BOARDS zone). Mirrors useServerReorder structurally:
+ *  BoardsSection + Host BOARDS zone). Mirrors useServerReorder structurally:
  *  a custom MIME, insert-before semantics, and the derive-over-store optimistic
  *  override (a ref, not state) cleared by a render-time name-equality reconcile
  *  against the authoritative order — no whole-array watcher effect, no snap-back

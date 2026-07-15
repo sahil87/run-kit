@@ -153,7 +153,7 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
   test("a successful order POST broadcasts a server-global event: board-order", async ({
     page,
   }) => {
-    // The Cockpit home (`/`) attaches ZERO tmux servers, so its `?metrics=1`
+    // The Host home (`/`) attaches ZERO tmux servers, so its `?metrics=1`
     // stream is the server-neutral one — a board-order frame reaching it proves
     // the broadcast is server-global (the BOARDS zone re-sorts with no attached
     // server). Wait for the HOST HEALTH zone as the readiness signal.

@@ -21,7 +21,7 @@ export type VersionPaletteAction = {
  * (app/backend/cmd/rk/root.go): prefix a `v` to a numeric version, leave the
  * `dev` sentinel (and any already-`v`-prefixed string) bare so we never render
  * `vdev` or `vv0.6.2`. This is the single frontend source of the v-prefix
- * convention — reused by the connection-dot title and the Cockpit stamp.
+ * convention — reused by the connection-dot title and the Host stamp.
  */
 export function displayVersion(version: string): string {
   if (version === "dev" || version.startsWith("v")) return version;

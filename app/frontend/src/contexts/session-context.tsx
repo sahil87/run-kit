@@ -71,7 +71,7 @@ export type SessionContextType = {
   sessionOrderByServer: Map<string, string[]>;
   isConnectedByServer: Map<string, boolean>;
   /** Health of the host-metrics source that feeds `useHostMetrics()` — true
-   *  when host metrics are flowing (260704-9o7k, for the Cockpit connection
+   *  when host metrics are flowing (260704-9o7k, for the Host connection
    *  dot). When no per-server stream is attached this is the dedicated
    *  `?metrics=1` stream's health; otherwise it derives from whether any
    *  attached server's per-server stream is connected (the metrics fan-out
@@ -852,7 +852,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const hostMetricsESRef = useRef<EventSource | null>(null);
   // 3s disconnect debounce for the dedicated stream (mirrors the per-server
   // pool's `disconnectTimer`) so a transient socket blip doesn't flicker the
-  // Cockpit dot. Held in a ref so the effect can clear it on reconnect/close.
+  // Host dot. Held in a ref so the effect can clear it on reconnect/close.
   const dedicatedDisconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hostMetricsWanted = attachedSet.size === 0;
   useEffect(() => {
@@ -917,7 +917,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       }
     });
     // `event: server-order` rides the same server-global broadcast, so the bare
-    // `/` Cockpit (zero attached servers) still re-sorts its tile grid live.
+    // `/` Host (zero attached servers) still re-sorts its tile grid live.
     es.addEventListener("server-order", (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data) as { order?: string[] };
@@ -926,20 +926,20 @@ export function SessionProvider({ children }: SessionProviderProps) {
         // Malformed server-order event — skip
       }
     });
-    // `event: board-order` also rides the server-global broadcast — the Cockpit
+    // `event: board-order` also rides the server-global broadcast — the Host
     // BOARDS zone renders with zero attached servers, so the metrics stream must
     // carry it too or a reorder from another client would not surface on `/`.
     es.addEventListener("board-order", () => {
       fireBoardOrder();
     });
     // `event: status-refresh` also rides the server-global broadcast — a refresh
-    // button on any page (incl. the bare `/` Cockpit with zero attached servers)
+    // button on any page (incl. the bare `/` Host with zero attached servers)
     // must clear its spinner when the daemon signals completion.
     es.addEventListener("status-refresh", () => {
       fireStatusRefresh();
     });
     // `event: version` / `event: update-available` are server-global too, so the
-    // bare `/` Cockpit (zero attached servers) must still learn the daemon
+    // bare `/` Host (zero attached servers) must still learn the daemon
     // version (reload guard) and any pending update (chip/palette). Mirror the
     // per-server listeners above.
     es.addEventListener("version", (e: MessageEvent) => {
@@ -995,7 +995,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return m;
   }, [slicesByServer]);
 
-  // Host-metrics source health (260704-9o7k) — the Cockpit connection dot.
+  // Host-metrics source health (260704-9o7k) — the Host connection dot.
   // When no server is attached the dedicated `?metrics=1` stream IS the source,
   // so use its debounced health. Otherwise the per-server metrics fan-out
   // carries host metrics, so derive from whether ANY attached server slice is
@@ -1185,7 +1185,7 @@ export function useMetrics(): MetricsSnapshot | null {
 
 /** Host-global metrics from the dedicated server-independent stream. Unlike
  *  `useMetrics()` (current-server-scoped, `null` on `/`), this is available on
- *  EVERY route — the Cockpit host-console home (`/`) consumes it. `null` before
+ *  EVERY route — the Host host-console home (`/`) consumes it. `null` before
  *  the first metrics tick. */
 export function useHostMetrics(): MetricsSnapshot | null {
   const ctx = useContext(HostMetricsContext);
@@ -1194,7 +1194,7 @@ export function useHostMetrics(): MetricsSnapshot | null {
 }
 
 /** Host-global listening services from the server-independent broadcast.
- *  Available on EVERY route — the Cockpit host-console home (`/`) consumes it
+ *  Available on EVERY route — the Host host-console home (`/`) consumes it
  *  for the SERVICES zone. Returns `[]` before the first services tick (never
  *  null), so consumers can map over it unconditionally. */
 export function useHostServices(): Service[] {

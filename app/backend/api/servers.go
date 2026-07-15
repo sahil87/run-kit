@@ -152,7 +152,7 @@ func (s *Server) handleServerOrderPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Broadcast the new order to every connected SSE client (server-global, so
-	// even the zero-attached-server Cockpit `?metrics=1` stream hears it).
+	// even the zero-attached-server Host `?metrics=1` stream hears it).
 	s.initSSEHub()
 	s.sseHub.broadcastServerOrder(body.Order)
 

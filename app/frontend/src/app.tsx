@@ -121,7 +121,7 @@ export function RootWrapper() {
   // vars (iOS keyboard handling) on `document.documentElement`. It moved here
   // from `Shell` (260707-4vq2): the persistent root layout div (in `AppLayout`)
   // is now the `--app-height` consumer, and the var must exist on EVERY route —
-  // including the cockpit and edge pages that mount no `Shell`. The hook is a
+  // including the host and edge pages that mount no `Shell`. The hook is a
   // single idempotent effect; owning it once at the root avoids the double-mount
   // cleanup race a second call in `Shell` would create (Shell now sizes to
   // `height: 100%` and no longer consumes the var directly).
@@ -208,18 +208,18 @@ function RootTopBar() {
   // Router's fuzzy not-found handling RETAINS the partially-matched params in
   // `useMatches()` — e.g. `/board/x/y` keeps `name=x`, so the param walk alone
   // would derive `board` mode ("Board: x") over the not-found body. When the
-  // not-found page is what actually renders, force the minimal `cockpit`
+  // not-found page is what actually renders, force the minimal `host`
   // fallback (R3/R10). (The `/$server/$window`+extra shape — `/a/b/c` — is a
   // different arm: it renders AppShell's `ServerNotFound`, not `NotFoundPage`,
-  // so `notFound` is false there and the `root`/`terminal` mode below is kept.)
+  // so `notFound` is false there and the `server`/`terminal` mode below is kept.)
   const notFound = useTopBarNotFound();
 
   // Walk matches deepest-first for route params. Param NAMES are unique across
   // the route tree (`window` only on the terminal route, `server` on the server
   // layout, `name` on the board route), so their presence fully determines the
   // mode — the same deepest-first param walk `SessionContext` uses for
-  // `currentServer`. The cockpit (`/`) carries no params and resolves to the
-  // minimal `cockpit` mode.
+  // `currentServer`. The host (`/`) carries no params and resolves to the
+  // minimal `host` mode.
   let serverParam: string | undefined;
   let windowParam: string | undefined;
   let boardParam: string | undefined;
@@ -235,11 +235,11 @@ function RootTopBar() {
   }
 
   let mode: TopBarMode;
-  if (notFound) mode = "cockpit";
+  if (notFound) mode = "host";
   else if (boardParam !== undefined) mode = "board";
   else if (windowParam !== undefined) mode = "terminal";
-  else if (serverParam !== undefined) mode = "root";
-  else mode = "cockpit";
+  else if (serverParam !== undefined) mode = "server";
+  else mode = "host";
 
   const slot = useTopBarSlot();
 
@@ -255,8 +255,8 @@ function RootTopBar() {
       isConnected={slot?.isConnected ?? false}
       sidebarOpen={slot?.sidebarOpen ?? false}
       // Prefer the page-registered server (the confirmed value), but fall back
-      // to the route-derived `serverParam` so the `Server Cabin: <server>`
-      // heading (root mode) and the terminal-mode server crumb render
+      // to the route-derived `serverParam` so the `tmux Server: <server>`
+      // heading (server mode) and the terminal-mode server crumb render
       // synchronously from the URL — before AppShell's registering effect runs
       // on a cold deep link / first frame after navigation, `slot` is null and
       // `slot?.server` would be `""`, which those truthy-gated renders omit.
@@ -1630,11 +1630,11 @@ function AppShell() {
         onSelect: toggleFixedWidth,
       },
       // Ungated within viewActions — a full-page reload is meaningful on every
-      // AppShell route (Server Cabin `/$server`, Terminal `/$server/$window`),
+      // AppShell route (tmux Server `/$server`, Terminal `/$server/$window`),
       // unlike the top-bar RefreshButton which lives in the terminal-only
       // cluster. Reachable via THIS palette (AppShell's); the board route mounts
       // its own palette and carries a duplicate entry (board-page.tsx
-      // `refreshEntry`), while the Cockpit `/` mounts no palette at all. A
+      // `refreshEntry`), while the Host `/` mounts no palette at all. A
       // keyboard-reachable recovery affordance (constitution V).
       {
         id: "refresh-page",
@@ -1650,16 +1650,16 @@ function AppShell() {
   // drive browser history (the same `router.history` the arrows use); the
   // ancestor entries mirror the hierarchy dropdown for THIS route. AppShell
   // mounts only under `/$server/...`, so the mode here is `terminal` (a window
-  // route) or `root` (the Server Cabin) — never board/cockpit (those routes
+  // route) or `server` (the tmux Server) — never board/host (those routes
   // mount their own palette or none). The gating/labels live in the pure
   // `buildNavActions` (lib/palette-nav.ts) so they are unit-testable.
   const navActions: PaletteAction[] = useMemo(
     () =>
-      buildNavActions(windowParam ? "terminal" : "root", server, {
+      buildNavActions(windowParam ? "terminal" : "server", server, {
         onBack: () => router.history.back(),
         onForward: () => router.history.forward(),
-        onServerCabin: () => navigate({ to: "/$server", params: { server } }),
-        onCockpit: () => navigate({ to: "/" }),
+        onTmuxServer: () => navigate({ to: "/$server", params: { server } }),
+        onHost: () => navigate({ to: "/" }),
       }),
     [windowParam, server, router, navigate],
   );

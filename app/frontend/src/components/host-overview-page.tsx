@@ -23,7 +23,7 @@ function isWellKnownPort(port: number): boolean {
   return port < 1024;
 }
 
-export function ServerListPage() {
+export function HostOverviewPage() {
   // Read the server list from SessionContext — the SAME source the AppShell
   // route guard (`resolveServerView`) reads. Keeping a separate local
   // `listServers()` fetch here was the root of this change's bug class: the
@@ -59,11 +59,11 @@ export function ServerListPage() {
       a.port - b.port;
     return regular.sort(byPort).concat(wellKnown.sort(byPort));
   }, [hostServices]);
-  // Cockpit connection dot (260704-9o7k): reflects host-metrics stream health.
+  // Host connection dot (260704-9o7k): reflects host-metrics stream health.
   const { hostMetricsConnected } = useSessionContext();
 
-  // Publish the cockpit TopBar's page-owned prop into the persistent root bar's
-  // slot (260707-4vq2). Cockpit mode is otherwise entirely tolerant-empty (no
+  // Publish the host TopBar's page-owned prop into the persistent root bar's
+  // slot (260707-4vq2). Host mode is otherwise entirely tolerant-empty (no
   // sessions/handlers), so the connection dot's data source is the only page
   // input the slot needs. `mode` is derived at root from the route.
   useRegisterTopBarSlot(
@@ -87,7 +87,7 @@ export function ServerListPage() {
   );
   // Cross-server pane boards for the BOARDS zone. useBoards is self-contained
   // (plain /api/boards fetch + the shared SSE pool) and boards aggregate
-  // windows across servers, so the box-level Cockpit is their natural home.
+  // windows across servers, so the box-level Host is their natural home.
   const { boards, isLoading: boardsLoading } = useBoards();
   const ghostNameRef = useRef<string | null>(null);
   // Guards against a double-click firing two create flows for the same port.
@@ -224,27 +224,31 @@ export function ServerListPage() {
 
   return (
     <div className="flex flex-col h-full bg-bg-primary">
-      {/* The cockpit-mode TopBar mount moved to the persistent root layout
-          (260707-4vq2). Its route-derived mode is `cockpit` (brand root crumb +
-          the solo `Cockpit` center heading + route-agnostic controls; no
+      {/* The host-mode TopBar mount moved to the persistent root layout
+          (260707-4vq2). Its route-derived mode is `host` (brand root crumb +
+          the solo `Host` center heading + route-agnostic controls; no
           hamburger). This page only publishes the connection-dot source
           (`hostMetricsConnected`) into the slot — see the registration effect
           above. `h-full` (was `h-screen`) because the root layout now owns the
           viewport height; the list below still scrolls within `flex-1`. */}
 
       {/* Server list. `pt-6` matches the `mb-6` inter-section rhythm so the
-          gap below the TopBar equals the gap between sections. The Cockpit's
+          gap below the TopBar equals the gap between sections. The Host's
           page identity now lives in the top-bar center heading (260704-pr0p);
-          the old in-page `[ cockpit ]` PageHeading row was removed. */}
+          the old in-page `[ host ]` PageHeading row was removed. */}
       <div className="flex-1 min-h-0 overflow-y-auto pt-6 px-4 sm:px-6 pb-6">
-        {/* HOST HEALTH zone (Cockpit host-console home). Renders host-global
+        {/* Page-level heading (260715-zs1y). Reuses the shared SectionHeading
+            idiom (bracket + typed-sweep, reduced-motion-safe) so the page carries
+            one canonical "Host Overview" long-form name above the zone headings. */}
+        <SectionHeading label="Host Overview" className="mb-4" />
+        {/* HOST HEALTH zone (Host host-console home). Renders host-global
             metrics from the server-independent `useHostMetrics()` stream, above
             the tmux-server tiles. `/` is the only surface that is about the BOX,
             not a session, so host health belongs here. */}
         <section aria-label="Host health" className="mb-6 max-w-md">
           {/* Bracket section heading (260704-pr0p): the PageHeading bracket
               idiom moved to the zone labels. The SectionHeading `side` slot is
-              reserved for the CABIN stats relocation — on the cockpit zones it
+              reserved for the tmux-Server stats relocation — on the host zones it
               stays empty (plan assumption #4). Each zone's existing inline
               metadata (here the live hostname) stays in the zone body at its
               original `text-xs` sizing, right below the heading. */}
@@ -262,14 +266,14 @@ export function ServerListPage() {
         </section>
 
         {/* BOARDS zone — cross-server pane boards. A board aggregates windows
-            across tmux servers, so the box-level Cockpit (not any single
-            Server Cabin) is its list's natural home. Sits above TMUX SERVERS
+            across tmux servers, so the box-level Host (not any single
+            tmux Server) is its list's natural home. Sits above TMUX SERVERS
             per the page's general→specific flow. Always visible: when zero
             boards exist the body shows the same "pin to start" hint as the
             sidebar BoardsSection, instead of the section appearing/vanishing
             with the first/last board. */}
         <section aria-label="Boards" className="mb-6">
-          {/* Side slot stays empty on cockpit zones (plan assumption #4); the
+          {/* Side slot stays empty on host zones (plan assumption #4); the
               board count stays in the zone body at its original text-xs sizing. */}
           <SectionHeading label="Boards" className="mb-2" />
           <div className="text-xs text-text-secondary font-mono mb-2">
@@ -314,7 +318,7 @@ export function ServerListPage() {
 
         {/* TMUX SERVERS zone (zone 2) — the tmux-server tile grid. */}
         <section aria-label="Tmux servers" className="mb-6">
-          {/* Side slot stays empty on cockpit zones (plan assumption #4); the
+          {/* Side slot stays empty on host zones (plan assumption #4); the
               server count stays in the zone body at its original text-xs sizing. */}
           <SectionHeading label="Tmux Servers" className="mb-2" />
           <div className="text-xs text-text-secondary font-mono mb-2">
@@ -384,7 +388,7 @@ export function ServerListPage() {
           </div>
         </section>
 
-        {/* SERVICES zone (zone 3, Cockpit host-console home). A listening TCP
+        {/* SERVICES zone (zone 3, Host host-console home). A listening TCP
             port is a HOST property (not owned by any tmux window/session), so
             `/` — the box-level console — is its home. The backend passively
             enumerates the host's listening ports (procfs on Linux, lsof on
@@ -448,7 +452,7 @@ export function ServerListPage() {
             no border, no interaction, no hover treatment (passive means passive;
             the hover-animation vocabulary categories don't apply to inert text).
             Hidden entirely until the first `event: version` (never `vundefined`).
-            The Cockpit `/` is the only page without a top-bar version surface on
+            The Host `/` is the only page without a top-bar version surface on
             phones, and its BIOS-footer aesthetic fits the running-version stamp
             better than any other surface. */}
         {daemonVersion && (

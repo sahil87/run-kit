@@ -53,11 +53,16 @@ interface BuildOpts {
   onCycleNext?: () => void;
   onCyclePrev?: () => void;
   onRefresh?: () => void;
-  /** Board has ≥1 pinned entry — production gates the cycle + unpin-focused
-   *  entries on `entries.length > 0`. Defaults true so existing cases (which
-   *  assume a populated board) are unaffected. */
+  /** Board has ≥1 pinned entry — production gates the cycle + unpin-focused +
+   *  split/close-focused entries on `entries.length > 0`. Defaults true so
+   *  existing cases (which assume a populated board) are unaffected. */
   hasEntries?: boolean;
   onUnpinFocused?: () => void;
+  /** Split/close-focused handlers (260715-6jwn) — the palette parity for the
+   *  board top-bar SplitButtons + ✕. Present only with entries. */
+  onSplitVertical?: () => void;
+  onSplitHorizontal?: () => void;
+  onCloseFocused?: () => void;
   /** A qualifying pending update exists (`qualifies && latest`). Production folds
    *  the update entries in via `buildUpdateActions`, gated on `qualifies` alone
    *  (dismissal-independent). Defaults false. */
@@ -110,12 +115,31 @@ function buildBoardActions(opts: BuildOpts): PaletteAction[] {
         label: "Board: Cycle Pane Focus ←",
         onSelect: () => opts.onCyclePrev?.(),
       });
-      // Board: Unpin Focused Pane — keyboard parity for the top-bar ✕
-      // (260704-9o7k). Present only with entries; unpins the focused pane.
+      // Board: Unpin Focused Pane — keyboard parity for the tile-header + palette
+      // unpin. Present only with entries; unpins the focused pane. Unchanged by
+      // 260715-6jwn (the top-bar ✕ became a kill, but unpin still lives here).
       conditional.push({
         id: "board-unpin-focused",
         label: "Board: Unpin Focused Pane",
         onSelect: () => opts.onUnpinFocused?.(),
+      });
+      // Split/close focused pane (260715-6jwn) — keyboard parity for the board
+      // top-bar SplitButtons + ✕. Present only with entries; act on the focused
+      // tile. Vertical → horizontal: true, mirroring the terminal PALETTE mapping.
+      conditional.push({
+        id: "board-split-vertical",
+        label: "Board: Split Focused Pane Vertical",
+        onSelect: () => opts.onSplitVertical?.(),
+      });
+      conditional.push({
+        id: "board-split-horizontal",
+        label: "Board: Split Focused Pane Horizontal",
+        onSelect: () => opts.onSplitHorizontal?.(),
+      });
+      conditional.push({
+        id: "board-close-focused",
+        label: "Board: Close Focused Pane",
+        onSelect: () => opts.onCloseFocused?.(),
       });
     }
   }
@@ -357,5 +381,67 @@ describe("CmdK Board Actions", () => {
     fireEvent.change(input, { target: { value: "Unpin Focused" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onUnpinFocused).toHaveBeenCalledOnce();
+  });
+
+  it("shows the split/close focused-pane entries on a board route with entries (260715-6jwn)", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+      hasEntries: true,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.getByText("Board: Split Focused Pane Vertical")).toBeInTheDocument();
+    expect(screen.getByText("Board: Split Focused Pane Horizontal")).toBeInTheDocument();
+    expect(screen.getByText("Board: Close Focused Pane")).toBeInTheDocument();
+  });
+
+  it("hides the split/close focused-pane entries when the board has zero entries", () => {
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+      hasEntries: false,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    expect(screen.queryByText("Board: Split Focused Pane Vertical")).not.toBeInTheDocument();
+    expect(screen.queryByText("Board: Split Focused Pane Horizontal")).not.toBeInTheDocument();
+    expect(screen.queryByText("Board: Close Focused Pane")).not.toBeInTheDocument();
+  });
+
+  it("invokes the split-vertical handler when 'Board: Split Focused Pane Vertical' is selected", () => {
+    const onSplitVertical = vi.fn();
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+      hasEntries: true,
+      onSplitVertical,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Split Focused Pane Vertical" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSplitVertical).toHaveBeenCalledOnce();
+  });
+
+  it("invokes the close-focused handler when 'Board: Close Focused Pane' is selected", () => {
+    const onCloseFocused = vi.fn();
+    const actions = buildBoardActions({
+      boards: [{ name: "main" }],
+      currentBoardName: "main",
+      isOnBoardRoute: true,
+      hasEntries: true,
+      onCloseFocused,
+    });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    const input = screen.getByPlaceholderText("Type a command...");
+    fireEvent.change(input, { target: { value: "Close Focused Pane" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onCloseFocused).toHaveBeenCalledOnce();
   });
 });

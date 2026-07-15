@@ -16,7 +16,7 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { HELP_URL } from "@/components/top-bar";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
-import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer } from "@/api/client";
+import { createSession, createWindow as createWindowApi, killServer as killServerApi, createServer, splitWindow, closePane } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette-move";
 import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
@@ -90,7 +90,7 @@ function BoardPageInner() {
 
 function BoardPageContent({ name }: { name: string }) {
   const navigate = useNavigate();
-  const { entries, isLoading, error } = useBoardEntries(name);
+  const { entries, isLoading, error, refetch } = useBoardEntries(name);
   const { boards } = useBoards();
   const { unpin, reorder } = usePinActions();
   const isMobile = useIsMobile();
@@ -371,16 +371,66 @@ function BoardPageContent({ name }: { name: string }) {
     restartNow,
   } = useUpdateNotification();
 
+  // Palette-surface split/close executors (Constitution V; 260715-6jwn). Mirror
+  // the terminal palette's wiring (app.tsx — useOptimisticAction-wrapped
+  // splitWindow/closePane with error toasts). Declared ABOVE `boardRouteActions`
+  // so the memo can list them in its dep array. The board palette mirrors the
+  // terminal PALETTE's `horizontal` mapping (Vertical → horizontal: true), a
+  // pre-existing top-bar-chip-vs-palette divergence left out of scope. Close
+  // schedules a self-heal refetch (`onSettled`) like the top-bar ✕.
+  const { execute: executeSplit } = useOptimisticAction<[string, string, boolean, string | undefined]>({
+    action: (srv, windowId, horizontal, cwd) => splitWindow(srv, windowId, horizontal, cwd),
+    onError: (err) => addToast(err.message || "Failed to split pane"),
+  });
+  const { execute: executeClosePane } = useOptimisticAction<[string, string]>({
+    action: (srv, windowId) => closePane(srv, windowId),
+    onSettled: () => refetch(),
+    onError: (err) => addToast(err.message || "Failed to close pane"),
+  });
+
+  // The focused tile's kill/split target — the SINGLE source of truth for the
+  // focused window shared by the top-bar SplitButtons + ✕ slot AND the three
+  // board split/close palette actions below (260715-6jwn). `cwd` comes from the
+  // focused entry's ACTIVE pane (fallback: first pane; else undefined →
+  // splitWindow omits it and tmux uses its default). Pinned windows live in
+  // `_rk-pin-*` sessions filtered out of every session list (incl. the SSE
+  // stream), so we can NOT look the window up in `ctx.sessionsByServer`;
+  // `BoardEntry.panes` already carries per-pane cwd + isActive from the getBoard
+  // join, matching terminal-mode's active-pane worktreePath semantics. Null when
+  // the board is empty (no focused tile). Declared ABOVE `boardRouteActions` so
+  // the palette handlers consume it directly instead of re-deriving the
+  // active-pane cwd (parsimony — one derivation, one source of truth).
+  const focusedPane = useMemo(() => {
+    const e = entries[focusedIndex];
+    if (!e) return null;
+    const panes = e.panes ?? [];
+    const active = panes.find((p) => p.isActive) ?? panes[0];
+    return { server: e.server, windowId: e.windowId, cwd: active?.cwd };
+  }, [entries, focusedIndex]);
+
+  // Unpin the focused tile (non-destructive move-out). The board ✕ became a
+  // REAL close-pane in 260715-6jwn (uniform with terminal mode — it kills the
+  // focused tile's active pane, no confirm, focused-ring disambiguated), so the
+  // ✕ no longer unpins. `unpinFocused` now survives ONLY as the `Board: Unpin
+  // Focused Pane` palette-action handler (wired into `boardRouteActions` below)
+  // — unpin also stays on the tile header. Declared ABOVE `boardRouteActions` so
+  // the palette action consumes this shared handler rather than re-inlining
+  // `unpin(...)` (parsimony — one unpin derivation, matching R6).
+  const unpinFocused = useCallback(() => {
+    const e = entries[focusedIndex];
+    if (e) unpin(e.server, e.windowId, name);
+  }, [entries, focusedIndex, unpin, name]);
+
   // Board-route-scoped command palette actions. Constitution V (Keyboard-First)
   // requires every action be keyboard-reachable — AppShell's palette is not
   // mounted here (the board route does not render AppShell, see DD-8), so
   // BoardPage owns its own palette mount with the entries that are meaningful
   // on a board route: switch to other boards, leave the board view, cycle pane
-  // focus, the global terminal-font controls (the board's panes are live
-  // terminals; the setting is global), and "View: Refresh Page" (duplicated
-  // from AppShell's viewActions — see refreshEntry below). Pin/Unpin Current
-  // Window are AppShell-only (no current window exists in single-window sense
-  // on a board route).
+  // focus, split/close the focused pane, the global terminal-font controls (the
+  // board's panes are live terminals; the setting is global), and "View: Refresh
+  // Page" (duplicated from AppShell's viewActions — see refreshEntry below).
+  // Pin/Unpin Current Window are AppShell-only (no current window exists in
+  // single-window sense on a board route).
   const boardRouteActions: PaletteAction[] = useMemo(() => {
     const switchEntries: PaletteAction[] = boards.map((b) => ({
       id: `board-switch-${b.name}`,
@@ -532,14 +582,44 @@ function BoardPageContent({ name }: { name: string }) {
           setFocusedIndex((prev) => (prev - 1 + entries.length) % entries.length);
         },
       });
-      // Keyboard parity for the top-bar board ✕ (Constitution V; 260704-9o7k).
-      // Unpins the focused pane (non-destructive) — mirrors `unpinFocused`.
+      // Keyboard parity for the tile-header unpin (Constitution V; 260704-9o7k).
+      // Unpins the focused pane (non-destructive) via the shared `unpinFocused`
+      // handler — the single unpin derivation (R6). The top-bar ✕ became a kill
+      // in 260715-6jwn, but unpin still lives here + on the tile header.
       conditional.push({
         id: "board-unpin-focused",
         label: "Board: Unpin Focused Pane",
+        onSelect: unpinFocused,
+      });
+
+      // Keyboard parity for the top-bar board SplitButtons + ✕ (Constitution V;
+      // 260715-6jwn). Act on the focused tile's window via the shared
+      // `focusedPane` memo — the SAME `{server, windowId, cwd}` the top-bar slot
+      // consumes, so there is one derivation of the active-pane cwd, not a
+      // duplicated per-handler lookup (parsimony). Split mirrors the terminal
+      // PALETTE's `horizontal` mapping (Vertical → horizontal: true — the
+      // documented cross-surface divergence with the top-bar chip labels, left
+      // out of scope). Close = kill the focused tile's active pane (schedules a
+      // self-heal refetch via the executeClosePane `onSettled`).
+      conditional.push({
+        id: "board-split-vertical",
+        label: "Board: Split Focused Pane Vertical",
         onSelect: () => {
-          const e = entries[focusedIndex];
-          if (e) unpin(e.server, e.windowId, name);
+          if (focusedPane) executeSplit(focusedPane.server, focusedPane.windowId, true, focusedPane.cwd);
+        },
+      });
+      conditional.push({
+        id: "board-split-horizontal",
+        label: "Board: Split Focused Pane Horizontal",
+        onSelect: () => {
+          if (focusedPane) executeSplit(focusedPane.server, focusedPane.windowId, false, focusedPane.cwd);
+        },
+      });
+      conditional.push({
+        id: "board-close-focused",
+        label: "Board: Close Focused Pane",
+        onSelect: () => {
+          if (focusedPane) executeClosePane(focusedPane.server, focusedPane.windowId);
         },
       });
 
@@ -598,7 +678,7 @@ function BoardPageContent({ name }: { name: string }) {
     }
 
     return [...switchEntries, ...conditional, ...fontEntries, refreshEntry, helpEntry, ...updateEntries, ...maintenanceEntries, ...versionEntries];
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpin, reorder, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateLatest, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, focusedPane, reorder, executeSplit, executeClosePane, navigate, addToast, increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, updateQualifies, updateLatest, updateNow, dismissUpdate, brew, daemonVersion, forceUpdateNow, restartNow]);
 
   // Pane-server count (distinct servers) used by TopBar board-mode info.
   const serverCount = useMemo(() => {
@@ -654,22 +734,26 @@ function BoardPageContent({ name }: { name: string }) {
     return true;
   }, [entries, ctx.isConnectedByServer]);
 
-  // Board ✕ = unpin the focused pane (non-destructive). Distinct from the tmux
-  // pane-kill the terminal ✕ does — a top-bar button that killed whatever agent
-  // happens to be focused would be an expensive misclick; kill stays in the
-  // pane's own UI. Shared by the top-bar ✕ and the palette action below.
-  const unpinFocused = useCallback(() => {
-    const e = entries[focusedIndex];
-    if (e) unpin(e.server, e.windowId, name);
-  }, [entries, focusedIndex, unpin, name]);
+  // Self-heal after a top-bar ✕ kill (260715-6jwn): killing the last pane of a
+  // window collapses its single-window pin-session with NO `board-changed`
+  // event, and `useBoardEntries` subscribes only to `board-changed`, so the
+  // dead tile would linger. Refetch so `getBoard` (which skips vanished
+  // pin-sessions) drops it; an emptied board vanishes from GET /api/boards,
+  // leaving the empty-state route. Harmless after a non-window-killing kill
+  // (the entry still resolves).
+  const handlePaneClosed = useCallback(() => {
+    refetch();
+  }, [refetch]);
 
   // Publish the board TopBar's page-owned props into the persistent root bar's
   // slot (260707-4vq2). `mode` (`board`) and `boardName` are derived at root
-  // from the route; the board extras (counts, waiting badge, board switcher,
-  // ✕-unpin handler) travel through the slot. Session/window props stay
-  // tolerant-empty (board mode has no session context, L1 chrome stays hidden
-  // via `currentWindow: null`). Memoized so the registration effect re-runs
-  // only when a board prop changes.
+  // from the route; the board extras (counts, waiting badge, board switcher, the
+  // focused-tile split/close target + self-heal seam) travel through the slot.
+  // Session/window props stay tolerant-empty (board mode has no session context,
+  // the terminal-only L1 chrome — ViewSwitcher/FixedWidthToggle — stays hidden
+  // via `currentWindow: null`; the board SplitButtons key on `focusedPane`
+  // instead). Memoized so the registration effect re-runs only when a board prop
+  // changes.
   const boardTopBarBoards = useMemo(
     () => boards.map((b) => ({ name: b.name })),
     [boards],
@@ -697,8 +781,12 @@ function BoardPageContent({ name }: { name: string }) {
         serverCount,
         waitingPaneCount,
         boards: boardTopBarBoards,
-        onCloseFocused: unpinFocused,
-        closeDisabled: entries.length === 0,
+        // 260715-6jwn: the top-bar ✕ + SplitButtons act on the focused tile's
+        // window (`focusedPane`); the ✕ is a real close-pane now (NOT unpin),
+        // with `onPaneClosed` driving the self-heal refetch. Unpin left the ✕
+        // entirely — it lives on the tile header + the palette action.
+        focusedPane,
+        onPaneClosed: handlePaneClosed,
         autofit,
         onToggleAutofit: toggleAutofit,
       }),
@@ -710,7 +798,8 @@ function BoardPageContent({ name }: { name: string }) {
         serverCount,
         waitingPaneCount,
         boardTopBarBoards,
-        unpinFocused,
+        focusedPane,
+        handlePaneClosed,
         autofit,
         toggleAutofit,
       ],
@@ -795,11 +884,12 @@ function BoardPageContent({ name }: { name: string }) {
 
         {/* Top bar mount moved to the persistent root layout (260707-4vq2).
             Board mode + `boardName` are derived at root from the route; the
-            board extras (pane/server counts, waiting badge, board switcher,
-            and the ✕ that UNPINS THE FOCUSED PANE — `onCloseFocused`,
-            260704-9o7k, a non-destructive move-out, NOT a tmux kill) are
-            published into the slot context via the `useRegisterTopBarSlot`
-            effect above. L1 terminal-only chrome stays hidden via
+            board extras (pane/server counts, waiting badge, board switcher, and
+            the focused-tile split/close target `focusedPane` + `onPaneClosed`
+            self-heal seam — the ✕ is a real close-pane now, 260715-6jwn, NOT
+            unpin) are published into the slot context via the
+            `useRegisterTopBarSlot` effect above. The terminal-only L1 chrome
+            (ViewSwitcher / FixedWidthToggle) stays hidden via
             `currentWindow: null`. */}
 
         {/* Content grid area — horizontal-scroll body. Viewport begins

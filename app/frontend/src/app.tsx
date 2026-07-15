@@ -271,8 +271,8 @@ function RootTopBar() {
       serverCount={slot?.serverCount}
       waitingPaneCount={slot?.waitingPaneCount}
       boards={slot?.boards}
-      onCloseFocused={slot?.onCloseFocused}
-      closeDisabled={slot?.closeDisabled}
+      focusedPane={slot?.focusedPane}
+      onPaneClosed={slot?.onPaneClosed}
       autofit={slot?.autofit}
       onToggleAutofit={slot?.onToggleAutofit}
       availableViews={slot?.availableViews}

@@ -580,6 +580,56 @@ func TestBroadcastBoardOrderFansOutToAllClients(t *testing.T) {
 	}
 }
 
+// TestBroadcastStatusRefreshFansOutToAllClients verifies the server-global
+// contract for `event: status-refresh`: a single broadcast reaches EVERY
+// connected client regardless of server key — including the metrics-only
+// (`?metrics=1`) client — and carries a `completedAt` field. Unlike
+// server-order/board-order it is broadcast-ONLY: a client that connects AFTER
+// the broadcast must NOT receive a replayed status-refresh frame (no cached slot).
+func TestBroadcastStatusRefreshFansOutToAllClients(t *testing.T) {
+	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
+	hub := newSSEHub(sf, nil, nil, nil)
+
+	rkClient := &sseClient{ch: make(chan []byte, 16), server: "runkit"}
+	dfClient := &sseClient{ch: make(chan []byte, 16), server: "default"}
+	moClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(rkClient)
+	hub.addClient(dfClient)
+	hub.addClient(moClient)
+	defer hub.removeClient(rkClient)
+	defer hub.removeClient(dfClient)
+	defer hub.removeClient(moClient)
+
+	hub.broadcastStatusRefresh(time.Date(2026, 7, 15, 10, 23, 41, 0, time.UTC))
+
+	for name, c := range map[string]*sseClient{"runkit": rkClient, "default": dfClient, "metrics-only": moClient} {
+		var events []string
+		for len(c.ch) > 0 {
+			events = append(events, string(<-c.ch))
+		}
+		got := filterSSEEvents(events, "status-refresh")
+		if len(got) == 0 {
+			t.Fatalf("%s client received no status-refresh event (all: %v)", name, events)
+		}
+		if !strings.Contains(got[0], `"completedAt":"2026-07-15T10:23:41Z"`) {
+			t.Errorf("%s client status-refresh payload = %q, want completedAt 2026-07-15T10:23:41Z", name, got[0])
+		}
+	}
+
+	// Broadcast-only: a client connecting AFTER the broadcast gets NO replay
+	// (there is no cached slot, unlike server-order/board-order/update-available).
+	lateClient := &sseClient{ch: make(chan []byte, 16), server: metricsOnlyServer}
+	hub.addClient(lateClient)
+	defer hub.removeClient(lateClient)
+	var lateEvents []string
+	for len(lateClient.ch) > 0 {
+		lateEvents = append(lateEvents, string(<-lateClient.ch))
+	}
+	if replay := filterSSEEvents(lateEvents, "status-refresh"); len(replay) != 0 {
+		t.Errorf("late client received a replayed status-refresh (should be broadcast-only): %v", replay)
+	}
+}
+
 // TestBroadcastBoardOrderNilNormalizedToEmpty verifies a nil order broadcasts
 // (and caches) as "[]" rather than "null", matching broadcastServerOrder.
 func TestBroadcastBoardOrderNilNormalizedToEmpty(t *testing.T) {

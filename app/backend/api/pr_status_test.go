@@ -2,6 +2,7 @@ package api
 
 import (
 	"testing"
+	"time"
 
 	"rk/internal/prstatus"
 	"rk/internal/sessions"
@@ -135,6 +136,47 @@ func TestAttachPRStatusResetsCollectorFields(t *testing.T) {
 	// wrongly owned by prOwnsDot.
 	if w.PrState != "closed" {
 		t.Errorf("branch-derived PrState fallback must be preserved on collector miss, got %q: %+v", w.PrState, w)
+	}
+}
+
+// TestAttachPRStatusFetchedAt verifies PrFetchedAt is collector-join-owned like
+// PrChecks/PrReview/PrIsDraft: set from the snapshot entry's FetchedAt on a
+// URL-keyed hit, and reset to nil on a miss (incl. empty/nil PrURL and a
+// pre-populated stale value) so a URL-miss window carries no stale timestamp.
+func TestAttachPRStatusFetchedAt(t *testing.T) {
+	fetched := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	stale := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	hub := &sseHub{
+		prStatus: stubSnapshotter{snap: map[string]prstatus.PRStatus{
+			"u386": {Number: 386, URL: "u386", State: "open", FetchedAt: fetched},
+		}},
+	}
+	sess := []sessions.ProjectSession{{
+		Name: "dev",
+		Windows: []tmux.WindowInfo{
+			// hit → PrFetchedAt set to the snapshot's FetchedAt
+			{Index: 0, PrNumber: intp(386), PrURL: strp("u386")},
+			// miss (URL not in snapshot) with a stale pre-populated value → reset nil
+			{Index: 1, PrNumber: intp(123), PrURL: strp("u123"), PrFetchedAt: &stale},
+			// no PrURL with a stale value → reset nil
+			{Index: 2, PrURL: nil, PrFetchedAt: &stale},
+		},
+	}}
+
+	hub.attachPRStatus(sess)
+	ws := sess[0].Windows
+
+	if ws[0].PrFetchedAt == nil {
+		t.Fatalf("window 0 (hit) PrFetchedAt is nil, want %v", fetched)
+	}
+	if !ws[0].PrFetchedAt.Equal(fetched) {
+		t.Errorf("window 0 PrFetchedAt = %v, want %v", *ws[0].PrFetchedAt, fetched)
+	}
+	if ws[1].PrFetchedAt != nil {
+		t.Errorf("window 1 (miss) PrFetchedAt must reset to nil, got %v", *ws[1].PrFetchedAt)
+	}
+	if ws[2].PrFetchedAt != nil {
+		t.Errorf("window 2 (no URL) PrFetchedAt must reset to nil, got %v", *ws[2].PrFetchedAt)
 	}
 }
 

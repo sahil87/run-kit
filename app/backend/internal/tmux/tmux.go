@@ -429,6 +429,12 @@ type WindowInfo struct {
 	PrChecks  string     `json:"prChecks,omitempty"`
 	PrReview  string     `json:"prReview,omitempty"`
 	PrIsDraft bool       `json:"prIsDraft,omitempty"`
+	// PrFetchedAt is when the joined PR status was last fetched by the viewer-wide
+	// collector (prstatus.PRStatus.FetchedAt). Collector-join-owned like
+	// PrChecks/PrReview/PrIsDraft: set on a URL-keyed snapshot hit, reset to nil on
+	// a miss. Surfaced in the StatusDotTip as an ambient "checked Xs ago" freshness
+	// line; a manual refresh visibly resets it.
+	PrFetchedAt *time.Time `json:"prFetchedAt,omitempty"`
 	RkType    string     `json:"rkType,omitempty"`
 	RkUrl     string     `json:"rkUrl,omitempty"`
 	Panes     []PaneInfo `json:"panes,omitempty"`

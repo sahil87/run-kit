@@ -640,6 +640,47 @@ func (h *sseHub) broadcastUpdateAvailable(current, latest string) {
 	}
 }
 
+// broadcastStatusRefresh pushes a server-global `event: status-refresh` to EVERY
+// connected client across every server key (including the `?metrics=1`
+// metrics-only stream). It is emitted from finishStatusRefresh() at the end of
+// the detached POST /api/status/refresh pass, signalling "the forced refresh
+// completed — you're current" so the PANE-header refresh button can clear its
+// spinner (which spins click→event, not click→POST). A manual refresh is a
+// HOST-global concern (both PR pollers are process-wide, not per-`?server=`), so
+// this fans out to all clients like broadcastServerOrder/broadcastUpdateAvailable,
+// NOT to one server's clients like broadcastBoardChanged.
+//
+// Broadcast-only: unlike server-order/board-order/update-available there is NO
+// cached slot and NO replay-on-connect. Freshness for a late-connecting client
+// is surfaced independently by the StatusDotTip's "checked Xs ago" line
+// (PrFetchedAt), so a missed completion pulse loses nothing.
+func (h *sseHub) broadcastStatusRefresh(completedAt time.Time) {
+	payload := struct {
+		CompletedAt string `json:"completedAt"`
+	}{CompletedAt: completedAt.UTC().Format(time.RFC3339)}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("status-refresh broadcast marshal failed", "err", err)
+		return
+	}
+	event := []byte(fmt.Sprintf("event: status-refresh\ndata: %s\n\n", string(jsonBytes)))
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, cs := range h.clients {
+		for _, c := range cs {
+			select {
+			case c.ch <- event:
+			default:
+				if !c.dropped {
+					slog.Warn("SSE event dropped", "event", "status-refresh")
+					c.dropped = true
+				}
+			}
+		}
+	}
+}
+
 // broadcastBoardChanged pushes a board-changed event to every client
 // connected for the supplied server. The payload is rendered as JSON and
 // emitted using the shared SSE envelope. No payload caching is performed:
@@ -844,8 +885,11 @@ func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
 			w := &windows[wi]
 			// Reset collector-only fields so stale values never linger. PrState
 			// is left intact: it holds enrichWindowPR's branch fallback and is
-			// overridden below only on a collector hit.
-			w.PrChecks, w.PrReview, w.PrIsDraft = "", "", false
+			// overridden below only on a collector hit. PrFetchedAt is
+			// collector-join-owned like PrChecks/PrReview/PrIsDraft, so it resets
+			// to nil here and is re-attached solely on a snapshot hit — a URL-miss
+			// window carries no stale freshness timestamp.
+			w.PrChecks, w.PrReview, w.PrIsDraft, w.PrFetchedAt = "", "", false, nil
 			if w.PrURL == nil || *w.PrURL == "" {
 				continue
 			}
@@ -854,6 +898,10 @@ func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
 				w.PrChecks = st.Checks
 				w.PrReview = st.ReviewDecision
 				w.PrIsDraft = st.IsDraft
+				// st is a value copy scoped to this block, so taking its address
+				// yields a stable pointer independent of the loop/snapshot.
+				fetchedAt := st.FetchedAt
+				w.PrFetchedAt = &fetchedAt
 			}
 		}
 	}

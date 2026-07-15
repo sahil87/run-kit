@@ -96,6 +96,10 @@ export type WindowInfo = {
   prChecks?: "pass" | "fail" | "pending" | "none";
   prReview?: "approved" | "changes_requested" | "review_required" | "none";
   prIsDraft?: boolean;
+  /** ISO timestamp (RFC3339) of when the joined PR status was last fetched by
+   *  the viewer-wide collector. Collector-join-owned (set on a URL hit, absent
+   *  on a miss); surfaced as the StatusDotTip's "checked Xs ago" freshness line. */
+  prFetchedAt?: string;
   rkType?: string;
   rkUrl?: string;
   /** Window-level rollup of the panes' `@rk_chat` pane option (active-pane-first,

@@ -114,6 +114,12 @@ export type SessionContextType = {
    *  per-server pool streams and the dedicated `?metrics=1` stream, since the
    *  event is host-global (identical on every stream). */
   subscribeBoardOrder: (handler: () => void) => () => void;
+  /** Subscribe to the server-global `status-refresh` event (a manual PR-status
+   *  refresh completed). Returns an unsubscribe function. Fired from both the
+   *  per-server pool streams and the dedicated `?metrics=1` stream, since the
+   *  event is host-global (broadcast-only, no cached payload). The PANE-header
+   *  refresh button subscribes to clear its spinner on completion. */
+  subscribeStatusRefresh: (handler: () => void) => () => void;
   /** The running daemon version reported over the server-global `event: version`
    *  (no leading "v"). `null` until the first `version` event. */
   daemonVersion: string | null;
@@ -415,6 +421,28 @@ export function SessionProvider({ children }: SessionProviderProps) {
     }
   }, []);
 
+  // Status-refresh completion subscribers (server-global). Same ref-of-handlers
+  // pattern as boardOrderSubscribersRef: a manual PR-status refresh completing
+  // server-side fans out `event: status-refresh` to every stream, and the
+  // PANE-header refresh button subscribes to clear its spinner (it spins
+  // click→event, not click→POST).
+  const statusRefreshSubscribersRef = useRef<Set<() => void>>(new Set());
+  const subscribeStatusRefresh = useCallback((handler: () => void) => {
+    statusRefreshSubscribersRef.current.add(handler);
+    return () => {
+      statusRefreshSubscribersRef.current.delete(handler);
+    };
+  }, []);
+  const fireStatusRefresh = useCallback(() => {
+    for (const handler of statusRefreshSubscribersRef.current) {
+      try {
+        handler();
+      } catch {
+        // ignore individual subscriber errors
+      }
+    }
+  }, []);
+
   // Effective attach set = currentServer ∪ attachedNonCurrent ∩ knownServers.
   // We intersect with known servers so that disappeared servers don't keep ES open.
   const attachedSet = useMemo(() => {
@@ -669,6 +697,13 @@ export function SessionProvider({ children }: SessionProviderProps) {
         fireBoardOrder();
       });
 
+      // status-refresh — server-global (a manual PR-status refresh completed).
+      // Fire the subscribers so the PANE-header refresh button clears its
+      // spinner. Broadcast-only (no cached payload); host-global, no server filter.
+      es.addEventListener("status-refresh", () => {
+        fireStatusRefresh();
+      });
+
       // version — server-global (sent on connect on every stream). Track the
       // running daemon version + boot id + brew flag and drive the post-restart
       // reload guard. `boot`/`brew` are parsed tolerantly (an older daemon sends
@@ -793,7 +828,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // cycles in Strict Mode dev. Real cleanup happens implicitly when the
     // window unloads. The pool dedupes via `pool.has(name)` so re-runs are
     // safe without close-then-reopen.
-  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, applyVersion, applyUpdateAvailable]);
+  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, fireStatusRefresh, applyVersion, applyUpdateAvailable]);
 
   // Dedicated server-independent host-metrics stream, opened ONLY when no
   // per-server stream is open (`attachedSet` empty — the bare `/` case with
@@ -897,6 +932,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
     es.addEventListener("board-order", () => {
       fireBoardOrder();
     });
+    // `event: status-refresh` also rides the server-global broadcast — a refresh
+    // button on any page (incl. the bare `/` Cockpit with zero attached servers)
+    // must clear its spinner when the daemon signals completion.
+    es.addEventListener("status-refresh", () => {
+      fireStatusRefresh();
+    });
     // `event: version` / `event: update-available` are server-global too, so the
     // bare `/` Cockpit (zero attached servers) must still learn the daemon
     // version (reload guard) and any pending update (chip/palette). Mirror the
@@ -929,7 +970,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     // (the effect body closes the stream when it flips false), not by effect
     // teardown. A cleanup close() would tear down the connection on every
     // StrictMode remount and orphan the ref-guarded reopen.
-  }, [hostMetricsWanted, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, applyVersion, applyUpdateAvailable]);
+  }, [hostMetricsWanted, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, fireStatusRefresh, applyVersion, applyUpdateAvailable]);
 
   // Derive per-field Maps from the slice Map. Memoized so unrelated re-renders
   // don't churn consumer references. Each Map is a fresh reference whenever
@@ -1007,6 +1048,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       attachServer,
       subscribeBoardChange,
       subscribeBoardOrder,
+      subscribeStatusRefresh,
       daemonVersion,
       updateAvailable,
       updateDismissedVersion,
@@ -1033,6 +1075,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       attachServer,
       subscribeBoardChange,
       subscribeBoardOrder,
+      subscribeStatusRefresh,
       daemonVersion,
       updateAvailable,
       updateDismissedVersion,
@@ -1201,6 +1244,7 @@ export function StandaloneSessionContextProvider({
     attachServer: value.attachServer ?? (() => {}),
     subscribeBoardChange: value.subscribeBoardChange ?? (() => () => {}),
     subscribeBoardOrder: value.subscribeBoardOrder ?? (() => () => {}),
+    subscribeStatusRefresh: value.subscribeStatusRefresh ?? (() => () => {}),
     daemonVersion: value.daemonVersion ?? null,
     updateAvailable: value.updateAvailable ?? null,
     updateDismissedVersion: value.updateDismissedVersion ?? null,

@@ -373,14 +373,26 @@ export async function initTmuxConf(): Promise<{ ok: boolean }> {
  *  extra call is coalesced/throttled server-side and still 202s. Best-effort /
  *  fire-and-forget: callers ignore the result. Server-independent (both pollers
  *  are global). */
-export async function refreshStatus(): Promise<{ ok: boolean }> {
+/** The tri-state outcome of a manual status refresh, from the 202 body:
+ *  - `started`   — a new pass began; a `status-refresh` completion event will follow.
+ *  - `coalesced` — a pass is already in flight; ITS completion event will follow.
+ *  - `throttled` — nothing started (within the server's min-interval); NO event will come. */
+export type RefreshStatusOutcome = "started" | "coalesced" | "throttled";
+
+export async function refreshStatus(): Promise<{ status: RefreshStatusOutcome }> {
   const res = await fetch("/api/status/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
   if (!res.ok) await throwOnError(res);
-  return { ok: true };
+  // Parse the tri-state body. Default an unknown/missing/legacy value (an older
+  // daemon returns the opaque {"status":"refreshing"}) to "started" so the
+  // caller still spins-until-event — the safe superset behavior.
+  const body = (await res.json().catch(() => ({}))) as { status?: string };
+  const status =
+    body.status === "coalesced" || body.status === "throttled" ? body.status : "started";
+  return { status };
 }
 
 /** Trigger a one-click self-upgrade of the daemon: POST /api/update. The server

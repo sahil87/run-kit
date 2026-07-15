@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { refreshStatus } from "@/api/client";
+import { useSessionContext } from "@/contexts/session-context";
 import { useNow } from "@/hooks/use-now";
 import { BrailleSnake } from "@/components/braille-snake";
 import { ClockSpinner } from "@/components/clock-spinner";
@@ -15,6 +16,21 @@ import type { WindowInfo } from "@/types";
 type CopyableRowKey = "tmx" | "cwd" | "git" | "fab" | "pr";
 
 const COPY_FEEDBACK_MS = 1000;
+
+// How long the post-completion / throttled "checkmark" shows before reverting to
+// the idle refresh icon (mirrors COPY_FEEDBACK_MS's feedback cadence).
+const REFRESH_CHECK_MS = 1000;
+
+// UI fallback that clears a stuck spinner if no `status-refresh` completion event
+// arrives (network drop / a client that missed the broadcast). The backend pass
+// is bounded by statusRefreshTimeout = 60s; a snappier practical fallback is fine
+// since the freshness "checked Xs ago" line covers the ambient case.
+const REFRESH_FALLBACK_MS = 15000;
+
+/** PANE-header refresh button feedback state. `idle` = the rotate-cw icon;
+ *  `spinning` = waiting for the server-global `status-refresh` completion event
+ *  (started/coalesced); `check` = a brief "done / already fresh" checkmark. */
+type RefreshButtonState = "idle" | "spinning" | "check";
 
 type WindowPanelProps = {
   window: WindowInfo | null;
@@ -127,58 +143,162 @@ function getPrSegments(win: WindowInfo): PrSegment[] | null {
 }
 
 /**
- * PANE-header refresh button (260715-jykd). Kicks a server-side on-demand
- * refresh of BOTH PR pollers via POST /api/status/refresh (`refreshStatus`); the
- * fresh state lands via SSE within ~2.5s. Shows a busy/spinning state while the
- * POST is in flight, cleared when it settles. Scope-honest: this refreshes
- * PR/status freshness (the other PANE registers are already fresh within ~7.5s).
+ * PANE-header refresh button (260715-jykd; feedback state machine 260715-nwla).
+ * Kicks a server-side on-demand refresh of BOTH PR pollers via POST
+ * /api/status/refresh (`refreshStatus`). The honest feedback loop:
  *
- * Rendered via CollapsiblePanel's `headerAction` (whose clicks are stopped from
- * toggling the panel — not `headerRight`, which is the StatusDot+name slot inside
- * the toggle button). Follows the top-bar/board RefreshButton CRT-glint
- * vocabulary (`rk-glint`). The refresh is server-global, so it renders whether or
- * not a window is selected. Best-effort/fire-and-forget: server-side coalescing +
- * a min-interval throttle make it safe to over-fire, so errors are swallowed.
+ *   - `started` / `coalesced` → SPIN from click until the server-global
+ *     `status-refresh` completion event arrives (NOT until the POST settles —
+ *     the POST returns 202 in ~ms while the real gh work runs 1–10s detached),
+ *     then flash a brief checkmark ("done — you're current"). A 15s fallback
+ *     clears a stuck spinner if the event is missed.
+ *   - `throttled` → nothing was started and no event will come, so DON'T spin;
+ *     flash the "already fresh" checkmark immediately instead.
+ *
+ * Completion is delivered via `subscribeStatusRefresh` (the server-global SSE
+ * `status-refresh` event routed through the session context). Rendered via
+ * CollapsiblePanel's `headerAction` (whose clicks are stopped from toggling the
+ * panel). Follows the top-bar/board RefreshButton CRT-glint vocabulary
+ * (`rk-glint`). The refresh is server-global, so it renders whether or not a
+ * window is selected. Best-effort/fire-and-forget: server-side coalescing + a
+ * min-interval throttle make it safe to over-fire, so errors are swallowed (the
+ * fallback still clears any spinner).
  */
 function PaneRefreshButton() {
-  const [busy, setBusy] = useState(false);
+  const { subscribeStatusRefresh } = useSessionContext();
+  const [state, setState] = useState<RefreshButtonState>("idle");
+  // Fallback timer (spinner watchdog) and check-flash timer, cleared on any
+  // transition and on unmount so a stale timer can't overwrite a newer state.
+  const fallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearFallback() {
+    if (fallbackRef.current !== null) {
+      clearTimeout(fallbackRef.current);
+      fallbackRef.current = null;
+    }
+  }
+  function clearCheck() {
+    if (checkRef.current !== null) {
+      clearTimeout(checkRef.current);
+      checkRef.current = null;
+    }
+  }
+  // Transition to the brief checkmark, then auto-revert to idle.
+  function flashCheck() {
+    clearFallback();
+    clearCheck();
+    setState("check");
+    checkRef.current = setTimeout(() => {
+      checkRef.current = null;
+      setState("idle");
+    }, REFRESH_CHECK_MS);
+  }
+
+  // While spinning, a completed refresh (this tab's or any other's) clears the
+  // spinner into the post-completion checkmark. Subscribe only when spinning so
+  // an unrelated completion doesn't flash an idle button.
+  useEffect(() => {
+    if (state !== "spinning") return;
+    const unsubscribe = subscribeStatusRefresh(() => flashCheck());
+    return unsubscribe;
+    // flashCheck is stable in effect terms (only touches refs + setState); the
+    // subscription is re-established on each spin entry, which is what we want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, subscribeStatusRefresh]);
+
+  // Clean up any pending timers on unmount.
+  useEffect(() => {
+    return () => {
+      clearFallback();
+      clearCheck();
+    };
+  }, []);
+
+  function handleClick() {
+    // Ignore clicks while already spinning; a click during the check flash
+    // starts a fresh cycle (the throttle server-side makes it safe to over-fire).
+    if (state === "spinning") return;
+    clearCheck();
+    clearFallback();
+    setState("spinning");
+    // Arm the spinner watchdog at click entry, NOT inside `.then`: for a
+    // started/coalesced click the completion event can beat the POST settle, so
+    // arming in `.then` would (re)start a 15s timer after flashCheck() already
+    // cleared it — a phantom checkmark ~15s later. Arming here means the event's
+    // flashCheck (and the throttled/.catch paths) clear a timer that's already
+    // running, and a hung POST is bounded rather than spinning forever.
+    fallbackRef.current = setTimeout(() => {
+      fallbackRef.current = null;
+      flashCheck();
+    }, REFRESH_FALLBACK_MS);
+    void refreshStatus()
+      .then(({ status }) => {
+        if (status === "throttled") {
+          // Nothing started and no event will come — flash "already fresh"
+          // (flashCheck clears the fallback armed above).
+          flashCheck();
+        }
+        // started / coalesced: keep spinning until the completion event; the
+        // fallback armed at click entry already covers a missed event.
+      })
+      .catch(() => {
+        // Best-effort/fire-and-forget: a non-2xx rejects (shared throwOnError).
+        // Don't leave a stuck spinner — return to idle (clear the fallback too).
+        clearFallback();
+        setState("idle");
+      });
+  }
+
+  const spinning = state === "spinning";
+  const showCheck = state === "check";
+
   return (
     <button
       type="button"
-      onClick={() => {
-        if (busy) return;
-        setBusy(true);
-        // Best-effort/fire-and-forget: refreshStatus() rejects on a non-2xx (it
-        // shares throwOnError with the other client fns), so swallow the
-        // rejection to avoid an unhandled promise rejection on network/server
-        // failure — mirroring the palette caller (app.tsx). The server-side
-        // coalesce + min-interval throttle already make it safe to over-fire.
-        void refreshStatus()
-          .catch(() => {})
-          .finally(() => setBusy(false));
-      }}
-      disabled={busy}
+      onClick={handleClick}
+      disabled={spinning}
       aria-label="Refresh PR status"
       title="Refresh PR status"
       data-testid="pane-refresh"
+      data-state={state}
       className="rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-60"
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-        className={busy ? "animate-spin" : undefined}
-      >
-        {/* lucide rotate-cw: circular arrow with a top-right arrowhead */}
-        <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-        <path d="M21 3v5h-5" />
-      </svg>
+      {showCheck ? (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          data-testid="pane-refresh-check"
+          className="text-accent"
+        >
+          {/* checkmark — "done, you're current" */}
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      ) : (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className={spinning ? "animate-spin" : undefined}
+        >
+          {/* lucide rotate-cw: circular arrow with a top-right arrowhead */}
+          <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+          <path d="M21 3v5h-5" />
+        </svg>
+      )}
     </button>
   );
 }

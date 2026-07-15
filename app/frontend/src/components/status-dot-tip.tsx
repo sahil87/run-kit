@@ -14,6 +14,8 @@ import {
 } from "@floating-ui/react";
 import { dotLabel } from "@/components/status-dot-label";
 import type { StatusDotState } from "@/components/pr-status-line";
+import { formatDuration } from "@/lib/format";
+import { useNow } from "@/hooks/use-now";
 import type { WindowInfo } from "@/types";
 
 /**
@@ -30,8 +32,16 @@ const STATUS_DOT_DOCS_URL =
 export type DotLink = { label: string; href: string; testid: string };
 
 /** Resolved hover-card content for a window+state. `agent` is the L1 agent
- *  line (`agent: waiting 3m` / `active` / `idle 12m`), null when no agent. */
-export type DotTipContent = { label: string; agent: string | null; links: DotLink[] };
+ *  line (`agent: waiting 3m` / `active` / `idle 12m`), null when no agent.
+ *  `fetchedAtEpoch` is the PR-status fetch time as epoch SECONDS (parsed from
+ *  `prFetchedAt`), null when absent/unparseable — the card renders a relative
+ *  "checked Xs ago" line from it (formatted in the component so it ticks). */
+export type DotTipContent = {
+  label: string;
+  agent: string | null;
+  links: DotLink[];
+  fetchedAtEpoch: number | null;
+};
 
 /**
  * Agent line for the hover card (status-pyramid.md § Attention Propagation —
@@ -77,7 +87,12 @@ export function dotTipContent(win: WindowInfo, state: StatusDotState): DotTipCon
       testid: "dot-tip-pr-link",
     });
   }
-  return { label, agent, links };
+  // Parse the PR-status fetch time to epoch seconds; null when absent or
+  // unparseable (Date.parse → NaN) so the card omits the freshness line rather
+  // than rendering "checked NaNs ago".
+  const parsed = win.prFetchedAt ? Date.parse(win.prFetchedAt) : NaN;
+  const fetchedAtEpoch = Number.isNaN(parsed) ? null : Math.floor(parsed / 1000);
+  return { label, agent, links, fetchedAtEpoch };
 }
 
 /**
@@ -130,6 +145,27 @@ type StatusDotTipProps = {
 };
 
 /**
+ * Freshness line ("checked Xs ago"), rendered as its OWN component so its live
+ * `useNow()` clock is scoped to the leaf that displays it — per use-now.ts, the
+ * per-second tick must stay at the leaf. This component is only mounted inside
+ * the open hover-card (see `{open && …}` below), so the 1/s re-render fires only
+ * while the card is open — the dot wrapper itself never ticks. Returns null when
+ * there is no fetch timestamp (the line is omitted, no "checked NaNs ago").
+ */
+function FreshnessLine({ fetchedAtEpoch }: { fetchedAtEpoch: number | null }) {
+  // Live clock so the relative time ticks while the card is open. `useNow` is a
+  // local display clock (not data polling); reuses the same Ns/Nm/Nh convention
+  // via formatDuration.
+  const nowSeconds = useNow();
+  if (fetchedAtEpoch === null) return null;
+  return (
+    <span className="text-text-secondary whitespace-nowrap" data-testid="dot-tip-checked">
+      {`checked ${formatDuration(nowSeconds - fetchedAtEpoch)} ago`}
+    </span>
+  );
+}
+
+/**
  * Custom hover-card wrapping a `StatusDot`. Replaces the native HTML `title`
  * tooltip: a headless `@floating-ui/react` floating element gives full styling
  * control (terminal aesthetic), portals out of the sidebar's `overflow:hidden`
@@ -143,7 +179,7 @@ type StatusDotTipProps = {
  */
 export function StatusDotTip({ win, state, renderDot }: StatusDotTipProps) {
   const [open, setOpen] = useState(false);
-  const { label, agent, links } = dotTipContent(win, state);
+  const { label, agent, links, fetchedAtEpoch } = dotTipContent(win, state);
 
   const { refs, floatingStyles, context } = useFloating({
     open,
@@ -212,6 +248,12 @@ export function StatusDotTip({ win, state, renderDot }: StatusDotTipProps) {
                 {agent}
               </span>
             )}
+            {/* Freshness line — ambient "PR checked Xs ago", present only on
+                windows with a joined PR status (prFetchedAt). After a manual
+                refresh the timestamp visibly resets (the trust signal without a
+                click). Mounted only here inside the open card so its live clock
+                (useNow) is leaf-scoped — the dot wrapper never ticks. */}
+            <FreshnessLine fetchedAtEpoch={fetchedAtEpoch} />
             {links.map((link) => (
               <a
                 key={link.testid}

@@ -1075,6 +1075,9 @@ export function useSessionContext(): SessionContextType {
  *   - `showChip` — `qualifies` AND not dismissed for the current `latest`. This
  *     is the chip's visibility gate.
  *   - `latest` — the pending latest version string (or `null`).
+ *   - `current` — the currently-running version at the time the update was
+ *     announced (`updateAvailable?.current ?? null`), so the chip can render the
+ *     `v{current} → v{latest}` transition.
  *   - `updateNow` / `dismissUpdate` — the context actions, re-exported for
  *     convenience.
  *   - `daemonVersion` — the running version (or `null`), so the maintenance

@@ -35,3 +35,53 @@ export async function gotoServerReady(
   }
   return sidebar;
 }
+
+/**
+ * Resolve a window's stable tmux id (`@N`) from the backend snapshot by its
+ * display name, scoped to a given server + session. Polls because a CLI-created
+ * window surfaces asynchronously in `GET /api/sessions`. Shared by the window
+ * heading + top-bar overlap specs (both create long-named windows on their own
+ * dedicated session, then need the id for the terminal route).
+ */
+export async function resolveWindow(
+  page: Page,
+  server: string,
+  session: string,
+  windowName: string,
+): Promise<string> {
+  const deadline = Date.now() + 5_000;
+  let id: string | null = null;
+  while (Date.now() < deadline) {
+    const res = await page.request.get(
+      `/api/sessions?server=${encodeURIComponent(server)}`,
+    );
+    if (res.ok()) {
+      const sessions = (await res.json()) as Array<{
+        name: string;
+        windows: Array<{ windowId: string; name: string }>;
+      }>;
+      const win = sessions
+        .find((s) => s.name === session)
+        ?.windows.find((w) => w.name === windowName);
+      if (win) {
+        id = win.windowId;
+        break;
+      }
+    }
+    await page.waitForTimeout(200);
+  }
+  expect(id, `window "${windowName}" not found in snapshot`).not.toBeNull();
+  return id!;
+}
+
+/** Navigate to a specific window's terminal route and wait for connection. */
+export async function gotoWindow(
+  page: Page,
+  server: string,
+  windowId: string,
+): Promise<void> {
+  await page.goto(`/${server}/${encodeURIComponent(windowId)}`);
+  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
+    timeout: 10_000,
+  });
+}

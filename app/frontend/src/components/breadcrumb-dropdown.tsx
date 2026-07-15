@@ -1,7 +1,11 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
 type DropdownAction = { label: string; onAction: () => void };
+
+/** Vertical gap between the trigger's bottom edge and the menu's top (matches
+ *  the old `mt-1` — 0.25rem = 4px). */
+const MENU_GAP_PX = 4;
 
 type Props = {
   items: BreadcrumbDropdownItem[];
@@ -22,6 +26,13 @@ type Props = {
 export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, secondaryAction, triggerClassName, title }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
+  // Viewport-relative position for the fixed-positioned menu. `position: fixed`
+  // takes the menu OUT of the breadcrumb `<nav>`'s clip context (the nav carries
+  // `overflow-hidden` as the top-bar overlap backstop, 260715-q8ey), so an
+  // `absolute` menu would be clipped to the nav's single-line box and its
+  // focus-on-open scroll would drag the nav content off-screen. Anchored to the
+  // trigger's `getBoundingClientRect()` and recomputed on scroll/resize.
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const actionRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -99,6 +110,38 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, sec
     setOpen((v) => !v);
   }, []);
 
+  // Anchor the fixed menu to the trigger's current viewport rect: top-left just
+  // below the trigger, mirroring the old `absolute top-full left-0 mt-1`.
+  const computeMenuPos = useCallback(() => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setMenuPos({ top: rect.bottom + MENU_GAP_PX, left: rect.left });
+  }, []);
+
+  // Position synchronously before paint on open (avoids a first-frame flash at
+  // 0,0); clear the stored position on close so the next open re-measures.
+  useLayoutEffect(() => {
+    if (open) {
+      computeMenuPos();
+    } else {
+      setMenuPos(null);
+    }
+  }, [open, computeMenuPos]);
+
+  // Keep the fixed menu glued to a moving trigger: any scroll (capture:true so
+  // scrolls in ANY ancestor scroll container are heard, not just window) or a
+  // resize recomputes the anchor rather than letting the menu detach.
+  useEffect(() => {
+    if (!open) return;
+    const onReflow = () => computeMenuPos();
+    window.addEventListener("scroll", onReflow, true);
+    window.addEventListener("resize", onReflow);
+    return () => {
+      window.removeEventListener("scroll", onReflow, true);
+      window.removeEventListener("resize", onReflow);
+    };
+  }, [open, computeMenuPos]);
+
   return (
     <div ref={containerRef} className="relative inline-flex items-center">
       <button
@@ -108,9 +151,10 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, sec
         aria-label={label ? `Switch ${label}` : "Switch"}
         title={title}
         onClick={toggle}
-        // rk-glint is safe here: the menu is a SIBLING of the trigger (both
-        // children of the relative wrapper), so the trigger's overflow:hidden
-        // never clips the open menu — same invariant as the top-bar popovers.
+        // rk-glint / trigger `overflow:hidden` is safe: the open menu is
+        // `position: fixed` (anchored to this trigger's viewport rect, below),
+        // so it lives OUTSIDE both this trigger's box and the breadcrumb nav's
+        // `overflow-hidden` clip — no ancestor overflow can clip or displace it.
         className={`min-w-[24px] min-h-[24px] flex items-center gap-1 transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
       >
         <span className="min-w-0 truncate">{icon ?? "\u25BE"}</span>
@@ -127,11 +171,15 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, sec
           </span>
         )}
       </button>
-      {open && (
+      {open && menuPos && (
         <div
           role="menu"
           aria-label={label ? `Switch ${label}` : "Switch"}
-          className="absolute top-full left-0 mt-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] max-w-[240px] z-50 max-h-60 overflow-y-auto"
+          // `fixed` + measured viewport coords (not `absolute top-full`): frees
+          // the menu from the breadcrumb nav's `overflow-hidden` clip context
+          // (260715-q8ey). `left-0` etc. are dropped since positioning is inline.
+          style={{ top: menuPos.top, left: menuPos.left }}
+          className="fixed bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] max-w-[240px] z-50 max-h-60 overflow-y-auto"
         >
           {leadingActions.length > 0 && (
             <>

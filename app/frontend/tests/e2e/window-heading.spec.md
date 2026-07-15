@@ -36,6 +36,10 @@ then resolves to rest).
   handle for the terminal route and the `Rename window <name>` heading label).
 - `gotoWindow(page, id)` navigates to `/${server}/${encodedId}` and waits for
   the `Connected` indicator.
+- Both helpers are now thin file-local wrappers over the shared, parameterized
+  `resolveWindow`/`gotoWindow` in `tests/e2e/_ready.ts` (hoisted in 260715-q8ey
+  so `top-bar-overlap.spec.ts` reuses the same logic); the two-arg call sites in
+  this file are unchanged.
 - The centered heading is a `<button aria-label="Rename window <name>">`; its
   inline editor is a `<input aria-label="Window name">`.
 

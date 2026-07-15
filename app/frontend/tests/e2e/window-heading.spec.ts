@@ -1,5 +1,6 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "./_ready";
 
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Own session so this file never collides with other specs (fullyParallel off).
@@ -8,43 +9,12 @@ const TEST_SESSION = `e2e-heading-${Date.now()}`;
 const BOARD_NAME = `head${Date.now().toString().slice(-6)}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
-/**
- * Resolve a window's stable tmux id (`@N`) from the backend snapshot by its
- * display name. Polls because a CLI-created window surfaces asynchronously.
- */
-async function resolveWindow(page: Page, windowName: string): Promise<string> {
-  const deadline = Date.now() + 5_000;
-  let id: string | null = null;
-  while (Date.now() < deadline) {
-    const res = await page.request.get(
-      `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
-    );
-    if (res.ok()) {
-      const sessions = (await res.json()) as Array<{
-        name: string;
-        windows: Array<{ windowId: string; name: string }>;
-      }>;
-      const win = sessions
-        .find((s) => s.name === TEST_SESSION)
-        ?.windows.find((w) => w.name === windowName);
-      if (win) {
-        id = win.windowId;
-        break;
-      }
-    }
-    await page.waitForTimeout(200);
-  }
-  expect(id, `window "${windowName}" not found in snapshot`).not.toBeNull();
-  return id!;
-}
-
-/** Navigate to a specific window's terminal route and wait for connection. */
-async function gotoWindow(page: Page, windowId: string): Promise<void> {
-  await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`);
-  await expect(page.locator("[aria-label='Connected']")).toBeVisible({
-    timeout: 10_000,
-  });
-}
+// Shared readiness helpers (hoisted to `_ready.ts`) bound to this file's server
+// + session so existing call sites keep their two-arg shape.
+const resolveWindow = (page: Parameters<typeof resolveWindowRaw>[0], windowName: string) =>
+  resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName);
+const gotoWindow = (page: Parameters<typeof gotoWindowRaw>[0], windowId: string) =>
+  gotoWindowRaw(page, TMUX_SERVER, windowId);
 
 // File-level session lifecycle: shared by BOTH describe blocks below (the
 // reduced-motion default block and the animated-path opt-in block), so the

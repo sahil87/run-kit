@@ -1,0 +1,35 @@
+id: h1ck
+name: 260715-h1ck-top-bar-overflow-chevron-menu
+created: 2026-07-15T08:29:45Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 4
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 69.0
+        reversibility: 84.0
+        competence: 85.0
+        disambiguation: 74.0
+stage_metrics:
+    intake: {started_at: "2026-07-15T08:29:45Z", driver: fab-new, iterations: 1}
+prs: []
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-15T08:31:35Z

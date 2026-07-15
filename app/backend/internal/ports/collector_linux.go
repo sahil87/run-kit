@@ -4,6 +4,7 @@ package ports
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"os"
 	"sort"
@@ -27,7 +28,7 @@ const tcpStateListen = "0A"
 // Any error (procfs file missing/unreadable) degrades gracefully to whatever was
 // parsed so far, and lsof failure/absence degrades to bare ports — mirroring the
 // collector's zero-on-error discipline. Result is sorted by port ascending.
-func readListeningPorts() []Service {
+func readListeningPorts(ctx context.Context) []Service {
 	seen := make(map[int]struct{})
 
 	for _, path := range procNetTCPFiles {
@@ -43,7 +44,7 @@ func readListeningPorts() []Service {
 
 	// Best-effort attribution: an empty map (lsof missing/failing) leaves every
 	// procfs port bare, which is exactly the pre-attribution Linux behavior.
-	attribution := lsofAttribution()
+	attribution := lsofAttribution(ctx)
 
 	services := make([]Service, 0, len(seen))
 	for port := range seen {

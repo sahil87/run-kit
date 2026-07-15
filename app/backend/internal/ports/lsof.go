@@ -93,9 +93,11 @@ func parseLsofPort(name string) (int, bool) {
 // lsofAttribution runs lsof and returns port→Service attribution, or an empty
 // map on any error/absence (best-effort — the caller degrades gracefully). Used
 // on Linux to join attribution onto the authoritative procfs port set; darwin
-// uses parseLsof directly as its enumeration source.
-func lsofAttribution() map[int]Service {
-	ctx, cancel := context.WithTimeout(context.Background(), lsofTimeout)
+// uses parseLsof directly as its enumeration source. The passed ctx is the
+// collector's lifecycle context, bounded here by lsofTimeout — so both a
+// hung lsof (timeout) and shutdown (ctx cancellation) interrupt the subprocess.
+func lsofAttribution(ctx context.Context) map[int]Service {
+	ctx, cancel := context.WithTimeout(ctx, lsofTimeout)
 	defer cancel()
 
 	out, err := lsofRun(ctx)

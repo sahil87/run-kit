@@ -18,7 +18,7 @@ func TestReadListeningPorts_LsofSeam(t *testing.T) {
 
 	t.Run("parses stubbed lsof output", func(t *testing.T) {
 		lsofRun = func(context.Context) ([]byte, error) { return []byte(lsofFixture), nil }
-		got := readListeningPorts()
+		got := readListeningPorts(context.Background())
 		if len(got) != 4 {
 			t.Fatalf("got %d services, want 4: %+v", len(got), got)
 		}
@@ -29,7 +29,7 @@ func TestReadListeningPorts_LsofSeam(t *testing.T) {
 
 	t.Run("error with empty stdout degrades to empty slice (non-nil)", func(t *testing.T) {
 		lsofRun = func(context.Context) ([]byte, error) { return nil, errors.New("lsof: not found") }
-		got := readListeningPorts()
+		got := readListeningPorts(context.Background())
 		if got == nil {
 			t.Fatal("readListeningPorts returned nil; want empty non-nil slice")
 		}
@@ -44,7 +44,7 @@ func TestReadListeningPorts_LsofSeam(t *testing.T) {
 		lsofRun = func(context.Context) ([]byte, error) {
 			return []byte("p1\ncredis-server\nPTCP\nn*:6380\n"), errors.New("lsof: warning")
 		}
-		got := readListeningPorts()
+		got := readListeningPorts(context.Background())
 		if len(got) != 1 || got[0].Port != 6380 || got[0].Process != "redis-server" {
 			t.Errorf("got %+v, want one service :6380 redis-server", got)
 		}

@@ -49,7 +49,9 @@ type ServicesSnapshot struct {
 // readListeningPortsFn is the platform enumeration seam. It defaults to the
 // per-platform readListeningPorts (procfs on Linux, lsof on darwin, empty
 // elsewhere) and is a package var so platform-agnostic tests can stub the
-// enumeration without a real listener (mirrors the lsofRun seam).
+// enumeration without a real listener (mirrors the lsofRun seam). The ctx is the
+// collector's lifecycle context, threaded down to the bounded lsof subprocess so
+// shutdown cancels an in-flight enumeration (Constitution I).
 var readListeningPortsFn = readListeningPorts
 
 // Collector passively enumerates listening TCP ports in a background goroutine.
@@ -88,7 +90,7 @@ func NewCollector(pollInterval time.Duration) *Collector {
 // deterministic real data, and a bounded few-hundred-ms (worst-case 5s) boot
 // delay is an acceptable price for that guarantee versus an empty first snapshot.
 func (c *Collector) Start(ctx context.Context) {
-	c.collect()
+	c.collect(ctx)
 	go c.poll(ctx)
 }
 
@@ -112,16 +114,17 @@ func (c *Collector) poll(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			c.collect()
+			c.collect(ctx)
 		}
 	}
 }
 
 // collect enumerates listening ports, sorts them by port ascending, and
 // publishes the snapshot. Purely observational — no probing, no filtering. Runs
-// on the poll goroutine and once synchronously at Start.
-func (c *Collector) collect() {
-	services := readListeningPortsFn()
+// on the poll goroutine and once synchronously at Start. The ctx is threaded to
+// the bounded lsof subprocess so shutdown cancels an in-flight enumeration.
+func (c *Collector) collect(ctx context.Context) {
+	services := readListeningPortsFn(ctx)
 	sort.Slice(services, func(i, j int) bool {
 		return services[i].Port < services[j].Port
 	})

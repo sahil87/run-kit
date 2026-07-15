@@ -14,7 +14,7 @@ import (
 func withStubEnum(t *testing.T, ports []int) {
 	t.Helper()
 	orig := readListeningPortsFn
-	readListeningPortsFn = func() []Service {
+	readListeningPortsFn = func(context.Context) []Service {
 		out := make([]Service, len(ports))
 		for i, p := range ports {
 			out[i] = Service{Port: p}
@@ -52,7 +52,7 @@ func TestCollect_EnumeratesSortsPublishes(t *testing.T) {
 	withStubEnum(t, []int{8080, 5432, 3000, 6379})
 
 	c := NewCollector(time.Hour)
-	c.collect()
+	c.collect(context.Background())
 
 	got := portsOf(c.Snapshot().Services)
 	want := []int{3000, 5432, 6379, 8080} // all ports, sorted, none filtered

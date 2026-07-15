@@ -3,6 +3,7 @@
 package ports
 
 import (
+	"context"
 	"sort"
 )
 
@@ -17,8 +18,8 @@ import (
 // port-sorted slice directly from it (empty map → empty non-nil slice). Unlike
 // Linux, lsof yields process attribution for free, so Service.Process/PID are
 // populated.
-func readListeningPorts() []Service {
-	byPort := lsofAttribution()
+func readListeningPorts(ctx context.Context) []Service {
+	byPort := lsofAttribution(ctx)
 	services := make([]Service, 0, len(byPort))
 	for _, svc := range byPort {
 		services = append(services, svc)

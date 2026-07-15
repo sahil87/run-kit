@@ -83,7 +83,7 @@ func TestReadListeningPorts_DedupesAndSorts(t *testing.T) {
 	procNetTCPFiles = []string{v4, v6}
 	t.Cleanup(func() { procNetTCPFiles = orig })
 
-	services := readListeningPorts()
+	services := readListeningPorts(context.Background())
 
 	// Union: {8080, 3000} from v4, {8080, 5173} from v6 → deduped {3000, 5173, 8080}.
 	var got []int
@@ -145,7 +145,7 @@ func TestReadListeningPorts_JoinsLsofAttribution(t *testing.T) {
 		return []byte("p42\ncnode\nPTCP\nn*:3000\n"), nil
 	})
 
-	services := readListeningPorts()
+	services := readListeningPorts(context.Background())
 
 	byPort := make(map[int]Service, len(services))
 	for _, s := range services {
@@ -178,7 +178,7 @@ func TestReadListeningPorts_LsofMissingDegradesToBareProcfs(t *testing.T) {
 		return nil, errors.New("lsof: not found")
 	})
 
-	services := readListeningPorts()
+	services := readListeningPorts(context.Background())
 
 	got := make([]int, len(services))
 	for i, s := range services {

@@ -16,7 +16,8 @@ bracket idiom now carried by the Cockpit's `<h2>` section headings. A separate
 260714-uco1 block asserts the four top-bar heading-nav sub-features: the stable
 left anchor (the heading's left edge does not drift with name length), the
 static `Window:` prefix, the ancestor hierarchy dropdown, and the browser-history
-◀ ▶ arrows. A motion-opted-in block additionally asserts the boot sweep itself
+◀ ▶ arrows — plus (260715-m4xy) that IN-APP window switches now push history
+entries so Back/Forward retrace within-server hops with no dedup. A motion-opted-in block additionally asserts the boot sweep itself
 runs on hover (an inverse-video cursor cell attaches inside the top-bar header,
 then resolves to rest).
 
@@ -243,6 +244,38 @@ entries) and navigates up when an ancestor is chosen.
    second.
 2. Click `Go back`; assert the URL and heading return to the FIRST window.
 3. Click `Go forward`; assert the URL and heading return to the SECOND window.
+
+### `in-app window switches push history entries (Back/Forward retrace within-server hops, no dedup)`
+
+**What it proves:** the 260715-m4xy fix — `navigateToWindow`'s `runSwitch` now
+navigates with PUSH (not `replace: true`), so IN-APP window switches (sidebar
+click / ▾ / palette / shortcut) each create a distinct browser-history entry.
+Complements the arrows test above, which builds its stack with `page.goto` (full
+navigations always push) and so never exercised the in-app path where the old
+`replace: true` ate every within-server hop. Also proves the NO-dedup
+requirement (revisiting a window still pushes) and that the existing deep-link
+intent effect aligns tmux on each Back/Forward landing (the landed heading
+renders with no new alignment code).
+
+**Steps:**
+1. Create two windows (`a`, `b`) in the shared session; resolve their `@N` ids.
+2. Navigate to the server root (so the first in-app click is unambiguous) and
+   wait for `Connected`.
+3. Build the history stack ENTIRELY via in-app sidebar-row clicks — `a → b → a`
+   (the no-dedup shape) — using a `switchTo` helper that clicks the row
+   (`nav[aria-label='Sessions'] [data-window-id="@N"] button`, a real
+   client-side switch through `navigateToWindow`), then settles on
+   `aria-current="page"`, the window-id URL, and the `Rename window <name>`
+   heading (tmux aligned + terminal rendered). URL assertions use the router's
+   NUMERIC id segment (`windowId.slice(1)`, `@5` → `5`) — the form
+   `navigateToWindow` writes — not the `%40N` `encodeURIComponent` form the
+   arrows test's `page.goto` stack produces.
+4. `page.goBack()` (equivalent to the ◀ arrow): assert the URL + heading return
+   to `b` — the a→b switch pushed an entry, it was not replaced.
+5. `page.goBack()` again: assert the URL + heading return to the FIRST `a` entry
+   — the b→a revisit did NOT dedup against the earlier `a`.
+6. `page.goForward()`: assert the URL + heading return to `b` (history intact in
+   both directions).
 
 ### `section labels type themselves out on hover (typed sweep)`
 

@@ -21,7 +21,7 @@ import type { ViewName } from "@/lib/window-view";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
-export type TopBarMode = "terminal" | "board" | "root" | "cockpit";
+export type TopBarMode = "terminal" | "board" | "server" | "host";
 
 /**
  * A right-cluster control's registry entry (260715-h1ck). Order in the registry
@@ -55,18 +55,18 @@ type TopBarProps = {
    * - `terminal` (default, `/$server/$window`) — left: brand + hamburger +
    *   server link + session dropdown (ends at session). Center: `Terminal:
    *   <window>` editable heading + ▾ window switcher.
-   * - `root` (`/$server` with no window, the Server Cabin) — left: brand +
-   *   hamburger (ends at the parent = home). Center: `Server Cabin: <server>`
+   * - `server` (`/$server` with no window, the tmux Server) — left: brand +
+   *   hamburger (ends at the parent = home). Center: `tmux Server: <server>`
    *   display heading (the server leaf moved here from the left breadcrumb).
    * - `board` (`/board/$name`) — left: brand + hamburger + pane/server counts +
    *   cycle hint (the `Board ▸` home button is gone). Center: `Board: <board>`
    *   display heading + ▾ board switcher (moved from the left breadcrumb).
-   * - `cockpit` (`/`, the Server List home) — brand crumb ONLY (left). Center:
-   *   the solo `Cockpit` word. No hamburger
-   *   (the Cockpit has no sidebar), no terminal-font control, no split/close
+   * - `host` (`/`, the Server List home) — brand crumb ONLY (left). Center:
+   *   the solo `Host` word. No hamburger
+   *   (the Host page has no sidebar), no terminal-font control, no split/close
    *   buttons, no fixed-width button (terminal-only since 260704-9o7k). The L3
    *   always-block (Notification · Theme · Refresh · Help) still renders, plus
-   *   the connection dot — which on Cockpit reflects host-metrics stream health
+   *   the connection dot — which on the Host page reflects host-metrics stream health
    *   (260704-9o7k; formerly hidden). Session/server-dependent props are passed
    *   empty (`sessions=[]`, `currentSession=null`, `currentWindow=null`,
    *   `sessionName=""`, `server=""`, no-op callbacks) — the same tolerant-empty
@@ -257,10 +257,10 @@ function HistoryNav() {
  * so this is a thin item-builder, not a new dropdown.
  *
  * Ancestor chains by mode:
- *   - `terminal` (`/{server}/{window}`): `Server Cabin: {server}` (→ `/{server}`)
- *     then `Cockpit` (→ `/`).
- *   - `board` / `root`: `Cockpit` (→ `/`) — their only ancestor.
- *   - solo `cockpit`: NONE — the caller does not render this component there.
+ *   - `terminal` (`/{server}/{window}`): `tmux Server: {server}` (→ `/{server}`)
+ *     then `Host` (→ `/`).
+ *   - `board` / `server`: `Host` (→ `/`) — their only ancestor.
+ *   - solo `host`: NONE — the caller does not render this component there.
  *
  * It is a SIBLING of the rename button (not inside it), so clicking it never
  * enters inline edit. It is `hidden sm:inline-flex` — below `sm` it rides with
@@ -275,26 +275,26 @@ function HierarchyDropdown({
   mode,
   server,
 }: {
-  mode: "terminal" | "board" | "root";
+  mode: "terminal" | "board" | "server";
   server: string;
 }) {
   const navigate = useNavigate();
 
-  // Ancestor items, nearest-first (Server Cabin above Cockpit on a window
+  // Ancestor items, nearest-first (tmux Server above Host on a window
   // route). `current: false` throughout — an ancestor is never the current page.
   const items: BreadcrumbDropdownItem[] = [];
   if (mode === "terminal" && server) {
     items.push({
-      label: `${CABIN_PREFIX} ${server}`,
+      label: `${TMUX_SERVER_PREFIX} ${server}`,
       href: `/${encodeURIComponent(server)}`,
       current: false,
     });
   }
-  items.push({ label: COCKPIT_SOLO, href: "/", current: false });
+  items.push({ label: HOST_SOLO, href: "/", current: false });
 
   const handleNavigate = useCallback(
     (href: string) => {
-      // `/` → Cockpit (index route); `/{server}` → Server Cabin. Route via the
+      // `/` → Host (index route); `/{server}` → tmux Server. Route via the
       // typed navigator so params are validated (mirrors BoardSwitcher).
       if (href === "/") {
         navigate({ to: "/" });
@@ -409,16 +409,16 @@ export function TopBar({
   // (grid column) and mobile (overlay) collapse to the same boolean state.
   const hamburgerOpen = sidebarOpen;
 
-  // Cockpit (`/`) has no sidebar, so it renders no hamburger. Every other mode
-  // (terminal / root / board) has a Shell sidebar and shows the toggle.
-  const hasSidebar = mode !== "cockpit";
+  // The Host page (`/`) has no sidebar, so it renders no hamburger. Every other mode
+  // (terminal / server / board) has a Shell sidebar and shows the toggle.
+  const hasSidebar = mode !== "host";
 
   // Move-don't-copy (260704-pr0p): the left breadcrumb always ends at the
   // PARENT; the current-page leaf is the centered heading. So the server crumb
-  // renders in the left nav ONLY as a link back to the Server Cabin on the
-  // terminal route (parent = the cabin) — on the root route the server name is
+  // renders in the left nav ONLY as a link back to the tmux Server on the
+  // terminal route (parent = the tmux Server) — on the server route the server name is
   // the leaf and moves to the center heading, leaving the left breadcrumb at
-  // brand + hamburger. Cockpit and board have no left server crumb.
+  // brand + hamburger. The Host page and board have no left server crumb.
   const showServerCrumb = mode === "terminal" && !!server;
   const serverHref = `/${encodeURIComponent(server)}`;
 
@@ -543,33 +543,33 @@ export function TopBar({
     // dismissed) so it never reserves width or an empty slot.
     {
       id: "update-chip",
-      modes: ["terminal", "board", "root", "cockpit"],
+      modes: ["terminal", "board", "server", "host"],
       hidden: !showChip,
       barRender: () => <UpdateChip />,
       menuRender: () => null,
     },
     {
       id: "notification",
-      modes: ["terminal", "board", "root", "cockpit"],
+      modes: ["terminal", "board", "server", "host"],
       hidden: pushUnsupported,
       barRender: () => <NotificationControl />,
       menuRender: () => <NotificationMenuRows />,
     },
     {
       id: "theme",
-      modes: ["terminal", "board", "root", "cockpit"],
+      modes: ["terminal", "board", "server", "host"],
       barRender: () => <ThemeToggle />,
       menuRender: () => <ThemeMenuRow />,
     },
     {
       id: "refresh",
-      modes: ["terminal", "board", "root", "cockpit"],
+      modes: ["terminal", "board", "server", "host"],
       barRender: () => <RefreshButton />,
       menuRender: () => <RefreshMenuRow />,
     },
     {
       id: "help",
-      modes: ["terminal", "board", "root", "cockpit"],
+      modes: ["terminal", "board", "server", "host"],
       barRender: () => <HelpLink />,
       menuRender: () => <HelpMenuRow />,
     },
@@ -680,13 +680,13 @@ export function TopBar({
           className="flex items-center gap-1.5 text-sm overflow-hidden min-w-[76px] sm:min-w-[180px]"
         >
           {/* Brand root crumb — logo + wordmark, links to `/`. Left-most on
-              every route; IS the home affordance (no separate "Cockpit" crumb).
+              every route; IS the home affordance (no separate "Host" crumb).
               Wordmark collapses to the bare icon below `sm` so long crumbs still
               fit the single-line 375px topbar. */}
           <a
             href="/"
             aria-label="Run Kit home"
-            title="Cockpit"
+            title="Host"
             className={`flex items-center gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
           >
             {/* Inline SVG (LogoSpinner at rest), not the /icon.svg img — the
@@ -702,7 +702,7 @@ export function TopBar({
 
           {/* Hamburger icon — toggles sidebarOpen (one boolean covers both
               desktop grid column and mobile overlay). Sits between the brand and
-              the crumbs. Not rendered on the Cockpit, which has no sidebar.
+              the crumbs. Not rendered on the Host page, which has no sidebar.
               rk-glint: borderless at rest, so hover = green icon + sweep only
               (the glint border flip is a no-op without a border). */}
           {hasSidebar && (
@@ -728,13 +728,13 @@ export function TopBar({
             />
           ) : (
             <>
-              {/* Server LINK crumb — terminal route only (parent = the Server
-                  Cabin). On the root route the server name is the leaf and lives
+              {/* Server LINK crumb — terminal route only (parent = the tmux
+                  Server). On the server route the server name is the leaf and lives
                   in the center heading, so no left server crumb there. Hidden
                   below `md` (260715-q8ey — demoted from `sm`): it is the
                   redundant first-to-give crumb since the hierarchy ▾ in the
-                  center heading (`Window ▾:`) already navigates to the Server
-                  Cabin → Cockpit, so it gives way before the session crumb in
+                  center heading (`Window ▾:`) already navigates to the tmux
+                  Server → Host, so it gives way before the session crumb in
                   the cramped `sm`..`md` band. `min-w-0` unblocks the inner
                   `truncate max-w-[16ch]`. */}
               {showServerCrumb && (
@@ -742,7 +742,7 @@ export function TopBar({
                   <BreadcrumbSeparator />
                   <a
                     href={serverHref}
-                    title="Server Cabin"
+                    title="tmux Server"
                     className={`rk-glint truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
                   >
                     {server}
@@ -775,7 +775,7 @@ export function TopBar({
             EVERY mode (260704-pr0p): terminal = editable window heading + ▾
             window switcher; board = display board heading + ▾ board switcher
             (both moved here from the left breadcrumb); root = display server
-            heading; cockpit = solo `Cockpit`. It stays centered under the
+            heading; host = solo `Host`. It stays centered under the
             `auto` middle grid column regardless of left/right widths, and on
             mobile it is the visible leaf (intermediate crumbs hide below `sm`). */}
         {/* No flex `gap` here: the single separator between the page-type prefix
@@ -801,7 +801,7 @@ export function TopBar({
             {/* Browser-history ◀ ▶ arrows (260714-uco1) — fixed-width so they
                 never shift the heading's text anchor, rendered on ALL four modes
                 (history is global; also keeps the center box uniform, e.g.
-                `◀ ▶  Cockpit`). Left of the prefix, inside the anchored box. */}
+                `◀ ▶  Host`). Left of the prefix, inside the anchored box. */}
             <HistoryNav />
 
             {mode === "terminal" && currentWindow && (
@@ -815,7 +815,7 @@ export function TopBar({
                     shown by the L1 ViewSwitcher, not the heading.
 
                     Hierarchy ▾ (260714-uco1) — the current page's ANCESTOR chain
-                    (Server Cabin → Cockpit on a window route). Passed as the
+                    (tmux Server → Host on a window route). Passed as the
                     prefix `caret` so it renders BEFORE the colon (`Window ▾:
                     name`, intake §3), bound to the prefix and hidden with it
                     below `sm`. It is a sibling of the rename button (not inside
@@ -851,7 +851,7 @@ export function TopBar({
               <>
                 {/* Board name is display-only (boards have no rename API); the ▾
                     board switcher moved here from the left breadcrumb. The
-                    hierarchy ▾ lists this board's ancestor (Cockpit) and is
+                    hierarchy ▾ lists this board's ancestor (Host) and is
                     passed as the prefix `caret` so it renders BEFORE the colon
                     (`Board ▾: name`, matching the window heading's placement). */}
                 <PageHeadingDisplay
@@ -864,28 +864,28 @@ export function TopBar({
               </>
             )}
 
-            {mode === "root" && server && (
+            {mode === "server" && server && (
               <>
                 {/* Hierarchy ▾ passed as the prefix `caret` so it renders BEFORE
-                    the colon (`Server Cabin ▾: name`), matching the window
+                    the colon (`tmux Server ▾: name`), matching the window
                     heading's `Window ▾: name` placement (260714-uco1). */}
                 <PageHeadingDisplay
-                  prefix={CABIN_PREFIX}
+                  prefix={TMUX_SERVER_PREFIX}
                   name={server}
-                  ariaLabel={`Server Cabin ${server}`}
-                  caret={<HierarchyDropdown mode="root" server={server} />}
+                  ariaLabel={`tmux Server ${server}`}
+                  caret={<HierarchyDropdown mode="server" server={server} />}
                 />
               </>
             )}
 
-            {mode === "cockpit" && (
-              // Solo `Cockpit` — the root of the hierarchy, so NO hierarchy ▾
+            {mode === "host" && (
+              // Solo `Host` — the root of the hierarchy, so NO hierarchy ▾
               // (it has no ancestors). The history arrows still render (above).
               <PageHeadingDisplay
                 prefix=""
-                name={COCKPIT_SOLO}
+                name={HOST_SOLO}
                 solo
-                ariaLabel="Cockpit"
+                ariaLabel="Host"
               />
             )}
           </div>
@@ -979,7 +979,7 @@ export function TopBar({
 
             {/* Connection dot — the right-most element in ALL four modes
                 (260704-9o7k). Per-page "this page's live data is flowing":
-                Terminal/Server Cabin = the current server's SSE stream; Cockpit =
+                Terminal/tmux Server = the current server's SSE stream; Host =
                 host-metrics stream health; Board = AND over attached servers'
                 streams (derived by each caller and passed as `isConnected`). */}
             <span role="status" aria-live="polite" className="inline-flex">
@@ -1017,8 +1017,8 @@ type SweepPhase = "rest" | "resolved" | "cursor" | "ahead";
 type SweepCell = { ch: string; kind: SweepKind; phase: SweepPhase };
 
 /**
- * Build the resting cell list for a heading. Terminal/board/root headings pass
- * a `prefix` (e.g. `Terminal`) + `name`; cockpit passes `solo` alone (no
+ * Build the resting cell list for a heading. Terminal/board/server headings pass
+ * a `prefix` (e.g. `Terminal`) + `name`; host passes `solo` alone (no
  * prefix, no instance name — just the type word).
  *
  * The separating space is its own `sp` cell so the cursor visibly crosses it
@@ -1048,7 +1048,7 @@ function buildCells(
  * secondary. Once the cursor crosses into the NAME, unresolved name cells churn
  * random `DECODE_GLYPHS` in accent-green each frame (spaces preserved) until
  * the cursor locks each to its true char; resolved name cells settle to
- * semibold primary. Cockpit's solo word runs the typed sweep alone.
+ * semibold primary. The Host page's solo word runs the typed sweep alone.
  *
  * Returns the live cell array (for per-cell rendering), a `scrambling` flag,
  * and imperative controls. Reduced motion is JS-gated (`prefersReducedMotion`):
@@ -1196,8 +1196,8 @@ function SweepCells({
 // `terminalHeadingPrefix()` + `WEB_PREFIX`/`CHAT_PREFIX` were removed with it.
 const WINDOW_PREFIX = "Window:";
 const BOARD_PREFIX = "Board:";
-const CABIN_PREFIX = "Server Cabin:";
-const COCKPIT_SOLO = "Cockpit";
+const TMUX_SERVER_PREFIX = "tmux Server:";
+const HOST_SOLO = "Host";
 
 /**
  * Split a boot-sweep cell list into its prefix portion (the `pfx`/`sp` cells)
@@ -1559,13 +1559,13 @@ function WindowHeading({
 }
 
 /**
- * Display-only universal center heading for board / root / cockpit (change
+ * Display-only universal center heading for board / server / host (change
  * 260704-pr0p). Renders the same boot sweep as `WindowHeading` but with NO
  * rename affordance (board has no rename API; the server/board name is
  * display-only). Two shapes:
  *  - prefixed: a static `PageType:` sibling span + the boot-swept name
- *    (`Board: <board>`, `Server Cabin: <server>`).
- *  - solo: just the type word swept alone (`Cockpit`) — no prefix, no name; it
+ *    (`Board: <board>`, `tmux Server: <server>`).
+ *  - solo: just the type word swept alone (`Host`) — no prefix, no name; it
  *    is the leaf/name-equivalent, so it stays visible at all breakpoints and
  *    renders primary-medium (PageHeading's solo rule).
  *
@@ -1594,7 +1594,7 @@ function PageHeadingDisplay({
   ariaLabel: string;
   /** Optional element rendered inside the prefix, BEFORE its trailing `:`
    *  (260714-uco1 — the hierarchy ▾ binds to the prefix "before the colon",
-   *  rendering `Board ▾: name` / `Server Cabin ▾: name`, matching the window
+   *  rendering `Board ▾: name` / `tmux Server ▾: name`, matching the window
    *  heading's `Window ▾: name`). Not applicable to the solo shape (no prefix).
    *  Passed through to `HeadingPrefix`. */
   caret?: React.ReactNode;
@@ -2019,7 +2019,7 @@ export function forceReload() {
  * so no confirmation dialog either. The same action is also reachable from
  * the command palette as "View: Refresh Page" — in AppShell's palette
  * (app.tsx `viewActions`) and, duplicated, in the board route's own palette
- * (board-page.tsx `refreshEntry`); the Cockpit `/` mounts no palette — a
+ * (board-page.tsx `refreshEntry`); the Host `/` mounts no palette — a
  * pre-existing, out-of-scope limitation (mounting one to add this entry would
  * grow UI surface against constitution IV, Minimal Surface Area).
  */

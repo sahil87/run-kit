@@ -182,7 +182,7 @@ func TestSSEHubReapsDeadServer(t *testing.T) {
 // TestSSEHubMetricsOnlyClientNotReaped proves the server-neutral, metrics-only
 // client (key = metricsOnlyServer) receives the server-independent metrics
 // broadcast and is NEVER session-polled or reaped — even when every real server
-// the fetcher knows about is IsServerGone. This backs the Cockpit host-console
+// the fetcher knows about is IsServerGone. This backs the Host host-console
 // home (`/`), which must show host health with zero attached tmux servers.
 func TestSSEHubMetricsOnlyClientNotReaped(t *testing.T) {
 	// Any real server would be reaped, but the metrics-only key must survive.
@@ -226,7 +226,7 @@ func TestSSEHubMetricsOnlyClientNotReaped(t *testing.T) {
 // TestSSEHubServicesBroadcast proves the server-neutral, metrics-only client
 // (key = metricsOnlyServer) receives the server-independent `event: services`
 // broadcast that carries the host's listening ports — the discovery half of the
-// Cockpit host-console services zone.
+// Host host-console services zone.
 func TestSSEHubServicesBroadcast(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	svc := ports.NewCollector(2500 * time.Millisecond) // pre-fills a valid snapshot

@@ -9,10 +9,12 @@ the prominent centered identity on the Terminal route (prefixed by the static
 input, Enter/blur commit, Escape cancel), the command-palette rename path enters
 the same inline edit, the 375px bar stays single-line, the hover-animation
 vocabulary classes are present and CSS-gated under `prefers-reduced-motion`, and
-the same centered heading fills the Server Cabin (`Server Cabin: <server>`,
+the same centered heading fills the tmux Server (`tmux Server: <server>`,
 display-only), the Board (`Board: <name>` + relocated ▾ switcher, display-only)
-and the Cockpit (solo `Cockpit`) — with the retired in-page PageHeading row's
-bracket idiom now carried by the Cockpit's `<h2>` section headings. A separate
+and the Host (solo `Host`) — with the retired in-page PageHeading row's
+bracket idiom now carried by the Host's `<h2>` section headings, and each page
+also carrying an in-page long-form `SectionHeading` (`Host Overview` on `/`,
+`tmux Server Overview` on `/$server` — 260715-zs1y). A separate
 260714-uco1 block asserts the four top-bar heading-nav sub-features: the stable
 left anchor (the heading's left edge does not drift with name length), the
 static `Window:` prefix, the ancestor hierarchy dropdown, and the browser-history
@@ -62,33 +64,38 @@ breadcrumb now ends at the session).
    inside the rename button; it is a sibling span, so clicking it never starts
    an edit (the edit input binds only to the name).
 
-### `root route shows the centered `Server Cabin: <server>` heading (not a left leaf crumb)`
+### `server route (/$server) shows the centered `tmux Server: <server>` heading + the `tmux Server Overview` in-page heading (not a left leaf crumb)`
 
-**What it proves:** Move-don't-copy (260704-pr0p): on the Server Cabin
-(`/$server`, no window) the server name is the CENTERED `Server Cabin: <server>`
+**What it proves:** Move-don't-copy (260704-pr0p): on the tmux Server page
+(`/$server`, no window) the server name is the CENTERED `tmux Server: <server>`
 heading, display-only (no rename), and is NOT duplicated as a left breadcrumb
-leaf crumb — the left breadcrumb ends at its parent.
+leaf crumb — the left breadcrumb ends at its parent. The page also carries an
+in-page long-form `tmux Server Overview` `<h2>` SectionHeading (260715-zs1y)
+above its "Sessions" section.
 
 **Steps:**
 1. Navigate to `/${server}`.
-2. Assert the `Server Cabin <server>` heading (its accessible name carries the
+2. Assert the `tmux Server <server>` heading (its accessible name carries the
    type prefix) is visible.
 3. Assert there is no `Rename window …` button (the server name is display-only).
-4. Assert the `Breadcrumb` nav does NOT contain the server name.
+4. Assert the in-page `tmux Server Overview` `<h2>` heading is visible.
+5. Assert the `Breadcrumb` nav does NOT contain the server name.
 
-### `cockpit route (/) shows the solo `Cockpit` center heading and bracket section headings`
+### `host route (/) shows the solo `Host` center heading, the `Host Overview` in-page heading, and bracket section headings`
 
-**What it proves:** The Cockpit `/` carries the solo `Cockpit` center heading
-(no prefix, no instance name) in the top bar; the old in-page `[ cockpit ]`
-PageHeading `<h1>` row is gone; and the bracket idiom transferred to the zone
-`<h2>` section headings (brackets `[`/`]` + reserved `▊` caret cell around a
-TypedLabel — 260704-pr0p).
+**What it proves:** The Host `/` carries the solo `Host` center heading
+(no prefix, no instance name) in the top bar; the old in-page `[ host ]`
+PageHeading `<h1>` row is gone; the page carries an in-page long-form
+`Host Overview` `<h2>` SectionHeading (260715-zs1y) above the HOST HEALTH zone;
+and the bracket idiom transferred to the zone `<h2>` section headings (brackets
+`[`/`]` + reserved `▊` caret cell around a TypedLabel — 260704-pr0p).
 
 **Steps:**
 1. Navigate to `/`.
-2. Assert the solo `Cockpit` heading is visible.
+2. Assert the solo `Host` heading is visible.
 3. Assert there is no `<h1>` on the page (the PageHeading row was removed).
-4. Locate the `Host Health` `<h2>` section heading; assert its enclosing
+4. Assert the in-page `Host Overview` `<h2>` heading is visible.
+5. Locate the `Host Health` `<h2>` section heading; assert its enclosing
    `.rk-bracket-group` carries the `[`/`]` bracket spans, a reserved
    `.rk-bracket-caret` cell, and a `.rk-typed-label` whose text is the label.
 
@@ -225,18 +232,18 @@ the retired lens-following `Terminal:`/`Web:`/`Chat:`.
    prefix between the word and its colon, so the assertion targets the `Window`
    word) and that no `Terminal:`/`Web:`/`Chat:` text is present.
 
-### `the hierarchy ▾ lists the ancestor chain and navigates up (Server Cabin → Cockpit)`
+### `the hierarchy ▾ lists the ancestor chain and navigates up (tmux Server → Host)`
 
 **What it proves:** the prefix hierarchy dropdown lists exactly the current page's
-ancestors (Server Cabin then Cockpit on a window route — no window/lateral
+ancestors (tmux Server then Host on a window route — no window/lateral
 entries) and navigates up when an ancestor is chosen.
 
 **Steps:**
 1. Create a window; navigate to it.
-2. Open the `Switch hierarchy` ▾; assert the `Server Cabin: <server>` and
-   `Cockpit` menuitems are visible.
-3. Click the `Server Cabin: <server>` item; assert the URL is `/<server>` and the
-   `Server Cabin <server>` heading is visible (the up-navigation landed).
+2. Open the `Switch hierarchy` ▾; assert the `tmux Server: <server>` and
+   `Host` menuitems are visible.
+3. Click the `tmux Server: <server>` item; assert the URL is `/<server>` and the
+   `tmux Server <server>` heading is visible (the up-navigation landed).
 
 ### `the ◀ ▶ arrows drive browser history (back returns to the prior window)`
 

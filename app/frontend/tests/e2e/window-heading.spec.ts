@@ -71,33 +71,45 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     expect(prefixInButton).toBe(false);
   });
 
-  test("root route shows the centered `Server Cabin: <server>` heading (not a left leaf crumb)", async ({
+  test("server route (/$server) shows the centered `tmux Server: <server>` heading + the `tmux Server Overview` in-page heading (not a left leaf crumb)", async ({
     page,
   }) => {
     await page.goto(`/${TMUX_SERVER}`);
     // The server name is the CENTERED heading leaf (move-don't-copy) — its
-    // accessible name carries the `Server Cabin` type prefix.
-    const heading = page.getByLabel(`Server Cabin ${TMUX_SERVER}`);
+    // accessible name carries the `tmux Server` type prefix.
+    const heading = page.getByLabel(`tmux Server ${TMUX_SERVER}`);
     await expect(heading).toBeVisible({ timeout: 10_000 });
-    // It is display-only — no rename button on the Server Cabin.
+    // It is display-only — no rename button on the tmux Server page.
     await expect(
       page.getByRole("button", { name: /Rename window/ }),
     ).toHaveCount(0);
+    // The in-page page-level heading (260715-zs1y) — a SectionHeading <h2>
+    // above the "Sessions" section.
+    await expect(
+      page.getByRole("heading", { level: 2, name: "tmux Server Overview" }),
+    ).toBeVisible();
     // The name is not duplicated as a left breadcrumb crumb.
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(nav).not.toContainText(TMUX_SERVER);
   });
 
-  test("cockpit route (/) shows the solo `Cockpit` center heading and bracket section headings", async ({
+  test("host route (/) shows the solo `Host` center heading, the `Host Overview` in-page heading, and bracket section headings", async ({
     page,
   }) => {
     await page.goto("/");
-    // Solo type word — no prefix, no instance name.
-    await expect(page.getByLabel("Cockpit")).toBeVisible({
+    // Solo type word — no prefix, no instance name. `exact` scopes to the
+    // top-bar heading (aria-label "Host") and not the `Host health` section
+    // region or the `Host Overview`/`Host Health` headings (substring matches).
+    await expect(page.getByLabel("Host", { exact: true })).toBeVisible({
       timeout: 10_000,
     });
     // The in-page PageHeading `<h1>` row is gone; page identity is the top bar.
     await expect(page.locator("h1")).toHaveCount(0);
+    // The in-page page-level heading (260715-zs1y) — a SectionHeading <h2>
+    // above the HOST HEALTH zone.
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Host Overview" }),
+    ).toBeVisible();
     // The four zone labels render as bracket section headings (<h2>), each with
     // the reserved caret cell and brackets around a TypedLabel.
     const hostHealth = page.getByRole("heading", { level: 2, name: "Host Health" });
@@ -398,7 +410,7 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
     await expect(page.getByText(/Terminal:|Web:|Chat:/)).toHaveCount(0);
   });
 
-  test("the hierarchy ▾ lists the ancestor chain and navigates up (Server Cabin → Cockpit)", async ({
+  test("the hierarchy ▾ lists the ancestor chain and navigates up (tmux Server → Host)", async ({
     page,
   }) => {
     const name = `hx-nav-${Date.now()}`;
@@ -408,16 +420,16 @@ test.describe("Top-bar heading — anchor, hierarchy dropdown, history arrows (2
 
     // Open the prefix ▾ — its accessible name is "Switch hierarchy".
     await page.getByLabel("Switch hierarchy").click();
-    // Ancestors only: Server Cabin (the server) then Cockpit. No window/lateral.
-    await expect(page.getByRole("menuitem", { name: `Server Cabin: ${TMUX_SERVER}` })).toBeVisible();
-    const cockpitItem = page.getByRole("menuitem", { name: "Cockpit" });
-    await expect(cockpitItem).toBeVisible();
+    // Ancestors only: tmux Server (the server) then Host. No window/lateral.
+    await expect(page.getByRole("menuitem", { name: `tmux Server: ${TMUX_SERVER}` })).toBeVisible();
+    const hostItem = page.getByRole("menuitem", { name: "Host" });
+    await expect(hostItem).toBeVisible();
 
-    // Selecting the Server Cabin ancestor navigates up to `/{server}`.
-    await page.getByRole("menuitem", { name: `Server Cabin: ${TMUX_SERVER}` }).click();
+    // Selecting the tmux Server ancestor navigates up to `/{server}`.
+    await page.getByRole("menuitem", { name: `tmux Server: ${TMUX_SERVER}` }).click();
     await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}$`));
-    // The Server Cabin heading confirms the up-navigation landed.
-    await expect(page.getByLabel(`Server Cabin ${TMUX_SERVER}`)).toBeVisible({ timeout: 10_000 });
+    // The tmux Server heading confirms the up-navigation landed.
+    await expect(page.getByLabel(`tmux Server ${TMUX_SERVER}`)).toBeVisible({ timeout: 10_000 });
   });
 
   test("the ◀ ▶ arrows drive browser history (back returns to the prior window)", async ({

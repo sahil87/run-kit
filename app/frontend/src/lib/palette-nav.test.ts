@@ -4,60 +4,67 @@ import { buildNavActions } from "./palette-nav";
 const noop = {
   onBack: () => {},
   onForward: () => {},
-  onServerCabin: () => {},
-  onCockpit: () => {},
+  onTmuxServer: () => {},
+  onHost: () => {},
 };
 
 describe("buildNavActions (Go: palette parity)", () => {
   it("always offers Back and Forward first (history is global)", () => {
-    const actions = buildNavActions("cockpit", "", noop);
+    const actions = buildNavActions("host", "", noop);
     expect(actions.slice(0, 2).map((a) => a.id)).toEqual(["go-back", "go-forward"]);
     expect(actions[0].label).toBe("Go: Back");
     expect(actions[1].label).toBe("Go: Forward");
   });
 
-  it("on the cockpit (root of the hierarchy) offers ONLY the two history actions", () => {
-    const ids = buildNavActions("cockpit", "", noop).map((a) => a.id);
+  it("on the host (root of the hierarchy) offers ONLY the two history actions", () => {
+    const ids = buildNavActions("host", "", noop).map((a) => a.id);
     expect(ids).toEqual(["go-back", "go-forward"]);
   });
 
-  it("on a terminal route offers Server Cabin then Cockpit (nearest-first)", () => {
+  it("on a terminal route offers tmux Server then Host (nearest-first)", () => {
     const ids = buildNavActions("terminal", "prod", noop).map((a) => a.id);
-    expect(ids).toEqual(["go-back", "go-forward", "go-server-cabin", "go-cockpit"]);
+    expect(ids).toEqual(["go-back", "go-forward", "go-tmux-server", "go-host"]);
   });
 
-  it("on a board route offers only Cockpit as the ancestor (no Server Cabin)", () => {
+  it("on a board route offers only Host as the ancestor (no tmux Server)", () => {
     const ids = buildNavActions("board", "prod", noop).map((a) => a.id);
-    expect(ids).toEqual(["go-back", "go-forward", "go-cockpit"]);
+    expect(ids).toEqual(["go-back", "go-forward", "go-host"]);
   });
 
-  it("on a root (Server Cabin) route offers only Cockpit (its lone ancestor)", () => {
-    const ids = buildNavActions("root", "prod", noop).map((a) => a.id);
-    expect(ids).toEqual(["go-back", "go-forward", "go-cockpit"]);
+  it("on a server (tmux Server) route offers only Host (its lone ancestor)", () => {
+    const ids = buildNavActions("server", "prod", noop).map((a) => a.id);
+    expect(ids).toEqual(["go-back", "go-forward", "go-host"]);
   });
 
-  it("omits Server Cabin on a terminal route when the server is not yet resolved", () => {
+  it("omits tmux Server on a terminal route when the server is not yet resolved", () => {
     const ids = buildNavActions("terminal", "", noop).map((a) => a.id);
-    // No blank-server Server Cabin entry; Cockpit still present.
-    expect(ids).toEqual(["go-back", "go-forward", "go-cockpit"]);
+    // No blank-server tmux Server entry; Host still present.
+    expect(ids).toEqual(["go-back", "go-forward", "go-host"]);
+  });
+
+  it("labels the ancestor entries with the new vocabulary", () => {
+    const actions = buildNavActions("terminal", "prod", noop);
+    const byId = (id: string) => actions.find((a) => a.id === id)!;
+    expect(byId("go-tmux-server").label).toBe("Go: tmux Server");
+    expect(byId("go-host").label).toBe("Go: Host");
   });
 
   it("wires each action's onSelect to its own handler", () => {
     const handlers = {
       onBack: vi.fn(),
       onForward: vi.fn(),
-      onServerCabin: vi.fn(),
-      onCockpit: vi.fn(),
+      onTmuxServer: vi.fn(),
+      onHost: vi.fn(),
     };
     const actions = buildNavActions("terminal", "prod", handlers);
     const byId = (id: string) => actions.find((a) => a.id === id)!;
     byId("go-back").onSelect();
     byId("go-forward").onSelect();
-    byId("go-server-cabin").onSelect();
-    byId("go-cockpit").onSelect();
+    byId("go-tmux-server").onSelect();
+    byId("go-host").onSelect();
     expect(handlers.onBack).toHaveBeenCalledTimes(1);
     expect(handlers.onForward).toHaveBeenCalledTimes(1);
-    expect(handlers.onServerCabin).toHaveBeenCalledTimes(1);
-    expect(handlers.onCockpit).toHaveBeenCalledTimes(1);
+    expect(handlers.onTmuxServer).toHaveBeenCalledTimes(1);
+    expect(handlers.onHost).toHaveBeenCalledTimes(1);
   });
 });

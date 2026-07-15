@@ -2,7 +2,7 @@
  * Attention rollup badge (260706-y1ar; status-pyramid.md § Attention
  * Propagation). A small count chip surfacing how many windows/panes below this
  * surface are `waiting` (an agent blocked on a human). Rendered on the session
- * row, the Cockpit server tile, and the board header. Renders NOTHING when the
+ * row, the Host server tile, and the board header. Renders NOTHING when the
  * count is 0 (attention badges are present only when they mean "something needs
  * you"), so callers can mount it unconditionally.
  *

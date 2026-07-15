@@ -78,7 +78,7 @@ a creation-time **default-view hint** (§ Migration). No window-name prefixes
 
 View state lives in a `?view=` search param on the existing
 `/$server/$window` route (Constitution IV: no new routes). Unknown or
-unavailable values fall back to `tty`. Deep links (push notifications, Cockpit
+unavailable values fall back to `tty`. Deep links (push notifications, Host
 tiles) address a lens by URL. Last-chosen view per window persists in
 localStorage as a **value-bearing key** (stores the view name; absent = the
 window's default view). *This supersedes the chat plan's key-present
@@ -145,13 +145,13 @@ actually serves the port: the pane's process genuinely has multiple outputs.
 This is the model's home turf.
 
 **Row-less surfaces wearing a window costume** [current] — an iframe window
-created from the Cockpit SERVICES zone has an inert shell pane; the tmux
+created from the Host SERVICES zone has an inert shell pane; the tmux
 window exists only to give a URL identity, a sidebar seat, and
 board-pinnability. Two-step exit path:
 
 1. **[target, near]** Derive port → owning pane (listening-services collector
    already probes; `rk agent-hook` already walks pid ancestry) and surface the
-   `web` lens on the *owning* row. Cockpit "Open in window" deep-links to
+   `web` lens on the *owning* row. Host "Open in window" deep-links to
    `/$server/$window?view=web` when an owner derives; synthetic-window
    creation remains the fallback for non-derivable services.
 2. **[target, far]** External URLs (staging sites, other hosts) are the honest
@@ -173,4 +173,4 @@ every current change; noted so nobody designs against it.
 | iframe | `@rk_type` mutation flips the view for everyone; render gate `rkType === "iframe" && rkUrl` | `web` lens: `?view=web`, chip, no type mutation; `@rk_type=iframe` demoted to default-view hint; `@rk_url` stays global substrate state | change `260714-t97o-web-view-lens` (drafted) |
 | desktop | PR #71: name-prefix typing, relay sniffing, tty unreachable, bitrotted against current main | `desktop` lens per [`desktop-view.md`](../../fab/plans/sahil/desktop-view.md); supersede PR #71, salvage its components | new change stack (planned) |
 | chat | planned as `?view=chat` | already conforms; adopt R2's value-bearing localStorage + R4's shared switcher | chat plan changes 1–4 (change 1 in progress) |
-| Cockpit "Open in window" | creates a synthetic iframe window | deep-link to owning row's `?view=web` when derivable; synthetic fallback | follow-up after `web-view-lens` |
+| Host "Open in window" | creates a synthetic iframe window | deep-link to owning row's `?view=web` when derivable; synthetic fallback | follow-up after `web-view-lens` |

@@ -74,7 +74,7 @@ export function ServerPanel({
   const isMobile = useIsMobileLayout();
   const activeTileRef = useRef<HTMLButtonElement>(null);
   const { addToast } = useToast();
-  // Drag-reorder for regular server tiles (shared with the Cockpit grid).
+  // Drag-reorder for regular server tiles (shared with the Host grid).
   // `servers` is already effective-sorted upstream; the hook returns the
   // transient optimistic order to render while a drag is in progress.
   const { orderedServers, getTileProps, isDragging, draggingName } = useServerReorder(servers, addToast);
@@ -317,7 +317,7 @@ function ServerTile({
           {/* Session count + waiting rollup (260708-4li7). The badge rides the
               same flex row as the "N sess" count, right-aligned, so it never
               collides with the hover-revealed palette/kill action cluster at the
-              tile's top-right (this is why the Cockpit tile's absolute top-right
+              tile's top-right (this is why the Host tile's absolute top-right
               placement is not copied). WaitingBadge renders null at count <= 0,
               so the common (nothing-waiting) layout is unchanged. */}
           {/* h-4 reserves the badge's full height even when no badge renders:

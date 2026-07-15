@@ -168,7 +168,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
   }) => {
     const id = await resolveWindow(page, LONG_WINDOW);
     // The server-link crumb is the left-nav <a href="/${server}"> (title
-    // "Server Cabin"). Its accessible name is its text (the server name), so
+    // "tmux Server"). Its accessible name is its text (the server name), so
     // target it by href scoped to the breadcrumb nav — that disambiguates it
     // from the brand link (href "/") and the hierarchy ▾ menuitem.
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });

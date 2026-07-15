@@ -380,7 +380,7 @@ func TestSafetyIntervalEffective(t *testing.T) {
 		// slice down to the fast legacy cadence: a co-attached covered real
 		// server keeps the long safety interval. This is the cost-regression
 		// fix — without the sentinel exclusion, one metrics-only client (held
-		// open by the Cockpit home ~always) would 5x FetchSessions calls.
+		// open by the Host home ~always) would 5x FetchSessions calls.
 		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
 		h.subscriber = coverageSubscriber{covered: map[string]bool{"real": true}}
 		if got := h.safetyIntervalEffective([]string{"real", metricsOnlyServer}); got != safetyPollInterval {
@@ -388,7 +388,7 @@ func TestSafetyIntervalEffective(t *testing.T) {
 		}
 	})
 	t.Run("metrics-only sentinel alone -> legacy fast", func(t *testing.T) {
-		// The bare `/` Cockpit home holds ONLY the metrics-only sentinel (zero
+		// The bare `/` Host home holds ONLY the metrics-only sentinel (zero
 		// attached servers). The sentinel is never Covers()-ed and its Wait
 		// channel never fires, so falling through to the 12s safety backstop
 		// would make host health on `/` update ~12s apart instead of the

@@ -5,7 +5,7 @@ import {
 } from "@tanstack/react-router";
 import { lazy } from "react";
 import { RootWrapper, AppLayout, ServerShell } from "@/app";
-import { ServerListPage } from "@/components/server-list-page";
+import { HostOverviewPage } from "@/components/host-overview-page";
 import { useSignalTopBarNotFound } from "@/contexts/top-bar-slot-context";
 
 const BoardPage = lazy(() =>
@@ -35,7 +35,7 @@ export function urlSegmentToWindowId(segment: string): string {
 }
 
 export function NotFoundPage() {
-  // Signal the persistent `RootTopBar` to force its minimal `cockpit`-like
+  // Signal the persistent `RootTopBar` to force its minimal `host`-like
   // fallback mode while this page renders. Route params alone can't distinguish
   // a not-found from a real route: TanStack Router's fuzzy not-found handling
   // retains the partially-matched params (e.g. `/board/x/y` keeps `name=x`), so
@@ -67,7 +67,7 @@ const rootRoute = createRootRoute({
 // `notFoundComponent` lives HERE (not on the root route) so an unmatched path
 // renders `NotFoundPage` inside `AppLayout`'s `<Outlet>` — i.e. BELOW the
 // persistent TopBar (R10), where the route-derived mode falls back to the
-// minimal `cockpit`-like heading.
+// minimal `host`-like heading.
 const appLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "app-layout",
@@ -78,7 +78,7 @@ const appLayoutRoute = createRoute({
 const indexRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: "/",
-  component: ServerListPage,
+  component: HostOverviewPage,
 });
 
 const serverLayoutRoute = createRoute({
@@ -140,8 +140,8 @@ const boardRoute = createRoute({
 });
 
 // Canonical page names (spoken/doc vocabulary — see docs/memory/run-kit/ui-patterns.md):
-//   /                  → Cockpit      (ServerListPage — global home / server list)
-//   /$server           → Server Cabin (ServerShell — a single server's view)
+//   /                  → Host         (HostOverviewPage — global home / server list)
+//   /$server           → tmux Server  (ServerShell — a single server's view)
 //   /$server/$window   → Terminal     (inherited layout — a specific window;
 //                                       URL segment is the window id's numeric
 //                                       part, @N sans @; parse restores @N)

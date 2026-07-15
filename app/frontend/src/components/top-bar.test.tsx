@@ -130,15 +130,15 @@ describe("TopBar", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the server name as the centered `Server Cabin:` heading on the Server Cabin (no window), not 'Dashboard' or a left leaf crumb", () => {
-    // root mode, no window \u2192 move-don't-copy: the server name is the CENTERED
+  it("shows the server name as the centered `tmux Server:` heading on the tmux Server (no window), not 'Dashboard' or a left leaf crumb", () => {
+    // server mode, no window \u2192 move-don't-copy: the server name is the CENTERED
     // heading leaf, NOT a left `aria-current` crumb (260704-pr0p).
-    renderTopBar({ mode: "root", sessionName: "", windowName: "", currentSession: null, currentWindow: null, server: "runkit" });
+    renderTopBar({ mode: "server", sessionName: "", windowName: "", currentSession: null, currentWindow: null, server: "runkit" });
     // The literal "Dashboard" label is gone in every mode.
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
-    // The server name renders as the centered `Server Cabin: <server>` heading
+    // The server name renders as the centered `tmux Server: <server>` heading
     // (display-only \u2014 no rename). Its accessible name carries the type prefix.
-    const heading = screen.getByLabelText("Server Cabin runkit");
+    const heading = screen.getByLabelText("tmux Server runkit");
     expect(heading).toBeInTheDocument();
     // It is NOT inside the left breadcrumb nav (the left nav ends at the parent).
     const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
@@ -152,7 +152,7 @@ describe("TopBar", () => {
 
   it("shows the server crumb as a link to /$server plus the session crumb on a terminal route (breadcrumb ends at session)", () => {
     renderTopBar();
-    // Server crumb is a link back to the Server Cabin.
+    // Server crumb is a link back to the tmux Server.
     const serverLink = screen.getByText("runkit").closest("a")!;
     expect(serverLink).toHaveAttribute("href", "/runkit");
     // Session crumb present; no "Dashboard".
@@ -213,15 +213,15 @@ describe("TopBar", () => {
       expect(screen.getByLabelText("Switch board")).toBeInTheDocument();
     });
 
-    it("renders `Server Cabin: <server>` display heading (no rename) in root mode", () => {
-      renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
-      expect(screen.getByLabelText("Server Cabin runkit")).toBeInTheDocument();
+    it("renders `tmux Server: <server>` display heading (no rename) in server mode", () => {
+      renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
+      expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Rename/ })).not.toBeInTheDocument();
     });
 
-    it("renders the solo `Cockpit` word (no prefix, no name) in cockpit mode", () => {
+    it("renders the solo `Host` word (no prefix, no name) in host mode", () => {
       renderTopBar({
-        mode: "cockpit",
+        mode: "host",
         sessions: [],
         currentSession: null,
         currentWindow: null,
@@ -229,11 +229,11 @@ describe("TopBar", () => {
         windowName: "",
         server: "",
       });
-      const solo = screen.getByLabelText("Cockpit");
+      const solo = screen.getByLabelText("Host");
       expect(solo).toBeInTheDocument();
-      expect(solo).toHaveTextContent("Cockpit");
-      // No `Server Cabin:` / `Board:` / `Window:` prefix on the solo word.
-      expect(screen.queryByText(/Server Cabin:|Board:|Window:/)).not.toBeInTheDocument();
+      expect(solo).toHaveTextContent("Host");
+      // No `tmux Server:` / `Board:` / `Window:` prefix on the solo word.
+      expect(screen.queryByText(/tmux Server:|Board:|Window:/)).not.toBeInTheDocument();
     });
   });
 
@@ -344,9 +344,9 @@ describe("TopBar", () => {
       expect(mockHistoryForward).toHaveBeenCalledTimes(1);
     });
 
-    it("renders the history arrows on the cockpit (solo) heading too — history is global", () => {
+    it("renders the history arrows on the host (solo) heading too — history is global", () => {
       renderTopBar({
-        mode: "cockpit",
+        mode: "host",
         sessions: [],
         currentSession: null,
         currentWindow: null,
@@ -360,31 +360,31 @@ describe("TopBar", () => {
       expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
     });
 
-    it("renders a hierarchy ▾ on the terminal route listing the ancestor chain (Server Cabin → Cockpit)", () => {
+    it("renders a hierarchy ▾ on the terminal route listing the ancestor chain (tmux Server → Host)", () => {
       renderTopBar();
       const trigger = screen.getByLabelText("Switch hierarchy");
       expect(trigger).toBeInTheDocument();
       fireEvent.click(trigger);
       // Ancestors only — nearest-first — no window/lateral entries. The item
-      // label carries the `Server Cabin:` type prefix (assumption #6).
-      expect(screen.getByRole("menuitem", { name: "Server Cabin: runkit" })).toBeInTheDocument();
-      expect(screen.getByRole("menuitem", { name: "Cockpit" })).toBeInTheDocument();
+      // label carries the `tmux Server:` type prefix (assumption #6).
+      expect(screen.getByRole("menuitem", { name: "tmux Server: runkit" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "Host" })).toBeInTheDocument();
     });
 
     it("hierarchy ▾ navigates up when an ancestor is chosen (never enters rename)", () => {
       renderTopBar();
       fireEvent.click(screen.getByLabelText("Switch hierarchy"));
-      fireEvent.click(screen.getByRole("menuitem", { name: "Server Cabin: runkit" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "tmux Server: runkit" }));
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "runkit" } });
       // The rename edit input never appeared.
       expect(screen.queryByRole("textbox", { name: "Window name" })).not.toBeInTheDocument();
     });
 
-    it("board/root hierarchy ▾ lists only Cockpit (no Server Cabin ancestor)", () => {
-      renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+    it("board/server hierarchy ▾ lists only Host (no tmux Server ancestor)", () => {
+      renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
       fireEvent.click(screen.getByLabelText("Switch hierarchy"));
-      expect(screen.getByRole("menuitem", { name: "Cockpit" })).toBeInTheDocument();
-      expect(screen.queryByRole("menuitem", { name: /Server Cabin/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: "Host" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: /tmux Server/ })).not.toBeInTheDocument();
     });
   });
 
@@ -397,20 +397,20 @@ describe("TopBar", () => {
     expect(screen.queryByText("\u276F")).not.toBeInTheDocument();
   });
 
-  it("names each crumb's level via a native title tooltip (Cockpit / Server Cabin / Session / Window)", () => {
+  it("names each crumb's level via a native title tooltip (Host / tmux Server / Session / Window)", () => {
     renderTopBar();
-    expect(screen.getByLabelText("Run Kit home")).toHaveAttribute("title", "Cockpit");
-    expect(screen.getByText("runkit").closest("a")).toHaveAttribute("title", "Server Cabin");
+    expect(screen.getByLabelText("Run Kit home")).toHaveAttribute("title", "Host");
+    expect(screen.getByText("runkit").closest("a")).toHaveAttribute("title", "tmux Server");
     expect(screen.getByLabelText("Switch session")).toHaveAttribute("title", "Session");
     expect(screen.getByLabelText("Switch window")).toHaveAttribute("title", "Window");
   });
 
-  it("carries the Server Cabin identity on the centered heading in root mode (no window)", () => {
+  it("carries the tmux Server identity on the centered heading in server mode (no window)", () => {
     // The server-name leaf moved to the center heading (260704-pr0p); its
-    // accessible name is the `Server Cabin <server>` heading rather than a
+    // accessible name is the `tmux Server <server>` heading rather than a
     // left crumb with a `title` tooltip.
-    renderTopBar({ mode: "root", sessionName: "", windowName: "", currentSession: null, currentWindow: null });
-    expect(screen.getByLabelText("Server Cabin runkit")).toBeInTheDocument();
+    renderTopBar({ mode: "server", sessionName: "", windowName: "", currentSession: null, currentWindow: null });
+    expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
   });
 
   it("renders the brand as the left-most root crumb linking to / (and no right-side Run Kit anchor)", () => {
@@ -446,16 +446,16 @@ describe("TopBar", () => {
     expect(screen.getByLabelText("Toggle fixed terminal width")).toBeInTheDocument();
   });
 
-  it("does NOT render FixedWidthToggle outside terminal mode (root/board/cockpit)", () => {
+  it("does NOT render FixedWidthToggle outside terminal mode (server/board/host)", () => {
     // 260704-9o7k: the fixed-width BUTTON is terminal-only now; the 900px
     // wrapper + palette action live in AppShell and are untouched.
-    renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+    renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
     expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
     cleanup();
     renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
     expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
     cleanup();
-    renderTopBar({ mode: "cockpit", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
+    renderTopBar({ mode: "host", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
     expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
   });
 
@@ -491,12 +491,12 @@ describe("TopBar", () => {
     expect(statuses[statuses.length - 1]).toBe(dot);
   });
 
-  it("renders the hamburger toggle on terminal/root/board but NOT on the cockpit", () => {
+  it("renders the hamburger toggle on terminal/server/board but NOT on the host", () => {
     renderTopBar();
     expect(screen.getByLabelText("Toggle navigation")).toBeInTheDocument();
     cleanup();
-    // Cockpit has no sidebar, so no hamburger.
-    renderTopBar({ mode: "cockpit", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
+    // Host has no sidebar, so no hamburger.
+    renderTopBar({ mode: "host", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
     expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
   });
 
@@ -508,24 +508,24 @@ describe("TopBar", () => {
     const cluster = dotStatus.parentElement!;
     expect(cluster.lastElementChild).toBe(dotStatus);
     cleanup();
-    // Root (Server Cabin).
-    renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+    // Server (tmux Server).
+    renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
     expect(screen.getByRole("status")).toBeInTheDocument();
     cleanup();
     // Board — dot now renders (per-page "live data flowing"; caller derives it).
     renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
     expect(screen.getByRole("status")).toBeInTheDocument();
     cleanup();
-    // Cockpit — dot now renders (host-metrics stream health).
-    renderTopBar({ mode: "cockpit", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
+    // Host — dot now renders (host-metrics stream health).
+    renderTopBar({ mode: "host", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
-  describe("cockpit mode (Server List home)", () => {
-    /** Cockpit passes tolerant-empty session/server props (board-mode shape). */
-    function renderCockpit() {
+  describe("host mode (Server List home)", () => {
+    /** Host passes tolerant-empty session/server props (board-mode shape). */
+    function renderHost() {
       return renderTopBar({
-        mode: "cockpit",
+        mode: "host",
         sessions: [],
         currentSession: null,
         currentWindow: null,
@@ -536,7 +536,7 @@ describe("TopBar", () => {
     }
 
     it("renders the brand link and the L3 always-block controls, without erroring on empty props", () => {
-      renderCockpit();
+      renderHost();
       // Brand root crumb links home.
       expect(screen.getByLabelText("Run Kit home")).toHaveAttribute("href", "/");
       // L3 always-block controls stay (Refresh + Help promoted here; Theme).
@@ -548,9 +548,9 @@ describe("TopBar", () => {
     });
 
     it("renders no hamburger, no terminal-font control, no split/close/fixed-width buttons; dot IS present (host-metrics health)", () => {
-      renderCockpit();
+      renderHost();
       expect(screen.queryByLabelText("Toggle navigation")).not.toBeInTheDocument();
-      // 260704-9o7k: the dot now renders on Cockpit (host-metrics stream health).
+      // 260704-9o7k: the dot now renders on Host (host-metrics stream health).
       expect(screen.getByRole("status")).toBeInTheDocument();
       expect(screen.queryByLabelText("Terminal font size")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Split vertically")).not.toBeInTheDocument();
@@ -661,8 +661,8 @@ describe("TopBar", () => {
       expect(screen.getByLabelText("Terminal font size")).toBeInTheDocument();
     });
 
-    it("is hidden in root mode (dashboard has no terminal)", () => {
-      renderTopBar({ mode: "root", currentWindow: null });
+    it("is hidden in server mode (dashboard has no terminal)", () => {
+      renderTopBar({ mode: "server", currentWindow: null });
       expect(screen.queryByLabelText("Terminal font size")).not.toBeInTheDocument();
     });
   });
@@ -891,8 +891,8 @@ describe("TopBar", () => {
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
     });
 
-    it("still renders the refresh button on the Server Cabin (no window) — it moved to the always block (260704-9o7k)", () => {
-      renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+    it("still renders the refresh button on the tmux Server (no window) — it moved to the always block (260704-9o7k)", () => {
+      renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
     });
 
@@ -1124,13 +1124,13 @@ describe("TopBar", () => {
       renderTopBar();
       expect(screen.getByLabelText("More controls")).toBeInTheDocument();
       cleanup();
-      renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+      renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
       expect(screen.getByLabelText("More controls")).toBeInTheDocument();
       cleanup();
       renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
       expect(screen.getByLabelText("More controls")).toBeInTheDocument();
       cleanup();
-      renderTopBar({ mode: "cockpit", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
+      renderTopBar({ mode: "host", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
       expect(screen.getByLabelText("More controls")).toBeInTheDocument();
     });
 
@@ -1274,7 +1274,7 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
   });
 
   it("renders no editable (click-to-rename) heading outside terminal mode — the center carries a display-only heading instead", () => {
-    renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+    renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
     expect(screen.queryByRole("button", { name: /Rename window/ })).not.toBeInTheDocument();
   });
 

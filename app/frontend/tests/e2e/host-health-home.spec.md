@@ -1,7 +1,7 @@
 # host-health-home.spec.ts
 
-Verifies the Cockpit host-console home: the HOST HEALTH zone on `/`
-(`ServerListPage`) renders live host-global metrics from the server-independent
+Verifies the Host host-console home: the HOST HEALTH zone on `/`
+(`HostOverviewPage`) renders live host-global metrics from the server-independent
 `useHostMetrics()` stream, above the existing tmux-server tile grid, and the
 grid itself is unaffected.
 

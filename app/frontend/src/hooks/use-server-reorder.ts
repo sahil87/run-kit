@@ -40,7 +40,7 @@ export type UseServerReorder = {
 };
 
 /** Shared HTML5 drag-reorder for the two server-tile grids (sidebar ServerPanel
- *  + Cockpit TMUX SERVERS). Mirrors the sidebar session-reorder pattern
+ *  + Host TMUX SERVERS). Mirrors the sidebar session-reorder pattern
  *  (sidebar/index.tsx): custom MIME, insert-before semantics, and the
  *  derive-over-store optimistic override (a ref, not state) cleared by a
  *  render-time equality reconcile against the authoritative order — no

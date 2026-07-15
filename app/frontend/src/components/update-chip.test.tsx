@@ -48,7 +48,7 @@ function renderChip(sessionValue: Partial<SessionContextType>) {
         <ChromeProvider>
           <StandaloneSessionContextProvider value={sessionValue}>
             <TopBar
-              mode="root"
+              mode="server"
               sessions={[]}
               currentSession={null}
               currentWindow={null}

@@ -83,7 +83,7 @@ overflow at a benign width → floor too large).
 
 **What it proves:** The server-link crumb was demoted from `sm:` to `md:` — it is
 hidden in the 640–768px band (where it is the redundant first-to-give element,
-since the hierarchy ▾ covers Server Cabin → Cockpit navigation) and visible again
+since the hierarchy ▾ covers tmux Server → Host navigation) and visible again
 at `md+`.
 
 **Steps:**

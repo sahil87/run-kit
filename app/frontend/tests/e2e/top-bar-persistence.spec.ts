@@ -15,19 +15,19 @@ import { test, expect, type Page } from "@playwright/test";
 //      is the persistence claim, and it holds only for genuine in-app router
 //      navigation: hops 1 (server tile → `/$server`) and 3 (board tile →
 //      `/board/$name`) click TanStack-Router-driven controls.
-//   2. Its center heading is route-derived and updates per route — Cockpit →
-//      `Server Cabin <server>` → back to Cockpit → `Board <board>` — including
+//   2. Its center heading is route-derived and updates per route — Host →
+//      `tmux Server <server>` → back to Host → `Board <board>` — including
 //      the board heading, which renders from the URL param while the lazy board
 //      chunk loads.
 //   3. On an unmatched route (`/board/x/y`), the bar falls back to the minimal
-//      `cockpit` heading rather than leaking the fuzzy-matched board param as
+//      `host` heading rather than leaking the fuzzy-matched board param as
 //      `Board x` (the T002 not-found-fallback fix).
 //
 // NOTE on hop 2 (brand crumb → `/`): the brand crumb is a RAW `<a href="/">`
 // (top-bar.tsx), which TanStack Router does NOT intercept — clicking it is a
 // FULL document navigation, not client-side. So hop 2 is a RELOAD BOUNDARY, not
 // a persistence hop: it verifies the persistent-layout chrome mounts correctly
-// on a COLD load at `/` (route-derived cockpit heading present after the
+// on a COLD load at `/` (route-derived host heading present after the
 // reload), NOT that the bar survived without a remount. Only hops 1 and 3 test
 // no-remount persistence.
 //
@@ -130,13 +130,16 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
   test("the persistent bar stays present and its heading updates across / → /$server → /board", async ({
     page,
   }) => {
-    // Cockpit. Solo `Cockpit` center heading + the persistent bar's brand crumb.
+    // Host. Solo `Host` center heading + the persistent bar's brand crumb.
+    // `exact: true` disambiguates the bar's `Host` heading from the Host page's
+    // `Host health` region (both are aria-labelled and `getByLabel` is a
+    // substring match by default).
     await page.goto("/");
-    await expect(page.getByLabel("Cockpit")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByLabel("Host", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(brand(page)).toBeVisible();
 
     // Hop 1: server tile (scoped to the Tmux servers region) → `/$server`. The
-    // route-derived heading flips to `Server Cabin <server>` (aria-label carries
+    // route-derived heading flips to `tmux Server <server>` (aria-label carries
     // no colon — the `:` is presentational). The bar is present immediately.
     await page
       .getByRole("region", { name: "Tmux servers" })
@@ -144,21 +147,21 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
       .first()
       .click();
     await expect(page).toHaveURL(new RegExp(`/${SERVER}$`));
-    await expect(page.getByLabel(`Server Cabin ${SERVER}`)).toBeVisible();
+    await expect(page.getByLabel(`tmux Server ${SERVER}`)).toBeVisible();
     await expect(brand(page)).toBeVisible();
     // The prior mode's heading is gone (mode is route-derived, not stacked).
-    await expect(page.getByLabel("Cockpit")).toHaveCount(0);
+    await expect(page.getByLabel("Host", { exact: true })).toHaveCount(0);
 
     // Hop 2 (RELOAD BOUNDARY, not persistence): the brand crumb is a raw
     // `<a href="/">` that TanStack Router does NOT intercept, so clicking it is
     // a FULL document navigation. We assert the persistent-layout chrome mounts
-    // correctly on a cold load at `/` — route-derived `Cockpit` heading present,
-    // prior `Server Cabin` heading gone — NOT that the bar survived a remount.
+    // correctly on a cold load at `/` — route-derived `Host` heading present,
+    // prior `tmux Server` heading gone — NOT that the bar survived a remount.
     await brand(page).click();
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByLabel("Cockpit")).toBeVisible();
+    await expect(page.getByLabel("Host", { exact: true })).toBeVisible();
     await expect(brand(page)).toBeVisible();
-    await expect(page.getByLabel(`Server Cabin ${SERVER}`)).toHaveCount(0);
+    await expect(page.getByLabel(`tmux Server ${SERVER}`)).toHaveCount(0);
 
     // Hop 3 (client-side): board tile → `/board/$name`. The board chunk is
     // lazy, but the route-derived heading renders `Board <board>` from the URL
@@ -174,7 +177,7 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
     await expect(brand(page)).toBeVisible();
   });
 
-  test("an unmatched route falls back to the minimal cockpit heading (not the fuzzy-matched board param)", async ({
+  test("an unmatched route falls back to the minimal host heading (not the fuzzy-matched board param)", async ({
     page,
   }) => {
     // `/board/x/y` fuzzy-matches the board route (`name=x`) then bubbles to the
@@ -182,11 +185,11 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
     // RETAINS the partially-matched param in `useMatches()`, so without the
     // not-found signal the bar would derive `board` mode and show `Board x`.
     // NotFoundPage signals not-found into the slot context, forcing the minimal
-    // `cockpit` fallback (T002 fix, R10 / A-015).
+    // `host` fallback (T002 fix, R10 / A-015).
     await page.goto("/board/x/y");
     await expect(page.getByText("Page not found")).toBeVisible({ timeout: 10_000 });
-    // The persistent bar is present with the cockpit fallback heading …
-    await expect(page.getByLabel("Cockpit")).toBeVisible();
+    // The persistent bar is present with the host fallback heading …
+    await expect(page.getByLabel("Host", { exact: true })).toBeVisible();
     await expect(brand(page)).toBeVisible();
     // … and it did NOT leak the fuzzy-matched board param as a `Board x` heading.
     await expect(page.getByLabel("Board x")).toHaveCount(0);

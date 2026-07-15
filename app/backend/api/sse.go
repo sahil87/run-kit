@@ -64,7 +64,7 @@ const boardEventName = "board-changed"
 // no associated tmux server, so the poll loop skips session-fetching and
 // reaping for it (there is no socket to poll or reap) while the metrics
 // broadcast, which fans out to every registered client, still reaches it. This
-// backs the Cockpit host-console home (`/`), which shows host health with zero
+// backs the Host host-console home (`/`), which shows host health with zero
 // attached servers. The leading NUL makes it impossible to collide with a real
 // tmux server name (validated to a safe charset by ValidateServerName).
 const metricsOnlyServer = "\x00metrics-only"
@@ -277,12 +277,12 @@ type sseHub struct {
 // it needs no freshness cadence of its own. It can never be Covers()-ed (no
 // control-mode Client for a non-server key), so counting it would always force
 // the fast legacy cadence whenever a metrics-only client is present (~always,
-// since the Cockpit home holds one open) — needlessly ~5x-ing FetchSessions
+// since the Host home holds one open) — needlessly ~5x-ing FetchSessions
 // calls for co-attached real servers. Skipping it lets the covered real servers
 // keep the long safety interval.
 //
 // One exception: when the sentinel is the ONLY thing present (the bare `/`
-// Cockpit home with zero attached servers), skipping it would fall through to
+// Host home with zero attached servers), skipping it would fall through to
 // the 12s safety backstop — but the sentinel's Wait channel never fires (it is
 // never Covers()-ed), so the loop would block the full 12s between metrics
 // broadcasts, making host health on `/` update ~12s apart instead of the
@@ -309,7 +309,7 @@ func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 	}
 	// No real server in the slice (only the metrics-only sentinel, or empty):
 	// use the fast cadence so the metrics broadcast ticks at ~2.5s for the
-	// Cockpit home. With a real, fully-covered server present, keep the long
+	// Host home. With a real, fully-covered server present, keep the long
 	// safety interval.
 	if !sawRealServer {
 		return legacyPollInterval
@@ -382,7 +382,7 @@ func (h *sseHub) addClient(c *sseClient) {
 	}
 
 	// Send cached server-order snapshot immediately (server-global), so a
-	// late-joining client — including the zero-attached-server Cockpit
+	// late-joining client — including the zero-attached-server Host
 	// `?metrics=1` stream — gets the current server rank order without a fetch
 	// race.
 	if h.cachedServerOrderJSON != "" {
@@ -393,7 +393,7 @@ func (h *sseHub) addClient(c *sseClient) {
 	}
 
 	// Send cached board-order snapshot immediately (server-global), so a
-	// late-joining client — including the zero-attached-server Cockpit
+	// late-joining client — including the zero-attached-server Host
 	// `?metrics=1` stream — gets the current board display order without a fetch
 	// race.
 	if h.cachedBoardOrderJSON != "" {
@@ -492,7 +492,7 @@ func (h *sseHub) broadcastSessionOrder(server string, order []string) {
 // connected client across every server key (including the `?metrics=1`
 // metrics-only stream) and caches the payload so future clients receive it on
 // connect. Server rank order is a HOST-global concern — a client viewing one
-// server (or none, on the Cockpit) still needs to re-sort its server list — so
+// server (or none, on the Host) still needs to re-sort its server list — so
 // this fans out to all clients like the metrics/services broadcasts, NOT to a
 // single server's clients like broadcastSessionOrder.
 //
@@ -1273,7 +1273,7 @@ func (h *sseHub) poll() {
 
 		// Broadcast listening services to all clients (server-independent,
 		// every tick) — mirrors the metrics broadcast above. Rides the same
-		// server-neutral stream, so the `?metrics=1` Cockpit client receives it
+		// server-neutral stream, so the `?metrics=1` Host client receives it
 		// with zero attached servers.
 		if h.services != nil {
 			snap := h.services.Snapshot()

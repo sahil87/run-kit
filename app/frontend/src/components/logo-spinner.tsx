@@ -30,20 +30,25 @@ export function LogoSpinner({
       aria-hidden="true"
       role="img"
     >
-      {BORDER_SEGMENTS.map((seg, i) => (
-        <polygon
-          key={i}
-          points={seg.points}
-          fill={loading ? ANIM_FILL : seg.staticFill}
-          style={{
-            animation: loading
-              ? `logo-chase 1.2s ease-in-out ${i * 0.2}s infinite`
-              : "none",
-            transition: loading ? "none" : "opacity 0.5s ease-out, fill 0.5s ease-out",
-            opacity: loading ? undefined : 1,
-          }}
-        />
-      ))}
+      {/* The ring group exists so CSS can move the border hexagon
+          independently of the cube faces (the brand crumb's hover spin
+          targets .rk-logo-ring). */}
+      <g className="rk-logo-ring">
+        {BORDER_SEGMENTS.map((seg, i) => (
+          <polygon
+            key={i}
+            points={seg.points}
+            fill={loading ? ANIM_FILL : seg.staticFill}
+            style={{
+              animation: loading
+                ? `logo-chase 1.2s ease-in-out ${i * 0.2}s infinite`
+                : "none",
+              transition: loading ? "none" : "opacity 0.5s ease-out, fill 0.5s ease-out",
+              opacity: loading ? undefined : 1,
+            }}
+          />
+        ))}
+      </g>
       {INNER_FACES.map((face, i) => (
         <polygon key={`face-${i}`} points={face.points} fill={face.fill} />
       ))}

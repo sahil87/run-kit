@@ -104,8 +104,8 @@ summary {
 
 /* ── Hover-animation vocabulary (change 260703-5ilm; boot sweep 260704-pr0p) ──
    One motion treatment per element category, so motion carries meaning:
-     glitch      = brand (rk-brand-glitch; the logo inside additionally
-                   kickstart-spins — rk-brand-logo)
+     glitch      = brand (rk-brand-glitch; the logo's border ring additionally
+                   kickstart-spins — rk-logo-ring)
      boot sweep  = top-bar page heading (JS, in top-bar.tsx — one inverse-video
                    cursor sweeps the `PageType: name` string: TypedLabel-style
                    over the prefix, decode glyph churn over the name; reuses the
@@ -178,15 +178,22 @@ summary {
   color: var(--color-accent-green);
 }
 
-/* The logo rides the glitch with a kickstart spin: four full turns in 600ms,
-   launched at full speed and decelerating into the landing. 1440° is a 360°
-   multiple so the hexagon always lands aligned; at this speed the launch reads
-   as flicker (the glitch's texture) and the decelerating tail is where the
-   rotation becomes visible. Scoped to the logo — the wordmark only glitches. */
+/* The logo rides the glitch with a kickstart spin of its border ring only:
+   two full turns in 600ms, launched at full speed and decelerating into the
+   landing, while the inner cube faces stay pinned (.rk-logo-ring is the <g>
+   wrapping the border segments in logo-spinner.tsx). 720° is a 360° multiple
+   so the ring always lands aligned. transform-box must be fill-box, not
+   view-box: view-box resolves origin percentages against the viewBox
+   dimensions but ignores its min-x/min-y (7,10), pivoting off-center — the
+   ring's own bbox is centered on the hexagon center (32,32). */
 @keyframes rk-brand-spin {
-  to { transform: rotate(1440deg); }
+  to { transform: rotate(720deg); }
 }
-.rk-brand-glitch:hover .rk-brand-logo {
+.rk-logo-ring {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+.rk-brand-glitch:hover .rk-logo-ring {
   animation: rk-brand-spin 600ms cubic-bezier(0.16, 0.84, 0.32, 1) 1;
 }
 
@@ -288,7 +295,7 @@ summary {
   .rk-glint::after,
   .rk-glint:hover::after { animation: none; opacity: 0; }
   .rk-brand-glitch:hover { animation: none; }
-  .rk-brand-glitch:hover .rk-brand-logo { animation: none; }
+  .rk-brand-glitch:hover .rk-logo-ring { animation: none; }
   /* (typed-label sweep is skipped in JS — no CSS gate needed) */
   .rk-bracket-group .rk-bracket,
   .rk-bracket-group:hover .rk-bracket-open,

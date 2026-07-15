@@ -381,7 +381,19 @@ export function TopBar({
           center = the universal `PageType: name` page heading (all four modes,
           260704-pr0p), right = controls. */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-2">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm min-w-0">
+        {/* Left breadcrumb nav (260715-q8ey overlap fixes): `overflow-hidden`
+            is the clip backstop — any crumb content past the floor clips at the
+            nav edge instead of painting over the center heading. The explicit
+            `min-w-[76px] sm:min-w-[180px]` floor (replacing a bare `min-w-0`)
+            guarantees brand icon + hamburger below `sm`, plus a usable session
+            crumb sliver at `sm+`. The two crumb wrapper spans carry `min-w-0`
+            (below) so their inner `truncate max-w-[16ch]` engages under
+            pressure — degradation ladder: crumbs truncate → server crumb hides
+            below `md` → nav clips at its floor. */}
+        <nav
+          aria-label="Breadcrumb"
+          className="flex items-center gap-1.5 text-sm overflow-hidden min-w-[76px] sm:min-w-[180px]"
+        >
           {/* Brand root crumb — logo + wordmark, links to `/`. Left-most on
               every route; IS the home affordance (no separate "Cockpit" crumb).
               Wordmark collapses to the bare icon below `sm` so long crumbs still
@@ -431,9 +443,14 @@ export function TopBar({
               {/* Server LINK crumb — terminal route only (parent = the Server
                   Cabin). On the root route the server name is the leaf and lives
                   in the center heading, so no left server crumb there. Hidden
-                  below `sm` so mobile shows only brand icon + centered leaf. */}
+                  below `md` (260715-q8ey — demoted from `sm`): it is the
+                  redundant first-to-give crumb since the hierarchy ▾ in the
+                  center heading (`Window ▾:`) already navigates to the Server
+                  Cabin → Cockpit, so it gives way before the session crumb in
+                  the cramped `sm`..`md` band. `min-w-0` unblocks the inner
+                  `truncate max-w-[16ch]`. */}
               {showServerCrumb && (
-                <span className="hidden sm:flex items-center gap-1.5">
+                <span className="hidden md:flex items-center gap-1.5 min-w-0">
                   <BreadcrumbSeparator />
                   <a
                     href={serverHref}
@@ -449,7 +466,7 @@ export function TopBar({
                 // The breadcrumb ends at the SESSION crumb — window identity
                 // moved to the centered heading (below), so the window name is
                 // never duplicated. Session crumb hidden below `sm`.
-                <span className="hidden sm:flex items-center gap-1.5">
+                <span className="hidden sm:flex items-center gap-1.5 min-w-0">
                   <BreadcrumbSeparator />
                   <BreadcrumbDropdown
                     items={sessionItems}
@@ -483,8 +500,15 @@ export function TopBar({
             left-aligned content so the heading's LEFT EDGE stops drifting as the
             instance name length changes. Below `sm` the min-width is absent
             (space is scarce at 375px) so current behavior is unchanged. The
-            history arrows + hierarchy ▾ live inside this anchored box. */}
-        <div className="flex items-center justify-center min-w-0">
+            history arrows + hierarchy ▾ live inside this anchored box.
+            260715-q8ey: the OUTER cell deliberately has NO `min-w-0` — that let
+            the `auto` column compress below the heading's content floor and
+            produced center-side overlap. The floor is already bounded (name
+            spans `max-w-[16ch] sm:max-w-[28ch] truncate` + fixed-width
+            `shrink-0` controls + the inner `sm:min-w-[28ch]` anchor), so
+            dropping `min-w-0` protects the center without a magic pixel min. Do
+            NOT re-add `min-w-0` here. */}
+        <div className="flex items-center justify-center">
           <div className="flex items-center justify-start min-w-0 sm:min-w-[28ch]">
             {/* Browser-history ◀ ▶ arrows (260714-uco1) — fixed-width so they
                 never shift the heading's text anchor, rendered on ALL four modes

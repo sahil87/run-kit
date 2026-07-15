@@ -14,11 +14,34 @@ What makes it sing in 2026 is what you tend to run in those panes: **AI coding a
 curl -fsSL https://shll.ai/install | sh -s -- run-kit
 ```
 
-Installs run-kit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. To install the entire sahil87 toolkit instead:
+Installs run-kit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. Prefer plain Homebrew? `brew install sahil87/tap/run-kit` does the same. To install the entire sahil87 toolkit instead:
 
 ```sh
 curl -fsSL https://shll.ai/install | sh
 ```
+
+## Quick start
+
+From install to a working dashboard with one agent running:
+
+```bash
+run-kit agent-setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
+run-kit daemon start            # start the dashboard daemon on :3000
+open http://localhost:3000      # open the dashboard in your browser
+
+# in a tmux session (tmux new -s work if you aren't in one):
+run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
+```
+
+`run-kit riff` also needs [`wt`](https://github.com/sahil87/wt) on your `PATH` — included with the full-toolkit install, or `brew install sahil87/tap/wt` — and your agent CLI available. When something fails, `run-kit doctor` prints per-dependency status.
+
+The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the browser.
+
+The formula also installs `rk` as a fully interchangeable short alias of `run-kit`, so every command here works the same whether you type `run-kit` or `rk`.
+
+To upgrade later, run `run-kit update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
+
+See the [install & access guide](docs/site/install.md) for prerequisites, `run-kit doctor`, development setup, and driving run-kit from your phone over Tailscale HTTPS.
 
 ## What run-kit is (and isn't)
 
@@ -61,28 +84,6 @@ workspaces ─────►   browser dashboard
 ```
 
 You can run either alone. Run `run-kit riff` in any tmux session without ever starting `run-kit serve` — you get the spawning behavior, no dashboard. Run `run-kit serve` and never call `run-kit riff` — you get a tmux browser dashboard for sessions you spawn manually. The two are designed to compose, not depend on each other.
-
-## Quick start
-
-From a clean install to a working dashboard with one agent running:
-
-```bash
-brew install sahil87/tap/run-kit     # install
-run-kit agent-setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
-run-kit daemon start            # start the dashboard daemon on :3000
-open http://localhost:3000      # open the dashboard in your browser
-
-# in any tmux session:
-run-kit riff --skill /fab-discuss    # spawn an agent workspace
-```
-
-The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the browser.
-
-The formula also installs `rk` as a fully interchangeable short alias of `run-kit`, so every command here works the same whether you type `run-kit` or `rk`.
-
-To upgrade later, run `run-kit update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately.
-
-See the [install & access guide](docs/site/install.md) for prerequisites, `run-kit doctor`, development setup, and driving run-kit from your phone over Tailscale HTTPS.
 
 ## `run-kit riff` — the spawner
 

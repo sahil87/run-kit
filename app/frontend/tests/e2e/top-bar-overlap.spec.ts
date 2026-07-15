@@ -40,8 +40,9 @@ test.beforeAll(() => {
       `tmux -L ${TMUX_SERVER} new-session -d -s ${TEST_SESSION} -x 80 -y 24`,
       { stdio: "ignore" },
     );
-    // The window this session's first window is renamed to the long name so
-    // the terminal route carries a wide centered heading.
+    // Create an ADDITIONAL window with the long name (the session's default
+    // first window keeps its auto-name) so the terminal route carries a wide
+    // centered heading. The test navigates to this long-named window by id.
     execSync(
       `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${LONG_WINDOW}"`,
       { stdio: "ignore" },

@@ -35,6 +35,7 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, sec
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const actionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -130,10 +131,17 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, sec
 
   // Keep the fixed menu glued to a moving trigger: any scroll (capture:true so
   // scrolls in ANY ancestor scroll container are heard, not just window) or a
-  // resize recomputes the anchor rather than letting the menu detach.
+  // resize recomputes the anchor rather than letting the menu detach. The menu
+  // is itself `overflow-y-auto`, and `scroll` doesn't bubble but DOES capture,
+  // so a scroll INSIDE the menu would otherwise fire this handler and trigger a
+  // redundant re-render (the trigger's rect is unchanged, yet `setMenuPos` gets
+  // a fresh object each call). Ignore scrolls originating within the menu.
   useEffect(() => {
     if (!open) return;
-    const onReflow = () => computeMenuPos();
+    const onReflow = (e: Event) => {
+      if (e.type === "scroll" && menuRef.current?.contains(e.target as Node)) return;
+      computeMenuPos();
+    };
     window.addEventListener("scroll", onReflow, true);
     window.addEventListener("resize", onReflow);
     return () => {
@@ -173,6 +181,7 @@ export function BreadcrumbDropdown({ items, label, icon, onNavigate, action, sec
       </button>
       {open && menuPos && (
         <div
+          ref={menuRef}
           role="menu"
           aria-label={label ? `Switch ${label}` : "Switch"}
           // `fixed` + measured viewport coords (not `absolute top-full`): frees

@@ -35,7 +35,10 @@ the same state both controls flip.
   cleanup); `panes()` locates the desktop pane roots
   (`[role="group"][aria-label^="board pane"]`); `row()` locates the
   `.overflow-x-auto` scroll row; `autofitButton()` locates the top-bar
-  `Toggle board autofit` button.
+  `Toggle board autofit` button via `getByRole` — the accessibility-tree match
+  excludes the always-present `aria-hidden` measurement probe copy
+  (registry-driven overflow, 260715-h1ck; the 1920px viewport keeps the L2
+  control in-bar).
 - Each test uses fresh board names (`afa<ts>` / `afb<ts>`) and resets autofit to
   off + unpins at the end so a persisted localStorage key never leaks between
   tests.

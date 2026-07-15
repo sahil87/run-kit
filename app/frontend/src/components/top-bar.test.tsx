@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { TopBar } from "./top-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -459,14 +459,21 @@ describe("TopBar", () => {
     expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
   });
 
-  it("renders the L3 always block in Notification → Theme → Refresh → Help order, dot right-most (260704-9o7k pyramid)", () => {
-    const { container } = renderTopBar();
-    const cluster = container.querySelector('.justify-self-end')!;
-    // Collect the ordered accessible landmarks of the always block + dot.
+  it("keeps the L3 pyramid order (Notification → Theme → Refresh → Help) and the dot as the right-most element (260715-h1ck registry)", () => {
+    // The right cluster is now registry-driven (260715-h1ck): the ordered
+    // registry places L3 last in pyramid order (Notification · Theme · Refresh ·
+    // Help), then the overflow chevron, then the connection dot as the right-most
+    // status terminator. Order is asserted via document position (robust to
+    // whether each control is currently in-bar or in the hidden measurement
+    // probe — jsdom reports zero widths, so everything is "overflowed", but the
+    // registry order is preserved in the probe).
+    renderTopBar();
+    const cluster = screen.getByTestId("top-bar-right");
     const bell = screen.getByLabelText(/Notifications/);
     const theme = screen.getByLabelText(/theme/i);
     const refresh = screen.getByLabelText("Refresh page");
     const help = screen.getByLabelText("Help — run-kit docs");
+    const chevron = screen.getByLabelText("More controls");
     const dot = cluster.querySelector('[role="status"]')!;
     // DOCUMENT_POSITION_FOLLOWING (4) means the arg comes AFTER the node.
     const follows = (a: Element, b: Element) =>
@@ -474,9 +481,14 @@ describe("TopBar", () => {
     expect(follows(bell, theme)).toBe(true);
     expect(follows(theme, refresh)).toBe(true);
     expect(follows(refresh, help)).toBe(true);
-    expect(follows(help, dot)).toBe(true);
-    // Dot is the last child of the cluster.
-    expect(cluster.lastElementChild).toBe(dot);
+    // The exempt chevron + dot trail the candidate controls; the dot is last.
+    expect(follows(help, chevron)).toBe(true);
+    expect(follows(chevron, dot)).toBe(true);
+    // The dot is the deepest-last element of the right cluster (nested in the
+    // trailing exempt block rather than a direct child — the flat pyramid layout
+    // is gone).
+    const statuses = cluster.querySelectorAll('[role="status"]');
+    expect(statuses[statuses.length - 1]).toBe(dot);
   });
 
   it("renders the hamburger toggle on terminal/root/board but NOT on the cockpit", () => {
@@ -1102,6 +1114,129 @@ describe("TopBar", () => {
       act(() => fireEvent.keyDown(document, { key: "Escape" }));
       expect(screen.queryByText("Send test notification")).not.toBeInTheDocument();
       expect(trigger).toHaveFocus();
+    });
+  });
+
+  describe("overflow chevron + menu (260715-h1ck)", () => {
+    // jsdom reports zero element widths, so the fit math overflows EVERYTHING
+    // into the menu — convenient for asserting menu contents deterministically.
+    it("renders the always-visible chevron in all four page modes", () => {
+      renderTopBar();
+      expect(screen.getByLabelText("More controls")).toBeInTheDocument();
+      cleanup();
+      renderTopBar({ mode: "root", currentWindow: null, windowName: "" });
+      expect(screen.getByLabelText("More controls")).toBeInTheDocument();
+      cleanup();
+      renderTopBar({ mode: "board", currentWindow: null, boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] });
+      expect(screen.getByLabelText("More controls")).toBeInTheDocument();
+      cleanup();
+      renderTopBar({ mode: "cockpit", sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" });
+      expect(screen.getByLabelText("More controls")).toBeInTheDocument();
+    });
+
+    it("places the chevron immediately left of the connection dot", () => {
+      renderTopBar();
+      const cluster = screen.getByTestId("top-bar-right");
+      const chevron = screen.getByLabelText("More controls");
+      const dot = cluster.querySelector('[role="status"]')!;
+      const follows = (a: Element, b: Element) =>
+        Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+      // Chevron precedes the dot, and the dot is the last status element.
+      expect(follows(chevron, dot)).toBe(true);
+      const statuses = cluster.querySelectorAll('[role="status"]');
+      expect(statuses[statuses.length - 1]).toBe(dot);
+    });
+
+    it("carries menu-button a11y (aria-haspopup / aria-expanded) and toggles expanded on open", () => {
+      renderTopBar();
+      const chevron = screen.getByLabelText("More controls");
+      expect(chevron).toHaveAttribute("aria-haspopup", "true");
+      expect(chevron).toHaveAttribute("aria-expanded", "false");
+      act(() => fireEvent.click(chevron));
+      expect(chevron).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("menu", { name: "More controls" })).toBeInTheDocument();
+    });
+
+    it("opens a menu listing overflowed controls plus the always-present version row", () => {
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      // Everything overflows in jsdom → the terminal-tier rows are present.
+      expect(within(menu).getByText("Split vertical")).toBeInTheDocument();
+      expect(within(menu).getByText("Split horizontal")).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeInTheDocument();
+      expect(within(menu).getByText("Theme: System")).toBeInTheDocument();
+      expect(within(menu).getByText("Refresh page")).toBeInTheDocument();
+      expect(within(menu).getByText("Help / Documentation")).toBeInTheDocument();
+      // The fixed version row is always present (last).
+      expect(within(menu).getByText("Run Kit")).toBeInTheDocument();
+    });
+
+    it("closes on Escape and returns focus to the chevron", () => {
+      renderTopBar();
+      const chevron = screen.getByLabelText("More controls");
+      act(() => fireEvent.click(chevron));
+      expect(screen.getByRole("menu", { name: "More controls" })).toBeInTheDocument();
+      act(() => fireEvent.keyDown(document, { key: "Escape" }));
+      expect(screen.queryByRole("menu", { name: "More controls" })).not.toBeInTheDocument();
+      expect(chevron).toHaveFocus();
+    });
+
+    it("runs a menu action (Theme cycle) from the menu", () => {
+      renderTopBar();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      // System → Light on first click (matches ThemeToggle's cycle).
+      const themeRow = within(menu).getByText("Theme: System").closest("button")!;
+      act(() => fireEvent.click(themeRow));
+      // The theme change re-renders the row label; reopen to observe the cycle.
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu2 = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu2).getByText("Theme: Light")).toBeInTheDocument();
+    });
+
+    it("Refresh page row reloads the page", () => {
+      const originalLocation = window.location;
+      const reloadMock = vi.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: { ...originalLocation, reload: reloadMock },
+      });
+      try {
+        renderTopBar();
+        act(() => fireEvent.click(screen.getByLabelText("More controls")));
+        const menu = screen.getByRole("menu", { name: "More controls" });
+        act(() => fireEvent.click(within(menu).getByText("Refresh page")));
+        expect(reloadMock).toHaveBeenCalledTimes(1);
+      } finally {
+        Object.defineProperty(window, "location", {
+          configurable: true,
+          writable: true,
+          value: originalLocation,
+        });
+      }
+    });
+
+    it("keeps the ViewSwitcher exempt (visible in the bar, not in the menu) when the window is multi-view", () => {
+      renderTopBar({ availableViews: ["tty", "web"], activeView: "tty", onSelectView: vi.fn() });
+      // The switcher chip is present as an exempt bar control.
+      expect(screen.getByTestId("view-toggle")).toBeInTheDocument();
+      // …and never appears as a menu row.
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).queryByTestId("view-toggle")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("overflow menu version row (260715-h1ck)", () => {
+    it("shows plain `Run Kit` when the daemon version is unknown (no vundefined)", () => {
+      renderTopBar(); // no SessionProvider → daemonVersion null
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const versionRow = within(menu).getByText("Run Kit");
+      expect(versionRow).toBeInTheDocument();
+      expect(within(menu).queryByText(/vundefined/)).not.toBeInTheDocument();
     });
   });
 });

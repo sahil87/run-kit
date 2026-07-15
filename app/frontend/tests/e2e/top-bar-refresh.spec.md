@@ -1,8 +1,13 @@
 # top-bar-refresh.spec.ts
 
-Verifies the top-bar **RefreshButton**: on a terminal route it renders in the L3
-always-block at its pyramid position (Notification → Theme → **Refresh** → Help,
-dot right-most), and clicking it performs a full `window.location.reload()`.
+Verifies the top-bar **RefreshButton**: on a terminal route it renders in-bar at
+its L3 pyramid position (Theme → **Refresh** → Help), followed by the
+always-present overflow chevron and the connection dot as the right-most status
+element, and clicking it performs a full `window.location.reload()`. Since
+260715-h1ck the right cluster is registry-driven: controls render directly (no
+`hidden sm:flex` wrapper spans) and the dot lives inside a nested trailing exempt
+block, so ordering is asserted by document position at a wide viewport rather
+than by flat wrapper-sibling adjacency.
 
 ## Shared setup
 
@@ -37,27 +42,28 @@ dot right-most), and clicking it performs a full `window.location.reload()`.
 
 ## Tests
 
-### `renders refresh in the always block between theme and help on a terminal route`
+### `renders refresh in the L3 pyramid order (Theme → Refresh → Help), chevron then dot right-most, on a terminal route`
 
 **What it proves:** the `/select` mock intercepted the window-selection POST fired
 during navigation (so no real backend read/write occurred — proving the "fully
-mocked" guarantee holds); and on a terminal route the Refresh page button renders
-at its pyramid position in the L3 always-block — its wrapper `<span>` sits
-directly between the Theme toggle's and the Help link's wrappers, and the
-connection dot (`role="status"`) is the cluster's last element. This is true
-sibling adjacency, not merely "somewhere after" in document order.
+mocked" guarantee holds); and on a terminal route at a wide viewport the Refresh
+page button renders in-bar at its L3 pyramid position — Theme precedes Refresh
+precedes Help, followed by the always-present overflow chevron ("More controls"),
+and the connection dot (`role="status"`) is the deepest-last status element of the
+right cell (`data-testid="top-bar-right"`). Ordering is asserted by document
+position (coordinate-free), robust to the registry-driven structure where a
+control may render in-bar or in the hidden measurement probe.
 
 **Steps:**
 1. Poll the `/select` route-mock hit counter until `> 0` — proof the trailing-`*`
    glob intercepts the `?server=default` URL rather than falling through to the
    real :3020 backend (the POST fires in a mount-time effect fractionally after
    the close button renders).
-2. Assert the `Refresh page` button is visible.
-3. In the page, resolve the theme/refresh/help wrappers via `.closest("span")` and
-   assert theme's wrapper's `nextElementSibling` is the refresh wrapper, whose
-   `nextElementSibling` is the help wrapper; then assert the cluster's
-   `lastElementChild` is the `role="status"` dot wrapper (coordinate-free
-   true-adjacency checks).
+2. Set a wide 1280px viewport so the L3 controls stay in-bar.
+3. Assert the `Refresh page` button is visible.
+4. In the page, resolve theme/refresh/help/chevron and the dot, then assert the
+   document-position chain Theme → Refresh → Help → chevron → dot, and that the
+   dot is the last `role="status"` element within the right cell.
 
 ### `clicking the refresh button reloads the page`
 

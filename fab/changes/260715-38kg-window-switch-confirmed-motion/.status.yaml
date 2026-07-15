@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-15T22:20:19Z", driver: fab-fff, iterations: 4, completed_at: "2026-07-15T22:28:31Z"}
     review: {started_at: "2026-07-15T22:28:31Z", driver: fab-fff, iterations: 4, completed_at: "2026-07-15T22:44:38Z"}
     hydrate: {started_at: "2026-07-15T22:44:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T22:50:29Z"}
-    ship: {started_at: "2026-07-15T22:50:29Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-15T22:50:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T22:52:59Z"}
+    review-pr: {started_at: "2026-07-15T22:52:59Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/372
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2024
+    deleted: 72
+    net: 1952
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1362
+        deleted: 68
+        net: 1294
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-15T22:50:29Z"
-    computed_at_stage: hydrate
+        added: 519
+        deleted: 18
+        net: 501
+    computed_at: "2026-07-15T22:52:59Z"
+    computed_at_stage: ship
 summary: 'Confirmation-gated window-switch motion: the slide is an earned signal — gate settle reasons (first-write/timeout/superseded) + skipTransition() on every non-first-write settle, a LogoSpinner pending mask (pure module state machine + useSyncExternalStore seam, armed only at the 300ms gate timeout, POST-filtered lift, abandonSwitchFeedback/confirmSwitchArrived teardown, isMaskExemptKey chord exemptions), failure bounce-back (CONFIRMATION_WINDOW_MS 5s + toast, server-scoped PendingSwitchTarget via isSamePendingTarget at all four seams, server-change/route-leave/unmount teardowns, isRedundantSwitch early-out), and non-VT/reduced-motion grace-timer parity (armGraceMask). (38kg)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-15T22:50:29Z
+last_updated: 2026-07-15T22:52:59Z

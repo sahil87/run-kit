@@ -1,9 +1,6 @@
 package api
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"rk/internal/prstatus"
@@ -141,21 +138,8 @@ func TestAttachPRStatusResetsCollectorFields(t *testing.T) {
 	}
 }
 
-func TestHandlePRStatusRefreshReturnsOK(t *testing.T) {
-	// No collector wired (test router) — handler must still 200 {"ok":true}.
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-	req := httptest.NewRequest(http.MethodPost, "/api/pr-status/refresh", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var body map[string]bool
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("bad JSON: %v (%s)", err, rec.Body.String())
-	}
-	if !body["ok"] {
-		t.Errorf("body = %v, want {ok:true}", body)
-	}
-}
+// Note: the former POST /api/pr-status/refresh endpoint and its handler test
+// (TestHandlePRStatusRefreshReturnsOK) were retired with change 260715-jykd — the
+// composing POST /api/status/refresh (status_refresh.go / status_refresh_test.go)
+// supersedes it. The attachPRStatus tests above are unrelated to that endpoint
+// (they cover the sseHub URL-keyed join) and are retained here.

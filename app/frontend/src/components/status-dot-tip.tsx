@@ -109,8 +109,7 @@ function InfoIcon() {
 /**
  * Shared link styling for the card's interactive rows. Click is stopped from
  * bubbling so activating a link never selects/navigates the underlying window
- * row (the dot sits inside a clickable sidebar row) — mirrors the proven
- * PrStatusLine link pattern (pr-status-line.tsx).
+ * row (the dot sits inside a clickable sidebar row).
  */
 const LINK_CLASS =
   "text-text-secondary hover:text-text-primary hover:underline whitespace-nowrap coarse:py-1";

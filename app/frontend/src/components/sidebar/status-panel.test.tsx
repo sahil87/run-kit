@@ -7,6 +7,11 @@ vi.mock("@/lib/clipboard", () => ({
   copyToClipboard: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/api/client", () => ({
+  refreshStatus: vi.fn(() => Promise.resolve({ ok: true })),
+}));
+import { refreshStatus } from "@/api/client";
+
 // Helper to exercise shortenPath via the component
 function renderCwd(cwd: string) {
   const win: WindowInfo = {
@@ -691,5 +696,46 @@ describe("StatusPanel copy behavior", () => {
       // The failure is scoped to its segment — the still-open state stays green.
       expect(screen.getByText("open").className).toContain("text-accent-green");
     });
+  });
+});
+
+describe("PANE header refresh button (260715-jykd)", () => {
+  it("renders the refresh button even with no window selected (server-global)", () => {
+    render(<StatusPanel window={null} />);
+    expect(screen.getByTestId("pane-refresh")).toBeInTheDocument();
+  });
+
+  it("clicking the header button fires refreshStatus and shows a busy state", async () => {
+    // Hold the POST pending so the busy state is observable before it settles.
+    let resolveRefresh: (v: { ok: boolean }) => void = () => {};
+    vi.mocked(refreshStatus).mockImplementationOnce(
+      () => new Promise((res) => { resolveRefresh = res; }),
+    );
+
+    render(<StatusPanel window={makeWindow()} />);
+    const button = screen.getByTestId("pane-refresh") as HTMLButtonElement;
+
+    fireEvent.click(button);
+    expect(refreshStatus).toHaveBeenCalledTimes(1);
+    // Busy: the button is disabled and the icon spins while the POST is in flight.
+    expect(button.disabled).toBe(true);
+    expect(button.querySelector("svg")?.className.baseVal).toContain("animate-spin");
+
+    // Settle the POST; busy clears.
+    await act(async () => {
+      resolveRefresh({ ok: true });
+    });
+    expect(button.disabled).toBe(false);
+    expect(button.querySelector("svg")?.className.baseVal ?? "").not.toContain("animate-spin");
+  });
+
+  it("clicking the header button does not toggle the panel open/closed", () => {
+    render(<StatusPanel window={makeWindow()} />);
+    // The panel is open by default; its content (the window name) is visible.
+    expect(screen.getByText("zsh")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("pane-refresh"));
+    // CollapsiblePanel stops headerAction clicks from toggling — content stays.
+    expect(screen.getByText("zsh")).toBeInTheDocument();
   });
 });

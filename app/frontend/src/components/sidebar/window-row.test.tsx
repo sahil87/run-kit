@@ -136,8 +136,9 @@ describe("WindowRow", () => {
   });
 
   // PR status is no longer rendered in the sidebar window row — it moved to the
-  // Pane panel (see status-panel.test.tsx). The dashboard card retains its own
-  // PrStatusLine (see pr-status-line.test.tsx).
+  // Pane panel (see status-panel.test.tsx). The former dashboard PrStatusLine
+  // component was retired (260715-jykd) — the PR L3 register in the Pane panel is
+  // now the sole PR text surface.
   it("does not render a PR status line even for a change-bound window with a PR", () => {
     const win = makeWindow({
       windowId: "@0",

@@ -364,12 +364,17 @@ export async function initTmuxConf(): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-/** Trigger an on-demand refresh of the server-side PR-status collector. The
- *  refreshed statuses arrive via the normal SSE sessions stream — this just
- *  kicks the (otherwise 90s-cadence) batched `gh` fetch. Best-effort: callers
- *  ignore the result. Server-independent (the collector is global). */
-export async function refreshPrStatus(): Promise<{ ok: boolean }> {
-  const res = await fetch("/api/pr-status/refresh", {
+/** Trigger an on-demand refresh of BOTH server-side PR pollers — the viewer-wide
+ *  collector (90s cadence) and the branch→PR refresher (30s cadence). The server
+ *  responds 202 immediately and runs the refreshes on a detached goroutine; the
+ *  refreshed statuses arrive via the normal SSE sessions stream (~2.5s cadence),
+ *  never in this response body. The server is the single frequency choke point
+ *  (coalescing + a min-interval throttle), so this is safe to over-fire — any
+ *  extra call is coalesced/throttled server-side and still 202s. Best-effort /
+ *  fire-and-forget: callers ignore the result. Server-independent (both pollers
+ *  are global). */
+export async function refreshStatus(): Promise<{ ok: boolean }> {
+  const res = await fetch("/api/status/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),

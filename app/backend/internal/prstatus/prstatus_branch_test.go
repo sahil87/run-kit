@@ -274,6 +274,41 @@ func TestBranchRefresher_MergedPRDurableFromColdCollector(t *testing.T) {
 	}
 }
 
+// TestBranchRefresher_RefreshNow: the exported on-demand RefreshNow delegates to
+// the same private refresh the tick runs — a registered pair is re-resolved and
+// served from the snapshot after one RefreshNow call, and a subsequent transient
+// error keeps the last-good entry (best-effort, stale-while-revalidate).
+func TestBranchRefresher_RefreshNow(t *testing.T) {
+	fail := false
+	calls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		calls++
+		if fail {
+			return nil, errors.New("gh boom")
+		}
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	})
+	r.Register("/repo", "feat")
+
+	// On-demand refresh resolves the pair without the background goroutine.
+	r.RefreshNow(context.Background())
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 4 {
+		t.Fatalf("RefreshNow must resolve the registered pair, got ok=%v pr=%v", ok, pr)
+	}
+	if calls != 1 {
+		t.Errorf("RefreshNow issued %d exec calls, want 1", calls)
+	}
+
+	// A transient error on a later RefreshNow keeps the last-good entry.
+	fail = true
+	r.RefreshNow(context.Background())
+	pr, ok = r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 4 {
+		t.Fatalf("last-good PR #4 must survive a transient RefreshNow error, got ok=%v pr=%v", ok, pr)
+	}
+}
+
 // TestPickBranchPR_Precedence covers the open > merged > closed selection rule
 // (status-pyramid.md D2, revised), including the branch-reuse edge (an open PR
 // with an OLDER updatedAt still outranks a newer merged PR — state class beats

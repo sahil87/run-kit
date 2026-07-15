@@ -355,11 +355,39 @@ func Stop() error {
 		return nil
 	}
 
-	// Send C-c to trigger graceful shutdown, under its own fresh context.
+	// Pre-cancel any pane mode (e.g. copy-mode) before sending C-c. A pane in a
+	// mode does NOT receive C-c as a literal key: tmux looks the key up in the
+	// mode's key table (copy-mode binds C-c → `send-keys -X cancel`, a
+	// non-read-only command) and dispatches that binding through a resolved
+	// target client. The only client attached to the rk-daemon session is
+	// run-kit's own read-only `-CC` control bridge (attached with `-r`), so the
+	// dispatch is rejected with "client is read-only" and the interrupt never
+	// reaches the serve process. `copy-mode -q` returns the pane to normal mode
+	// so the subsequent send-keys injects C-c literally. It is idempotent (exit
+	// 0 when the pane is not in a mode — verified on tmux 3.6a), so it is safe to
+	// run unconditionally. Runs under its own fresh cmdTimeout context, matching
+	// this function's per-command-context pattern, and targets targetFor(session)
+	// so the legacy-session path stays correct. Best-effort: a failure is logged
+	// and never aborts Stop() — the send-keys attempt and the grace/kill fallback
+	// still follow.
+	modeCtx, modeCancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer modeCancel()
+	if err := runTmux(modeCtx, "copy-mode", "-q", "-t", targetFor(session)); err != nil {
+		slog.Debug("daemon stop: copy-mode pre-cancel failed", "err", err)
+	}
+
+	// Send C-c to trigger graceful shutdown, under its own fresh context. On
+	// failure, do NOT return early: log and fall through to the grace-timer/
+	// kill-session fallback below. An earlier version returned the send error
+	// here, which wedged Stop() (and everything layered on it — restart, rk
+	// update, POST /api/restart) whenever the graceful C-c could not be
+	// delivered, even though the force-kill fallback would have stopped the
+	// daemon. Degrading to the fallback keeps the documented "C-c → wait grace →
+	// kill" contract reachable regardless of why the C-c send fails.
 	sendCtx, sendCancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer sendCancel()
 	if err := runTmux(sendCtx, "send-keys", "-t", targetFor(session), "C-c"); err != nil {
-		return fmt.Errorf("sending C-c to daemon: %w", err)
+		slog.Warn("daemon stop: C-c send failed; relying on grace-timeout kill fallback", "err", err)
 	}
 
 	// The grace deadline is an independent timer, NOT a context bounding the

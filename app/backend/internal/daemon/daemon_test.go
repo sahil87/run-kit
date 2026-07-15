@@ -127,6 +127,41 @@ func startSelfExitingOn(socket, session, delaySec string) error {
 		"sh", "-c", "trap 'exit 0' INT; sleep "+delaySec+"; exit 0").Run()
 }
 
+// startIntHonoringOn creates a session whose inner command HONORS SIGINT (C-c)
+// but otherwise stays alive indefinitely (a `sleep`-loop under `trap … INT`, no
+// self-exit). Unlike startSelfExitingOn (which also self-exits after a fixed
+// delay) this session vanishes ONLY when C-c is actually delivered to the
+// process — so it is the right fixture for the copy-mode regression test, which
+// must prove the pre-cancel is what lets the interrupt reach the process. If
+// C-c is consumed by a pane mode (the pre-fix bug) instead of reaching the
+// process, the session stays alive.
+func startIntHonoringOn(socket, session string) error {
+	return exec.Command("tmux", "-L", socket,
+		"new-session", "-d", "-s", session, "-n", WindowName,
+		"sh", "-c", "trap 'exit 0' INT; while true; do sleep 0.05; done").Run()
+}
+
+// startOnWithWindow creates a session on the socket with an explicitly named
+// window (NOT WindowName) using a harmless C-c-ignoring command. Used by the
+// send-failure fall-through test: the daemon target Stop() computes is
+// `=<session>:=serve`, so a window named anything other than "serve" makes
+// send-keys/copy-mode to that target fail with "can't find window: serve" while
+// has-session/kill-session against `=<session>` still resolve — a deterministic
+// send failure that needs no attached read-only -CC client.
+func startOnWithWindow(socket, session, window string) error {
+	return exec.Command("tmux", "-L", socket,
+		"new-session", "-d", "-s", session, "-n", window,
+		"sleep", "300").Run()
+}
+
+// enterCopyModeOn drives the given session's WindowName pane into tmux
+// copy-mode on the socket — reproducing the operator-box state that wedged
+// `rk daemon stop`.
+func enterCopyModeOn(socket, session string) error {
+	return exec.Command("tmux", "-L", socket, "copy-mode",
+		"-t", "="+session+":="+WindowName).Run()
+}
+
 // stopOn sends C-c and kills the named session on the given socket.
 func stopOn(socket, session string) {
 	_ = exec.Command("tmux", "-L", socket, "send-keys",
@@ -399,6 +434,118 @@ func TestStop_TimeoutStuckSessionIsKilled(t *testing.T) {
 	}
 	if !IsRunning() {
 		t.Error("IsRunning() = false after restart; a fresh session should be up")
+	}
+}
+
+// TestStop_CopyModePaneStopsGracefully is the regression test for the shipped
+// copy-mode bug: a daemon pane left in tmux copy-mode consumes C-c via the mode
+// key table (copy-mode binds C-c → cancel) instead of delivering it to the serve
+// process, so `send-keys C-c` never reaches the process and graceful shutdown
+// silently fails. Stop()'s new copy-mode pre-cancel exits the mode first so the
+// interrupt is injected literally and the process gets SIGINT.
+//
+// The fixture (startIntHonoringOn) HONORS SIGINT but otherwise stays alive
+// forever, so the ONLY way the session vanishes is a real SIGINT delivery. We
+// drive its pane into copy-mode, then call Stop() with a generous grace period
+// (3s) and a tight poll interval (20ms). With the fix, the pre-cancel exits the
+// mode, C-c reaches the process, and the session vanishes in the happy-path poll
+// loop within a few ms — WELL under grace. We assert both the session is gone AND
+// Stop() returned far under the grace period, so the success came from graceful
+// C-c delivery, not the grace-expiry kill fallback.
+//
+// Why this FAILS against pre-fix daemon.go: without the pre-cancel the C-c is
+// consumed by copy-mode (send-keys still exits 0 in this no-attached-client test
+// env, so the early-return bug isn't even reached), the process never gets
+// SIGINT, and the session survives until the 3s grace timer fires the kill —
+// making elapsed ≈ grace and tripping the elapsed assertion.
+func TestStop_CopyModePaneStopsGracefully(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+	grace := 3 * time.Second
+	withStopTiming(t, grace, 20*time.Millisecond)
+
+	if err := startIntHonoringOn(testSocket, SessionName); err != nil {
+		t.Fatalf("startIntHonoringOn() error: %v", err)
+	}
+	if !IsRunning() {
+		t.Fatal("IsRunning() = false; expected true for the freshly started session")
+	}
+
+	// Reproduce the wedged state: pane in copy-mode.
+	if err := enterCopyModeOn(testSocket, SessionName); err != nil {
+		t.Fatalf("enterCopyModeOn() error: %v", err)
+	}
+
+	start := time.Now()
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop() = %v; a copy-mode pane must stop cleanly after the pre-cancel", err)
+	}
+	elapsed := time.Since(start)
+
+	if IsRunning() {
+		t.Error("IsRunning() = true after Stop(); the copy-mode pane's process should have received SIGINT and exited")
+	}
+	// Graceful delivery finishes in a few ms; the grace-expiry kill fallback
+	// would only run at ~grace. A comfortably-under-grace bound proves the
+	// pre-cancel made C-c effective rather than the kill fallback masking it.
+	if elapsed >= grace/2 {
+		t.Errorf("Stop() took %v (grace=%v); expected graceful C-c delivery well under grace — "+
+			"a near-grace stop means C-c was consumed by copy-mode and only the kill fallback stopped the session (the pre-fix bug)", elapsed, grace)
+	}
+}
+
+// TestStop_SendFailureFallsThroughToKill is the regression test for the
+// compounding bug: Stop() early-returned on a send-keys failure, so its
+// grace-timer → kill-session fallback never ran and Stop() (plus restart, rk
+// update, POST /api/restart) wedged whenever the graceful C-c could not be
+// delivered.
+//
+// Reproducing the exact "client is read-only" dispatch rejection in-test is
+// heavyweight (it needs an attached read-only `-CC` client). We instead force a
+// deterministic send-keys failure with a wrong-window-name proxy: the session is
+// started with its window named "other", so the target Stop() computes
+// (`=<session>:=serve`) does not resolve for send-keys or the copy-mode
+// pre-cancel ("can't find window: serve") — while has-session and kill-session
+// against `=<session>` still succeed. Both the pre-cancel and the C-c send fail;
+// with the fix both are non-fatal and Stop() falls through to the kill branch.
+//
+// withStopTiming's nanosecond grace forces the kill branch immediately (like
+// TestStop_TimeoutStuckSessionIsKilled). Pre-fix code returned the wrapped
+// "sending C-c to daemon" error before ever reaching the grace loop; the fix
+// logs and falls through, the kill removes the session, and Stop() returns nil.
+func TestStop_SendFailureFallsThroughToKill(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+	withStopTiming(t, time.Nanosecond, time.Hour)
+
+	// Window "other" (not "serve") → send-keys/copy-mode to =<session>:=serve
+	// fail; sleep 300 ignores C-c so the session is reliably alive at kill-time.
+	if err := startOnWithWindow(testSocket, SessionName, "other"); err != nil {
+		t.Fatalf("startOnWithWindow() error: %v", err)
+	}
+	if !IsRunning() {
+		t.Fatal("IsRunning() = false; expected true for the freshly started session")
+	}
+
+	// The C-c send fails (wrong window), but the fix must NOT surface that error:
+	// it logs and falls through to the kill fallback, which removes the session.
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop() = %v; a send-keys failure must degrade to the kill fallback, not abort Stop()", err)
+	}
+	if IsRunning() {
+		t.Error("IsRunning() = true after Stop(); the kill fallback should have removed the session")
 	}
 }
 

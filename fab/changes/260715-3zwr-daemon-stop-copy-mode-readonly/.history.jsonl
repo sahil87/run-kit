@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-15T08:22:18Z"}
+{"args":"rk daemon stop fails with 'client is read-only' when the daemon pane is in copy-mode (mode key-table dispatch through the read-only -CC bridge client); Stop() early-return also skips the kill-session fallback. Fix: pre-cancel pane mode with copy-mode -q before send-keys, and fall through to the grace/kill path on send-keys failure.","cmd":"fab-new","event":"command","ts":"2026-07-15T08:22:18Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-07-15T08:24:16Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-15T08:25:33Z"}
+{"cmd":"git-branch","event":"command","ts":"2026-07-15T08:26:43Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-15T08:27:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T08:28:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T08:36:12Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T08:36:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-15T08:46:52Z"}
+{"event":"review","result":"passed","ts":"2026-07-15T08:46:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-15T08:50:57Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-15T08:53:43Z"}
+{"event":"review","result":"passed","ts":"2026-07-15T09:02:15Z"}

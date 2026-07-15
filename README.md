@@ -28,6 +28,8 @@ What makes it sing in 2026 is what you tend to run in those panes: **AI coding a
 
 <img alt="Desktop — terminal session with sidebar (servers, sessions, panes) and host stats" src="https://github.com/user-attachments/assets/fbbe6171-e265-424a-b3fa-1a3194de3a09" />
 
+<img alt="Desktop — driving an AI coding agent from the dashboard: boards and sessions in the sidebar, a live agent pane mid-task, host stats" src="https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/dashboard-agent-session.webp" />
+
 <p>
   <img width="32%" alt="Mobile menu — drawer with servers, sessions, and panes" src="https://github.com/user-attachments/assets/1326355e-6031-4620-9ce9-355b82bf8313" />
   <img width="32%" alt="Mobile dashboard — session and window overview" src="https://github.com/user-attachments/assets/35645b54-d6d4-463f-8dc3-9d44e4c76dd5" />

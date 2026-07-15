@@ -1,0 +1,57 @@
+id: m4xy
+name: 260715-m4xy-history-push-window-switch
+created: 2026-07-15T03:23:09Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 11
+    acceptance_completed: 11
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 81.3
+        reversibility: 85.6
+        competence: 86.3
+        disambiguation: 82.5
+stage_metrics:
+    intake: {started_at: "2026-07-15T03:23:09Z", driver: fab-new, iterations: 1, completed_at: "2026-07-15T03:28:27Z"}
+    apply: {started_at: "2026-07-15T03:28:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T03:36:39Z"}
+    review: {started_at: "2026-07-15T03:36:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T03:44:04Z"}
+    hydrate: {started_at: "2026-07-15T03:44:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T03:47:28Z"}
+    ship: {started_at: "2026-07-15T03:47:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T03:49:49Z"}
+    review-pr: {started_at: "2026-07-15T03:49:49Z", driver: git-pr, iterations: 1, completed_at: "2026-07-15T03:55:27Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/357
+change_type_source: explicit
+true_impact:
+    added: 415
+    deleted: 6
+    net: 409
+    excluding:
+        added: 109
+        deleted: 2
+        net: 107
+    tests:
+        added: 68
+        deleted: 0
+        net: 68
+    computed_at: "2026-07-15T03:49:49Z"
+    computed_at_stage: ship
+summary: navigateToWindow now pushes browser history (dropped runSwitch's replace:true) so the top-bar ◀ ▶ arrows retrace within-server window hops; no dedup, SSE URL-writeback + switchView lens toggles stay replace
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-15T03:55:27Z

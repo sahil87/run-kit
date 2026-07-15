@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 18
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-07-15T18:01:33Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-15T18:03:45Z"}
     review: {started_at: "2026-07-15T18:03:45Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-15T18:13:08Z"}
     hydrate: {started_at: "2026-07-15T18:13:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T18:29:21Z"}
-    ship: {started_at: "2026-07-15T18:29:21Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-15T18:29:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T18:31:59Z"}
+    review-pr: {started_at: "2026-07-15T18:31:59Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/369
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 934
+    deleted: 425
+    net: 509
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 378
+        deleted: 330
+        net: 48
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-15T18:29:21Z"
-    computed_at_stage: hydrate
+        added: 82
+        deleted: 60
+        net: 22
+    computed_at: "2026-07-15T18:31:59Z"
+    computed_at_stage: ship
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-15T18:29:21Z
+last_updated: 2026-07-15T18:31:59Z

@@ -15,6 +15,8 @@ import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBar
 import { computeKillRedirect } from "@/lib/navigation";
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import { buildUpdateActions, buildMaintenanceActions } from "@/lib/palette-update";
+import { buildVersionAction, displayVersion } from "@/lib/palette-version";
+import { copyToClipboard } from "@/lib/clipboard";
 import { buildViewActions } from "@/lib/palette-view";
 import { buildNavActions } from "@/lib/palette-nav";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
@@ -1767,6 +1769,22 @@ function AppShell() {
     [brew, daemonVersion, forceUpdateNow, restartNow, addToast],
   );
 
+  // Version palette entry — surfaces the running version and copies it on
+  // select (useful for bug reports). Shown whenever `daemonVersion` is known,
+  // INCLUDING the `dev` sentinel (pure display, unlike the dev-gated
+  // update/restart actions above). What-you-see-is-what-you-copy: the copied
+  // string is the displayed form. Success → info toast, failure → error toast.
+  const versionActions: PaletteAction[] = useMemo(
+    () =>
+      buildVersionAction(daemonVersion, () => {
+        if (!daemonVersion) return;
+        void copyToClipboard(displayVersion(daemonVersion)).then((ok) => {
+          addToast(ok ? "Version copied" : "Copy failed", ok ? "info" : "error");
+        });
+      }),
+    [daemonVersion, addToast],
+  );
+
   // Regular-class effective order (infra servers ignore rank and are not
   // reorderable). `servers` is already effective-sorted by the context, so this
   // is the visible order. The current server's position within it gates the
@@ -1944,8 +1962,8 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   const paletteActions: PaletteAction[] = useMemo(
-    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...updateActions, ...maintenanceActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
-    [sessionActions, windowActions, boardActions, viewActions, navActions, terminalFontActions, themeActions, configActions, updateActions, maintenanceActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
+    () => [...sessionActions, ...windowActions, ...boardActions, ...viewActions, ...navActions, ...terminalFontActions, ...themeActions, ...configActions, ...updateActions, ...maintenanceActions, ...versionActions, ...serverActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions],
+    [sessionActions, windowActions, boardActions, viewActions, navActions, terminalFontActions, themeActions, configActions, updateActions, maintenanceActions, versionActions, serverActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions],
   );
 
   const displayName = currentWindow?.name ?? windowParam ?? "";

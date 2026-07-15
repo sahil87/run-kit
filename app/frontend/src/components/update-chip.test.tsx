@@ -70,13 +70,28 @@ function renderChip(sessionValue: Partial<SessionContextType>) {
 }
 
 describe("UpdateChip", () => {
-  it("renders `⬆ v{latest}` when a qualifying update is pending", () => {
+  it("renders `⬆ v{latest}` and the v{current} → v{latest} transition title when a qualifying update is pending", () => {
     renderChip({
       daemonVersion: "0.5.3",
       updateAvailable: { current: "0.5.3", latest: "0.6.0" },
     });
-    expect(screen.getByLabelText("Update run-kit to v0.6.0")).toBeInTheDocument();
+    // The rest-state title/aria show the transition (both versions), not only
+    // the target (260715-ifco R9).
+    const chip = screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0");
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveAttribute("title", "Update run-kit: v0.5.3 → v0.6.0");
+    // The visible chip label is unchanged — still `⬆ v{latest}`.
     expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
+  });
+
+  it("falls back to target-only wording when current is null", () => {
+    // `current` null (shouldn't happen once the chip qualifies, but degrade
+    // gracefully) → the pre-ifco `Update run-kit to v{latest}` wording.
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: { current: null as unknown as string, latest: "0.6.0" },
+    });
+    expect(screen.getByLabelText("Update run-kit to v0.6.0")).toBeInTheDocument();
   });
 
   it("hides when no update is available", () => {
@@ -127,7 +142,7 @@ describe("UpdateChip", () => {
       daemonVersion: "0.5.3",
       updateAvailable: { current: "0.5.3", latest: "0.6.0" },
     });
-    const root = screen.getByLabelText("Update run-kit to v0.6.0").parentElement;
+    const root = screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0").parentElement;
     expect(root).toHaveClass("hidden", "sm:flex");
   });
 
@@ -144,7 +159,7 @@ describe("UpdateChip", () => {
       updateAvailable: { current: "0.5.3", latest: "0.6.0" },
       updateNow,
     });
-    fireEvent.click(screen.getByLabelText("Update run-kit to v0.6.0"));
+    fireEvent.click(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0"));
     expect(updateNow).toHaveBeenCalledTimes(1);
     // The chip flips to its disabled "Updating run-kit" state (accessible label);
     // the ✕ dismiss button is hidden while updating.
@@ -163,10 +178,10 @@ describe("UpdateChip", () => {
       updateAvailable: { current: "0.5.3", latest: "0.6.0" },
       updateNow,
     });
-    fireEvent.click(screen.getByLabelText("Update run-kit to v0.6.0"));
+    fireEvent.click(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0"));
     // After the rejection settles, the chip is back to its rest label.
     await waitFor(() =>
-      expect(screen.getByLabelText("Update run-kit to v0.6.0")).toBeInTheDocument(),
+      expect(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0")).toBeInTheDocument(),
     );
     expect(screen.getByText("not brew-installed")).toBeInTheDocument();
   });

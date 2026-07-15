@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 15
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-07-15T03:28:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T03:42:49Z"}
     review: {started_at: "2026-07-15T03:42:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T03:55:08Z"}
     hydrate: {started_at: "2026-07-15T03:55:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T04:03:47Z"}
-    ship: {started_at: "2026-07-15T04:03:47Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-07-15T04:03:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T04:05:57Z"}
+    review-pr: {started_at: "2026-07-15T04:05:57Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/358
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1099
+    deleted: 334
+    net: 765
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 612
+        deleted: 299
+        net: 313
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-07-15T04:03:47Z"
-    computed_at_stage: hydrate
+        added: 271
+        deleted: 21
+        net: 250
+    computed_at: "2026-07-15T04:05:57Z"
+    computed_at_stage: ship
 summary: 'Manual Status Refresh: composing POST /api/status/refresh (both PR pollers, 202 detached, coalesce + 10s throttle) replaces POST /api/pr-status/refresh; BranchRefresher.RefreshNow on-demand seam; PANE-header refresh button + PR: Refresh Status palette action; PrStatusLine component removed (module kept as shared PR vocabulary).'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-15T04:03:47Z
+last_updated: 2026-07-15T04:05:57Z

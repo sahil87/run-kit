@@ -124,7 +124,7 @@ test.describe("Top-bar RefreshButton", () => {
     await expect(closeButton(page)).toBeVisible({ timeout: 10_000 });
   });
 
-  test("renders refresh in the always block between theme and help on a terminal route", async ({
+  test("renders refresh in the L3 pyramid order (Theme → Refresh → Help), chevron then dot right-most, on a terminal route", async ({
     page,
   }) => {
     // The /select mock intercepted the window-selection POST fired during nav —
@@ -136,31 +136,39 @@ test.describe("Top-bar RefreshButton", () => {
     // after the close button (the beforeEach anchor) becomes visible.
     await expect.poll(selectHits).toBeGreaterThan(0);
 
-    // Refresh renders in the always block on a terminal route.
+    // Wide viewport so the L3 controls stay IN-BAR (registry-driven overflow,
+    // 260715-h1ck): the flat-wrapper pyramid is gone — each control renders
+    // directly (no `hidden sm:flex` span), the always-present overflow chevron
+    // precedes the dot, and the dot is the deepest-last status element of the
+    // right cell (nested in the trailing exempt block).
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    // Refresh renders in-bar on a terminal route at a wide width.
     await expect(refreshButton(page)).toBeVisible();
 
-    // Pyramid order (260704-9o7k): the L3 always-block runs Notification →
-    // Theme → Refresh → Help, with the connection dot as the right-most
-    // element. Each cluster button is wrapped in its own `<span class="hidden
-    // sm:flex">`; asserting element siblings proves true adjacency — not
-    // merely "somewhere after" in document order. (Theme's aria-label is
-    // dynamic — "System theme" in a fresh context — hence the suffix match;
-    // Help is a docs link, hence the anchor selector.)
+    // Pyramid order via document position (coordinate-free, robust to whether a
+    // control is in-bar or the measurement probe): Theme → Refresh → Help →
+    // chevron → dot. Theme's aria-label is dynamic ("System theme" fresh) →
+    // suffix match; Help is a docs anchor.
     const order = await page.evaluate(() => {
+      const cluster = document.querySelector('[data-testid="top-bar-right"]');
+      if (!cluster) return "no-cluster";
       const theme = document.querySelector('button[aria-label$=" theme"]');
       const refresh = document.querySelector('button[aria-label="Refresh page"]');
       const help = document.querySelector('a[aria-label^="Help"]');
-      if (!theme || !refresh || !help) return "missing";
-      const themeWrapper = theme.closest("span");
-      const refreshWrapper = refresh.closest("span");
-      const helpWrapper = help.closest("span");
-      if (!themeWrapper || !refreshWrapper || !helpWrapper) return "no-wrapper";
-      if (themeWrapper.nextElementSibling !== refreshWrapper) return "theme-not-before-refresh";
-      if (refreshWrapper.nextElementSibling !== helpWrapper) return "refresh-not-before-help";
-      const cluster = refreshWrapper.parentElement;
-      const dot = cluster?.querySelector('[role="status"]');
-      if (!dot) return "no-dot";
-      return cluster?.lastElementChild === dot ? "pyramid" : "dot-not-last";
+      const chevron = document.querySelector('button[aria-label="More controls"]');
+      const dot = cluster.querySelector('[role="status"]');
+      if (!theme || !refresh || !help || !chevron || !dot) return "missing";
+      const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+      const follows = (a: Element, b: Element) =>
+        Boolean(a.compareDocumentPosition(b) & FOLLOWING);
+      if (!follows(theme, refresh)) return "theme-not-before-refresh";
+      if (!follows(refresh, help)) return "refresh-not-before-help";
+      if (!follows(help, chevron)) return "help-not-before-chevron";
+      if (!follows(chevron, dot)) return "chevron-not-before-dot";
+      // The dot is the deepest-last status element of the right cell.
+      const statuses = cluster.querySelectorAll('[role="status"]');
+      return statuses[statuses.length - 1] === dot ? "pyramid" : "dot-not-last";
     });
     expect(order).toBe("pyramid");
   });

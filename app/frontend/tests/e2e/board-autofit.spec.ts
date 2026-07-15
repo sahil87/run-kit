@@ -57,7 +57,12 @@ function row(page: Page) {
   return page.locator(".overflow-x-auto").first();
 }
 
-/** Toggle autofit via the top-bar button and return the button locator. */
+/** Toggle autofit via the top-bar button and return the button locator. The
+ *  1920px viewport keeps L2 controls in-bar (registry-driven overflow,
+ *  260715-h1ck); `getByRole` matches the accessibility tree, which excludes the
+ *  always-present `aria-hidden` measurement probe copy (so this resolves to the
+ *  single in-bar button — a `:visible` CSS filter would also match the sized
+ *  off-screen probe). */
 function autofitButton(page: Page) {
   return page.getByRole("button", { name: "Toggle board autofit" });
 }

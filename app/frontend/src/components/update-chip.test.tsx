@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { TopBar } from "./top-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -137,13 +137,18 @@ describe("UpdateChip", () => {
     expect(emptyHidden).toHaveLength(0);
   });
 
-  it("carries the responsive `hidden sm:flex` gating on its own root", () => {
+  it("no longer self-carries the `hidden sm:flex` cliff — gating is registry-driven (260715-h1ck R14/M2)", () => {
+    // The `hidden sm:flex` breakpoint cliff was removed: below `sm` the chip's
+    // registry entry OVERFLOWS into the chevron menu (its function merges into
+    // the version row) rather than `display:none`-vanishing. A CSS-hidden chip
+    // would render in NEITHER bar nor menu and its 0-width probe copy would
+    // corrupt the fit input.
     renderChip({
       daemonVersion: "0.5.3",
       updateAvailable: { current: "0.5.3", latest: "0.6.0" },
     });
     const root = screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0").parentElement;
-    expect(root).toHaveClass("hidden", "sm:flex");
+    expect(root).not.toHaveClass("hidden");
   });
 
   it("clicking the chip triggers updateNow and enters updating…", async () => {
@@ -195,6 +200,58 @@ describe("UpdateChip", () => {
     });
     fireEvent.click(screen.getByLabelText("Dismiss update notice"));
     expect(dismissUpdate).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Overflow-menu version row (260715-h1ck). jsdom reports zero element widths,
+// so the fit math overflows EVERYTHING into the chevron menu — the version row
+// therefore reflects the update-surface path whenever a qualifying update is
+// pending (the update-chip entry is "overflowed").
+describe("overflow menu version row (260715-h1ck)", () => {
+  it("shows `Run Kit v{version}` and copies the displayed form on click", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderChip({ daemonVersion: "0.6.2", updateAvailable: null });
+    fireEvent.click(screen.getByLabelText("More controls"));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    const row = within(menu).getByText("Run Kit v0.6.2").closest("button")!;
+    fireEvent.click(row);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("v0.6.2"));
+  });
+
+  it("becomes the update surface (`Run Kit v{current} → v{latest} ⬆`) when a qualifying update is pending and the chip is overflowed", () => {
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+    });
+    // The chevron carries an attention badge (R7).
+    expect(screen.getByTestId("overflow-attention")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("More controls"));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    expect(within(menu).getByText("Run Kit v0.5.3 → v0.6.0 ⬆")).toBeInTheDocument();
+    // No separate UpdateChip menu row — its function merged into the version row.
+    expect(within(menu).queryByText(/⬆ v/)).not.toBeInTheDocument();
+  });
+
+  it("triggers updateNow() from the version-row update surface", () => {
+    const updateNow = vi.fn(() => Promise.resolve());
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: { current: "0.5.3", latest: "0.6.0" },
+      updateNow,
+    });
+    fireEvent.click(screen.getByLabelText("More controls"));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    fireEvent.click(within(menu).getByText("Run Kit v0.5.3 → v0.6.0 ⬆").closest("button")!);
+    expect(updateNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays a plain copy row (no attention badge) when no update is pending", () => {
+    renderChip({ daemonVersion: "0.6.2", updateAvailable: null });
+    expect(screen.queryByTestId("overflow-attention")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("More controls"));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    expect(within(menu).getByText("Run Kit v0.6.2")).toBeInTheDocument();
   });
 });
 

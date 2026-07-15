@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef, useEffect } from "react";
+import { useCallback, useState, useRef, useEffect, useLayoutEffect, type ReactNode } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { BreadcrumbDropdown } from "@/components/breadcrumb-dropdown";
 import { LogoSpinner } from "@/components/logo-spinner";
@@ -7,6 +7,7 @@ import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
+import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateNotification } from "@/contexts/session-context";
 import { displayVersion } from "@/lib/palette-version";
 import { splitWindow, closePane } from "@/api/client";
@@ -14,11 +15,36 @@ import { useWindowRename } from "@/hooks/use-window-rename";
 import { prefersReducedMotion } from "@/lib/motion";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { ViewSwitcher } from "@/components/view-switcher";
+import { TopBarOverflowMenu, type OverflowMenuRow } from "@/components/top-bar-overflow-menu";
+import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import type { ViewName } from "@/lib/window-view";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
 export type TopBarMode = "terminal" | "board" | "root" | "cockpit";
+
+/**
+ * A right-cluster control's registry entry (260715-h1ck). Order in the registry
+ * array encodes drop priority (L1 → L2 → L3, leftmost-first within a tier). The
+ * registry drives BOTH the bar (first N candidates → `barRender`) and the
+ * overflow menu (the rest → `menuRender`) from one ordered source.
+ *
+ *  - `id`        — stable key + overflow identity.
+ *  - `modes`     — the entry renders only when the current mode is listed.
+ *  - `hidden`    — optional per-item opt-out: when true the entry renders
+ *                  NOWHERE (not bar, not menu, not probe) — e.g. push
+ *                  unsupported, no current window, no qualifying update.
+ *  - `barRender` — the in-bar icon-button form (may return null).
+ *  - `menuRender`— the labeled menu-row form (may return null; the update chip
+ *                  returns null because its function merges into the version row).
+ */
+type RegistryEntry = {
+  id: string;
+  modes: TopBarMode[];
+  hidden?: boolean;
+  barRender: () => ReactNode;
+  menuRender: () => ReactNode;
+};
 
 type TopBarProps = {
   /**
@@ -329,12 +355,23 @@ export function TopBar({
   // provider). Omit the version fragment until the first `event: version` so we
   // never render `vundefined`; the aria-label stays the concise Connected/
   // Disconnected on the live region (version is hover-discovery detail only).
-  const { daemonVersion } = useUpdateNotification();
+  // `showChip` tells us whether the UpdateChip WOULD render in the bar (a
+  // qualifying, undismissed, non-dev update). When it does but the chip's
+  // registry entry is overflowed into the menu, the version row becomes the
+  // update surface and the chevron shows an attention badge (change areas 2–3).
+  const { daemonVersion, showChip, latest } = useUpdateNotification();
   const dotTitle = !isConnected
     ? "Disconnected"
     : daemonVersion
       ? `Connected — run-kit ${displayVersion(daemonVersion)}`
       : "Connected";
+
+  // Push support gates the notification entry out of the registry entirely when
+  // unsupported (insecure context / no service worker) — the same "no bell where
+  // it can't work" rule NotificationControl enforces internally, lifted to the
+  // registry so it never reserves a bar slot or an empty menu row.
+  const { state: pushState } = usePushSubscription();
+  const pushUnsupported = pushState === "unsupported";
 
   // Breadcrumb hrefs use the 2-segment route shape /$server/$window — the
   // window id (@N) is the only identity in the URL. Selecting a session jumps
@@ -384,6 +421,243 @@ export function TopBar({
   // brand + hamburger. Cockpit and board have no left server crumb.
   const showServerCrumb = mode === "terminal" && !!server;
   const serverHref = `/${encodeURIComponent(server)}`;
+
+  // ── Right-cluster overflow registry (260715-h1ck) ──────────────────────────
+  //
+  // The ordered registry replaces the hardcoded right-cluster JSX. It is the
+  // SINGLE source that drives both the bar (first N candidates render as icon
+  // buttons) and the overflow menu (the rest render as rows) — so bar↔menu can
+  // never drift. Order encodes drop priority: L1 first, then L2, then L3, and
+  // within a tier leftmost drops first (overflow consumes FROM THE FRONT). The
+  // ViewSwitcher, chevron, and dot are EXEMPT (never overflow) and render
+  // outside this candidate list. Each entry gates on `modes` (the current mode
+  // must be listed) and an optional `hidden` predicate (renders nowhere).
+  // Board-mode split/close target (260715-6jwn, merged into the registry): the
+  // two SplitButtons AND the ✕ act on the focused tile's window (`focusedPane`,
+  // wired from board-page.tsx). The ✕ is a real close-pane in BOTH modes now (a
+  // deliberate reversal of the prior board-✕-unpin decision) — unpin moved to
+  // the tile header + the `Board: Unpin Focused Pane` palette action. Splits are
+  // absent when the board is empty (no `focusedPane`); the ✕ is disabled then.
+  const rightItems: RegistryEntry[] = [
+    // L1 — split vertical · split horizontal (terminal+board) · fixed-width (terminal-only).
+    {
+      id: "split-vertical",
+      modes: ["terminal", "board"],
+      hidden: mode === "board" ? !focusedPane : !currentWindow,
+      barRender: () =>
+        mode === "board" ? (
+          focusedPane ? (
+            <SplitButton server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
+          ) : null
+        ) : currentWindow ? (
+          <SplitButton server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
+        ) : null,
+      menuRender: () =>
+        mode === "board" ? (
+          focusedPane ? (
+            <SplitMenuRow server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
+          ) : null
+        ) : currentWindow ? (
+          <SplitMenuRow server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
+        ) : null,
+    },
+    {
+      id: "split-horizontal",
+      modes: ["terminal", "board"],
+      hidden: mode === "board" ? !focusedPane : !currentWindow,
+      barRender: () =>
+        mode === "board" ? (
+          focusedPane ? (
+            <SplitButton horizontal server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
+          ) : null
+        ) : currentWindow ? (
+          <SplitButton horizontal server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
+        ) : null,
+      menuRender: () =>
+        mode === "board" ? (
+          focusedPane ? (
+            <SplitMenuRow horizontal server={focusedPane.server} windowId={focusedPane.windowId} cwd={focusedPane.cwd} />
+          ) : null
+        ) : currentWindow ? (
+          <SplitMenuRow horizontal server={server} windowId={currentWindow.windowId} cwd={currentWindow.worktreePath} />
+        ) : null,
+    },
+    {
+      id: "fixed-width",
+      modes: ["terminal"],
+      hidden: !currentWindow,
+      barRender: () => <FixedWidthToggle />,
+      menuRender: () => <FixedWidthMenuRow />,
+    },
+    // L2 — terminal + board: terminal-font (Aa) · autofit (board-only) · close-pane (✕).
+    {
+      id: "terminal-font",
+      modes: ["terminal", "board"],
+      barRender: () => <TerminalFontControl />,
+      menuRender: () => <TerminalFontMenuRow />,
+    },
+    {
+      id: "autofit",
+      modes: ["board"],
+      hidden: !(mode === "board" && !!onToggleAutofit),
+      barRender: () => <BoardAutofitToggle autofit={autofit ?? false} onToggle={onToggleAutofit ?? (() => {})} />,
+      menuRender: () => <AutofitMenuRow autofit={autofit ?? false} onToggle={onToggleAutofit ?? (() => {})} />,
+    },
+    {
+      // Close-pane ✕ — a real kill in BOTH modes (260715-6jwn). Terminal kills
+      // the current window's active pane; board kills the focused tile's active
+      // pane (`focusedPane`) with `onPaneClosed` driving BoardPage's self-heal
+      // refetch (a window-killing kill fires no `board-changed`). Disabled on
+      // board when there is no focused tile.
+      id: "close-pane",
+      modes: ["terminal", "board"],
+      hidden: mode === "terminal" && !currentWindow,
+      barRender: () =>
+        mode === "board" ? (
+          <ClosePaneButton
+            server={focusedPane?.server ?? ""}
+            windowId={focusedPane?.windowId ?? ""}
+            disabled={!focusedPane}
+            onClosed={onPaneClosed}
+          />
+        ) : currentWindow ? (
+          <ClosePaneButton server={server} windowId={currentWindow.windowId} />
+        ) : null,
+      menuRender: () =>
+        mode === "board" ? (
+          <ClosePaneMenuRow
+            server={focusedPane?.server ?? ""}
+            windowId={focusedPane?.windowId ?? ""}
+            disabled={!focusedPane}
+            onClosed={onPaneClosed}
+            label="Close pane"
+          />
+        ) : currentWindow ? (
+          <ClosePaneMenuRow server={server} windowId={currentWindow.windowId} label="Close pane" />
+        ) : null,
+    },
+    // L3 — always (all four modes): update chip · notification · theme · refresh · help.
+    // The UpdateChip has NO menu row: when overflowed, its function merges into
+    // the version row (the menu component owns that). `hidden` keeps it out of
+    // the candidate set entirely when it wouldn't render (not qualifying / dev /
+    // dismissed) so it never reserves width or an empty slot.
+    {
+      id: "update-chip",
+      modes: ["terminal", "board", "root", "cockpit"],
+      hidden: !showChip,
+      barRender: () => <UpdateChip />,
+      menuRender: () => null,
+    },
+    {
+      id: "notification",
+      modes: ["terminal", "board", "root", "cockpit"],
+      hidden: pushUnsupported,
+      barRender: () => <NotificationControl />,
+      menuRender: () => <NotificationMenuRows />,
+    },
+    {
+      id: "theme",
+      modes: ["terminal", "board", "root", "cockpit"],
+      barRender: () => <ThemeToggle />,
+      menuRender: () => <ThemeMenuRow />,
+    },
+    {
+      id: "refresh",
+      modes: ["terminal", "board", "root", "cockpit"],
+      barRender: () => <RefreshButton />,
+      menuRender: () => <RefreshMenuRow />,
+    },
+    {
+      id: "help",
+      modes: ["terminal", "board", "root", "cockpit"],
+      barRender: () => <HelpLink />,
+      menuRender: () => <HelpMenuRow />,
+    },
+  ];
+
+  // Candidate (non-exempt) entries for the current mode, minus any `hidden` ones.
+  const candidates = rightItems.filter((e) => e.modes.includes(mode) && !e.hidden);
+
+  // Measurement: one ResizeObserver on the right cell + a hidden probe row that
+  // renders every candidate's BAR form so we always know each real width
+  // (buttons vary — ViewSwitcher, UpdateChip, coarse sizing — so nothing is
+  // hardcoded). `computeVisibleCount` decides how many leading candidates fit
+  // after reserving the exempt block (ViewSwitcher + chevron + dot + gaps).
+  // Collapse-first: `visibleCount` starts at 0 and is set in a layout effect
+  // before paint, so no flash of overflowing buttons is shown.
+  const rightCellRef = useRef<HTMLDivElement>(null);
+  const probeRef = useRef<HTMLDivElement>(null);
+  // Exempt-block refs whose measured widths are RESERVED before fitting
+  // candidates: the leading ViewSwitcher (terminal multi-view only) and the
+  // trailing chevron+dot block (always present). Nothing is hardcoded — every
+  // reserved pixel is measured.
+  const viewSwitcherRef = useRef<HTMLDivElement>(null);
+  const trailingRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(0);
+  // Serialize the candidate ids into a dependency key so the measure effect
+  // re-runs when the candidate SET changes (mode switch, a control appearing/
+  // disappearing) — not on every render.
+  const candidateKey = candidates.map((c) => c.id).join(",");
+
+  useLayoutEffect(() => {
+    const cell = rightCellRef.current;
+    const probe = probeRef.current;
+    if (!cell || !probe) return;
+
+    const RIGHT_GAP_PX = 12; // the cluster's `gap-3` (0.75rem)
+
+    const measure = () => {
+      const available = cell.clientWidth;
+      // Reserve the exempt widths (measured): ViewSwitcher (if present) + the
+      // trailing chevron+dot block, each joined to the candidate run by one gap.
+      const vsw = viewSwitcherRef.current?.offsetWidth ?? 0;
+      const trailing = trailingRef.current?.offsetWidth ?? 0;
+      const reserved =
+        trailing +
+        RIGHT_GAP_PX + // gap between the last candidate and the chevron/dot block
+        (vsw > 0 ? vsw + RIGHT_GAP_PX : 0); // ViewSwitcher + its gap to candidates
+      // Overflow consumes the pyramid FROM THE LEFT (L1 drops first, L3 last —
+      // the documented invariant). In the bar L1 is leftmost and L3 is pinned
+      // rightmost, so the SURVIVING in-bar set is a SUFFIX of the registry
+      // order. Reverse the widths (L3-end first) so `computeVisibleCount` greedily
+      // fits from the tail; the returned N is how many trailing candidates fit.
+      const widths = Array.from(probe.children).map((c) => (c as HTMLElement).offsetWidth);
+      const reversed = [...widths].reverse();
+      const n = computeVisibleCount(available, reversed, reserved, RIGHT_GAP_PX);
+      setVisibleCount(n);
+    };
+
+    measure();
+    // Observe the cell AND the exempt/probe nodes (review S2): the reserved
+    // width changes when the ViewSwitcher appears or gains a segment
+    // (`availableViews`) and when a candidate's own width changes (e.g. the
+    // UpdateChip's `⬆ v{latest}` label width when `latest` changes) — none of
+    // which resize the OUTER cell (its width is grid-determined). Observing the
+    // probe + trailing + ViewSwitcher nodes re-fits on any of those. The
+    // `availableViews`/`activeView`/`latest`/`showChip` deps additionally re-run
+    // the whole effect when the observed node set or membership changes.
+    const ro = new ResizeObserver(measure);
+    ro.observe(cell);
+    ro.observe(probe);
+    if (viewSwitcherRef.current) ro.observe(viewSwitcherRef.current);
+    if (trailingRef.current) ro.observe(trailingRef.current);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidateKey, mode, availableViews, activeView, latest, showChip]);
+
+  // Keep the LAST `visibleCount` candidates in-bar (the L3-end suffix); the rest
+  // (L1-end prefix) overflow. Surviving buttons keep their screen positions —
+  // dropping L1 leftward never shifts the L2/L3 tail. Menu rows list the
+  // overflowed controls in pyramid order (registry order = L1 → L2 → L3).
+  const splitAt = candidates.length - visibleCount;
+  const overflowItems = candidates.slice(0, splitAt);
+  const visibleItems = candidates.slice(splitAt);
+  const overflowRows: OverflowMenuRow[] = overflowItems
+    .map((e) => ({ id: e.id, node: e.menuRender() }))
+    .filter((r) => r.node != null);
+  // The version row becomes the update surface (and the chevron badges) only
+  // when the update chip qualifies AND its entry is currently overflowed.
+  const updateOverflowed = showChip && overflowItems.some((e) => e.id === "update-chip");
 
   return (
     <header className="px-3 border-b-[3px] border-border">
@@ -617,205 +891,107 @@ export function TopBar({
           </div>
         </div>
 
-        <div className="flex items-center justify-self-end gap-3 text-xs text-text-secondary shrink-0">
-          {/* Right-cluster button pyramid (260704-9o7k; splits extended to board
-              260715-6jwn). A strict cumulative pyramid, growing LEFTWARD from a
-              stable always-block pinned right, so no shared button ever changes
-              screen position between pages:
+        {/* Right cluster — registry-driven overflow (260715-h1ck). The ordered
+            registry (built above) is the single source: the first N candidates
+            that fit render as icon buttons; the rest overflow into the chevron
+            menu. `min-w-0` makes this `1fr` grid track squeezable (q8ey's
+            left/center floors bound the other tracks, so there is no feedback
+            loop). The pyramid invariant holds — overflow consumes L1→L2→L3 from
+            the left and surviving buttons keep their positions.
 
-                L1 — splits terminal+board, FixedWidthToggle terminal-only :
-                      SplitButton ×2 · FixedWidthToggle
-                L2 — terminal+board : TerminalFontControl (Aa) · ClosePaneButton (✕)
-                L3 — all four modes : Notification · Theme · Refresh · Help
-                                      + connection dot (right-most status terminator)
-
-              L1 on terminal: ViewSwitcher (all breakpoints) + splits + fixed-width.
-              L1 on board: the same two splits, wired to the focused tile's window
-              (`focusedPane`) instead of `currentWindow` — the split lands relative
-              to that window's active pane and appears live inside the tile. Absent
-              when the board is empty (no `focusedPane`). FixedWidthToggle stays
-              terminal-only. L1's absence on cockpit/root just widens the gap to the
-              breadcrumb; the L3 always-block keeps its fixed right edge (the brand
-              anchor moved to the left nav as the root crumb). The dot is the
-              right-most element in every mode. */}
-
-          {/* L1 (terminal) — ViewSwitcher · split vertical · split horizontal ·
-              fixed-width. FixedWidthToggle is terminal-only (260704-9o7k): the
-              900px maxWidth wrapper lives in AppShell (app.tsx), which renders
-              both `terminal` and `root`, so Server Cabin keeps the constraint AND
-              the palette access (`View: Fixed Width`); only the button is
-              terminal-scoped. It was already a no-op on Board/Cockpit (their pages
-              never read `fixedWidth`). */}
-          {currentWindow && (
-            <>
-              {/* Window-view lens switcher (spec R4; the ONE switcher UX for
-                  tty/web/chat). Terminal-tier (L1) but — unlike its `hidden
-                  sm:flex` siblings — visible at ALL breakpoints, because chat is
-                  a primary mobile use case (the 80-col tmux pain). Rendered only
-                  when the current window offers more than the tty lens (its own
-                  `views.length <= 1` guard also returns null, so this is
-                  belt-and-suspenders). */}
-              {onSelectView &&
-                availableViews &&
-                availableViews.length > 1 && (
-                  <ViewSwitcher
-                    views={availableViews}
-                    active={activeView ?? "tty"}
-                    onSelect={onSelectView}
-                  />
-                )}
-              <span className="hidden sm:flex">
-                <SplitButton
-                  server={server}
-                  windowId={currentWindow.windowId}
-                  cwd={currentWindow.worktreePath}
+            The ViewSwitcher, chevron, and connection dot are EXEMPT (never
+            overflow). The `hidden sm:flex` breakpoint cliff is GONE: below `sm`,
+            controls overflow into the menu instead of vanishing. */}
+        {/* The cell must FILL its `1fr` grid track (NOT `justify-self-end`,
+            which would size the box to its own content and both (a) deadlock
+            `computeVisibleCount` — a content-sized box measures only the exempt
+            block, so budget < 0 forever at collapse-first — and (b) never fire
+            the ResizeObserver on window resize, since a content-sized box's
+            width doesn't track the viewport). Default grid stretch fills the
+            track; `justify-end` right-aligns the content inside it. */}
+        {/* `min-w-0` keeps the `1fr` track squeezable (M1: the cell fills the
+            track — no `justify-self-end`, which would content-size it and
+            deadlock the fit). NO `overflow-hidden` here: the candidate buttons
+            that don't fit are moved to the menu (never rendered in-bar), so the
+            only content that can exceed a very-narrow track is the ALWAYS-present
+            exempt block (chevron + dot). Clipping it would make the chevron
+            un-clickable / hide the dot at tight widths with a long center heading
+            (violating R6/(e) "exempt items always visible"). Letting the exempt
+            block paint (unclipped) keeps it usable; `.app-shell`/`header` still
+            clip any horizontal PAGE overflow, so no scrollbar appears. */}
+        <div
+          ref={rightCellRef}
+          data-testid="top-bar-right"
+          className="flex items-center justify-end gap-3 text-xs text-text-secondary min-w-0"
+        >
+          {/* Leading exempt: window-view lens switcher (spec R4). Terminal-tier
+              but visible at ALL breakpoints (chat is a primary mobile use case)
+              and never overflowed. Its measured width is reserved before
+              fitting candidates. */}
+          {mode === "terminal" &&
+            currentWindow &&
+            onSelectView &&
+            availableViews &&
+            availableViews.length > 1 && (
+              <div ref={viewSwitcherRef} className="flex items-center shrink-0">
+                <ViewSwitcher
+                  views={availableViews}
+                  active={activeView ?? "tty"}
+                  onSelect={onSelectView}
                 />
+              </div>
+            )}
+
+          {/* Visible candidates — the leading N that fit, as icon buttons. */}
+          {visibleItems.map((e) => (
+            <span key={e.id} className="flex items-center shrink-0">
+              {e.barRender()}
+            </span>
+          ))}
+
+          {/* Hidden measurement probe — renders every candidate's bar form so we
+              always know each real width (never hardcoded), regardless of how
+              many are currently visible. It is `inert` (React 19) + `aria-hidden`
+              + off-screen (`absolute`, off the left edge): invisible, untabbable,
+              and non-interactive, so the duplicated controls can never receive
+              focus/clicks or open a popover — they exist purely to be measured
+              and never affect the visible row's layout. The duplication is a
+              deliberate trade-off for measuring true widths without a magic
+              constant; the controls are cheap and read-only on mount. */}
+          <div
+            ref={probeRef}
+            aria-hidden="true"
+            inert
+            className="absolute -left-[9999px] top-0 flex items-center gap-3 pointer-events-none"
+          >
+            {candidates.map((e) => (
+              <span key={e.id} className="flex items-center shrink-0">
+                {e.barRender()}
               </span>
-              <span className="hidden sm:flex">
-                <SplitButton
-                  horizontal
-                  server={server}
-                  windowId={currentWindow.windowId}
-                  cwd={currentWindow.worktreePath}
-                />
-              </span>
-              <span className="hidden sm:flex">
-                <FixedWidthToggle />
-              </span>
-            </>
-          )}
+            ))}
+          </div>
 
-          {/* L1 (board) — the same two SplitButtons, wired to the focused tile's
-              window via `focusedPane` (260715-6jwn). Window IDs are server-unique,
-              so targeting a pinned window's ID works even though it lives in a
-              hidden `_rk-pin-*` session; the split lands relative to that window's
-              active pane and renders live inside the tile. Absent when the board
-              is empty (no focused tile). Same `hidden sm:flex` gating as terminal
-              — no mobile change. */}
-          {mode === "board" && focusedPane && (
-            <>
-              <span className="hidden sm:flex">
-                <SplitButton
-                  server={focusedPane.server}
-                  windowId={focusedPane.windowId}
-                  cwd={focusedPane.cwd}
-                />
-              </span>
-              <span className="hidden sm:flex">
-                <SplitButton
-                  horizontal
-                  server={focusedPane.server}
-                  windowId={focusedPane.windowId}
-                  cwd={focusedPane.cwd}
-                />
-              </span>
-            </>
-          )}
+          {/* Trailing exempt block — the always-present overflow chevron/menu
+              followed by the connection dot (the right-most status terminator in
+              every mode). Its measured width is reserved before fitting. */}
+          <div ref={trailingRef} className="flex items-center gap-3 shrink-0">
+            <TopBarOverflowMenu rows={overflowRows} updateOverflowed={updateOverflowed} />
 
-          {/* L2 — terminal + board: terminal-font (Aa) + close-pane (✕). Both
-              gate on the L2 predicate (`terminal` || `board`). Aa sizes a
-              terminal surface (the single window or a board pane); it is gated
-              out of `root`/`cockpit`, which have no terminal to size. The ✕ is
-              close-pane in BOTH modes now (260715-6jwn — a deliberate reversal of
-              the prior board-✕-unpin decision): Terminal kills the current
-              window's active pane; Board kills the focused tile's active pane
-              (`focusedPane`). No confirmation in either mode — the focused-tile
-              ring disambiguates on board. Unpin moved off the ✕ entirely: it lives
-              only on the tile header + the `Board: Unpin Focused Pane` palette
-              action (see board-page.tsx). Disabled on board when there is no
-              focused tile. */}
-          {(mode === "terminal" || mode === "board") && (
-            <>
-              <span className="hidden sm:flex">
-                <TerminalFontControl />
-              </span>
-              {/* Board-only autofit toggle (738w): sits between Aa and ✕ in the
-                  L2 cluster. Board mode only (unlike Aa/✕ which are
-                  terminal||board) — terminal panes have their own fixed-width
-                  toggle. Rendered only when the board published a setter. */}
-              {mode === "board" && onToggleAutofit && (
-                <span className="hidden sm:flex">
-                  <BoardAutofitToggle
-                    autofit={autofit ?? false}
-                    onToggle={onToggleAutofit}
-                  />
-                </span>
-              )}
-              <span className="hidden sm:flex">
-                {mode === "board" ? (
-                  // Board ✕ = kill the focused tile's active pane, uniform with
-                  // terminal. Disabled with no focused tile (empty board). After
-                  // a successful kill, `onPaneClosed` lets BoardPage self-heal a
-                  // window-killing kill (no `board-changed` fires on that path).
-                  <ClosePaneButton
-                    server={focusedPane?.server ?? ""}
-                    windowId={focusedPane?.windowId ?? ""}
-                    disabled={!focusedPane}
-                    onClosed={onPaneClosed}
-                  />
-                ) : (
-                  currentWindow && (
-                    <ClosePaneButton
-                      server={server}
-                      windowId={currentWindow.windowId}
-                    />
-                  )
-                )}
-              </span>
-            </>
-          )}
-
-          {/* L3 — always (all four modes): Update chip → Notification → Theme →
-              Refresh → Help, then the connection dot as the right-most element. */}
-
-          {/* Update chip — leads the L3 cluster. Self-contained (reads the
-              update-notification state from SessionContext); renders nothing when
-              no qualifying update is pending, when dismissed for the current
-              latest, or when the daemon reports the `dev` version. Carries its
-              own `hidden sm:flex` gating: a call-site wrapper span would remain
-              in this gap-3 flex row as an empty item while the chip renders
-              null, doubling the gap between its neighbors. */}
-          <UpdateChip />
-
-          {/* Notification control — bell button + dropdown (enable / send test).
-              Hides itself when push is unsupported (insecure context / no SW
-              support), and carries its own responsive gating for the same
-              empty-flex-item reason as UpdateChip. */}
-          <NotificationControl />
-
-          {/* Theme toggle. */}
-          <span className="hidden sm:flex">
-            <ThemeToggle />
-          </span>
-
-          {/* Refresh — full-page reload recovery affordance. Promoted from the
-              terminal-only group into the always-block (260704-9o7k): a reload
-              is meaningful on every page. Behavior unchanged (plain click
-              reloads, Shift+click force-reloads). */}
-          <span className="hidden sm:flex">
-            <RefreshButton />
-          </span>
-
-          {/* Help — external docs link. */}
-          <span className="hidden sm:flex">
-            <HelpLink />
-          </span>
-
-          {/* Connection dot — the right-most element, in ALL four modes
-              (260704-9o7k dropped the board/cockpit gate). Its meaning is
-              per-page "this page's live data is flowing": Terminal/Server Cabin
-              = the current server's SSE stream; Cockpit = host-metrics stream
-              health; Board = AND over the attached servers' streams (derived by
-              each caller and passed as `isConnected`). */}
-          <span role="status" aria-live="polite" className="hidden sm:inline">
-            <span
-              className={`block w-2 h-2 rounded-full ${
-                isConnected ? "bg-accent-green" : "bg-text-secondary"
-              }`}
-              aria-label={isConnected ? "Connected" : "Disconnected"}
-              title={dotTitle}
-            />
-          </span>
+            {/* Connection dot — the right-most element in ALL four modes
+                (260704-9o7k). Per-page "this page's live data is flowing":
+                Terminal/Server Cabin = the current server's SSE stream; Cockpit =
+                host-metrics stream health; Board = AND over attached servers'
+                streams (derived by each caller and passed as `isConnected`). */}
+            <span role="status" aria-live="polite" className="inline-flex">
+              <span
+                className={`block w-2 h-2 rounded-full ${
+                  isConnected ? "bg-accent-green" : "bg-text-secondary"
+                }`}
+                aria-label={isConnected ? "Connected" : "Disconnected"}
+                title={dotTitle}
+              />
+            </span>
+          </div>
         </div>
       </div>
     </header>
@@ -1565,6 +1741,22 @@ function BoardSwitcher({
   );
 }
 
+/**
+ * Shared theme-cycle step: system → light → dark → system. Extracted so the
+ * in-bar ThemeToggle and the overflow menu's ThemeMenuRow cycle IDENTICALLY and
+ * can't drift (review M5 / A-021). `mode` is the current effective mode.
+ */
+function cycleTheme(
+  mode: "system" | "light" | "dark",
+  themeLight: string,
+  themeDark: string,
+  setTheme: (preference: string) => void,
+) {
+  if (mode === "system") setTheme(themeLight);
+  else if (mode === "light") setTheme(themeDark);
+  else setTheme("system");
+}
+
 function ThemeToggle() {
   const { preference, resolved, themeDark, themeLight } = useTheme();
   const { setTheme } = useThemeActions();
@@ -1578,15 +1770,7 @@ function ThemeToggle() {
       document.dispatchEvent(new CustomEvent("theme-selector:open"));
       return;
     }
-
-    // Cycle: system → light (themeLight) → dark (themeDark) → system
-    if (mode === "system") {
-      setTheme(themeLight);
-    } else if (mode === "light") {
-      setTheme(themeDark);
-    } else {
-      setTheme("system");
-    }
+    cycleTheme(mode, themeLight, themeDark, setTheme);
   };
 
   const label = mode === "system" ? "System theme" : mode === "light" ? "Light theme" : "Dark theme";
@@ -2018,9 +2202,10 @@ function TerminalFontControl() {
  * daemon is not the `dev` version.
  */
 function UpdateChip() {
-  const { showChip, latest, current, updateNow, dismissUpdate } = useUpdateNotification();
-  const [updating, setUpdating] = useState(false);
-  const { addToast } = useToast();
+  const { showChip, latest, current, dismissUpdate } = useUpdateNotification();
+  // Shared one-click-update behavior (updating state + catch/toast) with the
+  // overflow menu's version-row update surface — see useUpdateClick (review M5).
+  const { updating, triggerUpdate } = useUpdateClick();
 
   if (!showChip || !latest) return null;
 
@@ -2031,24 +2216,16 @@ function UpdateChip() {
     ? `Update run-kit: v${current} → v${latest}`
     : `Update run-kit to v${latest}`;
 
-  const handleUpdate = () => {
-    if (updating) return;
-    setUpdating(true);
-    // On success the daemon restarts and the SSE reconnect's version change
-    // reloads the tab, so we never need to clear `updating` on the happy path.
-    // On failure (409 not-brew / no-update, network) surface a toast and
-    // re-enable so the user can retry or read the message.
-    void updateNow().catch((err: unknown) => {
-      setUpdating(false);
-      addToast(err instanceof Error ? err.message : "Update failed", "error");
-    });
-  };
-
+  // No `hidden sm:flex` (review M2 / R14): responsive gating is 100%
+  // registry-driven now — below `sm` the chip's registry entry overflows into
+  // the chevron menu (its function merges into the version row) rather than
+  // vanishing via `display:none`. A CSS-hidden chip would leave a 0-width probe
+  // copy corrupting the fit input and render in NEITHER bar nor menu.
   return (
-    <span className="hidden sm:flex items-center">
+    <span className="flex items-center">
       <button
         type="button"
-        onClick={handleUpdate}
+        onClick={triggerUpdate}
         disabled={updating}
         aria-label={updating ? "Updating run-kit" : restLabel}
         title={updating ? "Updating\u2026" : restLabel}
@@ -2145,7 +2322,12 @@ function NotificationControl() {
     "w-full text-left text-xs text-text-secondary hover:text-text-primary transition-colors py-1.5 px-2 rounded hover:bg-bg-card disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
 
   return (
-    <div ref={containerRef} className="relative hidden sm:inline-flex items-center">
+    // No `hidden sm:inline-flex` (review M2 / R14): the notification entry's
+    // responsive gating is registry-driven — below `sm` it overflows into the
+    // chevron menu ("Enable notifications" / "Send test notification" rows)
+    // instead of vanishing. The registry `hidden` predicate (pushUnsupported)
+    // still removes it entirely where push can't work.
+    <div ref={containerRef} className="relative inline-flex items-center">
       <button
         ref={triggerRef}
         type="button"
@@ -2326,5 +2508,229 @@ function BoardAutofitToggle({
         )}
       </svg>
     </button>
+  );
+}
+
+// ── Overflow-menu row representations (260715-h1ck) ────────────────────────────
+//
+// Each right-cluster control that can overflow into the chevron menu renders as
+// a labeled `role="menuitem"` row here (change area 4). The rows reuse the same
+// underlying actions as their in-bar button forms — clicking a row does exactly
+// what clicking the icon button does — so bar↔menu behavior can never drift.
+
+/** Shared menu-row styling (mirrors BreadcrumbDropdown's item classes). */
+const MENU_ROW_CLASS =
+  "w-full text-left flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
+
+/** Split vertical / horizontal menu row — same optimistic split action as the
+ *  in-bar SplitButton. */
+function SplitMenuRow({
+  horizontal,
+  server,
+  windowId,
+  cwd,
+}: {
+  horizontal?: boolean;
+  server: string;
+  windowId: string;
+  cwd?: string;
+}) {
+  const label = horizontal ? "Split horizontal" : "Split vertical";
+  const { addToast } = useToast();
+  const { execute, isPending } = useOptimisticAction<[]>({
+    action: () => splitWindow(server, windowId, !!horizontal, cwd),
+    onError: (err) => addToast(err.message || "Failed to split pane"),
+  });
+  return (
+    <button type="button" role="menuitem" tabIndex={-1} disabled={isPending} onClick={() => execute()} className={MENU_ROW_CLASS}>
+      {label}
+    </button>
+  );
+}
+
+/** Fixed-width checkbox row — reflects/toggles the same ChromeContext state as
+ *  the in-bar FixedWidthToggle (`role="menuitemcheckbox"`). */
+function FixedWidthMenuRow() {
+  const { fixedWidth } = useChromeState();
+  const { toggleFixedWidth } = useChromeDispatch();
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={fixedWidth}
+      tabIndex={-1}
+      onClick={toggleFixedWidth}
+      className={MENU_ROW_CLASS}
+    >
+      <span className="flex-1">Fixed width</span>
+      {fixedWidth && <span aria-hidden="true">✓</span>}
+    </button>
+  );
+}
+
+/** Terminal-font stepper row — inline `−` / value / `+` operating on the same
+ *  ChromeContext terminalFontSize as the Aa popover (same TERMINAL_FONT_BOUNDS),
+ *  WITHOUT opening the popover (assumption #11). The `−` button is the row's
+ *  first focusable element, so keyboard nav lands there. */
+function TerminalFontMenuRow() {
+  const { terminalFontSize } = useChromeState();
+  const { increaseTerminalFont, decreaseTerminalFont } = useChromeDispatch();
+  const atMin = terminalFontSize <= TERMINAL_FONT_BOUNDS.min;
+  const atMax = terminalFontSize >= TERMINAL_FONT_BOUNDS.max;
+  const stepClass =
+    "min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border";
+  return (
+    <div role="group" aria-label="Terminal font size" className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary">
+      <span className="flex-1">Terminal font</span>
+      <button type="button" tabIndex={-1} onClick={decreaseTerminalFont} disabled={atMin} aria-label="Decrease terminal font" className={stepClass}>
+        −
+      </button>
+      <span className="min-w-[4ch] text-center tabular-nums text-text-primary select-none" aria-label={`Terminal font size ${terminalFontSize} pixels`}>
+        {terminalFontSize}px
+      </span>
+      <button type="button" tabIndex={-1} onClick={increaseTerminalFont} disabled={atMax} aria-label="Increase terminal font" className={stepClass}>
+        +
+      </button>
+    </div>
+  );
+}
+
+/** Autofit-panes checkbox row (board mode) — mirrors the in-bar BoardAutofitToggle. */
+function AutofitMenuRow({ autofit, onToggle }: { autofit: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={autofit}
+      tabIndex={-1}
+      onClick={onToggle}
+      className={MENU_ROW_CLASS}
+    >
+      <span className="flex-1">Autofit panes</span>
+      {autofit && <span aria-hidden="true">✓</span>}
+    </button>
+  );
+}
+
+/** Close-pane row — the menu mirror of the in-bar ClosePaneButton. A real kill
+ *  in both modes (260715-6jwn): `closePane(server, windowId)` on the addressed
+ *  window's active pane; board passes the focused tile's window + an `onClosed`
+ *  self-heal seam and a `disabled` when the board is empty. */
+function ClosePaneMenuRow({
+  server,
+  windowId,
+  disabled,
+  onClosed,
+  label = "Close pane",
+}: {
+  server?: string;
+  windowId?: string;
+  disabled?: boolean;
+  /** Called after a successful kill (board self-heal seam). */
+  onClosed?: () => void;
+  label?: string;
+}) {
+  const { addToast } = useToast();
+  const { execute, isPending } = useOptimisticAction<[]>({
+    action: () => closePane(server ?? "", windowId ?? ""),
+    onSettled: () => onClosed?.(),
+    onError: (err) => addToast(err.message || "Failed to close pane"),
+  });
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      disabled={disabled || isPending}
+      onClick={() => execute()}
+      className={MENU_ROW_CLASS}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** Notification rows — flattens the bell dropdown into direct menu rows
+ *  ("Enable notifications" / "Send test notification") per current subscription
+ *  state. Returns a fragment (may render two rows); the parent slot resolves the
+ *  first focusable element for keyboard nav. */
+function NotificationMenuRows() {
+  const { state, enable, sendTest } = usePushSubscription();
+  const subscribed = state === "subscribed";
+  return (
+    <>
+      {!subscribed && (
+        <button type="button" role="menuitem" tabIndex={-1} onClick={() => void enable()} className={MENU_ROW_CLASS}>
+          Enable notifications
+        </button>
+      )}
+      <button
+        type="button"
+        role="menuitem"
+        tabIndex={-1}
+        disabled={!subscribed}
+        onClick={() => void sendTest()}
+        title={subscribed ? "Send a local test notification" : "Enable notifications first"}
+        className={MENU_ROW_CLASS}
+      >
+        Send test notification
+      </button>
+    </>
+  );
+}
+
+/** Theme cycle row — `Theme: {current}`, cycling system → light → dark on click
+ *  (same mutation vocabulary as the in-bar ThemeToggle). */
+function ThemeMenuRow() {
+  const { preference, resolved, themeDark, themeLight } = useTheme();
+  const { setTheme } = useThemeActions();
+  const mode = preference === "system" ? "system" : resolved;
+  const label = mode === "system" ? "System" : mode === "light" ? "Light" : "Dark";
+  // Shared cycle step with ThemeToggle (review M5) — no duplicated branch.
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      onClick={() => cycleTheme(mode, themeLight, themeDark, setTheme)}
+      className={MENU_ROW_CLASS}
+    >
+      {`Theme: ${label}`}
+    </button>
+  );
+}
+
+/** Refresh-page row — plain click reloads, Shift+click force-reloads (same as
+ *  the in-bar RefreshButton). Labeled "Refresh page" to disambiguate from the
+ *  `Status: Refresh` palette action (260715-jykd), assumption #12. */
+function RefreshMenuRow() {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
+      title="Refresh page (Shift+click: force reload)"
+      className={MENU_ROW_CLASS}
+    >
+      Refresh page
+    </button>
+  );
+}
+
+/** Help / Documentation external-link row — same HELP_URL + safe-new-tab attrs
+ *  as the in-bar HelpLink. */
+function HelpMenuRow() {
+  return (
+    <a
+      href={HELP_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      role="menuitem"
+      tabIndex={-1}
+      className={MENU_ROW_CLASS}
+    >
+      Help / Documentation
+    </a>
   );
 }

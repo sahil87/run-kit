@@ -100,9 +100,10 @@ const (
 	// cadences — both have independent freshness requirements.
 	metricsPollInterval = 2500 * time.Millisecond
 	// servicesPollInterval is the cadence at which ports.Collector re-reads
-	// the host's listening TCP ports from procfs. Same cadence as metrics —
-	// both are host-global broadcasts riding the server-neutral stream — but
-	// kept as its own constant so the two can diverge later.
+	// the host's listening TCP ports (procfs + lsof on Linux, lsof on darwin).
+	// Same cadence as metrics — both are host-global broadcasts riding the
+	// server-neutral stream — but kept as its own constant so the two can
+	// diverge later.
 	servicesPollInterval = 2500 * time.Millisecond
 	// prStatusPollInterval is the cadence at which prstatus.Collector makes
 	// its single batched `gh` call. Deliberately slow (~40 calls/hr vs. the

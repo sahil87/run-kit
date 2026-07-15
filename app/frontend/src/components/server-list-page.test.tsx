@@ -236,11 +236,13 @@ describe("ServerListPage — Services zone", () => {
     );
   });
 
-  it("enables 'Open in window' for ANY listed port when a server exists (backend now broadcasts only HTTP responders — no client-side denylist)", async () => {
-    // 5432 (PostgreSQL) was formerly on the NON_HTTP_PORTS denylist. Now the
-    // backend probes and only broadcasts HTTP responders, so any port that
-    // reaches the frontend is provably HTTP — every tile is clickable when a
-    // server exists. The denylist and its "Not a web service" gate are gone.
+  it("enables 'Open in window' for ANY listed port when a server exists (all listening ports broadcast — no denylist; the iframe load is the on-demand probe)", async () => {
+    // 5432 (PostgreSQL) was formerly on the NON_HTTP_PORTS denylist. The backend
+    // now passively enumerates and broadcasts ALL listening ports (no HTTP probe,
+    // no filter) — a tile is not guaranteed to speak HTTP. Opening a non-HTTP port
+    // is harmless: the iframe load IS the on-demand probe (user-initiated, visible),
+    // so the only gate is server existence. No denylist remains anywhere (neither
+    // the client NON_HTTP_PORTS list nor its "Not a web service" gate).
     mockServices = [{ port: 5432 }, { port: 6379 }];
     mockServers = [{ name: "runkit", sessionCount: 1 }];
     mockSessionsByServer = new Map([["runkit", [{ name: "main", windows: [] }]]]);
@@ -254,6 +256,39 @@ describe("ServerListPage — Services zone", () => {
       // No "Not a web service" hint remains — the only gate is server existence.
       expect(btn.title).toBe("");
     }
+  });
+
+  it("de-emphasizes well-known ports (< 1024): grey text + sorted last as a class (260715-vfcz)", async () => {
+    // ALL listening ports are now shown (no HTTP filter). System listeners
+    // (sshd:22, smtp:25) are de-emphasized like infra servers: grey port text
+    // and sorted AFTER regular ports, which keep their port-ascending order.
+    mockServices = [
+      { port: 22, process: "sshd" },
+      { port: 8080 },
+      { port: 25, process: "smtp" },
+      { port: 3000, process: "node" },
+    ];
+    mockServers = [{ name: "runkit", sessionCount: 1 }];
+    renderPage();
+
+    // Regular ports first (3000, 8080 ascending), then well-known (22, 25).
+    const portSpans = screen
+      .getAllByText(/^:\d+$/)
+      .map((el) => el.textContent);
+    expect(portSpans).toEqual([":3000", ":8080", ":22", ":25"]);
+
+    // Well-known port text is grey (text-text-secondary); regular is primary.
+    expect(screen.getByText(":22").className).toContain("text-text-secondary");
+    expect(screen.getByText(":25").className).toContain("text-text-secondary");
+    expect(screen.getByText(":3000").className).toContain("text-text-primary");
+    expect(screen.getByText(":8080").className).toContain("text-text-primary");
+
+    // Every tile — well-known included — still has an enabled "Open in window".
+    const buttons = screen.getAllByRole("button", {
+      name: "Open in window",
+    }) as HTMLButtonElement[];
+    expect(buttons).toHaveLength(4);
+    for (const btn of buttons) expect(btn.disabled).toBe(false);
   });
 
   it("names the iframe window without colons or periods (tmux ValidateName rejects them)", async () => {

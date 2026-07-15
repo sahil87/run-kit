@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-15T08:09:24Z"}
+{"args":"Remove the ambient HTTP probe from the ports collector; enumerate listening ports passively and show all of them on the Cockpit SERVICES zone, with process attribution on Linux. The probe (GET http://127.0.0.1:{port}/ on every new listening port) breaks one-shot local servers like gcloud auth login OAuth callbacks; delete probe.go + verdict cache, show all lsof/procfs-enumerated ports, attribute processes on Linux, keep Open-in-window on every tile.","cmd":"fab-new","event":"command","ts":"2026-07-15T08:09:24Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-07-15T08:11:26Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-15T08:12:52Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-15T08:15:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T08:15:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T08:26:06Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T08:27:02Z"}
+{"event":"review","result":"failed","ts":"2026-07-15T08:40:05Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T08:40:05Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T08:45:15Z"}
+{"cmd":"fab-fff:review","event":"command","ts":"2026-07-15T08:47:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-15T08:53:45Z"}
+{"event":"review","result":"passed","ts":"2026-07-15T08:53:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-15T08:59:24Z"}

@@ -1,16 +1,24 @@
-// Package ports provides an in-memory collector that enumerates the host's
-// listening TCP ports AND filters them to only those that answer HTTP. It is
-// modeled directly on internal/metrics.Collector: NewCollector → Start(ctx)
-// (background ticker goroutine) → Snapshot() guarded by sync.RWMutex, with a
+// Package ports provides an in-memory collector that passively enumerates the
+// host's listening TCP ports. It follows internal/metrics.Collector's shape:
+// NewCollector → Start(ctx) → Snapshot() guarded by sync.RWMutex, with a
 // //go:build platform split behind the readListeningPorts() seam and graceful
-// zero-value returns on any error or on unsupported hosts.
+// zero-value returns on any error or on unsupported hosts. Start differs from
+// metrics: it runs one synchronous collect() to seed the first snapshot before
+// launching the background ticker goroutine (see Start's doc for the boot-delay
+// tradeoff).
 //
-// Enumeration is derived per-platform (procfs on Linux, lsof on darwin, empty
-// elsewhere) at each tick; a platform-agnostic HTTP probe filter (probe.go) then
-// retains only the ports that speak HTTP, mirroring the /proxy/{port}/ upstream
-// so the snapshot lists exactly the services the Cockpit can actually open. No
-// database, no persistent store (Constitution II); the only subprocess is
-// darwin's bounded lsof (Constitution I).
+// Enumeration is purely observational (Constitution II — state is derived, never
+// interacted with): procfs (/proc/net/tcp{,6}) on Linux, an lsof subprocess on
+// darwin, empty elsewhere. There is NO network probing — the collector never
+// connects to a listening port, so one-shot local servers (OAuth callbacks) are
+// never consumed. Every listening port is published (HTTP or not); the tile's
+// "Open in window" iframe load is the only, user-initiated, on-demand probe.
+//
+// Process attribution (Service.Process/PID) is best-effort: darwin gets it from
+// lsof, Linux joins lsof attribution onto the authoritative procfs port set (a
+// non-root lsof only sees the invoking user's processes, so ports it cannot
+// attribute render bare). No database, no persistent store (Constitution II);
+// the only subprocess is the bounded lsof (Constitution I).
 package ports
 
 import (
@@ -20,9 +28,11 @@ import (
 	"time"
 )
 
-// Service describes a single listening TCP port on the host. v1 ships
-// port-only tiles: Process and PID are best-effort, left zero-valued until
-// process attribution is added, and omitted from JSON when unset.
+// Service describes a single listening TCP port on the host. Process and PID are
+// best-effort process attribution: darwin populates them from lsof, Linux joins
+// lsof attribution onto the procfs port set (ports lsof cannot attribute — e.g.
+// root-owned listeners seen by a non-root lsof — stay zero-valued). Both fields
+// are omitted from JSON when unset.
 type Service struct {
 	Port    int    `json:"port"`
 	Process string `json:"process,omitempty"` // best-effort command name; "" if unknown
@@ -42,57 +52,43 @@ type ServicesSnapshot struct {
 // enumeration without a real listener (mirrors the lsofRun seam).
 var readListeningPortsFn = readListeningPorts
 
-// probeTTL bounds how long a port's HTTP-probe verdict is reused before it is
-// re-probed. Enumeration runs every pollInterval (2.5s), but probing every tick
-// would spam each local service's access log — so a fresh verdict within the TTL
-// is reused, decoupling probe cadence (~1 req / TTL / port) from the tick.
-const probeTTL = 10 * time.Second
-
-// probeEntry is a cached HTTP-probe verdict for one port.
-type probeEntry struct {
-	httpOK bool
-	at     time.Time
-}
-
-// Collector enumerates listening TCP ports in a background goroutine and filters
-// them to the ports that answer HTTP.
+// Collector passively enumerates listening TCP ports in a background goroutine.
 type Collector struct {
 	mu           sync.RWMutex
 	snapshot     ServicesSnapshot
 	pollInterval time.Duration
-
-	// probeCache is a per-port TTL cache of HTTP-probe verdicts, keyed by port.
-	// Only touched from the poll goroutine's collect() (single writer), so it
-	// needs no separate lock; it is not exposed via Snapshot().
-	probeCache map[int]probeEntry
-
-	// now is the clock, injectable for TTL tests (default time.Now).
-	now func() time.Time
 }
 
-// NewCollector creates a ports collector. Call Start to begin polling. The
-// initial snapshot is EMPTY (a non-nil, zero-length slice — the metrics.Collector
-// zero-value-seed precedent), NOT the unfiltered enumeration. This matters
-// because the SSE hub reads Snapshot() on its very FIRST poll pass and both
-// broadcasts it and caches it in cachedServicesJSON (replayed to every new
-// client) — that pass runs before the collector's ticker first fires (the poll
-// loop's wait sits at its END). Seeding the unfiltered enumeration would leak
-// non-HTTP ports (Postgres/Redis/SSH/…) to any client connecting in the first
-// ~pollInterval, violating the HTTP-only contract (R1). An empty seed means the
-// pre-tick SSE broadcast shows "No services"; the first FILTERED snapshot lands
-// within one pollInterval and no unfiltered data can ever reach a client.
+// NewCollector creates a ports collector. Call Start to begin polling and to
+// perform the initial synchronous enumeration. The pre-Start snapshot is a
+// non-nil, zero-length slice so Snapshot() marshals to `{"services":[]}` (never
+// `null`) if read before Start.
 func NewCollector(pollInterval time.Duration) *Collector {
-	c := &Collector{
+	return &Collector{
 		pollInterval: pollInterval,
 		snapshot:     ServicesSnapshot{Services: []Service{}},
-		probeCache:   make(map[int]probeEntry),
-		now:          time.Now,
 	}
-	return c
 }
 
-// Start begins the background polling goroutine. It exits when ctx is cancelled.
+// Start performs one synchronous collect() so the first snapshot carries real
+// data — the SSE hub reads, broadcasts, and caches Snapshot() on its very first
+// poll pass (cachedServicesJSON, replayed to every new client), which can run
+// before the ticker first fires; a synchronous seed means that first broadcast
+// shows the real enumeration instead of a ~pollInterval "No services" gap. Then
+// it launches the background polling goroutine, which exits when ctx is
+// cancelled.
+//
+// Boot-delay tradeoff: Start runs on the server boot path — api.NewRouterAndServer
+// calls it before cmd/rk/serve.go binds the socket (http.Server.ListenAndServe),
+// so the HTTP bind waits on this one synchronous enumeration. On darwin (and on
+// Linux, which now also runs lsof for attribution) that enumeration shells out to
+// lsof, so the worst case is a single bounded lsofTimeout (5s) if lsof hangs — a
+// one-time cost, paid once at startup, bounded by exec.CommandContext (never
+// unbounded). This is deliberate: R4 requires the first broadcast to be
+// deterministic real data, and a bounded few-hundred-ms (worst-case 5s) boot
+// delay is an acceptable price for that guarantee versus an empty first snapshot.
 func (c *Collector) Start(ctx context.Context) {
+	c.collect()
 	go c.poll(ctx)
 }
 
@@ -116,28 +112,16 @@ func (c *Collector) poll(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			c.collect(ctx)
+			c.collect()
 		}
 	}
 }
 
-// collect enumerates listening ports, filters them to the ports that answer HTTP
-// (reusing fresh cached probe verdicts, probing newly-seen or stale ports in
-// parallel, and evicting cache entries for ports that stopped listening), then
-// publishes the filtered, port-sorted snapshot. Runs only on the poll goroutine.
-func (c *Collector) collect(ctx context.Context) {
-	listening := readListeningPortsFn()
-
-	// Retain a Service only if its port answers HTTP. Determine the verdict from
-	// a fresh cache entry when available; otherwise probe (bounded parallelism).
-	verdicts := c.probeVerdicts(ctx, listening)
-
-	services := make([]Service, 0, len(listening))
-	for _, svc := range listening {
-		if verdicts[svc.Port] {
-			services = append(services, svc)
-		}
-	}
+// collect enumerates listening ports, sorts them by port ascending, and
+// publishes the snapshot. Purely observational — no probing, no filtering. Runs
+// on the poll goroutine and once synchronously at Start.
+func (c *Collector) collect() {
+	services := readListeningPortsFn()
 	sort.Slice(services, func(i, j int) bool {
 		return services[i].Port < services[j].Port
 	})
@@ -145,61 +129,4 @@ func (c *Collector) collect(ctx context.Context) {
 	c.mu.Lock()
 	c.snapshot = ServicesSnapshot{Services: services}
 	c.mu.Unlock()
-}
-
-// probeVerdicts returns the HTTP verdict for every listening port, reusing fresh
-// cached results and probing the rest in parallel under a bounded semaphore pool.
-// It rebuilds c.probeCache to contain exactly the currently-listening ports, so
-// entries for ports that stopped listening are evicted.
-func (c *Collector) probeVerdicts(ctx context.Context, listening []Service) map[int]bool {
-	now := c.now()
-
-	// Split into fresh cache hits (reused) and ports needing a probe.
-	fresh := make(map[int]probeEntry, len(listening))
-	var toProbe []int
-	for _, svc := range listening {
-		if e, ok := c.probeCache[svc.Port]; ok && now.Sub(e.at) < probeTTL {
-			fresh[svc.Port] = e
-			continue
-		}
-		toProbe = append(toProbe, svc.Port)
-	}
-
-	// Probe the stale/new ports concurrently, bounded by a semaphore pool.
-	probed := make(map[int]bool, len(toProbe))
-	if len(toProbe) > 0 {
-		sem := make(chan struct{}, probeConcurrency)
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-		for _, port := range toProbe {
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(port int) {
-				defer wg.Done()
-				defer func() { <-sem }()
-				ok := probePort(ctx, port)
-				mu.Lock()
-				probed[port] = ok
-				mu.Unlock()
-			}(port)
-		}
-		wg.Wait()
-	}
-
-	// Rebuild the cache to hold only currently-listening ports (evicting the
-	// rest) and assemble the verdict map for this cycle.
-	newCache := make(map[int]probeEntry, len(listening))
-	verdicts := make(map[int]bool, len(listening))
-	for _, svc := range listening {
-		if e, ok := fresh[svc.Port]; ok {
-			newCache[svc.Port] = e
-			verdicts[svc.Port] = e.httpOK
-			continue
-		}
-		ok := probed[svc.Port]
-		newCache[svc.Port] = probeEntry{httpOK: ok, at: now}
-		verdicts[svc.Port] = ok
-	}
-	c.probeCache = newCache
-	return verdicts
 }

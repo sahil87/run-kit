@@ -9,29 +9,92 @@ import (
 	"time"
 )
 
-// TestNewCollector_InitialSnapshotEmpty pins the empty-seed contract: the
-// constructor MUST NOT seed the unfiltered enumeration. The SSE hub reads,
-// broadcasts, and caches Snapshot() on its first poll pass — before the
-// collector's first tick — so an unfiltered seed would leak non-HTTP ports to
-// early clients (R1). The seed is a non-nil, zero-length slice that marshals to
-// `[]`, and the first filtered snapshot only arrives from the first collect().
-func TestNewCollector_InitialSnapshotEmpty(t *testing.T) {
-	// Stub enumeration to a non-empty set so a regression to the unfiltered
-	// seed (readListeningPortsFn()) would be observable as a non-empty snapshot.
-	withStubEnum(t, []int{5432, 8080})
+// withStubEnum swaps the platform enumeration seam (readListeningPortsFn) for
+// the duration of a test, returning the given ports as bare Services.
+func withStubEnum(t *testing.T, ports []int) {
+	t.Helper()
+	orig := readListeningPortsFn
+	readListeningPortsFn = func() []Service {
+		out := make([]Service, len(ports))
+		for i, p := range ports {
+			out[i] = Service{Port: p}
+		}
+		return out
+	}
+	t.Cleanup(func() { readListeningPortsFn = orig })
+}
 
+func portsOf(svcs []Service) []int {
+	out := make([]int, len(svcs))
+	for i, s := range svcs {
+		out[i] = s.Port
+	}
+	return out
+}
+
+func equalInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestCollect_EnumeratesSortsPublishes pins the passive contract: collect()
+// enumerates every listening port (HTTP or not), sorts ascending, and publishes
+// — no filtering, no probing. A regression that reintroduced an HTTP filter
+// would drop the non-HTTP ports (5432/6379) from the snapshot.
+func TestCollect_EnumeratesSortsPublishes(t *testing.T) {
+	withStubEnum(t, []int{8080, 5432, 3000, 6379})
+
+	c := NewCollector(time.Hour)
+	c.collect()
+
+	got := portsOf(c.Snapshot().Services)
+	want := []int{3000, 5432, 6379, 8080} // all ports, sorted, none filtered
+	if !equalInts(got, want) {
+		t.Errorf("collect() snapshot = %v; want %v (all ports, sorted, unfiltered)", got, want)
+	}
+}
+
+// TestStart_InitialSynchronousCollect pins the initial-collect contract: Start()
+// runs one synchronous collect() BEFORE launching the poll goroutine, so the
+// first Snapshot() (which the SSE hub reads, broadcasts, and caches on its first
+// pass — potentially before the ticker fires) carries real data, not an empty
+// "No services" gap.
+func TestStart_InitialSynchronousCollect(t *testing.T) {
+	withStubEnum(t, []int{8080})
+
+	c := NewCollector(time.Hour) // long interval → ticker won't fire during the test
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.Start(ctx)
+
+	// Snapshot is populated synchronously by Start's initial collect, without
+	// waiting for the first tick.
+	if got := portsOf(c.Snapshot().Services); !equalInts(got, []int{8080}) {
+		t.Errorf("snapshot after Start = %v; want [8080] (Start must run an initial synchronous collect)", got)
+	}
+}
+
+// TestNewCollector_SnapshotNeverNil pins the never-nil wire contract: the
+// pre-Start snapshot is a non-nil, zero-length slice that marshals to
+// `{"services":[]}` rather than `null`.
+func TestNewCollector_SnapshotNeverNil(t *testing.T) {
 	c := NewCollector(time.Second)
 	snap := c.Snapshot()
 
 	if snap.Services == nil {
-		t.Fatal("expected non-nil Services slice before first tick")
+		t.Fatal("expected non-nil Services slice before Start")
 	}
 	if len(snap.Services) != 0 {
-		t.Fatalf("expected EMPTY snapshot before first tick, got %v (an unfiltered seed leaks non-HTTP ports to early SSE clients)", portsOf(snap.Services))
+		t.Fatalf("expected empty snapshot before Start, got %v", portsOf(snap.Services))
 	}
 
-	// The empty seed must marshal to `[]`, not `null` — the never-nil wire
-	// contract the SSE hub broadcasts and caches on its first pass.
 	b, err := json.Marshal(snap)
 	if err != nil {
 		t.Fatalf("marshal snapshot: %v", err)

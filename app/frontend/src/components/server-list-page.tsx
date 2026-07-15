@@ -15,6 +15,14 @@ import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { SectionHeading } from "@/components/section-heading";
 import { displayVersion } from "@/lib/palette-version";
 
+/** Well-known / system ports (< 1024, the reserved range) — sshd:22, smtp:25,
+ *  etc. With the SERVICES zone now showing ALL listening ports (no HTTP probe
+ *  filter), these are de-emphasized like infra servers: grey text, sorted last
+ *  as a class (260715-vfcz). Presentation-only. */
+function isWellKnownPort(port: number): boolean {
+  return port < 1024;
+}
+
 export function ServerListPage() {
   // Read the server list from SessionContext — the SAME source the AppShell
   // route guard (`resolveServerView`) reads. Keeping a separate local
@@ -39,6 +47,18 @@ export function ServerListPage() {
   const { addToast } = useToast();
   const hostMetrics = useHostMetrics();
   const hostServices = useHostServices();
+  // De-emphasize system/infra listeners (mirrors the isInfraServer treatment on
+  // server tiles): well-known ports (< 1024, the reserved/system range —
+  // ssh:22, smtp:25, etc.) sort AFTER regular ports as a class and render in
+  // grey secondary text. Presentation-only — the backend snapshot stays
+  // port-sorted; regular tiles keep their port-ascending order (260715-vfcz).
+  const orderedServices = useMemo(() => {
+    const regular = hostServices.filter((s) => !isWellKnownPort(s.port));
+    const wellKnown = hostServices.filter((s) => isWellKnownPort(s.port));
+    const byPort = (a: (typeof hostServices)[number], b: (typeof hostServices)[number]) =>
+      a.port - b.port;
+    return regular.sort(byPort).concat(wellKnown.sort(byPort));
+  }, [hostServices]);
   // Cockpit connection dot (260704-9o7k): reflects host-metrics stream health.
   const { hostMetricsConnected } = useSessionContext();
 
@@ -366,26 +386,38 @@ export function ServerListPage() {
 
         {/* SERVICES zone (zone 3, Cockpit host-console home). A listening TCP
             port is a HOST property (not owned by any tmux window/session), so
-            `/` — the box-level console — is its home. The backend probes each
-            listening port and broadcasts ONLY the ports that answer HTTP (see
-            internal/ports probe filter), so every tile here provably speaks
-            HTTP — no client-side denylist heuristic is needed and "Open in
-            window" is gated solely on a tmux server existing. Each tile opens
-            that port's UI in an @rk_type=iframe tmux window via the /proxy/{port}/
-            proxy. Placed last, after the tmux-server tiles. */}
+            `/` — the box-level console — is its home. The backend passively
+            enumerates the host's listening ports (procfs on Linux, lsof on
+            darwin) and broadcasts ALL of them with best-effort process
+            attribution (see internal/ports) — there is NO HTTP probe: the probe
+            broke one-shot local servers (OAuth callbacks) and was removed
+            (260715-vfcz). So a tile is not guaranteed to speak HTTP; opening a
+            non-HTTP port yields a failed iframe — that is user-initiated,
+            visible, and harmless (the iframe load IS the on-demand probe).
+            "Open in window" is therefore gated solely on a tmux server existing.
+            Each tile opens the port's UI in an @rk_type=iframe tmux window via
+            the /proxy/{port}/ proxy. Well-known ports (< 1024) are de-emphasized
+            (grey, sorted last) like infra servers. Placed last, after the
+            tmux-server tiles. */}
         <section aria-label="Services" className="mb-6 max-w-md">
           <SectionHeading label="Services" className="mb-2" />
-          {hostServices.length === 0 ? (
+          {orderedServices.length === 0 ? (
             <div className="text-xs text-text-secondary">No services</div>
           ) : (
             <div className="flex flex-col gap-1.5">
-              {hostServices.map((svc) => (
+              {orderedServices.map((svc) => (
                 <div
                   key={svc.port}
                   className="flex items-center justify-between gap-3 bg-bg-card border border-border rounded px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <span className="text-text-primary font-mono text-sm">
+                    <span
+                      className={`font-mono text-sm ${
+                        isWellKnownPort(svc.port)
+                          ? "text-text-secondary"
+                          : "text-text-primary"
+                      }`}
+                    >
                       :{svc.port}
                     </span>
                     {svc.process && (

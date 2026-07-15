@@ -14,6 +14,7 @@ import {
   killWindow,
   renameWindow,
   sendKeys,
+  sendChatMessage,
   getDirectories,
   uploadFile,
   killServer,
@@ -218,6 +219,39 @@ describe("API client", () => {
     const result = await sendKeys("runkit", "@0", "echo hello");
     expect(result.ok).toBe(true);
     expect(capturedUrl).toContain("?server=runkit");
+  });
+
+  it("sendChatMessage POSTs /api/windows/:windowId/chat/send with {text} and server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: { text?: string } = {};
+    mswServer.use(
+      http.post("/api/windows/:windowId/chat/send", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as { text?: string };
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await sendChatMessage("runkit", "@0", "hello agent");
+    expect(result.ok).toBe(true);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/windows\/%400\/chat\/send\?server=runkit$/);
+    expect(capturedBody.text).toBe("hello agent");
+  });
+
+  it("sendChatMessage throws the server's structured error on a non-ok response (409 probe failure)", async () => {
+    const probeError =
+      "agent input not ready — message pasted but not echoed; Enter withheld. " +
+      "The text remains in the agent's input — check the terminal view before retrying, as a resend would duplicate it.";
+    mswServer.use(
+      http.post("/api/windows/:windowId/chat/send", () =>
+        HttpResponse.json({ error: probeError }, { status: 409 }),
+      ),
+    );
+    await expect(sendChatMessage("runkit", "@0", "hi")).rejects.toThrow(
+      probeError,
+    );
   });
 
   it("getDirectories sends GET /api/directories?prefix=...", async () => {

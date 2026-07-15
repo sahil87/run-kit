@@ -505,25 +505,39 @@ func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, durat
 	return state, duration
 }
 
-// rollupChat derives the window-level chat identity from the window's panes
-// (post-reconciler): the ACTIVE pane's chat if it carries one, else the FIRST
-// pane (in tmux pane order) that carries one. Deterministic — the common case is
-// a single agent pane per window; Change 3 can revisit the multi-pane rule
-// without a backend contract break since per-pane truth also ships on
-// PaneInfo.ChatProvider/ChatSessionRef. Returns ("", "") when no pane carries a
-// chat. Pure function (no I/O), mirroring rollupAgentState.
-func rollupChat(panes []tmux.PaneInfo) (provider, ref string) {
+// ResolveChatPane derives the window-level chat identity AND the resolved pane
+// id from the window's panes (post-reconciler): the ACTIVE pane's chat if it
+// carries one, else the FIRST pane (in tmux pane order) that carries one.
+// Deterministic — the common case is a single agent pane per window; the
+// multi-pane rule can be revisited without a backend contract break since
+// per-pane truth also ships on PaneInfo.ChatProvider/ChatSessionRef. Returns
+// ("", "", "") when no pane carries a chat. Pure function (no I/O).
+//
+// The paneID is what chat-send injects into — a WINDOW target routes to the
+// active pane, which in a split may not be the chat pane, so the resolved pane
+// (not the window) is the correct injection target. This is the single source of
+// the active-pane-first rollup rule; rollupChat delegates to it.
+func ResolveChatPane(panes []tmux.PaneInfo) (provider, ref, paneID string) {
 	for _, p := range panes {
 		if p.IsActive && p.ChatProvider != "" {
-			return p.ChatProvider, p.ChatSessionRef
+			return p.ChatProvider, p.ChatSessionRef, p.PaneID
 		}
 	}
 	for _, p := range panes {
 		if p.ChatProvider != "" {
-			return p.ChatProvider, p.ChatSessionRef
+			return p.ChatProvider, p.ChatSessionRef, p.PaneID
 		}
 	}
-	return "", ""
+	return "", "", ""
+}
+
+// rollupChat derives the window-level chat identity from the window's panes,
+// discarding the resolved pane id (the SSE/read path rolls up to the window and
+// re-resolves the pane server-side per request). Delegates to ResolveChatPane so
+// the active-pane-first rule lives in exactly one place.
+func rollupChat(panes []tmux.PaneInfo) (provider, ref string) {
+	provider, ref, _ = ResolveChatPane(panes)
+	return provider, ref
 }
 
 // windowBranchRepo returns the (repoDir, branch) to derive a window's PR from:

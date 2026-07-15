@@ -67,6 +67,16 @@ type TmuxOps interface {
 	PinBoard(ctx context.Context, server, windowID, board string) error
 	UnpinBoard(ctx context.Context, server, windowID, board string) error
 	ReorderBoard(ctx context.Context, server, windowID, board, before, after string) (string, error)
+	// Chat-send injection primitives (260714-jdyg-chat-send). Pane-targeted, in
+	// contrast to the window-targeted SendKeys used by POST /keys. CapturePane is
+	// surfaced here for the echo probe. Each takes the caller's context so the
+	// handler threads ONE shared deadline across the whole set → paste → probe →
+	// Enter sequence (kept well under the 5s route-blocking budget) rather than
+	// granting each subprocess an independent 10s timeout.
+	SetChatSendBuffer(ctx context.Context, text, server string) error
+	PasteChatSendBuffer(ctx context.Context, paneID, server string) error
+	SendEnterToPane(ctx context.Context, paneID, server string) error
+	CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error)
 }
 
 // RiffEngine is the web-facing seam onto the extracted spawn engine
@@ -257,6 +267,18 @@ func (p *prodTmuxOps) PinBoard(ctx context.Context, server, windowID, board stri
 }
 func (p *prodTmuxOps) UnpinBoard(ctx context.Context, server, windowID, board string) error {
 	return tmux.Unpin(ctx, server, windowID, board)
+}
+func (p *prodTmuxOps) SetChatSendBuffer(ctx context.Context, text, server string) error {
+	return tmux.SetChatSendBufferCtx(ctx, text, server)
+}
+func (p *prodTmuxOps) PasteChatSendBuffer(ctx context.Context, paneID, server string) error {
+	return tmux.PasteChatSendBufferCtx(ctx, paneID, server)
+}
+func (p *prodTmuxOps) SendEnterToPane(ctx context.Context, paneID, server string) error {
+	return tmux.SendEnterToPaneCtx(ctx, paneID, server)
+}
+func (p *prodTmuxOps) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
+	return tmux.CapturePaneCtx(ctx, paneID, lines, server)
 }
 
 // ReorderBoard locates the (server, windowID, board) entry, computes a new
@@ -455,6 +477,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/close-pane", s.handleClosePaneKill)
 	r.Get("/api/windows/{windowId}/chat", s.handleChatBackfill)
 	r.Get("/api/windows/{windowId}/chat/stream", s.handleChatStream)
+	r.Post("/api/windows/{windowId}/chat/send", s.handleChatSend)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Get("/api/sessions/stream", s.handleSSE)

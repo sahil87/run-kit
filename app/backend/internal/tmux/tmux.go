@@ -1537,6 +1537,52 @@ func SendKeys(windowID string, keys string, server string) error {
 	return err
 }
 
+// ChatSendBuffer is the named tmux paste buffer used by the chat-send injection
+// path. A NAMED buffer (rather than the anonymous top-of-stack) means loading a
+// chat message never clobbers whatever the user has on their buffer stack, and
+// the paste (-d) deletes it afterwards so the buffer set stays clean.
+const ChatSendBuffer = "rk-chat-send"
+
+// SetChatSendBufferCtx loads text into the named chat-send buffer
+// (ChatSendBuffer) on the specified server, bounded by the CALLER's context. The
+// chat-send handler threads ONE shared deadline through the whole injection
+// sequence (set → paste → probe → Enter) so the route stays well under the 5s
+// route-blocking budget (code-review.md) rather than granting each subprocess an
+// independent 10s timeout. The text is a DISCRETE argv element (no shell string,
+// no stdin) so any content — including newlines, tmux key names, or special
+// characters — is stored verbatim (Constitution §I). tmuxExecServer has no stdin
+// plumbing, so `set-buffer <text>` is used rather than `load-buffer -`.
+//
+// The `--` option terminator precedes the text so a message that itself starts
+// with a dash (e.g. "--force is broken") is treated as the positional buffer
+// data, not parsed as set-buffer flags (which would hard-fail). Verified on tmux
+// 3.6a: with `--`, leading-dash text stores verbatim.
+func SetChatSendBufferCtx(ctx context.Context, text string, server string) error {
+	_, err := tmuxExecServer(ctx, server, "set-buffer", "-b", ChatSendBuffer, "--", text)
+	return err
+}
+
+// PasteChatSendBufferCtx pastes the named chat-send buffer into the target PANE
+// (not a window) on the specified server, bounded by the CALLER's context. `-p`
+// requests bracketed paste (the Claude Code TUI enables bracketed paste, so a
+// multiline / special-character message lands as one literal block with no
+// per-line submission); `-d` deletes the buffer after pasting so the buffer set
+// stays clean.
+func PasteChatSendBufferCtx(ctx context.Context, paneID string, server string) error {
+	_, err := tmuxExecServer(ctx, server, "paste-buffer", "-d", "-p", "-b", ChatSendBuffer, "-t", paneID)
+	return err
+}
+
+// SendEnterToPaneCtx sends a single literal Enter key to the target PANE on the
+// specified server (`send-keys -t <paneID> Enter`), bounded by the CALLER's
+// context. Used by the chat-send path to submit a pasted message ONLY after the
+// echo probe confirms it reached the live input buffer — never blindly. Targets
+// the resolved pane, not the window.
+func SendEnterToPaneCtx(ctx context.Context, paneID string, server string) error {
+	_, err := tmuxExecServer(ctx, server, "send-keys", "-t", paneID, "Enter")
+	return err
+}
+
 // SetSessionColor sets the @session_color user option on a session. The value
 // is a color-value descriptor ("4" / "1+3"), validated by the caller before it
 // reaches this function. Passed as a discrete arg (no shell string) so a '+' in
@@ -1657,7 +1703,14 @@ func KillActivePane(windowID string, server string) error {
 func CapturePane(paneID string, lines int, server string) (string, error) {
 	ctx, cancel := withTimeout()
 	defer cancel()
+	return CapturePaneCtx(ctx, paneID, lines, server)
+}
 
+// CapturePaneCtx captures pane content (last N lines) on the specified server,
+// bounded by the CALLER's context — used by the chat-send echo probe, which
+// threads one shared deadline across all its captures so the retry loop stays
+// under the route budget. See CapturePane for the flag semantics.
+func CapturePaneCtx(ctx context.Context, paneID string, lines int, server string) (string, error) {
 	start := -lines
 	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", paneID, "-e", "-p", "-S", strconv.Itoa(start))
 }

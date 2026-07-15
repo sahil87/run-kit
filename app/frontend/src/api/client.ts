@@ -227,6 +227,31 @@ export async function sendKeys(
   return res.json();
 }
 
+/**
+ * Send a chat message into the window's resolved agent pane
+ * (260714-jdyg-chat-send). POSTs `{ text }` to the chat-send endpoint, which
+ * re-resolves the pane server-side, pastes the text, probes the echo, and only
+ * then sends Enter. `throwOnError` surfaces the server's structured error as the
+ * thrown Error's message — including the 409 probe failure ("agent input not
+ * ready — message pasted but not echoed; Enter withheld").
+ */
+export async function sendChatMessage(
+  server: string,
+  windowId: string,
+  text: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/chat/send`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function splitWindow(
   server: string,
   windowId: string,

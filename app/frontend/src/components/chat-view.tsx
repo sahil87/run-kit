@@ -1,4 +1,12 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -12,36 +20,48 @@ import {
 } from "@/lib/chat-stream";
 
 /**
- * Read-only HTML chat view over an agent pane (260714-r7rq — Change 3 of the
- * agent-chat-view plan). A SECOND view over the same tmux pane, never a
- * substrate: the pane stays the agent's parent (Constitution VI) and this only
- * ever RENDERS the streamed transcript. Consumes the dedicated per-view chat
- * `EventSource` via `use-chat-stream`; nothing is cached beyond component state
- * that dies with the view (Constitution II analog).
+ * HTML chat view over an agent pane (260714-r7rq — Change 3, read; extended by
+ * 260714-jdyg-chat-send — Change 4, send). A SECOND view over the same tmux
+ * pane, never a substrate: the pane stays the agent's parent (Constitution VI).
+ * The transcript is RENDERED read-only from the streamed events; the footer
+ * SENDS a message into the pane via tmux injection (paste + probed Enter) —
+ * still no SDK hosting, no session ownership (Constitution II/VI).
+ *
+ * Consumes the dedicated per-view chat `EventSource` via `use-chat-stream`;
+ * nothing is cached beyond component state that dies with the view
+ * (Constitution II analog).
  *
  * House aesthetic throughout: monospace, three-mode theme tokens, animation
  * behind `prefers-reduced-motion` (the stick-to-bottom scroll uses `auto`
  * behavior — no smooth-scroll animation to gate — and there is no decorative
  * motion here).
  *
- * Read-only: NO input box. A visibly disabled footer affordance points at the
- * terminal view (send arrives in Change 4, chat-send).
- *
- * The chat stream is owned by the parent (`AppShell` calls `use-chat-stream`
- * once) so a single `EventSource` feeds BOTH this renderer and the connection
- * dot's health (R9) — this component is a pure renderer over the passed stream
- * state.
+ * Pure component over passed props: `AppShell` owns the single `use-chat-stream`
+ * call (so one `EventSource` feeds BOTH this renderer and the connection dot's
+ * health, R9) AND supplies `onSend` (wrapping the chat-send POST) + the `busy`
+ * signal (`agentState === "active"`). This component opens no stream and calls
+ * no API itself.
  */
 export function ChatView({
   events,
   pending,
   connected,
   error,
+  onSend,
+  busy,
 }: {
   events: ChatEvent[];
   pending: ChatPending | null;
   connected: boolean;
   error: string | null;
+  /**
+   * Send a message into the agent pane. Resolves on a successful send (200) and
+   * REJECTS with an Error whose message is the server's structured error (e.g.
+   * the 409 probe failure) so the footer can surface it inline.
+   */
+  onSend: (text: string) => Promise<void>;
+  /** True while the window's agent is `active` — drives the non-blocking hint. */
+  busy: boolean;
 }) {
   const turns = groupEventsByTurn(events);
   const pendingBubble = derivePendingBubble(pending);
@@ -105,17 +125,131 @@ export function ChatView({
         )}
       </div>
 
-      {/* Read-only footer — visibly disabled, points at the terminal view.
-          Send arrives in Change 4 (chat-send). */}
-      <div className="shrink-0 border-t border-border px-3 py-2 bg-bg-primary">
+      {/* Send footer (260714-jdyg-chat-send) — a `shrink-0` footer of this
+          `flex-1 min-h-0` column, so the existing useVisualViewport pin keeps it
+          above the on-screen keyboard and the transcript keeps its auto-follow. */}
+      <ChatSendForm onSend={onSend} busy={busy} />
+    </div>
+  );
+}
+
+/** Max input rows before the textarea scrolls internally (bounded auto-grow). */
+const MAX_TEXTAREA_ROWS = 6;
+
+/**
+ * The chat send input: an auto-growing monospace textarea + a house-chip send
+ * button. Enter submits; Shift+Enter inserts a newline. In-flight-locked (no
+ * double-send); text clears on success and is kept on failure with an inline
+ * `role="alert"` error carrying the server's structured message. A non-blocking
+ * "will be queued" hint shows while the agent is busy (the input stays enabled —
+ * Allow + probe policy). On a fine pointer the input auto-focuses on mount (the
+ * chat lens just activated); coarse pointers skip it so the keyboard stays down.
+ */
+function ChatSendForm({
+  onSend,
+  busy,
+}: {
+  onSend: (text: string) => Promise<void>;
+  busy: boolean;
+}) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow to content, bounded to MAX_TEXTAREA_ROWS (then internal scroll).
+  const resize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
+    const max = line * MAX_TEXTAREA_ROWS;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  }, []);
+
+  useLayoutEffect(resize, [text, resize]);
+
+  // Desktop-only autofocus on mount (the chat lens just activated). Skip on
+  // coarse pointers so the on-screen keyboard does not pop unbidden.
+  useEffect(() => {
+    const coarse =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(pointer: coarse)").matches;
+    if (!coarse) textareaRef.current?.focus();
+  }, []);
+
+  const submit = useCallback(async () => {
+    if (sending) return; // in-flight lock — double-Enter / double-click no-op
+    const trimmed = text.trim();
+    if (trimmed === "") return; // empty / whitespace-only never submits
+    setSending(true);
+    setError(null);
+    try {
+      await onSend(text);
+      setText(""); // clear on success
+    } catch (e) {
+      // Keep the text on failure; surface the server's structured error inline.
+      setError(e instanceof Error ? e.message : "Failed to send message");
+    } finally {
+      setSending(false);
+    }
+  }, [onSend, sending, text]);
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter submits; Shift+Enter inserts a newline (default). Stop propagation so
+    // a submitting Enter never bubbles to global chords.
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      e.stopPropagation();
+      void submit();
+    }
+  };
+
+  const canSend = !sending && text.trim() !== "";
+
+  return (
+    <div className="shrink-0 border-t border-border px-3 py-2 bg-bg-primary flex flex-col gap-1.5">
+      {error && (
         <div
-          className="w-full rounded border border-border bg-bg-inset px-3 py-2 text-text-secondary select-none cursor-not-allowed"
-          aria-disabled="true"
-          data-testid="chat-send-disabled"
-          title="Send from the terminal view — coming in chat-send"
+          role="alert"
+          className="rounded border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs text-red-400"
+          data-testid="chat-send-error"
         >
-          Send from the terminal view — coming in chat-send
+          {error}
         </div>
+      )}
+      {busy && (
+        <div
+          className="text-xs text-text-secondary select-none"
+          data-testid="chat-send-busy-hint"
+        >
+          agent is working — message will be queued
+        </div>
+      )}
+      <div className="flex items-end gap-2">
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Message the agent…"
+          aria-label="Message the agent"
+          data-testid="chat-send-input"
+          className="rk-chat-input flex-1 min-h-0 resize-none rounded border border-border bg-bg-inset px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent"
+        />
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={!canSend}
+          aria-label="Send message"
+          data-testid="chat-send-button"
+          className="rk-glint shrink-0 rounded border border-border px-3 py-2 font-mono text-sm text-text-primary select-none transition-colors hover:border-text-secondary active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px]"
+        >
+          {sending ? "…" : "Send"}
+        </button>
       </div>
     </div>
   );

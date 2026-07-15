@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 10
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-15T09:55:03Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-15T10:07:49Z"}
     hydrate: {started_at: "2026-07-15T10:07:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T10:11:03Z"}
     ship: {started_at: "2026-07-15T10:11:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T10:18:46Z"}
-    review-pr: {started_at: "2026-07-15T10:18:46Z", iterations: 1}
+    review-pr: {started_at: "2026-07-15T10:18:46Z", iterations: 1, completed_at: "2026-07-15T10:37:04Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/363
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: TopBar mid-width overlap fix — degradation ladder (crumbs truncate via min-w-0 → server crumb hides below md → nav clips at min-w floor) + center content-floor protection (removed outer min-w-0, kept sm:28ch anchor); BreadcrumbDropdown open menu now position:fixed to escape the nav's overflow-hidden clip
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-15T10:18:46Z
+last_updated: 2026-07-15T10:37:04Z

@@ -148,7 +148,14 @@ function PaneRefreshButton() {
       onClick={() => {
         if (busy) return;
         setBusy(true);
-        void refreshStatus().finally(() => setBusy(false));
+        // Best-effort/fire-and-forget: refreshStatus() rejects on a non-2xx (it
+        // shares throwOnError with the other client fns), so swallow the
+        // rejection to avoid an unhandled promise rejection on network/server
+        // failure — mirroring the palette caller (app.tsx). The server-side
+        // coalesce + min-interval throttle already make it safe to over-fire.
+        void refreshStatus()
+          .catch(() => {})
+          .finally(() => setBusy(false));
       }}
       disabled={busy}
       aria-label="Refresh PR status"

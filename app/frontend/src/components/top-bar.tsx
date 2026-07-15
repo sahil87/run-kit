@@ -183,7 +183,14 @@ function HistoryNav() {
   const arrowClass =
     "rk-glint min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] rounded border border-border text-text-secondary hover:border-text-secondary transition-colors flex items-center justify-center shrink-0";
   return (
-    <span className="flex items-center gap-1 mr-1.5 shrink-0">
+    // mr-2.5 (10px) separates the arrows from the page heading — the arrows are
+    // global chrome, not part of the heading, so their gap must read WIDER than
+    // the heading's own internal prefix↔name spacing (~4px, see HeadingPrefix's
+    // -mr-1). Exactly +4px so the pair is width-neutral with -mr-1's −4px: the
+    // heading's fixed furniture inside the `sm:min-w-[28ch]` anchor box must
+    // not grow, or names near the band edge start drifting the anchor (see the
+    // stable-anchor e2e in window-heading.spec.ts).
+    <span className="flex items-center gap-1 mr-2.5 shrink-0">
       <button
         type="button"
         onClick={() => router.history.back()}
@@ -995,18 +1002,10 @@ function splitSweepCells(cells: SweepCell[]): {
 function HeadingPrefix({
   cells,
   scrambling,
-  onMouseEnter,
-  onMouseLeave,
   caret,
 }: {
   cells: SweepCell[];
   scrambling: boolean;
-  // Optional hover handlers so the terminal prefix replays the sweep too
-  // (260704-pr0p rework N5 — unifies with board/root/cockpit, which hover the
-  // whole heading; the demo replayed from the whole bar). Display-only headings
-  // pass none: their outer wrapper already owns the hover.
-  onMouseEnter?: () => void;
-  onMouseLeave?: () => void;
   // Optional element rendered BEFORE the trailing `:` of the prefix word
   // (260714-uco1 — the hierarchy ▾ binds to the prefix "before the colon" per
   // intake §3, rendering `Window ▾: name`). When present, the prefix cells are
@@ -1015,15 +1014,18 @@ function HeadingPrefix({
   // array (and its ordering) is untouched; only the DOM is split at render time.
   caret?: React.ReactNode;
 }) {
+  // -mr-1 on both return branches: the sweep's `sp` separator cell is a full
+  // monospace space (1ch ≈ 8px at text-sm) — noticeably wider than a natural
+  // `label: value` gap next to the semibold name. Pulling the following name
+  // element back 4px tightens the separator to ~half a space while the cursor
+  // still visibly crosses the real space cell (N4: the cell, not a flex gap,
+  // owns the separation — do not swap it for a margin/gap on the name).
+
   // No caret: emit the prefix as one swept run (the original single-span path;
   // keeps `Window:` contiguous for headings with no hierarchy ▾).
   if (!caret) {
     return (
-      <span
-        className="hidden sm:inline text-sm text-text-secondary whitespace-pre shrink-0"
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
-      >
+      <span className="hidden sm:inline text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
         <SweepCells cells={cells} scrambling={scrambling} />
       </span>
     );
@@ -1037,11 +1039,7 @@ function HeadingPrefix({
   const wordCells = colonIdx >= 0 ? cells.slice(0, colonIdx) : cells;
   const tailCells = colonIdx >= 0 ? cells.slice(colonIdx) : [];
   return (
-    <span
-      className="hidden sm:inline-flex items-center text-sm text-text-secondary whitespace-pre shrink-0"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
+    <span className="hidden sm:inline-flex items-center text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
       <span className="whitespace-pre">
         <SweepCells cells={wordCells} scrambling={scrambling} />
       </span>
@@ -1292,25 +1290,25 @@ function WindowHeading({
   }
 
   return (
-    <>
-      {/* Static `Terminal:` prefix — a sibling OUTSIDE the button so clicking
+    // ONE hover owner for the whole heading: enter/leave live on this wrapper
+    // (mirroring PageHeadingDisplay's outer span), NEVER on the prefix and the
+    // button individually — per-sibling handlers fire resolve() + playDeferred()
+    // when the pointer crosses the prefix↔name boundary, restarting the sweep
+    // mid-flight. Enter/leave don't refire while the pointer moves between
+    // children, so the sweep plays once per whole-heading hover.
+    <span
+      className="inline-flex items-center min-w-0"
+      onMouseEnter={sweep.playDeferred}
+      onMouseLeave={sweep.resolve}
+    >
+      {/* Static `Window:` prefix — a sibling OUTSIDE the button so clicking
           it never starts an edit; hidden below `sm` (mobile keeps just the
-          name). Its content rides the same sweep so the one cursor crosses it.
-          Hovering the prefix replays the sweep too (matches the whole-heading
-          hover on board/root/cockpit), but it is NOT a click target — clicking
-          it never enters edit (only the button below does). */}
-      <HeadingPrefix
-        cells={prefixCells}
-        scrambling={sweep.scrambling}
-        onMouseEnter={sweep.playDeferred}
-        onMouseLeave={sweep.resolve}
-        caret={caret}
-      />
+          name). Its content rides the same sweep so the one cursor crosses it,
+          but it is NOT a click target — only the button below enters edit. */}
+      <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} caret={caret} />
       <button
         type="button"
         onClick={startEdit}
-        onMouseEnter={sweep.playDeferred}
-        onMouseLeave={sweep.resolve}
         aria-label={`Rename window ${name}`}
         title="Click to rename"
         // The heading is the mobile leaf and the primary rename affordance
@@ -1333,7 +1331,7 @@ function WindowHeading({
           <SweepCells cells={nameCells} scrambling={sweep.scrambling} />
         </span>
       </button>
-    </>
+    </span>
   );
 }
 

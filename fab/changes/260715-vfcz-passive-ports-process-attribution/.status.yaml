@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 14
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-15T08:45:15Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-15T08:53:45Z"}
     hydrate: {started_at: "2026-07-15T08:53:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T08:59:24Z"}
     ship: {started_at: "2026-07-15T08:59:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T09:02:07Z"}
-    review-pr: {started_at: "2026-07-15T09:02:07Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-15T09:02:07Z", driver: git-pr, iterations: 1, completed_at: "2026-07-15T09:14:49Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/361
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Removed the ambient HTTP probe from internal/ports; the collector now passively enumerates ALL listening TCP ports (no probe, no HTTP filter) with best-effort process attribution on both platforms (shared lsof.go; Linux joins lsof onto the authoritative procfs set), synchronous initial collect() at Start, and well-known-port (<1024) de-emphasis on the Cockpit SERVICES tiles.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-15T09:02:07Z
+last_updated: 2026-07-15T09:14:49Z

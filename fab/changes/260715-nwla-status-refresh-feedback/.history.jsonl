@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-15T10:11:49Z"}
+{"args":"Manual Status Refresh feedback gap: PANE-header refresh button spinner is a ~50ms blink (tied to the 202 POST, not the 1-10s detached gh pass). Add (1) server-global SSE status-refresh completion event + spin-until-event with checkmark, (2) distinguished 202 body started|coalesced|throttled, (3) PR freshness 'checked Xs ago' in StatusDotTip via FetchedAt plumbing.","cmd":"fab-new","event":"command","ts":"2026-07-15T10:11:49Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-15T10:14:21Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-15T10:14:50Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-15T10:16:17Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-15T10:17:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T10:18:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T10:38:36Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T10:39:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-15T10:53:23Z"}
+{"event":"review","result":"passed","ts":"2026-07-15T10:53:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-15T11:06:25Z"}

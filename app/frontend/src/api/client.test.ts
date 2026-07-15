@@ -25,6 +25,7 @@ import {
   updateWindowType,
   triggerForceUpdate,
   triggerRestart,
+  refreshStatus,
   DAEMON_SERVER,
   isInfraServer,
   compareServers,
@@ -647,6 +648,50 @@ describe("maintenance actions (force update + restart)", () => {
       ),
     );
     await expect(triggerRestart()).rejects.toThrow();
+  });
+});
+
+describe("refreshStatus tri-state body (260715-nwla)", () => {
+  function withStatusBody(body: { status: string }) {
+    mswServer.use(
+      http.post("/api/status/refresh", () => HttpResponse.json(body, { status: 202 })),
+    );
+  }
+
+  it("returns {status:started} for a started 202 body", async () => {
+    withStatusBody({ status: "started" });
+    expect(await refreshStatus()).toEqual({ status: "started" });
+  });
+
+  it("returns {status:coalesced} for a coalesced 202 body", async () => {
+    withStatusBody({ status: "coalesced" });
+    expect(await refreshStatus()).toEqual({ status: "coalesced" });
+  });
+
+  it("returns {status:throttled} for a throttled 202 body", async () => {
+    withStatusBody({ status: "throttled" });
+    expect(await refreshStatus()).toEqual({ status: "throttled" });
+  });
+
+  it("defaults a legacy {status:refreshing} body to started (spin-until-event)", async () => {
+    withStatusBody({ status: "refreshing" });
+    expect(await refreshStatus()).toEqual({ status: "started" });
+  });
+
+  it("defaults an empty/unparseable body to started", async () => {
+    mswServer.use(
+      http.post("/api/status/refresh", () => new HttpResponse(null, { status: 202 })),
+    );
+    expect(await refreshStatus()).toEqual({ status: "started" });
+  });
+
+  it("rejects on a non-2xx", async () => {
+    mswServer.use(
+      http.post("/api/status/refresh", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    );
+    await expect(refreshStatus()).rejects.toThrow();
   });
 });
 

@@ -332,4 +332,21 @@ describe("dotTipContent — hover-card content resolution", () => {
       { label: "Open PR #7", href: "https://github.com/o/r/pull/7", testid: "dot-tip-pr-link" },
     ]);
   });
+
+  // Freshness line (260715-nwla) — fetchedAtEpoch resolution.
+  it("parses prFetchedAt to fetchedAtEpoch (seconds)", () => {
+    const win = makeWindow({ prFetchedAt: "2026-07-15T10:00:00Z" });
+    const content = dotTipContent(win, statusDotState(win));
+    expect(content.fetchedAtEpoch).toBe(Math.floor(Date.parse("2026-07-15T10:00:00Z") / 1000));
+  });
+
+  it("fetchedAtEpoch is null when prFetchedAt is absent", () => {
+    const win = makeWindow({});
+    expect(dotTipContent(win, statusDotState(win)).fetchedAtEpoch).toBeNull();
+  });
+
+  it("fetchedAtEpoch is null when prFetchedAt is unparseable", () => {
+    const win = makeWindow({ prFetchedAt: "not-a-date" });
+    expect(dotTipContent(win, statusDotState(win)).fetchedAtEpoch).toBeNull();
+  });
 });

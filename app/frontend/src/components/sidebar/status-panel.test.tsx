@@ -8,9 +8,24 @@ vi.mock("@/lib/clipboard", () => ({
 }));
 
 vi.mock("@/api/client", () => ({
-  refreshStatus: vi.fn(() => Promise.resolve({ ok: true })),
+  refreshStatus: vi.fn(() => Promise.resolve({ status: "started" })),
 }));
 import { refreshStatus } from "@/api/client";
+
+// Controllable status-refresh subscription: tests capture the button's handler
+// and invoke it to simulate the server-global `status-refresh` completion event.
+const statusRefreshHandlers = new Set<() => void>();
+function fireStatusRefreshEvent() {
+  for (const h of statusRefreshHandlers) h();
+}
+vi.mock("@/contexts/session-context", () => ({
+  useSessionContext: () => ({
+    subscribeStatusRefresh: (handler: () => void) => {
+      statusRefreshHandlers.add(handler);
+      return () => statusRefreshHandlers.delete(handler);
+    },
+  }),
+}));
 
 // Helper to exercise shortenPath via the component
 function renderCwd(cwd: string) {
@@ -37,6 +52,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  statusRefreshHandlers.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -699,42 +715,167 @@ describe("StatusPanel copy behavior", () => {
   });
 });
 
-describe("PANE header refresh button (260715-jykd)", () => {
+describe("PANE header refresh button (260715-jykd; feedback 260715-nwla)", () => {
+  // Read the button's discriminated state from its `data-state` attribute — the
+  // clean state consumer the component already exposes — rather than sniffing the
+  // spinner SVG's className.baseVal.
+  function spinning(button: HTMLButtonElement): boolean {
+    return button.getAttribute("data-state") === "spinning";
+  }
+
   it("renders the refresh button even with no window selected (server-global)", () => {
     render(<StatusPanel window={null} />);
     expect(screen.getByTestId("pane-refresh")).toBeInTheDocument();
   });
 
-  it("clicking the header button fires refreshStatus and shows a busy state", async () => {
-    // Hold the POST pending so the busy state is observable before it settles.
-    let resolveRefresh: (v: { ok: boolean }) => void = () => {};
-    vi.mocked(refreshStatus).mockImplementationOnce(
-      () => new Promise((res) => { resolveRefresh = res; }),
-    );
+  it("started: spins on click and does NOT clear when the POST settles (waits for the event)", async () => {
+    vi.mocked(refreshStatus).mockResolvedValueOnce({ status: "started" });
 
     render(<StatusPanel window={makeWindow()} />);
     const button = screen.getByTestId("pane-refresh") as HTMLButtonElement;
 
-    fireEvent.click(button);
-    expect(refreshStatus).toHaveBeenCalledTimes(1);
-    // Busy: the button is disabled and the icon spins while the POST is in flight.
-    expect(button.disabled).toBe(true);
-    expect(button.querySelector("svg")?.className.baseVal).toContain("animate-spin");
-
-    // Settle the POST; busy clears.
+    // Click + let the resolved POST run its .then (which arms the fallback).
     await act(async () => {
-      resolveRefresh({ ok: true });
+      fireEvent.click(button);
     });
-    expect(button.disabled).toBe(false);
-    expect(button.querySelector("svg")?.className.baseVal ?? "").not.toContain("animate-spin");
+    expect(refreshStatus).toHaveBeenCalledTimes(1);
+    // Still spinning AFTER the POST settled — the spinner tracks the SSE event,
+    // not the POST (this is the core behavior change vs jykd).
+    expect(button.disabled).toBe(true);
+    expect(spinning(button)).toBe(true);
+    expect(screen.queryByTestId("pane-refresh-check")).toBeNull();
   });
 
-  it("clicking the header button does not toggle the panel open/closed", () => {
+  it("started: the status-refresh event clears the spinner and shows the checkmark", async () => {
+    vi.mocked(refreshStatus).mockResolvedValueOnce({ status: "started" });
+
+    render(<StatusPanel window={makeWindow()} />);
+    const button = screen.getByTestId("pane-refresh") as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(spinning(button)).toBe(true);
+
+    // Simulate the server-global completion event.
+    await act(async () => {
+      fireStatusRefreshEvent();
+    });
+    expect(spinning(button)).toBe(false);
+    expect(screen.getByTestId("pane-refresh-check")).toBeInTheDocument();
+
+    // The checkmark auto-reverts to the idle icon after REFRESH_CHECK_MS.
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.queryByTestId("pane-refresh-check")).toBeNull();
+    expect(button.disabled).toBe(false);
+  });
+
+  it("no phantom checkmark: the event clearing the spinner cancels the fallback", async () => {
+    // The completion event can beat the POST settle. The fallback timer is armed
+    // at click entry, so flashCheck() (fired by the event) must clear it — else a
+    // stray fallback would re-flash a phantom checkmark ~15s later. Idle after the
+    // check reverts must stay idle across the whole fallback window.
+    vi.mocked(refreshStatus).mockResolvedValueOnce({ status: "started" });
+
+    render(<StatusPanel window={makeWindow()} />);
+    const button = screen.getByTestId("pane-refresh") as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    await act(async () => {
+      fireStatusRefreshEvent(); // event beats the POST fallback window
+    });
+    // Check flashes, then reverts.
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.queryByTestId("pane-refresh-check")).toBeNull();
+
+    // Advance well past REFRESH_FALLBACK_MS — no phantom checkmark reappears.
+    await act(async () => {
+      vi.advanceTimersByTime(20000);
+    });
+    expect(screen.queryByTestId("pane-refresh-check")).toBeNull();
+    expect(spinning(button)).toBe(false);
+    expect(button.disabled).toBe(false);
+  });
+
+  it("throttled: shows the checkmark flash without ever spinning", async () => {
+    vi.mocked(refreshStatus).mockResolvedValueOnce({ status: "throttled" });
+
+    render(<StatusPanel window={makeWindow()} />);
+    const button = screen.getByTestId("pane-refresh") as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    // No spin — a throttled click gets an immediate "already fresh" checkmark.
+    expect(spinning(button)).toBe(false);
+    expect(screen.getByTestId("pane-refresh-check")).toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.queryByTestId("pane-refresh-check")).toBeNull();
+  });
+
+  it("coalesced: spins until the completion event (no distinct visual)", async () => {
+    vi.mocked(refreshStatus).mockResolvedValueOnce({ status: "coalesced" });
+
+    render(<StatusPanel window={makeWindow()} />);
+    const button = screen.getByTestId("pane-refresh") as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(spinning(button)).toBe(true);
+
+    await act(async () => {
+      fireStatusRefreshEvent();
+    });
+    expect(spinning(button)).toBe(false);
+    expect(screen.getByTestId("pane-refresh-check")).toBeInTheDocument();
+  });
+
+  it("fallback: clears the spinner if no completion event arrives", async () => {
+    vi.mocked(refreshStatus).mockResolvedValueOnce({ status: "started" });
+
+    render(<StatusPanel window={makeWindow()} />);
+    const button = screen.getByTestId("pane-refresh") as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(spinning(button)).toBe(true);
+
+    // No event; the 15s fallback fires and flashes the checkmark instead.
+    await act(async () => {
+      vi.advanceTimersByTime(15000);
+    });
+    expect(spinning(button)).toBe(false);
+    expect(screen.getByTestId("pane-refresh-check")).toBeInTheDocument();
+  });
+
+  it("rejected POST: returns to idle without a stuck spinner", async () => {
+    vi.mocked(refreshStatus).mockRejectedValueOnce(new Error("boom"));
+
+    render(<StatusPanel window={makeWindow()} />);
+    const button = screen.getByTestId("pane-refresh") as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(spinning(button)).toBe(false);
+    expect(button.disabled).toBe(false);
+    expect(screen.queryByTestId("pane-refresh-check")).toBeNull();
+  });
+
+  it("clicking the header button does not toggle the panel open/closed", async () => {
+    vi.mocked(refreshStatus).mockResolvedValueOnce({ status: "started" });
     render(<StatusPanel window={makeWindow()} />);
     // The panel is open by default; its content (the window name) is visible.
     expect(screen.getByText("zsh")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("pane-refresh"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("pane-refresh"));
+    });
     // CollapsiblePanel stops headerAction clicks from toggling — content stays.
     expect(screen.getByText("zsh")).toBeInTheDocument();
   });

@@ -1,0 +1,20 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-15T20:18:42Z"}
+{"args":"Honest window-switch feedback: confirmation-gated slide animation (gate reports settle reason, timeout skips the slide), pending logo-spinner mask over stale terminal bytes at gate timeout, failure bounce-back un-sticking pendingClickRef on selectWindow rejection or confirmation-window timeout, non-VT/reduced-motion grace-timer mask parity","cmd":"fab-new","event":"command","ts":"2026-07-15T20:18:42Z"}
+{"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-07-15T20:22:24Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-15T20:23:51Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-15T20:25:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T20:26:27Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-15T20:27:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T20:49:00Z"}
+{"event":"review","result":"failed","ts":"2026-07-15T21:07:28Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T21:07:28Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T21:22:02Z"}
+{"event":"review","result":"failed","ts":"2026-07-15T21:50:09Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T21:50:09Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T22:01:55Z"}
+{"event":"review","result":"failed","ts":"2026-07-15T22:20:19Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-15T22:20:19Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-15T22:28:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-15T22:44:38Z"}
+{"event":"review","result":"passed","ts":"2026-07-15T22:44:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-15T22:50:29Z"}

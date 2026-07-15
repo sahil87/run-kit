@@ -80,6 +80,20 @@ export function shouldAnimateWindowSwitch(opts: {
 const FIRST_WRITE_TIMEOUT_MS = 300;
 
 /**
+ * How the first-write gate settled — the "earned signal" discriminator
+ * (260715-38kg). The wrapper branches on this to decide the honest feedback:
+ *
+ * - `"first-write"` — the incoming window's bytes arrived within the budget →
+ *   the slide plays (confirmed-fast arrival).
+ * - `"timeout"` — the budget elapsed with no incoming bytes → the wrapper calls
+ *   `skipTransition()` (no motion) and the pending spinner mask arms.
+ * - `"superseded"` — a newer `beginWindowSwitchGate` fired this gate → the
+ *   superseded switch owns NO feedback (neither slide nor mask); the newer
+ *   switch's gate owns it all.
+ */
+export type GateSettleReason = "first-write" | "timeout" | "superseded";
+
+/**
  * First-inbound-bytes gate for the polished capture (260703-l4nf).
  *
  * The transition wrapper in `app.tsx` opens a gate (`beginWindowSwitchGate`)
@@ -134,8 +148,11 @@ const FIRST_WRITE_TIMEOUT_MS = 300;
  * free.
  */
 interface SwitchGate {
-  /** Resolves the awaiting `waitForFirstWrite`, once. Null once settled. */
-  resolve: (() => void) | null;
+  /**
+   * Resolves the awaiting `waitForFirstWrite` with the settle reason, once. Null
+   * once settled.
+   */
+  resolve: ((reason: GateSettleReason) => void) | null;
   /** Timer that resolves the gate on timeout. */
   timer: ReturnType<typeof setTimeout> | null;
   /**
@@ -144,6 +161,13 @@ interface SwitchGate {
    * a busy outgoing window's in-flight bytes can't release it early.
    */
   acceptingNotify: boolean;
+  /**
+   * Whether this switch targets a gated (tty) window. Drives the pending-mask
+   * signal (260715-38kg): only a gated switch's `"timeout"` settle arms the
+   * mask — a non-tty (web/chat) target never masks. Held on the gate so the
+   * arm decision lives in `settleGate` (one signal source), not the wrapper.
+   */
+  gated: boolean;
 }
 
 let currentGate: SwitchGate | null = null;
@@ -157,10 +181,11 @@ interface WindowSwitchGate {
    */
   openForNotify(): void;
   /**
-   * Resolve when the incoming window's first write arrives (`notifyFirstWrite`,
-   * once `openForNotify` was called) or after the timeout, whichever is first.
+   * Resolve with the settle reason when the incoming window's first write
+   * arrives (`notifyFirstWrite`, once `openForNotify` was called), after the
+   * timeout, or on supersession — whichever is first.
    */
-  waitForFirstWrite(timeoutMs?: number): Promise<void>;
+  waitForFirstWrite(timeoutMs?: number): Promise<GateSettleReason>;
 }
 
 /**
@@ -170,32 +195,58 @@ interface WindowSwitchGate {
  * prior gate's timeout). Call before navigating; then `openForNotify()` after
  * the selectWindow POST resolves and `await waitForFirstWrite()` in the
  * transition callback.
+ *
+ * `opts.gated` marks whether the target renders a terminal (tty) — only a gated
+ * switch's `"timeout"` arms the pending mask (260715-38kg). Defaults to `true`
+ * (the common terminal path); the wrapper passes `false` for web/chat targets.
  */
-export function beginWindowSwitchGate(): WindowSwitchGate {
+export function beginWindowSwitchGate(opts?: { gated?: boolean }): WindowSwitchGate {
   // Supersede: resolve (do not silently discard) any prior pending gate so the
-  // View-Transition callback awaiting it returns immediately.
+  // View-Transition callback awaiting it returns immediately. A pending prior
+  // gate settles `"superseded"` (which clears any mask it armed). But a prior
+  // switch may have ALREADY timed out and armed the mask (its gate settled, so
+  // `currentGate` is null) — a fresh switch beginning still owns all feedback,
+  // so clear any leftover mask/grace timer unconditionally here. The new gate
+  // (or grace timer) will re-arm its own mask if IT times out (assumption 13).
   if (currentGate) {
     const prior = currentGate;
-    settleGate(prior);
+    settleGate(prior, "superseded");
   }
+  tearDownMask();
 
-  const gate: SwitchGate = { resolve: null, timer: null, acceptingNotify: false };
+  // This switch is now the current one: mint its epoch and close mask-lift
+  // acceptance until ITS selectWindow POST resolves (see openForNotify).
+  const epoch = ++switchEpoch;
+  liftAccepting = false;
+
+  const gate: SwitchGate = {
+    resolve: null,
+    timer: null,
+    acceptingNotify: false,
+    gated: opts?.gated ?? true,
+  };
   currentGate = gate;
 
   return {
     openForNotify() {
       gate.acceptingNotify = true;
+      // The switch's POST resolved: incoming bytes may now also LIFT the mask
+      // this switch arms on timeout (the same post-POST filter the gate release
+      // uses — an OUTGOING window's still-streaming bytes must not un-mask
+      // stale content; rework F3). Epoch-guarded so a STALE switch's late POST
+      // resolution can't enable lifts for a newer switch's mask.
+      if (epoch === switchEpoch) liftAccepting = true;
     },
-    waitForFirstWrite(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): Promise<void> {
-      return new Promise<void>((resolve) => {
+    waitForFirstWrite(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): Promise<GateSettleReason> {
+      return new Promise<GateSettleReason>((resolve) => {
         // If this gate was already superseded before the wrapper got here,
         // resolve immediately — never leave the callback hanging.
         if (currentGate !== gate) {
-          resolve();
+          resolve("superseded");
           return;
         }
         gate.resolve = resolve;
-        gate.timer = setTimeout(() => settleGate(gate), timeoutMs);
+        gate.timer = setTimeout(() => settleGate(gate, "timeout"), timeoutMs);
       });
     },
   };
@@ -206,29 +257,359 @@ export function beginWindowSwitchGate(): WindowSwitchGate {
  * `TerminalClient`'s `ws.onmessage` at message-receipt time; a cheap no-op when
  * no gate is awaiting a write (unarmed, already settled, or not yet
  * `openForNotify`'d).
+ *
+ * This is the ONE signal that drives everything (260715-38kg, assumption 3):
+ * the same receipt that releases the gate ALSO lifts the pending mask when the
+ * incoming window's bytes arrive late (after a `"timeout"` settle already armed
+ * it) — and cancels a pending grace timer so an early arrival never masks.
+ *
+ * The lift is FILTERED exactly like the gate release (rework F3): a byte only
+ * counts once the switch's `selectWindow` POST has resolved (`liftAccepting`,
+ * set by `openForNotify`/`openForLift`). On a same-session switch the OUTGOING
+ * window's still-streaming bytes ride the same socket — without the filter they
+ * would lift the mask (or cancel the grace timer) before tmux ever switched,
+ * un-masking stale content in exactly the busy-old-window hazard case.
  */
 export function notifyFirstWrite(): void {
   if (currentGate && currentGate.acceptingNotify) {
-    settleGate(currentGate);
+    settleGate(currentGate, "first-write");
   }
+  // Filtered late-arrival mask lift: even after the gate timed out and settled
+  // (`currentGate` null), the incoming window's first COUNTABLE byte (post-POST)
+  // is the signal that the switch DID arrive — lift the mask as a cut, and
+  // cancel any pending grace timer. No-op while the POST is unresolved or when
+  // nothing is armed, so outgoing-window receipts are free AND safe.
+  if (liftAccepting) tearDownMask();
 }
 
 /**
- * Settle a gate: resolve its pending promise (if any), clear its timer, and
- * clear the module slot ONLY when it still points at this gate. The
- * still-points-at-itself guard means a late timeout from a superseded gate can
- * neither resolve a newer gate nor null out the current slot.
+ * Settle a gate with its reason: resolve its pending promise (if any), clear
+ * its timer, arm/clear the pending mask, and clear the module slot ONLY when it
+ * still points at this gate. The still-points-at-itself guard means a late
+ * timeout from a superseded gate can neither resolve a newer gate, null out the
+ * current slot, nor touch the mask.
  */
-function settleGate(gate: SwitchGate): void {
+function settleGate(gate: SwitchGate, reason: GateSettleReason): void {
   if (gate.timer !== null) {
     clearTimeout(gate.timer);
     gate.timer = null;
   }
   const resolve = gate.resolve;
   gate.resolve = null;
-  // Stale-timer guard: only relinquish the module slot if it is still ours.
-  if (currentGate === gate) currentGate = null;
-  if (resolve) resolve();
+  // Stale-timer guard: only relinquish the module slot (and touch the mask) if
+  // it is still ours. A superseded gate's late timeout must not disturb the
+  // newer gate's mask.
+  if (currentGate === gate) {
+    currentGate = null;
+    // Mask signal (260715-38kg): a gated switch that timed out arms the mask
+    // (stale bytes hidden, "don't type"); a fast first-write or a supersession
+    // ensures no mask is shown for this switch.
+    if (reason === "timeout" && gate.gated) {
+      setMaskState("masked");
+    } else {
+      setMaskState("idle");
+    }
+  }
+  if (resolve) resolve(reason);
+}
+
+// ── Pending-switch mask signal (260715-38kg) ────────────────────────────────
+//
+// A pure, unit-testable state machine that expresses the pending-switch mask:
+// ARMED at gate timeout (a gated/tty switch whose incoming bytes did not arrive
+// within the ~300ms budget), LIFTED on the late first write (the same
+// `notifyFirstWrite` receipt that would have released the gate), and TORN DOWN
+// on supersession and on failure/bounce. It carries NO DOM and NO React — the
+// app subscribes via `useSyncExternalStore(subscribeMaskState, getMaskState)`
+// and renders the LogoSpinner overlay. Keeping arm/lift/teardown here (driven by
+// the same seams as the gate) is what guarantees the mask and gate never drift.
+
+/** Whether the pending-switch spinner mask is showing. */
+export type MaskState = "idle" | "masked";
+
+let maskState: MaskState = "idle";
+const maskListeners = new Set<() => void>();
+
+/**
+ * Switch epoch: minted by every `beginWindowSwitchGate` / `armGraceMask` (one
+ * per switch — the two never run for the same switch). Mask-lift acceptance is
+ * per-epoch: `openForNotify`/`openForLift` enable the lift only while their
+ * switch is still the current one, so a STALE switch's late POST resolution can
+ * never enable lifts (and thus premature un-masking) for a newer switch's mask.
+ * Mirrors the gate's still-points-at-itself guard, at switch granularity.
+ */
+let switchEpoch = 0;
+
+/**
+ * Whether an incoming byte may lift the mask / cancel the grace timer. False
+ * from switch start until the switch's `selectWindow` POST resolves (rework F3
+ * — the same post-POST filter as the gate's `acceptingNotify`): a busy OUTGOING
+ * window's bytes ride the same socket and must not un-mask stale content.
+ */
+let liftAccepting = false;
+
+/** Snapshot for `useSyncExternalStore`. Stable identity while unchanged. */
+export function getMaskState(): MaskState {
+  return maskState;
+}
+
+/**
+ * Subscribe to mask-state changes (the `useSyncExternalStore` contract).
+ * Returns an unsubscribe function. Listeners fire only on an actual transition.
+ */
+export function subscribeMaskState(listener: () => void): () => void {
+  maskListeners.add(listener);
+  return () => {
+    maskListeners.delete(listener);
+  };
+}
+
+/** Set the mask state and notify subscribers only when it actually changes. */
+function setMaskState(next: MaskState): void {
+  if (maskState === next) return;
+  maskState = next;
+  for (const listener of maskListeners) listener();
+}
+
+/**
+ * Tear the mask down: cancel any pending grace timer and clear the mask. THE
+ * single mask-clearing primitive (rework F5 — the former `notifyMaskLift` alias
+ * was byte-identical and is folded in): called by `notifyFirstWrite`'s filtered
+ * late lift, by `confirmSwitchArrived`/`abandonSwitchFeedback`, and at every
+ * fresh switch start (a new switch owns all feedback). Idempotent no-op when
+ * already idle and no timer pending.
+ *
+ * NOTE (cycle-3 N1, per the plan's Deletion Candidates narrowing note): this is
+ * effectively module-internal — app.tsx's former direct callers (failure/bounce,
+ * route-leave/unmount) were replaced by `abandonSwitchFeedback()` in the G2
+ * rework, which additionally settles a still-pending gate. The export remains
+ * only for unit tests; production callers should reach for
+ * `abandonSwitchFeedback` (abandonment) or `confirmSwitchArrived` (confirmed
+ * arrival) instead, both of which delegate here.
+ */
+export function tearDownMask(): void {
+  cancelGraceTimer();
+  setMaskState("idle");
+}
+
+/**
+ * The switch is confirmed ARRIVED by an out-of-band authority — the SSE snapshot
+ * reporting the target window active (260715-38kg). This is the second honest
+ * "arrived" signal alongside the incoming first write, and it closes a real gap:
+ * on a same-session switch tmux's redraw can complete BEFORE the gate's
+ * `openForNotify` (those bytes are filtered as outgoing), so no later write fires
+ * the receipt-time lift; the gate would then time out and arm the mask even
+ * though the switch landed. Settling any still-pending gate here as `"first-write"`
+ * cancels its timeout so the mask never arms, and tears down any mask/grace timer
+ * already showing. Idempotent no-op when nothing is pending or masked.
+ */
+export function confirmSwitchArrived(): void {
+  if (currentGate) {
+    // Settle as first-write: cancels the timer so it can't later arm a mask, and
+    // resolves any awaiting `waitForFirstWrite` with `"first-write"` (the slide
+    // plays — the switch DID arrive within the wrapper's view).
+    settleGate(currentGate, "first-write");
+  }
+  // SSE confirmation is authoritative — it needs no post-POST lift filter.
+  tearDownMask();
+}
+
+/**
+ * Abandon the current switch's feedback machinery entirely (rework G2): settle
+ * a still-pending gate as `"superseded"` — so its timer can never fire a later
+ * `"timeout"` that RE-ARMS the mask — and tear down any mask/grace timer
+ * already showing.
+ *
+ * The failure/bounce and route-leave/unmount paths call this instead of a bare
+ * `tearDownMask()`. Tearing down only the mask leaves the pending gate armed:
+ * a `selectWindow` POST that rejects INSIDE the 300ms budget bounces first,
+ * then the gate's timer fires `settleGate(gate, "timeout")` and arms a mask
+ * over the bounced-back window with NO lift path (`liftAccepting` stays false
+ * after a rejected POST, and `confirmSwitchArrived` is only reachable while
+ * `pendingClickRef` is set) — a permanently stuck input-blocking mask. Same
+ * for leaving/unmounting the route within the 300ms window: the gate would
+ * re-mask up to 300ms later, leaking masked state into the next mount.
+ * Idempotent no-op when nothing is pending or showing.
+ */
+export function abandonSwitchFeedback(): void {
+  if (currentGate) {
+    settleGate(currentGate, "superseded");
+  }
+  tearDownMask();
+}
+
+// ── Non-VT / reduced-motion grace mask (260715-38kg, R3) ────────────────────
+
+let graceTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Clear any pending grace timer (shared by the lift, teardown, and re-arm). */
+function cancelGraceTimer(): void {
+  if (graceTimer !== null) {
+    clearTimeout(graceTimer);
+    graceTimer = null;
+  }
+}
+
+/** Handle for a grace-timer mask arm. Returned by `armGraceMask`. */
+export interface GraceMaskHandle {
+  /**
+   * Start accepting mask lifts / grace cancellation from incoming bytes. The
+   * caller invokes this once the switch's `selectWindow` POST has resolved —
+   * the exact analog of the gate's `openForNotify` (rework F3): until then an
+   * OUTGOING window's still-streaming bytes must neither cancel the grace timer
+   * (suppressing a deserved mask) nor lift an armed mask (un-masking stale
+   * content). Epoch-guarded: a stale switch's late POST resolution is ignored.
+   */
+  openForLift(): void;
+  /** Disarm the pending grace timer (switch confirmed/superseded/bounced). */
+  cancel(): void;
+}
+
+/**
+ * Arm the pending mask via a ~300ms grace timer for the instant-switch path
+ * (browsers without View Transitions, or `prefers-reduced-motion: reduce`),
+ * which has no render-freeze phase and so no gate to time out. Shows the mask
+ * only if the incoming window's first countable write has NOT arrived by the
+ * threshold — same threshold as the gate, different mechanism, same
+ * lift/teardown semantics (`notifyFirstWrite`'s filtered lift; `tearDownMask`
+ * on failure/bounce).
+ *
+ * One switch's feedback machinery at a time: arming supersedes any prior grace
+ * timer AND any still-pending gate (a rapid animated→instant switch sequence
+ * must not let the stale gate's later timeout mask the newer switch), and
+ * clears any leftover mask a prior timed-out switch left showing.
+ */
+export function armGraceMask(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): GraceMaskHandle {
+  // Supersede a still-pending gate (mirrors beginWindowSwitchGate superseding —
+  // its VT callback resolves "superseded" and its timeout can no longer fire).
+  if (currentGate) {
+    const prior = currentGate;
+    settleGate(prior, "superseded");
+  }
+  // Supersede any prior grace timer + clear leftover mask — one signal at a time.
+  tearDownMask();
+
+  // This switch is now the current one (same epoch discipline as the gate).
+  const epoch = ++switchEpoch;
+  liftAccepting = false;
+
+  const timer = setTimeout(() => {
+    graceTimer = null;
+    setMaskState("masked");
+  }, timeoutMs);
+  graceTimer = timer;
+  return {
+    openForLift() {
+      if (epoch === switchEpoch) liftAccepting = true;
+    },
+    cancel() {
+      if (graceTimer === timer) {
+        clearTimeout(timer);
+        graceTimer = null;
+      }
+    },
+  };
+}
+
+/**
+ * Global-chord exemption for the pending-mask keyboard swallow (rework F2).
+ *
+ * While the mask is up, `app.tsx` swallows keydowns at the terminal surface
+ * (capture phase) so keystrokes can't reach the OLD window's pty. But the
+ * swallow's job is input safety for TERMINAL-BOUND input only — the app's
+ * global chords are document/window bubble listeners that a capture-phase
+ * `stopPropagation` would kill for up to the 5s confirmation window, and
+ * constitution V names Cmd+K the primary discovery mechanism. Exempt:
+ *
+ * - `Escape` — palette/dialog dismiss.
+ * - Cmd (meta) chords — xterm does not forward meta-modified keys to the pty,
+ *   so these are never terminal input (covers Cmd+K palette, Cmd+. view cycle,
+ *   Cmd+\ sidebar toggle on macOS wholesale) — EXCEPT Cmd+V (rework SF6):
+ *   the browser's default paste action lands in xterm's focused textarea and
+ *   thus the OLD pty, so the paste chord stays swallowed.
+ * - The specific Ctrl-bound global chords: Ctrl+K (palette), Ctrl+. (view
+ *   cycle), Ctrl+\ (sidebar toggle), Ctrl+` (tty↔chat toggle) — with
+ *   `!altKey` required (rework NTH9): AltGr on Windows/Linux layouts reports
+ *   `ctrlKey: true`, and AltGr+char is typed INPUT, never a chord (the same
+ *   modifier discipline as `use-chat-view-shortcut.ts`).
+ *
+ * Everything else — plain typing, terminal control bytes like Ctrl+C, and the
+ * paste chords — stays swallowed: those are exactly the typed-into-the-OLD-
+ * window hazards the mask exists to block. Structurally typed (not
+ * `KeyboardEvent`) so the predicate is DOM-free and unit-testable.
+ */
+export function isMaskExemptKey(e: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+}): boolean {
+  if (e.key === "Escape") return true;
+  if (e.metaKey) return e.key.toLowerCase() !== "v";
+  if (e.ctrlKey && !e.altKey) {
+    const key = e.key.toLowerCase();
+    return key === "k" || key === "." || key === "\\" || key === "`";
+  }
+  return false;
+}
+
+/**
+ * A switch click that cannot change anything (rework G3): the target is BOTH
+ * the URL's window AND tmux's active window. tmux `select-window` on the
+ * already-active window emits no bytes, and the SSE snapshot is event-driven —
+ * no change means no confirming event — so arming the pending-switch machinery
+ * for such a click guarantees a spurious spinner mask at the 300ms threshold
+ * and a false "didn't confirm" failure toast at the confirmation window, over
+ * the very terminal the user is looking at. `navigateToWindow` early-outs on
+ * this predicate (keeping only the ergonomic mobile-drawer close), matching the
+ * pre-change behavior where such a click was inert. Pure and unit-testable;
+ * `undefined` inputs (no URL window in view / no SSE snapshot yet) are never
+ * redundant — a real navigation is then required.
+ */
+export function isRedundantSwitch(
+  targetId: string,
+  urlWindowId: string | undefined,
+  activeWindowId: string | undefined,
+): boolean {
+  return targetId === urlWindowId && targetId === activeWindowId;
+}
+
+/**
+ * The server-scoped identity of a pending window switch (rework H1, cycle 3).
+ *
+ * tmux window ids (`@N`) are only unique PER SERVER, and AppShell persists
+ * across `$server` route changes without remounting — so every consumer of the
+ * pending-switch intent MUST compare BOTH fields. Matching on `windowId` alone
+ * false-positives when two servers carry a colliding id (serverA/@5 vs
+ * serverB/@5): the alignment skip would suppress serverB's tmux alignment, the
+ * writeback's `urlMatchesPending`/`sseConfirmed` would keep stale tracking
+ * alive, and the stale serverA bounce would later yank the user cross-server
+ * with a false failure toast.
+ */
+export interface PendingSwitchTarget {
+  server: string;
+  windowId: string;
+}
+
+/**
+ * True iff `pending` records exactly this `{server, windowId}` pair. `null`
+ * pending, an `undefined` windowId (no window in the URL), or a mismatch on
+ * EITHER field is not a match — the cross-server id collision (same `@N`
+ * string, different server) is precisely what the server field disambiguates.
+ * Pure and unit-testable; app.tsx uses it at the alignment skip, the
+ * writeback's `urlMatchesPending`/`sseConfirmed` checks, and the bounce guard.
+ */
+export function isSamePendingTarget(
+  pending: PendingSwitchTarget | null,
+  server: string,
+  windowId: string | undefined,
+): boolean {
+  return (
+    pending !== null &&
+    windowId !== undefined &&
+    pending.server === server &&
+    pending.windowId === windowId
+  );
 }
 
 /**

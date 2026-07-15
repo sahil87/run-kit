@@ -289,6 +289,45 @@ summary {
   animation: rk-waiting-seam 1.4s ease-in-out infinite;
 }
 
+/* ── Pending-switch spinner mask (260715-38kg) ─────────────────────────────
+   Honest window-switch feedback: when a switch does NOT confirm within the
+   ~300ms budget, the slide is SKIPPED and this full waiting mask covers the
+   terminal surface instead — hiding the stale bytes so the operator does not
+   read or type into the window they think they left. It is armed by the pure
+   mask-signal state machine in `window-transition.ts` (gate timeout on the
+   animated path, a ~300ms grace timer on the instant/reduced-motion path) and
+   lifted as a CUT (a fast fade-in only; no slide) when the incoming window's
+   first bytes arrive late. Rendered by app.tsx inside the `terminal-surface`
+   container (which is `position: relative`), so it fills exactly that region —
+   never the top bar, sidebar, or bottom bar. `pointer-events: auto` swallows
+   clicks on the old window; keyboard input is blocked by a capture-phase
+   handler in app.tsx. It sits below toasts (z-40 < the toast container's
+   z-50). A FULL mask (opaque terminal-background fill), never a dimmed
+   overlay.
+
+   ORDER MATTERS (rework G4): this base rule must PRECEDE the
+   prefers-reduced-motion block below — its `.rk-window-switch-mask
+   { animation: none }` override has equal specificity, so only later source
+   order lets it win (the same ordering discipline as .rk-waiting-halo). */
+.rk-window-switch-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg-primary);
+  pointer-events: auto;
+  /* Fast fade-IN so the mask appears as a gentle cut rather than a hard pop.
+     The LIFT is a plain unmount (a cut) — the intake forbids a second slide. */
+  animation: rk-window-switch-mask-in 120ms ease-out both;
+}
+
+@keyframes rk-window-switch-mask-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 @media (prefers-reduced-motion: reduce) {
@@ -305,6 +344,9 @@ summary {
   /* Waiting overlay → static yellow ring / seam (attention never motion-only). */
   .rk-waiting-halo { animation: none; box-shadow: 0 0 0 2px #facc15; }
   .rk-waiting-seam { animation: none; border-color: #facc15; }
+  /* Pending-switch mask still SHOWS (input safety is never motion-only) — only
+     its fade-in is dropped so it appears as an instant cut. */
+  .rk-window-switch-mask { animation: none; }
 }
 
 /* Prevent iOS Safari page scroll/bounce — fullbleed always on in single-view. */

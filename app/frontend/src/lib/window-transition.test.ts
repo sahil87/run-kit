@@ -5,6 +5,15 @@ import {
   viewTransitionSupported,
   beginWindowSwitchGate,
   notifyFirstWrite,
+  tearDownMask,
+  confirmSwitchArrived,
+  abandonSwitchFeedback,
+  armGraceMask,
+  getMaskState,
+  subscribeMaskState,
+  isMaskExemptKey,
+  isRedundantSwitch,
+  isSamePendingTarget,
   nextDirectionToken,
   isLatestDirectionToken,
 } from "./window-transition";
@@ -90,25 +99,26 @@ describe("first-write gate (beginWindowSwitchGate / notifyFirstWrite)", () => {
   // shorthand for "an incoming-byte notify".
   afterEach(() => {
     vi.useRealTimers();
-    // Fire any lingering gate so a leaked resolver can't dangle across tests.
-    notifyFirstWrite();
+    // Settle any lingering gate (so a leaked resolver can't dangle across
+    // tests) and reset the shared mask signal in one authoritative call.
+    confirmSwitchArrived();
   });
 
-  it("resolves when a notify arrives after openForNotify, before the timeout", async () => {
+  it("resolves 'first-write' when a notify arrives after openForNotify, before the timeout", async () => {
     const gate = beginWindowSwitchGate();
     gate.openForNotify();
     const wait = gate.waitForFirstWrite(1000);
     notifyFirstWrite();
-    await expect(wait).resolves.toBeUndefined();
+    await expect(wait).resolves.toBe("first-write");
   });
 
-  it("resolves on timeout when no notify arrives", async () => {
+  it("resolves 'timeout' when no notify arrives", async () => {
     vi.useFakeTimers();
     const gate = beginWindowSwitchGate();
     gate.openForNotify();
     const wait = gate.waitForFirstWrite(300);
     vi.advanceTimersByTime(300);
-    await expect(wait).resolves.toBeUndefined();
+    await expect(wait).resolves.toBe("timeout");
   });
 
   it("ignores notifies that arrive before openForNotify (post-selectWindow gating)", async () => {
@@ -127,28 +137,28 @@ describe("first-write gate (beginWindowSwitchGate / notifyFirstWrite)", () => {
     // Only after openForNotify does a write count.
     gate.openForNotify();
     notifyFirstWrite();
-    await expect(wait).resolves.toBeUndefined();
+    await expect(wait).resolves.toBe("first-write");
   });
 
   it("notifyFirstWrite is a no-op when no gate is open", () => {
     expect(() => notifyFirstWrite()).not.toThrow();
   });
 
-  it("supersession fires the pending gate immediately (no serialization)", async () => {
+  it("supersession fires the pending gate immediately with 'superseded' (no serialization)", async () => {
     vi.useFakeTimers();
     // First switch: gate opened and awaiting the first write.
     const first = beginWindowSwitchGate();
     first.openForNotify();
     const firstWait = first.waitForFirstWrite(300);
-    let firstResolved = false;
-    void firstWait.then(() => {
-      firstResolved = true;
+    let firstReason: string | undefined;
+    void firstWait.then((r) => {
+      firstReason = r;
     });
     // A second switch begins <300ms later. It must FIRE the first gate at once
     // (not wait out the first's 300ms timeout) so a queued VT callback runs.
     beginWindowSwitchGate();
     await Promise.resolve();
-    expect(firstResolved).toBe(true);
+    expect(firstReason).toBe("superseded");
     // Crucially, no timers needed to advance — the resolution was synchronous.
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -174,10 +184,10 @@ describe("first-write gate (beginWindowSwitchGate / notifyFirstWrite)", () => {
     expect(secondResolved).toBe(false);
     // The second gate resolves on its own timeout.
     vi.advanceTimersByTime(200);
-    await expect(secondWait).resolves.toBeUndefined();
+    await expect(secondWait).resolves.toBe("timeout");
   });
 
-  it("waitForFirstWrite on an already-superseded gate resolves immediately", async () => {
+  it("waitForFirstWrite on an already-superseded gate resolves 'superseded' immediately", async () => {
     vi.useFakeTimers();
     const first = beginWindowSwitchGate();
     first.openForNotify();
@@ -185,7 +195,7 @@ describe("first-write gate (beginWindowSwitchGate / notifyFirstWrite)", () => {
     beginWindowSwitchGate();
     // The stale gate's wait must not hang — it resolves at once.
     const staleWait = first.waitForFirstWrite(300);
-    await expect(staleWait).resolves.toBeUndefined();
+    await expect(staleWait).resolves.toBe("superseded");
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -203,7 +213,7 @@ describe("first-write gate (beginWindowSwitchGate / notifyFirstWrite)", () => {
     second.openForNotify();
     const secondWait = second.waitForFirstWrite(100);
     notifyFirstWrite(); // this SHOULD resolve `second` — the fresh open gate
-    await expect(secondWait).resolves.toBeUndefined();
+    await expect(secondWait).resolves.toBe("first-write");
   });
 
   it("resolves within its budget when the chained POST never settles (stalled selectWindow)", async () => {
@@ -221,7 +231,7 @@ describe("first-write gate (beginWindowSwitchGate / notifyFirstWrite)", () => {
     const wait = gate.waitForFirstWrite(300);
     // The whole budget elapses with the POST still pending.
     vi.advanceTimersByTime(300);
-    await expect(wait).resolves.toBeUndefined();
+    await expect(wait).resolves.toBe("timeout");
   });
 
   it("openForNotify chained via .then still ignores notifies before the POST resolves", async () => {
@@ -249,7 +259,476 @@ describe("first-write gate (beginWindowSwitchGate / notifyFirstWrite)", () => {
     await Promise.resolve();
     // Now an incoming byte's receipt counts and releases the gate.
     notifyFirstWrite();
-    await expect(wait).resolves.toBeUndefined();
+    await expect(wait).resolves.toBe("first-write");
+  });
+});
+
+describe("pending-switch mask signal (260715-38kg)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    // Settle any lingering gate + reset the shared mask state between tests.
+    confirmSwitchArrived();
+  });
+
+  it("starts idle", () => {
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("arms on a gated switch's timeout settle", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait;
+    expect(getMaskState()).toBe("masked");
+  });
+
+  it("does NOT arm on a NON-gated (web/chat) switch's timeout", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: false });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait;
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("does NOT arm on a fast first-write settle", async () => {
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(1000);
+    notifyFirstWrite();
+    await wait;
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("lifts on the incoming window's LATE first write (one signal drives everything)", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    // openForNotify models the selectWindow POST having resolved — which also
+    // opens the (filtered) mask lift for this switch (rework F3).
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait;
+    expect(getMaskState()).toBe("masked");
+    // The SAME notifyFirstWrite receipt that would have released the gate lifts
+    // the mask when the incoming bytes arrive late.
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("does NOT lift on OUTGOING-window bytes — the lift is filtered on the POST having resolved (rework F3)", async () => {
+    // The busy-old-window hazard: on a same-session switch the OUTGOING window's
+    // still-streaming bytes ride the same socket. Until the switch's
+    // selectWindow POST resolves (openForNotify), a receipt must NOT lift the
+    // mask — it would un-mask stale content, exactly what the mask exists to
+    // hide.
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    // POST unresolved: openForNotify NOT called.
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait; // times out (bytes were never countable) → masked
+    expect(getMaskState()).toBe("masked");
+    // Outgoing bytes keep streaming: they must not lift the mask.
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("masked");
+    // The POST finally resolves (late, on the already-settled gate) — from now
+    // on a receipt IS the incoming window's first countable byte, and lifts.
+    gate.openForNotify();
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("a STALE switch's late POST resolution cannot enable lifts for a newer switch's mask", async () => {
+    vi.useFakeTimers();
+    // First switch: gate pending, POST never resolves in time.
+    const first = beginWindowSwitchGate({ gated: true });
+    void first.waitForFirstWrite(300);
+    // A newer switch supersedes and times out → ITS mask arms.
+    const second = beginWindowSwitchGate({ gated: true });
+    const secondWait = second.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await secondWait;
+    expect(getMaskState()).toBe("masked");
+    // The FIRST (stale) switch's POST now resolves. Its openForNotify must NOT
+    // open the lift for the second switch's mask (epoch guard).
+    first.openForNotify();
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("masked");
+    // The second switch's own POST resolving does open the lift.
+    second.openForNotify();
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("tears down on supersession — a superseded switch owns no mask", async () => {
+    vi.useFakeTimers();
+    const first = beginWindowSwitchGate({ gated: true });
+    first.openForNotify();
+    const firstWait = first.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await firstWait; // first times out → masked
+    expect(getMaskState()).toBe("masked");
+    // A newer switch supersedes: the mask tears down (the newer gate owns
+    // feedback). It has not itself timed out yet, so state returns to idle.
+    beginWindowSwitchGate({ gated: true });
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("a stale (superseded) gate's late timeout cannot arm a mask for the newer gate", async () => {
+    vi.useFakeTimers();
+    const first = beginWindowSwitchGate({ gated: true });
+    first.openForNotify();
+    void first.waitForFirstWrite(100);
+    // Newer gate supersedes with a longer timeout still pending.
+    const second = beginWindowSwitchGate({ gated: true });
+    second.openForNotify();
+    void second.waitForFirstWrite(300);
+    // Advancing past the FIRST gate's timeout must not arm a mask.
+    vi.advanceTimersByTime(100);
+    expect(getMaskState()).toBe("idle");
+    // The second gate's own timeout arms it.
+    vi.advanceTimersByTime(200);
+    expect(getMaskState()).toBe("masked");
+  });
+
+  it("tearDownMask clears an armed mask (failure/bounce path)", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait;
+    expect(getMaskState()).toBe("masked");
+    tearDownMask();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("confirmSwitchArrived settles a still-pending gate as first-write, so it never times out into a mask", async () => {
+    // The same-session gap: tmux's redraw completed before openForNotify, so no
+    // later write fires the lift. SSE confirming the switch settles the gate as
+    // first-write and cancels its timeout — the mask never arms.
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    // SSE confirms BEFORE the 300ms timeout.
+    vi.advanceTimersByTime(150);
+    confirmSwitchArrived();
+    await expect(wait).resolves.toBe("first-write");
+    // Advancing past the original timeout must NOT arm a mask — the timer was
+    // cleared by the settle.
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("confirmSwitchArrived lifts a mask already armed by a gate timeout", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait; // times out → masked
+    expect(getMaskState()).toBe("masked");
+    // SSE confirms after the timeout — the authoritative arrived signal lifts it.
+    confirmSwitchArrived();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("notifies subscribers only on an actual change, and stops after unsubscribe", async () => {
+    vi.useFakeTimers();
+    let count = 0;
+    const unsubscribe = subscribeMaskState(() => {
+      count += 1;
+    });
+    const gate = beginWindowSwitchGate({ gated: true });
+    gate.openForNotify();
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait; // idle → masked: one notification
+    expect(count).toBe(1);
+    tearDownMask(); // masked → idle: second notification
+    expect(count).toBe(2);
+    tearDownMask(); // idle → idle: a no-op transition must NOT notify
+    expect(count).toBe(2);
+    unsubscribe();
+    // After unsubscribe, further changes are not delivered to this listener.
+    const gate2 = beginWindowSwitchGate({ gated: true });
+    gate2.openForNotify();
+    const wait2 = gate2.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait2;
+    expect(count).toBe(2);
+  });
+});
+
+describe("non-VT / reduced-motion grace mask (260715-38kg, R3)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    confirmSwitchArrived();
+  });
+
+  it("arms the mask after the threshold when no countable write arrives", () => {
+    vi.useFakeTimers();
+    armGraceMask(300);
+    expect(getMaskState()).toBe("idle");
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("masked");
+  });
+
+  it("an EARLY write (post-POST) cancels the grace timer — never masks at all", () => {
+    vi.useFakeTimers();
+    const grace = armGraceMask(300);
+    // The switch's selectWindow POST resolves, then incoming bytes arrive
+    // before the threshold.
+    grace.openForLift();
+    vi.advanceTimersByTime(100);
+    notifyFirstWrite();
+    // Advancing past the original threshold must NOT mask — the timer was cancelled.
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("a LATE write (post-POST) lifts the grace mask", () => {
+    vi.useFakeTimers();
+    const grace = armGraceMask(300);
+    grace.openForLift();
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("masked");
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("OUTGOING bytes (POST unresolved) neither cancel the grace timer nor lift the mask (rework F3)", () => {
+    vi.useFakeTimers();
+    const grace = armGraceMask(300);
+    // Outgoing-window bytes stream in before the POST resolves: they must not
+    // cancel the grace timer (that would suppress a deserved mask)...
+    notifyFirstWrite();
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("masked");
+    // ...nor lift the armed mask.
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("masked");
+    // Once the POST resolves, the next receipt is countable and lifts.
+    grace.openForLift();
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("a STALE grace handle's late openForLift cannot enable lifts for a newer switch", () => {
+    vi.useFakeTimers();
+    const first = armGraceMask(300);
+    // A newer instant switch supersedes; its grace timer arms the mask.
+    armGraceMask(300);
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("masked");
+    // The stale switch's POST resolves late — must not open the newer mask's lift.
+    first.openForLift();
+    notifyFirstWrite();
+    expect(getMaskState()).toBe("masked");
+  });
+
+  it("the handle's cancel disarms a pending grace timer", () => {
+    vi.useFakeTimers();
+    const grace = armGraceMask(300);
+    grace.cancel();
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("a re-arm supersedes the prior grace timer (one signal at a time)", () => {
+    vi.useFakeTimers();
+    armGraceMask(300);
+    vi.advanceTimersByTime(200);
+    // Re-arm: the first timer is cleared; only the second (fresh 300ms) counts.
+    armGraceMask(300);
+    vi.advanceTimersByTime(200); // 400ms since first arm, 200ms since second
+    expect(getMaskState()).toBe("idle"); // second timer hasn't fired yet
+    vi.advanceTimersByTime(100);
+    expect(getMaskState()).toBe("masked");
+  });
+
+  it("arming the grace mask supersedes a still-pending gate (animated→instant rapid sequence)", async () => {
+    vi.useFakeTimers();
+    // An animated switch's gate is pending...
+    const gate = beginWindowSwitchGate({ gated: true });
+    const gateWait = gate.waitForFirstWrite(300);
+    // ...when an instant switch begins. The gate must settle "superseded" (its
+    // VT callback unblocks) and its stale timeout must never mask the newer
+    // switch.
+    armGraceMask(300);
+    await expect(gateWait).resolves.toBe("superseded");
+    vi.advanceTimersByTime(300);
+    // The mask now showing belongs to the GRACE switch's own timeout, and the
+    // stale gate's cleared timer contributed nothing.
+    expect(getMaskState()).toBe("masked");
+  });
+
+  it("tearDownMask cancels a pending grace timer (failure/bounce before threshold)", () => {
+    vi.useFakeTimers();
+    armGraceMask(300);
+    tearDownMask();
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+});
+
+describe("isMaskExemptKey (rework F2 — global chords survive the masked swallow)", () => {
+  const key = (
+    k: string,
+    mods: { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean } = {},
+  ) => ({
+    key: k,
+    metaKey: mods.metaKey ?? false,
+    ctrlKey: mods.ctrlKey ?? false,
+    altKey: mods.altKey ?? false,
+  });
+
+  it("exempts Escape (palette/dialog dismiss)", () => {
+    expect(isMaskExemptKey(key("Escape"))).toBe(true);
+  });
+
+  it("exempts Cmd (meta) chords — never terminal input", () => {
+    expect(isMaskExemptKey(key("k", { metaKey: true }))).toBe(true);
+    expect(isMaskExemptKey(key(".", { metaKey: true }))).toBe(true);
+    expect(isMaskExemptKey(key("\\", { metaKey: true }))).toBe(true);
+    // Even an unbound meta chord is exempt: xterm never forwards it to the pty.
+    expect(isMaskExemptKey(key("x", { metaKey: true }))).toBe(true);
+  });
+
+  it("does NOT exempt Cmd+V — the default paste lands in the old pty (rework SF6)", () => {
+    expect(isMaskExemptKey(key("v", { metaKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("V", { metaKey: true }))).toBe(false);
+  });
+
+  it("exempts the Ctrl-bound global chords: Ctrl+K, Ctrl+., Ctrl+\\, Ctrl+`", () => {
+    expect(isMaskExemptKey(key("k", { ctrlKey: true }))).toBe(true);
+    expect(isMaskExemptKey(key(".", { ctrlKey: true }))).toBe(true);
+    expect(isMaskExemptKey(key("\\", { ctrlKey: true }))).toBe(true);
+    expect(isMaskExemptKey(key("`", { ctrlKey: true }))).toBe(true);
+  });
+
+  it("does NOT exempt AltGr combos — ctrlKey+altKey is typed input, not a chord (rework NTH9)", () => {
+    expect(isMaskExemptKey(key("k", { ctrlKey: true, altKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("\\", { ctrlKey: true, altKey: true }))).toBe(false);
+  });
+
+  it("swallows plain typing", () => {
+    expect(isMaskExemptKey(key("a"))).toBe(false);
+    expect(isMaskExemptKey(key("Enter"))).toBe(false);
+  });
+
+  it("swallows terminal control bytes — Ctrl+C stays blocked (the old-window hazard)", () => {
+    expect(isMaskExemptKey(key("c", { ctrlKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("d", { ctrlKey: true }))).toBe(false);
+    // Ctrl+V (paste on Windows/Linux) is not in the exempt set either.
+    expect(isMaskExemptKey(key("v", { ctrlKey: true }))).toBe(false);
+  });
+});
+
+describe("abandonSwitchFeedback (rework G2 — bounce/teardown can never be re-masked)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    confirmSwitchArrived();
+  });
+
+  it("settles a still-pending gate as 'superseded' so its timer can never re-mask", async () => {
+    // The fast-rejection bounce: a selectWindow rejection INSIDE the 300ms
+    // budget bounces while the gate is still pending. A bare tearDownMask would
+    // let the gate's timer fire moments later and arm a mask with NO lift path
+    // (liftAccepting stays false after a rejected POST) — permanently stuck.
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    const wait = gate.waitForFirstWrite(300);
+    // The bounce fires at t=50ms, well inside the budget.
+    vi.advanceTimersByTime(50);
+    abandonSwitchFeedback();
+    await expect(wait).resolves.toBe("superseded");
+    // Advancing past the original timeout must NOT arm a mask — the gate was
+    // settled, not just unmasked.
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("clears a mask already armed by a gate timeout", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    const wait = gate.waitForFirstWrite(300);
+    vi.advanceTimersByTime(300);
+    await wait;
+    expect(getMaskState()).toBe("masked");
+    abandonSwitchFeedback();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("cancels a pending grace timer (route-leave inside the 300ms window)", () => {
+    vi.useFakeTimers();
+    armGraceMask(300);
+    abandonSwitchFeedback();
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("is an idempotent no-op when nothing is pending or showing", () => {
+    expect(() => {
+      abandonSwitchFeedback();
+      abandonSwitchFeedback();
+    }).not.toThrow();
+    expect(getMaskState()).toBe("idle");
+  });
+});
+
+describe("isRedundantSwitch (rework G3 — same-window click arms nothing)", () => {
+  it("is redundant when the target is BOTH the URL window and tmux-active", () => {
+    expect(isRedundantSwitch("@2", "@2", "@2")).toBe(true);
+  });
+
+  it("is NOT redundant when tmux's active window differs (re-anchoring click)", () => {
+    expect(isRedundantSwitch("@2", "@2", "@1")).toBe(false);
+  });
+
+  it("is NOT redundant when the URL shows a different window", () => {
+    expect(isRedundantSwitch("@2", "@1", "@2")).toBe(false);
+  });
+
+  it("is NOT redundant with no URL window in view (SessionTiles click)", () => {
+    expect(isRedundantSwitch("@2", undefined, "@2")).toBe(false);
+  });
+
+  it("is NOT redundant with no SSE snapshot yet", () => {
+    expect(isRedundantSwitch("@2", "@2", undefined)).toBe(false);
+  });
+});
+
+describe("isSamePendingTarget (rework H1 — server-scoped pending-switch identity)", () => {
+  const pending = { server: "serverA", windowId: "@5" };
+
+  it("matches only the exact {server, windowId} pair", () => {
+    expect(isSamePendingTarget(pending, "serverA", "@5")).toBe(true);
+  });
+
+  it("does NOT match a colliding window id on a DIFFERENT server (the H1 hazard)", () => {
+    // `@5` on serverB is a different window — window ids are only unique per
+    // server. An id-only match would suppress serverB's tmux alignment, keep
+    // serverA's stale tracking alive through the writeback, and let serverA's
+    // 5s bounce yank the user cross-server with a false failure toast.
+    expect(isSamePendingTarget(pending, "serverB", "@5")).toBe(false);
+  });
+
+  it("does NOT match a different window on the same server", () => {
+    expect(isSamePendingTarget(pending, "serverA", "@6")).toBe(false);
+  });
+
+  it("does NOT match when no intent is pending", () => {
+    expect(isSamePendingTarget(null, "serverA", "@5")).toBe(false);
+  });
+
+  it("does NOT match an undefined window id (no window in the URL)", () => {
+    expect(isSamePendingTarget(pending, "serverA", undefined)).toBe(false);
   });
 });
 

@@ -1,0 +1,55 @@
+id: 38kg
+name: 260715-38kg-window-switch-confirmed-motion
+created: 2026-07-15T20:18:42Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 23
+    acceptance_completed: 23
+confidence:
+    certain: 7
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 76.5
+        reversibility: 81.2
+        competence: 82.7
+        disambiguation: 79.2
+stage_metrics:
+    intake: {started_at: "2026-07-15T20:18:42Z", driver: fab-new, iterations: 1, completed_at: "2026-07-15T20:26:27Z"}
+    apply: {started_at: "2026-07-15T22:20:19Z", driver: fab-fff, iterations: 4, completed_at: "2026-07-15T22:28:31Z"}
+    review: {started_at: "2026-07-15T22:28:31Z", driver: fab-fff, iterations: 4, completed_at: "2026-07-15T22:44:38Z"}
+    hydrate: {started_at: "2026-07-15T22:44:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-15T22:50:29Z"}
+    ship: {started_at: "2026-07-15T22:50:29Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-15T22:50:29Z"
+    computed_at_stage: hydrate
+summary: 'Confirmation-gated window-switch motion: the slide is an earned signal — gate settle reasons (first-write/timeout/superseded) + skipTransition() on every non-first-write settle, a LogoSpinner pending mask (pure module state machine + useSyncExternalStore seam, armed only at the 300ms gate timeout, POST-filtered lift, abandonSwitchFeedback/confirmSwitchArrived teardown, isMaskExemptKey chord exemptions), failure bounce-back (CONFIRMATION_WINDOW_MS 5s + toast, server-scoped PendingSwitchTarget via isSamePendingTarget at all four seams, server-change/route-leave/unmount teardowns, isRedundantSwitch early-out), and non-VT/reduced-motion grace-timer parity (armGraceMask). (38kg)'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-15T22:50:29Z

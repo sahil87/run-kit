@@ -8,6 +8,7 @@ import { SwatchPopover } from "@/components/swatch-popover";
 import { StatusDot } from "@/components/status-dot";
 import { PinPopover } from "./pin-popover";
 import { PaletteIcon } from "./icons";
+import { PinIcon } from "@/components/pin-icon";
 
 type ProjectWindow = ProjectSession["windows"][number];
 type GhostWindow = MergedSession["windows"][number];
@@ -380,41 +381,3 @@ export const WindowRow = memo(WindowRowInner);
    cluster — the row renders no duration. Idle/elapsed durations now live only in
    the StatusDotTip and the PANE panel's register view. This also drops the last
    `getWindowDuration` caller (removed from lib/format.ts). */
-
-/** Small pin icon — outline (not pinned) vs filled (pinned to any board).
- *  Lucide-style thumbtack viewed face-on: round-cornered cap, narrow neck
- *  flaring into wide shoulders, centered needle. Native 16×16 viewBox so
- *  strokes pixel-align symmetrically when rendered at 12px. */
-function PinIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg
-      width={12}
-      height={12}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {/* Bell silhouette: cap → neck → flared shoulders */}
-      <path
-        d="M6 2.5
-           Q6 2 6.5 2
-           H9.5
-           Q10 2 10 2.5
-           V5
-           L13 9
-           Q13 9.5 12.5 9.5
-           H3.5
-           Q3 9.5 3 9
-           L6 5
-           Z"
-        fill={filled ? "currentColor" : "none"}
-      />
-      {/* Needle — centered vertical from flange to tip */}
-      <path d="M8 9.5 V14" />
-    </svg>
-  );
-}

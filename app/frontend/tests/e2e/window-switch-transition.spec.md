@@ -12,6 +12,20 @@ first-inbound-bytes gate never releases (because the release moved off the
 message-receipt seam, or a UA group animation holds the transition open) and the
 switch hangs instead of completing.
 
+Confirmation-gated motion (260715-38kg) made the slide an EARNED signal: it plays
+only when the incoming bytes confirm within the ~300ms budget; a timeout SKIPS the
+slide and shows a `LogoSpinner` pending mask; a failed switch bounces the URL back
+to tmux truth. Those timing-sensitive branches (mask arm-at-timeout,
+lift-on-late-write, failure bounce-back) cannot be forced deterministically against
+a live relay on localhost, so they are UNIT-covered in
+`src/lib/window-transition.test.ts` (settle reasons, the pure mask-signal state
+machine, and the grace-timer parity). What this spec adds for the new behavior is
+the deterministic fast-path invariant: a confirmed-fast switch plays the slide and
+leaves NO pending mask stuck once it settles. A brief legitimate mask flash is
+allowed (localhost timing can push the first confirmed write past the ~300ms
+budget); the assertion only rules out a mask left STUCK — it polls
+`.rk-window-switch-mask` to count 0 within the budget, not an instant absence.
+
 ## Shared setup
 
 - `test.use({ contextOptions: { reducedMotion: "no-preference" } })` — opts this
@@ -44,7 +58,9 @@ switch hangs instead of completing.
 completes — the incoming window's content becomes visible and the transition
 tears down — well under 1s. A gate that never releases, or a UA group animation
 that holds `transition.finished` open past the slide, would freeze the switch and
-blow past the bound.
+blow past the bound. It also proves the confirmation-gated-motion anti-stuck-mask
+invariant (260715-38kg): the pending `LogoSpinner` mask is never left stuck once
+the switch settles — SSE confirmation and any late incoming write lift it.
 
 **Steps:**
 1. Create two windows `xa-<ts>` and `xb-<ts>` in the shared session and
@@ -70,3 +86,10 @@ blow past the bound.
    `<html>` is cleared within the budget — the transition's lifetime (pointer-dead
    window, `transition.finished`) settles on the slide's timeline, guarding the
    T007 group-animation neutralization.
+10. Poll `.rk-window-switch-mask` to count 0 within the budget — the pending mask
+    is NOT stuck once the switch settles. On a healthy switch the gate releases
+    fast and the mask never arms; if localhost timing pushes the first confirmed
+    write past the ~300ms budget the mask may briefly arm, but SSE confirmation
+    (the `aria-current` in step 7) and any late incoming write MUST lift it. A
+    regression that never lifts the mask (the stuck-mask class of bug) leaves it
+    present and fails. Confirmation-gated motion (260715-38kg).

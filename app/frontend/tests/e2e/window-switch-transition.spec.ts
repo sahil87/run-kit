@@ -15,6 +15,20 @@
  * holding `transition.finished` open) would make an animated switch hang instead
  * of completing. The assertion — the incoming window's content becomes visible
  * within a sane latency bound (well under 1s) — fails loudly on such a hang.
+ *
+ * Confirmation-gated motion (260715-38kg): the slide is now an EARNED signal —
+ * it plays ONLY when the incoming bytes confirm within the ~300ms budget; a
+ * timeout SKIPS the slide and shows a LogoSpinner "pending" mask instead, and a
+ * failed switch bounces the URL back to tmux truth. Those timing-sensitive
+ * branches (mask arm-at-timeout / lift-on-late-write / failure bounce) cannot be
+ * forced deterministically against a live relay on localhost, so they are
+ * UNIT-covered in `src/lib/window-transition.test.ts`. What this spec adds for
+ * the new behavior is the deterministic fast-path invariant: a confirmed-fast
+ * switch plays the slide and leaves NO pending mask stuck once it settles. A
+ * brief legitimate mask flash is allowed (localhost timing can push the first
+ * confirmed write past the ~300ms budget); the assertion only rules out a mask
+ * left STUCK — it polls `.rk-window-switch-mask` to count 0 within the budget,
+ * not an instant absence.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
@@ -222,5 +236,17 @@ test.describe("Window-switch slide transition (animated path)", () => {
         { timeout: SWITCH_COMPLETE_BUDGET_MS },
       )
       .toBeNull();
+
+    // Confirmation-gated motion (260715-38kg): the pending LogoSpinner mask
+    // (`.rk-window-switch-mask`) must NOT be stuck once the switch has settled.
+    // On a healthy switch the gate releases fast and the mask never arms; if
+    // localhost timing pushes the first confirmed write past the ~300ms budget
+    // the mask may briefly arm, but SSE confirmation (the `aria-current` above)
+    // — and any late incoming write — MUST lift it. A regression that never
+    // lifts the mask (the stuck-mask class of bug) would leave it present here.
+    // Poll (not an instant assert) so a brief legitimate flash isn't flaky.
+    await expect(page.locator(".rk-window-switch-mask")).toHaveCount(0, {
+      timeout: SWITCH_COMPLETE_BUDGET_MS,
+    });
   });
 });

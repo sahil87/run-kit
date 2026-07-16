@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -98,12 +97,13 @@ type errorFrame struct {
 }
 
 // hubEvent is the structured unit the hub's producers fan out to each
-// connection's send channel. The client-facing edge renders it into either the
-// state-socket envelope (renderEnvelope) or — in tests — an SSE-style debug
-// frame (String). `data` is the JSON payload, byte-identical to the retired SSE
-// frame's `data:` body. `kind` is kindServer or kindGlobal; `key` is the server
-// name for kindServer, empty for kindGlobal. A `gone` marker rides its own
-// boolean so the reap path can fan it through the same channel.
+// connection's send channel. The client-facing edge renders it into the
+// state-socket envelope (renderEnvelope); tests render it into an SSE-style
+// debug frame via the test-only String method (state_ws_test.go). `data` is the
+// JSON payload, byte-identical to the retired SSE frame's `data:` body. `kind`
+// is kindServer or kindGlobal; `key` is the server name for kindServer, empty
+// for kindGlobal. A `gone` marker rides its own boolean so the reap path can fan
+// it through the same channel.
 type hubEvent struct {
 	kind string
 	typ  string
@@ -115,19 +115,6 @@ type hubEvent struct {
 	// by the handler but must ride the same ordered channel as the subscription's
 	// events.
 	raw []byte
-}
-
-// String renders a hubEvent as an SSE-style frame. Used ONLY by tests that
-// assert on the legacy frame shape; production rendering is renderEnvelope. For
-// a gone marker it mirrors the retired `event: server-gone\ndata: {}` frame.
-func (e hubEvent) String() string {
-	if e.raw != nil {
-		return string(e.raw)
-	}
-	if e.gone {
-		return "event: server-gone\ndata: {}\n\n"
-	}
-	return fmt.Sprintf("event: %s\ndata: %s\n\n", e.typ, e.data)
 }
 
 // renderEnvelope serializes a hubEvent into the state-socket JSON envelope

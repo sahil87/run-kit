@@ -103,6 +103,10 @@ export class StateSocket {
     };
 
     ws.onclose = () => {
+      // Pending subscribe reqs belong to the dead connection and will never be
+      // acked — reconnect resubscribes with fresh req numbers. Clear them so
+      // repeated drop-while-pending cycles can't grow reqToKey unbounded.
+      this.reqToKey.clear();
       this.handlers.onConnectionChange?.(false);
       this.scheduleReconnect();
     };

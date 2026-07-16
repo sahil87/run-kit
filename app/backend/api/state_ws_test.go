@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"runtime"
 	"strings"
@@ -17,6 +18,21 @@ import (
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 )
+
+// String renders a hubEvent as an SSE-style frame. Used ONLY by tests that
+// assert on the legacy frame shape; production rendering is renderEnvelope. For
+// a gone marker it mirrors the retired `event: server-gone\ndata: {}` frame.
+// Defined here (a _test.go file, same package) so this test-only helper — and
+// its `fmt` dependency — never ship in the production binary.
+func (e hubEvent) String() string {
+	if e.raw != nil {
+		return string(e.raw)
+	}
+	if e.gone {
+		return "event: server-gone\ndata: {}\n\n"
+	}
+	return fmt.Sprintf("event: %s\ndata: %s\n\n", e.typ, e.data)
+}
 
 // newTestStateConn registers a bare stateConn for hub-level protocol tests (no
 // real WebSocket). It mirrors what handleStateWS builds after hello.

@@ -3,9 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +13,7 @@ import (
 	"rk/internal/prstatus"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
+	"rk/internal/validate"
 )
 
 // SessionOrderFetcher reads the persisted session order for a tmux server.
@@ -112,13 +111,12 @@ const (
 	// cadence. On-demand refresh (POST /api/status/refresh) covers the
 	// "I want it now" case.
 	prStatusPollInterval = 90 * time.Second
-	// sseHeartbeatPeriod is the time after which a connection without
-	// data writes a `: heartbeat` comment to keep the connection alive
-	// through intermediate proxies and detect dead connections. With the
-	// new event-driven loop, heartbeat is time-based (not tick-based) so
-	// the slower safety cadence doesn't starve heartbeats.
+	sseCacheTTL          = 500 * time.Millisecond
+	// sseHeartbeatPeriod / maxLifetime remain in use by the chat SSE stream
+	// (api/chat.go, GET /api/windows/{id}/chat/stream), which is out of scope for
+	// the state-socket migration (change 3 moves chat onto /ws/state). The state
+	// socket handles keepalive at the WebSocket layer, so it uses neither.
 	sseHeartbeatPeriod = 15 * time.Second
-	sseCacheTTL        = 500 * time.Millisecond
 	maxLifetime        = 30 * time.Minute
 )
 
@@ -149,21 +147,47 @@ type cachedResult struct {
 	fetchedAt time.Time
 }
 
+// sseClient is a single per-(connection, server-key) subscription record in the
+// hub's routing index (`h.clients[serverKey]`). Since the state-socket migration
+// (260716-qf3j) it is no longer a whole client connection — one state-socket
+// connection (stateConn) holds one sseClient per subscribed server key (plus one
+// for the metrics-only sentinel key), ALL sharing the connection's single send
+// channel (`ch`). Per-server events fan out over `h.clients[server]` (these
+// records); host-global events fan out over `h.stateConns` (once per connection)
+// so a multi-subscription connection never receives a global event twice.
 type sseClient struct {
-	ch      chan []byte
+	ch      chan hubEvent
 	server  string
 	dropped bool
-	// connID is the client-supplied connection identifier (the `conn` query
-	// param on the stream URL), consistent with the per-connection relay
-	// identity model. It is how POST /api/preview-scope addresses this exact
-	// connection. Empty when the client opened the stream without a conn id
-	// (then its expanded set can never be set — it captures nothing).
+	// conn is a back-pointer to the owning connection, so removeClient can drop
+	// the record from its parent's subscription set. nil for the bare test
+	// clients that construct an sseClient directly without a stateConn.
+	conn *stateConn
+	// connID is the client-supplied connection identifier (the `conn` id from the
+	// `hello` frame), consistent with the per-connection relay identity model. It
+	// is how POST /api/preview-scope (and the in-band preview-scope op) addresses
+	// this exact connection. Empty when the client sent no conn id (then its
+	// expanded set can never be set — it captures nothing).
 	connID string
 	// expanded is the set of session names this connection currently has
-	// expanded in the tile grid. Preview capture is bounded to windows in
-	// these sessions. In-memory only (Constitution II); dropped on disconnect.
-	// Guarded by sseHub.mu.
+	// expanded in the tile grid FOR THIS SERVER. Preview capture is bounded to
+	// windows in these sessions. In-memory only (Constitution II); dropped on
+	// disconnect. Guarded by sseHub.mu.
 	expanded map[string]bool
+}
+
+// stateConn is one state-socket (`/ws/state`) connection. It owns a single send
+// channel shared by all its per-server subscription records, tracks its
+// subscriptions for teardown, and is the unit of host-global event fan-out. The
+// writer pump in handleStateWS drains `ch`.
+type stateConn struct {
+	ch     chan hubEvent
+	connID string
+	// subs maps a subscribed server key (a real server name or the
+	// metricsOnlyServer sentinel) to its routing record in h.clients. Guarded by
+	// sseHub.mu.
+	subs    map[string]*sseClient
+	dropped bool
 }
 
 // maxConnIDLen bounds the client-supplied `conn` query param. A legitimate id
@@ -194,8 +218,15 @@ func normalizeConnID(raw string) string {
 const orderBootstrapMaxAttempts = 3
 
 type sseHub struct {
-	mu                     sync.RWMutex
-	clients                map[string][]*sseClient
+	mu sync.RWMutex
+	// clients is the per-server routing index: each entry is a subscription
+	// record (sseClient) whose channel is its owning connection's shared channel.
+	// Per-server events fan out over this map.
+	clients map[string][]*sseClient
+	// stateConns is the set of live state-socket connections, the unit of
+	// host-global event fan-out (once per connection, never once per
+	// subscription). A connection is added on hello and dropped on disconnect.
+	stateConns map[*stateConn]bool
 	previousJSON           map[string]string            // per-server sessions JSON dedup cache
 	previousOrderJSON      map[string]string            // per-server session-order event payload cache (only present when populated by a successful read or a POST broadcast)
 	orderBootstrapAttempts map[string]int               // per-server count of failed bootstrap attempts; capped at orderBootstrapMaxAttempts
@@ -320,6 +351,7 @@ func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collector, pc PRStatusSnapshotter) *sseHub {
 	return &sseHub{
 		clients:                make(map[string][]*sseClient),
+		stateConns:             make(map[*stateConn]bool),
 		previousJSON:           make(map[string]string),
 		previousOrderJSON:      make(map[string]string),
 		orderBootstrapAttempts: make(map[string]int),
@@ -336,6 +368,12 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 	}
 }
 
+// addClient registers a per-server subscription record and delivers the cached
+// PER-SERVER slots (sessions, session-order, preview) immediately. Host-global
+// slots are NOT sent here — a state-socket connection replays them once at hello
+// via replayGlobalSlots, so sending them per-subscription would duplicate them
+// on a multi-server connection. The metricsOnlyServer sentinel key carries no
+// per-server cache, so for it this is a no-op beyond starting the poll loop.
 func (h *sseHub) addClient(c *sseClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -344,85 +382,18 @@ func (h *sseHub) addClient(c *sseClient) {
 
 	// Send cached session snapshot immediately
 	if prev, ok := h.previousJSON[c.server]; ok && prev != "" {
-		select {
-		case c.ch <- []byte(fmt.Sprintf("event: sessions\ndata: %s\n\n", prev)):
-		default:
-		}
+		h.sendLocked(c, hubEvent{kind: kindServer, typ: "sessions", key: c.server, data: prev})
 	}
 
-	// Send cached session-order snapshot immediately (after sessions, before metrics)
+	// Send cached session-order snapshot immediately (after sessions)
 	if prev, ok := h.previousOrderJSON[c.server]; ok && prev != "" {
-		select {
-		case c.ch <- []byte(fmt.Sprintf("event: session-order\ndata: %s\n\n", prev)):
-		default:
-		}
-	}
-
-	// Send cached metrics snapshot immediately (server-independent)
-	if h.cachedMetricsJSON != "" {
-		select {
-		case c.ch <- []byte(fmt.Sprintf("event: metrics\ndata: %s\n\n", h.cachedMetricsJSON)):
-		default:
-		}
+		h.sendLocked(c, hubEvent{kind: kindServer, typ: "session-order", key: c.server, data: prev})
 	}
 
 	// Send cached preview snapshot immediately, filtered to this connection's
-	// expanded windows (mirrors the sessions/order/metrics cached-on-connect
-	// delivery). A brand-new connection has nothing expanded yet, so this is a
-	// no-op until its scope POST lands — at which point setPreviewScope emits.
+	// expanded windows for this server. A brand-new subscription has nothing
+	// expanded yet, so this is a no-op until its scope declaration lands.
 	h.sendCachedPreviewLocked(c)
-
-	// Send cached services snapshot immediately (server-independent), so a
-	// client opening `/` sees service tiles without waiting for the next tick.
-	if h.cachedServicesJSON != "" {
-		select {
-		case c.ch <- []byte(fmt.Sprintf("event: services\ndata: %s\n\n", h.cachedServicesJSON)):
-		default:
-		}
-	}
-
-	// Send cached server-order snapshot immediately (server-global), so a
-	// late-joining client — including the zero-attached-server Host
-	// `?metrics=1` stream — gets the current server rank order without a fetch
-	// race.
-	if h.cachedServerOrderJSON != "" {
-		select {
-		case c.ch <- []byte(fmt.Sprintf("event: server-order\ndata: %s\n\n", h.cachedServerOrderJSON)):
-		default:
-		}
-	}
-
-	// Send cached board-order snapshot immediately (server-global), so a
-	// late-joining client — including the zero-attached-server Host
-	// `?metrics=1` stream — gets the current board display order without a fetch
-	// race.
-	if h.cachedBoardOrderJSON != "" {
-		select {
-		case c.ch <- []byte(fmt.Sprintf("event: board-order\ndata: %s\n\n", h.cachedBoardOrderJSON)):
-		default:
-		}
-	}
-
-	// Send the cached running-version slot immediately (server-global). Set once
-	// via SetVersion; every client incl. `?metrics=1` receives it on connect so
-	// the frontend can track the daemon version and drive the post-restart reload
-	// guard. No broadcast path — replay-on-connect is the only delivery.
-	if h.cachedVersionJSON != "" {
-		select {
-		case c.ch <- []byte(fmt.Sprintf("event: version\ndata: %s\n\n", h.cachedVersionJSON)):
-		default:
-		}
-	}
-
-	// Send the cached update-available slot immediately (server-global), so a
-	// late-joining client — including the `?metrics=1` stream — learns of a
-	// pending update without waiting for the next 6h check.
-	if h.cachedUpdateAvailableJSON != "" {
-		select {
-		case c.ch <- []byte(fmt.Sprintf("event: update-available\ndata: %s\n\n", h.cachedUpdateAvailableJSON)):
-		default:
-		}
-	}
 
 	if !h.polling {
 		h.polling = true
@@ -430,10 +401,16 @@ func (h *sseHub) addClient(c *sseClient) {
 	}
 }
 
+// removeClient unregisters a per-server subscription record from the routing
+// index (and from its owning connection's subscription set, if any).
 func (h *sseHub) removeClient(c *sseClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.removeClientLocked(c)
+}
 
+// removeClientLocked is removeClient's body; caller MUST hold h.mu (write).
+func (h *sseHub) removeClientLocked(c *sseClient) {
 	cs := h.clients[c.server]
 	for i, cl := range cs {
 		if cl == c {
@@ -448,6 +425,206 @@ func (h *sseHub) removeClient(c *sseClient) {
 	} else {
 		h.clients[c.server] = cs
 	}
+	if c.conn != nil {
+		delete(c.conn.subs, c.server)
+	}
+}
+
+// sendLocked delivers a hubEvent to one subscription record, best-effort with
+// the same drop-logging semantics as the broadcast helpers. Caller MUST hold
+// h.mu (write).
+func (h *sseHub) sendLocked(c *sseClient, ev hubEvent) {
+	select {
+	case c.ch <- ev:
+		c.dropped = false
+	default:
+		if !c.dropped {
+			slog.Warn("state event dropped", "server", c.server, "event", ev.typ)
+			c.dropped = true
+		}
+	}
+}
+
+// replayGlobalSlots sends the cached host-global slots to a state-socket
+// connection ONCE, right after hello. This is the state-socket counterpart of
+// the per-connect global delivery the old SSE addClient performed. Ordering
+// mirrors the historical order (metrics → services → server-order → board-order
+// → version → update-available); each is skipped when its slot is empty.
+func (h *sseHub) replayGlobalSlots(sc *stateConn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.cachedMetricsJSON != "" {
+		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "metrics", data: h.cachedMetricsJSON})
+	}
+	if h.cachedServicesJSON != "" {
+		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "services", data: h.cachedServicesJSON})
+	}
+	if h.cachedServerOrderJSON != "" {
+		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "server-order", data: h.cachedServerOrderJSON})
+	}
+	if h.cachedBoardOrderJSON != "" {
+		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "board-order", data: h.cachedBoardOrderJSON})
+	}
+	if h.cachedVersionJSON != "" {
+		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "version", data: h.cachedVersionJSON})
+	}
+	if h.cachedUpdateAvailableJSON != "" {
+		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "update-available", data: h.cachedUpdateAvailableJSON})
+	}
+	h.stateConns[sc] = true
+}
+
+// emitError delivers a state-socket `error` frame to a connection, echoing the
+// offending op's req. The frame rides the connection's send channel as a
+// pre-rendered raw hubEvent so ONLY the writer pump ever writes to the socket
+// (gorilla forbids concurrent writes). Takes h.mu itself. Best-effort.
+func (h *sseHub) emitError(sc *stateConn, req int64, message string) {
+	b, err := json.Marshal(errorFrame{Op: "error", Req: req, Message: message})
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.sendConnLocked(sc, hubEvent{raw: b})
+}
+
+// sendConnLocked delivers a hubEvent to a whole connection (host-global fan-out
+// unit). Best-effort. Caller MUST hold h.mu (write).
+func (h *sseHub) sendConnLocked(sc *stateConn, ev hubEvent) {
+	select {
+	case sc.ch <- ev:
+		sc.dropped = false
+	default:
+		if !sc.dropped {
+			slog.Warn("state event dropped (conn)", "event", ev.typ)
+			sc.dropped = true
+		}
+	}
+}
+
+// stateSubscribe registers a subscription for a state-socket connection and
+// acks it with the current snapshot. A `server` kind enters the poll set and
+// carries the sessions snapshot; a `metrics` kind registers under the
+// metrics-only sentinel and carries the cached metrics snapshot.
+func (h *sseHub) stateSubscribe(sc *stateConn, msg clientMsg) {
+	var key string
+	switch msg.Kind {
+	case kindServer:
+		// The key flows into the poll set and reaches tmux subprocesses (tmux -L
+		// <key> via serverArgs), so it MUST pass the same validation barrier the
+		// retired SSE edge had via serverFromRequest (Constitution §I). An invalid
+		// name is rejected with an error frame carrying the offending req rather
+		// than silently dropped, so the client can surface the failure.
+		if err := validate.ValidateServerName(msg.Key); err != "" {
+			h.emitError(sc, msg.Req, err)
+			return
+		}
+		key = msg.Key
+	case kindMetrics:
+		key = metricsOnlyServer
+	default:
+		h.emitError(sc, msg.Req, "unknown subscribe kind: "+msg.Kind)
+		return
+	}
+
+	h.mu.Lock()
+	// Ensure the connection is in the host-global fan-out set (defensive — the
+	// handler already adds it via replayGlobalSlots at hello, but a subscribe
+	// must never leave a connection unable to receive global events).
+	h.stateConns[sc] = true
+	// Idempotent: a repeat subscribe re-acks with a fresh snapshot but does not
+	// create a second routing record.
+	rec, exists := sc.subs[key]
+	if !exists {
+		rec = &sseClient{ch: sc.ch, server: key, conn: sc, connID: sc.connID, expanded: map[string]bool{}}
+		sc.subs[key] = rec
+	}
+	h.mu.Unlock()
+
+	if !exists {
+		// addClient takes the lock itself and starts the poll loop; it also
+		// delivers the per-server cached slots (sessions/order/preview) for a
+		// server subscription.
+		h.addClient(rec)
+	}
+
+	// Read the ack snapshot and enqueue the ack in ONE critical section. Reading
+	// under an EARLIER lock than the enqueue (as this once did) opened a race: a
+	// poll tick interleaving after the read but before the ack could update
+	// previousJSON and enqueue a NEWER `sessions` event ahead of the stale-
+	// snapshot ack, and the client (which applies the ack's snapshot
+	// unconditionally) would then overwrite the fresh sessions with the stale
+	// one — and the hub's previousJSON dedup would suppress re-emission,
+	// stranding stale UI on a quiet server. Reading the snapshot in the same
+	// critical section that enqueues the ack guarantees the ack's snapshot is ≥
+	// every `sessions`/`metrics` event already on this connection's channel
+	// (registration via addClient above means any concurrent poll tick either
+	// finished before this lock — so the read sees its value — or runs after the
+	// ack, in which case the client's newest-wins apply is correct).
+	h.mu.Lock()
+	var snapshot string
+	if msg.Kind == kindServer {
+		snapshot = h.previousJSON[key]
+	} else {
+		snapshot = h.cachedMetricsJSON
+	}
+	// Ack with the snapshot (empty snapshot → null, which the client tolerates).
+	ack := ackFrame{Op: "ack", Req: msg.Req}
+	if snapshot != "" {
+		ack.Snapshot = json.RawMessage(snapshot)
+	} else {
+		ack.Snapshot = json.RawMessage("null")
+	}
+	ackBytes, err := json.Marshal(ack)
+	if err != nil {
+		h.mu.Unlock()
+		return
+	}
+	// Deliver the ack over the same channel as a pre-rendered raw frame so it is
+	// ordered with the subscription's events.
+	h.sendConnLocked(sc, hubEvent{raw: ackBytes})
+	h.mu.Unlock()
+}
+
+// stateUnsubscribe drops a subscription. A server left with no subscribers
+// leaves the poll set on the next idle tick (its record removal empties
+// h.clients[server]).
+func (h *sseHub) stateUnsubscribe(sc *stateConn, msg clientMsg) {
+	var key string
+	switch msg.Kind {
+	case kindServer:
+		// Validate for the same reason as stateSubscribe: an unsubscribe key is a
+		// map lookup only (never reaches a subprocess), but rejecting an invalid
+		// name keeps the barrier uniform and can never match a legitimately-keyed
+		// subscription anyway.
+		if err := validate.ValidateServerName(msg.Key); err != "" {
+			h.emitError(sc, msg.Req, err)
+			return
+		}
+		key = msg.Key
+	case kindMetrics:
+		key = metricsOnlyServer
+	default:
+		h.emitError(sc, msg.Req, "unknown unsubscribe kind: "+msg.Kind)
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if rec, ok := sc.subs[key]; ok {
+		h.removeClientLocked(rec)
+	}
+}
+
+// dropStateConn tears down a whole state-socket connection: unregister every
+// subscription record and remove the connection from the global fan-out set.
+func (h *sseHub) dropStateConn(sc *stateConn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, rec := range sc.subs {
+		h.removeClientLocked(rec)
+	}
+	sc.subs = map[string]*sseClient{}
+	delete(h.stateConns, sc)
 }
 
 // broadcastSessionOrder pushes a session-order event to every client connected
@@ -471,20 +648,12 @@ func (h *sseHub) broadcastSessionOrder(server string, order []string) {
 		return
 	}
 	jsonStr := string(jsonBytes)
-	event := []byte(fmt.Sprintf("event: session-order\ndata: %s\n\n", jsonStr))
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.previousOrderJSON[server] = jsonStr
 	for _, c := range h.clients[server] {
-		select {
-		case c.ch <- event:
-		default:
-			if !c.dropped {
-				slog.Warn("SSE event dropped", "server", server, "event", "session-order")
-				c.dropped = true
-			}
-		}
+		h.sendLocked(c, hubEvent{kind: kindServer, typ: "session-order", key: server, data: jsonStr})
 	}
 }
 
@@ -511,23 +680,11 @@ func (h *sseHub) broadcastServerOrder(order []string) {
 		return
 	}
 	jsonStr := string(jsonBytes)
-	event := []byte(fmt.Sprintf("event: server-order\ndata: %s\n\n", jsonStr))
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedServerOrderJSON = jsonStr
-	for _, cs := range h.clients {
-		for _, c := range cs {
-			select {
-			case c.ch <- event:
-			default:
-				if !c.dropped {
-					slog.Warn("SSE event dropped", "event", "server-order")
-					c.dropped = true
-				}
-			}
-		}
-	}
+	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "server-order", data: jsonStr})
 }
 
 // broadcastBoardOrder pushes a server-global `event: board-order` to EVERY
@@ -553,23 +710,11 @@ func (h *sseHub) broadcastBoardOrder(order []string) {
 		return
 	}
 	jsonStr := string(jsonBytes)
-	event := []byte(fmt.Sprintf("event: board-order\ndata: %s\n\n", jsonStr))
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedBoardOrderJSON = jsonStr
-	for _, cs := range h.clients {
-		for _, c := range cs {
-			select {
-			case c.ch <- event:
-			default:
-				if !c.dropped {
-					slog.Warn("SSE event dropped", "event", "board-order")
-					c.dropped = true
-				}
-			}
-		}
-	}
+	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "board-order", data: jsonStr})
 }
 
 // setVersion seeds the server-global `event: version` cached slot with the
@@ -621,23 +766,11 @@ func (h *sseHub) broadcastUpdateAvailable(current, latest string) {
 		return
 	}
 	jsonStr := string(jsonBytes)
-	event := []byte(fmt.Sprintf("event: update-available\ndata: %s\n\n", jsonStr))
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedUpdateAvailableJSON = jsonStr
-	for _, cs := range h.clients {
-		for _, c := range cs {
-			select {
-			case c.ch <- event:
-			default:
-				if !c.dropped {
-					slog.Warn("SSE event dropped", "event", "update-available")
-					c.dropped = true
-				}
-			}
-		}
-	}
+	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "update-available", data: jsonStr})
 }
 
 // broadcastStatusRefresh pushes a server-global `event: status-refresh` to EVERY
@@ -663,21 +796,17 @@ func (h *sseHub) broadcastStatusRefresh(completedAt time.Time) {
 		slog.Warn("status-refresh broadcast marshal failed", "err", err)
 		return
 	}
-	event := []byte(fmt.Sprintf("event: status-refresh\ndata: %s\n\n", string(jsonBytes)))
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, cs := range h.clients {
-		for _, c := range cs {
-			select {
-			case c.ch <- event:
-			default:
-				if !c.dropped {
-					slog.Warn("SSE event dropped", "event", "status-refresh")
-					c.dropped = true
-				}
-			}
-		}
+	h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "status-refresh", data: string(jsonBytes)})
+}
+
+// broadcastGlobalLocked fans a host-global event out to every live state-socket
+// connection exactly once (never once per subscription, which would duplicate a
+// global event on a multi-server connection). Caller MUST hold h.mu (write).
+func (h *sseHub) broadcastGlobalLocked(ev hubEvent) {
+	for sc := range h.stateConns {
+		h.sendConnLocked(sc, ev)
 	}
 }
 
@@ -693,19 +822,10 @@ func (h *sseHub) broadcastBoardChanged(server string, payload boardChangedPayloa
 		slog.Warn("board-changed broadcast marshal failed", "err", err, "server", server)
 		return
 	}
-	event := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", boardEventName, string(jsonBytes)))
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, c := range h.clients[server] {
-		select {
-		case c.ch <- event:
-		default:
-			if !c.dropped {
-				slog.Warn("SSE event dropped", "server", server, "event", boardEventName)
-				c.dropped = true
-			}
-		}
+		h.sendLocked(c, hubEvent{kind: kindServer, typ: boardEventName, key: server, data: string(jsonBytes)})
 	}
 }
 
@@ -761,10 +881,7 @@ func (h *sseHub) sendCachedPreviewLocked(c *sseClient) {
 	if err != nil {
 		return
 	}
-	select {
-	case c.ch <- []byte(fmt.Sprintf("event: preview\ndata: %s\n\n", string(payload))):
-	default:
-	}
+	h.sendLocked(c, hubEvent{kind: kindServer, typ: "preview", key: c.server, data: string(payload)})
 }
 
 // expandedUnionLocked returns the union of expanded session names across every
@@ -947,7 +1064,6 @@ func (h *sseHub) poll() {
 	// invalidates each of those servers' fetch caches so the loop
 	// observes the post-mutation tmux state immediately.
 	eventDrivenServers := map[string]bool{}
-	lastDataAt := time.Now()
 
 	for {
 		// Read-only check: count clients and collect server keys
@@ -983,7 +1099,6 @@ func (h *sseHub) poll() {
 		// servers whose tmux socket is gone (tmux.IsServerGone) so they can be
 		// reaped from the poll set AFTER the loop — never mid-range over the
 		// snapshot, and never under the write lock while FetchSessions runs.
-		dataChanged := false
 		var deadServers []string
 		// Accumulate the live (server, windowID) keys across all polled servers
 		// so the waiting-push tracker can reap episodes for windows that vanished
@@ -1072,20 +1187,9 @@ func (h *sseHub) poll() {
 			h.mu.Lock()
 			if jsonStr != h.previousJSON[server] {
 				h.previousJSON[server] = jsonStr
-				event := []byte(fmt.Sprintf("event: sessions\ndata: %s\n\n", jsonStr))
-
 				for _, c := range h.clients[server] {
-					select {
-					case c.ch <- event:
-						c.dropped = false
-					default:
-						if !c.dropped {
-							slog.Warn("SSE event dropped", "server", server)
-							c.dropped = true
-						}
-					}
+					h.sendLocked(c, hubEvent{kind: kindServer, typ: "sessions", key: server, data: jsonStr})
 				}
-				dataChanged = true
 			}
 			h.mu.Unlock()
 
@@ -1111,19 +1215,10 @@ func (h *sseHub) poll() {
 						continue
 					}
 					if payload, perr := json.Marshal(subset); perr == nil {
-						event := []byte(fmt.Sprintf("event: preview\ndata: %s\n\n", string(payload)))
-						select {
-						case c.ch <- event:
-						default:
-							if !c.dropped {
-								slog.Warn("SSE event dropped", "server", server, "event", "preview")
-								c.dropped = true
-							}
-						}
+						h.sendLocked(c, hubEvent{kind: kindServer, typ: "preview", key: server, data: string(payload)})
 					}
 				}
 				h.mu.Unlock()
-				dataChanged = true
 			}
 
 			// Bootstrap: on first poll per server, seed the order cache from
@@ -1227,12 +1322,16 @@ func (h *sseHub) poll() {
 		// across FetchSessions).
 		if len(deadServers) > 0 {
 			h.mu.Lock()
-			goneEvent := []byte("event: server-gone\ndata: {}\n\n")
 			for _, server := range deadServers {
 				for _, c := range h.clients[server] {
 					select {
-					case c.ch <- goneEvent:
+					case c.ch <- hubEvent{gone: true, key: server}:
 					default:
+					}
+					// Detach the subscription from its owning connection so a
+					// later re-subscribe re-registers cleanly (no stale record).
+					if c.conn != nil {
+						delete(c.conn.subs, server)
 					}
 				}
 				delete(h.clients, server)
@@ -1248,77 +1347,37 @@ func (h *sseHub) poll() {
 			h.mu.Unlock()
 		}
 
-		// Broadcast metrics to all clients (server-independent, every tick)
+		// Broadcast metrics to every state-socket connection (server-independent,
+		// every tick — a host-global event, fanned once per connection).
 		if h.metrics != nil {
 			snap := h.metrics.Snapshot()
 			metricsJSON, err := json.Marshal(snap)
 			if err == nil {
 				metricsStr := string(metricsJSON)
-				metricsEvent := []byte(fmt.Sprintf("event: metrics\ndata: %s\n\n", metricsStr))
-
 				h.mu.Lock()
 				h.cachedMetricsJSON = metricsStr
-				for _, cs := range h.clients {
-					for _, c := range cs {
-						select {
-						case c.ch <- metricsEvent:
-						default:
-						}
-					}
-				}
+				h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "metrics", data: metricsStr})
 				h.mu.Unlock()
-				dataChanged = true
 			}
 		}
 
-		// Broadcast listening services to all clients (server-independent,
-		// every tick) — mirrors the metrics broadcast above. Rides the same
-		// server-neutral stream, so the `?metrics=1` Host client receives it
-		// with zero attached servers.
+		// Broadcast listening services to every state-socket connection
+		// (server-independent, every tick) — mirrors the metrics broadcast.
 		if h.services != nil {
 			snap := h.services.Snapshot()
 			servicesJSON, err := json.Marshal(snap)
 			if err == nil {
 				servicesStr := string(servicesJSON)
-				servicesEvent := []byte(fmt.Sprintf("event: services\ndata: %s\n\n", servicesStr))
-
 				h.mu.Lock()
 				h.cachedServicesJSON = servicesStr
-				for _, cs := range h.clients {
-					for _, c := range cs {
-						select {
-						case c.ch <- servicesEvent:
-						default:
-						}
-					}
-				}
+				h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "services", data: servicesStr})
 				h.mu.Unlock()
-				dataChanged = true
 			}
 		}
 
-		// Send heartbeat to all clients periodically to keep connections
-		// alive through proxies and detect dead connections early. With
-		// the event-driven main loop, heartbeat is wall-clock-based —
-		// if no data has been broadcast for sseHeartbeatPeriod, send a
-		// heartbeat comment.
-		if dataChanged {
-			lastDataAt = time.Now()
-		} else if time.Since(lastDataAt) >= sseHeartbeatPeriod {
-			lastDataAt = time.Now()
-			heartbeat := []byte(": heartbeat\n\n")
-			h.mu.RLock()
-			for _, cs := range h.clients {
-				for _, c := range cs {
-					select {
-					case c.ch <- heartbeat:
-					default:
-					}
-				}
-			}
-			h.mu.RUnlock()
-		}
-
+		// Connection liveness on the state socket is handled at the WebSocket
+		// layer (failed write on the writer pump, read-loop error), not by an
+		// SSE-style comment heartbeat — so there is no per-tick heartbeat frame.
 		// Wait for either:
 		//   (a) a tmux control-mode notification for any subscribed server
 		//       (subscriber.Wait channel closes — typically sub-ms after a
@@ -1420,55 +1479,8 @@ func selectFirst(cases []waitCase, timer *time.Timer) string {
 	}
 }
 
-func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	// A metrics-only stream (`?metrics=1`) is server-neutral: it wants only the
-	// server-independent `event: metrics` broadcast and has no tmux server to
-	// poll. Route it to the reserved sentinel key so the poll loop never fetches
-	// sessions or reaps it. Any other request resolves its server as usual.
-	server := serverFromRequest(r)
-	if r.URL.Query().Get("metrics") == "1" {
-		server = metricsOnlyServer
-	}
-	client := &sseClient{
-		ch:       make(chan []byte, 32),
-		server:   server,
-		connID:   normalizeConnID(r.URL.Query().Get("conn")),
-		expanded: make(map[string]bool),
-	}
-
-	// Lazy-init the hub on first SSE connection
-	s.initSSEHub()
-	s.sseHub.addClient(client)
-	defer s.sseHub.removeClient(client)
-
-	// Lifetime cap
-	lifetime := time.NewTimer(maxLifetime)
-	defer lifetime.Stop()
-
-	ctx := r.Context()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-lifetime.C:
-			return
-		case data := <-client.ch:
-			_, err := w.Write(data)
-			if err != nil {
-				return
-			}
-			flusher.Flush()
-		}
-	}
-}
+// The former SSE edge (handleSSE + `GET /api/sessions/stream`) was retired in
+// 260716-qf3j-state-socket — the frontend was the sole consumer and it now
+// speaks the state-socket protocol over `/ws/state` (see state_ws.go). The hub
+// machinery above (poll, collectors, broadcast helpers) is unchanged; only the
+// client-facing transport moved from SSE to WebSocket.

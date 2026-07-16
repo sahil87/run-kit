@@ -536,7 +536,6 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/chat/send", s.handleChatSend)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
-	r.Get("/api/sessions/stream", s.handleSSE)
 	r.Post("/api/preview-scope", s.handlePreviewScope)
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
@@ -572,8 +571,12 @@ func (s *Server) buildRouter() chi.Router {
 	r.HandleFunc("/proxy/{port}/*", s.handleProxy)
 	r.HandleFunc("/proxy/{port}", s.handleProxy)
 
-	// WebSocket relay
+	// WebSocket relay (terminal I/O)
 	r.Get("/relay/{windowId}", s.handleRelay)
+
+	// State socket — muxed session-state + host-metrics stream (replaces the
+	// retired GET /api/sessions/stream SSE edge; see api/state_ws.go).
+	r.Get("/ws/state", s.handleStateWS)
 
 	// SPA static serving — catch-all, must be last
 	s.mountSPA(r)

@@ -10,8 +10,13 @@ import {
 } from "react";
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
-import { listServers, compareServersRanked, setPreviewScope as apiSetPreviewScope, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo } from "@/api/client";
+import { listServers, compareServersRanked, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo } from "@/api/client";
+import { StateSocket } from "@/lib/state-socket";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
+
+// Internal ref-set key for the host-metrics subscription (distinct from any
+// real tmux server name, which never contains a NUL).
+const METRICS_SUB = "\x00metrics";
 
 const SERVER_STORAGE_KEY = "runkit-server";
 // localStorage key for per-version update-notice dismissal. The value is the
@@ -55,36 +60,38 @@ export function shouldReloadOnVersion(
   return nextBoot !== null && nextBoot !== firstBoot;
 }
 
-/** Multi-server SessionContext shape. State is keyed by server name; one
- *  EventSource is opened lazily per *attached* server (current server is
- *  always attached automatically; non-current servers attach when a consumer
- *  calls `attachServer(name)` — typically when a sidebar group is expanded).
- *  Lazy-attach is required because the browser caps concurrent HTTP/1.1
- *  connections per origin at 6, and other hooks (`useBoards`,
- *  `useWindowPins`) historically opened their own per-server EventSources
- *  for `board-changed` events; those hooks now subscribe to this provider's
- *  `subscribeBoardChange` API to avoid duplicating ES connections.
- *  `currentServer` is dispatched by the matched route — `params.server` for
- *  `/$server/...`, `null` for `/board/$name` and `/`. */
+/** Multi-server SessionContext shape. State is keyed by server name. A single
+ *  `/ws/state` WebSocket (the StateSocket) carries every stream for the tab; a
+ *  per-server *subscription* on that socket is opened lazily per *attached*
+ *  server (current server is always attached automatically; non-current servers
+ *  attach when a consumer calls `attachServer(name)` — typically when a sidebar
+ *  group is expanded). Muxing onto one established WebSocket is what clears the
+ *  browser's 6-per-origin HTTP/1.1 pool that the old per-server + metrics
+ *  EventSources saturated (an established WS holds no pool slot — change
+ *  260716-qf3j-state-socket). Other hooks (`useBoards`, `useWindowPins`)
+ *  subscribe to this provider's `subscribeBoardChange` API rather than opening
+ *  their own streams. `currentServer` is dispatched by the matched route —
+ *  `params.server` for `/$server/...`, `null` for `/board/$name` and `/`. */
 export type SessionContextType = {
   sessionsByServer: Map<string, ProjectSession[]>;
   sessionOrderByServer: Map<string, string[]>;
   isConnectedByServer: Map<string, boolean>;
   /** Health of the host-metrics source that feeds `useHostMetrics()` — true
    *  when host metrics are flowing (260704-9o7k, for the Host connection
-   *  dot). When no per-server stream is attached this is the dedicated
-   *  `?metrics=1` stream's health; otherwise it derives from whether any
-   *  attached server's per-server stream is connected (the metrics fan-out
-   *  source). */
+   *  dot). Keys on the state socket: when no server is attached it is (socket
+   *  connected AND the dedicated `metrics` subscription acked); otherwise it
+   *  derives from whether any attached server's subscription is acked (the
+   *  metrics fan-out source, since metrics ride every subscription). */
   hostMetricsConnected: boolean;
   metricsByServer: Map<string, MetricsSnapshot | null>;
   /** Per-server map of `windowId → pane-text preview` for the tile grid. Only
    *  windows in sessions the client declared expanded (via `setPreviewScope`)
-   *  are populated; delivered over the SSE `event: preview`. */
+   *  are populated; delivered over the state socket's `preview` event. */
   previewsByServer: Map<string, Record<string, string>>;
   /** Declare which sessions the tile grid has expanded for a server, so the
-   *  backend captures previews only for those windows. Posts to
-   *  `/api/preview-scope` with the server's SSE connection id. */
+   *  backend captures previews only for those windows. Sends the in-band
+   *  `preview-scope` op over the state socket, addressed by the socket's own
+   *  conn id (the same identity the retained `POST /api/preview-scope` uses). */
   setPreviewScope: (server: string, expanded: string[]) => void;
   currentServer: string | null;
   servers: ServerInfo[];
@@ -102,23 +109,23 @@ export type SessionContextType = {
   pendingServer: string | null;
   /** Mark a server as "pending" (just created, awaiting list refresh). */
   markServerPending: (name: string) => void;
-  /** Mark a server as "attached" so the provider opens its EventSource. Idempotent.
-   *  The current server is auto-attached; this is for non-current servers
-   *  (sidebar groups expanded by the user). */
+  /** Mark a server as "attached" so the provider opens its state-socket
+   *  subscription. Idempotent. The current server is auto-attached; this is for
+   *  non-current servers (sidebar groups expanded by the user). */
   attachServer: (name: string) => void;
   /** Subscribe to board-changed events on any attached server. Returns an
    *  unsubscribe function. The handler receives the source server name. */
   subscribeBoardChange: (handler: (server: string) => void) => () => void;
   /** Subscribe to the server-global `board-order` event (board list display
-   *  order changed). Returns an unsubscribe function. Fired from both the
-   *  per-server pool streams and the dedicated `?metrics=1` stream, since the
-   *  event is host-global (identical on every stream). */
+   *  order changed). Returns an unsubscribe function. Delivered once over the
+   *  state socket as a `kind:"global"` event (host-global — never duplicated
+   *  per subscription). */
   subscribeBoardOrder: (handler: () => void) => () => void;
   /** Subscribe to the server-global `status-refresh` event (a manual PR-status
-   *  refresh completed). Returns an unsubscribe function. Fired from both the
-   *  per-server pool streams and the dedicated `?metrics=1` stream, since the
-   *  event is host-global (broadcast-only, no cached payload). The PANE-header
-   *  refresh button subscribes to clear its spinner on completion. */
+   *  refresh completed). Returns an unsubscribe function. Delivered once over
+   *  the state socket as a `kind:"global"` event (host-global, broadcast-only,
+   *  no cached payload). The PANE-header refresh button subscribes to clear its
+   *  spinner on completion. */
   subscribeStatusRefresh: (handler: () => void) => () => void;
   /** The running daemon version reported over the server-global `event: version`
    *  (no leading "v"). `null` until the first `version` event. */
@@ -131,8 +138,9 @@ export type SessionContextType = {
    *  equals `updateAvailable.latest`; the palette action ignores it. */
   updateDismissedVersion: string | null;
   /** Trigger a one-click update: POST /api/update. Best-effort — the daemon
-   *  restart then drops SSE, and the reconnect's differing `version` drives the
-   *  reload guard. Rejects on a non-2xx so the caller can surface an error. */
+   *  restart then drops the state socket, and the reconnect's differing
+   *  `version` drives the reload guard. Rejects on a non-2xx so the caller can
+   *  surface an error. */
   updateNow: () => Promise<void>;
   /** Dismiss the update notice for the current pending `latest`, persisted
    *  per-version in localStorage. A later release re-shows the chip. */
@@ -142,13 +150,13 @@ export type SessionContextType = {
    *  gates the palette-only `run-kit: Update Now` (force-update) entry. */
   brew: boolean;
   /** Force a self-upgrade regardless of the qualifying snapshot: POST
-   *  /api/update `{"force":true}`. Best-effort — the ensuing restart drops SSE
-   *  and the reconnect's differing version/boot drives the reload. Rejects on a
-   *  non-2xx (e.g. 409 not-brew) so the caller can catch it. */
+   *  /api/update `{"force":true}`. Best-effort — the ensuing restart drops the
+   *  state socket and the reconnect's differing version/boot drives the reload.
+   *  Rejects on a non-2xx (e.g. 409 not-brew) so the caller can catch it. */
   forceUpdateNow: () => Promise<void>;
-  /** Restart the daemon: POST /api/restart. Best-effort — the restart drops SSE
-   *  and the reconnect's differing `boot` drives the reload guard even at the
-   *  same version. Rejects on a non-2xx (e.g. 409 on a dev build). */
+  /** Restart the daemon: POST /api/restart. Best-effort — the restart drops the
+   *  state socket and the reconnect's differing `boot` drives the reload guard
+   *  even at the same version. Rejects on a non-2xx (e.g. 409 on a dev build). */
   restartNow: () => Promise<void>;
 };
 
@@ -160,24 +168,25 @@ export const SessionContext = createContext<SessionContextType | null>(null);
 // "outside provider" (throw) from the valid "no metrics yet" state (`null`).
 const MetricsContext = createContext<MetricsSnapshot | null | undefined>(undefined);
 
-// Host metrics live in their OWN context, fed by a dedicated server-independent
-// EventSource (see the host-metrics effect below). Unlike `MetricsContext`
-// (which carries the current server's slice and is `null` on `/`), this context
-// carries the host-global `event: metrics` broadcast and is available on EVERY
-// route — including `/`, where there is no `currentServer`. The `event: metrics`
-// broadcast is server-independent server-side (see api/sse.go poll loop), so a
-// single stream suffices regardless of how many servers are attached. Same
+// Host metrics live in their OWN context, fed by the host-global `metrics`
+// event over the state socket (delivered as a `kind:"global"` frame — see the
+// StateSocket handlers below). Unlike `MetricsContext` (which carries the
+// current server's slice and is `null` on `/`), this context carries the
+// host-global metrics broadcast and is available on EVERY route — including
+// `/`, where there is no `currentServer`. The metrics broadcast is
+// server-independent server-side (see api/sse.go poll loop), so the single
+// socket delivers it once regardless of how many servers are subscribed. Same
 // `undefined` sentinel idiom as `MetricsContext` — distinguishes
 // "outside provider" (throw) from "no metrics yet" (`null`).
 const HostMetricsContext = createContext<MetricsSnapshot | null | undefined>(undefined);
 
 // Host listening-services live in their OWN context, fed by the same
-// server-independent broadcast as host metrics (the `event: services` frame
-// rides every stream — the dedicated `?metrics=1` stream and each per-server
-// stream — exactly like `event: metrics`). Separated from HostMetricsContext so
-// the ~2.5s services stream does not cascade re-renders into metrics-only
-// consumers. The `undefined` sentinel distinguishes "outside provider" (throw)
-// from the valid "no services yet" state (`[]`).
+// host-global broadcast as host metrics (the `services` event is a
+// `kind:"global"` frame delivered once over the state socket, exactly like
+// `metrics`). Separated from HostMetricsContext so the ~2.5s services stream
+// does not cascade re-renders into metrics-only consumers. The `undefined`
+// sentinel distinguishes "outside provider" (throw) from the valid "no services
+// yet" state (`[]`).
 const HostServicesContext = createContext<Service[] | undefined>(undefined);
 
 type SessionProviderProps = {
@@ -228,24 +237,25 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const [serversLoaded, setServersLoaded] = useState(false);
   // Name of a just-created server awaiting the list refresh (waiting state).
   const [pendingServer, setPendingServer] = useState<string | null>(null);
-  // Lazy-attach set: which servers should have an EventSource open. The
-  // current server is automatically included; non-current servers must opt
-  // in (typically when their sidebar group is expanded). See the
+  // Lazy-attach set: which servers should have a state-socket subscription
+  // open. The current server is automatically included; non-current servers
+  // must opt in (typically when their sidebar group is expanded). See the
   // `SessionContextType` doc for why eager-attach blows past the browser's
-  // 6-connection-per-origin cap.
+  // 6-connection-per-origin cap that the pre-socket EventSources hit.
   const [attachedNonCurrent, setAttachedNonCurrent] = useState<Set<string>>(() => new Set());
-  // Latest host-global metrics snapshot from the dedicated server-independent
-  // stream (see the host-metrics effect below). `null` until the first tick.
+  // Latest host-global metrics snapshot from the state socket's `metrics` global
+  // event (see the StateSocket handlers below). `null` until the first tick.
   const [hostMetrics, setHostMetrics] = useState<MetricsSnapshot | null>(null);
-  // Health of the DEDICATED `?metrics=1` stream (260704-9o7k). Set true on its
-  // first metrics event, cleared via a 3s debounce on error — mirrors the
-  // per-server slice `isConnected` lifecycle. Only meaningful while the
-  // dedicated stream is the host-metrics source (attached set empty); when a
-  // per-server stream carries the fan-out the derived value below reads from
-  // per-server connectedness instead. `false` until the first dedicated event.
+  // Health of the DEDICATED `metrics` subscription (260704-9o7k). Set true when
+  // that subscription acks over a connected socket, cleared via a 3s debounce on
+  // socket disconnect — mirrors the per-server slice `isConnected` lifecycle.
+  // Only meaningful while the dedicated metrics subscription is the host-metrics
+  // source (attached set empty); when a server subscription carries the fan-out
+  // the derived value below reads from per-server connectedness instead. `false`
+  // until the first metrics ack.
   const [dedicatedMetricsConnected, setDedicatedMetricsConnected] = useState(false);
-  // Latest host-global listening services from the same server-independent
-  // broadcast (`event: services`). Empty array until the first tick — never
+  // Latest host-global listening services from the same host-global broadcast
+  // (the `services` global event). Empty array until the first tick — never
   // null, so `/` consumers can map over it unconditionally.
   const [hostServices, setHostServices] = useState<Service[]>([]);
   // Running daemon version from the server-global `event: version` (no leading
@@ -269,8 +279,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const currentServer = useCurrentServerFromRoute();
 
   // Reload guard: remember the FIRST {version, boot} this tab observed. When a
-  // LATER `version` event (after an SSE reconnect following a daemon restart or
-  // upgrade) differs in EITHER field, the running process changed under this open
+  // LATER `version` event (after a state-socket reconnect following a daemon
+  // restart or upgrade) differs in EITHER field, the running process changed under this open
   // tab — a version change means new embedded assets, a same-version boot change
   // means a plain restart reconnecting the tab to a new process — so reload once
   // to pick up fresh assets / drop stale in-memory state. Never reload on the
@@ -298,14 +308,13 @@ export function SessionProvider({ children }: SessionProviderProps) {
     }
   }, []);
 
-  // Apply an `event: update-available` payload. Server-global (identical on every
-  // stream): the backend delivers it as a cached-on-connect slot (once per SSE
-  // connection, so once per attached server on multi-server routes) and only
-  // re-broadcasts when the qualifying latest changes — NOT on every check tick.
-  // Setting the same {current, latest} object is cheap and idempotent (React
-  // bails out only on identical references, but re-broadcasts are bounded to an
-  // actual version change, far rarer than the ~6h check cadence, so no dedup
-  // guard is needed).
+  // Apply an `update-available` payload. Host-global (a `kind:"global"` event):
+  // the backend delivers it as a cached-on-connect global slot (once per socket
+  // connection) and only re-broadcasts when the qualifying latest changes — NOT
+  // on every check tick. Setting the same {current, latest} object is cheap and
+  // idempotent (React bails out only on identical references, but re-broadcasts
+  // are bounded to an actual version change, far rarer than the ~6h check
+  // cadence, so no dedup guard is needed).
   const applyUpdateAvailable = useCallback((current: string, latest: string) => {
     if (!latest) return;
     setUpdateAvailable((prev) =>
@@ -327,20 +336,21 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const updateNow = useCallback(() => triggerUpdate(), []);
   // Maintenance actions (palette-only): force a self-upgrade regardless of the
   // qualifying snapshot, and bounce the daemon. Thin wrappers over the client
-  // helpers — same shape as updateNow. The ensuing SSE drop + boot/version-driven
-  // reload IS the feedback; the caller catches rejections (no toast).
+  // helpers — same shape as updateNow. The ensuing state-socket drop +
+  // boot/version-driven reload IS the feedback; the caller catches rejections
+  // (no toast).
   const forceUpdateNow = useCallback(() => triggerForceUpdate(), []);
   const restartNow = useCallback(() => triggerRestart(), []);
 
-  // Last raw host-metrics event payload applied to `hostMetrics`, shared across
-  // ALL sources (every per-server stream's `metrics` fan-out + the dedicated
-  // `?metrics=1` stream). The `event: metrics` broadcast is server-global —
-  // identical on every stream — so on multi-server routes (boards) the same
-  // payload arrives once per attached server per tick. Without this guard, each
-  // arrival would call `setHostMetrics` with a freshly-parsed (referentially-
-  // new) object, forcing a redundant HostMetricsContext re-render per attached
-  // server per tick. Deduping on the raw event string collapses those to one
-  // state update per distinct payload.
+  // Last raw host-metrics payload applied to `hostMetrics`. The `metrics` event
+  // is host-global — the muxed socket delivers it ONCE per tick as a
+  // `kind:"global"` event (vs. the old per-stream fan-out that arrived once per
+  // attached server). This guard still earns its keep: a reconnect replays the
+  // cached metrics slot, and the ack snapshot can repeat the current payload, so
+  // deduping on the raw event string collapses identical payloads to one state
+  // update — without it each arrival would call `setHostMetrics` with a
+  // freshly-parsed (referentially-new) object, forcing a redundant
+  // HostMetricsContext re-render.
   const hostMetricsPrevRef = useRef<string>("");
   const applyHostMetrics = useCallback((raw: string, snap: MetricsSnapshot) => {
     if (raw === hostMetricsPrevRef.current) return;
@@ -348,10 +358,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
     setHostMetrics(snap);
   }, []);
 
-  // Same raw-payload dedup as `applyHostMetrics`, for `event: services`. The
-  // services broadcast is server-global (identical on every stream), so on
-  // multi-server routes the same payload arrives once per attached server per
-  // tick; deduping on the raw string collapses those to one state update.
+  // Same raw-payload dedup as `applyHostMetrics`, for the `services` event. It
+  // is host-global too — delivered once per tick as a `kind:"global"` event —
+  // but a reconnect replay can repeat the current payload; deduping on the raw
+  // string collapses identical payloads to one state update.
   const hostServicesPrevRef = useRef<string>("");
   const applyHostServices = useCallback((raw: string, services: Service[]) => {
     if (raw === hostServicesPrevRef.current) return;
@@ -359,15 +369,13 @@ export function SessionProvider({ children }: SessionProviderProps) {
     setHostServices(services);
   }, []);
 
-  // Apply a server-global `event: server-order` payload: stamp each named
-  // server's rank from its position in `order`, drop the rank of any server not
-  // listed (so a removed-from-order server falls to the unranked tail), then
-  // re-sort with the same rank-aware comparator used at fetch time — a state
-  // update, no /api/servers refetch. Always produces a fresh array; churn here
-  // is bounded to explicit reorder events, not per-tick SSE, so no dedup guard
-  // is needed. Shared by the per-server pool streams and the dedicated
-  // `?metrics=1` stream, since the event is server-global (identical on every
-  // stream).
+  // Apply a host-global `server-order` payload: stamp each named server's rank
+  // from its position in `order`, drop the rank of any server not listed (so a
+  // removed-from-order server falls to the unranked tail), then re-sort with the
+  // same rank-aware comparator used at fetch time — a state update, no
+  // /api/servers refetch. Always produces a fresh array; churn here is bounded
+  // to explicit reorder events, not per-tick events, so no dedup guard is
+  // needed. Delivered once over the state socket as a `kind:"global"` event.
   const applyServerOrder = useCallback((order: string[]) => {
     const rankByName = new Map<string, number>();
     order.forEach((name, i) => rankByName.set(name, i));
@@ -390,9 +398,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
     });
   }, []);
 
-  // Board-changed event subscribers. Stored in a ref so the SSE listener
-  // (set up inside the pool effect) can fire all subscribers without
-  // re-running on every subscriber registration.
+  // Board-changed event subscribers. Stored in a ref so the state socket's
+  // per-server event handler can fire all subscribers without re-running on
+  // every subscriber registration.
   const boardChangeSubscribersRef = useRef<Set<(server: string) => void>>(new Set());
   const subscribeBoardChange = useCallback((handler: (server: string) => void) => {
     boardChangeSubscribersRef.current.add(handler);
@@ -401,8 +409,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
     };
   }, []);
 
-  // Board-order event subscribers (server-global). Same ref-of-handlers pattern
-  // as boardChangeSubscribersRef so the pool + metrics-stream listeners can fire
+  // Board-order event subscribers (host-global). Same ref-of-handlers pattern
+  // as boardChangeSubscribersRef so the socket's global-event handler can fire
   // them without re-running on every subscriber registration.
   const boardOrderSubscribersRef = useRef<Set<() => void>>(new Set());
   const subscribeBoardOrder = useCallback((handler: () => void) => {
@@ -421,11 +429,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
     }
   }, []);
 
-  // Status-refresh completion subscribers (server-global). Same ref-of-handlers
+  // Status-refresh completion subscribers (host-global). Same ref-of-handlers
   // pattern as boardOrderSubscribersRef: a manual PR-status refresh completing
-  // server-side fans out `event: status-refresh` to every stream, and the
-  // PANE-header refresh button subscribes to clear its spinner (it spins
-  // click→event, not click→POST).
+  // server-side fans out `status-refresh` as a `kind:"global"` event over the
+  // socket, and the PANE-header refresh button subscribes to clear its spinner
+  // (it spins click→event, not click→POST).
   const statusRefreshSubscribersRef = useRef<Set<() => void>>(new Set());
   const subscribeStatusRefresh = useCallback((handler: () => void) => {
     statusRefreshSubscribersRef.current.add(handler);
@@ -467,7 +475,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
   // Mirror the current server's connection state into ChromeContext so the
   // existing connection dot in the top bar continues to reflect the active
-  // server's SSE state. Single-server behavior preserved.
+  // server's subscription state. Single-server behavior preserved.
   useEffect(() => {
     if (!currentServer) {
       setChromeConnected(false);
@@ -535,287 +543,276 @@ export function SessionProvider({ children }: SessionProviderProps) {
     [],
   );
 
-  // EventSource pool — open one per server in `servers`, close when a server
-  // disappears. Tracked by a stable ref of {server -> {es, prevSseData,
-  // disconnectTimer}} so reconnect/cleanup are deterministic.
-  type PoolEntry = {
-    es: EventSource;
-    prevSseData: string;
-    disconnectTimer: ReturnType<typeof setTimeout> | null;
-    /** Client-generated id for THIS SSE connection, passed as `&conn=` on the
-     *  stream URL and reused in `setPreviewScope` POSTs so the backend keys the
-     *  per-connection preview-scope state to the right stream. */
-    connId: string;
-  };
-  type Pool = Map<string, PoolEntry>;
-  const poolRef = useRef<Pool>(new Map());
+  // Single state socket (`/ws/state`) carrying ALL session-state + host-metrics
+  // streams (change 260716-qf3j). Replaces the per-server EventSource pool + the
+  // dedicated `?metrics=1` stream. An established WebSocket holds no HTTP/1.1
+  // pool slot (docs/findings/socket-pool-accounting.md), so one socket clears
+  // the pool starvation that blocked terminal handshakes on Firefox/WebKit.
+  //
+  // Held in a ref so the socket survives effect re-runs / StrictMode remounts.
+  // `attachServer` / `subscribe*` and every consumer above these seams are
+  // unchanged — the socket demuxes the envelope back into the same per-server /
+  // host-global apply paths the SSE listeners used.
+  const socketRef = useRef<StateSocket | null>(null);
+  // Socket-level connection state — true between onopen and onclose. The
+  // per-server dot derives from (socket connected AND that server's subscription
+  // acked); host-metrics health derives from the metrics subscription's ack.
+  const socketConnectedRef = useRef(false);
+  // 3s disconnect debounce (mirrors the old per-server `onerror` debounce) so a
+  // transient socket blip doesn't flicker the connection dots gray.
+  const socketDisconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which servers currently have an acked subscription (drives per-server
+  // isConnected). A plain Set in a ref — connection-dot state is derived from
+  // it plus socketConnectedRef; we still call updateSlice to publish isConnected.
+  const ackedServersRef = useRef<Set<string>>(new Set());
+  // Servers with an active per-server subscription (diffed against attachedSet).
+  // Declared here (above the event handlers) so handleGlobalEvent can fan the
+  // host-global metrics snapshot into each attached server's per-server slice.
+  const subscribedServersRef = useRef<Set<string>>(new Set());
 
-  // Per-server SSE connection id, mirrored out of the pool so `setPreviewScope`
-  // (a context method, not inside the pool effect) can read the current id.
-  const connIdByServerRef = useRef<Map<string, string>>(new Map());
-
-  // Single combined effect that maintains the pool diff-style. The cleanup
-  // closes ALL pooled EventSources — important for Strict Mode dev where the
-  // effect runs cleanup-then-effect; without close() in cleanup, the second
-  // run would skip opening (pool.has) and the SSE handlers from the first run
-  // would be orphans pointing at closed connections.
-  useEffect(() => {
-    const pool = poolRef.current;
-    // Open ES only for *attached* servers. `attachedSet` is the
-    // intersection of (currentServer ∪ user-expanded sidebar groups) and the
-    // known servers list. Lazy-attach keeps us under the 6-connection cap.
-    const desired = attachedSet;
-
-    // Open EventSources for newly-attached servers.
-    for (const name of desired) {
-      if (pool.has(name)) continue;
-      const connId = crypto.randomUUID();
-      const es = new EventSource(
-        `/api/sessions/stream?server=${encodeURIComponent(name)}&conn=${encodeURIComponent(connId)}`,
-      );
-      const entry: PoolEntry = {
-        es,
-        prevSseData: "",
-        disconnectTimer: null,
-        connId,
-      };
-      pool.set(name, entry);
-      connIdByServerRef.current.set(name, connId);
-
-      // Initialize the slice so consumers see a stable empty value before
-      // the first event arrives. Use updateSlice with a known-empty shape;
-      // subsequent updates merge into it.
-      updateSlice(name, EMPTY_SLICE);
-
-      const markConnected = () => {
-        if (entry.disconnectTimer) {
-          clearTimeout(entry.disconnectTimer);
-          entry.disconnectTimer = null;
-        }
-        updateSlice(name, { isConnected: true }, true);
-      };
-
-      const markDisconnected = () => {
-        updateSlice(name, { isConnected: false }, true);
-        // Fallback for a catastrophic socket death the backend couldn't signal
-        // with a `server-gone` event (e.g. the daemon itself is mid-restart):
-        // re-query /api/servers so a genuinely-gone server drops out of the
-        // list and `resolveServerView` flips to the not-found view. Idempotent
-        // — if the server is still alive it simply reappears in the list.
-        fetchServers();
-      };
-
-      es.addEventListener("sessions", (e: MessageEvent) => {
-        try {
-          if (e.data === entry.prevSseData) {
-            markConnected();
-            return;
-          }
-          entry.prevSseData = e.data;
-          const data = JSON.parse(e.data) as ProjectSession[];
-          // Batch sessions + connected in the same transition so consumers
-          // never see isConnected=true with stale/empty sessions.
+  // Stable event handlers held in a ref so the socket is constructed ONCE
+  // (the apply* callbacks are stable useCallbacks; we thread them through a ref
+  // to keep the socket-construction effect dependency-free).
+  const handleServerEvent = useCallback(
+    (type: string, key: string, data: unknown) => {
+      switch (type) {
+        case "sessions": {
+          const sessions = data as ProjectSession[];
           startTransition(() => {
-            updateSlice(name, { sessions: data, isConnected: true }, true);
-            if (entry.disconnectTimer) {
-              clearTimeout(entry.disconnectTimer);
-              entry.disconnectTimer = null;
-            }
+            updateSlice(key, { sessions, isConnected: true }, true);
           });
-        } catch {
-          // Malformed event — skip
+          break;
         }
-      });
-
-      es.addEventListener("metrics", (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data) as MetricsSnapshot;
-          updateSlice(name, { metrics: data }, true);
-          // The `event: metrics` broadcast is server-global (identical payload
-          // on every per-server stream — see api/sse.go poll loop), so any
-          // attached server's metrics event is a valid host-metrics source.
-          // Feed it into hostMetrics too, so `useHostMetrics()` stays live
-          // WITHOUT the dedicated `?metrics=1` stream: that stream is closed
-          // whenever a per-server stream is open (see the host-metrics effect
-          // below), and this fan-out supplies host metrics in its place.
-          // Dedupe on the raw payload so multiple attached servers delivering
-          // the same server-global snapshot in one tick set state only once.
-          applyHostMetrics(e.data, data);
-        } catch {
-          // Malformed metrics event — skip
+        case "session-order": {
+          const d = data as { server?: string; order?: string[] };
+          if (d.server !== key) return; // defensive misroute guard (parity with SSE)
+          updateSlice(key, { sessionOrder: Array.isArray(d.order) ? d.order : [] }, true);
+          break;
         }
-      });
-
-      // `event: services` is server-global too (same payload on every stream —
-      // see api/sse.go poll loop), so any attached server's stream is a valid
-      // host-services source. Feed it into hostServices via the shared dedup so
-      // `useHostServices()` stays live WITHOUT the dedicated `?metrics=1` stream
-      // (which is closed whenever a per-server stream is open). Mirrors the
-      // metrics fan-out above.
-      es.addEventListener("services", (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data) as ServicesSnapshot;
-          applyHostServices(e.data, Array.isArray(data.services) ? data.services : []);
-        } catch {
-          // Malformed services event — skip
-        }
-      });
-
-      es.addEventListener("session-order", (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data) as { server?: string; order?: string[] };
-          // Backend already filters by client.server; double-check here so a
-          // misrouted event (e.g., due to a bug or proxy reorder) cannot
-          // contaminate another server's order.
-          if (data.server !== name) return;
-          updateSlice(
-            name,
-            { sessionOrder: Array.isArray(data.order) ? data.order : [] },
-            true,
-          );
-        } catch {
-          // Malformed event — skip
-        }
-      });
-
-      // server-order — server-global (identical on every stream, like metrics/
-      // services). Re-sort the held `servers` list with the new rank order.
-      // No `data.server` filter: this is a host-global concern, not per-server.
-      es.addEventListener("server-order", (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data) as { order?: string[] };
-          if (Array.isArray(data.order)) applyServerOrder(data.order);
-        } catch {
-          // Malformed event — skip
-        }
-      });
-
-      // board-order — server-global (identical on every stream). Fire the
-      // subscribers so useBoards re-fetches the backend-sorted board list. No
-      // `data.server` filter: host-global, like server-order.
-      es.addEventListener("board-order", () => {
-        fireBoardOrder();
-      });
-
-      // status-refresh — server-global (a manual PR-status refresh completed).
-      // Fire the subscribers so the PANE-header refresh button clears its
-      // spinner. Broadcast-only (no cached payload); host-global, no server filter.
-      es.addEventListener("status-refresh", () => {
-        fireStatusRefresh();
-      });
-
-      // version — server-global (sent on connect on every stream). Track the
-      // running daemon version + boot id + brew flag and drive the post-restart
-      // reload guard. `boot`/`brew` are parsed tolerantly (an older daemon sends
-      // a boot-less/brew-less payload — mixed-version window — which must not
-      // break). No `data.server` filter: host-global, like server-order/board-order.
-      es.addEventListener("version", (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data) as { version?: string; boot?: string; brew?: boolean };
-          if (typeof data.version === "string") {
-            applyVersion(
-              data.version,
-              typeof data.boot === "string" ? data.boot : null,
-              data.brew === true,
-            );
-          }
-        } catch {
-          // Malformed version event — skip
-        }
-      });
-
-      // update-available — server-global (a pending qualifying update). Store
-      // {current, latest} for the chip + palette. Host-global, no server filter.
-      es.addEventListener("update-available", (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data) as { current?: string; latest?: string };
-          if (typeof data.current === "string" && typeof data.latest === "string") {
-            applyUpdateAvailable(data.current, data.latest);
-          }
-        } catch {
-          // Malformed update-available event — skip
-        }
-      });
-
-      // preview — pane-text snapshots for the tile grid, keyed by windowId.
-      // Bounded server-side to the sessions this connection declared expanded
-      // (setPreviewScope).
-      es.addEventListener("preview", (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data) as Record<string, string>;
-          // Merge into the existing previews rather than replacing: a preview
-          // event carries only the subset of windows captured this tick (a
-          // window omitted due to a capture error is absent from `data`), so a
-          // wholesale replace would clobber previously-received previews for
-          // the other windows in the expanded set.
+        case "preview": {
+          const d = data as Record<string, string>;
+          // Merge, don't replace — a preview event carries only the subset of
+          // windows captured this tick (parity with the SSE preview listener).
           setSlicesByServer((prev) => {
-            const existing = prev.get(name);
+            const existing = prev.get(key);
             if (!existing) return prev;
             const next = new Map(prev);
-            next.set(name, {
-              ...existing,
-              previews: { ...existing.previews, ...data },
-            });
+            next.set(key, { ...existing, previews: { ...existing.previews, ...d } });
             return next;
           });
-        } catch {
-          // Malformed preview event — skip
+          break;
         }
-      });
-
-      // board-changed — re-broadcast to any registered subscriber.
-      // useBoards / useWindowPins consume this instead of opening their own
-      // per-server EventSources, which would otherwise multiply connections
-      // past the browser's HTTP/1.1 6-per-origin cap.
-      es.addEventListener("board-changed", () => {
-        for (const handler of boardChangeSubscribersRef.current) {
-          try {
-            handler(name);
-          } catch {
-            // ignore individual subscriber errors
+        case "board-changed": {
+          for (const handler of boardChangeSubscribersRef.current) {
+            try {
+              handler(key);
+            } catch {
+              // ignore individual subscriber errors
+            }
           }
+          break;
         }
-      });
+        default:
+          break;
+      }
+    },
+    [updateSlice],
+  );
 
-      // server-gone — the backend reaped this server from its poll set because
-      // its tmux socket is gone. Tear down the stream exactly like the pool-diff
-      // cleanup below (clear timer, close ES, drop pool + slice), then re-query
-      // /api/servers so the now-absent server drops from the list and
-      // `resolveServerView` flips a viewer to the existing not-found view.
-      es.addEventListener("server-gone", () => {
-        if (entry.disconnectTimer) clearTimeout(entry.disconnectTimer);
-        entry.es.close();
-        pool.delete(name);
-        connIdByServerRef.current.delete(name);
+  const handleGlobalEvent = useCallback(
+    (type: string, data: unknown) => {
+      switch (type) {
+        case "metrics": {
+          const snap = data as MetricsSnapshot;
+          // Dedupe on the raw payload (parity with applyHostMetrics's SSE
+          // dedup): the metrics broadcast is host-global.
+          applyHostMetrics(JSON.stringify(data), snap);
+          // Also populate every attached server's per-server slice metrics, so
+          // `useMetrics()` (current-server-scoped — the sidebar Host panel) stays
+          // fed. Under SSE this rode each per-server stream's `metrics` listener;
+          // the muxed socket delivers metrics ONCE as a global, so fan it into the
+          // subscribed servers' slices here (parity with the old per-server write).
+          for (const name of subscribedServersRef.current) {
+            updateSlice(name, { metrics: snap }, true);
+          }
+          break;
+        }
+        case "services": {
+          const d = data as ServicesSnapshot;
+          applyHostServices(JSON.stringify(data), Array.isArray(d.services) ? d.services : []);
+          break;
+        }
+        case "server-order": {
+          const d = data as { order?: string[] };
+          if (Array.isArray(d.order)) applyServerOrder(d.order);
+          break;
+        }
+        case "board-order":
+          fireBoardOrder();
+          break;
+        case "status-refresh":
+          fireStatusRefresh();
+          break;
+        case "version": {
+          const d = data as { version?: string; boot?: string; brew?: boolean };
+          if (typeof d.version === "string") {
+            applyVersion(d.version, typeof d.boot === "string" ? d.boot : null, d.brew === true);
+          }
+          break;
+        }
+        case "update-available": {
+          const d = data as { current?: string; latest?: string };
+          if (typeof d.current === "string" && typeof d.latest === "string") {
+            applyUpdateAvailable(d.current, d.latest);
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    },
+    [applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, fireStatusRefresh, applyVersion, applyUpdateAvailable, updateSlice],
+  );
+
+  // Latest handlers, kept in a ref so the one-time socket-construction effect
+  // never needs to re-run when a handler identity changes.
+  const eventRef = useRef({ handleServerEvent, handleGlobalEvent, fetchServers });
+  eventRef.current = { handleServerEvent, handleGlobalEvent, fetchServers };
+
+  // Construct + connect the socket exactly once (mount → unmount). All state is
+  // routed through eventRef so this effect has no changing dependencies.
+  useEffect(() => {
+    const applyServerConnected = () => {
+      // A subscription is "connected" only while the socket itself is up.
+      const up = socketConnectedRef.current;
+      for (const name of ackedServersRef.current) {
+        updateSlice(name, { isConnected: up }, true);
+      }
+      setDedicatedMetricsConnected(up && ackedServersRef.current.has(METRICS_SUB));
+    };
+
+    const socket = new StateSocket({
+      onEvent: (ev) => {
+        if (ev.kind === "server" && ev.key) {
+          eventRef.current.handleServerEvent(ev.type, ev.key, ev.data);
+        } else if (ev.kind === "global") {
+          eventRef.current.handleGlobalEvent(ev.type, ev.data);
+        }
+      },
+      onAck: (_req, kind, key, snapshot) => {
+        if (kind === "metrics") {
+          ackedServersRef.current.add(METRICS_SUB);
+          setDedicatedMetricsConnected(socketConnectedRef.current);
+          // The metrics ack snapshot is the cached metrics payload (or null).
+          if (snapshot) {
+            eventRef.current.handleGlobalEvent("metrics", snapshot);
+          }
+          return;
+        }
+        if (!key) return;
+        ackedServersRef.current.add(key);
+        // The server ack snapshot is the sessions payload (parity with the
+        // first `event: sessions`). null means "no snapshot yet".
+        const sessions = Array.isArray(snapshot) ? (snapshot as ProjectSession[]) : [];
+        startTransition(() => {
+          updateSlice(key, { sessions, isConnected: socketConnectedRef.current }, true);
+        });
+      },
+      onGone: (key) => {
+        ackedServersRef.current.delete(key);
+        // Also release the subscription itself — drop it from the active set and
+        // the StateSocket's ref-count. Otherwise, if the server stays in
+        // attachedSet (a still-attached server that only transiently went gone,
+        // or one fetchServers keeps returning), the diff effect would see the
+        // name already in subscribedServersRef and never re-subscribe — leaving
+        // that server's UI permanently dead until detach/reload. Releasing here
+        // lets the diff effect re-subscribe cleanly when attachedSet recomputes
+        // (fetchServers below drives that) and the server is still desired.
+        subscribedServersRef.current.delete(key);
+        socketRef.current?.unsubscribeServer(key);
         setSlicesByServer((prev) => {
-          if (!prev.has(name)) return prev;
+          if (!prev.has(key)) return prev;
           const next = new Map(prev);
-          next.delete(name);
+          next.delete(key);
           return next;
         });
-        fetchServers();
-      });
-
-      es.onerror = () => {
-        if (!entry.disconnectTimer) {
-          entry.disconnectTimer = setTimeout(markDisconnected, 3000);
+        eventRef.current.fetchServers();
+      },
+      onConnectionChange: (connected) => {
+        if (connected) {
+          socketConnectedRef.current = true;
+          if (socketDisconnectTimerRef.current) {
+            clearTimeout(socketDisconnectTimerRef.current);
+            socketDisconnectTimerRef.current = null;
+          }
+          applyServerConnected();
+        } else {
+          // 3s debounce before flipping dots gray (parity with the old
+          // per-server / dedicated-stream onerror debounce).
+          if (!socketDisconnectTimerRef.current) {
+            socketDisconnectTimerRef.current = setTimeout(() => {
+              socketDisconnectTimerRef.current = null;
+              socketConnectedRef.current = false;
+              applyServerConnected();
+              // Fallback for a catastrophic drop the backend couldn't signal
+              // with `gone` (e.g. the daemon itself is mid-restart): re-query
+              // the server list so a genuinely-gone server drops out.
+              eventRef.current.fetchServers();
+            }, 3000);
+          }
         }
-      };
+      },
+    });
+    socketRef.current = socket;
+    socket.connect();
+    return () => {
+      if (socketDisconnectTimerRef.current) {
+        clearTimeout(socketDisconnectTimerRef.current);
+        socketDisconnectTimerRef.current = null;
+      }
+      socket.close();
+      socketRef.current = null;
+      // Reset the subscription guard refs so a remount re-subscribes on the NEW
+      // socket. StrictMode double-mounts the provider (dev + e2e run under
+      // <StrictMode>): this effect destroys+recreates the socket, but the guard
+      // refs below live OUTSIDE the effect and survive the remount. Without this
+      // reset, mount 2's diff effect (`subscribedServersRef`) and metrics effect
+      // (`metricsSubscribedRef`) would see their guards already true and never
+      // subscribe on the fresh socket — permanently losing the metrics
+      // subscription on `/` (Host dot dead, poll loop never started when this is
+      // the hub's only client). `ackedServersRef` is cleared too since nothing
+      // is acked on the new socket until fresh acks arrive. These effects re-run
+      // on every remount regardless of dep changes, so cleared guards make them
+      // re-subscribe. (`dedicatedMetricsConnected` is React state, reset by the
+      // metrics effect's own `setDedicatedMetricsConnected(false)` path when it
+      // re-runs; the fresh metrics ack re-establishes it.)
+      metricsSubscribedRef.current = false;
+      subscribedServersRef.current.clear();
+      ackedServersRef.current.clear();
+    };
+  }, [updateSlice]);
 
-      es.onopen = () => {
-        // Don't markConnected() here — wait for the first "sessions" event
-        // so consumers see isConnected=true only when session data is
-        // available. Mirrors the previous single-server behavior.
-      };
+  // Diff the desired attach set against active server subscriptions. Newly
+  // attached servers subscribe (seeding an empty slice for a stable initial
+  // value); removed servers unsubscribe and drop their slice.
+  // (subscribedServersRef is declared above, next to ackedServersRef.)
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+    const desired = attachedSet;
+    const active = subscribedServersRef.current;
+
+    for (const name of desired) {
+      if (active.has(name)) continue;
+      active.add(name);
+      updateSlice(name, EMPTY_SLICE);
+      socket.subscribeServer(name);
     }
-
-    // Close EventSources for servers that disappeared.
-    for (const [name, entry] of pool) {
+    for (const name of Array.from(active)) {
       if (desired.has(name)) continue;
-      if (entry.disconnectTimer) clearTimeout(entry.disconnectTimer);
-      entry.es.close();
-      pool.delete(name);
-      connIdByServerRef.current.delete(name);
+      active.delete(name);
+      ackedServersRef.current.delete(name);
+      socket.unsubscribeServer(name);
       setSlicesByServer((prev) => {
         if (!prev.has(name)) return prev;
         const next = new Map(prev);
@@ -823,154 +820,28 @@ export function SessionProvider({ children }: SessionProviderProps) {
         return next;
       });
     }
+  }, [attachedSet, updateSlice]);
 
-    // No cleanup — pool persists across effect re-runs and unmount/remount
-    // cycles in Strict Mode dev. Real cleanup happens implicitly when the
-    // window unloads. The pool dedupes via `pool.has(name)` so re-runs are
-    // safe without close-then-reopen.
-  }, [attachedSet, updateSlice, fetchServers, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, fireStatusRefresh, applyVersion, applyUpdateAvailable]);
-
-  // Dedicated server-independent host-metrics stream, opened ONLY when no
-  // per-server stream is open (`attachedSet` empty — the bare `/` case with
-  // zero attached servers). It exists purely to receive the server-global
-  // `event: metrics` broadcast so host health is available on `/`, where there
-  // is no `currentServer` and no per-server stream to carry metrics.
-  //
-  // Whenever ANY server is attached the dedicated stream is REDUNDANT — the
-  // per-server `metrics` listener above already fans the same server-global
-  // payload into `hostMetrics` — and it would only cost a permanent +1 against
-  // the browser's HTTP/1.1 6-per-origin connection budget on EVERY route,
-  // including the connection-starvation-fragile board route (which attaches all
-  // known servers). So we CLOSE it once `attachedSet` is non-empty and REOPEN
-  // it if the attached set drains back to empty. `useHostMetrics()` stays live
-  // across the switch: dedicated stream when nothing is attached, per-server
-  // fan-out otherwise.
-  //
-  // We pass `?metrics=1` (and no `server`): the backend routes this to a
-  // server-neutral, metrics-only client that is never session-polled or reaped,
-  // so it keeps receiving the broadcast with zero attached servers.
-  const hostMetricsESRef = useRef<EventSource | null>(null);
-  // 3s disconnect debounce for the dedicated stream (mirrors the per-server
-  // pool's `disconnectTimer`) so a transient socket blip doesn't flicker the
-  // Host dot. Held in a ref so the effect can clear it on reconnect/close.
-  const dedicatedDisconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Host-metrics subscription — opened ONLY when no server is attached (the bare
+  // `/` case with zero attached servers). When a server is attached its
+  // subscription already carries the host-global `metrics`/`services` broadcasts
+  // (they fan out to every connection), so a separate metrics subscription is
+  // redundant. This mirrors the old dedicated-`?metrics=1`-stream open/close.
   const hostMetricsWanted = attachedSet.size === 0;
+  const metricsSubscribedRef = useRef(false);
   useEffect(() => {
-    if (!hostMetricsWanted) {
-      // A per-server stream now carries host metrics (via the fan-out above) —
-      // close the redundant dedicated stream to free its connection slot. The
-      // derived `hostMetricsConnected` reads from per-server connectedness in
-      // this state, so reset the dedicated flag (and its timer) here.
-      if (dedicatedDisconnectTimerRef.current) {
-        clearTimeout(dedicatedDisconnectTimerRef.current);
-        dedicatedDisconnectTimerRef.current = null;
-      }
-      if (hostMetricsESRef.current) {
-        hostMetricsESRef.current.close();
-        hostMetricsESRef.current = null;
-      }
+    const socket = socketRef.current;
+    if (!socket) return;
+    if (hostMetricsWanted && !metricsSubscribedRef.current) {
+      metricsSubscribedRef.current = true;
+      socket.subscribeMetrics();
+    } else if (!hostMetricsWanted && metricsSubscribedRef.current) {
+      metricsSubscribedRef.current = false;
+      ackedServersRef.current.delete(METRICS_SUB);
       setDedicatedMetricsConnected(false);
-      return;
+      socket.unsubscribeMetrics();
     }
-    // Wanted (no server attached). StrictMode-safe: the ref survives the dev
-    // cleanup→re-run cycle, so a second run reuses the existing connection
-    // instead of opening a duplicate.
-    if (hostMetricsESRef.current) return;
-    const es = new EventSource("/api/sessions/stream?metrics=1");
-    hostMetricsESRef.current = es;
-    es.addEventListener("metrics", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as MetricsSnapshot;
-        // Shared dedup with the per-server fan-out above — routing both sources
-        // through applyHostMetrics keeps the guard authoritative across the
-        // dedicated-stream ↔ per-server-fan-out switch.
-        applyHostMetrics(e.data, data);
-        // First (or recovered) metrics event — the stream is flowing. Clear any
-        // pending disconnect debounce and mark connected.
-        if (dedicatedDisconnectTimerRef.current) {
-          clearTimeout(dedicatedDisconnectTimerRef.current);
-          dedicatedDisconnectTimerRef.current = null;
-        }
-        setDedicatedMetricsConnected(true);
-      } catch {
-        // Malformed metrics event — skip
-      }
-    });
-    es.onerror = () => {
-      // 3s debounce before flipping the dot gray — mirrors the per-server pool.
-      if (!dedicatedDisconnectTimerRef.current) {
-        dedicatedDisconnectTimerRef.current = setTimeout(() => {
-          dedicatedDisconnectTimerRef.current = null;
-          setDedicatedMetricsConnected(false);
-        }, 3000);
-      }
-    };
-    // `event: services` rides the same dedicated stream (it fans out to every
-    // client). Add the listener here too so host services stay live on the bare
-    // `/` route with zero attached servers, mirroring the metrics listener.
-    es.addEventListener("services", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as ServicesSnapshot;
-        applyHostServices(e.data, Array.isArray(data.services) ? data.services : []);
-      } catch {
-        // Malformed services event — skip
-      }
-    });
-    // `event: server-order` rides the same server-global broadcast, so the bare
-    // `/` Host (zero attached servers) still re-sorts its tile grid live.
-    es.addEventListener("server-order", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as { order?: string[] };
-        if (Array.isArray(data.order)) applyServerOrder(data.order);
-      } catch {
-        // Malformed server-order event — skip
-      }
-    });
-    // `event: board-order` also rides the server-global broadcast — the Host
-    // BOARDS zone renders with zero attached servers, so the metrics stream must
-    // carry it too or a reorder from another client would not surface on `/`.
-    es.addEventListener("board-order", () => {
-      fireBoardOrder();
-    });
-    // `event: status-refresh` also rides the server-global broadcast — a refresh
-    // button on any page (incl. the bare `/` Host with zero attached servers)
-    // must clear its spinner when the daemon signals completion.
-    es.addEventListener("status-refresh", () => {
-      fireStatusRefresh();
-    });
-    // `event: version` / `event: update-available` are server-global too, so the
-    // bare `/` Host (zero attached servers) must still learn the daemon
-    // version (reload guard) and any pending update (chip/palette). Mirror the
-    // per-server listeners above.
-    es.addEventListener("version", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as { version?: string; boot?: string; brew?: boolean };
-        if (typeof data.version === "string") {
-          applyVersion(
-            data.version,
-            typeof data.boot === "string" ? data.boot : null,
-            data.brew === true,
-          );
-        }
-      } catch {
-        // Malformed version event — skip
-      }
-    });
-    es.addEventListener("update-available", (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as { current?: string; latest?: string };
-        if (typeof data.current === "string" && typeof data.latest === "string") {
-          applyUpdateAvailable(data.current, data.latest);
-        }
-      } catch {
-        // Malformed update-available event — skip
-      }
-    });
-    // No cleanup close() here — the open/close is driven by `hostMetricsWanted`
-    // (the effect body closes the stream when it flips false), not by effect
-    // teardown. A cleanup close() would tear down the connection on every
-    // StrictMode remount and orphan the ref-guarded reopen.
-  }, [hostMetricsWanted, applyHostMetrics, applyHostServices, applyServerOrder, fireBoardOrder, fireStatusRefresh, applyVersion, applyUpdateAvailable]);
+  }, [hostMetricsWanted]);
 
   // Derive per-field Maps from the slice Map. Memoized so unrelated re-renders
   // don't churn consumer references. Each Map is a fresh reference whenever
@@ -996,10 +867,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
   }, [slicesByServer]);
 
   // Host-metrics source health (260704-9o7k) — the Host connection dot.
-  // When no server is attached the dedicated `?metrics=1` stream IS the source,
-  // so use its debounced health. Otherwise the per-server metrics fan-out
-  // carries host metrics, so derive from whether ANY attached server slice is
-  // connected — that server is delivering the server-global `event: metrics`.
+  // When no server is attached the dedicated `metrics` subscription IS the
+  // source, so use its debounced health. Otherwise the host-global metrics
+  // broadcast rides every server subscription, so derive from whether ANY
+  // attached server slice is connected — that subscription is delivering the
+  // host-global `metrics` event.
   const hostMetricsConnected = useMemo(() => {
     if (hostMetricsWanted) return dedicatedMetricsConnected;
     for (const slice of slicesByServer.values()) {
@@ -1020,14 +892,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return m;
   }, [slicesByServer]);
 
-  // Declare the tile grid's expanded-session set for a server. Best-effort —
-  // reads the server's current SSE connection id and POSTs it; a missing id
-  // (stream not yet open) simply skips (the next tick after connect + a
-  // re-declare covers it). Errors are swallowed (a preview is a nicety).
+  // Declare the tile grid's expanded-session set for a server. Sent in-band over
+  // the state socket (addressed by the socket's own conn id — decision D4), so
+  // there is no POST-races-the-stream window. Best-effort: a not-yet-open socket
+  // simply drops the frame (the next re-declare after connect covers it).
   const setPreviewScope = useCallback((server: string, expanded: string[]) => {
-    const conn = connIdByServerRef.current.get(server);
-    if (!conn) return;
-    void apiSetPreviewScope(server, conn, expanded).catch(() => {});
+    socketRef.current?.sendPreviewScope(server, expanded);
   }, []);
 
   const value = useMemo<SessionContextType>(
@@ -1183,7 +1053,7 @@ export function useMetrics(): MetricsSnapshot | null {
   return ctx;
 }
 
-/** Host-global metrics from the dedicated server-independent stream. Unlike
+/** Host-global metrics from the state socket's `metrics` global event. Unlike
  *  `useMetrics()` (current-server-scoped, `null` on `/`), this is available on
  *  EVERY route — the Host host-console home (`/`) consumes it. `null` before
  *  the first metrics tick. */
@@ -1193,9 +1063,9 @@ export function useHostMetrics(): MetricsSnapshot | null {
   return ctx;
 }
 
-/** Host-global listening services from the server-independent broadcast.
- *  Available on EVERY route — the Host host-console home (`/`) consumes it
- *  for the SERVICES zone. Returns `[]` before the first services tick (never
+/** Host-global listening services from the state socket's `services` global
+ *  event. Available on EVERY route — the Host host-console home (`/`) consumes
+ *  it for the SERVICES zone. Returns `[]` before the first services tick (never
  *  null), so consumers can map over it unconditionally. */
 export function useHostServices(): Service[] {
   const ctx = useContext(HostServicesContext);
@@ -1204,8 +1074,8 @@ export function useHostServices(): Service[] {
 }
 
 // Standalone provider for tests and storybook — supplies a `null` or fake
-// metrics value without requiring the full SessionProvider (which opens an
-// EventSource).
+// metrics value without requiring the full SessionProvider (which opens the
+// state socket).
 export function MetricsProvider({
   value,
   children,
@@ -1217,7 +1087,7 @@ export function MetricsProvider({
 }
 
 /** Standalone provider for tests — supplies a static SessionContext value
- *  without opening an EventSource. Counterpart to `MetricsProvider` above.
+ *  without opening the state socket. Counterpart to `MetricsProvider` above.
  *  Accepts a partial multi-server shape and fills missing fields with safe
  *  defaults. */
 export function StandaloneSessionContextProvider({

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 // This spec is fully mocked: the isolated e2e tmux server has no real
 // change-bound PRs and `gh` is unavailable in CI, so we inject the SSE
@@ -78,20 +79,9 @@ async function mockBackend(page: Page) {
     }),
   );
 
-  // SSE stream: emit one `sessions` event carrying the mocked payload. The
-  // body is a complete SSE frame; EventSource parses the event, then may
-  // reconnect and receive the same frame again — idempotent for our assertions.
-  await page.route("**/api/sessions/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      },
-      body: `event: sessions\ndata: ${sessionsPayload}\n\n`,
-    }),
-  );
+  // State socket: the mock answers hello + subscribe, delivering the mocked
+  // sessions payload as the subscribe ack snapshot + a live `sessions` event.
+  await mockStateSocket(page, { sessions: sessionsPayload });
 }
 
 test.describe("Pane panel PR status", () => {

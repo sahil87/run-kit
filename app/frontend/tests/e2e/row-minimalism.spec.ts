@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully mocked (no tmux/gh) — inject the SSE `sessions` payload + server list
 // via page.route, exercising the frontend Row-Minimalism display rule
@@ -56,13 +57,7 @@ async function mockBackend(page: Page) {
       body: JSON.stringify([{ name: SERVER, sessionCount: 1 }]),
     }),
   );
-  await page.route("**/api/sessions/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
-      body: `event: sessions\ndata: ${sessionsPayload}\n\n`,
-    }),
-  );
+  await mockStateSocket(page, { sessions: sessionsPayload });
 }
 
 test.describe("Row Minimalism", () => {

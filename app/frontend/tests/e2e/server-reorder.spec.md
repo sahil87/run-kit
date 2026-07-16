@@ -3,9 +3,8 @@
 Behavioural contract for the server-reorder backend surface: the
 `POST /api/servers/order` endpoint (writes each server's `@rk_server_rank`),
 the nullable `rank` field on `GET /api/servers` (array stays alphabetical), and
-the **server-global** `event: server-order` SSE broadcast that fans out to
-every connected client — including a server-neutral `?metrics=1` stream with no
-attached tmux server.
+the **server-global** `server-order` broadcast that fans out to every state-socket
+connection — including a metrics-only subscription with no attached tmux server.
 
 ## Why this slice (not a drag simulation)
 
@@ -15,8 +14,8 @@ non-draggable infra) and cannot create genuinely-regular servers without leaking
 sockets outside the `rk-test-e2e*` teardown glob. Native HTML5 drag is also
 unreliable to simulate in Playwright (the analogous session-reorder drag spec
 has never passed and is `test.fixme`), and `page.reload()` does not commit under
-the SPA's long-lived SSE connection. So this spec exercises the load-bearing new
-surface — the order endpoint and its server-global SSE echo — end-to-end against
+the SPA's long-lived state socket. So this spec exercises the load-bearing new
+surface — the order endpoint and its server-global echo — end-to-end against
 the live backend, which IS deterministic. The comparator, context re-sort, drag
 handlers, and palette Move actions are covered by Vitest unit tests.
 
@@ -56,16 +55,17 @@ containing `"bad name!"` (fails `ValidateServerName`) returns HTTP 400.
 
 ### `a successful order POST broadcasts a server-global event: server-order`
 
-**What it proves:** A successful order POST fans out an `event: server-order`
-frame to a client on the server-neutral `?metrics=1` stream (which has no
-attached tmux server), proving the broadcast is server-global — the Host
-with zero attached servers still hears order changes.
+**What it proves:** A successful order POST fans out a `server-order` global event
+to a state-socket connection subscribed to metrics only (no attached tmux server),
+proving the broadcast is server-global — the Host with zero attached servers still
+hears order changes.
 
 **Steps:**
 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
-2. In the page context, open an `EventSource` on `/api/sessions/stream?metrics=1`
-   and register a `server-order` listener that resolves with the frame data.
-3. On the EventSource's `onopen` (stream actually open — no fixed delay),
-   `fetch('POST /api/servers/order', {order: [TMUX_SERVER]})` from the page origin.
+2. In the page context, open a `WebSocket` to `/ws/state`, send `hello` +
+   `subscribe {kind:"metrics"}`, and resolve on the first
+   `{op:"event",kind:"global",type:"server-order"}` frame's `data`.
+3. On the socket's `onopen` (deterministic — no fixed delay), `fetch('POST
+   /api/servers/order', {order: [TMUX_SERVER]})` from the page origin.
 4. Await the resolved frame; parse it and assert `order` contains
    `TMUX_SERVER`. (Rejects if no frame arrives within the timeout.)

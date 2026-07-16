@@ -13,8 +13,7 @@ PANE panel register view.
   the data via `page.route`:
   - `**/api/servers` → a single server `default`.
   - `**/api/windows/*/select*` → 200 (window selection POST).
-  - `**/api/sessions/stream*` → one `event: sessions` frame with a session
-    `dev` and two windows:
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload — a session `dev` and two windows:
     - `@1` "feature-work" — a fab window at `review` (`fabStage: review`,
       `fabDisplayState: active`). Under the OLD model this row printed a
       "review" stage word.

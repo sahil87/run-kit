@@ -114,7 +114,7 @@ func TestPreviewSubsetFor(t *testing.T) {
 
 func TestSetPreviewScope(t *testing.T) {
 	hub := newSSEHub(&mockSessionFetcher{}, nil, nil, nil)
-	c := &sseClient{ch: make(chan []byte, 8), server: "srv", connID: "abc", expanded: map[string]bool{}}
+	c := &sseClient{ch: make(chan hubEvent, 8), server: "srv", connID: "abc", expanded: map[string]bool{}}
 	hub.clients["srv"] = []*sseClient{c}
 
 	hub.setPreviewScope("srv", "abc", []string{"a", "b"})
@@ -154,7 +154,7 @@ func TestPollEmitsPreviewEvent(t *testing.T) {
 		return "PREVIEW " + w.WindowID, true
 	}
 
-	c := &sseClient{ch: make(chan []byte, 32), server: "srv", connID: "abc", expanded: map[string]bool{"a": true}}
+	c := &sseClient{ch: make(chan hubEvent, 32), server: "srv", connID: "abc", expanded: map[string]bool{"a": true}}
 	hub.addClient(c) // starts poll goroutine
 
 	gotPreview := false
@@ -162,7 +162,7 @@ func TestPollEmitsPreviewEvent(t *testing.T) {
 	for !gotPreview {
 		select {
 		case ev := <-c.ch:
-			s := string(ev)
+			s := ev.String()
 			if strings.HasPrefix(s, "event: preview") {
 				if !strings.Contains(s, "@1") || !strings.Contains(s, "PREVIEW @1") {
 					t.Errorf("preview event missing @1 text: %s", s)
@@ -218,7 +218,7 @@ func TestHandlePreviewScopeSetsLiveConnection(t *testing.T) {
 	s := &Server{sessions: sf, tmux: &mockTmuxOps{}}
 	s.initSSEHub()
 
-	c := &sseClient{ch: make(chan []byte, 8), server: "default", connID: "live-1", expanded: map[string]bool{}}
+	c := &sseClient{ch: make(chan hubEvent, 8), server: "default", connID: "live-1", expanded: map[string]bool{}}
 	s.sseHub.clients["default"] = []*sseClient{c}
 
 	body, _ := json.Marshal(previewScopeRequest{Conn: "live-1", Expanded: []string{"sess-x"}})

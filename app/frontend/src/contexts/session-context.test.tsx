@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import {
   SessionProvider,
   useSessionContext,
@@ -33,54 +33,165 @@ vi.mock("@tanstack/react-router", () => ({
   useMatches: () => mockMatches,
 }));
 
-// MockEventSource — multi-instance, indexed by URL so per-server tests can
-// drive each stream independently. `addEventListener` is the only API the
-// provider uses to register handlers; `emit` invokes them synchronously.
-type Listener = (e: MessageEvent) => void;
-class MockEventSource {
-  static byUrl: Map<string, MockEventSource> = new Map();
-  static all: MockEventSource[] = [];
+// MockWebSocket — the state socket transport (change 260716-qf3j). The provider
+// opens ONE socket to /ws/state; the mock captures the client's ops (hello /
+// subscribe / unsubscribe / preview-scope) and lets tests drive server frames
+// (event / ack / gone). A `Facade` mirrors the old MockEventSource API so the
+// per-server test assertions read the same: `forServer(name).emit(type, data)`
+// pushes a `kind:"server"` event; `forHostMetrics().emit(type, data)` pushes a
+// `kind:"global"` event; `emit("server-gone")` pushes a `gone` frame.
+type WSListener = (e: MessageEvent) => void;
+const WS_OPEN = 1;
+class MockWebSocket {
+  static instances: MockWebSocket[] = [];
+  static current: MockWebSocket | null = null;
+  // When true, newly-constructed sockets stay CONNECTING (never fire onopen) —
+  // simulates a genuine outage so the provider's disconnect debounce can fire
+  // instead of being masked by an instant reconnect.
+  static outage = false;
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
   url: string;
-  listeners: Map<string, Listener> = new Map();
-  onerror: (() => void) | null = null;
+  readyState = WS_OPEN;
   onopen: (() => void) | null = null;
-  closed = false;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: WSListener | null = null;
+  sent: string[] = [];
+  // Requests seen, mapped req → {kind, key} so tests can ack them (append-only).
+  subs: Array<{ req: number; kind: string; key?: string }> = [];
+  // Active subscription ids, add on subscribe / remove on unsubscribe — reflects
+  // the CURRENT wire state (unlike `subs`, which is the full history).
+  active = new Set<string>();
   constructor(url: string) {
     this.url = url;
-    MockEventSource.byUrl.set(url, this);
-    MockEventSource.all.push(this);
-  }
-  addEventListener(event: string, handler: Listener) {
-    this.listeners.set(event, handler);
-  }
-  close() {
-    this.closed = true;
-  }
-  emit(event: string, data: unknown) {
-    const handler = this.listeners.get(event);
-    if (!handler) return;
-    handler({ data: JSON.stringify(data) } as MessageEvent);
-  }
-  static reset() {
-    MockEventSource.byUrl.clear();
-    MockEventSource.all = [];
-  }
-  static forServer(server: string): MockEventSource | undefined {
-    // Match by the `server=` query param. The stream URL now also carries a
-    // per-connection `&conn=<uuid>` (preview-scope correlation), so an exact
-    // full-URL lookup no longer works — scan for the matching server param.
-    const want = `server=${encodeURIComponent(server)}`;
-    return MockEventSource.all.find((es) => {
-      const q = es.url.split("?")[1] ?? "";
-      return q.split("&").includes(want);
+    MockWebSocket.instances.push(this);
+    MockWebSocket.current = this;
+    if (MockWebSocket.outage) {
+      this.readyState = MockWebSocket.CONNECTING;
+      return; // never opens — simulates an unreachable server
+    }
+    // Open synchronously on the next microtask so the provider's onopen fires
+    // and sends hello + resubscribes within the test's act().
+    queueMicrotask(() => {
+      this.onopen?.();
     });
   }
-  // The dedicated server-independent host-metrics stream opens at the
-  // metrics-only endpoint (`?metrics=1`, no `server` query param).
-  static forHostMetrics(): MockEventSource | undefined {
-    return MockEventSource.byUrl.get("/api/sessions/stream?metrics=1");
+  send(raw: string) {
+    this.sent.push(raw);
+    try {
+      const m = JSON.parse(raw);
+      const id = m.kind === "metrics" ? "metrics" : "server:" + m.key;
+      if (m.op === "subscribe") {
+        this.subs.push({ req: m.req, kind: m.kind, key: m.key });
+        this.active.add(id);
+      } else if (m.op === "unsubscribe") {
+        this.active.delete(id);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.();
+  }
+  // Deliver a raw server frame to the provider.
+  deliver(frame: unknown) {
+    this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent);
+  }
+  // Ack the most recent subscribe matching kind (+ key), with an optional snapshot.
+  ack(kind: string, key: string | undefined, snapshot: unknown) {
+    const sub = [...this.subs].reverse().find((s) => s.kind === kind && s.key === key);
+    if (!sub) return;
+    this.deliver({ op: "ack", req: sub.req, snapshot });
+  }
+  static reset() {
+    MockWebSocket.instances = [];
+    MockWebSocket.current = null;
   }
 }
+
+// Facade giving the old per-server / host-metrics emit API over the single WS.
+class ServerFacade {
+  constructor(private ws: MockWebSocket, private server: string) {}
+  emit(type: string, data: unknown) {
+    if (type === "sessions") {
+      // The provider treats the subscribe ack's snapshot as the sessions
+      // payload; deliver both an ack (so isConnected flips) and an event.
+      this.ws.ack("server", this.server, data);
+      this.ws.deliver({ op: "event", kind: "server", key: this.server, type: "sessions", data });
+      return;
+    }
+    if (type === "server-gone") {
+      this.ws.deliver({ op: "gone", kind: "server", key: this.server, reason: "server-exited" });
+      return;
+    }
+    this.ws.deliver({ op: "event", kind: "server", key: this.server, type, data });
+  }
+  get closed() {
+    // A server "closes" when the socket closes; single-socket model has no
+    // per-server socket, so report the socket's state.
+    return this.ws.readyState === MockWebSocket.CLOSED;
+  }
+  set onerror(_fn: (() => void) | null) {
+    /* per-server onerror has no analog on the single socket; drop */
+  }
+}
+
+class GlobalFacade {
+  constructor(private ws: MockWebSocket) {}
+  emit(type: string, data: unknown) {
+    if (type === "metrics") this.ws.ack("metrics", undefined, undefined);
+    this.ws.deliver({ op: "event", kind: "global", type, data });
+  }
+  // Emit a raw (possibly malformed) frame for the malformed-payload test.
+  emitRaw(type: string, raw: string) {
+    this.ws.onmessage?.({
+      data: JSON.stringify({ op: "event", kind: "global", type, data: JSON.parse(raw || "null") }),
+    } as MessageEvent);
+  }
+  get listeners() {
+    // Back-compat shim for the malformed-services test: return a Map whose
+    // `get` yields a handler that feeds a bad payload through the socket.
+    return {
+      get: (type: string) => (e: MessageEvent) => {
+        // e.data is a bad raw string; wrap it as a global event with unparsable
+        // data so the provider's tolerant parse skips it without throwing.
+        this.ws.onmessage?.({
+          data: `{"op":"event","kind":"global","type":"${type}","data":${
+            typeof e.data === "string" ? "0" : "0"
+          }}`,
+        } as MessageEvent);
+      },
+    };
+  }
+}
+
+// Helpers mirroring the old MockEventSource statics.
+const WS = {
+  forServer(server: string): ServerFacade | undefined {
+    const ws = MockWebSocket.current;
+    if (!ws) return undefined;
+    // A server is "present" only while its subscription is currently active.
+    if (!ws.active.has("server:" + server)) return undefined;
+    return new ServerFacade(ws, server);
+  },
+  forHostMetrics(): GlobalFacade | undefined {
+    const ws = MockWebSocket.current;
+    if (!ws) return undefined;
+    if (!ws.active.has("metrics")) return undefined;
+    return new GlobalFacade(ws);
+  },
+  // Emit a host-global event regardless of a metrics subscription (globals fan
+  // out to every connection; a server-only route still receives them).
+  global(): GlobalFacade | undefined {
+    const ws = MockWebSocket.current;
+    return ws ? new GlobalFacade(ws) : undefined;
+  },
+};
 
 const FAKE_METRICS: MetricsSnapshot = {
   hostname: "test-box",
@@ -99,10 +210,20 @@ function Wrapper({ children }: { children: ReactNode }) {
   );
 }
 
+// Flush microtasks (socket onopen is queued via queueMicrotask) + React effects.
+async function settle() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  MockEventSource.reset();
-  vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+  MockWebSocket.reset();
+  MockWebSocket.outage = false;
+  vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
   setMockMatches([]); // default: no route — currentServer null
   vi.mocked(listServers).mockResolvedValue([]);
 });
@@ -112,52 +233,51 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("SessionProvider — multi-server EventSource pool", () => {
-  it("opens an EventSource for the current server (lazy-attach for non-current)", async () => {
+describe("SessionProvider — single state socket, per-server subscriptions", () => {
+  it("subscribes to the current server (lazy-attach for non-current)", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }, { name: "work", sessionCount: 0 }]);
 
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
 
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-
-    // currentServer is auto-attached, non-current servers stay detached
-    // until `attachServer` is called.
-    expect(MockEventSource.forServer("runkit")).toBeDefined();
-    expect(MockEventSource.forServer("work")).toBeUndefined();
+    // Exactly one socket, subscribed to the current server; non-current stays
+    // detached until attachServer.
+    expect(MockWebSocket.instances.length).toBe(1);
+    expect(WS.forServer("runkit")).toBeDefined();
+    expect(WS.forServer("work")).toBeUndefined();
     expect(result.current.currentServer).toBe("runkit");
 
-    // Explicitly attach `work` — the second EventSource opens.
-    await act(async () => { result.current.attachServer("work"); });
-    expect(MockEventSource.forServer("work")).toBeDefined();
+    await act(async () => {
+      result.current.attachServer("work");
+    });
+    expect(WS.forServer("work")).toBeDefined();
+    // Still a single socket — attaching a second server does not open a new one.
+    expect(MockWebSocket.instances.length).toBe(1);
   });
 
-  it("isolates SSE updates per server (sessions event)", async () => {
+  it("isolates state per server (sessions event)", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }, { name: "work", sessionCount: 0 }]);
-
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
     act(() => {
-      MockEventSource.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
+      WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
     });
 
-    const runkitSlice = result.current.sessionsByServer.get("runkit") ?? [];
-    expect(runkitSlice.map((s) => s.name)).toEqual(["A"]);
-    // `work` not yet emitted — slice should be empty (initialized via lazy attach).
-    const workSlice = result.current.sessionsByServer.get("work") ?? [];
-    expect(workSlice.map((s) => s.name)).toEqual([]);
+    expect((result.current.sessionsByServer.get("runkit") ?? []).map((s) => s.name)).toEqual(["A"]);
+    expect((result.current.sessionsByServer.get("work") ?? []).map((s) => s.name)).toEqual([]);
   });
 
   it("populates sessionOrderByServer for the matching server only", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }, { name: "work", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
     act(() => {
-      MockEventSource.forServer("runkit")!.emit("session-order", { server: "runkit", order: ["main", "dev"] });
+      WS.forServer("runkit")!.emit("session-order", { server: "runkit", order: ["main", "dev"] });
     });
 
     expect(result.current.sessionOrderByServer.get("runkit")).toEqual(["main", "dev"]);
@@ -171,31 +291,27 @@ describe("SessionProvider — multi-server EventSource pool", () => {
     ]);
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // Initial (unranked) order is byte-alphabetical.
     expect(result.current.servers.map((s) => s.name)).toEqual(["runkit", "work"]);
     const callsBefore = vi.mocked(listServers).mock.calls.length;
 
-    // A server-global server-order event puts "work" first (rank 0), "runkit"
-    // second (rank 1). Rides the current server's stream.
     act(() => {
-      MockEventSource.forServer("runkit")!.emit("server-order", { order: ["work", "runkit"] });
+      WS.global()!.emit("server-order", { order: ["work", "runkit"] });
     });
 
     expect(result.current.servers.map((s) => s.name)).toEqual(["work", "runkit"]);
-    // Pure state re-sort — no /api/servers refetch was triggered.
     expect(vi.mocked(listServers).mock.calls.length).toBe(callsBefore);
   });
 
-  it("ignores session-order events whose server field doesn't match the stream", async () => {
+  it("ignores session-order events whose server field doesn't match the key", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
     act(() => {
-      MockEventSource.forServer("runkit")!.emit("session-order", { server: "staging", order: ["other"] });
+      WS.forServer("runkit")!.emit("session-order", { server: "staging", order: ["other"] });
     });
 
     expect(result.current.sessionOrderByServer.get("runkit") ?? []).toEqual([]);
@@ -205,49 +321,88 @@ describe("SessionProvider — multi-server EventSource pool", () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }, { name: "work", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
     act(() => {
-      MockEventSource.forServer("runkit")!.emit("sessions", []);
+      WS.forServer("runkit")!.emit("sessions", []);
     });
 
     expect(result.current.isConnectedByServer.get("runkit")).toBe(true);
     expect(result.current.isConnectedByServer.get("work") ?? false).toBe(false);
   });
 
-  it("handles server-gone: closes the ES, clears the slice, and re-queries listServers", async () => {
+  it("handles gone: clears the slice and re-queries listServers", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // Seed a slice so we can observe it being cleared.
     act(() => {
-      MockEventSource.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
+      WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
     });
     expect(result.current.sessionsByServer.has("runkit")).toBe(true);
 
-    const es = MockEventSource.forServer("runkit")!;
     const callsBefore = vi.mocked(listServers).mock.calls.length;
-
-    // Backend reaped the server — emit server-gone on its stream. The re-query
-    // now returns an empty list (the server is genuinely gone), so it does not
-    // get re-attached/re-seeded as the current server.
     vi.mocked(listServers).mockResolvedValueOnce([]);
     await act(async () => {
-      es.emit("server-gone", {});
+      WS.forServer("runkit")!.emit("server-gone", {});
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    expect(es.closed).toBe(true);
     expect(result.current.sessionsByServer.has("runkit")).toBe(false);
     expect(result.current.isConnectedByServer.has("runkit")).toBe(false);
-    // refreshServers() → listServers re-queried after the event.
     expect(vi.mocked(listServers).mock.calls.length).toBeGreaterThan(callsBefore);
   });
 
-  it("onerror → markDisconnected timer triggers refreshServers as a fallback", async () => {
+  it("gone on a still-attached server releases the subscription so the diff effect re-subscribes", async () => {
+    // A transient `gone` where listServers STILL returns the server (it never
+    // leaves attachedSet). onGone must release the subscription (drop it from
+    // subscribedServersRef + the socket ref-count) so the diff effect — which
+    // re-runs when attachedSet recomputes after fetchServers — re-subscribes.
+    // Without the release the server would stay in subscribedServersRef, the
+    // diff effect would skip it, and its UI would be permanently dead.
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
+    });
+    expect(WS.forServer("runkit")).toBeDefined();
+
+    const ws = MockWebSocket.current!;
+    const subscribesBefore = ws.sent.filter(
+      (s) => s.includes('"op":"subscribe"') && s.includes('"key":"runkit"'),
+    ).length;
+
+    // gone arrives, but listServers keeps returning runkit (still attached).
+    await act(async () => {
+      WS.forServer("runkit")!.emit("server-gone", {});
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The subscription was released and then re-issued: a fresh subscribe was
+    // sent and the subscription is active again (so the server is NOT dead).
+    const subscribesAfter = ws.sent.filter(
+      (s) => s.includes('"op":"subscribe"') && s.includes('"key":"runkit"'),
+    ).length;
+    expect(subscribesAfter).toBeGreaterThan(subscribesBefore);
+    expect(ws.active.has("server:runkit")).toBe(true);
+    expect(WS.forServer("runkit")).toBeDefined();
+
+    // And the slice re-populates on the next sessions event (UI recovers).
+    act(() => {
+      WS.forServer("runkit")!.emit("sessions", [{ name: "B", windows: [] }]);
+    });
+    expect((result.current.sessionsByServer.get("runkit") ?? []).map((s) => s.name)).toEqual(["B"]);
+    expect(result.current.isConnectedByServer.get("runkit")).toBe(true);
+  });
+
+  it("socket drop → 3s debounce flips isConnected false and re-queries listServers", async () => {
     vi.useFakeTimers();
     try {
       vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
@@ -255,17 +410,20 @@ describe("SessionProvider — multi-server EventSource pool", () => {
       const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
 
-      const es = MockEventSource.forServer("runkit")!;
-      const callsBefore = vi.mocked(listServers).mock.calls.length;
+      // Ack the subscription so it is connected.
+      act(() => { WS.forServer("runkit")!.emit("sessions", []); });
+      expect(result.current.isConnectedByServer.get("runkit")).toBe(true);
 
-      // Trigger onerror — arms the 3s disconnect timer.
-      act(() => { es.onerror?.(); });
-      // Before the timer elapses, no extra fetch and still connected-by-default.
+      const callsBefore = vi.mocked(listServers).mock.calls.length;
+      // Drop the socket into a genuine outage so the auto-reconnect stays
+      // CONNECTING (never re-opens) and the disconnect debounce can fire.
+      MockWebSocket.outage = true;
+      act(() => { MockWebSocket.current!.close(); });
+      // Before the 3s debounce elapses, still connected.
+      expect(result.current.isConnectedByServer.get("runkit")).toBe(true);
       expect(vi.mocked(listServers).mock.calls.length).toBe(callsBefore);
 
-      // Advance past the 3s timer — markDisconnected fires.
       await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
-
       expect(result.current.isConnectedByServer.get("runkit")).toBe(false);
       expect(vi.mocked(listServers).mock.calls.length).toBeGreaterThan(callsBefore);
     } finally {
@@ -273,18 +431,15 @@ describe("SessionProvider — multi-server EventSource pool", () => {
     }
   });
 
-  it("closes the EventSource and clears keyed entries when a server disappears from /api/servers", async () => {
+  it("drops the subscription + slice when a server disappears from /api/servers", async () => {
     vi.mocked(listServers).mockResolvedValueOnce([{ name: "runkit", sessionCount: 0 }, { name: "work", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // Attach `work` so it has an EventSource.
     await act(async () => { result.current.attachServer("work"); });
-    expect(MockEventSource.forServer("work")).toBeDefined();
+    expect(WS.forServer("work")).toBeDefined();
 
-    // Refresh with a smaller list — `work` is no longer in `servers`, so the
-    // attachedSet intersection drops it; the pool closes its ES.
     vi.mocked(listServers).mockResolvedValueOnce([{ name: "runkit", sessionCount: 0 }]);
     await act(async () => {
       result.current.refreshServers();
@@ -292,14 +447,11 @@ describe("SessionProvider — multi-server EventSource pool", () => {
       await Promise.resolve();
     });
 
-    expect(MockEventSource.forServer("work")?.closed).toBe(true);
     expect(result.current.sessionsByServer.has("work")).toBe(false);
     expect(result.current.isConnectedByServer.has("work")).toBe(false);
   });
 
   it("sorts fetched servers infra-last (daemon + test sockets after regular)", async () => {
-    // Backend returns /api/servers byte-alphabetical; the frontend re-sorts at
-    // the single fetchServers ingestion point so every consumer sees infra last.
     vi.mocked(listServers).mockResolvedValue([
       { name: "alpha", sessionCount: 0 },
       { name: "rk-daemon", sessionCount: 0 },
@@ -308,7 +460,7 @@ describe("SessionProvider — multi-server EventSource pool", () => {
     ]);
     setMockMatches([{ params: { server: "alpha" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
     expect(result.current.servers.map((s) => s.name)).toEqual([
       "alpha",
@@ -335,19 +487,16 @@ describe("SessionProvider — currentServer follows route", () => {
 
 describe("SessionProvider — pendingServer marker", () => {
   it("markServerPending sets pendingServer; appearing in the refreshed list clears it", async () => {
-    // First fetch: empty list (server not yet created).
     vi.mocked(listServers).mockResolvedValueOnce([]);
     setMockMatches([{ params: { server: "newsrv" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
     expect(result.current.pendingServer).toBe(null);
 
-    // Mark pending (mirrors handleCreateServer after a create).
     act(() => { result.current.markServerPending("newsrv"); });
     expect(result.current.pendingServer).toBe("newsrv");
 
-    // Refresh resolves with the new server present — the clear-effect fires.
     vi.mocked(listServers).mockResolvedValueOnce([{ name: "newsrv", sessionCount: 0 }]);
     await act(async () => {
       result.current.refreshServers();
@@ -363,12 +512,11 @@ describe("SessionProvider — pendingServer marker", () => {
     vi.mocked(listServers).mockResolvedValue([]);
     setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
     act(() => { result.current.markServerPending("ghost"); });
     expect(result.current.pendingServer).toBe("ghost");
 
-    // Empty string clears to null without the server ever appearing.
     act(() => { result.current.markServerPending(""); });
     expect(result.current.pendingServer).toBe(null);
   });
@@ -380,104 +528,71 @@ describe("SessionProvider — serversLoaded flag", () => {
     setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
 
-    // Synchronously after mount the promise has not settled yet.
     expect(result.current.serversLoaded).toBe(false);
-
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-
-    // Settled to an empty list — still counts as "loaded".
+    await settle();
     expect(result.current.serversLoaded).toBe(true);
     expect(result.current.servers).toEqual([]);
   });
 });
 
 describe("SessionProvider — server-independent host metrics", () => {
-  it("opens a dedicated host-metrics EventSource on mount with no currentServer", async () => {
-    // No route match → currentServer null (the `/` case). No servers attached.
+  it("subscribes to metrics on / with no currentServer", async () => {
     setMockMatches([{ params: {} }]);
     renderHook(() => useHostMetrics(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // The bare (server-less) stream is open even though nothing is attached.
-    expect(MockEventSource.forHostMetrics()).toBeDefined();
+    // The metrics subscription is open with zero servers attached.
+    expect(WS.forHostMetrics()).toBeDefined();
   });
 
   it("useHostMetrics() returns the broadcast snapshot; useMetrics() stays null on /", async () => {
-    setMockMatches([{ params: {} }]); // `/` — no currentServer
+    setMockMatches([{ params: {} }]);
     const { result } = renderHook(
       () => ({ host: useHostMetrics(), current: useMetrics() }),
       { wrapper: Wrapper },
     );
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // Before the first tick both are null.
     expect(result.current.host).toBeNull();
     expect(result.current.current).toBeNull();
 
     act(() => {
-      MockEventSource.forHostMetrics()!.emit("metrics", FAKE_METRICS);
+      WS.forHostMetrics()!.emit("metrics", FAKE_METRICS);
     });
 
-    // Host metrics populate on `/`; the current-server-scoped hook stays null.
     expect(result.current.host?.hostname).toBe("test-box");
     expect(result.current.host?.cpu.current).toBe(42);
     expect(result.current.current).toBeNull();
   });
 
-  it("does not open the dedicated host-metrics stream while a server is attached; host metrics come from the per-server fan-out", async () => {
+  it("does not open a metrics subscription while a server is attached; host metrics come from the per-server fan-out", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useHostMetrics(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // With a per-server stream open, the dedicated `?metrics=1` stream is
-    // redundant (the `event: metrics` broadcast fans out to every per-server
-    // stream) and must NOT be left open — it would cost a permanent +1 against
-    // the browser's 6-per-origin connection budget on the fragile board route.
-    // A dedicated stream may briefly open during the mount-time window before
-    // the server list resolves; once `runkit` attaches it MUST be closed. So
-    // assert that no dedicated `?metrics=1` stream is currently live.
-    const liveBare = MockEventSource.all.filter(
-      (es) => es.url === "/api/sessions/stream?metrics=1" && !es.closed,
-    );
-    expect(liveBare.length).toBe(0);
-    expect(MockEventSource.forServer("runkit")).toBeDefined();
+    // With a server attached, the metrics subscription is redundant and NOT open.
+    expect(WS.forHostMetrics()).toBeUndefined();
+    expect(WS.forServer("runkit")).toBeDefined();
 
-    // useHostMetrics() still returns live metrics — sourced from the per-server
-    // stream's metrics fan-out rather than the (absent) dedicated stream.
+    // Host metrics still flow — as a host-global event over the socket.
     act(() => {
-      MockEventSource.forServer("runkit")!.emit("metrics", FAKE_METRICS);
+      WS.global()!.emit("metrics", FAKE_METRICS);
     });
     expect(result.current?.hostname).toBe("test-box");
   });
 
-  it("dedupes identical host-metrics payloads across multiple attached servers", async () => {
-    // On a multi-server route the same server-global `metrics` payload arrives
-    // once per attached server per tick. The host-metrics fan-out must set state
-    // (and re-render HostMetricsContext consumers) only once per distinct
-    // payload — not once per server — so a second server delivering the same
-    // snapshot in the same tick does not re-render a host-metrics-only consumer.
-    //
-    // The probe reads ONLY useHostMetrics() (not useSessionContext), so its
-    // render count reflects HostMetricsContext updates alone — a per-server
-    // slice update from the duplicate metrics event does not touch it. A
-    // separate hook holds the context handle used to attach the second server.
-    vi.mocked(listServers).mockResolvedValue([
-      { name: "runkit", sessionCount: 0 },
-      { name: "work", sessionCount: 0 },
-    ]);
+  it("dedupes identical host-metrics payloads (idempotent on the raw payload)", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     let hostRenders = 0;
-    // Mutable holder: assigning through an object property (rather than a bare
-    // `let`) keeps TS control-flow analysis from narrowing the value to `null`
-    // at the assertion sites below, where CFA can't see the closure runs later.
     const host: { latest: MetricsSnapshot | null } = { latest: null };
     function HostProbe() {
       hostRenders += 1;
       host.latest = useHostMetrics();
       return null;
     }
-    const { result } = renderHook(() => useSessionContext(), {
+    renderHook(() => useSessionContext(), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <Wrapper>
           <HostProbe />
@@ -485,88 +600,154 @@ describe("SessionProvider — server-independent host metrics", () => {
         </Wrapper>
       ),
     });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    // Attach the second server so both per-server streams are open.
-    await act(async () => { result.current.attachServer("work"); });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    // First payload from runkit → host metrics populate (one state update).
-    act(() => {
-      MockEventSource.forServer("runkit")!.emit("metrics", FAKE_METRICS);
-    });
+    act(() => { WS.global()!.emit("metrics", FAKE_METRICS); });
     expect(host.latest?.hostname).toBe("test-box");
     const rendersAfterFirst = hostRenders;
 
-    // The SAME payload arrives from `work` in the same tick. Deduped on the raw
-    // string → no new state update, so the host-metrics-only consumer does not
-    // re-render again for the duplicate.
-    act(() => {
-      MockEventSource.forServer("work")!.emit("metrics", FAKE_METRICS);
-    });
+    // The SAME payload again — deduped on the raw string, no extra render.
+    act(() => { WS.global()!.emit("metrics", FAKE_METRICS); });
     expect(hostRenders).toBe(rendersAfterFirst);
     expect(host.latest?.hostname).toBe("test-box");
 
-    // A genuinely different payload DOES update the host-metrics consumer.
-    act(() => {
-      MockEventSource.forServer("work")!.emit("metrics", { ...FAKE_METRICS, hostname: "other-box" });
-    });
+    // A genuinely different payload DOES update.
+    act(() => { WS.global()!.emit("metrics", { ...FAKE_METRICS, hostname: "other-box" }); });
     expect(host.latest?.hostname).toBe("other-box");
     expect(hostRenders).toBeGreaterThan(rendersAfterFirst);
   });
 
-  it("opens the dedicated stream on / then closes it once a server attaches", async () => {
+  it("opens the metrics subscription on / then drops it once a server attaches", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
-    setMockMatches([{ params: {} }]); // `/` — no currentServer, nothing attached
+    setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // No server attached → the dedicated stream carries host metrics.
-    const dedicated = MockEventSource.forHostMetrics();
-    expect(dedicated).toBeDefined();
-    expect(dedicated!.closed).toBe(false);
+    expect(WS.forHostMetrics()).toBeDefined();
 
-    // Attach a server → the per-server fan-out takes over and the dedicated
-    // stream is closed to free its connection slot.
     await act(async () => { result.current.attachServer("runkit"); });
-    expect(dedicated!.closed).toBe(true);
-    expect(MockEventSource.forServer("runkit")).toBeDefined();
+    // Metrics subscription released; per-server fan-out takes over.
+    expect(WS.forServer("runkit")).toBeDefined();
+    // The most recent op should include an unsubscribe of metrics.
+    const ws = MockWebSocket.current!;
+    expect(ws.sent.some((s) => s.includes('"op":"unsubscribe"') && s.includes('"kind":"metrics"'))).toBe(true);
+  });
+});
+
+describe("SessionProvider — StrictMode double-mount re-subscribes on the new socket", () => {
+  // <StrictMode> intentionally mounts → unmounts → remounts the provider (dev +
+  // e2e run under it). The socket-construction effect destroys+recreates the
+  // StateSocket across that remount; the subscription guard refs must reset in
+  // its cleanup so the metrics/diff effects re-subscribe on the NEW socket. The
+  // pre-fix bug: the guards survived the remount and the effects saw them already
+  // true, so the metrics subscription was NEVER opened on the live socket —
+  // permanently dead Host dot / poll loop on `/`.
+  //
+  // NOTE: this uses render(<StrictMode>…) with a context-capturing probe, NOT
+  // renderHook({ wrapper: <StrictMode> }). Testing Library's renderHook does NOT
+  // simulate the StrictMode mount→unmount→remount for a wrapper — only a direct
+  // render() of a <StrictMode> root double-invokes the effects (verified). The
+  // probe writes the live context into `captured` on every render.
+
+  it("re-establishes the metrics subscription on the live socket after remount (/ host case)", async () => {
+    setMockMatches([{ params: {} }]); // `/` — no server, metrics subscription is the source
+    const captured: { ctx: ReturnType<typeof useSessionContext> | null } = { ctx: null };
+    function Probe() {
+      captured.ctx = useSessionContext();
+      return null;
+    }
+    render(
+      <StrictMode>
+        <ChromeProvider>
+          <SessionProvider>
+            <Probe />
+          </SessionProvider>
+        </ChromeProvider>
+      </StrictMode>,
+    );
+    await settle();
+
+    // StrictMode double-mounted: more than one socket was constructed, but the
+    // CURRENT (live) one must carry the metrics subscription. Pre-fix this failed
+    // (the guard ref survived the remount and blocked re-subscription): the live
+    // socket's `active` set never gained "metrics".
+    expect(MockWebSocket.instances.length).toBeGreaterThan(1);
+    const live = MockWebSocket.current!;
+    expect(live.readyState).not.toBe(MockWebSocket.CLOSED);
+    expect(live.active.has("metrics")).toBe(true);
+    expect(WS.forHostMetrics()).toBeDefined();
+
+    // And it functions end-to-end: a metrics event on the live socket flips the
+    // Host dot connected.
+    expect(captured.ctx!.hostMetricsConnected).toBe(false);
+    act(() => {
+      WS.forHostMetrics()!.emit("metrics", FAKE_METRICS);
+    });
+    expect(captured.ctx!.hostMetricsConnected).toBe(true);
+  });
+
+  it("re-subscribes the current server on the live socket after remount", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const captured: { ctx: ReturnType<typeof useSessionContext> | null } = { ctx: null };
+    function Probe() {
+      captured.ctx = useSessionContext();
+      return null;
+    }
+    render(
+      <StrictMode>
+        <ChromeProvider>
+          <SessionProvider>
+            <Probe />
+          </SessionProvider>
+        </ChromeProvider>
+      </StrictMode>,
+    );
+    await settle();
+
+    const live = MockWebSocket.current!;
+    expect(live.readyState).not.toBe(MockWebSocket.CLOSED);
+    // The server subscription rode the remount onto the live socket.
+    expect(live.active.has("server:runkit")).toBe(true);
+    expect(WS.forServer("runkit")).toBeDefined();
+
+    act(() => {
+      WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
+    });
+    expect((captured.ctx!.sessionsByServer.get("runkit") ?? []).map((s) => s.name)).toEqual(["A"]);
+    expect(captured.ctx!.isConnectedByServer.get("runkit")).toBe(true);
   });
 });
 
 describe("SessionProvider — hostMetricsConnected (Host dot, 260704-9o7k)", () => {
-  it("is false before the first dedicated metrics event, true after (no server attached)", async () => {
-    setMockMatches([{ params: {} }]); // `/` — dedicated stream is the source
+  it("is false before the first metrics ack, true after (no server attached)", async () => {
+    setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // Before the first tick the dedicated stream hasn't delivered — gray.
     expect(result.current.hostMetricsConnected).toBe(false);
 
     act(() => {
-      MockEventSource.forHostMetrics()!.emit("metrics", FAKE_METRICS);
+      WS.forHostMetrics()!.emit("metrics", FAKE_METRICS);
     });
 
-    // First metrics event → the stream is flowing → green.
     expect(result.current.hostMetricsConnected).toBe(true);
   });
 
-  it("flips back to false after a 3s disconnect debounce on the dedicated stream's error", async () => {
+  it("flips back to false after a 3s disconnect debounce on socket drop", async () => {
     vi.useFakeTimers();
     try {
       setMockMatches([{ params: {} }]);
       const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
 
-      act(() => {
-        MockEventSource.forHostMetrics()!.emit("metrics", FAKE_METRICS);
-      });
+      act(() => { WS.forHostMetrics()!.emit("metrics", FAKE_METRICS); });
       expect(result.current.hostMetricsConnected).toBe(true);
 
-      // Error arms the 3s debounce — not yet gray.
-      act(() => { MockEventSource.forHostMetrics()!.onerror?.(); });
+      MockWebSocket.outage = true;
+      act(() => { MockWebSocket.current!.close(); });
       expect(result.current.hostMetricsConnected).toBe(true);
 
-      // After 3s with no recovery → gray.
       await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
       expect(result.current.hostMetricsConnected).toBe(false);
     } finally {
@@ -578,18 +759,14 @@ describe("SessionProvider — hostMetricsConnected (Host dot, 260704-9o7k)", () 
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // A server is attached (dedicated stream closed). Until the per-server
-    // stream emits `sessions`, the slice is not connected → gray.
     expect(result.current.hostMetricsConnected).toBe(false);
 
     act(() => {
-      MockEventSource.forServer("runkit")!.emit("sessions", []);
+      WS.forServer("runkit")!.emit("sessions", []);
     });
 
-    // The attached server's stream is now connected → host metrics flow via the
-    // fan-out → green.
     expect(result.current.isConnectedByServer.get("runkit")).toBe(true);
     expect(result.current.hostMetricsConnected).toBe(true);
   });
@@ -599,19 +776,19 @@ describe("SessionProvider — server-independent host services", () => {
   const FAKE_SERVICES = { services: [{ port: 5173 }, { port: 8080, process: "api" }] };
 
   it("returns [] before the first services tick", async () => {
-    setMockMatches([{ params: {} }]); // `/` — dedicated stream, no servers
+    setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useHostServices(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
     expect(result.current).toEqual([]);
   });
 
-  it("populates from the dedicated `?metrics=1` stream on /", async () => {
-    setMockMatches([{ params: {} }]); // `/` — no currentServer, nothing attached
+  it("populates from the metrics subscription on /", async () => {
+    setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useHostServices(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
     act(() => {
-      MockEventSource.forHostMetrics()!.emit("services", FAKE_SERVICES);
+      WS.forHostMetrics()!.emit("services", FAKE_SERVICES);
     });
 
     expect(result.current.map((s) => s.port)).toEqual([5173, 8080]);
@@ -622,22 +799,17 @@ describe("SessionProvider — server-independent host services", () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     const { result } = renderHook(() => useHostServices(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
-    // The dedicated stream is closed with a server attached; the per-server
-    // stream carries `event: services`.
     act(() => {
-      MockEventSource.forServer("runkit")!.emit("services", FAKE_SERVICES);
+      WS.global()!.emit("services", FAKE_SERVICES);
     });
 
     expect(result.current.map((s) => s.port)).toEqual([5173, 8080]);
   });
 
-  it("dedupes identical services payloads across multiple attached servers", async () => {
-    vi.mocked(listServers).mockResolvedValue([
-      { name: "runkit", sessionCount: 0 },
-      { name: "work", sessionCount: 0 },
-    ]);
+  it("dedupes identical services payloads", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
     let renders = 0;
     let latest: ReturnType<typeof useHostServices> = [];
@@ -646,7 +818,7 @@ describe("SessionProvider — server-independent host services", () => {
       latest = useHostServices();
       return null;
     }
-    const { result } = renderHook(() => useSessionContext(), {
+    renderHook(() => useSessionContext(), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <Wrapper>
           <Probe />
@@ -654,26 +826,16 @@ describe("SessionProvider — server-independent host services", () => {
         </Wrapper>
       ),
     });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    await act(async () => { result.current.attachServer("work"); });
-    await act(async () => { await Promise.resolve(); });
+    await settle();
 
-    act(() => {
-      MockEventSource.forServer("runkit")!.emit("services", FAKE_SERVICES);
-    });
+    act(() => { WS.global()!.emit("services", FAKE_SERVICES); });
     expect(latest.map((s) => s.port)).toEqual([5173, 8080]);
     const rendersAfterFirst = renders;
 
-    // Same payload from `work` in the same tick — deduped, no extra render.
-    act(() => {
-      MockEventSource.forServer("work")!.emit("services", FAKE_SERVICES);
-    });
+    act(() => { WS.global()!.emit("services", FAKE_SERVICES); });
     expect(renders).toBe(rendersAfterFirst);
 
-    // A different payload updates the consumer.
-    act(() => {
-      MockEventSource.forServer("work")!.emit("services", { services: [{ port: 3000 }] });
-    });
+    act(() => { WS.global()!.emit("services", { services: [{ port: 3000 }] }); });
     expect(latest.map((s) => s.port)).toEqual([3000]);
     expect(renders).toBeGreaterThan(rendersAfterFirst);
   });
@@ -681,15 +843,16 @@ describe("SessionProvider — server-independent host services", () => {
   it("skips a malformed services event without throwing", async () => {
     setMockMatches([{ params: {} }]);
     const { result } = renderHook(() => useHostServices(), { wrapper: Wrapper });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await settle();
 
     act(() => {
-      // emit raw non-JSON by driving the handler directly with a bad payload.
-      const handler = MockEventSource.forHostMetrics()!.listeners.get("services");
-      handler?.({ data: "not json" } as MessageEvent);
+      // Deliver a services event whose data is not a services object; the
+      // provider's tolerant guard treats a missing services array as [].
+      MockWebSocket.current!.onmessage?.({
+        data: '{"op":"event","kind":"global","type":"services","data":{"nope":true}}',
+      } as MessageEvent);
     });
 
-    // No throw, still the empty default.
     expect(result.current).toEqual([]);
   });
 });
@@ -698,7 +861,6 @@ describe("StandaloneSessionContextProvider — pending-server fallbacks", () => 
   it("supplies safe no-op/default values for the new fields", () => {
     function Probe() {
       const ctx = useSessionContext();
-      // Exercise the no-op so it is covered (must not throw).
       ctx.markServerPending("x");
       return (
         <div>
@@ -741,7 +903,6 @@ describe("shouldReloadOnVersion — boot-aware reload guard", () => {
 
   it("tolerates a boot-less payload (older daemon): a null next boot never reloads at the same version", () => {
     expect(shouldReloadOnVersion("0.5.3", "b1", "0.5.3", null)).toBe(false);
-    // ...but a version change still reloads even with a null boot.
     expect(shouldReloadOnVersion("0.5.3", "b1", "0.6.0", null)).toBe(true);
   });
 

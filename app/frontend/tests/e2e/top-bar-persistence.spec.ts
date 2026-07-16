@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully-mocked spec (same technique as top-bar-refresh.spec.ts): the server
 // list, boards list, board entries, and the SSE sessions stream are injected
@@ -93,28 +94,7 @@ async function mockBackend(page: Page): Promise<void> {
       ]),
     }),
   );
-  await page.route("**/api/sessions/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      },
-      body: `event: sessions\ndata: ${sessionsPayload}\n\n`,
-    }),
-  );
-  await page.route("**/api/host/metrics/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      },
-      body: ":\n\n",
-    }),
-  );
+  await mockStateSocket(page, { sessions: sessionsPayload });
 }
 
 // The brand crumb is the always-present bar element on every mode — its

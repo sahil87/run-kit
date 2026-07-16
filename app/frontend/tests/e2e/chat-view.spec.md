@@ -19,7 +19,7 @@ segment flips into chat, and the shipped `Ctrl+\`` binding toggles tty↔chat.
   - `**/api/servers` → a single server `default`.
   - `**/api/windows/*/select*` → 200 (trailing `*` so the client's appended
     `?server=` query is still intercepted).
-  - `**/api/sessions/stream*` → one `event: sessions` frame, session `dev` with
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload, session `dev` with
     two windows: `@1` "agent-win" (`chatProvider: claude`, the active window) and
     `@2` "plain-win" (no `chatProvider`).
   - `**/api/windows/*/chat/stream*` → a `text/event-stream` body carrying a

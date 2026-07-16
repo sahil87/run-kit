@@ -124,33 +124,40 @@ test.describe("Board pane reorder — reorder endpoint + board-changed SSE", () 
       expect(pin.ok()).toBeTruthy();
     }
 
-    // Navigate so the per-server SSE stream attaches, then read raw frames via
-    // an in-page EventSource on the server's stream (board-changed is broadcast
-    // to clients connected for that server).
+    // Navigate so the state socket connects, then read raw frames via an in-page
+    // state-socket client subscribed to the server (board-changed is a per-server
+    // event fanned to that server's subscribers).
     await page.goto(`/board/${BOARD_NAME}`, { waitUntil: "domcontentloaded" });
 
     const eventPromise = page.evaluate(
       ({ server, board, windowId, after }) => {
         return new Promise<string>((resolve, reject) => {
-          const es = new EventSource(
-            `/api/sessions/stream?server=${encodeURIComponent(server)}`,
-          );
+          const proto = location.protocol === "https:" ? "wss:" : "ws:";
+          const ws = new WebSocket(`${proto}//${location.host}/ws/state`);
           const timer = setTimeout(() => {
-            es.close();
+            ws.close();
             reject(new Error("no board-changed frame within timeout"));
           }, 15_000);
-          es.addEventListener("board-changed", (e: MessageEvent) => {
-            clearTimeout(timer);
-            es.close();
-            resolve(e.data as string);
-          });
-          // Trigger the reorder POST once the stream is open (deterministic).
-          es.onopen = () => {
+          ws.onopen = () => {
+            ws.send(JSON.stringify({ op: "hello", conn: "e2e-board-reorder" }));
+            ws.send(JSON.stringify({ op: "subscribe", kind: "server", key: server, req: 1 }));
             void fetch(`/api/boards/${encodeURIComponent(board)}/reorder`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ server, windowId, before: null, after }),
             });
+          };
+          ws.onmessage = (e: MessageEvent) => {
+            try {
+              const m = JSON.parse(e.data as string);
+              if (m.op === "event" && m.kind === "server" && m.type === "board-changed") {
+                clearTimeout(timer);
+                ws.close();
+                resolve(JSON.stringify(m.data));
+              }
+            } catch {
+              /* ignore malformed frame */
+            }
           };
         });
       },

@@ -577,6 +577,107 @@ describe("non-VT / reduced-motion grace mask (260715-38kg, R3)", () => {
   });
 });
 
+describe("in-flight receipt — redraw bytes racing the select POST's resolution (CI 260716)", () => {
+  // The CI interleaving (window-switch-transition.spec.ts, PR #372): on a
+  // same-session switch the relay socket is SHARED ((server, session)-keyed —
+  // no reconnect), and tmux executes select-window + redraws the attached
+  // client BEFORE the POST's HTTP response resolves in the browser. The
+  // one-and-only redraw receipt can land inside the [POST-sent, POST-resolved)
+  // window while the acceptance filters are still closed. Dropping it is a
+  // permanent loss: tmux is idle after the redraw, no further receipt ever
+  // comes, the gate times out into a mask whose receipt-time lift path is dead.
+  // The fix records the in-flight receipt (epoch-tagged) and counts it at the
+  // POST's successful resolution — the 200 proves tmux switched, which is
+  // exactly the fact the filter was waiting to establish.
+  afterEach(() => {
+    vi.useRealTimers();
+    confirmSwitchArrived();
+  });
+
+  it("a receipt DURING the POST's flight releases the gate at resolution (no mask ever)", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    const wait = gate.waitForFirstWrite(300);
+    // Redraw bytes arrive while the POST is still in flight…
+    notifyFirstWrite();
+    // …then the POST resolves (the wrapper's chained openForNotify runs).
+    gate.openForNotify();
+    await expect(wait).resolves.toBe("first-write");
+    // No mask now, and none later — the settle cancelled the timeout.
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("a receipt during flight lifts an already-armed mask when the POST resolves late", async () => {
+    vi.useFakeTimers();
+    const gate = beginWindowSwitchGate({ gated: true });
+    const wait = gate.waitForFirstWrite(300);
+    notifyFirstWrite(); // in-flight receipt (recorded)
+    vi.advanceTimersByTime(300); // POST still unresolved → gate times out → mask
+    await wait;
+    expect(getMaskState()).toBe("masked");
+    gate.openForNotify(); // POST finally resolves — the recorded receipt counts
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("grace path: an in-flight receipt cancels the grace timer at openForLift (never masks)", () => {
+    vi.useFakeTimers();
+    const grace = armGraceMask(300);
+    notifyFirstWrite(); // in-flight receipt
+    grace.openForLift(); // POST resolves before the threshold
+    vi.advanceTimersByTime(300);
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("grace path: an in-flight receipt lifts an armed grace mask at a late openForLift", () => {
+    vi.useFakeTimers();
+    const grace = armGraceMask(300);
+    notifyFirstWrite(); // in-flight receipt
+    vi.advanceTimersByTime(300); // POST still unresolved → masked
+    expect(getMaskState()).toBe("masked");
+    grace.openForLift();
+    expect(getMaskState()).toBe("idle");
+  });
+
+  it("bytes received BEFORE the switch started do not count at resolution", async () => {
+    vi.useFakeTimers();
+    notifyFirstWrite(); // idle receipt — no switch of ours in flight
+    const gate = beginWindowSwitchGate({ gated: true });
+    const wait = gate.waitForFirstWrite(300);
+    gate.openForNotify(); // POST resolves; the stale pre-switch record must not settle
+    let settled = false;
+    void wait.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    vi.advanceTimersByTime(300);
+    await expect(wait).resolves.toBe("timeout");
+  });
+
+  it("a STALE switch's in-flight receipt cannot satisfy a newer switch", async () => {
+    vi.useFakeTimers();
+    const first = beginWindowSwitchGate({ gated: true });
+    void first.waitForFirstWrite(300);
+    notifyFirstWrite(); // recorded for the FIRST switch's epoch
+    // A newer switch supersedes before the first's POST resolved.
+    const second = beginWindowSwitchGate({ gated: true });
+    const secondWait = second.waitForFirstWrite(300);
+    // The FIRST switch's POST now resolves — its recorded receipt must not
+    // settle the second gate or lift the second switch's (future) mask.
+    first.openForNotify();
+    let settled = false;
+    void secondWait.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    vi.advanceTimersByTime(300);
+    await expect(secondWait).resolves.toBe("timeout");
+    expect(getMaskState()).toBe("masked"); // the second switch's own honest timeout
+  });
+});
+
 describe("isMaskExemptKey (rework F2 — global chords survive the masked swallow)", () => {
   const key = (
     k: string,

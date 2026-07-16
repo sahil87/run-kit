@@ -235,7 +235,24 @@ export function beginWindowSwitchGate(opts?: { gated?: boolean }): WindowSwitchG
       // uses — an OUTGOING window's still-streaming bytes must not un-mask
       // stale content; rework F3). Epoch-guarded so a STALE switch's late POST
       // resolution can't enable lifts for a newer switch's mask.
-      if (epoch === switchEpoch) liftAccepting = true;
+      if (epoch === switchEpoch) {
+        liftAccepting = true;
+        // Count a receipt that landed while THIS switch's POST was in flight
+        // (CI 260716): on the shared per-session socket, tmux's redraw races
+        // the HTTP response, and losing that race must not cost the release —
+        // the successful resolution proves tmux switched, so the recorded
+        // receipt is the incoming window's paint.
+        if (inFlightNotifyEpoch === epoch) {
+          if (currentGate === gate) {
+            // Gate still pending: settle as first-write — the slide plays and
+            // the timeout (with its mask) is cancelled.
+            settleGate(gate, "first-write");
+          } else {
+            // Gate already timed out (mask armed): lift it now.
+            tearDownMask();
+          }
+        }
+      }
     },
     waitForFirstWrite(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): Promise<GateSettleReason> {
       return new Promise<GateSettleReason>((resolve) => {
@@ -273,13 +290,23 @@ export function beginWindowSwitchGate(opts?: { gated?: boolean }): WindowSwitchG
 export function notifyFirstWrite(): void {
   if (currentGate && currentGate.acceptingNotify) {
     settleGate(currentGate, "first-write");
+    return;
   }
   // Filtered late-arrival mask lift: even after the gate timed out and settled
   // (`currentGate` null), the incoming window's first COUNTABLE byte (post-POST)
   // is the signal that the switch DID arrive — lift the mask as a cut, and
-  // cancel any pending grace timer. No-op while the POST is unresolved or when
-  // nothing is armed, so outgoing-window receipts are free AND safe.
-  if (liftAccepting) tearDownMask();
+  // cancel any pending grace timer.
+  if (liftAccepting) {
+    tearDownMask();
+    return;
+  }
+  // Could not act — either no switch is in flight (idle terminal receipts, the
+  // overwhelmingly common case) or the switch's POST has not resolved yet.
+  // RECORD the receipt tagged with the current epoch (CI 260716): if this IS a
+  // switch's in-flight redraw, the POST's resolution will count it; if it is an
+  // idle or outgoing receipt, the tag either predates the next switch's epoch
+  // mint or is never consumed (a rejected POST runs no resolution chain).
+  inFlightNotifyEpoch = switchEpoch;
 }
 
 /**
@@ -347,6 +374,28 @@ let switchEpoch = 0;
  * window's bytes ride the same socket and must not un-mask stale content.
  */
 let liftAccepting = false;
+
+/**
+ * The switch epoch whose receipt arrived while its `selectWindow` POST was
+ * still IN FLIGHT (CI regression, 260716). On a same-session switch the relay
+ * socket is shared ((server, session)-keyed — no reconnect), and tmux executes
+ * `select-window` + redraws the attached client BEFORE the POST's HTTP response
+ * resolves in the browser — so the one-and-only redraw receipt can land inside
+ * the [POST-sent, POST-resolved) window while `acceptingNotify`/`liftAccepting`
+ * are still closed. DROPPING that receipt is a permanent loss: tmux is idle
+ * after the redraw, no further receipt ever comes, and the gate times out into
+ * a mask whose receipt-time lift path is dead (locally the response reliably
+ * wins the race; on a loaded CI runner the redraw does — deterministically).
+ *
+ * Instead the receipt is RECORDED here, tagged with the current switch epoch,
+ * and COUNTED when the POST resolves (`openForNotify` / `openForLift`): the 200
+ * proves tmux executed select-window — exactly the fact the acceptance filter
+ * was waiting to establish — so the recorded receipt IS the incoming window's
+ * paint. The outgoing-straggler hazard stays guarded: a REJECTED POST never
+ * runs the resolution chains (nothing is counted for a failed switch), and
+ * receipts from before the switch epoch minted never match.
+ */
+let inFlightNotifyEpoch: number | null = null;
 
 /** Snapshot for `useSyncExternalStore`. Stable identity while unchanged. */
 export function getMaskState(): MaskState {
@@ -500,7 +549,13 @@ export function armGraceMask(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): GraceM
   graceTimer = timer;
   return {
     openForLift() {
-      if (epoch === switchEpoch) liftAccepting = true;
+      if (epoch === switchEpoch) {
+        liftAccepting = true;
+        // Count an in-flight receipt at resolution (CI 260716) — same rule as
+        // the gate's openForNotify: cancels a pending grace timer (the switch
+        // arrived, never mask) or lifts a mask the timer already armed.
+        if (inFlightNotifyEpoch === epoch) tearDownMask();
+      }
     },
     cancel() {
       if (graceTimer === timer) {

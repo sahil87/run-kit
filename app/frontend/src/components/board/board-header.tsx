@@ -1,5 +1,6 @@
 import type { BoardEntry } from "@/api/boards";
 import type { BoardPaneDragProps } from "@/hooks/use-board-pane-reorder";
+import { PinIcon } from "@/components/pin-icon";
 
 interface BoardHeaderProps {
   entry: BoardEntry;
@@ -20,10 +21,11 @@ interface BoardHeaderProps {
  * server tag (boards span servers, so disambiguation is necessary), and an
  * unpin button. No confirmation dialog — pin is cheap to restore.
  *
- * The unpin button renders a pin/unpin GLYPH (a "pin with slash" inline SVG,
- * 260715-6jwn), not a text `×` — the old ✕ read as a destructive close/kill,
- * misleading now that the top-bar ✕ IS a real close-pane. Hand-rolled inline SVG
- * per the project's no-icon-library pattern (see top-bar SplitButton/HelpLink).
+ * The unpin button renders a pin/unpin GLYPH (the shared thumbtack `PinIcon`
+ * with its `slashed` unpin variant), not a text `×` — the old ✕ read as a
+ * destructive close/kill, misleading now that the top-bar ✕ IS a real
+ * close-pane. Same glyph family as the sidebar window-row pin button, so
+ * pin (sidebar) and unpin (here) read as two states of one affordance.
  *
  * The header is the drag handle for board pane reorder (`dragHandleProps`): the
  * whole header is draggable so there is a generous grab target, while the unpin
@@ -57,27 +59,9 @@ export function BoardHeader({ entry, onUnpin, dragHandleProps }: BoardHeaderProp
         className="text-text-secondary hover:text-text-primary px-1 flex items-center justify-center"
         title="Unpin from board"
       >
-        {/* Pin-with-slash unpin glyph (260715-6jwn): a map-pin outline crossed
-            by a diagonal slash = "remove the pin". Replaces the misleading text
-            ✕. Hand-rolled inline SVG (no icon library), sized to the header's
-            small type. */}
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          {/* map-pin outline: teardrop body + inner circle */}
-          <path d="M20 10c0 4.4-8 12-8 12s-8-7.6-8-12a8 8 0 0 1 16 0Z" />
-          <circle cx="12" cy="10" r="3" />
-          {/* diagonal slash = unpin */}
-          <line x1="3" y1="3" x2="21" y2="21" />
-        </svg>
+        {/* Slashed thumbtack = "remove the pin" — the shared PinIcon in its
+            unpin variant, matching the sidebar's pin glyph. */}
+        <PinIcon slashed />
       </button>
     </div>
   );

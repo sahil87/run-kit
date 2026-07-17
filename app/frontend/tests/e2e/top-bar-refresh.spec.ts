@@ -1,11 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// This spec is fully mocked: we inject the SSE `sessions` payload (and the
-// server list) via page.route and navigate to a terminal window route. The
+// This spec is fully mocked: we inject the `sessions` payload (and the
+// server list) via the state-socket mock + page.route and navigate to a
+// terminal window route. The
 // RefreshButton rides the L3 always-block (260704-9o7k) and renders at first
 // paint; the Close pane button is still gated on a current window, so IT is the
-// synchronization anchor proving the mocked SSE payload landed. See
+// synchronization anchor proving the mocked sessions payload landed. See
 // top-bar-refresh.spec.md for intent + steps.
 //
 // The RefreshButton calls window.location.reload() — the routes installed via
@@ -54,7 +55,7 @@ const sessionsPayload = JSON.stringify([
 const WINDOW_URL = `/${SERVER}/%401`;
 
 /**
- * Install routes that fully mock the server list and the SSE sessions stream.
+ * Install routes that fully mock the server list and the state-socket sessions payload.
  * Returns a `selectHits` counter proving the /select mock actually intercepts
  * (rather than falling through to the real :3020 backend — see the mock below).
  */
@@ -92,7 +93,7 @@ async function mockBackend(page: Page): Promise<{ selectHits: () => number }> {
     }),
   );
 
-  // SSE stream: one `sessions` event carrying the mocked payload.
+  // State socket: one `sessions` event carrying the mocked payload.
   await mockStateSocket(page, { sessions: sessionsPayload });
 
   return { selectHits: () => selectHits };

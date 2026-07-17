@@ -28,21 +28,6 @@ func (prodSessionOrderFetcher) GetSessionOrder(ctx context.Context, server strin
 	return tmux.GetSessionOrder(ctx, server)
 }
 
-// BoardEntriesFetcher reads board pin entries for a tmux server. In the
-// move-based model membership is derived live from `_rk-pin-*` sessions, so the
-// SSE hub no longer needs an eager-cleanup hook — a killed pinned window simply
-// drops out of the next ListBoardEntries read. Kept as a one-method interface
-// so tests can stub the tmux dependency.
-type BoardEntriesFetcher interface {
-	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
-}
-
-type prodBoardEntriesFetcher struct{}
-
-func (prodBoardEntriesFetcher) ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error) {
-	return tmux.ListBoardEntries(ctx, server)
-}
-
 // PRStatusSnapshotter supplies the current in-memory PR-status map, keyed by
 // canonical PR URL (PR numbers are only unique per repo — see prstatus.Collector).
 // Injected into the SSE hub so the poll path can attach live PR status to any

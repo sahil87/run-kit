@@ -2,9 +2,9 @@ import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully-mocked spec (same technique as top-bar-refresh.spec.ts): the server
-// list, boards list, board entries, and the SSE sessions stream are injected
-// via page.route so no live tmux backend is needed. See
-// top-bar-persistence.spec.md for intent + steps.
+// list, boards list, and board entries are injected via page.route and the
+// sessions payload via the state-socket mock, so no live tmux backend is
+// needed. See top-bar-persistence.spec.md for intent + steps.
 //
 // Regression coverage for change 260707-4vq2: the TopBar mounts ONCE in the
 // persistent root layout (`AppLayout`, above the router `<Outlet>`) rather than

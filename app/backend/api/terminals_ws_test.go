@@ -7,6 +7,16 @@ import (
 	"time"
 )
 
+// payload returns the frame's wire bytes regardless of tier — a test-only
+// convenience for the paced writers below, which peek the stream-id prefix.
+// Production writeFrame reads f.control / f.data directly.
+func (f outFrame) payload() []byte {
+	if f.control != nil {
+		return f.control
+	}
+	return f.data
+}
+
 // TestScheduler_EchoNotHeadOfLineBlocked is the HOL assertion ported from the
 // spike harness (docs/findings/relay-mux-hol.md) as a Go unit test with NO real
 // network. Stream A floods bulk frames while stream B enqueues a single short

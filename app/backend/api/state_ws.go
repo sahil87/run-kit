@@ -146,8 +146,15 @@ const stateWSWriteWait = 10 * time.Second
 // stateWSCleanupWait is the short read deadline the writer pump sets on the
 // connection when a write fails, so the read loop's blocked conn.ReadMessage()
 // returns promptly and runs its teardown instead of leaking until TCP timeout
-// (mirrors relay.go's cleanup deadline).
+// (terminals_ws.go uses the same cleanup-deadline pattern).
 const stateWSCleanupWait = 100 * time.Millisecond
+
+// Shared WebSocket upgrader for the muxed sockets (`/ws/state` here and
+// `/ws/terminals` in terminals_ws.go). The per-pane `/relay/{windowId}`
+// endpoint and its handleRelay were retired in 260717-803u-relay-mux.
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
 
 // handleStateWS upgrades a `/ws/state` request and runs the state-socket
 // protocol: read the initial `hello`, replay the cached global slots, then a

@@ -30,13 +30,9 @@ export default defineConfig({
         target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
         changeOrigin: true,
       },
-      "/relay": {
-        target: `ws://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
-        ws: true,
-      },
-      // State socket (muxed session-state + host-metrics). WebSocket, so `ws: true`
-      // — without this the dev proxy would not forward the upgrade and the SPA's
-      // state socket would fail to connect against `just dev` / `just test-e2e`.
+      // Muxed sockets (/ws/state, /ws/terminals). WebSocket, so `ws: true`
+      // — without this the dev proxy would not forward the upgrade and the
+      // SPA's sockets would fail to connect against `just dev` / `just test-e2e`.
       "/ws": {
         target: `ws://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
         ws: true,

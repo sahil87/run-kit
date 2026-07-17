@@ -115,7 +115,7 @@ describe("useBoards", () => {
     expect(result.current.boards).toEqual([]);
 
     payload = [{ name: "main", pinCount: 1 }];
-    // Dispatch a synthetic board-changed event via the fake EventSource.
+    // Dispatch a synthetic board-changed event via the mocked state socket.
     await waitFor(() => expect(activeServers.has("runkit")).toBe(true));
     act(() => {
       dispatchBoardChanged("runkit");

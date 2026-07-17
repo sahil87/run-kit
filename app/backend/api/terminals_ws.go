@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -147,14 +148,8 @@ type outFrame struct {
 	data    []byte // non-nil ⇒ a binary data frame (already stream-id-prefixed)
 }
 
-func (f outFrame) isText() bool  { return f.control != nil }
-func (f outFrame) short() bool   { return f.control != nil || len(f.data) <= 4+shortFrameMax }
-func (f outFrame) payload() []byte {
-	if f.control != nil {
-		return f.control
-	}
-	return f.data
-}
+func (f outFrame) isText() bool { return f.control != nil }
+func (f outFrame) short() bool  { return f.control != nil || len(f.data) <= 4+shortFrameMax }
 
 // stream is one muxed pane relay. It owns the attach process + PTY and a bounded
 // send queue drained by the connection's single writer.
@@ -349,6 +344,20 @@ func (tc *terminalsConn) startStream(op openOp) {
 	tc.mu.Unlock()
 
 	go tc.attachStream(op, st)
+}
+
+// forceTERM returns a copy of env with TERM set to xterm-256color, replacing
+// any inherited value. A relay PTY is always an xterm-256color terminal
+// (xterm.js), and tmux matches terminal-overrides against this value to enable
+// true-color (RGB/Tc).
+func forceTERM(env []string) []string {
+	result := make([]string, 0, len(env)+1)
+	for _, e := range env {
+		if !strings.HasPrefix(e, "TERM=") {
+			result = append(result, e)
+		}
+	}
+	return append(result, "TERM=xterm-256color")
 }
 
 // attachStream performs the blocking tmux setup for a registered placeholder

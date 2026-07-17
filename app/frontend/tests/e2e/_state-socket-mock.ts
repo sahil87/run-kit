@@ -1,4 +1,4 @@
-import type { Page, WebSocketRoute } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 // Shared Playwright mock for the state socket (`/ws/state`, change 260716-qf3j).
 //
@@ -39,45 +39,13 @@ export type StateSocketMockOptions = {
 
 /** Install a `/ws/state` mock speaking the state-socket protocol. Call before
  *  `page.goto`. Returns nothing — specs drive the UI via the delivered payloads.
- *
- *  For live-event control (e.g. delivering a `board-order` or `status-refresh`
- *  after load), use `routeStateSocketWithControl` below. */
+ *  (Live-event specs — server-reorder, board-reorder, board-list-reorder — run
+ *  against the real backend instead of this mock.) */
 export async function mockStateSocket(page: Page, opts: StateSocketMockOptions = {}): Promise<void> {
-  await routeStateSocketWithControl(page, opts);
-}
-
-/** A handle for pushing server → client frames after the socket is established.
- *  `route` is the underlying Playwright WebSocketRoute (may be null before a
- *  socket connects). */
-export type StateSocketControl = {
-  /** Push a host-global event (e.g. board-order, status-refresh, server-order). */
-  emitGlobal: (type: string, data: unknown) => void;
-  /** Push a per-server event (e.g. sessions, session-order, board-changed, preview). */
-  emitServer: (key: string, type: string, data: unknown) => void;
-  /** Push a `gone` frame for a server. */
-  emitGone: (key: string) => void;
-};
-
-/** Install the `/ws/state` mock and return a control handle for live frames.
- *  The handle buffers emits until a socket connects, then flushes them. */
-export async function routeStateSocketWithControl(
-  page: Page,
-  opts: StateSocketMockOptions = {},
-): Promise<StateSocketControl> {
-  let liveRoute: WebSocketRoute | null = null;
-  const pending: string[] = [];
-
-  const push = (frame: unknown) => {
-    const raw = JSON.stringify(frame);
-    if (liveRoute) liveRoute.send(raw);
-    else pending.push(raw);
-  };
-
   await page.routeWebSocket(/\/ws\/state/, (ws) => {
     // Do NOT connectToServer — this is a full mock (no real backend).
-    liveRoute = ws;
-    for (const raw of pending) ws.send(raw);
-    pending.length = 0;
+    const emitGlobal = (type: string, data: unknown) =>
+      ws.send(JSON.stringify({ op: "event", kind: "global", type, data }));
 
     ws.onMessage((message) => {
       let msg: { op?: string; kind?: string; key?: string; req?: number };
@@ -126,12 +94,4 @@ export async function routeStateSocketWithControl(
       }
     });
   });
-
-  const emitGlobal = (type: string, data: unknown) =>
-    push({ op: "event", kind: "global", type, data });
-  const emitServer = (key: string, type: string, data: unknown) =>
-    push({ op: "event", kind: "server", key, type, data });
-  const emitGone = (key: string) => push({ op: "gone", kind: "server", key, reason: "server-exited" });
-
-  return { emitGlobal, emitServer, emitGone };
 }

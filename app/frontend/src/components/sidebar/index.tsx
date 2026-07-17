@@ -184,9 +184,9 @@ export function Sidebar({
     [serverSectionsOpen, currentServer],
   );
 
-  // Lazy-attach: ask the provider to open an EventSource for any server
-  // whose group is open. The current server is auto-attached by the provider;
-  // this covers user-expanded non-current groups.
+  // Lazy-attach: ask the provider to subscribe the state socket to any
+  // server whose group is open. The current server is auto-attached by the
+  // provider; this covers user-expanded non-current groups.
   useEffect(() => {
     for (const s of servers) {
       if (readServerOpen(s.name)) {
@@ -213,8 +213,8 @@ export function Sidebar({
     } catch {
       // localStorage unavailable
     }
-    // When opening a non-current server's group, ask the provider to open
-    // its EventSource so the group's session list is populated.
+    // When opening a non-current server's group, ask the provider to
+    // subscribe to it so the group's session list is populated.
     if (next && server !== currentServer) {
       attachServer(server);
     }

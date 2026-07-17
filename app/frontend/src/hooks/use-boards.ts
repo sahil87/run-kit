@@ -7,7 +7,7 @@ import {
 } from "@/api/boards";
 import { useSessionContext } from "@/contexts/session-context";
 
-/** Debounce window for coalescing rapid SSE events into one re-fetch. */
+/** Debounce window for coalescing rapid state-socket events into one re-fetch. */
 const REFETCH_DEBOUNCE_MS = 50;
 
 interface UseBoardsResult {
@@ -20,7 +20,7 @@ interface UseBoardEntriesResult {
   entries: BoardEntry[];
   isLoading: boolean;
   error: Error | null;
-  /** Force a re-fetch of this board's entries, bypassing the SSE debounce.
+  /** Force a re-fetch of this board's entries, bypassing the event debounce.
    *  Used for board-mode self-heal (260715-6jwn): a top-bar ✕ that kills the
    *  last pane of a window collapses its pin-session WITHOUT emitting a
    *  `board-changed` event, so the caller schedules this refetch to drop the
@@ -32,8 +32,8 @@ interface UseBoardEntriesResult {
  * Subscribe to board-changed events across all running tmux servers. Returns a
  * function that dispatches the supplied callback when an event arrives.
  * Re-subscribes when the server list changes. Reuses SessionProvider's
- * EventSource pool via attachServer/subscribeBoardChange so we share the
- * per-server SSE connections and stay under the 6-connection cap.
+ * state socket via attachServer/subscribeBoardChange so every server's events
+ * ride the one muxed `/ws/state` connection.
  *
  * Boards are server-scoped (a pinned window's pin-session lives on a single
  * tmux server), but the board LIST is summarized across every reachable server,
@@ -43,7 +43,7 @@ function useBoardChangedSubscription(onEvent: () => void): void {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
-  // Use SessionProvider's EventSource pool instead of opening per-server
+  // Use SessionProvider's state socket instead of opening per-server
   // connections here. We attach all known servers so each server's
   // board-changed events arrive (the board list spans servers).
   const { servers: ctxServers, attachServer, subscribeBoardChange } = useSessionContext();
@@ -60,8 +60,8 @@ function useBoardChangedSubscription(onEvent: () => void): void {
 /**
  * Subscribe to the server-global `board-order` event (board list display order
  * changed by a reorder on this or another client). Reuses the SessionProvider
- * SSE pool via subscribeBoardOrder — no new EventSource. The event is
- * server-global, so no per-server attach is needed here.
+ * state socket via subscribeBoardOrder — no new connection. The event is
+ * host-global, so no per-server attach is needed here.
  */
 function useBoardOrderSubscription(onEvent: () => void): void {
   const onEventRef = useRef(onEvent);
@@ -82,7 +82,7 @@ function useBoardOrderSubscription(onEvent: () => void): void {
  * board-order event (a reorder re-sorts every client via a debounced re-fetch).
  *
  * Multiple rapid events are debounced into a single re-fetch (REFETCH_DEBOUNCE_MS)
- * so cross-server SSE chatter doesn't trigger N requests.
+ * so cross-server event chatter doesn't trigger N requests.
  */
 export function useBoards(): UseBoardsResult {
   const [boards, setBoards] = useState<BoardSummary[]>([]);

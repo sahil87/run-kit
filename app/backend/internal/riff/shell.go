@@ -69,7 +69,7 @@ func windowTarget(spec EffectiveSpec, name string) string {
 	if spec.Session == "" {
 		return name
 	}
-	return "=" + spec.Session + ":" + name
+	return tmux.ExactSessionTarget(spec.Session) + name
 }
 
 // buildSpawnArgvs returns the ordered tmux argvs (server prefix NOT included —
@@ -79,10 +79,11 @@ func windowTarget(spec EffectiveSpec, name string) string {
 //	[1..N-1]: split-window (one per additional pane)
 //	[-1]: select-layout (skipped when spec.Layout == "")
 //
-// On the daemon path (spec.Session != "") new-window carries `-t <session>` so
-// the window lands in the requested session, and split-window/select-layout
-// target `<session>:<name>`; on the CLI path (empty Session) all targets are
-// unscoped (byte-identical to pre-session behavior).
+// On the daemon path (spec.Session != "") new-window carries `-t =<session>:`
+// (exact-match session form) so the window lands in the requested session, and
+// split-window/select-layout target `=<session>:<name>`; on the CLI path
+// (empty Session) all targets are unscoped (byte-identical to pre-session
+// behavior).
 //
 // The trailing select-pane step is NOT in this slice — the pane id is a runtime
 // value; the orchestrator constructs that argv from the captured pane id. Pure.
@@ -120,8 +121,9 @@ func buildSpawnArgvs(worktreePath, resolvedName string, spec EffectiveSpec) [][]
 // `tmux new-window -P -F '#{pane_id}' …` for the first pane. The `-P -F` capture
 // prints the new pane id (e.g. `%87`) so the orchestrator can target the final
 // select-pane by pane id rather than a hardcoded `.0` index. On the daemon path
-// it carries `-t <session>` so the window is created in the requested session;
-// on the CLI path (empty Session) the target is unscoped. Pure.
+// it carries `-t =<session>:` (exact-match session form) so the window is
+// created in the requested session; on the CLI path (empty Session) the target
+// is unscoped. Pure.
 func buildNewWindowCaptureArgs(worktreePath, resolvedName string, spec EffectiveSpec) []string {
 	argv := []string{
 		"new-window",

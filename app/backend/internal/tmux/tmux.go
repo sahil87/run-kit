@@ -1638,7 +1638,7 @@ func SetSessionColor(session string, colorValue string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-t", session, "@session_color", colorValue)
+	_, err := tmuxExecServer(ctx, server, "set-option", "-t", ExactSessionTarget(session), "@session_color", colorValue)
 	return err
 }
 
@@ -1647,7 +1647,7 @@ func UnsetSessionColor(session string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", session, "@session_color")
+	_, err := tmuxExecServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(session), "@session_color")
 	return err
 }
 

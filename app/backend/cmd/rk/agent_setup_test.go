@@ -467,12 +467,18 @@ func TestResolveRkPathIsAbsoluteAndNotSymlinkResolved(t *testing.T) {
 	}
 }
 
-// --- rk-display skill artifact ---------------------------------------------------
+// --- legacy rk-display skill cleanup ---------------------------------------------
+
+// legacyMarkerSkill is an inline fixture standing in for a marker-owned
+// rk-display SKILL.md left by an older run-kit. agent-setup no longer ships the
+// skill literal, so cleanup tests seed the file directly rather than installing.
+const legacyMarkerSkill = "---\nname: rk-display\ndescription: legacy\nmetadata:\n  " +
+	skillManagedByMarker + "\n---\n# rk-display\n\nlegacy body\n"
 
 func TestSkillHasMarker(t *testing.T) {
-	// The shipped content carries the ownership marker.
-	if !skillHasMarker(rkDisplaySkillContent) {
-		t.Error("rkDisplaySkillContent should carry the managed-by marker")
+	// A marker-owned legacy file is recognized as rk-owned.
+	if !skillHasMarker(legacyMarkerSkill) {
+		t.Error("a marker-owned legacy skill should carry the managed-by marker")
 	}
 	// A file a user rewrote without the frontmatter marker is NOT rk-owned.
 	rewritten := "---\nname: rk-display\ndescription: my own thing\n---\n# my skill\n"
@@ -484,131 +490,69 @@ func TestSkillHasMarker(t *testing.T) {
 	}
 }
 
-func TestApplyAgentSkillInstallWritesAt0644(t *testing.T) {
-	dir := t.TempDir()
-	ac := agentConfig{name: "Test", skillsDir: dir}
-	skillPath := filepath.Join(dir, rkDisplaySkillDir, rkDisplaySkillFile)
-
-	var out bytes.Buffer
-	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, false); err != nil {
-		t.Fatalf("install error: %v", err)
-	}
-	// The full binary literal is written verbatim.
-	got, err := os.ReadFile(skillPath)
-	if err != nil {
-		t.Fatalf("skill file should exist after confirm: %v", err)
-	}
-	if string(got) != rkDisplaySkillContent {
-		t.Errorf("written skill content does not match the binary literal:\n%s", got)
-	}
-	// Mode 0644 — skill text is not a secret (unlike settings.json's 0600).
-	info, err := os.Stat(skillPath)
-	if err != nil {
+// seedLegacySkill writes the inline marker-owned legacy fixture to
+// {skillsDir}/rk-display/SKILL.md and returns the skill dir + file paths.
+func seedLegacySkill(t *testing.T, skillsDir, content string) (skillDir, skillPath string) {
+	t.Helper()
+	skillDir = filepath.Join(skillsDir, rkDisplaySkillDir)
+	skillPath = filepath.Join(skillDir, rkDisplaySkillFile)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o644 {
-		t.Errorf("skill file mode = %o, want 0644", perm)
+	if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
+	return skillDir, skillPath
 }
 
-func TestApplyAgentSkillDeclineDoesNotWrite(t *testing.T) {
-	dir := t.TempDir()
-	ac := agentConfig{name: "Test", skillsDir: dir}
-	skillPath := filepath.Join(dir, rkDisplaySkillDir, rkDisplaySkillFile)
-
-	var out bytes.Buffer
-	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("n\n")), ac, false); err != nil {
-		t.Fatalf("applyAgentSkill error: %v", err)
-	}
-	if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
-		t.Errorf("declining must not create the skill file; stat err = %v", err)
-	}
-	if !strings.Contains(out.String(), "skipped") {
-		t.Errorf("output should note the skip, got: %s", out.String())
-	}
-}
-
-func TestApplyAgentSkillReinstallIsNoOp(t *testing.T) {
-	dir := t.TempDir()
-	ac := agentConfig{name: "Test", skillsDir: dir}
-
-	var out bytes.Buffer
-	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, false); err != nil {
-		t.Fatalf("install error: %v", err)
-	}
-
-	// Second install over an identical skill is a no-op: "nothing to do", no
-	// prompt consumed (empty reader would block if a prompt were read).
-	out.Reset()
-	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("")), ac, false); err != nil {
-		t.Fatalf("reinstall error: %v", err)
-	}
-	if !strings.Contains(out.String(), "nothing to do") {
-		t.Errorf("reinstall should report a no-op, got: %s", out.String())
-	}
-}
-
-func TestApplyAgentSkillDiffRendersCurrentAndProposed(t *testing.T) {
-	dir := t.TempDir()
-	ac := agentConfig{name: "Test", skillsDir: dir}
-
-	var out bytes.Buffer
-	// Decline so we only inspect the rendered diff.
-	if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("n\n")), ac, false); err != nil {
-		t.Fatalf("applyAgentSkill error: %v", err)
-	}
-	s := out.String()
-	for _, want := range []string{"--- current", "+++ proposed", "Write these changes? [y/N]", "name: rk-display"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("diff output missing %q; got:\n%s", want, s)
-		}
-	}
-}
-
-func TestApplyAgentSkillUninstallRemovesOnlyWhenMarked(t *testing.T) {
-	t.Run("marked file → directory removed", func(t *testing.T) {
+func TestRemoveLegacySkill(t *testing.T) {
+	t.Run("marker-owned file → directory removed on confirm", func(t *testing.T) {
 		dir := t.TempDir()
 		ac := agentConfig{name: "Test", skillsDir: dir}
-		skillDir := filepath.Join(dir, rkDisplaySkillDir)
-		skillPath := filepath.Join(skillDir, rkDisplaySkillFile)
+		skillDir, skillPath := seedLegacySkill(t, dir, legacyMarkerSkill)
 
 		var out bytes.Buffer
-		if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, false); err != nil {
-			t.Fatalf("install error: %v", err)
-		}
-		out.Reset()
-		if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, true); err != nil {
-			t.Fatalf("uninstall error: %v", err)
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac); err != nil {
+			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
-			t.Errorf("marked skill directory should be removed, stat err = %v", err)
+			t.Errorf("marker-owned skill directory should be removed, stat err = %v", err)
 		}
 		if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
-			t.Errorf("marked SKILL.md should be removed along with the directory, stat err = %v", err)
+			t.Errorf("marker-owned SKILL.md should be removed with the directory, stat err = %v", err)
+		}
+		if !strings.Contains(out.String(), "removed") {
+			t.Errorf("output should note the removal, got: %s", out.String())
 		}
 	})
 
-	t.Run("marker-less rewrite → untouched with skip note", func(t *testing.T) {
+	t.Run("marker-owned file → declined leaves it in place", func(t *testing.T) {
 		dir := t.TempDir()
 		ac := agentConfig{name: "Test", skillsDir: dir}
-		skillDir := filepath.Join(dir, rkDisplaySkillDir)
-		skillPath := filepath.Join(skillDir, rkDisplaySkillFile)
+		_, skillPath := seedLegacySkill(t, dir, legacyMarkerSkill)
 
-		if err := os.MkdirAll(skillDir, 0o755); err != nil {
-			t.Fatal(err)
+		var out bytes.Buffer
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("n\n")), ac); err != nil {
+			t.Fatalf("removeLegacySkill error: %v", err)
 		}
+		if _, err := os.Stat(skillPath); err != nil {
+			t.Errorf("declining removal must leave the file, stat err = %v", err)
+		}
+		if !strings.Contains(out.String(), "left in place") {
+			t.Errorf("output should note the decline, got: %s", out.String())
+		}
+	})
+
+	t.Run("marker-less rewrite → untouched with skip note (no prompt)", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
 		rewritten := "---\nname: rk-display\n---\n# my own version\n"
-		if err := os.WriteFile(skillPath, []byte(rewritten), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		_, skillPath := seedLegacySkill(t, dir, rewritten)
 
 		var out bytes.Buffer
 		// Empty reader: a marker-less file must be skipped WITHOUT prompting.
-		if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("")), ac, true); err != nil {
-			t.Fatalf("uninstall error: %v", err)
-		}
-		if _, err := os.Stat(skillPath); err != nil {
-			t.Errorf("marker-less user file must be left untouched, stat err = %v", err)
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac); err != nil {
+			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		got, _ := os.ReadFile(skillPath)
 		if string(got) != rewritten {
@@ -619,17 +563,61 @@ func TestApplyAgentSkillUninstallRemovesOnlyWhenMarked(t *testing.T) {
 		}
 	})
 
-	t.Run("absent file → nothing to do", func(t *testing.T) {
+	t.Run("absent file → silent no-op", func(t *testing.T) {
 		dir := t.TempDir()
 		ac := agentConfig{name: "Test", skillsDir: dir}
 		var out bytes.Buffer
-		if err := applyAgentSkill(&out, bufio.NewReader(strings.NewReader("")), ac, true); err != nil {
-			t.Fatalf("uninstall error: %v", err)
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac); err != nil {
+			t.Fatalf("removeLegacySkill error: %v", err)
 		}
-		if !strings.Contains(out.String(), "nothing to do") {
-			t.Errorf("absent-file uninstall should be a no-op, got: %s", out.String())
+		// A fresh machine must produce ZERO rk-display output — not even a
+		// "nothing to do" line.
+		if out.Len() != 0 {
+			t.Errorf("absent legacy skill must be silent, got: %s", out.String())
 		}
 	})
+}
+
+// TestApplyAgentConfigCleansLegacySkillOnInstall proves the legacy cleanup runs
+// on the INSTALL pass (not only --uninstall): re-running plain `rk agent-setup`
+// is the documented upgrade action, so the cleanup must fire there.
+func TestApplyAgentConfigCleansLegacySkillOnInstall(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "settings.json")
+	skillsDir := filepath.Join(dir, "skills")
+	ac := agentConfig{name: "Test", settingsPath: settingsPath, comm: "claude", skillsDir: skillsDir, hooks: claudeHooks()}
+	skillDir, _ := seedLegacySkill(t, skillsDir, legacyMarkerSkill)
+
+	var out bytes.Buffer
+	// First "y" confirms the hooks write; second "y" confirms the legacy removal.
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\ny\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
+		t.Fatalf("applyAgentConfig error: %v", err)
+	}
+	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
+		t.Errorf("install-mode run should offer and perform legacy skill removal, stat err = %v", err)
+	}
+}
+
+// TestApplyAgentConfigFreshMachineWritesNoSkill proves a fresh machine (no legacy
+// skill) sees ZERO rk-display output and no skill file is ever created — the
+// hooks-only reality.
+func TestApplyAgentConfigFreshMachineWritesNoSkill(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "settings.json")
+	skillsDir := filepath.Join(dir, "skills")
+	ac := agentConfig{name: "Test", settingsPath: settingsPath, comm: "claude", skillsDir: skillsDir, hooks: claudeHooks()}
+
+	var out bytes.Buffer
+	// Single "y" confirms the hooks write; no skill prompt should ever be reached.
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
+		t.Fatalf("applyAgentConfig error: %v", err)
+	}
+	if strings.Contains(out.String(), "rk-display") {
+		t.Errorf("a fresh machine must print no rk-display output, got:\n%s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(skillsDir, rkDisplaySkillDir)); !os.IsNotExist(err) {
+		t.Errorf("no rk-display directory should be created on a fresh machine")
+	}
 }
 
 func TestApplyAgentConfigSkipsSkillWhenSkillsDirEmpty(t *testing.T) {

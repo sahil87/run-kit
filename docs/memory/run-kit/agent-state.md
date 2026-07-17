@@ -1,5 +1,5 @@
 ---
-description: "The `@rk_agent_state` pane-option convention — two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, window rollup, the `rk agent-setup` installer (now two artifacts: settings-hooks merge + whole-file marker-owned `rk-display` skill) + `rk agent-hook` binary indirection (stable settings interface, logic in the binary, comm-validated ancestor walk) — plus the sibling `@rk_chat` chat-session-identity convention (`<provider>:<session-ref>` value, stdin-JSON session-id seam in the hook, stamp-only token + SessionStart row, chat reconciliation sharing agent-state's per-pane liveness)"
+description: "The `@rk_agent_state` pane-option convention — two-tier ownership, three-state value schema, writer/reader rules, shell reconciler, window rollup, the `rk agent-setup` installer (now HOOKS-ONLY — settings-hooks merge, plus a one-release cleanup of the legacy marker-owned `rk-display` skill it no longer installs; that context-injection role is superseded by the `rk skill` bundle) + `rk agent-hook` binary indirection (stable settings interface, logic in the binary, comm-validated ancestor walk) — plus the sibling `@rk_chat` chat-session-identity convention (`<provider>:<session-ref>` value, stdin-JSON session-id seam in the hook, stamp-only token + SessionStart row, chat reconciliation sharing agent-state's per-pane liveness)"
 type: memory
 ---
 # Agent-State Tier (`@rk_agent_state`)
@@ -187,10 +187,17 @@ bare invocation (default socket, best effort — the wrapper's `|| true` holds).
 installer that writes into an agent harness's **user-global** config so any
 session of that agent, anywhere, reports state. Modeled on guppi's explicit
 `agent-setup` command rather than a silent sync ("explicit feels honest").
-Since `260714-popk` it manages **two artifacts per agent** — the settings-hooks
-merge (described here) and the user-global `rk-display` skill (see § Two Managed
-Artifacts). The command surface is unchanged: same `rk agent-setup` /
-`rk agent-setup --uninstall`, now touching two artifacts.
+
+**It installs exactly ONE artifact: the settings-hooks merge** (described here).
+It briefly managed a second — a user-global `rk-display` skill (`260714-popk`) —
+but that context-injection responsibility moved to the **`rk skill` bundle**
+(served by the `skill` subcommand, aggregated by the coming `shll agent-setup`)
+in `260717-agst-rk-skill-agent-setup-hooks-only`, which slimmed agent-setup back
+to hooks-only. The command surface is unchanged (`rk agent-setup` /
+`rk agent-setup --uninstall`); the only remaining trace of the skill is a
+**one-release legacy cleanup** that removes a stale copy left by an older run-kit
+(see § Legacy `rk-display` Cleanup). The `rk skill` bundle itself is described in
+[architecture](/run-kit/architecture.md) § CLI Subcommands.
 
 **Per-agent registry** (`agentRegistry(home) []agentConfig`): each `agentConfig`
 carries a display `name`, a `settingsPath`, the agent binary's `comm` (process
@@ -278,13 +285,14 @@ layouts; agent-setup is interactive so the user sees the error and acts).
 - `--uninstall` runs `unmergeHooks`, removing exactly the rk-owned entries; an
   event array that empties is deleted, and a `hooks` object that empties is
   deleted.
-- **Diff + confirm before write**: `applyAgentHooks` (the per-artifact hooks step
-  — see § Two Managed Artifacts) renders `current` vs `proposed` as sorted
-  indented JSON; a no-op (identical) is reported and skipped without prompting;
-  otherwise it prints the diff and reads a y/N answer (`confirm`, default No) from
-  an injected `io.Reader` (testable without a TTY). On confirm, `writeSettings`
-  writes mode **0600** (matching user-config sensitivity), creating `~/.claude/`
-  via `MkdirAll` if absent.
+- **Diff + confirm before write**: `applyAgentHooks` (the hooks step
+  `applyAgentConfig` runs — see § Installer Structure) renders `current` vs
+  `proposed` as sorted indented JSON via the shared `renderArtifactDiff` helper; a
+  no-op (identical) is reported and skipped without prompting; otherwise it prints
+  the diff and reads a y/N answer (`confirm`, default No) from an injected
+  `io.Reader` (testable without a TTY). On confirm, `writeSettings` writes mode
+  **0600** (matching user-config sensitivity), creating `~/.claude/` via `MkdirAll`
+  if absent.
 
 **Tolerant read** (`readSettings`): a missing, empty, or all-whitespace settings
 file is treated as an empty object (never an error — install must work on a fresh
@@ -292,66 +300,65 @@ machine). A genuinely malformed (non-empty, non-JSON) file **surfaces an error
 without writing** — anti-clobber: silently treating it as empty would overwrite
 user config.
 
-## Two Managed Artifacts (`260714-popk`)
+## Installer Structure — Hooks + Legacy Cleanup (`applyAgentConfig`)
 
-`rk agent-setup` manages **two artifacts per agent**, wired through a thin
-`applyAgentConfig` wrapper: it calls `applyAgentHooks` (the settings-hooks merge
-described above — the former `applyAgentConfig`, renamed) and then, only when the
-agent's `skillsDir` is non-empty, `applyAgentSkill` (the new `rk-display` skill).
-Each artifact runs **independently** — its own tolerant read, diff, no-op report,
-and y/N confirm — so declining one does not skip the other. `agentConfig` gained a
-`skillsDir string` field for this; the Claude Code registry row sets it to
+`rk agent-setup` applies each agent through a thin `applyAgentConfig` wrapper that
+runs, in order:
+
+1. **`applyAgentHooks`** — the settings-hooks merge (the sole INSTALLED artifact,
+   described above). Always runs.
+2. **`removeLegacySkill`** — the one-release cleanup of the legacy `rk-display`
+   skill (below). Runs only when the agent's `skillsDir` is non-empty.
+
+Each step runs **independently** — its own tolerant read, diff/prompt, and no-op
+report — so declining or no-op-ing one does not skip the other. `agentConfig`
+carries a `skillsDir string` field; the Claude Code registry row sets it to
 `filepath.Join(home, ".claude", "skills")`, and an **empty `skillsDir` means "no
-skill install for that agent"** (future codex/copilot/gemini/opencode rows may
-leave it empty until they gain a skills convention). The wrapper leaves no
-orphaned symbol — every prior `applyAgentConfig` caller now goes through it.
+legacy skill to clean for that agent"** — only the hooks merge runs (future
+codex/copilot/gemini/opencode rows may leave it empty). `skillsDir` now exists
+**solely to locate the legacy skill for cleanup** and is scheduled for removal one
+release after `260717-agst`.
 
-### Artifact 2 — the `rk-display` skill
+### Legacy `rk-display` Cleanup (`removeLegacySkill`, one release only)
 
-A **user-global Claude Code skill** installed at `{skillsDir}/rk-display/SKILL.md`
-(so `~/.claude/skills/rk-display/SKILL.md` for Claude Code). Its purpose: put
-run-kit's visual-display capability into an ordinary agent session's context at
-the moment the user asks to "show/display/render/open/visualize" output — the
-skill's `description:` frontmatter is the always-in-context trigger surface, so the
-agent runs `rk context` on its own instead of the user having to remind it every
-session. (Before this change that knowledge reached only operator skills via
-`_cli-external.md`; ordinary agent sessions never loaded it.)
+`260714-popk` briefly made `rk agent-setup` install a **second** artifact — a
+user-global Claude Code skill at `{skillsDir}/rk-display/SKILL.md` (so
+`~/.claude/skills/rk-display/SKILL.md` for Claude Code) — whose `description:`
+frontmatter put run-kit's visual-display capability into an ordinary agent
+session's context so the agent ran `rk context` on its own. `260717-agst`
+**deleted that install path entirely** (the `rkDisplaySkillContent` literal,
+`writeSkill`, and the `applyAgentSkill` install branch are gone); the
+context-injection role is now the **`rk skill` bundle**, aggregated by the coming
+`shll agent-setup`. What remains is a **cleanup-only** flow that removes a stale
+copy left by an older run-kit:
 
-- **Thin-pointer body, anti-freeze rationale**: the skill content is a fixed Go
-  raw-string `const` (`rkDisplaySkillContent`) shipped in the binary — a
-  compile-time literal with **zero interpolation** (no rk path, no home dir, no
-  user input), so it adds **no new interpolation/path-safety surface** beyond the
-  existing `resolveRkPath`/`validateHookPath` ones (Constitution §I). The body is a
-  **thin pointer** — gate on `command -v rk` + `$TMUX_PANE` (silently fall back to
-  text on failure), run `rk context`, follow its Visual Display Recipe — and
-  deliberately does **NOT** reproduce the recipe, server URL, or pane identity. The
-  agent learns those at use-time from `rk context`. This is the **same anti-freeze
-  principle as the `rk agent-hook` indirection** (`260707-qfps`): capability
-  content ships with the binary via `rk context`, so recipe changes reach agents on
-  `brew upgrade rk` with no skill-file churn. Storage is a `const` (not
-  `//go:embed`) to match `cmd/rk` convention — small fixed text blobs are consts
-  (`shell_init.go`), while `//go:embed` is reserved for external file *trees*
-  (`build/embed.go`).
-- **Whole-file ownership, marker-gated uninstall**: rk owns the **whole file** (no
-  merge into user content — unlike the hooks JSON merge). Ownership is the
-  `managed-by: rk agent-setup` frontmatter marker (`skillManagedByMarker`), checked
-  by the whole-file `skillHasMarker` predicate — the whole-file analogue of
-  `isRkEntry`. On `--uninstall`, `uninstallAgentSkill` removes the **entire
-  `rk-display/` directory** (via `os.RemoveAll`, behind a confirm prompt) **only
-  when the installed file still carries the marker**; a user-rewritten, marker-less
-  file is **left untouched with a skip note** (rk only removes files it owns — a
-  rewrite drops the marker and thereby opts out of rk-managed uninstall). A
-  hand-edited but still-marked file surfaces as a reinstall diff behind the existing
-  confirm gate.
-- **Install flow** (`applyAgentSkill`): tolerant read of the current file
-  (`readSkill` — missing → empty, never an error); if identical to
-  `rkDisplaySkillContent`, report "already installed — nothing to do" and skip
-  without prompting; otherwise render a `--- current` / `+++ proposed` diff and read
-  the y/N confirm; on confirm, `writeSkill` `MkdirAll`s `{skillsDir}/rk-display/`
-  and writes at **mode 0644** (skill text is not a secret — deliberately unlike
-  settings.json's 0600). The 5-line diff-render block is inlined in both
-  `applyAgentHooks` and `applyAgentSkill` (a should-fix the review acknowledged as
-  non-blocking).
+- **Runs on BOTH the install and uninstall passes.** `removeLegacySkill` is called
+  from `applyAgentConfig` regardless of `--uninstall`. Rationale: re-running plain
+  `rk agent-setup` is the documented upgrade action (`docs/site/install.md`), so
+  most machines only ever reach the install path — a cleanup gated on `--uninstall`
+  would never fire for them, stranding the file forever.
+- **Uniform behavior across both passes** (keyed on the file's state, not the mode):
+  - **Absent** file → **silent** in both modes. A fresh machine produces zero
+    rk-display output (a deliberate change from the pre-`agst` uninstall's
+    "absent — nothing to do" line).
+  - **Marker-less** (user-rewritten) file → **left untouched with a skip note** (rk
+    only removes files it owns).
+  - **Marker-owned** file → **offer removal** (confirm prompt), then `os.RemoveAll`
+    the whole `rk-display/` directory. Confirmed first because it deletes the entire
+    directory, including any user-added files within it.
+- **Retained recognition machinery** (all scheduled for deletion one release after
+  `260717-agst`): the marker constants `rkDisplaySkillDir`/`rkDisplaySkillFile`/
+  `skillManagedByMarker`, the tolerant `readSkill` (missing → empty, never an
+  error), and the whole-file `skillHasMarker` predicate (the whole-file analogue of
+  `isRkEntry` — rk owned the entire file, so a `managed-by: rk agent-setup`
+  frontmatter-marker presence check gates the destructive removal). No content
+  literal survives — the cleanup needs only to LOCATE and RECOGNIZE, never write.
+
+The `rk-display` skill's original design (thin-pointer body, whole-file marker
+ownership, the anti-freeze rationale for shipping capability content via
+`rk context` rather than freezing it in a file) is preserved for the historical
+record in § Design Decisions → "Whole-file skill ownership…", now marked
+superseded.
 
 ## Lifecycle
 
@@ -639,12 +646,27 @@ satisfiable.
 per-project install (defeats the "any session anywhere" goal — the whole point is
 user-global registration).
 *Introduced by*: `260705-dmex-generic-agent-state-tier`
-*Extended by*: `260714-popk` — the installer now manages a **second artifact**
+*Extended by*: `260714-popk` — the installer briefly managed a **second artifact**
 (the `rk-display` skill) through a thin `applyAgentConfig` wrapper over
 `applyAgentHooks` + `applyAgentSkill`; the diff-and-confirm-per-artifact discipline
-carries over unchanged (declining one artifact does not skip the other).
+carried over unchanged (declining one artifact did not skip the other).
+*Superseded (in part) by*: `260717-agst-rk-skill-agent-setup-hooks-only` — the
+skill-install path was **removed**; `applyAgentConfig` now wraps `applyAgentHooks`
+(the sole install) plus a cleanup-only `removeLegacySkill` (both passes). Hooks are
+once again the only artifact `rk agent-setup` installs; the visual-display
+context-injection role moved to the `rk skill` bundle. The per-step
+diff-and-confirm discipline still holds.
 
 ### Whole-file skill ownership by frontmatter marker; thin pointer, not embedded recipe
+> **SUPERSEDED by `260717-agst-rk-skill-agent-setup-hooks-only`.** `rk agent-setup`
+> no longer INSTALLS the `rk-display` skill — the visual-display context-injection
+> role moved to the `rk skill` bundle. Only the marker-recognition half of this
+> decision survives, repurposed for the one-release `removeLegacySkill` cleanup
+> (see § Installer Structure → Legacy `rk-display` Cleanup); the thin-pointer body
+> `const` and the whole-file install flow are deleted. Retained below for the
+> historical rationale (why the marker gates the destructive removal, and the
+> anti-freeze principle now embodied by `rk skill`).
+
 **Decision**: install the `rk-display` skill as a whole file rk owns outright
 (no merge), gated by the `managed-by: rk agent-setup` frontmatter marker checked
 by `skillHasMarker`; store the content as a fixed Go raw-string `const`

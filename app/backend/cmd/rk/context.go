@@ -148,6 +148,7 @@ func writeCapabilities(b *strings.Builder) {
 	b.WriteString("- `run-kit status` — Show tmux session summary\n\n")
 	b.WriteString("**Info**\n\n")
 	b.WriteString("- `run-kit context` — Show agent-optimized environment info\n")
+	b.WriteString("- `run-kit skill` — Print the static agent skill bundle\n")
 	b.WriteString("- `run-kit init-conf` — Scaffold default tmux.conf and tmux.d/ directory\n\n")
 }
 

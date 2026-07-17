@@ -21,6 +21,7 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		"status":      false,
 		"daemon":      false,
 		"context":     false,
+		"skill":       false,
 		"init-conf":   false,
 		"agent-setup": false,
 		"agent-hook":  false,

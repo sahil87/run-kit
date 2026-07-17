@@ -10,6 +10,7 @@ source_paths:
     - app/backend/
     - app/frontend/src/
     - app/frontend/tests/
+    - scripts/
 test_paths:
     - '**/*_test.go'
     - '**/*.spec.ts'

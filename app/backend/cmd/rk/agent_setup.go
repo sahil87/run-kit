@@ -28,6 +28,18 @@ import (
 // user-global config), and supports --uninstall to remove exactly the rk-owned
 // entries. All file writes go through Go; the hook command is a fixed literal per
 // state with nothing user-provided interpolated (Constitution §I).
+//
+// Hooks are now the ONLY thing agent-setup installs. It used to write a second
+// managed artifact — a user-global "rk-display" SKILL.md that put run-kit's
+// visual-display capability into an agent's context — but that context-injection
+// responsibility has moved to the `rk skill` bundle (served by the skill
+// subcommand, aggregated by the coming `shll agent-setup`). All agent-setup does
+// with the legacy skill now is a one-release CLEANUP courtesy: on BOTH the
+// install and uninstall passes it offers to remove a stale, marker-owned
+// rk-display skill left by an older run-kit (see removeLegacySkill). An absent
+// file is silent in both modes — a fresh machine sees zero rk-display output.
+// The cleanup path (and agentConfig.skillsDir, which locates the legacy skill)
+// is scheduled for removal one release after this change.
 
 // rkHookMarker is the LEGACY substring that identifies an rk-owned hook command:
 // the pre-indirection self-contained one-liner inlined `tmux set-option … @rk_agent_state`,
@@ -47,51 +59,22 @@ const rkHookMarker = tmux.AgentStateOption
 // matching an unrelated token that merely contains "agent-hook".
 const rkHookMarkerAgentHook = " agent-hook "
 
-// The rk-display skill is the SECOND managed artifact rk agent-setup installs
-// (alongside the settings-hooks merge above). It is a user-global Claude Code
-// skill whose `description:` frontmatter puts run-kit's visual-display capability
-// into an ordinary agent session's context at the moment the user asks to
-// "show/display/render/open/visualize" output — so the agent runs `rk context`
-// on its own instead of the user having to remind it every session.
+// The rk-display skill was a SECOND managed artifact rk agent-setup used to
+// install — a user-global Claude Code skill that put run-kit's visual-display
+// capability into an agent's context. That responsibility has moved to the
+// `rk skill` bundle, so agent-setup no longer WRITES this skill; it only cleans a
+// stale copy for one release (see removeLegacySkill).
 //
 // rkDisplaySkillDir / rkDisplaySkillFile are the directory (under an agent's
-// skillsDir) and file basename of the skill; skillManagedByMarker is the
-// ownership marker embedded in the skill's frontmatter.
+// skillsDir) and file basename of the legacy skill; skillManagedByMarker is the
+// ownership marker embedded in the skill's frontmatter. They are retained solely
+// to LOCATE and RECOGNIZE a marker-owned legacy file for removal — scheduled for
+// deletion one release after this change.
 const (
 	rkDisplaySkillDir    = "rk-display"
 	rkDisplaySkillFile   = "SKILL.md"
 	skillManagedByMarker = "managed-by: rk agent-setup"
 )
-
-// rkDisplaySkillContent is the full, fixed text of the rk-display SKILL.md,
-// shipped in the binary as a compile-time literal — one source of truth,
-// versioned with rk, updated by `brew upgrade rk` + re-running `rk agent-setup`.
-//
-// It embeds NOTHING machine-derived or user-provided (no rk path, no home dir, no
-// user input), so unlike the hook command it adds no new interpolation surface
-// beyond the existing resolveRkPath/validateHookPath ones (Constitution §I).
-//
-// The body is a THIN POINTER — the same anti-freeze principle as the rk agent-hook
-// indirection (260707-qfps): the agent learns the actual Visual Display Recipe,
-// server URL, and pane identity at use-time from `rk context` (whose output ships
-// with the binary), so recipe changes reach agents on `brew upgrade rk` with no
-// skill-file churn. The body deliberately does NOT reproduce the recipe.
-const rkDisplaySkillContent = `---
-name: rk-display
-description: "Display HTML, diagrams, reports, or any local web service visually to the user in a run-kit iframe window. Use whenever the user asks to 'show', 'display', 'render', 'open', or 'visualize' output and you are running inside a tmux pane — run-kit may be managing it. Covers serving generated HTML and proxying local dev-server ports."
-metadata:
-  managed-by: rk agent-setup
----
-# rk-display
-
-1. **Gate**: check ` + "`command -v rk >/dev/null 2>&1`" + ` and that ` + "`$TMUX_PANE`" + ` is set.
-   If either check fails, silently fall back to describing the output in text —
-   never surface an error or warning.
-2. **Discover**: run ` + "`rk context`" + ` and read its Capabilities section — the
-   authoritative, current recipe.
-3. **Display**: follow the Visual Display Recipe from that output. Do not
-   reproduce the recipe from memory — the binary's output wins.
-`
 
 // agentStateHookCommand builds the STABLE delegating hook command for a given
 // state: a thin wrapper that invokes `rk agent-hook`, keeping all logic in the
@@ -204,11 +187,11 @@ type agentHook struct {
 // pid-resolution walk), the ordered event→state hook mapping, and the harness's
 // user-global skills directory.
 //
-// skillsDir is where the rk-display skill is installed (as
-// {skillsDir}/rk-display/SKILL.md). An EMPTY skillsDir means "this agent has no
-// skill install" — only the hooks merge runs for it. v1 sets it only for Claude
-// Code; codex/copilot/gemini/opencode rows may leave it empty until they gain a
-// skills convention.
+// skillsDir locates the LEGACY rk-display skill for one-release cleanup only
+// (as {skillsDir}/rk-display/SKILL.md — see removeLegacySkill). agent-setup no
+// longer installs any skill; an EMPTY skillsDir means "no legacy skill to clean"
+// — only the hooks merge runs for that agent. v1 sets it only for Claude Code.
+// This field is scheduled for removal one release after this change.
 type agentConfig struct {
 	name         string
 	settingsPath string
@@ -310,17 +293,20 @@ func runAgentSetup(out io.Writer, in io.Reader, uninstall bool) error {
 	return nil
 }
 
-// applyAgentConfig applies BOTH managed artifacts for one agent: the settings-hooks
-// merge and (when the agent has a skillsDir) the rk-display skill. Each artifact is
-// handled independently — its own tolerant read, diff, no-op report, and y/N confirm
-// — so declining one does not skip the other. The skill artifact is skipped entirely
-// when skillsDir is empty (e.g. a future codex/copilot row with no skills convention).
+// applyAgentConfig applies the hooks merge for one agent and, on BOTH the install
+// and uninstall passes, cleans up any stale legacy rk-display skill. The hooks
+// merge is the only artifact agent-setup still INSTALLS; the legacy cleanup is a
+// one-release courtesy that removes a marker-owned rk-display skill left by an
+// older run-kit. Each step is handled independently — its own tolerant read,
+// diff/prompt, and no-op report — so declining or no-op-ing one does not skip the
+// other. The legacy cleanup is skipped entirely when skillsDir is empty (e.g. a
+// future codex/copilot row with no skills convention).
 func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool) error {
 	if err := applyAgentHooks(out, reader, ac, rkPath, uninstall); err != nil {
 		return err
 	}
 	if ac.skillsDir != "" {
-		if err := applyAgentSkill(out, reader, ac, uninstall); err != nil {
+		if err := removeLegacySkill(out, reader, ac); err != nil {
 			return err
 		}
 	}
@@ -373,14 +359,21 @@ func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath
 	return nil
 }
 
-// applyAgentSkill installs or uninstalls the rk-display skill for one agent. rk
-// owns the WHOLE file, so this is not a merge: install overwrites the file with
-// the binary's rkDisplaySkillContent (behind a diff + confirm), and uninstall
-// removes the rk-display/ directory only when the installed file still carries the
-// skillManagedByMarker (a user-rewritten, marker-less file is left untouched with
-// a skip note). The file is written at mode 0644 — skill text is not a secret,
-// deliberately unlike settings.json's 0600.
-func applyAgentSkill(out io.Writer, reader *bufio.Reader, ac agentConfig, uninstall bool) error {
+// removeLegacySkill cleans up a stale, rk-owned rk-display skill left by an older
+// run-kit. It runs on BOTH the install and uninstall passes (see applyAgentConfig)
+// because re-running plain `rk agent-setup` is the documented upgrade action, so
+// most machines only ever reach the install path — a cleanup gated on --uninstall
+// would never fire for them. agent-setup no longer WRITES this skill; this is a
+// one-release courtesy scheduled for removal one release after this change.
+//
+// Behavior is uniform across both passes:
+//   - ABSENT file → silent (a fresh machine must see zero rk-display output).
+//   - marker-less (user-rewritten) file → left untouched with a skip note (rk only
+//     removes files it owns).
+//   - marker-owned file → offer removal (confirm), then os.RemoveAll the whole
+//     rk-display/ directory. Removal is confirmed first because it deletes the
+//     entire directory, including any user-added files within it.
+func removeLegacySkill(out io.Writer, reader *bufio.Reader, ac agentConfig) error {
 	skillDir := filepath.Join(ac.skillsDir, rkDisplaySkillDir)
 	skillPath := filepath.Join(skillDir, rkDisplaySkillFile)
 
@@ -389,44 +382,9 @@ func applyAgentSkill(out io.Writer, reader *bufio.Reader, ac agentConfig, uninst
 		return fmt.Errorf("%s: read %s: %w", ac.name, skillPath, err)
 	}
 
-	if uninstall {
-		return uninstallAgentSkill(out, reader, ac, skillDir, skillPath, current)
-	}
-
-	// Install: rk owns the whole file, so the proposed content is the fixed
-	// binary literal verbatim.
-	if current == rkDisplaySkillContent {
-		fmt.Fprintf(out, "%s: rk-display skill already installed at %s — nothing to do.\n", ac.name, skillPath)
-		return nil
-	}
-
-	header := fmt.Sprintf("%s: will install the rk-display skill at %s", ac.name, skillPath)
-	// The skill file is a whole-text artifact that ends in a newline; trim a single
-	// trailing newline on each side so the diff renders one clean blank line between
-	// sections rather than a double blank (and so `go vet` doesn't flag the
-	// constant's own trailing newline as redundant with the render's).
-	renderArtifactDiff(out, header, strings.TrimSuffix(current, "\n"), strings.TrimSuffix(rkDisplaySkillContent, "\n"))
-
-	if !confirm(reader) {
-		fmt.Fprintf(out, "%s: rk-display skill skipped (no changes written).\n", ac.name)
-		return nil
-	}
-
-	if err := writeSkill(skillPath, rkDisplaySkillContent); err != nil {
-		return fmt.Errorf("%s: write %s: %w", ac.name, skillPath, err)
-	}
-	fmt.Fprintf(out, "%s: wrote %s.\n", ac.name, skillPath)
-	return nil
-}
-
-// uninstallAgentSkill removes the rk-display/ directory, but ONLY when the
-// installed SKILL.md still carries the ownership marker. An absent file is a
-// no-op; a marker-less (user-rewritten) file is left untouched with an
-// explanatory skip note. Removal is confirmed first (it deletes the whole
-// rk-display/ directory, including any user-added files within it).
-func uninstallAgentSkill(out io.Writer, reader *bufio.Reader, ac agentConfig, skillDir, skillPath, current string) error {
 	if current == "" {
-		fmt.Fprintf(out, "%s: rk-display skill absent at %s — nothing to do.\n", ac.name, skillPath)
+		// Absent legacy skill: nothing to clean, and nothing to say — a fresh
+		// machine must produce no rk-display output at all.
 		return nil
 	}
 	if !skillHasMarker(current) {
@@ -434,10 +392,10 @@ func uninstallAgentSkill(out io.Writer, reader *bufio.Reader, ac agentConfig, sk
 		return nil
 	}
 
-	fmt.Fprintf(out, "%s: will remove the rk-display skill directory %s\n\n", ac.name, skillDir)
-	fmt.Fprint(out, "Remove this directory? [y/N] ")
+	fmt.Fprintf(out, "%s: found a legacy rk-display skill at %s (agent-setup no longer installs it).\n\n", ac.name, skillPath)
+	fmt.Fprintf(out, "Remove the %s directory? [y/N] ", skillDir)
 	if !confirm(reader) {
-		fmt.Fprintf(out, "%s: rk-display skill skipped (nothing removed).\n", ac.name)
+		fmt.Fprintf(out, "%s: legacy rk-display skill left in place (nothing removed).\n", ac.name)
 		return nil
 	}
 
@@ -448,19 +406,19 @@ func uninstallAgentSkill(out io.Writer, reader *bufio.Reader, ac agentConfig, sk
 	return nil
 }
 
-// skillHasMarker reports whether skill content carries the rk ownership marker.
-// It is the whole-file analogue of isRkEntry: rk owns the entire SKILL.md, so a
-// simple frontmatter-marker presence check gates destructive removal (never a
-// merge). A user who rewrites the file drops the marker and thereby opts out of
-// rk-managed uninstall.
+// skillHasMarker reports whether a legacy skill file carries the rk ownership
+// marker. It is the whole-file analogue of isRkEntry: rk owned the entire
+// SKILL.md, so a simple frontmatter-marker presence check gates its destructive
+// removal (never a merge). A user who rewrote the file dropped the marker and
+// thereby opts out of rk-managed removal.
 func skillHasMarker(content string) bool {
 	return strings.Contains(content, skillManagedByMarker)
 }
 
-// readSkill loads the current skill file. A missing file is treated tolerantly as
-// empty content (never an error) — install must work on a fresh machine with no
-// skill yet, and uninstall treats empty as "nothing to remove". Any other read
-// error surfaces so we never act on a file we failed to read.
+// readSkill loads the current legacy skill file for cleanup. A missing file is
+// treated tolerantly as empty content (never an error) — a fresh machine has no
+// legacy skill, and removeLegacySkill treats empty as "nothing to clean". Any
+// other read error surfaces so we never act on a file we failed to read.
 func readSkill(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -472,27 +430,14 @@ func readSkill(path string) (string, error) {
 	return string(data), nil
 }
 
-// writeSkill writes the skill content, creating the rk-display/ directory if
-// needed. Mode 0644: the skill is plain-text documentation, not a secret —
-// deliberately unlike settings.json's 0600.
-func writeSkill(path, content string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("creating skill directory: %w", err)
-	}
-	return os.WriteFile(path, []byte(content), 0o644)
-}
-
 // renderArtifactDiff prints the shared "will <action> … / --- current / +++
-// proposed / Write these changes?" block used by BOTH managed artifacts (the
-// settings-hooks merge and the rk-display skill). Only the header line and the
-// current/proposed body strings differ per artifact — the surrounding diff
-// framing and confirm prompt are identical, so they live here to keep the two
-// render paths from drifting (spacing, section headers, prompt wording).
+// proposed / Write these changes?" block for the settings-hooks merge. It was
+// once shared with the rk-display skill install (now removed), so it stays a
+// standalone helper — the diff framing and confirm prompt are kept in one place.
 //
 // `current` and `proposed` are the already-formatted body strings (indented JSON
-// for hooks, trailing-newline-trimmed whole text for the skill); this helper adds
-// no further trimming. The header carries no trailing newline — this function
-// appends the blank line that separates it from the diff.
+// for hooks); this helper adds no further trimming. The header carries no trailing
+// newline — this function appends the blank line that separates it from the diff.
 func renderArtifactDiff(out io.Writer, header, current, proposed string) {
 	fmt.Fprintf(out, "%s\n\n", header)
 	fmt.Fprintln(out, "--- current")

@@ -75,6 +75,20 @@ function unsetActiveRenderer(windowId: string) {
   delete window.__rkRenderer[windowId];
 }
 
+/**
+ * The muxed relay adapter surfaced through `wsRef` is WebSocket-shaped but adds
+ * a dedicated `resize(cols, rows)` op so terminal-grid resizes travel on their
+ * OWN channel — NOT muxed into `send()`, which carries raw terminal input
+ * (keystrokes, SGR scroll, pasted text). Sniffing `send()` payloads for a
+ * `{type:"resize"}` shape would let a paste that happens to contain that JSON be
+ * swallowed as a resize instead of reaching the PTY. Optional so a plain
+ * `WebSocket` (pre-mux / tests) still satisfies the type; `fitAndSync` falls
+ * back to the JSON control frame when `resize` is absent.
+ */
+type ResizableSocket = WebSocket & {
+  resize?: (cols: number, rows: number) => void;
+};
+
 type TerminalClientProps = {
   sessionName: string;
   windowId: string;
@@ -143,11 +157,19 @@ export function TerminalClient({
     fitAddonRef.current?.fit();
     xtermRef.current?.scrollToBottom();
     const term = xtermRef.current;
-    const ws = wsRef.current;
+    const ws = wsRef.current as ResizableSocket | null;
     if (ws?.readyState === WebSocket.OPEN && term) {
-      ws.send(
-        JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }),
-      );
+      // Prefer the adapter's dedicated resize op — resizes must NOT share the
+      // `send()` input channel (a paste containing resize JSON would be
+      // swallowed). Fall back to the JSON control frame only for a plain
+      // WebSocket that lacks `resize` (pre-mux / tests).
+      if (ws.resize) {
+        ws.resize(term.cols, term.rows);
+      } else {
+        ws.send(
+          JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }),
+        );
+      }
     }
   }, [wsRef]);
 
@@ -805,9 +827,10 @@ export function TerminalClient({
     // replacing the former per-pane `new WebSocket('/relay/...')`. The stream
     // handle is surfaced through wsRef as a WebSocket-shaped adapter so the
     // shell consumers (BottomBar, ComposeBuffer, touch-scroll, fitAndSync) —
-    // which read wsRef.current.{readyState,send,close} — are untouched. The
-    // adapter routes a `{type:"resize"}` JSON send to the stream's resize op and
-    // every other send (keystrokes, SGR, paste) to a binary data frame.
+    // which read wsRef.current.{readyState,send,close} — are untouched. Every
+    // `send` (keystrokes, SGR, paste) becomes a binary data frame; resizes use
+    // the adapter's DEDICATED `resize(cols, rows)` op (fitAndSync calls it), so
+    // a paste containing `{type:"resize"}` JSON is never mistaken for a resize.
     //
     // Socket-level reconnect is owned by RelayMux (one backoff loop for the
     // whole tab); on reconnect it re-issues `open` for this stream — targeting
@@ -931,23 +954,14 @@ export function TerminalClient({
         return relayMux.isOpen() ? WebSocket.OPEN : WebSocket.CONNECTING;
       },
       send(data: string | ArrayBufferView | ArrayBuffer) {
-        if (typeof data === "string") {
-          // fitAndSync / the font-size effect send a `{type:"resize"}` JSON
-          // string; route it to the stream's resize op. Everything else is
-          // terminal input (keystrokes, SGR scroll, pasted text).
-          if (data.includes('"type":"resize"')) {
-            try {
-              const msg = JSON.parse(data);
-              if (msg?.type === "resize" && msg.cols > 0 && msg.rows > 0) {
-                currentStream.resize(msg.cols, msg.rows);
-                return;
-              }
-            } catch {
-              // fall through — treat as raw input
-            }
-          }
-        }
+        // Everything sent here is raw terminal input (keystrokes, SGR scroll,
+        // pasted text) — forwarded verbatim to the PTY. Resizes travel on the
+        // dedicated `resize` op below, NOT this channel, so a paste that
+        // happens to contain `{type:"resize"}` JSON is never swallowed.
         currentStream.send(data);
+      },
+      resize(cols: number, rows: number) {
+        if (cols > 0 && rows > 0) currentStream.resize(cols, rows);
       },
       close() {
         currentStream.close();

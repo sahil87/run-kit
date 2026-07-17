@@ -85,6 +85,15 @@ const (
 	// resolveTimeout bounds ResolveWindowSession per stream open (matches
 	// relay.go's 5s resolve context).
 	resolveTimeout = 5 * time.Second
+	// terminalsReadLimit caps a single inbound WebSocket message. ReadMessage()
+	// buffers the whole frame in memory, so an unbounded limit lets a malicious
+	// (or accidental) giant input/paste frame drive unbounded allocation — a
+	// memory-DoS. 4 MiB comfortably holds a large clipboard paste (the only
+	// legitimately large client frame — control ops are tiny and PTY chunks are
+	// server→client) while capping any single allocation. A client that exceeds
+	// it trips gorilla's ErrReadLimit, which surfaces as a read error and tears
+	// down that socket (the other tabs' sockets are unaffected).
+	terminalsReadLimit = 4 << 20 // 4 MiB
 )
 
 // Stream-level close codes — mirror the WS close codes handleRelay used, now
@@ -228,8 +237,9 @@ func (s *Server) handleTerminalsWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Read loop: dispatch until the socket closes. On exit, tear down all
-	// streams and stop the writer.
-	conn.SetReadLimit(0)
+	// streams and stop the writer. Bound each inbound message so an oversized
+	// input/paste frame can't drive unbounded allocation (memory-DoS).
+	conn.SetReadLimit(terminalsReadLimit)
 	for {
 		msgType, msg, err := conn.ReadMessage()
 		if err != nil {
@@ -526,30 +536,37 @@ func (tc *terminalsConn) runWriter() {
 	}
 }
 
-// drainReady performs ONE scheduling pass: it writes every ready short/control
-// frame across all streams first, then ONE bulk frame per stream (round-robin).
+// drainReady performs ONE scheduling pass in two phases so that short/control
+// frames are written ahead of bulk output ACROSS streams, not merely within a
+// stream: phase 1 drains every stream's head-of-queue short/control frames
+// (stashing the ONE bulk frame that surfaces per stream), then phase 2 writes
+// the stashed bulk frames round-robin. This prevents an earlier stream's bulk
+// from being written before a later stream's echo/control in the same pass.
 // Returns (wrote, err): wrote is true if at least one frame was written this
 // pass (so the caller re-scans); err stops the writer.
 func (tc *terminalsConn) drainReady() (bool, error) {
 	streams := tc.snapshotStreams()
 	wrote := false
 
-	// Priority tier: drain all ready short/control frames first. A stream may
-	// hold several; drain each stream's short frames until it yields a bulk
-	// frame or empties, so control + echo never wait behind bulk.
-	for _, st := range streams {
+	// stashedBulk holds the (at most) one bulk frame dequeued per stream during
+	// phase 1, written in phase 2. Parallel to `streams` by index.
+	stashedBulk := make([]outFrame, len(streams))
+	hasBulk := make([]bool, len(streams))
+
+	// Phase 1 — priority tier: drain every stream's ready short/control frames
+	// across ALL streams first. A stream may hold several; drain its short
+	// frames until it yields a bulk frame (stash it) or empties, so control +
+	// echo never wait behind ANY stream's bulk.
+	for i, st := range streams {
 		for {
 			select {
 			case f := <-st.queue:
 				if !f.short() {
-					// A bulk frame surfaced — hand it to the bulk tier below by
-					// writing it now (it is already dequeued); this preserves
-					// per-stream order. Fall through to write.
-					if err := tc.writeFrame(f); err != nil {
-						return wrote, err
-					}
-					wrote = true
-					// After a bulk frame, move to the next stream (round-robin).
+					// A bulk frame surfaced — already dequeued, so stash it for
+					// phase 2 (preserving per-stream order) and move on. At most
+					// one bulk per stream per pass keeps the round-robin fair.
+					stashedBulk[i] = f
+					hasBulk[i] = true
 					goto nextStreamShort
 				}
 				if err := tc.writeFrame(f); err != nil {
@@ -561,6 +578,18 @@ func (tc *terminalsConn) drainReady() (bool, error) {
 			}
 		}
 	nextStreamShort:
+	}
+
+	// Phase 2 — bulk tier: write the stashed bulk frames round-robin (one per
+	// stream), now that every stream's short/control frames are already out.
+	for i := range streams {
+		if !hasBulk[i] {
+			continue
+		}
+		if err := tc.writeFrame(stashedBulk[i]); err != nil {
+			return wrote, err
+		}
+		wrote = true
 	}
 
 	return wrote, nil

@@ -148,6 +148,7 @@ keys/
 /.opencode
 /.codex
 /.gemini
+/.vscode
 
 .fab-status.yaml
 

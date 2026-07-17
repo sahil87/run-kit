@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -13,11 +12,6 @@ import (
 // It mirrors the shape consumed by the sahil87/shll.ai landing site
 // (reference sample: help/wt.json). Bump only on a breaking shape change.
 const schemaVersion = 1
-
-// nowUTC is the timestamp source for the dump's captured_at field. It is a
-// package-level var so tests can override it with a fixed clock, keeping the
-// otherwise non-deterministic timestamp deterministic under test.
-var nowUTC = func() time.Time { return time.Now().UTC() }
 
 // node is one command in the emitted help tree. Field names and order match
 // the frozen JSON contract (mirrors sahil87/shll.ai help/wt.json). commands is
@@ -33,11 +27,13 @@ type node struct {
 }
 
 // dump is the top-level help-dump document. The shape is frozen:
-// {tool, version, captured_at, schema_version, root}.
+// {tool, version, schema_version, root}. captured_at is deliberately NOT
+// emitted — the help-dump standard reserves the capture timestamp for the
+// shll.ai puller (a tool cannot know its own capture time), which stamps it
+// after capture.
 type dump struct {
 	Tool          string `json:"tool"`
 	Version       string `json:"version"`
-	CapturedAt    string `json:"captured_at"`
 	SchemaVersion int    `json:"schema_version"`
 	Root          node   `json:"root"`
 }
@@ -79,14 +75,12 @@ func captureNode(cmd *cobra.Command) node {
 	return n
 }
 
-// buildDump assembles the full document from root, an injected version, and an
-// injected timestamp. Pure function of its inputs so it is testable without
-// spawning a process or freezing global time.
-func buildDump(root *cobra.Command, version string, now time.Time) dump {
+// buildDump assembles the full document from root and an injected version.
+// Pure function of its inputs so it is testable without spawning a process.
+func buildDump(root *cobra.Command, version string) dump {
 	return dump{
 		Tool:          "run-kit",
 		Version:       version,
-		CapturedAt:    now.Format(time.RFC3339),
 		SchemaVersion: schemaVersion,
 		Root:          captureNode(root),
 	}
@@ -101,7 +95,7 @@ var helpDumpCmd = &cobra.Command{
 }
 
 func runHelpDump(cmd *cobra.Command, args []string) error {
-	doc := buildDump(rootCmd, displayVersion(), nowUTC())
+	doc := buildDump(rootCmd, displayVersion())
 
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {

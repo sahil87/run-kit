@@ -163,7 +163,7 @@ It installs agent-harness hooks into your user-global agent config (v1: Claude C
 
 > **Upgrading from an earlier run-kit?** Older installs had the hook *logic* inlined in `settings.json`. Run `run-kit agent-setup` once more to swap in the new delegating wrapper, then restart your agent sessions (harnesses snapshot hook config at session start). This is the last time a hook *logic* change needs a re-setup — future fixes ship in the binary. (Changes to which events map to which state still need a re-setup, since that mapping lives in the settings entries.)
 
-The cross-repo convention is documented in [`docs/specs/agent-state.md`](docs/specs/agent-state.md).
+The cross-repo convention is documented in [`docs/specs/agent-state.md`](https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md).
 
 ## Boards — watch many panes at once
 

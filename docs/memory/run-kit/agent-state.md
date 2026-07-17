@@ -188,6 +188,36 @@ installer that writes into an agent harness's **user-global** config so any
 session of that agent, anywhere, reports state. Modeled on guppi's explicit
 `agent-setup` command rather than a silent sync ("explicit feels honest").
 
+**Consent flags** (`260717-c424-toolkit-standards-conformance`, toolkit
+Principle 1/5): because it mutates `~/.claude/settings.json`, the confirmation is
+gated through a `consent` struct (`yes` / `dryRun` / `stdinIsTTY`) resolved once
+per run in the `RunE` and threaded through `runAgentSetup` → `applyAgentConfig`
+→ `applyAgentHooks` / `removeLegacySkill`. The single decision point is
+`consent.authorizeWrite(out, reader, dryRunNote, promptSuffix) (bool, error)`:
+
+- **`--dry-run`** → print the dry-run note, write nothing, return `(false, nil)`.
+  Needs no consent, and **wins over `--yes`** (a preview must never mutate).
+- **`--yes` / `-y`** → return `(true, nil)` without prompting (non-interactive consent).
+- **neither, stdin is a TTY** → print `promptSuffix` and defer to the interactive
+  `confirm()` `[y/N]` read (unchanged from before this change).
+- **neither, stdin is NOT a TTY** → **refuse**: return
+  `(false, errNonInteractiveConsent)`, an error naming `--yes`, nothing written.
+  This REPLACES the prior silent EOF-decline (which exited 0 — a success-looking
+  no-op, the exact agent trap Principle 1 targets; reference impl: `shll uninstall`).
+
+The `promptSuffix` (`"Write these changes? [y/N] "` / `"Remove … directory? [y/N] "`)
+is emitted **only** on the interactive path — the auto-answered `--yes`/`--dry-run`
+paths never read it, so printing `[y/N] ` there would read as a hang in an agent's
+transcript. `renderArtifactDiff` no longer appends the suffix for this reason.
+
+**TTY detection uses `term.IsTerminal`, NOT a bare `os.ModeCharDevice` check**
+(`isTerminal(r io.Reader)`): a char-device test alone classifies `/dev/null`
+(`agent-setup </dev/null` — the exact non-interactive shape an agent uses) as a
+terminal, which would make the refusal silently not fire. A non-`*os.File` reader
+(a test's `strings.Reader` or a pipe) is not a TTY, so tests default to the
+non-interactive path unless they set `stdinIsTTY` explicitly. Pinned by
+`TestIsTerminalRejectsNonTTYFiles`.
+
 **It installs exactly ONE artifact: the settings-hooks merge** (described here).
 It briefly managed a second — a user-global `rk-display` skill (`260714-popk`) —
 but that context-injection responsibility moved to the **`rk skill` bundle**
@@ -260,7 +290,8 @@ run through `validateHookPath`: a path containing any of `' " $ ` backslash (all
 shell-active inside the wrapper's double-in-single quoting) **fails the install
 with a clear error** — reject-don't-escape (escaping would have to survive three
 nested quoting layers; such paths never occur under Homebrew/conventional
-layouts; agent-setup is interactive so the user sees the error and acts).
+layouts, so the error is essentially unreachable in practice and a caller — human
+at a TTY or agent passing `--yes` — sees it and acts).
 
 **JSON-merge install** (`mergeHooks`/`unmergeHooks`, pure functions over
 `map[string]any` so tests skip the filesystem/prompt):
@@ -288,11 +319,17 @@ layouts; agent-setup is interactive so the user sees the error and acts).
 - **Diff + confirm before write**: `applyAgentHooks` (the hooks step
   `applyAgentConfig` runs — see § Installer Structure) renders `current` vs
   `proposed` as sorted indented JSON via the shared `renderArtifactDiff` helper; a
-  no-op (identical) is reported and skipped without prompting; otherwise it prints
-  the diff and reads a y/N answer (`confirm`, default No) from an injected
-  `io.Reader` (testable without a TTY). On confirm, `writeSettings` writes mode
-  **0600** (matching user-config sensitivity), creating `~/.claude/` via `MkdirAll`
-  if absent.
+  no-op (identical) is reported and skipped without prompting; otherwise it routes
+  the write decision through `consent.authorizeWrite` (see the § `rk agent-setup`
+  consent flags above) — `--dry-run` shows the diff and skips the write,
+  `--yes`/`-y` writes without prompting, an interactive TTY reads a `[y/N]` answer
+  (`confirm`, default No) from the injected `io.Reader` (testable without a TTY),
+  and a non-TTY invocation with neither flag **refuses** (error naming `--yes`,
+  nothing written). On confirm, `writeSettings` writes mode **0600** (matching
+  user-config sensitivity), creating `~/.claude/` via `MkdirAll` if absent. The
+  legacy-skill cleanup (`removeLegacySkill`) is gated through the same
+  `authorizeWrite` seam, so `--yes` authorizes the `os.RemoveAll` of the legacy
+  `rk-display/` directory and `--dry-run` leaves it in place.
 
 **Tolerant read** (`readSettings`): a missing, empty, or all-whitespace settings
 file is treated as an empty object (never an error — install must work on a fresh
@@ -656,6 +693,41 @@ skill-install path was **removed**; `applyAgentConfig` now wraps `applyAgentHook
 once again the only artifact `rk agent-setup` installs; the visual-display
 context-injection role moved to the `rk skill` bundle. The per-step
 diff-and-confirm discipline still holds.
+*Extended by*: `260717-c424-toolkit-standards-conformance` — the diff-and-confirm
+gained a **non-interactive path** to satisfy toolkit Principle 1 (a warranted
+confirmation MUST be satisfiable by `--yes`/`-y`, and a non-TTY invocation MUST
+refuse rather than hang or silently decline) and Principle 5 (a destructive write
+MUST support `--dry-run`). The `[y/N]` interactive path is unchanged; what changed
+is that a non-TTY invocation with no flag now REFUSES (error naming `--yes`,
+exit non-zero, nothing written) instead of the prior silent EOF-decline that exited
+0. See § `rk agent-setup` consent flags and the § Non-interactive consent Design
+Decision below.
+
+### Non-interactive consent: `--yes`/`--dry-run` + non-TTY refusal (not a silent decline)
+**Decision**: gate every `agent-setup` write through a `consent` struct
+(`yes`/`dryRun`/`stdinIsTTY`) and one `authorizeWrite` decision point:
+`--dry-run` shows the diff and writes nothing (and **wins over `--yes`**),
+`--yes`/`-y` writes without prompting, a TTY with neither flag reads `[y/N]`, and
+a **non-TTY with neither flag REFUSES** with an error naming `--yes` (nothing
+written). Detect the TTY with `term.IsTerminal`, not a bare `os.ModeCharDevice`
+check.
+**Why**: toolkit Principle 1 requires a warranted confirmation be satisfiable
+by a flag AND a non-TTY invocation refuse rather than hang or silently succeed —
+the prior behavior (a non-TTY invocation hit EOF on the `[y/N]` read and silently
+declined, exiting 0) is a success-looking no-op, the exact agent trap the
+principle targets (an agent "installs" the hooks, gets exit 0, and nothing
+happened). Principle 5 requires a destructive write support `--dry-run`, and a
+dry-run that could still write would break its accurate-preview promise, so
+dry-run wins under contradictory intent. `term.IsTerminal` (a real ioctl) is
+required because `os.ModeCharDevice` classifies `/dev/null` — the exact
+`agent-setup </dev/null` shape an agent uses — as a terminal, which would make the
+refusal silently not fire. The `[y/N]` prompt suffix is emitted only on the
+interactive path so the auto-answered paths don't dangle an unread prompt that
+reads as a hang in a transcript.
+**Rejected**: keeping the silent EOF-decline (the agent trap); a `--dry-run` that
+still writes when combined with `--yes` (violates the preview promise); a bare
+`os.ModeCharDevice` TTY check (false-classifies `/dev/null`, refusal never fires).
+*Introduced by*: `260717-c424-toolkit-standards-conformance`
 
 ### Whole-file skill ownership by frontmatter marker; thin pointer, not embedded recipe
 > **SUPERSEDED by `260717-agst-rk-skill-agent-setup-hooks-only`.** `rk agent-setup`
@@ -756,9 +828,17 @@ it or silently falling back to bare `rk`.
 (defeating the whole change); escaping would have to survive three nested quoting
 layers (shell-in-shell-in-JSON — fragile to write and review); a bare-`rk`
 fallback reintroduces the PATH dependency the absolute path exists to remove. Such
-paths never occur under Homebrew/conventional layouts, and agent-setup is
-interactive so the user sees the error and can act.
+paths never occur under Homebrew/conventional layouts, so the install-time error is
+essentially unreachable, and whatever caller triggered the install — a human at a
+TTY or an agent passing `--yes` — sees the error and can act.
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
+*Amended by*: `260717-c424-toolkit-standards-conformance` — agent-setup is no
+longer described as strictly "interactive": `--yes`/`-y` (non-interactive consent)
+and `--dry-run` (preview) were added, and a non-TTY invocation with neither flag
+now REFUSES with an error naming `--yes` rather than silently declining (toolkit
+Principle 1). The reject-don't-escape rationale is unchanged; only the "who sees
+the error" framing widened from "the interactive user" to "the caller" (see
+§ `rk agent-setup` consent flags).
 *Extended by*: `260709-gidk-swap-canonical-cli-name-run-kit` — the LookPath order
 became `run-kit`-first (`rk` fallback) to match the new canonical command name;
 both stable symlinks hit the same binary so the change is functionally equivalent

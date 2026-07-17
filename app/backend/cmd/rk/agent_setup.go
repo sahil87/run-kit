@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // rk agent-setup — install the generic agent-state hooks that write the
@@ -240,7 +242,64 @@ func agentRegistry(home string) []agentConfig {
 	}
 }
 
-var agentSetupUninstall bool
+var (
+	agentSetupUninstall bool
+	agentSetupYes       bool
+	agentSetupDryRun    bool
+)
+
+// consent captures how a write should be authorized for a single agent-setup
+// run, reconciling Principle 1 (a warranted confirmation MUST be satisfiable by
+// a flag, and a non-TTY invocation MUST refuse — never hang on a prompt no one
+// will answer) with Principle 5 (destructive writes MUST support --dry-run):
+//   - dryRun: show the diff, write nothing, need no consent (--dry-run wins if
+//     both are passed — a preview must never mutate).
+//   - yes: skip the interactive prompt and write (non-interactive consent).
+//   - neither, stdin is a TTY: fall back to the interactive [y/N] prompt.
+//   - neither, stdin is NOT a TTY: refuse with an error naming --yes (a
+//     success-looking silent no-op is the agent trap Principle 1 targets;
+//     reference impl: shll uninstall).
+//
+// stdinIsTTY records whether the invocation's stdin is an interactive terminal.
+// The zero value is false, so a default consent{} is "no flags, no TTY" — which
+// refuses. Production sets it by inspecting the real stdin (see runAgentSetup);
+// tests simulating an interactive session set it explicitly.
+type consent struct {
+	yes        bool
+	dryRun     bool
+	stdinIsTTY bool
+}
+
+// errNonInteractiveConsent is returned when a write is pending, neither --yes
+// nor --dry-run was passed, and stdin is not a TTY — the Principle 1 non-TTY
+// refusal. It names --yes so the caller (agent) knows how to proceed, and its
+// presence guarantees nothing was written.
+var errNonInteractiveConsent = errors.New("refusing to write without confirmation: stdin is not a TTY — pass --yes to consent non-interactively, or --dry-run to preview without writing")
+
+// authorizeWrite decides whether a pending write proceeds. On --dry-run it
+// reports the preview to out and returns (false, nil) (no write); on --yes it
+// returns (true, nil) without prompting; on a TTY with neither flag it prints
+// promptSuffix and defers to the interactive prompt; with neither flag on a
+// non-TTY stdin it refuses, returning (false, errNonInteractiveConsent) so
+// nothing is written (Principle 1).
+//
+// promptSuffix (e.g. "Write these changes? [y/N] ") is emitted ONLY on the
+// interactive path — the auto-answered --yes/--dry-run paths never read the
+// prompt, so printing "[y/N] " there reads as a hang in an agent's transcript.
+func (c consent) authorizeWrite(out io.Writer, reader *bufio.Reader, dryRunNote, promptSuffix string) (bool, error) {
+	if c.dryRun {
+		fmt.Fprintf(out, "%s\n", dryRunNote)
+		return false, nil
+	}
+	if c.yes {
+		return true, nil
+	}
+	if !c.stdinIsTTY {
+		return false, errNonInteractiveConsent
+	}
+	fmt.Fprint(out, promptSuffix)
+	return confirm(reader), nil
+}
 
 var agentSetupCmd = &cobra.Command{
 	Use:   "agent-setup",
@@ -249,23 +308,28 @@ var agentSetupCmd = &cobra.Command{
 		"pane option so run-kit can show any agent's active/waiting/idle state. " +
 		"v1 targets Claude Code (~/.claude/settings.json). The install is a JSON " +
 		"merge: existing hooks are preserved, re-running is idempotent, and a diff " +
-		"is shown for confirmation before anything is written.",
+		"is shown for confirmation before anything is written. Use --yes to write " +
+		"without prompting (non-interactive), or --dry-run to preview the diff and " +
+		"write nothing.",
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runAgentSetup(cmd.OutOrStdout(), cmd.InOrStdin(), agentSetupUninstall)
+		in := cmd.InOrStdin()
+		return runAgentSetup(cmd.OutOrStdout(), in, agentSetupUninstall, consent{yes: agentSetupYes, dryRun: agentSetupDryRun, stdinIsTTY: isTerminal(in)})
 	},
 }
 
 func init() {
 	agentSetupCmd.Flags().BoolVar(&agentSetupUninstall, "uninstall", false, "Remove the rk-owned hook entries instead of installing them")
+	agentSetupCmd.Flags().BoolVarP(&agentSetupYes, "yes", "y", false, "Write without prompting (non-interactive consent)")
+	agentSetupCmd.Flags().BoolVar(&agentSetupDryRun, "dry-run", false, "Show the diff and write nothing (wins over --yes)")
 }
 
 // runAgentSetup applies the install/uninstall to every agent in the registry,
 // showing a diff and prompting for confirmation before each write. It is split
 // from the cobra RunE with explicit io.Writer/io.Reader so it is testable without
 // a TTY.
-func runAgentSetup(out io.Writer, in io.Reader, uninstall bool) error {
+func runAgentSetup(out io.Writer, in io.Reader, uninstall bool, cons consent) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("could not determine home directory: %w", err)
@@ -286,7 +350,7 @@ func runAgentSetup(out io.Writer, in io.Reader, uninstall bool) error {
 
 	reader := bufio.NewReader(in)
 	for _, ac := range agentRegistry(home) {
-		if err := applyAgentConfig(out, reader, ac, rkPath, uninstall); err != nil {
+		if err := applyAgentConfig(out, reader, ac, rkPath, uninstall, cons); err != nil {
 			return err
 		}
 	}
@@ -301,12 +365,12 @@ func runAgentSetup(out io.Writer, in io.Reader, uninstall bool) error {
 // diff/prompt, and no-op report — so declining or no-op-ing one does not skip the
 // other. The legacy cleanup is skipped entirely when skillsDir is empty (e.g. a
 // future codex/copilot row with no skills convention).
-func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool) error {
-	if err := applyAgentHooks(out, reader, ac, rkPath, uninstall); err != nil {
+func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
+	if err := applyAgentHooks(out, reader, ac, rkPath, uninstall, cons); err != nil {
 		return err
 	}
 	if ac.skillsDir != "" {
-		if err := removeLegacySkill(out, reader, ac); err != nil {
+		if err := removeLegacySkill(out, reader, ac, cons); err != nil {
 			return err
 		}
 	}
@@ -316,7 +380,7 @@ func applyAgentConfig(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPat
 // applyAgentHooks reads one agent's settings file, computes the merged (or
 // unmerged) result, prints a diff, and — on confirmation — writes it back. A
 // no-op (result identical to current) is reported and skipped without prompting.
-func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool) error {
+func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
 	current, err := readSettings(ac.settingsPath)
 	if err != nil {
 		return fmt.Errorf("%s: read %s: %w", ac.name, ac.settingsPath, err)
@@ -347,8 +411,15 @@ func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath
 	header := fmt.Sprintf("%s: will %s run-kit agent-state hooks in %s", ac.name, action, ac.settingsPath)
 	renderArtifactDiff(out, header, beforeJSON, afterJSON)
 
-	if !confirm(reader) {
-		fmt.Fprintf(out, "%s: skipped (no changes written).\n", ac.name)
+	dryRunNote := fmt.Sprintf("%s: dry run — no changes written.", ac.name)
+	ok, err := cons.authorizeWrite(out, reader, dryRunNote, "\nWrite these changes? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if !cons.dryRun {
+			fmt.Fprintf(out, "%s: skipped (no changes written).\n", ac.name)
+		}
 		return nil
 	}
 
@@ -373,7 +444,7 @@ func applyAgentHooks(out io.Writer, reader *bufio.Reader, ac agentConfig, rkPath
 //   - marker-owned file → offer removal (confirm), then os.RemoveAll the whole
 //     rk-display/ directory. Removal is confirmed first because it deletes the
 //     entire directory, including any user-added files within it.
-func removeLegacySkill(out io.Writer, reader *bufio.Reader, ac agentConfig) error {
+func removeLegacySkill(out io.Writer, reader *bufio.Reader, ac agentConfig, cons consent) error {
 	skillDir := filepath.Join(ac.skillsDir, rkDisplaySkillDir)
 	skillPath := filepath.Join(skillDir, rkDisplaySkillFile)
 
@@ -393,9 +464,16 @@ func removeLegacySkill(out io.Writer, reader *bufio.Reader, ac agentConfig) erro
 	}
 
 	fmt.Fprintf(out, "%s: found a legacy rk-display skill at %s (agent-setup no longer installs it).\n\n", ac.name, skillPath)
-	fmt.Fprintf(out, "Remove the %s directory? [y/N] ", skillDir)
-	if !confirm(reader) {
-		fmt.Fprintf(out, "%s: legacy rk-display skill left in place (nothing removed).\n", ac.name)
+	dryRunNote := fmt.Sprintf("%s: dry run — legacy rk-display skill left in place (nothing removed).", ac.name)
+	promptSuffix := fmt.Sprintf("Remove the %s directory? [y/N] ", skillDir)
+	ok, err := cons.authorizeWrite(out, reader, dryRunNote, promptSuffix)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if !cons.dryRun {
+			fmt.Fprintf(out, "%s: legacy rk-display skill left in place (nothing removed).\n", ac.name)
+		}
 		return nil
 	}
 
@@ -431,20 +509,38 @@ func readSkill(path string) (string, error) {
 }
 
 // renderArtifactDiff prints the shared "will <action> … / --- current / +++
-// proposed / Write these changes?" block for the settings-hooks merge. It was
-// once shared with the rk-display skill install (now removed), so it stays a
-// standalone helper — the diff framing and confirm prompt are kept in one place.
+// proposed" block for the settings-hooks merge. It was once shared with the
+// rk-display skill install (now removed), so it stays a standalone helper — the
+// diff framing is kept in one place.
 //
 // `current` and `proposed` are the already-formatted body strings (indented JSON
 // for hooks); this helper adds no further trimming. The header carries no trailing
 // newline — this function appends the blank line that separates it from the diff.
+// The "Write these changes? [y/N] " prompt suffix is NOT emitted here — it is
+// printed by authorizeWrite only on the interactive path, so the auto-answered
+// --yes/--dry-run paths never dangle an unanswered prompt.
 func renderArtifactDiff(out io.Writer, header, current, proposed string) {
 	fmt.Fprintf(out, "%s\n\n", header)
 	fmt.Fprintln(out, "--- current")
 	fmt.Fprintln(out, current)
 	fmt.Fprintln(out, "+++ proposed")
 	fmt.Fprintln(out, proposed)
-	fmt.Fprint(out, "\nWrite these changes? [y/N] ")
+}
+
+// isTerminal reports whether r is an interactive terminal, used to decide
+// between the interactive [y/N] prompt and the Principle 1 non-TTY refusal. It
+// uses term.IsTerminal (a TCGETS/TIOCGETA ioctl), NOT a bare os.ModeCharDevice
+// check: a char-device test alone treats /dev/null (`agent-setup </dev/null`,
+// the exact non-interactive shape an agent uses) as a terminal, which would make
+// the refusal silently not fire. A non-*os.File reader (e.g. a test's
+// strings.Reader or a pipe) is not a TTY, so tests default to the
+// non-interactive path unless they say otherwise.
+func isTerminal(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(f.Fd()))
 }
 
 // confirm reads a single line and returns true only for an explicit yes

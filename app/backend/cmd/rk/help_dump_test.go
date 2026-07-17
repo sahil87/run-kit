@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -45,8 +44,7 @@ func childByName(n node, name string) (node, bool) {
 }
 
 func TestBuildDumpTopLevelShape(t *testing.T) {
-	fixed := time.Date(2026, 6, 2, 12, 34, 56, 0, time.UTC)
-	doc := buildDump(rootCmd, displayVersion(), fixed)
+	doc := buildDump(rootCmd, displayVersion())
 
 	if doc.Tool != "run-kit" {
 		t.Errorf("tool = %q, want %q", doc.Tool, "run-kit")
@@ -72,31 +70,39 @@ func TestBuildDumpVersionFromBinary(t *testing.T) {
 	// Version must flow from the binary's version var (via displayVersion),
 	// not be a hardcoded literal — so an ldflags override propagates.
 	want := displayVersion()
-	doc := buildDump(rootCmd, want, nowUTC())
+	doc := buildDump(rootCmd, want)
 	if doc.Version != want {
 		t.Errorf("version = %q, want displayVersion() = %q", doc.Version, want)
 	}
 }
 
-func TestBuildDumpCapturedAtInjectedClock(t *testing.T) {
-	fixed := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	doc := buildDump(rootCmd, "dev", fixed)
-	if doc.CapturedAt != fixed.Format(time.RFC3339) {
-		t.Errorf("captured_at = %q, want %q", doc.CapturedAt, fixed.Format(time.RFC3339))
+// TestBuildDumpOmitsCapturedAt pins the help-dump standard's "do not emit
+// captured_at" rule: the capture timestamp is owned by the shll.ai puller, so
+// the tool's envelope MUST be exactly {tool, version, schema_version, root}.
+func TestBuildDumpOmitsCapturedAt(t *testing.T) {
+	doc := buildDump(rootCmd, "dev")
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal dump: %v", err)
 	}
-}
 
-func TestBuildDumpCapturedAtParsesRFC3339(t *testing.T) {
-	// With the default clock, captured_at must be a parseable RFC3339 stamp.
-	doc := buildDump(rootCmd, "dev", nowUTC())
-	if _, err := time.Parse(time.RFC3339, doc.CapturedAt); err != nil {
-		t.Errorf("captured_at %q does not parse as RFC3339: %v", doc.CapturedAt, err)
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
 	}
-}
-
-func TestNowUTCDefaultIsUTC(t *testing.T) {
-	if loc := nowUTC().Location(); loc != time.UTC {
-		t.Errorf("nowUTC() location = %v, want UTC", loc)
+	if _, ok := envelope["captured_at"]; ok {
+		t.Error("envelope contains captured_at — the standard reserves it for the shll.ai puller")
+	}
+	wantKeys := map[string]bool{"tool": true, "version": true, "schema_version": true, "root": true}
+	for k := range envelope {
+		if !wantKeys[k] {
+			t.Errorf("unexpected envelope key %q — shape must be exactly {tool, version, schema_version, root}", k)
+		}
+	}
+	for k := range wantKeys {
+		if _, ok := envelope[k]; !ok {
+			t.Errorf("missing required envelope key %q", k)
+		}
 	}
 }
 

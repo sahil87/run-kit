@@ -3,6 +3,8 @@ package riff
 import (
 	"fmt"
 	"strings"
+
+	"rk/internal/tmux"
 )
 
 // buildSkillShellString composes the shell string for a skill-type pane in
@@ -42,22 +44,32 @@ func paneShellString(launcher string, pane PaneSpec) string {
 	return buildCmdShellString(pane.Value)
 }
 
-// sessionTarget returns spec.Session (the `new-window -t` target — creates the
-// window IN that session) or "" when Session is empty (CLI path — unscoped, so
-// the ambient/attached session is used, byte-identical to pre-session behavior).
+// sessionTarget returns the `new-window -t` target that creates the window IN
+// spec.Session — the exact-match session form `=<session>:` (tmux.
+// ExactSessionTarget) — or "" when Session is empty (CLI path — unscoped, so
+// the ambient/attached session is used, byte-identical to pre-session
+// behavior). The exact form is required because new-window's -t is a *window*
+// target: a bare session name is matched against the attached session's window
+// names first, so a window named like the target session would hijack the
+// spawn into the wrong session (the same collision internal/tmux guards its
+// own CreateWindow against).
 func sessionTarget(spec EffectiveSpec) string {
-	return spec.Session
+	if spec.Session == "" {
+		return ""
+	}
+	return tmux.ExactSessionTarget(spec.Session)
 }
 
 // windowTarget returns the tmux target for a NAMED window inside spec.Session:
-// `<session>:<name>` on the daemon path (so split-window/select-layout operate
-// on the correct session's window) or just `<name>` on the CLI path (empty
-// Session → unscoped, byte-identical to pre-session behavior).
+// `=<session>:<name>` on the daemon path (exact-match session part, so
+// split-window/select-layout operate on the correct session's window) or just
+// `<name>` on the CLI path (empty Session → unscoped, byte-identical to
+// pre-session behavior).
 func windowTarget(spec EffectiveSpec, name string) string {
 	if spec.Session == "" {
 		return name
 	}
-	return spec.Session + ":" + name
+	return "=" + spec.Session + ":" + name
 }
 
 // buildSpawnArgvs returns the ordered tmux argvs (server prefix NOT included —

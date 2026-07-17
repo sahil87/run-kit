@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"rk/internal/fabconfig"
+	"rk/internal/tmux"
 )
 
 // Subprocess timeouts — `wt create` is the slowest step (matches constitution
@@ -508,7 +509,7 @@ func listWindowNames(parent context.Context, spec EffectiveSpec) ([]string, erro
 
 	listArgs := []string{"list-windows", "-F", "#W"}
 	if spec.Session != "" {
-		listArgs = []string{"list-windows", "-t", spec.Session, "-F", "#W"}
+		listArgs = []string{"list-windows", "-t", tmux.ExactSessionTarget(spec.Session), "-F", "#W"}
 	}
 	cmd := exec.CommandContext(ctx, "tmux", tmuxArgv(spec, listArgs...)...)
 	cmd.Env = childEnv(spec)

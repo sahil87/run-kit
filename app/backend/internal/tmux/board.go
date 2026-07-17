@@ -79,7 +79,7 @@ func isAbsentOption(err error) bool {
 // returning "" (no error) when the option is unset or the server is
 // unreachable. Other failures propagate.
 func showSessionOption(ctx context.Context, server, session, option string) (string, error) {
-	out, err := tmuxExecRawServer(ctx, server, "show-options", "-v", "-t", session, option)
+	out, err := tmuxExecRawServer(ctx, server, "show-options", "-v", "-t", ExactSessionTarget(session), option)
 	if err != nil {
 		if isAbsentOption(err) {
 			return "", nil
@@ -91,7 +91,7 @@ func showSessionOption(ctx context.Context, server, session, option string) (str
 
 // setSessionOption sets a session-scoped user option on a session.
 func setSessionOption(ctx context.Context, server, session, option, value string) error {
-	_, err := tmuxExecRawServer(ctx, server, "set-option", "-t", session, option, value)
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-t", ExactSessionTarget(session), option, value)
 	return err
 }
 
@@ -278,7 +278,7 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 	// still empty, so the window never enters a pin-session lacking @rk_home).
 	// A window has exactly one pin-session, so this is the sole authoritative
 	// place its membership lives.
-	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", pinSession); err == nil {
+	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", ExactSessionTarget(pinSession)); err == nil {
 		// @rk_board: always set to the requested board (different-board re-pin must
 		// not silently keep the old board; same-board is a harmless idempotent set).
 		if err := setSessionOption(ctx, server, pinSession, BoardOption, board); err != nil {
@@ -327,7 +327,7 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 	if _, err := tmuxExecServer(ctx, server, "new-session", "-d", "-s", pinSession); err != nil {
 		return fmt.Errorf("create pin session: %w", err)
 	}
-	placeholderLines, err := tmuxExecServer(ctx, server, "list-windows", "-t", pinSession, "-F", "#{window_id}")
+	placeholderLines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(pinSession), "-F", "#{window_id}")
 	if err != nil || len(placeholderLines) == 0 {
 		// Roll back the empty pin-session. Root the teardown in context.Background():
 		// Pin's ctx may already be at/near its deadline, and KillSessionCtx wraps the
@@ -403,7 +403,7 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 	}
 
 	// Idempotency: no pin-session → nothing to unpin.
-	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", pinSession); err != nil {
+	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", ExactSessionTarget(pinSession)); err != nil {
 		return nil
 	}
 
@@ -430,7 +430,7 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 
 	homeAlive := false
 	if home != "" {
-		if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", home); err == nil {
+		if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", ExactSessionTarget(home)); err == nil {
 			homeAlive = true
 		}
 	}
@@ -462,8 +462,8 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 		if err := RenameSession(pinSession, recovered, server); err != nil {
 			return fmt.Errorf("recover window from @rk_home-less pin %q: %w", pinSession, err)
 		}
-		_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", recovered, BoardOption)
-		_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", recovered, BoardOrderOption)
+		_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(recovered), BoardOption)
+		_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(recovered), BoardOrderOption)
 		return nil
 	}
 	// Home is gone — recreate it by renaming the (single-window) pin-session to
@@ -475,9 +475,9 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 	}
 	// Clear the membership vars left on the now-renamed session so a future read
 	// does not mistake the recreated home for a pin.
-	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", home, BoardOption)
-	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", home, HomeOption)
-	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", home, BoardOrderOption)
+	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(home), BoardOption)
+	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(home), HomeOption)
+	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(home), BoardOrderOption)
 	return nil
 }
 
@@ -487,7 +487,7 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 // empty session under tmux's default exit-empty behaviour, so the explicit kill
 // is best-effort cleanup, not a hard requirement.
 func killPinSessionIfPresent(ctx context.Context, server, pinSession string) error {
-	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", pinSession); err != nil {
+	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", ExactSessionTarget(pinSession)); err != nil {
 		// Already gone (auto-destroyed) — the desired end state.
 		return nil
 	}
@@ -513,7 +513,7 @@ func Reorder(ctx context.Context, server, windowID, board, newOrderKey string) e
 	if !ok {
 		return fmt.Errorf("invalid window id")
 	}
-	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", pinSession); err != nil {
+	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", ExactSessionTarget(pinSession)); err != nil {
 		return fmt.Errorf("entry not found")
 	}
 	current, err := showSessionOption(ctx, server, pinSession, BoardOption)

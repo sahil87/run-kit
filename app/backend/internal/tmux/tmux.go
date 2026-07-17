@@ -154,6 +154,37 @@ func serverArgs(server string) []string {
 	return []string{"-L", server}
 }
 
+// ExactSessionTarget returns the unambiguous tmux target string for a session
+// name: `=name:`. The leading `=` disables tmux's prefix/fnmatch name matching
+// (exact match only) and the trailing `:` forces the string to parse as a
+// session — never as a window name.
+//
+// The colon is load-bearing for commands whose `-t` is a *window* target
+// (new-window; list-panes, even under `-s`): tmux resolves a bare name against
+// the window names of the current/attached session BEFORE trying it as a
+// session name, so a window that shares its name with the target session
+// hijacks the command. Observed live (server "ext", 2026-07-17): with a window
+// named "planner" in the attached session, `new-window -a -t planner` created
+// its window in the attached session instead of session "planner", and
+// `list-panes -s -t planner` listed the attached session's panes — which the
+// window-index pane join then glued onto session "planner"'s windows. Since
+// windows AND sessions are auto-named from folder basenames
+// (automatic-rename-format), such collisions are routine, not exotic.
+//
+// Session names are validated to contain no `:` or `.` (validate.ValidateName)
+// and cannot start with `=` in practice; pin-session names (`_rk-pin-<digits>`)
+// and the control anchor are equally safe to wrap.
+func ExactSessionTarget(session string) string {
+	return "=" + session + ":"
+}
+
+// exactWindowInSession returns a session-qualified window target with an
+// exact-match session part: `=session:windowSpec`. windowSpec must itself be
+// unambiguous within the session — a window ID (@N) or a numeric index.
+func exactWindowInSession(session, windowSpec string) string {
+	return "=" + session + ":" + windowSpec
+}
+
 const (
 	// TmuxTimeout is the default timeout for tmux commands.
 	TmuxTimeout = 10 * time.Second
@@ -633,11 +664,20 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	return sessions, nil
 }
 
-// parsePanes parses tmux list-panes output lines into a window-index→[]PaneInfo map.
-// Lines are 8-field tab-delimited: window_index, pane_id, pane_index, cwd,
-// command, is_active, @rk_agent_state, @rk_chat. Field 0 (window_index) is
+// parsePanes parses tmux list-panes output lines into a window-id→[]PaneInfo map.
+// Lines are 8-field tab-delimited: window_id, pane_id, pane_index, cwd,
+// command, is_active, @rk_agent_state, @rk_chat. Field 0 (window_id) is
 // consumed for grouping and not stored in PaneInfo. Lines with fewer than 8
 // fields are silently skipped. Empty input returns nil.
+//
+// The grouping key is the stable window ID (@N), NOT the window index: the
+// panes come from a separate list-panes call than the windows they are joined
+// to (ListWindows), and an index join silently glues the wrong session's panes
+// onto a window whenever the two calls' targets diverge (the bare-name
+// session/window target collision ExactSessionTarget guards against) or a
+// concurrent reorder shifts indices between the calls. A window-id join can
+// only attach a pane to the window that actually owns it — at worst a window
+// gets an empty pane list, a visible degradation instead of wrong data.
 //
 // The @rk_agent_state field (field 6) is parsed into
 // AgentState/AgentStateEpoch (+ an optional agent pid) via parseAgentState,
@@ -655,18 +695,18 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 // fields — a dead pid, or the shell-command fallback.
 //
 // Accessible to same-package tests.
-func parsePanes(lines []string) map[int][]PaneInfo {
+func parsePanes(lines []string) map[string][]PaneInfo {
 	if len(lines) == 0 {
 		return nil
 	}
-	byWindow := make(map[int][]PaneInfo)
+	byWindow := make(map[string][]PaneInfo)
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
 		if len(parts) < 8 {
 			continue
 		}
-		windowIndex, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-		if err != nil {
+		windowID := strings.TrimSpace(parts[0])
+		if !ValidWindowID(windowID) {
 			continue
 		}
 
@@ -714,7 +754,7 @@ func parsePanes(lines []string) map[int][]PaneInfo {
 			ChatProvider:    chatProvider,
 			ChatSessionRef:  chatRef,
 		}
-		byWindow[windowIndex] = append(byWindow[windowIndex], p)
+		byWindow[windowID] = append(byWindow[windowID], p)
 	}
 	if len(byWindow) == 0 {
 		return nil
@@ -780,14 +820,14 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	return windows
 }
 
-// paneFormat is the list-panes format string: window_index, pane_id, pane_index,
+// paneFormat is the list-panes format string: window_id, pane_id, pane_index,
 // pane_current_path, pane_current_command, pane_active, @rk_agent_state, @rk_chat
 // (8 fields). The @rk_agent_state field carries the generic agent-lifecycle state
 // and @rk_chat the pane→chat-session mapping (see AgentStateOption / ChatOption /
 // docs/specs/agent-state.md); both cost no extra subprocess since they ride the
 // existing list-panes call.
 var paneFormat = strings.Join([]string{
-	"#{window_index}",
+	"#{window_id}",
 	"#{pane_id}",
 	"#{pane_index}",
 	"#{pane_current_path}",
@@ -818,7 +858,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{@rk_url}",
 	}, listDelim)
 
-	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", session, "-F", format)
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", format)
 	if err != nil {
 		return nil, nil
 	}
@@ -826,12 +866,12 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 	windows := parseWindows(lines, time.Now().Unix())
 
 	// Fetch pane data — non-fatal if list-panes fails (e.g., session disappears mid-tick).
-	paneLines, paneErr := tmuxExecServer(ctx, server, "list-panes", "-s", "-t", session, "-F", paneFormat)
+	paneLines, paneErr := tmuxExecServer(ctx, server, "list-panes", "-s", "-t", ExactSessionTarget(session), "-F", paneFormat)
 	if paneErr == nil {
 		byWindow := parsePanes(paneLines)
 		if byWindow != nil {
 			for i := range windows {
-				windows[i].Panes = byWindow[windows[i].Index]
+				windows[i].Panes = byWindow[windows[i].WindowID]
 			}
 		}
 	}
@@ -1121,7 +1161,7 @@ func sanitizeEnv(environ []string) []string {
 // branch is unit-testable without a live tmux server (mirrors riff.go's
 // buildNewWindowArgs).
 func buildCreateWindowArgs(session, name, cwd string) []string {
-	args := []string{"new-window", "-a", "-t", session}
+	args := []string{"new-window", "-a", "-t", ExactSessionTarget(session)}
 	if name != "" {
 		args = append(args, "-n", name)
 	}
@@ -1203,7 +1243,7 @@ func KillSessionCtx(ctx context.Context, server, session string) error {
 	defer cancel()
 
 	killAudit("kill-session", server, session)
-	_, err := tmuxExecServer(ctx, server, "kill-session", "-t", session)
+	_, err := tmuxExecServer(ctx, server, "kill-session", "-t", ExactSessionTarget(session))
 	return err
 }
 
@@ -1311,7 +1351,7 @@ func MoveWindow(windowID string, dstIndex int, server string) error {
 	// same call, no extra subprocess — the active window's stable ID so it can be
 	// restored after the shuffle (tmux otherwise pins the active window to its index
 	// slot, drifting it to whatever window lands there).
-	out, err := tmuxExecServer(ctx, server, "list-windows", "-t", session, "-F", "#{window_index}\t#{window_active}\t#{window_id}")
+	out, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", "#{window_index}\t#{window_active}\t#{window_id}")
 	if err != nil {
 		return fmt.Errorf("list windows: %w", err)
 	}
@@ -1386,8 +1426,8 @@ func MoveWindow(windowID string, dstIndex int, server string) error {
 		if len(args) > 0 {
 			args = append(args, ";")
 		}
-		src := fmt.Sprintf("%s:%d", session, indices[pos])
-		dst := fmt.Sprintf("%s:%d", session, indices[pos+step])
+		src := exactWindowInSession(session, strconv.Itoa(indices[pos]))
+		dst := exactWindowInSession(session, strconv.Itoa(indices[pos+step]))
 		args = append(args, "swap-window", "-s", src, "-t", dst)
 	}
 	// Restore the pre-shuffle active window by its stable ID, appended to the SAME
@@ -1402,7 +1442,7 @@ func MoveWindow(windowID string, dstIndex int, server string) error {
 	// bare -t @N may set the active window on the wrong member (see
 	// SelectWindowInSession). Qualifying with the owning session pins the restore
 	// to the session whose reorder we just performed.
-	args = append(args, ";", "select-window", "-t", fmt.Sprintf("%s:%s", session, activeWindowID))
+	args = append(args, ";", "select-window", "-t", exactWindowInSession(session, activeWindowID))
 	if _, err := tmuxExecServer(ctx, server, args...); err != nil {
 		return fmt.Errorf("swap-window/select-window chain: %w", err)
 	}
@@ -1417,7 +1457,7 @@ func MoveWindowToSession(windowID string, dstSession string, server string) erro
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	dst := fmt.Sprintf("%s:", dstSession)
+	dst := ExactSessionTarget(dstSession)
 	_, err := tmuxExecServer(ctx, server, "move-window", "-s", windowID, "-t", dst)
 	return err
 }
@@ -1498,7 +1538,7 @@ func CreateWindowWithOptions(session, name, cwd, server string, ops []WindowOpti
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	args := []string{"new-window", "-a", "-t", session, "-n", name}
+	args := []string{"new-window", "-a", "-t", ExactSessionTarget(session), "-n", name}
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}
@@ -1521,7 +1561,7 @@ func RenameSession(session, name string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "rename-session", "-t", session, name)
+	_, err := tmuxExecServer(ctx, server, "rename-session", "-t", ExactSessionTarget(session), name)
 	return err
 }
 
@@ -1652,7 +1692,7 @@ func SelectWindowInSession(session, windowID, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	target := fmt.Sprintf("%s:%s", session, windowID)
+	target := exactWindowInSession(session, windowID)
 	_, err := tmuxExecServer(ctx, server, "select-window", "-t", target)
 	return err
 }

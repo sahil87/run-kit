@@ -519,25 +519,25 @@ func TestParseWindowsMixedTypes(t *testing.T) {
 // paneLine builds an 8-field tab-delimited list-panes line with an empty
 // @rk_agent_state and empty @rk_chat (the common case). Use paneLineAgent to
 // carry an agent state, or paneLineChat to also carry a chat value.
-func paneLine(windowIndex int, paneID string, paneIndex int, cwd, command string, active int) string {
-	return paneLineChat(windowIndex, paneID, paneIndex, cwd, command, active, "", "")
+func paneLine(windowID string, paneID string, paneIndex int, cwd, command string, active int) string {
+	return paneLineChat(windowID, paneID, paneIndex, cwd, command, active, "", "")
 }
 
 // paneLineAgent builds an 8-field tab-delimited list-panes line including the
 // @rk_agent_state field (field 6), with an empty @rk_chat.
-func paneLineAgent(windowIndex int, paneID string, paneIndex int, cwd, command string, active int, agentState string) string {
-	return paneLineChat(windowIndex, paneID, paneIndex, cwd, command, active, agentState, "")
+func paneLineAgent(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState string) string {
+	return paneLineChat(windowID, paneID, paneIndex, cwd, command, active, agentState, "")
 }
 
 // paneLineChat builds an 8-field tab-delimited list-panes line including both the
 // @rk_agent_state field (field 6) and the @rk_chat field (field 7).
-func paneLineChat(windowIndex int, paneID string, paneIndex int, cwd, command string, active int, agentState, chat string) string {
-	return fmt.Sprintf("%d%s%s%s%d%s%s%s%s%s%d%s%s%s%s",
-		windowIndex, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, chat)
+func paneLineChat(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, chat string) string {
+	return fmt.Sprintf("%s%s%s%s%d%s%s%s%s%s%d%s%s%s%s",
+		windowID, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, chat)
 }
 
 // totalPanes sums the number of panes across all windows in the map.
-func totalPanes(byWindow map[int][]PaneInfo) int {
+func totalPanes(byWindow map[string][]PaneInfo) int {
 	n := 0
 	for _, panes := range byWindow {
 		n += len(panes)
@@ -562,16 +562,16 @@ func TestParsePanes(t *testing.T) {
 
 	t.Run("standard parse: single pane", func(t *testing.T) {
 		lines := []string{
-			paneLine(0, "%8", 1, "/home/user/code", "zsh", 0),
+			paneLine("@0", "%8", 1, "/home/user/code", "zsh", 0),
 		}
 		byWindow := parsePanes(lines)
 		if totalPanes(byWindow) != 1 {
 			t.Fatalf("parsePanes() returned %d total panes, want 1", totalPanes(byWindow))
 		}
-		if byWindow[0] == nil || len(byWindow[0]) != 1 {
-			t.Errorf("byWindow[0] = %v, want 1 pane", byWindow[0])
+		if byWindow["@0"] == nil || len(byWindow["@0"]) != 1 {
+			t.Errorf("byWindow[@0] = %v, want 1 pane", byWindow["@0"])
 		}
-		p := byWindow[0][0]
+		p := byWindow["@0"][0]
 		if p.PaneID != "%8" {
 			t.Errorf("PaneID = %q, want %%8", p.PaneID)
 		}
@@ -591,62 +591,62 @@ func TestParsePanes(t *testing.T) {
 
 	t.Run("active pane flag parsed correctly", func(t *testing.T) {
 		lines := []string{
-			paneLine(0, "%5", 0, "/tmp", "bash", 1),
+			paneLine("@0", "%5", 0, "/tmp", "bash", 1),
 		}
 		byWindow := parsePanes(lines)
 		if totalPanes(byWindow) != 1 {
 			t.Fatalf("expected 1 total pane, got %d", totalPanes(byWindow))
 		}
-		if !byWindow[0][0].IsActive {
+		if !byWindow["@0"][0].IsActive {
 			t.Error("IsActive = false, want true")
 		}
 	})
 
 	t.Run("malformed line with fewer than 6 fields is skipped", func(t *testing.T) {
 		lines := []string{
-			"0\t%1\t0\t/tmp",                              // only 4 fields
-			paneLine(1, "%2", 0, "/home/user", "zsh", 0), // valid
+			"0\t%1\t0\t/tmp", // only 4 fields
+			paneLine("@1", "%2", 0, "/home/user", "zsh", 0), // valid
 		}
 		byWindow := parsePanes(lines)
 		if totalPanes(byWindow) != 1 {
 			t.Fatalf("parsePanes() returned %d total panes, want 1", totalPanes(byWindow))
 		}
-		if byWindow[0] != nil {
-			t.Errorf("byWindow[0] should be nil (malformed line for window 0), got %v", byWindow[0])
+		if byWindow["@0"] != nil {
+			t.Errorf("byWindow[@0] should be nil (malformed line for window 0), got %v", byWindow["@0"])
 		}
-		if len(byWindow[1]) != 1 {
-			t.Errorf("byWindow[1] = %v, want 1 pane", byWindow[1])
+		if len(byWindow["@1"]) != 1 {
+			t.Errorf("byWindow[@1] = %v, want 1 pane", byWindow["@1"])
 		}
-		if byWindow[1][0].PaneID != "%2" {
-			t.Errorf("PaneID = %q, want %%2", byWindow[1][0].PaneID)
+		if byWindow["@1"][0].PaneID != "%2" {
+			t.Errorf("PaneID = %q, want %%2", byWindow["@1"][0].PaneID)
 		}
 	})
 
 	t.Run("panes grouped by window index", func(t *testing.T) {
 		// Window 0: panes %0, %1; Window 1: pane %2
 		lines := []string{
-			paneLine(0, "%0", 0, "/tmp/a", "zsh", 1),
-			paneLine(0, "%1", 1, "/tmp/b", "vim", 0),
-			paneLine(1, "%2", 0, "/tmp/c", "bash", 0),
+			paneLine("@0", "%0", 0, "/tmp/a", "zsh", 1),
+			paneLine("@0", "%1", 1, "/tmp/b", "vim", 0),
+			paneLine("@1", "%2", 0, "/tmp/c", "bash", 0),
 		}
 		byWindow := parsePanes(lines)
 		if totalPanes(byWindow) != 3 {
 			t.Fatalf("parsePanes() returned %d total panes, want 3", totalPanes(byWindow))
 		}
-		if len(byWindow[0]) != 2 {
-			t.Errorf("byWindow[0] = %d panes, want 2", len(byWindow[0]))
+		if len(byWindow["@0"]) != 2 {
+			t.Errorf("byWindow[@0] = %d panes, want 2", len(byWindow["@0"]))
 		}
-		if len(byWindow[1]) != 1 {
-			t.Errorf("byWindow[1] = %d panes, want 1", len(byWindow[1]))
+		if len(byWindow["@1"]) != 1 {
+			t.Errorf("byWindow[@1] = %d panes, want 1", len(byWindow["@1"]))
 		}
-		if byWindow[0][0].PaneID != "%0" {
-			t.Errorf("byWindow[0][0].PaneID = %q, want %%0", byWindow[0][0].PaneID)
+		if byWindow["@0"][0].PaneID != "%0" {
+			t.Errorf("byWindow[@0][0].PaneID = %q, want %%0", byWindow["@0"][0].PaneID)
 		}
-		if byWindow[0][1].PaneID != "%1" {
-			t.Errorf("byWindow[0][1].PaneID = %q, want %%1", byWindow[0][1].PaneID)
+		if byWindow["@0"][1].PaneID != "%1" {
+			t.Errorf("byWindow[@0][1].PaneID = %q, want %%1", byWindow["@0"][1].PaneID)
 		}
-		if byWindow[1][0].PaneID != "%2" {
-			t.Errorf("byWindow[1][0].PaneID = %q, want %%2", byWindow[1][0].PaneID)
+		if byWindow["@1"][0].PaneID != "%2" {
+			t.Errorf("byWindow[@1][0].PaneID = %q, want %%2", byWindow["@1"][0].PaneID)
 		}
 	})
 
@@ -655,6 +655,23 @@ func TestParsePanes(t *testing.T) {
 		byWindow := parsePanes(lines)
 		if byWindow != nil {
 			t.Errorf("parsePanes() byWindow = %v, want nil", byWindow)
+		}
+	})
+
+	t.Run("line with non-window-id first field is skipped", func(t *testing.T) {
+		// A bare index (the pre-window-id format) or garbage in field 0 must be
+		// dropped, not grouped under a bogus key.
+		lines := []string{
+			paneLine("0", "%1", 0, "/tmp", "zsh", 0),   // numeric index, not @N
+			paneLine("win", "%2", 0, "/tmp", "zsh", 0), // garbage
+			paneLine("@3", "%3", 0, "/tmp", "zsh", 0),  // valid
+		}
+		byWindow := parsePanes(lines)
+		if totalPanes(byWindow) != 1 {
+			t.Fatalf("parsePanes() returned %d total panes, want 1", totalPanes(byWindow))
+		}
+		if byWindow["@3"][0].PaneID != "%3" {
+			t.Errorf("byWindow[@3][0].PaneID = %q, want %%3", byWindow["@3"][0].PaneID)
 		}
 	})
 
@@ -669,12 +686,12 @@ func TestParsePanes(t *testing.T) {
 			{"idle:1751790002", "idle", 1751790002},
 		}
 		for _, c := range cases {
-			lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, c.raw)}
+			lines := []string{paneLineAgent("@0", "%1", 0, "/tmp", "claude", 1, c.raw)}
 			byWindow := parsePanes(lines)
 			if totalPanes(byWindow) != 1 {
 				t.Fatalf("raw %q: got %d panes, want 1", c.raw, totalPanes(byWindow))
 			}
-			p := byWindow[0][0]
+			p := byWindow["@0"][0]
 			if p.AgentState != c.wantState || p.AgentStateEpoch != c.wantEpoch {
 				t.Errorf("raw %q: AgentState=%q epoch=%d, want %q/%d", c.raw, p.AgentState, p.AgentStateEpoch, c.wantState, c.wantEpoch)
 			}
@@ -682,8 +699,8 @@ func TestParsePanes(t *testing.T) {
 	})
 
 	t.Run("unset agent state yields zero values", func(t *testing.T) {
-		lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, "")}
-		p := parsePanes(lines)[0][0]
+		lines := []string{paneLineAgent("@0", "%1", 0, "/tmp", "claude", 1, "")}
+		p := parsePanes(lines)["@0"][0]
 		if p.AgentState != "" || p.AgentStateEpoch != 0 {
 			t.Errorf("unset: AgentState=%q epoch=%d, want empty/0", p.AgentState, p.AgentStateEpoch)
 		}
@@ -691,14 +708,14 @@ func TestParsePanes(t *testing.T) {
 
 	t.Run("malformed agent state degrades to zero", func(t *testing.T) {
 		cases := []string{
-			"active",             // no colon
-			"active:notanumber",  // non-integer epoch
-			"bogus:1751790000",   // unknown state token
-			":1751790000",        // empty state
+			"active",            // no colon
+			"active:notanumber", // non-integer epoch
+			"bogus:1751790000",  // unknown state token
+			":1751790000",       // empty state
 		}
 		for _, raw := range cases {
-			lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, raw)}
-			p := parsePanes(lines)[0][0]
+			lines := []string{paneLineAgent("@0", "%1", 0, "/tmp", "claude", 1, raw)}
+			p := parsePanes(lines)["@0"][0]
 			if p.AgentState != "" || p.AgentStateEpoch != 0 {
 				t.Errorf("raw %q: AgentState=%q epoch=%d, want empty/0", raw, p.AgentState, p.AgentStateEpoch)
 			}
@@ -707,8 +724,8 @@ func TestParsePanes(t *testing.T) {
 
 	t.Run("legacy shell-command reconciler zeros a two-segment leftover state", func(t *testing.T) {
 		for _, shell := range []string{"bash", "zsh", "fish", "sh", "dash"} {
-			lines := []string{paneLineAgent(0, "%1", 0, "/tmp", shell, 1, "active:1751790000")}
-			p := parsePanes(lines)[0][0]
+			lines := []string{paneLineAgent("@0", "%1", 0, "/tmp", shell, 1, "active:1751790000")}
+			p := parsePanes(lines)["@0"][0]
 			if p.AgentState != "" || p.AgentStateEpoch != 0 {
 				t.Errorf("shell %q: AgentState=%q epoch=%d, want empty/0 (legacy reconciler)", shell, p.AgentState, p.AgentStateEpoch)
 			}
@@ -716,8 +733,8 @@ func TestParsePanes(t *testing.T) {
 	})
 
 	t.Run("non-shell command keeps a two-segment state", func(t *testing.T) {
-		lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000")}
-		p := parsePanes(lines)[0][0]
+		lines := []string{paneLineAgent("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000")}
+		p := parsePanes(lines)["@0"][0]
 		if p.AgentState != "active" || p.AgentStateEpoch != 1751790000 {
 			t.Errorf("claude: AgentState=%q epoch=%d, want active/1751790000", p.AgentState, p.AgentStateEpoch)
 		}
@@ -731,8 +748,8 @@ func TestParsePanes(t *testing.T) {
 		agentProcessAlive = func(pid int) bool { return pid == 4242 }
 		defer func() { agentProcessAlive = restore }()
 
-		lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "bash", 1, "waiting:1751790000:4242")}
-		p := parsePanes(lines)[0][0]
+		lines := []string{paneLineAgent("@0", "%1", 0, "/tmp", "bash", 1, "waiting:1751790000:4242")}
+		p := parsePanes(lines)["@0"][0]
 		if p.AgentState != "waiting" || p.AgentStateEpoch != 1751790000 {
 			t.Errorf("alive pid under bash: AgentState=%q epoch=%d, want waiting/1751790000", p.AgentState, p.AgentStateEpoch)
 		}
@@ -745,8 +762,8 @@ func TestParsePanes(t *testing.T) {
 		agentProcessAlive = func(int) bool { return false }
 		defer func() { agentProcessAlive = restore }()
 
-		lines := []string{paneLineAgent(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000:4242")}
-		p := parsePanes(lines)[0][0]
+		lines := []string{paneLineAgent("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000:4242")}
+		p := parsePanes(lines)["@0"][0]
 		if p.AgentState != "" || p.AgentStateEpoch != 0 {
 			t.Errorf("dead pid: AgentState=%q epoch=%d, want empty/0", p.AgentState, p.AgentStateEpoch)
 		}
@@ -754,16 +771,16 @@ func TestParsePanes(t *testing.T) {
 
 	t.Run("chat ref parsed from field 7", func(t *testing.T) {
 		const uuid = "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"
-		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000", "claude:"+uuid)}
-		p := parsePanes(lines)[0][0]
+		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "claude:"+uuid)}
+		p := parsePanes(lines)["@0"][0]
 		if p.ChatProvider != "claude" || p.ChatSessionRef != uuid {
 			t.Errorf("ChatProvider=%q ChatSessionRef=%q, want claude/%s", p.ChatProvider, p.ChatSessionRef, uuid)
 		}
 	})
 
 	t.Run("unset chat yields empty chat fields", func(t *testing.T) {
-		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000", "")}
-		p := parsePanes(lines)[0][0]
+		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "")}
+		p := parsePanes(lines)["@0"][0]
 		if p.ChatProvider != "" || p.ChatSessionRef != "" {
 			t.Errorf("unset chat: ChatProvider=%q ChatSessionRef=%q, want empty", p.ChatProvider, p.ChatSessionRef)
 		}
@@ -771,8 +788,8 @@ func TestParsePanes(t *testing.T) {
 
 	t.Run("malformed chat degrades to empty", func(t *testing.T) {
 		for _, raw := range []string{"claude", "claude:", ":abc", "Claude:abc", "claude:has space"} {
-			lines := []string{paneLineChat(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000", raw)}
-			p := parsePanes(lines)[0][0]
+			lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", raw)}
+			p := parsePanes(lines)["@0"][0]
 			if p.ChatProvider != "" || p.ChatSessionRef != "" {
 				t.Errorf("raw %q: ChatProvider=%q ChatSessionRef=%q, want empty", raw, p.ChatProvider, p.ChatSessionRef)
 			}
@@ -785,13 +802,13 @@ func TestParsePanes(t *testing.T) {
 		// unset user option — so a real 7-field line only occurs pre-upgrade).
 		sevenField := fmt.Sprintf("0%s%%1%s0%s/tmp%sclaude%s1%sactive:1751790000",
 			listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
-		valid := paneLineChat(1, "%2", 0, "/tmp", "claude", 1, "", "")
+		valid := paneLineChat("@1", "%2", 0, "/tmp", "claude", 1, "", "")
 		byWindow := parsePanes([]string{sevenField, valid})
 		if totalPanes(byWindow) != 1 {
 			t.Fatalf("got %d panes, want 1 (7-field line skipped)", totalPanes(byWindow))
 		}
-		if byWindow[0] != nil {
-			t.Errorf("byWindow[0] should be nil (7-field line skipped), got %v", byWindow[0])
+		if byWindow["@0"] != nil {
+			t.Errorf("byWindow[@0] should be nil (7-field line skipped), got %v", byWindow["@0"])
 		}
 	})
 
@@ -800,8 +817,8 @@ func TestParsePanes(t *testing.T) {
 		agentProcessAlive = func(int) bool { return false }
 		defer func() { agentProcessAlive = restore }()
 
-		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "claude", 1, "active:1751790000:4242", "claude:abc-123")}
-		p := parsePanes(lines)[0][0]
+		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000:4242", "claude:abc-123")}
+		p := parsePanes(lines)["@0"][0]
 		if p.AgentState != "" || p.ChatProvider != "" || p.ChatSessionRef != "" {
 			t.Errorf("dead pid: AgentState=%q Chat=%q/%q, want all empty", p.AgentState, p.ChatProvider, p.ChatSessionRef)
 		}
@@ -811,8 +828,8 @@ func TestParsePanes(t *testing.T) {
 		// Two-segment (legacy / SessionStart-before-first-prompt) agent-state has
 		// no pid, so a plain-shell pane falls to the shell heuristic and never
 		// surfaces chat.
-		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "bash", 1, "active:1751790000", "claude:abc-123")}
-		p := parsePanes(lines)[0][0]
+		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "bash", 1, "active:1751790000", "claude:abc-123")}
+		p := parsePanes(lines)["@0"][0]
 		if p.ChatProvider != "" || p.ChatSessionRef != "" {
 			t.Errorf("shell pane: Chat=%q/%q, want empty", p.ChatProvider, p.ChatSessionRef)
 		}
@@ -826,8 +843,8 @@ func TestParsePanes(t *testing.T) {
 		agentProcessAlive = func(pid int) bool { return pid == 4242 }
 		defer func() { agentProcessAlive = restore }()
 
-		lines := []string{paneLineChat(0, "%1", 0, "/tmp", "bash", 1, "waiting:1751790000:4242", "claude:abc-123")}
-		p := parsePanes(lines)[0][0]
+		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "bash", 1, "waiting:1751790000:4242", "claude:abc-123")}
+		p := parsePanes(lines)["@0"][0]
 		if p.ChatProvider != "claude" || p.ChatSessionRef != "abc-123" {
 			t.Errorf("live wrapped pid: Chat=%q/%q, want claude/abc-123", p.ChatProvider, p.ChatSessionRef)
 		}
@@ -841,19 +858,19 @@ func TestParseChatRef(t *testing.T) {
 		wantRef      string
 	}{
 		{"claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37", "claude", "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"},
-		{"codex:thread-abc", "codex", "thread-abc"},                 // unknown-but-well-formed provider tolerated
-		{"claude:seg1:seg2", "claude", "seg1:seg2"},                 // first-colon split; a colon-bearing ref is preserved
-		{" claude:abc ", "claude", "abc"},                           // surrounding whitespace trimmed
-		{"gpt-4o_mini:x", "gpt-4o_mini", "x"},                       // provider with digits/_/-
-		{"", "", ""},                                                // empty
-		{"claude", "", ""},                                          // no colon
-		{"claude:", "", ""},                                         // empty ref
-		{":abc", "", ""},                                            // empty provider
-		{"Claude:abc", "", ""},                                      // uppercase provider rejected
-		{"9claude:abc", "", ""},                                     // provider must start with a-z
-		{"cla ude:abc", "", ""},                                     // space in provider
-		{"claude:has space", "", ""},                                // whitespace in ref
-		{"claude:tab\there", "", ""},                                // control char in ref
+		{"codex:thread-abc", "codex", "thread-abc"}, // unknown-but-well-formed provider tolerated
+		{"claude:seg1:seg2", "claude", "seg1:seg2"}, // first-colon split; a colon-bearing ref is preserved
+		{" claude:abc ", "claude", "abc"},           // surrounding whitespace trimmed
+		{"gpt-4o_mini:x", "gpt-4o_mini", "x"},       // provider with digits/_/-
+		{"", "", ""},                                // empty
+		{"claude", "", ""},                          // no colon
+		{"claude:", "", ""},                         // empty ref
+		{":abc", "", ""},                            // empty provider
+		{"Claude:abc", "", ""},                      // uppercase provider rejected
+		{"9claude:abc", "", ""},                     // provider must start with a-z
+		{"cla ude:abc", "", ""},                     // space in provider
+		{"claude:has space", "", ""},                // whitespace in ref
+		{"claude:tab\there", "", ""},                // control char in ref
 	}
 	for _, c := range cases {
 		provider, ref := parseChatRef(c.raw)
@@ -2094,7 +2111,10 @@ func TestIsServerGone(t *testing.T) {
 // TestBuildCreateWindowArgs asserts the argv slice produced by
 // buildCreateWindowArgs: an empty name omits the -n token entirely (so tmux's
 // automatic-rename-format names the window to its folder basename), while a
-// non-empty name pins it with -n <name>. Other args (-a, -t, -c) are unchanged.
+// non-empty name pins it with -n <name>. The -t target is the exact-match
+// session form `=<session>:` — new-window's -t is a window target, so a bare
+// session name would first match a window of that name in the attached
+// session and create the window there (the ext misroute, 2026-07-17).
 func TestBuildCreateWindowArgs(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -2108,14 +2128,14 @@ func TestBuildCreateWindowArgs(t *testing.T) {
 			session: "dev",
 			winName: "",
 			cwd:     "/home/user/run-kit",
-			want:    []string{"new-window", "-a", "-t", "dev", "-c", "/home/user/run-kit"},
+			want:    []string{"new-window", "-a", "-t", "=dev:", "-c", "/home/user/run-kit"},
 		},
 		{
 			name:    "non-empty name pins with -n",
 			session: "dev",
 			winName: "feature",
 			cwd:     "/home/user/run-kit",
-			want:    []string{"new-window", "-a", "-t", "dev", "-n", "feature", "-c", "/home/user/run-kit"},
+			want:    []string{"new-window", "-a", "-t", "=dev:", "-n", "feature", "-c", "/home/user/run-kit"},
 		},
 	}
 	for _, tc := range cases {
@@ -2125,6 +2145,96 @@ func TestBuildCreateWindowArgs(t *testing.T) {
 				t.Errorf("buildCreateWindowArgs(%q, %q, %q) =\n  %#v\nwant\n  %#v", tc.session, tc.winName, tc.cwd, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestSessionWindowNameCollision reproduces the 2026-07-17 "ext" misroute
+// against a real tmux server: a session named X coexisting with a WINDOW named
+// X in another session. CreateWindow and ListWindows pass session names into
+// commands whose -t is a *window* target (new-window; list-panes, even under
+// -s), where tmux matches a bare name against the current session's window
+// names before trying it as a session name — creating the window in the wrong
+// session and gluing the wrong session's panes onto the right session's
+// windows. The exact-match target form (ExactSessionTarget) plus the window-id
+// pane join must keep both operations pinned to the named session.
+func TestSessionWindowNameCollision(t *testing.T) {
+	server := withSessionOrderTmux(t) // provides session "boot"
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// In session "boot", create a window whose NAME collides with the session
+	// created next.
+	createHomeWindow(t, server, "boot", "victim")
+	if err := CreateSession("victim", "/tmp", server); err != nil {
+		t.Fatalf("create session victim: %v", err)
+	}
+
+	// CreateWindow targeting SESSION "victim" must land there — not next to
+	// WINDOW "victim" inside boot (the misroute).
+	if err := CreateWindow("victim", "newwin", "/tmp", server); err != nil {
+		t.Fatalf("CreateWindow: %v", err)
+	}
+	victimWindows, err := ListWindows(ctx, "victim", server)
+	if err != nil {
+		t.Fatalf("ListWindows(victim): %v", err)
+	}
+	foundInVictim := false
+	for _, w := range victimWindows {
+		if w.Name == "newwin" {
+			foundInVictim = true
+		}
+	}
+	if !foundInVictim {
+		t.Errorf("window %q not found in session victim — misrouted create; victim windows: %+v", "newwin", victimWindows)
+	}
+	bootWindows, err := ListWindows(ctx, "boot", server)
+	if err != nil {
+		t.Fatalf("ListWindows(boot): %v", err)
+	}
+	for _, w := range bootWindows {
+		if w.Name == "newwin" {
+			t.Errorf("window %q landed in session boot — the bare-name window-target misroute", "newwin")
+		}
+	}
+
+	// Pane join: session victim's windows must carry their OWN panes, never
+	// boot's (the index-join symptom was boot's pane IDs on victim's windows).
+	bootPaneIDs := make(map[string]bool)
+	for _, w := range bootWindows {
+		for _, p := range w.Panes {
+			bootPaneIDs[p.PaneID] = true
+		}
+	}
+	for _, w := range victimWindows {
+		if len(w.Panes) == 0 {
+			t.Errorf("victim window %s (%s) has no panes — pane join failed", w.WindowID, w.Name)
+		}
+		for _, p := range w.Panes {
+			if bootPaneIDs[p.PaneID] {
+				t.Errorf("victim window %s carries boot's pane %s — cross-session pane misjoin", w.WindowID, p.PaneID)
+			}
+		}
+	}
+}
+
+// TestExactSessionTarget pins the exact-match session target form: `=name:`.
+// The `=` disables prefix/fnmatch matching; the trailing `:` forces session
+// parsing on commands whose -t is a window target (new-window, list-panes),
+// where a bare name is matched against the attached session's window names
+// first — the session/window name-collision misroute.
+func TestExactSessionTarget(t *testing.T) {
+	cases := []struct{ session, want string }{
+		{"planner", "=planner:"},
+		{"0", "=0:"},                   // numeric session names must not parse as an index
+		{"_rk-pin-42", "=_rk-pin-42:"}, // pin-sessions ride the same helper
+	}
+	for _, tc := range cases {
+		if got := ExactSessionTarget(tc.session); got != tc.want {
+			t.Errorf("ExactSessionTarget(%q) = %q, want %q", tc.session, got, tc.want)
+		}
+	}
+	if got := exactWindowInSession("planner", "@4"); got != "=planner:@4" {
+		t.Errorf("exactWindowInSession(planner, @4) = %q, want =planner:@4", got)
 	}
 }
 

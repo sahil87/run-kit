@@ -19,7 +19,7 @@ PANE panel register view.
       "review" stage word.
     - `@2` "scratch-shell" — an idle agent window (`agentState: idle`,
       `agentIdleDuration: 2m`). Under the OLD model this row printed "2m".
-  - The relay WebSocket is stubbed so the terminal route mounts without churn.
+  - The terminals mux WebSocket (`/ws/terminals`) is stubbed so the terminal route mounts without churn.
 - `beforeEach` installs the routes before navigation.
 
 ## Tests

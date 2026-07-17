@@ -50,10 +50,15 @@ prompt re-flowing the line or to cursor-column drift — the arrival of one more
 
 ## How the start timestamp is taken
 
-A real keystroke flows `keyboard.press` → xterm keydown → `onData` → `ws.send`
+A real keystroke flows `keyboard.press` → xterm keydown → `onData` →
+`wsRef.current.send` → the terminals mux (`RelayMux`) → `ws.send`
 (TerminalClient's `terminal.onData` handler). An init script (`INSTALL_SEND_STAMP`) wraps
 `WebSocket.prototype.send` to stamp `window.__rkSendAt = performance.now()` on
-every single-character send. The measured latency is `firstVisible −
+every single-character keystroke send. Under the terminals mux (change
+260717-803u) a keystroke is a BINARY frame `[u32 BE streamId][payload]` — a
+single char is exactly 4 + 1 = 5 bytes — so the stamp fires on a 5-byte binary
+frame (and still on a legacy 1-char string, for robustness); a resize is a JSON
+control string in both eras and is excluded. The measured latency is `firstVisible −
 __rkSendAt`, both `performance.now()` on the page clock — so start and finish
 share one clock and only the sub-ms, unbatched keydown handler is excluded.
 This mirrors the `WebSocket.prototype.send` wrap pattern in

@@ -20,7 +20,7 @@ Absent layers render as absent; the L3 PR register shows for ANY pane with a
       PR `#386`.
     - `@2` "plain-shell" — a bare shell (only L0 output).
     - `@3` "pr-only" — a plain pane (no `fabChange`) WITH a derived PR `#999`.
-  - The relay WebSocket is stubbed.
+  - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `beforeEach` installs the routes before navigation.
 
 ## Tests

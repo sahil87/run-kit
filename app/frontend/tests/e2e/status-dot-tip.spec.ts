@@ -50,7 +50,7 @@ const sessionsPayload = JSON.stringify([
 
 /** Install routes that fully mock the server list and the SSE sessions stream. */
 async function mockBackend(page: Page) {
-  await page.routeWebSocket(/\/relay\//, () => {
+  await page.routeWebSocket(/\/ws\/terminals/, () => {
     /* accept and hold the socket open; send nothing */
   });
 

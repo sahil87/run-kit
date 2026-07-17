@@ -16,7 +16,7 @@ are waiting.
     two windows: `@1` "active-win" (`agentState: active`, the active window) and
     `@2` "waiting-win", whose `agentState` is `waiting` (test 1) or `idle`
     (test 2).
-  - The relay WebSocket is stubbed.
+  - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `runNextWaiting(page)` opens the palette (`Meta+k`), fills "Agent: Next
   waiting" into the `Type a command...` input, and presses Enter.
 

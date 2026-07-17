@@ -14,7 +14,7 @@ its links do not select/navigate the underlying window row.
   - `**/api/servers` → a single server `default` (so the app attaches exactly
     one state-socket connection).
   - `**/api/windows/*/select` → 200 (window-select POSTs don't error on click).
-  - `**/relay/*` WebSocket → accepted and held open (terminal relay stubbed).
+  - `/ws/terminals` WebSocket → accepted and held open (terminal mux stubbed).
   - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload — a session `dev` with two windows:
     - `@1` "feature-work" — change-bound (`fabChange` set) with `prNumber: 386`,
       `prUrl`, `prState: open`, `prChecks: pass` → a purple **"PR — open"** dot

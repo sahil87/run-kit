@@ -94,13 +94,25 @@ test.describe("Mobile touch scroll", () => {
     await page.keyboard.type("seq 1 200\n", { delay: 10 });
     await page.waitForTimeout(2000);
 
-    // Intercept WebSocket sends
+    // Intercept WebSocket sends. Pane traffic rides the /ws/terminals mux as
+    // binary [u32 BE streamId][payload] frames (260717-803u) — decode the
+    // payload behind the 4-byte header. Control/state frames remain JSON
+    // strings and carry no SGR bytes, so the string branch stays for safety.
     await page.evaluate(() => {
       (window as any).__scrollSeqs = [];
       const orig = WebSocket.prototype.send;
       WebSocket.prototype.send = function (data) {
-        if (typeof data === "string" && data.includes("\x1b[<6")) {
-          (window as any).__scrollSeqs.push(data);
+        let text = "";
+        if (typeof data === "string") {
+          text = data;
+        } else if (data instanceof ArrayBuffer) {
+          text = new TextDecoder().decode(new Uint8Array(data).subarray(4));
+        } else if (ArrayBuffer.isView(data)) {
+          const u8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+          text = new TextDecoder().decode(u8.subarray(4));
+        }
+        if (text.includes("\x1b[<6")) {
+          (window as any).__scrollSeqs.push(text);
         }
         return orig.call(this, data);
       };

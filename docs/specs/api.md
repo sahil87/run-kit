@@ -324,36 +324,56 @@ data: [{"name":"run-kit","windows":[...]}]
 
 ---
 
-### Terminal Relay
+### Terminals Mux
 
-WebSocket endpoint for interactive terminal access.
+A single WebSocket per browser tab carrying ALL pane relay streams (the retired
+per-pane `WS /relay/{windowId}` was consolidated onto this mux in
+`260717-803u-relay-mux`). A board with N panes holds ONE terminals socket, not N.
 
-#### `WS /relay/:session/:window`
+#### `WS /ws/terminals`
 
-**URL params:**
+No URL params — every stream is opened in-band via an `open` control op. Stream
+ids are client-allocated `u32`s, unique within a socket connection.
 
-| Param | Type | Validation |
-|-------|------|------------|
-| `session` | `string` | Name validation |
-| `window` | `int` | Non-negative integer |
+**Wire protocol:**
 
-**Message protocol:**
+Binary data frames `[u32 BE streamId][payload]` in both directions (server→client
+PTY output, client→server keystrokes). JSON text frames for control:
 
-| Direction | Format | Description |
-|-----------|--------|-------------|
-| Server → Client | Raw text (bytes) | Terminal output from PTY |
-| Client → Server | Raw text | Terminal input, written to PTY |
-| Client → Server | JSON `{"type":"resize","cols":N,"rows":N}` | Resize PTY |
+| Direction | Frame |
+|-----------|-------|
+| Client → Server | `{"op":"open","id":7,"server":"<tmux server>","windowId":"@42","cols":120,"rows":32}` |
+| Client → Server | `{"op":"resize","id":7,"cols":100,"rows":40}` |
+| Client → Server | `{"op":"close","id":7}` |
+| Server → Client | `{"op":"opened","id":7}` |
+| Server → Client | `{"op":"closed","id":7,"code":4004\|4001\|1000,"reason":"..."}` |
 
-**Connection lifecycle:**
-1. Upgrade HTTP → WebSocket
-2. Create independent pane: `tmux split-window -t {session}:{window}`
-3. Attach to pane via PTY: `tmux attach-session -t {session}`
-4. Bidirectional relay: goroutine for PTY→WS, main loop for WS→PTY
-5. On disconnect: kill PTY process, close PTY fd, kill spawned pane via `sync.Once`
+**Per-stream lifecycle** (each `open` reproduces the former `handleRelay`
+per-connection semantics, per stream):
+1. Validate `windowId` (shared `validate.ValidateWindowID`) — a bad id yields a
+   per-stream `closed` 4004, never a socket teardown.
+2. `ResolveWindowSession` (5s) → session-scoped `SelectWindowInSession` (the
+   move-based model: each window lives in exactly one session — home or
+   `_rk-pin-*` — and select+attach must agree).
+3. `forceTERM` (`TERM=xterm-256color`), best-effort `tmux.ReloadConfig`, then
+   `pty.StartWithSize` at the open op's initial `cols`/`rows` (no
+   wait-for-first-resize dance).
+4. On success: reply `opened` (delivered before the stream's first data frame),
+   then pump PTY output as binary data frames.
+5. On stream close (client `close` op, PTY EOF, or socket teardown): cancel the
+   attach context, close the PTY fd, kill the attach process (`sync.Once`), and
+   reply `closed` (1000 graceful).
 
-**Error close codes:**
-- `4001` — failed to create tmux pane or attach
+**Write path:** per-stream bounded send queues (8 × 4096B) drained by a single
+writer goroutine scheduling control/short frames ahead of bulk output,
+round-robin across ready streams (never FIFO across streams). A full per-stream
+queue pauses that stream's PTY reader (backpressure), never dropping bytes.
+
+**Per-stream `closed` codes** (the socket itself stays open for stream-level
+failures):
+- `4004` — window not found (resolve/select failed) or malformed window id
+- `4001` — failed to attach to the tmux session (`pty.StartWithSize`)
+- `1000` — graceful close (client `close` op or PTY EOF)
 
 ---
 
@@ -433,5 +453,5 @@ WebSocket endpoint for interactive terminal access.
 | `POST` | `/api/sessions/:session/windows/:index/keys` | `windows.go` | Send keystrokes |
 | `POST` | `/api/sessions/:session/upload` | `upload.go` | File upload |
 | `GET` | `/api/directories` | `directories.go` | Directory autocomplete |
-| `WS` | `/relay/:session/:window` | `relay.go` | Terminal relay |
+| `WS` | `/ws/terminals` | `terminals_ws.go` | Terminals mux (all pane relays, one socket/tab) |
 | `GET` | `/*` | `spa.go` | SPA static + fallback |

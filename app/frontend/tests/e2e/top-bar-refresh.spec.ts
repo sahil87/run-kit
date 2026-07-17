@@ -61,8 +61,10 @@ const WINDOW_URL = `/${SERVER}/%401`;
 async function mockBackend(page: Page): Promise<{ selectHits: () => number }> {
   let selectHits = 0;
 
-  // Stub the relay WebSocket so the terminal route mounts without a backend.
-  await page.routeWebSocket(/\/relay\//, () => {
+  // Stub the terminals mux WebSocket so the terminal route mounts without a
+  // backend (the per-pane /relay/ socket was retired for /ws/terminals in
+  // 260717-803u).
+  await page.routeWebSocket(/\/ws\/terminals/, () => {
     /* accept and hold the socket open; send nothing */
   });
 

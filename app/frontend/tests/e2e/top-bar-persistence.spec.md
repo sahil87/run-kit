@@ -45,7 +45,7 @@ behavior a user would see.
     single active window `@1` "feature-work".
   - `**/api/windows/*/select*` → `{ ok: true }` (trailing `*` matches the
     `?server=` query string) so window-selection POSTs during nav don't error.
-  - the `/relay/` WebSocket is stubbed (accepted, held open) so any terminal pane
+  - the `/ws/terminals` mux WebSocket is stubbed (accepted, held open) so any terminal pane
     mounts without a backend.
 - `beforeEach` installs the routes. Hops 1 and 3 navigate client-side via
   router-driven controls (a server tile, a board tile). Hop 2 clicks the raw

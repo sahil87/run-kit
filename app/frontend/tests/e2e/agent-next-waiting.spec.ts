@@ -44,7 +44,7 @@ function sessionsPayload(withWaiting: boolean) {
 }
 
 async function mockBackend(page: Page, withWaiting: boolean) {
-  await page.routeWebSocket(/\/relay\//, () => {});
+  await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );

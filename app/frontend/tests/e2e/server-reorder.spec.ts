@@ -46,36 +46,45 @@ test.describe("Server reorder — order endpoint + server-global SSE", () => {
     page,
     baseURL,
   }) => {
-    // Open a browser page and hook the SPA's SSE stream by listening for the
-    // server-order frame the backend fans out to every client. We navigate to
-    // the server route so the per-server SSE stream is attached, then read the
-    // raw EventSource frames via a small in-page bridge.
+    // Open a browser page and hook the SPA's state socket by listening for the
+    // server-order envelope the backend fans out to every connection. We
+    // navigate to the server route so the socket connects, then read raw frames
+    // via a small in-page bridge on the state socket.
     await page.goto(`/${TMUX_SERVER}`);
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 15_000 });
 
-    // Install an in-page EventSource on the server-neutral (?metrics=1) stream,
-    // proving the broadcast reaches even a client with NO attached tmux server
-    // (the server-global contract). Resolve on the first server-order frame.
+    // Install an in-page state-socket client subscribed to metrics (the
+    // server-neutral subscription), proving the broadcast reaches even a
+    // connection with NO server subscription (the server-global contract).
+    // Resolve on the first `server-order` global event.
     const orderPromise = page.evaluate((server) => {
       return new Promise<string>((resolve, reject) => {
-        const es = new EventSource("/api/sessions/stream?metrics=1");
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${proto}//${location.host}/ws/state`);
         const timer = setTimeout(() => {
-          es.close();
+          ws.close();
           reject(new Error("no server-order frame within timeout"));
         }, 15_000);
-        es.addEventListener("server-order", (e: MessageEvent) => {
-          clearTimeout(timer);
-          es.close();
-          resolve(e.data as string);
-        });
-        // Trigger the POST once the stream is actually open (deterministic — no
-        // fixed delay). The POST runs from the page context so it shares origin.
-        es.onopen = () => {
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ op: "hello", conn: "e2e-server-reorder" }));
+          ws.send(JSON.stringify({ op: "subscribe", kind: "metrics", req: 1 }));
           void fetch("/api/servers/order", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ order: [server] }),
           });
+        };
+        ws.onmessage = (e: MessageEvent) => {
+          try {
+            const m = JSON.parse(e.data as string);
+            if (m.op === "event" && m.kind === "global" && m.type === "server-order") {
+              clearTimeout(timer);
+              ws.close();
+              resolve(JSON.stringify(m.data));
+            }
+          } catch {
+            /* ignore malformed frame */
+          }
         };
       });
     }, TMUX_SERVER);

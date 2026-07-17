@@ -12,7 +12,7 @@ import { useSessionContext } from "@/contexts/session-context";
  * Used by sidebar/window-row to render the pin icon (filled vs outline) and
  * the active-board highlight.
  *
- * Implementation: refreshes the full board map on every board-changed SSE
+ * Implementation: refreshes the full board map on every board-changed
  * event from any server (debounced). For each board listed, we fetch its
  * entries; the result is a flat map.
  *
@@ -83,10 +83,9 @@ export function useWindowPins(): WindowPinsResult {
     };
   }, [fetchAll]);
 
-  // Subscribe to board-changed events through the SessionProvider's pool.
-  // The provider opens an EventSource per attached server; we hook into its
-  // SSE events instead of opening our own per-server connections (which would
-  // saturate the browser's HTTP/1.1 6-per-origin cap on multi-server setups).
+  // Subscribe to board-changed events through the SessionProvider's state
+  // socket; every attached server's events ride the one muxed connection, so
+  // no per-server connections are opened here.
   // Attach all known servers so board-changed events from non-current servers
   // are received — boards are explicitly cross-server.
   const { servers, attachServer, subscribeBoardChange } = useSessionContext();

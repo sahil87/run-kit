@@ -13,14 +13,14 @@ Absent layers render as absent; the L3 PR register shows for ANY pane with a
 - Fully mocked — no tmux, no `gh`, no real backend. Injected via `page.route`:
   - `**/api/servers` → a single server `default`.
   - `**/api/windows/*/select*` → 200.
-  - `**/api/sessions/stream*` → one `event: sessions` frame, session `dev` with
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload, session `dev` with
     three windows:
     - `@1` "full-stack" — all four layers: `agentState: waiting` (3m),
       `fabChange`/`fabStage: review`/`fabDisplayState: failed`, and a derived
       PR `#386`.
     - `@2` "plain-shell" — a bare shell (only L0 output).
     - `@3` "pr-only" — a plain pane (no `fabChange`) WITH a derived PR `#999`.
-  - The relay WebSocket is stubbed.
+  - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `beforeEach` installs the routes before navigation.
 
 ## Tests

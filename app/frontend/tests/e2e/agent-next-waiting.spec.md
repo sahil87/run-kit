@@ -12,11 +12,11 @@ are waiting.
   - `**/api/servers` → a single server `default`.
   - `**/api/windows/*/select*` → 200 (trailing `*` so the client's appended
     `?server=` query is still intercepted).
-  - `**/api/sessions/stream*` → one `event: sessions` frame, session `dev` with
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload, session `dev` with
     two windows: `@1` "active-win" (`agentState: active`, the active window) and
     `@2` "waiting-win", whose `agentState` is `waiting` (test 1) or `idle`
     (test 2).
-  - The relay WebSocket is stubbed.
+  - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `runNextWaiting(page)` opens the palette (`Meta+k`), fills "Agent: Next
   waiting" into the `Type a command...` input, and presses Enter.
 

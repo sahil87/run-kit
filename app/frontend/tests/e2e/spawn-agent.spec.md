@@ -17,7 +17,7 @@ renders its error in-dialog without navigating.
   `page.route`:
   - `**/api/servers` → a single server `default`.
   - `**/api/windows/*/select*` → 200 (trailing `*` for the appended `?server=`).
-  - `**/api/sessions/stream*` → one `event: sessions` frame: session `dev` with
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload: session `dev` with
     one active window `@1` "main".
   - `**/api/riff/presets*` → `{presets: [...], tiers: [...]}` (empty presets +
     the fab-kit built-in tiers by default). **Trailing `*`** — the client's
@@ -27,12 +27,12 @@ renders its error in-dialog without navigating.
     presets GET, which also matches this glob, is not swallowed); captures the
     request body and fulfills with the mock's status/body. **Trailing `*`** for
     the same appended-`?server=` reason.
-  - The relay WebSocket is stubbed.
+  - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `BUILTIN_TIERS` mirrors the backend's `fabconfig.BuiltinTiers`
   (`default, doing, fast, operator, review`); the presets mock returns these as
   `tiers` unless a test overrides them.
 - `gotoTerminal(page)` navigates to `/default/1` and waits for the "main" window
-  to render (the SSE payload landed).
+  to render (the state-socket payload landed).
 - `openViaPalette(page)` opens the palette (`Meta+k`), fills "Agent: Spawn", and
   presses Enter.
 - `openViaDropdown(page)` clicks the window-switcher trigger (`Switch window`)

@@ -12,18 +12,17 @@ its links do not select/navigate the underlying window row.
   e2e tmux server has no change-bound PRs and `gh` is unavailable in CI, so the
   spec injects the data via `page.route`:
   - `**/api/servers` → a single server `default` (so the app attaches exactly
-    one SSE connection).
+    one state-socket connection).
   - `**/api/windows/*/select` → 200 (window-select POSTs don't error on click).
-  - `**/relay/*` WebSocket → accepted and held open (terminal relay stubbed).
-  - `**/api/sessions/stream*` → one `event: sessions` frame whose payload is a
-    session `dev` with two windows:
+  - `/ws/terminals` WebSocket → accepted and held open (terminal mux stubbed).
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload — a session `dev` with two windows:
     - `@1` "feature-work" — change-bound (`fabChange` set) with `prNumber: 386`,
       `prUrl`, `prState: open`, `prChecks: pass` → a purple **"PR — open"** dot
       that gets the PR link.
     - `@2` "scratch-shell" — no `fabChange` → a gray **"idle"** dot with no PR
       link (docs link only).
 - `beforeEach` installs the routes, navigates to `/default`, and waits for the
-  "PR — open" dot to render (SSE payload landed).
+  "PR — open" dot to render (state-socket payload landed).
 - The dot is located by its accessible name (`getByRole("img", { name })`); the
   card by `data-testid="status-dot-tip"`, the links by `dot-tip-pr-link` /
   `dot-tip-docs-link`.

@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -19,6 +20,14 @@ import (
 
 	"rk/internal/tmux"
 )
+
+// These tests exercise the terminals mux (/ws/terminals, api/terminals_ws.go),
+// which absorbed the retired per-pane /relay/{windowId} handler's per-stream
+// semantics VERBATIM: window-ID validation → ResolveWindowSession →
+// session-scoped SelectWindowInSession → direct PTY attach at the open op's
+// initial size → forceTERM. They are the per-stream equivalents of the former
+// handleRelay behavior assertions (direct-attach render, no ephemeral session
+// leak, 4004-on-bad-window, initial-size attach).
 
 // withRelayTmux starts an isolated tmux server with a single real session
 // containing two windows whose payloads are deterministic (echo + sleep) so a
@@ -90,74 +99,160 @@ func relayServerWithProdTmux(t *testing.T) *httptest.Server {
 	return httptest.NewServer(router)
 }
 
-// dialRelay opens a WebSocket relay connection to the given server's
-// /relay/{windowId}?server={tmuxServer} URL. The window's owning session is
-// resolved server-side from the window ID.
-func dialRelay(t *testing.T, ts *httptest.Server, tmuxServer, windowID string) *websocket.Conn {
+// dialTerminals opens a WebSocket to the terminals mux (/ws/terminals). The
+// returned connection carries all streams; callers issue `open` ops via
+// openStream below.
+func dialTerminals(t *testing.T, ts *httptest.Server) *websocket.Conn {
 	t.Helper()
 	httpURL, err := url.Parse(ts.URL)
 	if err != nil {
 		t.Fatalf("parse test server URL: %v", err)
 	}
-	wsURL := url.URL{
-		Scheme:   "ws",
-		Host:     httpURL.Host,
-		Path:     fmt.Sprintf("/relay/%s", windowID),
-		RawQuery: fmt.Sprintf("server=%s", tmuxServer),
-	}
+	wsURL := url.URL{Scheme: "ws", Host: httpURL.Host, Path: "/ws/terminals"}
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
 	if err != nil {
 		body := ""
 		if resp != nil {
 			body = fmt.Sprintf(" status=%d", resp.StatusCode)
 		}
-		t.Fatalf("dial relay %s: %v%s", wsURL.String(), err, body)
-	}
-	// Send the initial resize message so the PTY starts at the expected size.
-	resize := struct {
-		Type string `json:"type"`
-		Cols uint16 `json:"cols"`
-		Rows uint16 `json:"rows"`
-	}{Type: "resize", Cols: 80, Rows: 24}
-	body, err := json.Marshal(resize)
-	if err != nil {
-		t.Fatalf("marshal resize: %v", err)
-	}
-	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
-		t.Fatalf("write resize: %v", err)
+		t.Fatalf("dial terminals %s: %v%s", wsURL.String(), err, body)
 	}
 	return conn
 }
 
-// readUntilContains reads PTY messages from the WebSocket up to deadline,
-// concatenating bytes and returning once the buffer contains needle (or
-// deadline elapses, in which case the accumulated bytes are returned).
-func readUntilContains(t *testing.T, conn *websocket.Conn, needle string, deadline time.Duration) []byte {
+// openStream sends an `open` control op for a stream over the terminals socket.
+func openStream(t *testing.T, conn *websocket.Conn, id uint32, tmuxServer, windowID string, cols, rows uint16) {
+	t.Helper()
+	op := openOp{Op: "open", ID: id, Server: tmuxServer, WindowID: windowID, Cols: cols, Rows: rows}
+	body, err := json.Marshal(op)
+	if err != nil {
+		t.Fatalf("marshal open op: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
+		t.Fatalf("write open op: %v", err)
+	}
+}
+
+// readStreamUntilContains reads frames from the terminals socket up to deadline,
+// concatenating the BINARY payloads addressed to `id` (stripping the u32 prefix)
+// and returning once the buffer contains needle. JSON control frames and frames
+// for other stream ids are skipped. Returns the accumulated bytes for `id`.
+func readStreamUntilContains(t *testing.T, conn *websocket.Conn, id uint32, needle string, deadline time.Duration) []byte {
 	t.Helper()
 	end := time.Now().Add(deadline)
 	var buf bytes.Buffer
 	for time.Now().Before(end) {
 		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-		_, msg, err := conn.ReadMessage()
+		msgType, msg, err := conn.ReadMessage()
 		if err != nil {
-			// Read deadline exceeded is expected during polling; only bail on
-			// permanent failures.
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				continue
 			}
 			if strings.Contains(err.Error(), "i/o timeout") || strings.Contains(err.Error(), "deadline exceeded") {
 				continue
 			}
-			// Connection closed / failed — return what we have. Do NOT loop back
-			// into ReadMessage(), which panics on an already-failed gorilla conn.
 			return buf.Bytes()
 		}
-		buf.Write(msg)
+		if msgType != websocket.BinaryMessage || len(msg) < 4 {
+			continue // control frame or short frame — skip
+		}
+		if binary.BigEndian.Uint32(msg[:4]) != id {
+			continue // another stream's output
+		}
+		buf.Write(msg[4:])
 		if bytes.Contains(buf.Bytes(), []byte(needle)) {
 			return buf.Bytes()
 		}
 	}
 	return buf.Bytes()
+}
+
+// awaitOpened reads frames until the `opened` control event for `id` arrives (or
+// the deadline elapses). Returns (sawData, ok): sawData is true if ANY binary
+// data frame for `id` was seen BEFORE the `opened` — the head-of-line ordering
+// bug (M2) — and ok is true if `opened` arrived at all.
+func awaitOpened(t *testing.T, conn *websocket.Conn, id uint32, deadline time.Duration) (sawDataFirst bool, ok bool) {
+	t.Helper()
+	end := time.Now().Add(deadline)
+	for time.Now().Before(end) {
+		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		msgType, msg, err := conn.ReadMessage()
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
+			return sawDataFirst, false
+		}
+		if msgType == websocket.BinaryMessage && len(msg) >= 4 && binary.BigEndian.Uint32(msg[:4]) == id {
+			sawDataFirst = true // a data frame for this id arrived before `opened`
+			continue
+		}
+		if msgType != websocket.TextMessage {
+			continue
+		}
+		var frame openedFrame
+		if json.Unmarshal(msg, &frame) != nil {
+			continue
+		}
+		if frame.Op == "opened" && frame.ID == id {
+			return sawDataFirst, true
+		}
+	}
+	return sawDataFirst, false
+}
+
+// listClients returns the tmux clients attached to `server` as
+// "<width>x<height> <termname>" lines. Used to prove the relay attaches a client
+// at the open op's initial size and with TERM forced to xterm-256color.
+func listClients(t *testing.T, server string) []string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	args := []string{}
+	if server != "default" {
+		args = append(args, "-L", server)
+	}
+	args = append(args, "list-clients", "-F", "#{client_width}x#{client_height} #{client_termname}")
+	out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-clients: %v\n%s", err, string(out))
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	result := make([]string, 0, len(lines))
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			result = append(result, strings.TrimSpace(l))
+		}
+	}
+	return result
+}
+
+// awaitClosed reads control frames until a `closed` event for `id` arrives (or
+// the deadline elapses), returning the close code (0 if none seen).
+func awaitClosed(t *testing.T, conn *websocket.Conn, id uint32, deadline time.Duration) int {
+	t.Helper()
+	end := time.Now().Add(deadline)
+	for time.Now().Before(end) {
+		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		msgType, msg, err := conn.ReadMessage()
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
+			return 0
+		}
+		if msgType != websocket.TextMessage {
+			continue
+		}
+		var frame closedFrame
+		if json.Unmarshal(msg, &frame) != nil {
+			continue
+		}
+		if frame.Op == "closed" && frame.ID == id {
+			return frame.Code
+		}
+	}
+	return 0
 }
 
 // realSessionNames returns the non-pin, non-anchor session names on a tmux
@@ -178,133 +273,267 @@ func realSessionNames(t *testing.T, server string) []string {
 	return names
 }
 
-// TestRelay_DirectAttachRendersSelectedWindow proves the relay attaches the PTY
-// DIRECTLY to the real session and renders the window it selected — once per
-// window. The connections are opened SEQUENTIALLY (not concurrently): in the
+// TestTerminals_DirectAttachRendersSelectedWindow proves a stream attaches the
+// PTY DIRECTLY to the real session and renders the window it selected — once per
+// window. The streams are opened SEQUENTIALLY (not concurrently): in the
 // move-based model both windows live in the SAME real session with a single
 // shared active-window pointer (the accepted multi-client tradeoff #1), so two
 // SIMULTANEOUS attaches would fight over that pointer. Sequential attaches
 // exercise the direct-attach + select-window path per window without that race.
-func TestRelay_DirectAttachRendersSelectedWindow(t *testing.T) {
+func TestTerminals_DirectAttachRendersSelectedWindow(t *testing.T) {
 	tmuxServer, real, win0ID, win1ID := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
 	defer ts.Close()
 
-	connA := dialRelay(t, ts, tmuxServer, win0ID)
-	bytesA := readUntilContains(t, connA, "WINDOW_ZERO", 5*time.Second)
+	connA := dialTerminals(t, ts)
+	openStream(t, connA, 1, tmuxServer, win0ID, 80, 24)
+	bytesA := readStreamUntilContains(t, connA, 1, "WINDOW_ZERO", 5*time.Second)
 	connA.Close()
 	if !bytes.Contains(bytesA, []byte("WINDOW_ZERO")) {
-		t.Errorf("relay for win0 did not receive WINDOW_ZERO marker; got: %q", string(bytesA))
+		t.Errorf("stream for win0 did not receive WINDOW_ZERO marker; got: %q", string(bytesA))
 	}
 
-	connB := dialRelay(t, ts, tmuxServer, win1ID)
-	bytesB := readUntilContains(t, connB, "WINDOW_ONE", 5*time.Second)
+	connB := dialTerminals(t, ts)
+	openStream(t, connB, 1, tmuxServer, win1ID, 80, 24)
+	bytesB := readStreamUntilContains(t, connB, 1, "WINDOW_ONE", 5*time.Second)
 	connB.Close()
 	if !bytes.Contains(bytesB, []byte("WINDOW_ONE")) {
-		t.Errorf("relay for win1 did not receive WINDOW_ONE marker; got: %q", string(bytesB))
+		t.Errorf("stream for win1 did not receive WINDOW_ONE marker; got: %q", string(bytesB))
 	}
 
-	// The relay must NOT create any extra (ephemeral) session — it attaches the
+	// The mux must NOT create any extra (ephemeral) session — it attaches the
 	// PTY directly to the real session. Only `real` should remain user-facing.
 	names := realSessionNames(t, tmuxServer)
 	for _, n := range names {
 		if n != real {
-			t.Errorf("unexpected extra session %q after relay connect (no ephemeral expected); sessions=%v", n, names)
+			t.Errorf("unexpected extra session %q after stream open (no ephemeral expected); sessions=%v", n, names)
 		}
 	}
 }
 
-// TestRelay_NoEphemeralCreated asserts the relay attaches directly to the real
-// session and leaves NO `rk-relay-*` ephemeral or extra session behind.
-func TestRelay_NoEphemeralCreated(t *testing.T) {
+// TestTerminals_NoEphemeralCreated asserts a stream attaches directly to the
+// real session and leaves NO ephemeral or extra session behind.
+func TestTerminals_NoEphemeralCreated(t *testing.T) {
 	tmuxServer, real, win0ID, _ := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
 	defer ts.Close()
 
-	conn := dialRelay(t, ts, tmuxServer, win0ID)
+	conn := dialTerminals(t, ts)
 	defer conn.Close()
+	openStream(t, conn, 1, tmuxServer, win0ID, 80, 24)
 
 	// Give the attach a moment to establish.
-	_ = readUntilContains(t, conn, "WINDOW_ZERO", 3*time.Second)
+	_ = readStreamUntilContains(t, conn, 1, "WINDOW_ZERO", 3*time.Second)
 
 	names := realSessionNames(t, tmuxServer)
 	if len(names) != 1 || names[0] != real {
-		t.Errorf("expected only the real session %q, got %v (relay must not create an ephemeral)", real, names)
+		t.Errorf("expected only the real session %q, got %v (mux must not create an ephemeral)", real, names)
 	}
 }
 
-// TestRelay_PercentEncodedAtNot400 is a regression: clients URL-encode '@'
-// as '%40' via encodeURIComponent in path segments, and chi v5 preserves the
-// encoded form in URLParam. The handler must percent-decode before validating,
-// or every relay attempt 400s before the WebSocket upgrade.
-//
-// A plain HTTP GET (no Upgrade header) is sufficient — the validation gate
-// runs before upgrader.Upgrade and would 400 the encoded form. After the fix
-// the request reaches upgrader.Upgrade, which 400s with "Bad Request"
-// (different body) because there is no Upgrade header. We assert the body
-// does NOT match the validation error.
-func TestRelay_PercentEncodedAtNot400(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	router := NewTestRouter(logger, &mockSessionFetcher{}, &mockTmuxOps{}, "test-host")
-	ts := httptest.NewServer(router)
-	defer ts.Close()
-
-	req := httptest.NewRequest("GET", "/relay/%4018?server=default", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	body := rec.Body.String()
-	if strings.Contains(body, "Window ID must be a tmux window ID") {
-		t.Errorf("validation rejected percent-encoded '@'; body=%q", body)
-	}
-}
-
-// TestRelay_MissingWindowClose4004 exercises the error path: opening a relay
-// to a well-formed but non-existent window ID should close the WebSocket with
-// code 4004 (session resolution fails) and not leak any extra session on the
-// tmux server.
-func TestRelay_MissingWindowClose4004(t *testing.T) {
+// TestTerminals_MissingWindowClosed4004 exercises the error path: opening a
+// stream to a well-formed but non-existent window ID must yield a per-stream
+// `closed` control event with code 4004 (session resolution fails), the SOCKET
+// itself must stay open (a stream-level failure never closes the mux), and no
+// extra session may leak on the tmux server.
+func TestTerminals_MissingWindowClosed4004(t *testing.T) {
 	tmuxServer, real, _, _ := withRelayTmux(t)
 	ts := relayServerWithProdTmux(t)
 	defer ts.Close()
 
-	httpURL, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("parse url: %v", err)
-	}
-	wsURL := url.URL{
-		Scheme:   "ws",
-		Host:     httpURL.Host,
-		Path:     "/relay/@9999",
-		RawQuery: fmt.Sprintf("server=%s", tmuxServer),
-	}
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
-	if err != nil {
-		t.Fatalf("dial relay: %v", err)
-	}
+	conn := dialTerminals(t, ts)
 	defer conn.Close()
 
-	// Read the close frame; the handler closes with 4004 when the window's
-	// owning session cannot be resolved.
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	_, _, readErr := conn.ReadMessage()
-	if readErr == nil {
-		t.Fatal("expected close from server, got message")
+	openStream(t, conn, 1, tmuxServer, "@9999", 80, 24)
+	code := awaitClosed(t, conn, 1, 3*time.Second)
+	if code != closeWindowNotFound {
+		t.Errorf("closed code = %d, want %d (4004)", code, closeWindowNotFound)
 	}
-	closeErr, ok := readErr.(*websocket.CloseError)
-	if !ok {
-		// The server may abort without a clean close frame in some paths; we
-		// still need to verify no extra session was created.
-		t.Logf("read returned non-close error (acceptable): %v", readErr)
-	} else if closeErr.Code != 4004 {
-		t.Errorf("close code = %d, want 4004", closeErr.Code)
+
+	// The socket must still be alive after a stream-level failure: a second
+	// stream open on the SAME socket must succeed and render its window (proves
+	// the 4004 was per-stream, not a socket teardown).
+	windows, err := tmux.ListWindows(context.Background(), real, tmuxServer)
+	if err != nil {
+		t.Fatalf("list windows: %v", err)
+	}
+	var win0ID string
+	for _, w := range windows {
+		if w.Index == 0 {
+			win0ID = w.WindowID
+		}
+	}
+	if win0ID == "" {
+		t.Fatalf("could not resolve win0 id from %+v", windows)
+	}
+	openStream(t, conn, 3, tmuxServer, win0ID, 80, 24)
+	got := readStreamUntilContains(t, conn, 3, "WINDOW_ZERO", 5*time.Second)
+	if !bytes.Contains(got, []byte("WINDOW_ZERO")) {
+		t.Errorf("socket dead after per-stream 4004: second stream got %q", string(got))
 	}
 
 	// Verify no extra session leaked — only the real session should remain.
 	names := realSessionNames(t, tmuxServer)
 	for _, n := range names {
 		if n != real {
-			t.Errorf("unexpected extra session %q after missing-window relay; sessions=%v", n, names)
+			t.Errorf("unexpected extra session %q after missing-window stream; sessions=%v", n, names)
+		}
+	}
+}
+
+// TestTerminals_BadWindowIDClosed4004 is a regression on the validation gate:
+// a malformed window ID in the `open` op must be rejected with a per-stream
+// `closed` 4004 (via the shared validate.ValidateWindowID) rather than reaching
+// any tmux interaction — the mux equivalent of handleRelay's pre-upgrade 400.
+// Uses the mock tmux ops so no live server is required.
+func TestTerminals_BadWindowIDClosed4004(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	router := NewTestRouter(logger, &mockSessionFetcher{}, &mockTmuxOps{}, "test-host")
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	conn := dialTerminals(t, ts)
+	defer conn.Close()
+
+	// A window ID that fails validate.ValidateWindowID (no leading '@').
+	openStream(t, conn, 7, "default", "not-a-window-id", 80, 24)
+	code := awaitClosed(t, conn, 7, 3*time.Second)
+	if code != closeWindowNotFound {
+		t.Errorf("closed code = %d, want %d (4004) for a malformed window ID", code, closeWindowNotFound)
+	}
+}
+
+// TestTerminals_OpenedPrecedesData proves the server replies `opened` for a
+// successful stream open AND that `opened` is delivered BEFORE the stream's
+// first data frame (M2 — the client arms its deferred per-stream reset on
+// `opened`, so a data-before-opened frame would repaint over un-reset content).
+func TestTerminals_OpenedPrecedesData(t *testing.T) {
+	tmuxServer, _, win0ID, _ := withRelayTmux(t)
+	ts := relayServerWithProdTmux(t)
+	defer ts.Close()
+
+	conn := dialTerminals(t, ts)
+	defer conn.Close()
+
+	openStream(t, conn, 1, tmuxServer, win0ID, 80, 24)
+	sawDataFirst, ok := awaitOpened(t, conn, 1, 5*time.Second)
+	if !ok {
+		t.Fatal("never received `opened` for a successful stream open")
+	}
+	if sawDataFirst {
+		t.Error("a data frame arrived BEFORE `opened` (head-of-line ordering bug — M2)")
+	}
+}
+
+// TestTerminals_InitialSizeAndTERM proves the stream attaches a tmux client at
+// the open op's initial cols/rows (replacing the wait-for-first-resize dance)
+// and with TERM forced to xterm-256color (forceTERM). Both are read directly
+// from tmux via list-clients after the stream opens.
+func TestTerminals_InitialSizeAndTERM(t *testing.T) {
+	tmuxServer, _, win0ID, _ := withRelayTmux(t)
+	ts := relayServerWithProdTmux(t)
+	defer ts.Close()
+
+	conn := dialTerminals(t, ts)
+	defer conn.Close()
+
+	// A distinctive non-default size so the assertion can't pass by accident on
+	// tmux's 80x24 default.
+	const cols, rows = 100, 40
+	openStream(t, conn, 1, tmuxServer, win0ID, cols, rows)
+	if _, ok := awaitOpened(t, conn, 1, 5*time.Second); !ok {
+		t.Fatal("stream never opened")
+	}
+
+	// Give the attach a beat to register its client, then assert size + TERM.
+	deadline := time.Now().Add(3 * time.Second)
+	var clients []string
+	for time.Now().Before(deadline) {
+		clients = listClients(t, tmuxServer)
+		if len(clients) > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if len(clients) == 0 {
+		t.Fatal("no tmux client attached after stream open")
+	}
+	want := "100x40 xterm-256color"
+	found := false
+	for _, c := range clients {
+		if c == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no client at initial size + forced TERM; want %q, clients=%v", want, clients)
+	}
+}
+
+// TestTerminals_ResizeSetsClientSize proves a `resize` control op re-sizes the
+// live stream's PTY (observed via the attached tmux client's dimensions).
+func TestTerminals_ResizeSetsClientSize(t *testing.T) {
+	tmuxServer, _, win0ID, _ := withRelayTmux(t)
+	ts := relayServerWithProdTmux(t)
+	defer ts.Close()
+
+	conn := dialTerminals(t, ts)
+	defer conn.Close()
+
+	openStream(t, conn, 1, tmuxServer, win0ID, 80, 24)
+	if _, ok := awaitOpened(t, conn, 1, 5*time.Second); !ok {
+		t.Fatal("stream never opened")
+	}
+
+	// Send a resize to a distinctive new size.
+	resize, _ := json.Marshal(map[string]any{"op": "resize", "id": 1, "cols": 120, "rows": 50})
+	if err := conn.WriteMessage(websocket.TextMessage, resize); err != nil {
+		t.Fatalf("write resize: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, c := range listClients(t, tmuxServer) {
+			if strings.HasPrefix(c, "120x50 ") {
+				return // resize applied
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("resize op did not re-size the PTY to 120x50; clients=%v", listClients(t, tmuxServer))
+}
+
+// TestTerminals_ClientCloseYields1000 proves a client `close` op tears the
+// stream down and replies `closed` with code 1000 (graceful), and leaves no
+// extra session behind.
+func TestTerminals_ClientCloseYields1000(t *testing.T) {
+	tmuxServer, real, win0ID, _ := withRelayTmux(t)
+	ts := relayServerWithProdTmux(t)
+	defer ts.Close()
+
+	conn := dialTerminals(t, ts)
+	defer conn.Close()
+
+	openStream(t, conn, 1, tmuxServer, win0ID, 80, 24)
+	if _, ok := awaitOpened(t, conn, 1, 5*time.Second); !ok {
+		t.Fatal("stream never opened")
+	}
+
+	closeOp, _ := json.Marshal(map[string]any{"op": "close", "id": 1})
+	if err := conn.WriteMessage(websocket.TextMessage, closeOp); err != nil {
+		t.Fatalf("write close: %v", err)
+	}
+
+	code := awaitClosed(t, conn, 1, 3*time.Second)
+	if code != closeNormal {
+		t.Errorf("closed code = %d, want %d (1000) for a client close op", code, closeNormal)
+	}
+
+	// No ephemeral session leaked by the direct-attach + teardown.
+	names := realSessionNames(t, tmuxServer)
+	for _, n := range names {
+		if n != real {
+			t.Errorf("unexpected extra session %q after client close; sessions=%v", n, names)
 		}
 	}
 }

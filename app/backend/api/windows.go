@@ -111,10 +111,12 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 
 // decodeWindowID percent-decodes (url.PathUnescape) the {windowId} path param
 // and validates it via validate.ValidateWindowID, returning (id, true) on
-// success and ("", false) on either failure. It is the single source of the
-// decode+validate logic shared by the REST handlers (via parseWindowID) and the
-// WebSocket relay (handleRelay) — keeping the two entry points from drifting
-// (the drift that caused bug #205).
+// success and ("", false) on either failure. The REST handlers reach it via
+// parseWindowID; the terminals mux (api/terminals_ws.go) validates its `open`
+// op's already-JSON-decoded windowId through the SAME validate.ValidateWindowID
+// call, so the two entry points share one validator and cannot drift (the drift
+// that caused bug #205). The mux path needs no percent-decode — its windowId
+// arrives decoded in a JSON control frame, not a URL path segment.
 //
 // chi v5's URLParam returns the path param as it appears in the matched route:
 // for '@' encoded as '%40', URLParam returns the encoded form, so an explicit

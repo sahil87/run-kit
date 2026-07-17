@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully mocked (no tmux/gh) — inject the SSE `sessions` payload + server list
 // via page.route, then drive the command palette. See agent-next-waiting.spec.md
@@ -43,7 +44,7 @@ function sessionsPayload(withWaiting: boolean) {
 }
 
 async function mockBackend(page: Page, withWaiting: boolean) {
-  await page.routeWebSocket(/\/relay\//, () => {});
+  await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );
@@ -54,13 +55,7 @@ async function mockBackend(page: Page, withWaiting: boolean) {
       body: JSON.stringify([{ name: SERVER, sessionCount: 1 }]),
     }),
   );
-  await page.route("**/api/sessions/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
-      body: `event: sessions\ndata: ${sessionsPayload(withWaiting)}\n\n`,
-    }),
-  );
+  await mockStateSocket(page, { sessions: sessionsPayload(withWaiting) });
 }
 
 async function runNextWaiting(page: Page) {

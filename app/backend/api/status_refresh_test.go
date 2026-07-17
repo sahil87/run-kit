@@ -154,13 +154,13 @@ func TestHandleStatusRefresh_NoCollectorNoPanic(t *testing.T) {
 // throttle, not a stale in-flight coalesce. This is the completion signal the
 // test waits on (not rec.done, which fires inside the branch kick, before the
 // flag clear + broadcast).
-func recvStatusRefresh(t *testing.T, ch <-chan []byte) {
+func recvStatusRefresh(t *testing.T, ch <-chan hubEvent) {
 	t.Helper()
 	deadline := time.After(2 * time.Second)
 	for {
 		select {
 		case frame := <-ch:
-			if len(filterSSEEvents([]string{string(frame)}, "status-refresh")) == 1 {
+			if len(filterSSEEvents([]string{frame.String()}, "status-refresh")) == 1 {
 				return
 			}
 			// Ignore any other frame (e.g. a cached snapshot) and keep waiting.
@@ -173,10 +173,10 @@ func recvStatusRefresh(t *testing.T, ch <-chan []byte) {
 // drainStatusRefreshCount non-blockingly drains the channel and returns how many
 // status-refresh frames were buffered. Used to assert that a coalesced/throttled
 // POST (which starts no pass) broadcast NO additional frame.
-func drainStatusRefreshCount(ch <-chan []byte) int {
+func drainStatusRefreshCount(ch <-chan hubEvent) int {
 	var events []string
 	for len(ch) > 0 {
-		events = append(events, string(<-ch))
+		events = append(events, (<-ch).String())
 	}
 	return len(filterSSEEvents(events, "status-refresh"))
 }
@@ -205,8 +205,7 @@ func TestHandleStatusRefresh_BroadcastsOnCompletion(t *testing.T) {
 	// Wire a real hub + a subscribed client so broadcastStatusRefresh is observable.
 	hub := newSSEHub(s.sessions, nil, nil, nil)
 	s.sseHub = hub
-	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
-	hub.addClient(client)
+	client := hub.addTestClient(make(chan hubEvent, 16), "default")
 	defer hub.removeClient(client)
 	router := s.buildRouter()
 
@@ -305,8 +304,7 @@ func TestHandleStatusRefresh_ThrottlesWithinMinInterval(t *testing.T) {
 	// the branch kick, BEFORE the flag clear, so a POST racing it could coalesce.
 	hub := newSSEHub(s.sessions, nil, nil, nil)
 	s.sseHub = hub
-	client := &sseClient{ch: make(chan []byte, 16), server: "default"}
-	hub.addClient(client)
+	client := hub.addTestClient(make(chan hubEvent, 16), "default")
 	defer hub.removeClient(client)
 	router := s.buildRouter()
 

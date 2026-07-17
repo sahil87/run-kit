@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully mocked (no tmux/wt/fab) — inject the SSE `sessions` payload + server
 // list via page.route, mock the two riff endpoints, then drive both spawn
@@ -52,7 +53,7 @@ type RiffMock = {
 async function mockBackend(page: Page, riff: RiffMock): Promise<{ spawnBodies: () => Record<string, unknown>[] }> {
   const spawnBodies: Record<string, unknown>[] = [];
 
-  await page.routeWebSocket(/\/relay\//, () => {});
+  await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );
@@ -63,13 +64,7 @@ async function mockBackend(page: Page, riff: RiffMock): Promise<{ spawnBodies: (
       body: JSON.stringify([{ name: SERVER, sessionCount: 1 }]),
     }),
   );
-  await page.route("**/api/sessions/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
-      body: `event: sessions\ndata: ${sessionsPayload()}\n\n`,
-    }),
-  );
+  await mockStateSocket(page, { sessions: sessionsPayload() });
 
   // GET /api/riff/presets* — MUST match the presets glob BEFORE the broader
   // riff glob, so register it first (Playwright matches most-recently-added

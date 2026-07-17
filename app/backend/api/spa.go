@@ -55,8 +55,9 @@ func (s *Server) mountEmbeddedSPA(r chi.Router) {
 	r.Get("/*", func(w http.ResponseWriter, req *http.Request) {
 		urlPath := strings.TrimPrefix(req.URL.Path, "/")
 
-		// Skip API and relay routes defensively.
-		if strings.HasPrefix(req.URL.Path, "/api/") || strings.HasPrefix(req.URL.Path, "/relay/") {
+		// Skip API and WebSocket routes defensively (registered before the SPA
+		// catch-all — this guard is belt-and-suspenders).
+		if strings.HasPrefix(req.URL.Path, "/api/") || strings.HasPrefix(req.URL.Path, "/ws/") {
 			http.NotFound(w, req)
 			return
 		}
@@ -87,9 +88,9 @@ func (s *Server) mountFilesystemSPA(r chi.Router) {
 		// resolves relative to spaDir instead of discarding it.
 		urlPath := strings.TrimPrefix(req.URL.Path, "/")
 
-		// Skip API and relay routes (should never reach here due to route ordering,
-		// but guard defensively)
-		if strings.HasPrefix(req.URL.Path, "/api/") || strings.HasPrefix(req.URL.Path, "/relay/") {
+		// Skip API and WebSocket routes (should never reach here due to route
+		// ordering, but guard defensively)
+		if strings.HasPrefix(req.URL.Path, "/api/") || strings.HasPrefix(req.URL.Path, "/ws/") {
 			http.NotFound(w, req)
 			return
 		}

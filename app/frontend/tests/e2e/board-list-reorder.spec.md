@@ -4,21 +4,21 @@ Behavioural contract for the board-list-reorder backend surface: the
 `POST /api/boards/order` endpoint (persists the full ordered board-name list to
 `~/.rk/settings.yaml`), the API-layer rank-aware sort on `GET /api/boards`
 (stored order first by index, then unranked boards alphabetically), and the
-**server-global** `event: board-order` SSE broadcast that fans out to every
-connected client — including a server-neutral `?metrics=1` stream with no
+**server-global** `board-order` broadcast that fans out to every state-socket
+connection — including a metrics-only subscription with no
 attached tmux server.
 
 ## Why this slice (not a drag simulation)
 
 Native HTML5 drag is unreliable to simulate in Playwright (the analogous
 server/session-reorder drag specs are documented as `test.fixme` and the
-server-reorder e2e exercises the endpoint/SSE surface instead of the drag). The
+server-reorder e2e exercises the endpoint/socket surface instead of the drag). The
 derive-over-store override, render-time reconcile, MIME discrimination, self-
 target snap-back fix, debounce/flush, and palette Move actions are all covered by
 Vitest unit tests (`use-board-list-reorder.test.ts`, `palette-move.test.ts`,
 `boards.test.ts`, `boards-section.test.tsx`, `host-overview-page.test.tsx`). This
 spec exercises the load-bearing new backend surface — the order endpoint, its
-API-layer rank-aware sort, and the server-global SSE echo — end-to-end against
+API-layer rank-aware sort, and the server-global echo — end-to-end against
 the live backend, which IS deterministic.
 
 ## Shared setup
@@ -76,17 +76,18 @@ of `[BOARD_Z, BOARD_A]` returns `{ok: true}` and `GET /api/boards` then returns
 ### `a successful order POST broadcasts a server-global event: board-order`
 
 **What it proves:** A successful order POST fans out an `event: board-order`
-frame to a client on the server-neutral `?metrics=1` stream (which has no
+global event to a state-socket connection subscribed to metrics only (which has no
 attached tmux server), proving the broadcast is server-global — the Host
 BOARDS zone with zero attached servers still re-sorts live.
 
 **Steps:**
 1. Navigate to `/` (the Host home — zero attached tmux servers, so its
-   `?metrics=1` stream is the server-neutral one) and wait for the HOST HEALTH
+   metrics-only subscription is the server-neutral one) and wait for the HOST HEALTH
    region as the readiness signal.
-2. In the page context, open an `EventSource` on `/api/sessions/stream?metrics=1`
-   and register a `board-order` listener that resolves with the frame data.
-3. On the EventSource's `onopen` (stream actually open — no fixed delay),
+2. In the page context, open a `WebSocket` to `/ws/state`, send `hello` +
+   `subscribe {kind:"metrics"}`, and resolve on the first
+   `{op:"event",kind:"global",type:"board-order"}` frame's `data`.
+3. On the socket's `onopen` (deterministic — no fixed delay),
    `fetch('POST /api/boards/order', {order: [BOARD_Z, BOARD_A]})` from the page
    origin.
 4. Await the resolved frame; parse it and assert `order` equals

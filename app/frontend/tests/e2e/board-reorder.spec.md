@@ -4,8 +4,8 @@ Behavioural contract for the board pane reorder backend surface as consumed by
 the new frontend wiring: the fractional-index `POST /api/boards/{name}/reorder`
 endpoint (moves a pinned pane by minting an orderKey strictly between its new
 `before`/`after` neighbours), the reordered `GET /api/boards/{name}` result
-(entries sorted by orderKey), and the per-server `event: board-changed` SSE
-broadcast (`change: "reorder"`) that `useBoardEntries` refetches on with a 50ms
+(entries sorted by orderKey), and the per-server `board-changed` state-socket
+event (`change: "reorder"`) that `useBoardEntries` refetches on with a 50ms
 debounce to reconcile the optimistic drag override.
 
 ## Why this slice (not a drag simulation)
@@ -15,10 +15,10 @@ Move Focused Pane Left/Right — but both converge on ONE `reorderPin` POST
 carrying the moved pane's new neighbour windowIds. Native HTML5 drag is
 unreliable to simulate in Playwright (the analogous `session-reorder` drag spec
 has never passed and is `test.fixme`), and `page.reload()` does not commit under
-the SPA's long-lived SSE connection, so a "drag then reload and assert order"
+the SPA's long-lived state socket, so a "drag then reload and assert order"
 e2e cannot be made deterministic. This spec therefore exercises the load-bearing
 surface the wiring drives — the reorder endpoint, the reordered GET, and the
-`board-changed` SSE echo — end-to-end against the live backend, which IS
+`board-changed` state-socket echo — end-to-end against the live backend, which IS
 deterministic. The neighbour arithmetic (`computeReorderNeighbors` /
 `computeMoveNeighbors`), the custom-MIME guard, the insert-before splice, and
 the derive-over-store reconcile are covered by Vitest unit tests
@@ -67,19 +67,19 @@ sufficient (fractional indexing).
 
 ### `a successful reorder POST broadcasts a board-changed SSE event`
 
-**What it proves:** A successful reorder POST fans out an `event: board-changed`
-frame (with `change: "reorder"`, the board name, and the moved `windowId`) to a
-client connected on that server's SSE stream — the echo `useBoardEntries`
+**What it proves:** A successful reorder POST fans out a `board-changed` per-server
+event (with `change: "reorder"`, the board name, and the moved `windowId`) to a
+state-socket connection subscribed to that server — the echo `useBoardEntries`
 refetches on to reconcile the optimistic override.
 
 **Steps:**
 1. Pin both windows via `page.request`.
-2. `page.goto('/board/<board>', { waitUntil: 'domcontentloaded' })` so the SPA
-   attaches its per-server SSE stream.
-3. In the page context, open an `EventSource` on
-   `/api/sessions/stream?server=<TMUX_SERVER>` and register a `board-changed`
-   listener that resolves with the frame data.
-4. On the EventSource's `onopen` (stream actually open — no fixed delay),
+2. `page.goto('/board/<board>', { waitUntil: 'domcontentloaded' })` so the SPA's
+   state socket connects.
+3. In the page context, open a `WebSocket` to `/ws/state`, send `hello` +
+   `subscribe {kind:"server",key:<TMUX_SERVER>}`, and resolve on the first
+   `{op:"event",kind:"server",type:"board-changed"}` frame's `data`.
+4. On the socket's `onopen` (deterministic — no fixed delay),
    `fetch('POST …/reorder', {windowId: win-b, before: null, after: win-a})`
    from the page origin.
 5. Await the resolved frame; parse it and assert `change === "reorder"`,

@@ -1,3 +1,17 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-16T10:47:04Z"}
 {"args":"state-socket — replace the per-server session SSE pool + host-metrics SSE with a single multiplexed /ws/state WebSocket (subscribe/ack+snapshot protocol). Change 1 of fab/plans/sahil/socket-unification.md","cmd":"fab-new","event":"command","ts":"2026-07-16T10:47:04Z"}
 {"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-16T10:48:17Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-16T12:12:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-16T12:14:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-16T13:31:17Z"}
+{"event":"review","result":"failed","ts":"2026-07-16T13:51:22Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-16T13:51:22Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-16T14:07:07Z"}
+{"event":"review","result":"failed","ts":"2026-07-16T14:23:27Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-16T14:23:27Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-16T14:42:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-16T15:01:58Z"}
+{"event":"review","result":"passed","ts":"2026-07-16T15:01:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-16T15:15:59Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-16T15:20:26Z"}
+{"event":"review","result":"passed","ts":"2026-07-16T15:33:29Z"}

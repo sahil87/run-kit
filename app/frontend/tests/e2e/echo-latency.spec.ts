@@ -213,9 +213,20 @@ const INSTALL_SEND_STAMP = () => {
   const w = window as unknown as { __rkSendAt?: number };
   const orig = WebSocket.prototype.send;
   WebSocket.prototype.send = function (data: Parameters<WebSocket["send"]>[0]) {
-    // Only stamp single-character payloads — resize messages are JSON blobs and
-    // must not be mistaken for a keystroke.
-    if (typeof data === "string" && data.length === 1) {
+    // Under the terminals mux (change 260717-803u), a keystroke is a BINARY
+    // frame `[u32 BE streamId][payload]` — a single-char keystroke is exactly
+    // 4 + 1 = 5 bytes. (The old per-pane relay sent the char as a 1-char string;
+    // resize is a JSON control string in both eras and must not be mistaken for
+    // a keystroke.) Stamp on the 5-byte binary keystroke frame.
+    let len = -1;
+    if (typeof data === "string") {
+      len = data.length === 1 ? 1 : -1; // legacy 1-char string keystroke
+    } else if (data instanceof ArrayBuffer) {
+      len = data.byteLength === 5 ? 1 : -1;
+    } else if (ArrayBuffer.isView(data)) {
+      len = data.byteLength === 5 ? 1 : -1;
+    }
+    if (len === 1) {
       w.__rkSendAt = performance.now();
     }
     return orig.call(this, data);

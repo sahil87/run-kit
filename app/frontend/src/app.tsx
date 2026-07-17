@@ -117,7 +117,7 @@ function rawBasename(cwd: string | undefined): string {
 
 /** Root wrapper — provides theme, chrome, session, focused-terminal, and
  *  optimistic contexts above ALL routes. Mounting `SessionProvider` here
- *  means the multi-server EventSource pool is shared across `/$server/...`,
+ *  means the multi-server state socket is shared across `/$server/...`,
  *  `/board/$name`, and `/`; navigating between routes only flips
  *  `currentServer`, never tearing down the provider.
  *

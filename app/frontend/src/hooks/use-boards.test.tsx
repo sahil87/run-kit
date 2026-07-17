@@ -22,48 +22,55 @@ vi.mock("@tanstack/react-router", () => ({
   useMatches: () => [],
 }));
 
-// Stub EventSource so the hook does not attempt to open real SSE connections
-// in JSDOM. We capture the `board-changed` listener per server so tests can
-// dispatch events. SessionProvider opens these on behalf of useBoards now.
-type Listener = (ev: MessageEvent) => void;
-const listenersByServer = new Map<string, Listener>();
+// Stub WebSocket so the hook does not open a real /ws/state connection in JSDOM.
+// SessionProvider opens ONE socket and subscribes to each known server (useBoards
+// calls attachServer for every server). Tests dispatch a `board-changed` server
+// event via `dispatchBoardChanged(server)`; `activeServers` reflects the current
+// per-server subscriptions so a test can wait until a server is subscribed.
+const WS_OPEN = 1;
+let currentWS: MockWS | null = null;
+const activeServers = new Set<string>();
 
-class FakeEventSource {
-  public url: string;
-  public onerror: ((ev: Event) => void) | null = null;
-  public onopen: ((ev: Event) => void) | null = null;
-  private listeners = new Map<string, Listener>();
-  // The server key this ES registered a `board-changed` listener under, if any.
-  // Only a per-server stream (`?server=<name>`) registers one; the dedicated
-  // metrics-only stream (`?metrics=1`, no `server`) does not — so on close it
-  // must NOT clobber a real server's entry (it has none of its own).
-  private boardServer: string | null = null;
+class MockWS {
+  static readonly OPEN = 1;
+  url: string;
+  readyState = WS_OPEN;
+  onopen: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: ((e: MessageEvent) => void) | null = null;
   constructor(url: string) {
     this.url = url;
+    currentWS = this;
+    queueMicrotask(() => this.onopen?.());
   }
-  addEventListener(type: string, listener: Listener) {
-    this.listeners.set(type, listener);
-    if (type === "board-changed") {
-      const u = new URL(this.url, "http://localhost");
-      const server = u.searchParams.get("server") ?? "default";
-      this.boardServer = server;
-      listenersByServer.set(server, listener);
+  send(raw: string) {
+    try {
+      const m = JSON.parse(raw);
+      if (m.op === "subscribe" && m.kind === "server") activeServers.add(m.key);
+      else if (m.op === "unsubscribe" && m.kind === "server") activeServers.delete(m.key);
+    } catch {
+      // ignore
     }
   }
-  removeEventListener() {}
   close() {
-    // Only remove the entry this ES actually registered. A metrics-only stream
-    // never registered a `board-changed` listener, so it removes nothing —
-    // closing it must not evict a real per-server stream's listener.
-    if (this.boardServer !== null) {
-      listenersByServer.delete(this.boardServer);
-    }
+    this.readyState = 3;
+    this.onclose?.();
+  }
+  deliver(frame: unknown) {
+    this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent);
   }
 }
 
+// Dispatch a `board-changed` server event for the given server over the socket.
+function dispatchBoardChanged(server: string) {
+  currentWS?.deliver({ op: "event", kind: "server", key: server, type: "board-changed", data: {} });
+}
+
 beforeEach(() => {
-  listenersByServer.clear();
-  vi.stubGlobal("EventSource", FakeEventSource);
+  currentWS = null;
+  activeServers.clear();
+  vi.stubGlobal("WebSocket", MockWS as unknown as typeof WebSocket);
 });
 
 function Wrapper({ children }: { children: ReactNode }) {
@@ -108,11 +115,10 @@ describe("useBoards", () => {
     expect(result.current.boards).toEqual([]);
 
     payload = [{ name: "main", pinCount: 1 }];
-    // Dispatch a synthetic board-changed event via the fake EventSource.
-    await waitFor(() => expect(listenersByServer.get("runkit")).toBeDefined());
+    // Dispatch a synthetic board-changed event via the mocked state socket.
+    await waitFor(() => expect(activeServers.has("runkit")).toBe(true));
     act(() => {
-      const lis = listenersByServer.get("runkit");
-      lis?.(new MessageEvent("board-changed", { data: "{}" }));
+      dispatchBoardChanged("runkit");
     });
     await waitFor(() => {
       expect(calls).toBeGreaterThanOrEqual(2);
@@ -135,12 +141,11 @@ describe("useBoards", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(calls).toBe(1);
 
-    await waitFor(() => expect(listenersByServer.get("default")).toBeDefined());
+    await waitFor(() => expect(activeServers.has("default")).toBe(true));
     act(() => {
-      const lis = listenersByServer.get("default");
       // 3 rapid events within debounce window.
       for (let i = 0; i < 3; i++) {
-        lis?.(new MessageEvent("board-changed", { data: "{}" }));
+        dispatchBoardChanged("default");
       }
     });
     await waitFor(() => expect(calls).toBe(2), { timeout: 200 });
@@ -163,10 +168,9 @@ describe("useBoards", () => {
     const { result } = renderHook(() => useBoards(), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.boards).toHaveLength(1));
 
-    await waitFor(() => expect(listenersByServer.get("default")).toBeDefined());
+    await waitFor(() => expect(activeServers.has("default")).toBe(true));
     act(() => {
-      const lis = listenersByServer.get("default");
-      lis?.(new MessageEvent("board-changed", { data: "{}" }));
+      dispatchBoardChanged("default");
     });
     await waitFor(() => expect(result.current.error).not.toBeNull());
     // boards still equal the last-good value.
@@ -199,10 +203,9 @@ describe("useBoardEntries", () => {
         orderKey: "a",
       },
     ];
-    await waitFor(() => expect(listenersByServer.get("default")).toBeDefined());
+    await waitFor(() => expect(activeServers.has("default")).toBe(true));
     act(() => {
-      const lis = listenersByServer.get("default");
-      lis?.(new MessageEvent("board-changed", { data: "{}" }));
+      dispatchBoardChanged("default");
     });
     await waitFor(() => expect(result.current.entries).toHaveLength(1));
   });

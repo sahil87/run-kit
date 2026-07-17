@@ -26,7 +26,7 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 	// orphans. The test-socket hide filter was deleted: `rk reaper` is now the
 	// sole mechanism that keeps this list clean, so the dev UI shows the
 	// operator exactly what the reaper will reap. Accepted cost: a per-orphan
-	// SSE stream until the operator runs `rk reaper`.
+	// state-socket subscription until the operator runs `rk reaper`.
 	names, err := s.tmux.ListServers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -151,8 +151,9 @@ func (s *Server) handleServerOrderPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Broadcast the new order to every connected SSE client (server-global, so
-	// even the zero-attached-server Host `?metrics=1` stream hears it).
+	// Broadcast the new order to every connected state-socket client
+	// (host-global, so even a zero-attached-server Host tab with only a
+	// metrics subscription hears it).
 	s.initSSEHub()
 	s.sseHub.broadcastServerOrder(body.Order)
 

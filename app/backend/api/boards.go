@@ -342,8 +342,9 @@ func (s *Server) handleBoardOrderPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Broadcast the new order to every connected SSE client (server-global, so
-	// even the zero-attached-server Host `?metrics=1` stream hears it).
+	// Broadcast the new order to every connected state-socket client
+	// (host-global, so even a zero-attached-server Host tab with only a
+	// metrics subscription hears it).
 	s.initSSEHub()
 	s.sseHub.broadcastBoardOrder(body.Order)
 

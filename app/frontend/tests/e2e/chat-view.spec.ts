@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully mocked (no tmux/gh) — inject the SSE `sessions` payload + server list +
 // the chat stream via page.route, then drive the chat view. See
@@ -87,7 +88,7 @@ function backfillCleared(): string {
 }
 
 async function mockBackend(page: Page, chatBody: string, winName?: string) {
-  await page.routeWebSocket(/\/relay\//, () => {});
+  await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );
@@ -98,13 +99,7 @@ async function mockBackend(page: Page, chatBody: string, winName?: string) {
       body: JSON.stringify([{ name: SERVER, sessionCount: 1 }]),
     }),
   );
-  await page.route("**/api/sessions/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
-      body: `event: sessions\ndata: ${sessionsPayload(winName)}\n\n`,
-    }),
-  );
+  await mockStateSocket(page, { sessions: sessionsPayload(winName) });
   // Dedicated per-view chat stream. The trailing `*` is REQUIRED — the client
   // appends `?server=` (established project gotcha). Fulfilled with an
   // `text/event-stream` body carrying the backfill (+ optional chat-state).

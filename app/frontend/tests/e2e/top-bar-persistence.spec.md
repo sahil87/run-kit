@@ -36,18 +36,16 @@ behavior a user would see.
 - Fully mocked — no tmux server, no `gh`, no real backend reads. The spec injects
   data via `page.route`:
   - `**/api/servers` → a single server `default` (one clickable server tile; one
-    SSE attach).
+    state-socket attach).
   - `**/api/boards` → one board `myboard` (a clickable tile in the Host BOARDS
     zone).
   - `**/api/boards/myboard` → one board entry (server `default`, window `@1`) so
     the board route has content.
-  - `**/api/sessions/stream*` → one `event: sessions` frame: session `dev` with a
+  - `/ws/state` (state socket, via `mockStateSocket`) → the subscribe ack + `sessions` event carry the mocked payload: session `dev` with a
     single active window `@1` "feature-work".
   - `**/api/windows/*/select*` → `{ ok: true }` (trailing `*` matches the
     `?server=` query string) so window-selection POSTs during nav don't error.
-  - `**/api/host/metrics/stream*` → an open, empty event-stream (the Host
-    connection-dot source) so the host bar mounts cleanly.
-  - the `/relay/` WebSocket is stubbed (accepted, held open) so any terminal pane
+  - the `/ws/terminals` mux WebSocket is stubbed (accepted, held open) so any terminal pane
     mounts without a backend.
 - `beforeEach` installs the routes. Hops 1 and 3 navigate client-side via
   router-driven controls (a server tile, a board tile). Hop 2 clicks the raw

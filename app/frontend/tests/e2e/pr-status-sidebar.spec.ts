@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
 
 // This spec is fully mocked: the isolated e2e tmux server has no real
 // change-bound PRs and `gh` is unavailable in CI, so we inject the SSE
@@ -57,10 +58,11 @@ const SCRATCH_WINDOW_URL = `/${SERVER}/2`; // @2 — scratch window, no PR
 
 /** Install routes that fully mock the server list and the SSE sessions stream. */
 async function mockBackend(page: Page) {
-  // Stub the relay WebSocket so the terminal route mounts without a backend —
+  // Stub the terminals mux WebSocket (/ws/terminals — the per-pane /relay/
+  // socket was retired in 260717-803u) so the terminal route mounts without a backend —
   // the Pane panel lives in the sidebar and renders regardless, but stubbing
-  // the WS keeps the page from churning on failed relay reconnects.
-  await page.routeWebSocket(/\/relay\//, () => {
+  // the WS keeps the page from churning on failed stream reconnects.
+  await page.routeWebSocket(/\/ws\/terminals/, () => {
     /* accept and hold the socket open; send nothing */
   });
 
@@ -78,20 +80,9 @@ async function mockBackend(page: Page) {
     }),
   );
 
-  // SSE stream: emit one `sessions` event carrying the mocked payload. The
-  // body is a complete SSE frame; EventSource parses the event, then may
-  // reconnect and receive the same frame again — idempotent for our assertions.
-  await page.route("**/api/sessions/stream*", (route) =>
-    route.fulfill({
-      status: 200,
-      headers: {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      },
-      body: `event: sessions\ndata: ${sessionsPayload}\n\n`,
-    }),
-  );
+  // State socket: the mock answers hello + subscribe, delivering the mocked
+  // sessions payload as the subscribe ack snapshot + a live `sessions` event.
+  await mockStateSocket(page, { sessions: sessionsPayload });
 }
 
 test.describe("Pane panel PR status", () => {

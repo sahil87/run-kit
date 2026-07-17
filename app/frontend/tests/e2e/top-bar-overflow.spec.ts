@@ -268,3 +268,129 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     expect(after, `theme cycled from "${before}"`).not.toBe(before);
   });
 });
+
+// The ViewSwitcher lens pill is terminal-only and gated on a multi-view window,
+// so it never appears on the tty-only WINDOW_NAME window above. This block uses
+// a web-capable window (a non-empty `@rk_url` ⇒ `[tty|web]`) with a long name to
+// prove the 260717-6anu contract: the pill is the FIRST overflow candidate
+// (drops before any L1 split), is represented as per-view `View:` menu rows when
+// collapsed, and a row activation switches the lens.
+const VIEW_WINDOW_NAME = `overflow-view-long-worktree-${Date.now().toString().slice(-6)}`;
+const VIEW_URL = "http://localhost:8080/";
+
+test.describe("Top-bar overflow: ViewSwitcher is the first-to-drop candidate (260717-6anu)", () => {
+  test.beforeAll(() => {
+    try {
+      execSync(
+        `tmux -L ${TMUX_SERVER} new-window -t ${TEST_SESSION} -n "${VIEW_WINDOW_NAME}"`,
+        { stdio: "ignore" },
+      );
+    } catch {
+      // Session/window may already exist.
+    }
+  });
+
+  // The switcher group in the accessibility tree (excludes the aria-hidden
+  // measurement probe copy — same in-bar-vs-probe distinction the pyramid tests
+  // use). `getByTestId("view-toggle")` would also match the probe.
+  const inBarSwitcher = (page: Page) => page.getByRole("group", { name: "Window view" });
+
+  async function gotoViewWindow(page: Page): Promise<void> {
+    const id = await resolveWindow(page, VIEW_WINDOW_NAME);
+    // Stamp `@rk_url` so the window offers the `web` lens → the ViewSwitcher pill
+    // renders (`[tty|web]`). Set before navigating so the first snapshot carries it.
+    execSync(
+      `tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_url "${VIEW_URL}"`,
+      { stdio: "ignore" },
+    );
+    await gotoWindow(page, id);
+  }
+
+  test("the ViewSwitcher pill is present in-bar at a wide width", async ({ page }) => {
+    await gotoViewWindow(page);
+    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+    // The pill is the WIDEST control and the first registry candidate, so it
+    // fits in-bar only when the WHOLE cluster fits. A generous desktop width
+    // (1440px) clears the whole terminal cluster (view-switcher + 3 L1 + Aa +
+    // close + theme/refresh/help) — at the 1280px "Desktop Chrome" default the
+    // pill has already correctly yielded (it drops before any L1 control).
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await expect(heading).toBeVisible({ timeout: 10_000 });
+    await expect(inBarSwitcher(page)).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("the ViewSwitcher drops FIRST — before any L1 split — as width shrinks", async ({
+    page,
+  }) => {
+    await gotoViewWindow(page);
+    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+
+    // The switcher is the FIRST registry candidate, so overflow consumes it
+    // before any L1 split — the surviving in-bar set is a SUFFIX of the registry
+    // order. The invariant, checked across the sweep: whenever the pill is still
+    // in-bar, EVERY L1 split must also be in-bar (the pill can only survive when
+    // the whole cluster fits). Equivalently, the pill leaves before L1 does.
+    const wideToNarrow = [1440, ...WIDTHS];
+    let sawPillInBar = false;
+    let sawPillDropped = false;
+    for (const width of wideToNarrow) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect(heading).toBeVisible({ timeout: 10_000 });
+      // At the widest width the pill MUST be in-bar — gate on a RETRYING
+      // visibility expect so the post-resize re-fit (ResizeObserver → layout
+      // effect) has settled before the plain `count()` branch below reads it.
+      // A bare `count()` right after `setViewportSize` can race that async re-fit
+      // and read 0, corrupting `sawPillInBar` and the L1 invariant.
+      if (width === 1440) {
+        await expect(inBarSwitcher(page)).toBeVisible({ timeout: 10_000 });
+      }
+      const switcherInBar = (await inBarSwitcher(page).count()) > 0;
+      if (switcherInBar) {
+        sawPillInBar = true;
+        expect(
+          await inBarCount(page, L1),
+          `every L1 split must be in-bar while the pill is still in-bar at ${width}px`,
+        ).toBe(L1.length);
+      } else {
+        sawPillDropped = true;
+      }
+    }
+    // The sweep genuinely exercised both sides of the pill's drop threshold.
+    expect(sawPillInBar, "pill was in-bar at some (wide) width").toBe(true);
+    expect(sawPillDropped, "pill overflowed at some (narrow) width").toBe(true);
+    // At the narrowest width the switcher has definitely overflowed.
+    await page.setViewportSize({ width: 375, height: 800 });
+    await expect(heading).toBeVisible({ timeout: 10_000 });
+    await expect(inBarSwitcher(page)).toHaveCount(0);
+  });
+
+  test("the collapsed switcher renders per-view rows and a row activation switches the lens", async ({
+    page,
+  }) => {
+    await gotoViewWindow(page);
+    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+    await page.setViewportSize({ width: 375, height: 800 });
+    await expect(heading).toBeVisible({ timeout: 10_000 });
+
+    // The pill overflowed; open the chevron menu and assert the per-view rows.
+    await page.getByRole("button", { name: "More controls" }).click();
+    const menu = page.getByRole("menu", { name: "More controls" });
+    await expect(menu).toBeVisible();
+    const ttyRow = menu.getByRole("menuitem", { name: "View: Terminal" });
+    const webRow = menu.getByRole("menuitem", { name: "View: Web" });
+    await expect(ttyRow).toBeVisible();
+    await expect(webRow).toBeVisible();
+    // Default lens is tty → the tty row is the active (marked) one.
+    await expect(ttyRow).toHaveAttribute("aria-pressed", "true");
+    await expect(webRow).toHaveAttribute("aria-pressed", "false");
+
+    // Activating the Web row switches the lens: the URL gains `?view=web` and the
+    // proxied iframe renders.
+    await webRow.click();
+    await expect(page).toHaveURL(/\?view=web/, { timeout: 10_000 });
+    await expect(page.getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
+    // The `View:` row is a `role="menuitem"` activation, so the chevron menu
+    // closes (single-shot menu action) — the pill stays collapsed at 375px.
+    await expect(menu).toBeHidden();
+  });
+});

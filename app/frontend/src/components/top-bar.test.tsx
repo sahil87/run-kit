@@ -1218,14 +1218,40 @@ describe("TopBar", () => {
       }
     });
 
-    it("keeps the ViewSwitcher exempt (visible in the bar, not in the menu) when the window is multi-view", () => {
-      renderTopBar({ availableViews: ["tty", "web"], activeView: "tty", onSelectView: vi.fn() });
-      // The switcher chip is present as an exempt bar control.
-      expect(screen.getByTestId("view-toggle")).toBeInTheDocument();
-      // …and never appears as a menu row.
+    it("represents the overflowed ViewSwitcher as per-view `View:` menu rows on a multi-view window (260717-6anu)", () => {
+      const onSelectView = vi.fn();
+      renderTopBar({ availableViews: ["tty", "web"], activeView: "tty", onSelectView });
+      // jsdom reports zero widths → everything (incl. the first-to-drop
+      // view-switcher) overflows into the menu, so no ACCESSIBLE in-bar pill is
+      // shown. The only `view-toggle` in the DOM is the aria-hidden measurement
+      // probe copy — scope the in-bar check to the accessibility tree (mirrors
+      // the e2e getByRole approach): a group named "Window view" that is NOT
+      // inside the aria-hidden probe would be the in-bar pill.
+      const bars = screen
+        .queryAllByRole("group", { name: "Window view" })
+        .filter((g) => g.closest('[aria-hidden="true"]') === null);
+      expect(bars).toHaveLength(0);
+      // …and the switcher is represented as one `View: {label}` row per view.
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      expect(within(menu).queryByTestId("view-toggle")).not.toBeInTheDocument();
+      const ttyRow = within(menu).getByRole("menuitem", { name: "View: Terminal" });
+      const webRow = within(menu).getByRole("menuitem", { name: "View: Web" });
+      expect(ttyRow).toBeInTheDocument();
+      expect(webRow).toBeInTheDocument();
+      // The active (tty) row is marked; the inactive (web) row is not.
+      expect(ttyRow).toHaveAttribute("aria-pressed", "true");
+      expect(webRow).toHaveAttribute("aria-pressed", "false");
+      // Clicking a non-active row switches the lens via the same onSelectView.
+      act(() => fireEvent.click(webRow));
+      expect(onSelectView).toHaveBeenCalledWith("web");
+    });
+
+    it("contributes no `View:` menu row for a single-view (tty-only) window (260717-6anu)", () => {
+      renderTopBar({ availableViews: ["tty"], activeView: "tty", onSelectView: vi.fn() });
+      expect(screen.queryByTestId("view-toggle")).not.toBeInTheDocument();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu).queryByRole("menuitem", { name: /^View:/ })).not.toBeInTheDocument();
     });
   });
 

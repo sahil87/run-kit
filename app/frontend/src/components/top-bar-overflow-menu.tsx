@@ -18,6 +18,32 @@ import { useUpdateClick } from "@/hooks/use-update-click";
 const MENU_GAP_PX = 4;
 
 /**
+ * Shared overflow-menu row styling (260715-h1ck), hosted here — the file both
+ * `top-bar.tsx` (the row components) and `view-switcher.tsx` (`ViewSwitcherMenuRows`)
+ * already depend on, so there is no import cycle. Decomposed so callers compose
+ * exactly the variant they need instead of re-declaring a drifted subset:
+ *
+ *  - `MENU_ROW_BASE` — layout only (full-width left-aligned flex row, padding,
+ *    text size). No color/state tokens.
+ *  - `MENU_ROW_REST` — the resting/hover treatment (secondary text → primary on
+ *    hover, card hover bg).
+ *  - `MENU_ROW_DISABLED` — the disabled-state tokens (dimmed, no hover).
+ *  - `MENU_ROW_ACTIVE` — the inverse-video accent-green treatment used to mark a
+ *    selected row (e.g. the active view in `ViewSwitcherMenuRows`).
+ *  - `MENU_ROW_CLASS` — the default composition (`base + rest + disabled`) used by
+ *    every plain menu row.
+ */
+export const MENU_ROW_BASE =
+  "w-full text-left flex items-center gap-2 px-3 py-2 text-sm transition-colors";
+export const MENU_ROW_REST =
+  "text-text-secondary hover:text-text-primary hover:bg-bg-card";
+export const MENU_ROW_DISABLED =
+  "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
+export const MENU_ROW_ACTIVE = "bg-accent-green text-bg-primary";
+/** Default row class — the resting variant plus disabled-state tokens. */
+export const MENU_ROW_CLASS = `${MENU_ROW_BASE} ${MENU_ROW_REST} ${MENU_ROW_DISABLED}`;
+
+/**
  * A single overflowed control, rendered as a menu row. `id` is the registry id
  * (stable key); `node` is the control's `menuRender` output — a self-contained
  * row that owns exactly one focusable element (a `<button role="menuitem">`,

@@ -5,7 +5,12 @@ const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-webview-${Date.now()}`;
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
-const DESKTOP_VIEWPORT = { width: 1280, height: 800 };
+// Since 260717-6anu the ViewSwitcher is the FIRST overflow-registry candidate —
+// the widest control and the first to yield — so it renders in-bar only when the
+// whole terminal cluster fits. The 1280px "Desktop Chrome" default sits right at
+// its drop threshold (marginal/flaky), so the in-bar-chip tests use a generous
+// 1440px width that clears the whole cluster deterministically.
+const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
 // A URL that the proxy converts to a same-origin `/proxy/<port>/…` path — the
 // iframe `src` is deterministic regardless of whether a real server listens
@@ -108,6 +113,14 @@ test.afterAll(() => {
 });
 
 test.describe("Web view lens — iframe as a per-viewer lens", () => {
+  // Default every test in this describe to a wide desktop width so the in-bar
+  // ViewSwitcher chip fits (260717-6anu made it the first-to-overflow candidate;
+  // the 1280px default is at its drop threshold). The mobile test overrides this
+  // to 375px at its own start.
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(DESKTOP_VIEWPORT);
+  });
+
   test("switcher chip appears only on a web-capable window", async ({ page }) => {
     // A plain terminal window (no @rk_url) offers only tty → no chip.
     const plain = await makeWindow(page, `wv-plain-${Date.now()}`);
@@ -238,29 +251,48 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(webChip(page)).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("375px mobile: the switcher chip is visible and the web lens renders", async ({
+  test("375px mobile: the switcher overflows into the menu with a long name; inline on desktop", async ({
     page,
   }) => {
-    // Unlike its `hidden sm:*` L1 siblings, the unified ViewSwitcher is visible
-    // at ALL breakpoints (chat/web are primary mobile use cases), and the lens
-    // itself resolves + renders on mobile without horizontal overflow.
+    // 260717-6anu: the ViewSwitcher is the first overflow-registry candidate, so
+    // at 375px with a realistically long window name it yields into the "More
+    // controls" chevron menu (as per-view `View:` rows) to give the heading room
+    // — superseding the former `hidden sm:*`-exempt "visible at all breakpoints"
+    // contract. Space-driven, so it returns to the bar at desktop width. The
+    // lens itself still resolves + renders on mobile without horizontal overflow.
     await page.setViewportSize(MOBILE_VIEWPORT);
-    const id = await makeWindow(page, `wv-mobile-${Date.now()}`, { url: IFRAME_URL });
+    const id = await makeWindow(page, `wv-mobile-long-worktree-name-${Date.now()}`, {
+      url: IFRAME_URL,
+    });
     // Do NOT gate on the `Connected` dot here: it is `hidden sm:inline`, so at
     // 375px it is `display:none` and never becomes visible (same reason
     // window-heading.spec.ts's mobile test gates on the heading, not the dot).
     // Gate directly on the iframe — the thing under test.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?view=web`);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    // The chip is visible at 375px (all breakpoints).
-    await expect(webChip(page)).toBeVisible({ timeout: 10_000 });
-    await expect(ttyChip(page)).toBeVisible();
-    // No horizontal page overflow at 375px even with the chip shown.
+
+    // The in-bar pill overflowed at 375px → `getByRole` (accessibility tree,
+    // excludes the aria-hidden measurement probe) finds no in-bar chip.
+    await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
+    // The switcher is reachable in the chevron menu as per-view rows; the active
+    // (web) row is marked.
+    await page.getByRole("button", { name: "More controls" }).click();
+    const menu = page.getByRole("menu", { name: "More controls" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "View: Terminal" })).toBeVisible();
+    const webRow = menu.getByRole("menuitem", { name: "View: Web" });
+    await expect(webRow).toBeVisible();
+    await expect(webRow).toHaveAttribute("aria-pressed", "true");
+    // Close the menu before the resize assertion.
+    await page.keyboard.press("Escape");
+
+    // No horizontal page overflow at 375px.
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
 
-    // Still visible after resizing up to desktop.
+    // Space-driven: at desktop width the pill returns to the bar (inline chip).
     await page.setViewportSize(DESKTOP_VIEWPORT);
     await expect(webChip(page)).toBeVisible({ timeout: 10_000 });
+    await expect(ttyChip(page)).toBeVisible();
   });
 });

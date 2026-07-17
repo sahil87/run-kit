@@ -47,12 +47,16 @@ null) — and a `?view=chat` deep link on a chat-less window degrades gracefully
 the terminal (param inert, dropped by `resolveView`'s availability check).
 
 **Steps:**
-1. Mock the backend; navigate to `/default/1` and assert the `view-toggle` is
-   visible.
-2. Navigate to `/default/2`; assert "plain-win" is visible and the `view-toggle`
-   has count 0.
+1. Mock the backend; navigate to `/default/1` and assert the in-bar switcher is
+   visible via the `role="group"` name `Window view` (NOT `getByTestId(view-toggle)`:
+   since `260717-6anu` the switcher is an overflow-registry candidate, so the
+   aria-hidden measurement probe carries a second `view-toggle` copy — the role
+   query excludes the probe and resolves to the single in-bar pill).
+2. Navigate to `/default/2`; assert "plain-win" is visible and the `Window view`
+   group has count 0 (single-view → the registry entry is hidden everywhere, no
+   probe copy either).
 3. Navigate to `/default/2?view=chat`; assert no `chat-view` renders, no
-   `view-toggle` renders, and the static `Window:` heading prefix shows (the
+   `Window view` group renders, and the static `Window:` heading prefix shows (the
    terminal branch mounted despite the param; 260714-uco1 — the heading is
    `Window:` in every lens).
 
@@ -66,7 +70,9 @@ indicator), so the heading anchor does not jump on the switch. The window rename
 affordance carries over.
 
 **Steps:**
-1. Navigate to `/default/1`; assert the toggle and the `Window:` prefix.
+1. Navigate to `/default/1`; assert the in-bar switcher (via the `Window view`
+   role="group", which excludes the aria-hidden overflow probe copy — `260717-6anu`)
+   and the `Window:` prefix.
 2. Click the `Chat view` segment (by its accessible role/name).
 3. Assert the URL is `/default/1?view=chat`, the `chat-view` renderer is visible,
    the heading still shows the `Window:` prefix, and the `Rename window agent-win`
@@ -80,7 +86,9 @@ the URL `?view=` param in sync, exactly like the switcher segment. The heading
 stays the static `Window:` throughout (it does not vary with the lens).
 
 **Steps:**
-1. Navigate to `/default/1`; assert the switcher and the `Window:` prefix.
+1. Navigate to `/default/1`; assert the in-bar switcher (via the `Window view`
+   role="group", which excludes the aria-hidden overflow probe copy — `260717-6anu`)
+   and the `Window:` prefix.
 2. Press `Control+\``; assert the URL is `/default/1?view=chat` and `chat-view`
    is visible.
 3. Press `Control+\`` again; assert the `?view` param is dropped and the
@@ -124,17 +132,21 @@ pending bubble (the retractable-state contract — always applied, incl. null).
 2. Assert the `chat-view` is visible, then assert the `chat-pending` bubble has
    count 0.
 
-### `375px top bar stays single-line with the chat toggle (no horizontal overflow)`
+### `375px: the chat toggle overflows into the More-controls menu with a long window name (no horizontal overflow)`
 
-**What it proves:** the toggle is visible at 375px (unlike its `hidden sm:flex`
-L1 siblings) and the top-bar single-row budget holds — no wrap, no horizontal
-page overflow.
+**What it proves:** at 375px with a realistically long window name, the
+ViewSwitcher (the first overflow-registry candidate since `260717-6anu`) yields
+into the "More controls" chevron menu as per-view `View:` rows — giving the
+center heading room — instead of staying pinned inline; the top-bar single-row
+budget still holds (no wrap, no horizontal page overflow).
 
 **Steps:**
-1. Set the viewport to 375×812; navigate to `/default/1?view=chat`.
-2. Assert the `view-toggle` is visible.
-3. Assert `document.body.scrollWidth <= 375`.
-4. Assert the header's bounding-box height is < 56px (a wrap would ~double it).
+1. Mock the backend with a long `@1` window name (`riff-gallant-jackal-worktree-mobile`); set the viewport to 375×812; navigate to `/default/1?view=chat`.
+2. Assert the `chat-view` is visible (the lens resolved / window loaded).
+3. Assert the in-bar switcher group ("Window view", accessibility-tree query — excludes the aria-hidden measurement probe) has count 0 (the pill overflowed).
+4. Open the "More controls" chevron; assert the menu carries `View: Terminal` and `View: Chat` rows, and the active `View: Chat` row has `aria-pressed="true"`.
+5. Assert `document.body.scrollWidth <= 375`.
+6. Assert the header's bounding-box height is < 56px (a wrap would ~double it).
 
 ### `reduced-motion is honored — the chat view carries no running animations`
 

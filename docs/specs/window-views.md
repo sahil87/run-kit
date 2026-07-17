@@ -98,15 +98,26 @@ A segmented chip in the top-bar right cluster's **L1 tier** (terminal-route
 tier), rendered only when the capability set exceeds `{tty}`: two states
 render `[tty|chat]`-style, more render as a compact segmented group. Active
 segment inverse-video. Palette parity (`View: Terminal` / `View: Web` / …)
-and a keyboard shortcut are mandatory (Constitution V). The center page
+and a keyboard shortcut are mandatory (Constitution V). The chip
+**participates in the right-cluster overflow registry** (change
+`260717-6anu-mobile-view-switcher-overflow`; the `260715-h1ck` priority+
+registry): it is the **first candidate — so the first to yield** when the
+cluster is squeezed (before any L1 split), and when it overflows it is
+represented in the "More controls" chevron menu as **per-view rows** (`View:
+Terminal` / `View: Web` / `View: Chat`, the active row marked). This is
+space-driven, not a mobile breakpoint gate — the pill stays inline whenever
+there is room (on any viewport) and yields precisely when the heading needs the
+space (the common phone case). The center page
 heading does **not** follow the lens — it reads a static `Window: <window>` in
 every lens (reversed by change `260714-uco1-topbar-heading-anchor-nav`; it
 formerly read `Terminal:`/`Web:`/`Chat:`/`Desktop:` per the active lens). The
 heading identifies the *substrate* (the tmux window); which *lens* you look
 through is shown by this switcher, not the heading — so the switcher is the
-sole lens indicator, and the heading's left anchor no longer jumps on a lens
-switch. Whichever change ships first (`web-view-lens` or chat change 3) builds
-the generalized switcher; the other reuses it.
+sole lens indicator (**while collapsed into the menu, the marked menu row plus
+the view content itself carry lens identity; deliberately no new inline lens
+indicator is added to the bar**), and the heading's left anchor no longer jumps
+on a lens switch. Whichever change ships first (`web-view-lens` or chat change
+3) builds the generalized switcher; the other reuses it.
 
 ### R5 — Default view is a derived hint, not a lock
 

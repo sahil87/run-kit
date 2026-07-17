@@ -39,6 +39,7 @@ func init() {
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(initConfCmd)
 	rootCmd.AddCommand(contextCmd)
+	rootCmd.AddCommand(skillCmd)
 	rootCmd.AddCommand(notifyCmd)
 	rootCmd.AddCommand(agentSetupCmd)
 	rootCmd.AddCommand(agentHookCmd)

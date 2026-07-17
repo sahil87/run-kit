@@ -29,15 +29,17 @@ navigation.
 
 **What it proves:** A vertical swipe on the terminal wrapper produces SGR
 mouse-scroll escape sequences (`\x1b[<64;col;rowM`) sent to the tmux PTY
-via the WebSocket relay.
+via the `/ws/terminals` mux (the per-pane relay was retired in 260717-803u).
 
 **Steps:**
 1. Resolve the first window id and navigate to
    `/${TMUX_SERVER}/<@id>` (2-segment route); wait for `.xterm-screen` (xterm
    mount complete) plus a 2s settle.
 2. Type `seq 1 200\n` into the terminal to guarantee scrollback content.
-3. Monkey-patch `WebSocket.prototype.send` to append any data containing
-   `\x1b[<6` into `window.__scrollSeqs`.
+3. Monkey-patch `WebSocket.prototype.send` to append any frame whose decoded
+   payload contains `\x1b[<6` into `window.__scrollSeqs` — pane keystrokes ride
+   the mux as binary `[u32 BE streamId][payload]` frames, so binary sends are
+   decoded past the 4-byte header before matching (strings pass through as-is).
 4. Dispatch `touchStart` at the wrapper center, then 15 small downward
    `touchMove` events (simulating finger drag down), then `touchEnd`.
 5. Read back `window.__scrollSeqs` and assert:

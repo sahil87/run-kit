@@ -32,7 +32,7 @@ The governance line MUST read `**Version**: 1.6.0 | **Ratified**: 2026-03-02 | *
 
 - No enumeration in the constitution — no standard names, counts, or per-standard URLs in the article (`shll standards` is the enumeration; the article must stay correct as standards evolve). A hardcoded standard list in the diff is a defect.
 - No conformance fixes — this change does not audit or fix the CLI surface, help output, README.md, or docs against the standards. Binding only.
-- No other file changes — `fab/project/constitution.md` is the entire diff (no code, no tests, no README/docs, no memory).
+- No other file changes — `fab/project/constitution.md` is the only substantive file in the diff (no code, no tests, no README/docs, no memory). The PR also carries the standard fab change artifacts (`intake.md`, `plan.md`, `.status.yaml`, `.history.jsonl`), which are co-committed pipeline bookkeeping present in every fab change and excluded from impact per config `true_impact_exclude`.
 
 ## Tasks
 

@@ -63,7 +63,7 @@ Version bumps MINOR (1.5.0 → 1.6.0) because a new article is added and no exis
 
 - **No enumeration in the constitution**: do NOT copy standard names, counts, or per-standard URLs into the article — `shll standards` is the enumeration; the article must stay correct as standards evolve. Reviewers should treat any hardcoded standard list in the diff as a defect.
 - **No conformance fixes**: this change does not audit or fix the CLI surface, help output, README.md, or docs against the standards. Binding only.
-- No other file changes — constitution.md is the entire diff.
+- No other file changes — constitution.md is the only substantive file in the diff. The PR also carries the standard fab change artifacts (`intake.md`, `plan.md`, `.status.yaml`, `.history.jsonl`), which are co-committed pipeline bookkeeping present in every fab change and excluded from impact per config `true_impact_exclude`.
 
 ## Affected Memory
 

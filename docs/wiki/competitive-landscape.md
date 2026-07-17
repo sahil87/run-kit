@@ -4,6 +4,7 @@
 > agent clients, and server consoles. Written during an exploratory discussion session
 > (2026-07-01); tool facts verified against primary sources where flagged. Star counts,
 > versions, and dates in this space drift week to week — treat them as approximate.
+> cmux entry added 2026-07-17, verified against cmux.com and the manaflow-ai/cmux README that day.
 
 ---
 
@@ -49,6 +50,8 @@ wrapped agent conversation. "tmux native" = tmux is the session substrate, not a
 | amux | ○ | ● | ● | ● | ● | ● | ◐ | MIT* |
 | Codeman | ◐ | ● | ● | ● | ● | ○ | ◐ | MIT |
 | agentdock | ○ | ● | ● | ● | ● | ● | ◐ | MIT |
+| *— The desktop pole: agent-agnostic native terminals —* | | | | | | | | |
+| cmux (Manaflow) | ● | ○ | ● | ○ | ◐ | ○ | ◐ | GPL-3† |
 | *— Lineage B: agent orchestrators (agent-coupled) —* | | | | | | | | |
 | Claude Squad | ◐ | ● | ● | ○ | ○ | ● | ● | AGPL |
 | Conductor (Melty Labs) | ○ | ○ | ● | ○ | ○ | ● | ◐ | commercial |
@@ -57,6 +60,8 @@ wrapped agent conversation. "tmux native" = tmux is the session substrate, not a
 | Sculptor (Imbue) | ○ | ○ | ● | ◐ | ○ | ○ | ○ | MIT |
 
 \* amux is MIT + Commons Clause (free self-host, commercial resale restricted).
+† cmux is GPL-3.0-or-later with commercial licensing available; its iOS companion is paid
+(Founders Edition, TestFlight beta).
 
 ---
 
@@ -112,6 +117,33 @@ in the last few months of the survey window.
 
 ---
 
+## The desktop pole — cmux *(added 2026-07-17)*
+
+A fourth cluster, currently a cluster of one — and the loudest 2026 entrant in the whole field.
+
+- **cmux** (Manaflow, GPL-3 + commercial, [cmux.com](https://cmux.com/)) — a native macOS terminal
+  (Swift/AppKit on libghostty) built for running coding agents in parallel; **~25k stars**, by far
+  the largest community in this document. A workspace per task; vertical tabs showing git branch,
+  cwd, ports, and the last line of output; waiting-agent rings + unread badges (detected via OSC
+  9/99/777 escape sequences or an explicit `cmux notify` CLI); a fully scriptable in-app browser;
+  and a CLI + Unix-socket control API (create workspaces, send input, read the screen, drive the
+  browser — all from a script). **Agent-agnostic by construction** — "a standard macOS terminal, so
+  any CLI agent works" — which makes it run-kit's closest *philosophical* rival: the same
+  "an agent is just a thing you run in a terminal" thesis, executed local-native instead of
+  remote-web. Everything else diverges: no tmux (sessions live in and die with the app), no web UI,
+  app-owned persisted state (`~/Library/Application Support/cmux/`, `~/.cmuxterm/` hook mappings)
+  rather than derive-from-substrate, and no documented first-class worktree story (workspaces are
+  directories — bring your own worktrees). An **iOS companion is in TestFlight beta** (paid Founders
+  Edition): it mirrors the Mac app's terminals to the phone with notification forwarding —
+  single-Mac and app-tethered, but the clearest sign yet that the "agents on your phone" hook is
+  being commoditized from the desktop side too. Its notification model is push-state (escape
+  sequences + a notify CLI) — the design run-kit's constitution Principle X deliberately constrains
+  to the underivable; a useful mirror when reasoning about what belongs in `@rk_agent_state`.
+  *(Name note: this is Manaflow's cmux at cmux.com — distinct from craigsc/cmux, "tmux for Claude
+  Code", an unrelated worktree-lifecycle wrapper.)*
+
+---
+
 ## Lineage B — agent orchestrators, agent-coupled
 
 They wrap the conversation; run-kit doesn't.
@@ -163,7 +195,8 @@ Ranked by how completely each hits run-kit's full combination — *agent-agnosti
 
 Honorable mentions by axis: **Codeman** (most mature web-over-tmux UI), **Recon** (closest derive-
 don't-store, but a Rust TUI), **agentdock** (closest feature match), **Happy** (strongest OSS mobile
-CC client).
+CC client), **cmux** (largest community in the field; run-kit's agent-agnostic thesis executed
+desktop-native — unranked above because it misses the substrate axes: tmux, web, worktrees, no-DB).
 
 ---
 
@@ -182,7 +215,11 @@ agnosticism.
 The biggest threat is **not** another indie tool — it's the risk of the "control your agent from your
 phone" hook being commoditized (as Anthropic's first-party Remote Control does for single sessions).
 That pushes run-kit's real differentiation toward **multi-agent / multi-server monitoring density** and
-**agent-agnosticism**, not remote access alone.
+**agent-agnosticism**, not remote access alone. cmux sharpens the same point from the desktop side:
+it is *equally* agent-agnostic (a real terminal, any CLI), has the field's largest community, and its
+TestFlight iOS companion probes the phone hook too — so agnosticism alone no longer differentiates.
+What no desktop app can follow is the substrate: **remote-first, multi-server, tmux sessions that
+outlive any client, state derived rather than stored**.
 
 **One-liner:** *"Cockpit for the agent era — your tmux, remote and phone-first, that happens to run N
 agents in parallel."*

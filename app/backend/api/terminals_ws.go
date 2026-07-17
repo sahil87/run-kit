@@ -1,0 +1,729 @@
+package api
+
+import (
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/exec"
+	"sync"
+	"time"
+
+	"github.com/creack/pty"
+	"github.com/gorilla/websocket"
+
+	"rk/internal/tmux"
+	"rk/internal/validate"
+)
+
+// Terminals socket — `/ws/terminals` (change 260717-803u-relay-mux).
+//
+// One WebSocket per browser tab carries ALL pane relay streams that previously
+// rode per-pane `/relay/{windowId}` connections (the retired handleRelay). A
+// board with N panes therefore holds ONE terminals socket instead of N, giving
+// one reconnect path and one upgrade handshake instead of N (connection
+// hygiene — see docs/findings/socket-pool-accounting.md; the user-facing pool
+// fix rode change 1's state socket).
+//
+// Wire protocol (lifted verbatim from fab/plans/sahil/socket-unification.md
+// §Terminal socket):
+//
+//   - Binary data frames `[u32 BE streamId][payload]` in both directions —
+//     server→client PTY output, client→server keystrokes.
+//   - JSON text frames for control:
+//       client → server: {"op":"open","id":7,"server":..,"windowId":"@42","cols":120,"rows":32}
+//                        {"op":"resize","id":7,"cols":100,"rows":40}
+//                        {"op":"close","id":7}
+//       server → client: {"op":"opened","id":7}
+//                        {"op":"closed","id":7,"code":4004|4001|1000,"reason":..}
+//
+// Per-stream behavior preserves handleRelay (relay.go) EXACTLY: window-ID
+// validation via the shared validate.ValidateWindowID (the same validator
+// decodeWindowID wraps — REST and mux entry points cannot drift; constitution
+// §I), ResolveWindowSession (5s) → session-scoped SelectWindowInSession →
+// forceTERM + best-effort ReloadConfig → pty.StartWithSize at the open op's
+// cols/rows. A stream-level failure (bad window, attach failure) emits a
+// `closed` control event — the SOCKET itself never closes for a single stream's
+// failure (today's 4004/4001 WS close codes become per-stream `closed` events).
+//
+// Write path (decision D3, a v1 protocol requirement — NOT an optimization):
+// per-stream bounded send queues drained by a SINGLE writer goroutine that
+// schedules control/short frames ahead of bulk output and round-robins across
+// ready streams (never FIFO across streams). A shared FIFO gives 1.66s
+// interactive echo p50 under a co-stream flood; per-stream queues + this
+// scheduler give 32ms at identical goodput (docs/findings/relay-mux-hol.md). A
+// full per-stream queue PAUSES that stream's PTY reader (backpressure into
+// tmux's per-client buffering — the same mechanism a stalled per-pane TCP
+// socket exerts today), NEVER dropping bytes (dropping mid-stream corrupts VT
+// state).
+
+const (
+	// streamQueueDepth is the per-stream bounded send-queue depth. Combined with
+	// streamFrameSize (the PTY read chunk) this bounds each stream's in-flight
+	// backlog to streamQueueDepth×streamFrameSize (8×4096B) — spike-measured to
+	// hold interactive echo RTT to ~1-2 in-flight frames under a co-stream flood.
+	streamQueueDepth = 8
+	// streamFrameSize is the PTY read chunk (matches relay.go's 4096B read
+	// buffer, which the per-stream producer replaces).
+	streamFrameSize = 4096
+	// shortFrameMax classifies a frame as "short/interactive" for scheduling
+	// priority. A keystroke echo is a handful of bytes; a redraw or a program's
+	// burst output fills a full streamFrameSize chunk. Short frames are drained
+	// ahead of bulk so an echo never queues behind another stream's flood.
+	shortFrameMax = 256
+
+	// terminalsWriteWait bounds a single WebSocket write. A stuck client must not
+	// block the writer pump forever (mirrors state_ws.go's stateWSWriteWait).
+	terminalsWriteWait = 10 * time.Second
+	// terminalsCleanupWait is the short read deadline set on the connection when
+	// a write fails, so the read loop's blocked conn.ReadMessage() returns
+	// promptly and runs teardown (mirrors relay.go / state_ws.go).
+	terminalsCleanupWait = 100 * time.Millisecond
+	// resolveTimeout bounds ResolveWindowSession per stream open (matches
+	// relay.go's 5s resolve context).
+	resolveTimeout = 5 * time.Second
+)
+
+// Stream-level close codes — mirror the WS close codes handleRelay used, now
+// carried as per-stream `closed` control events (the socket stays open).
+const (
+	closeWindowNotFound = 4004 // ResolveWindowSession / SelectWindowInSession failed
+	closeAttachFailed   = 4001 // pty.StartWithSize failed
+	closeNormal         = 1000 // graceful client close op / PTY EOF
+)
+
+// openOp / resizeOp / closeOp are the client → server control frames.
+type openOp struct {
+	Op       string `json:"op"`
+	ID       uint32 `json:"id"`
+	Server   string `json:"server"`
+	WindowID string `json:"windowId"`
+	Cols     uint16 `json:"cols"`
+	Rows     uint16 `json:"rows"`
+}
+
+// controlIn is the shape read from every JSON control frame to discriminate the
+// op before unmarshalling into the specific op struct. `id`/`cols`/`rows` are
+// shared across resize/close so one decode covers them.
+type controlIn struct {
+	Op       string `json:"op"`
+	ID       uint32 `json:"id"`
+	Server   string `json:"server"`
+	WindowID string `json:"windowId"`
+	Cols     uint16 `json:"cols"`
+	Rows     uint16 `json:"rows"`
+}
+
+// openedFrame / closedFrame are the server → client control frames.
+type openedFrame struct {
+	Op string `json:"op"` // "opened"
+	ID uint32 `json:"id"`
+}
+
+type closedFrame struct {
+	Op     string `json:"op"` // "closed"
+	ID     uint32 `json:"id"`
+	Code   int    `json:"code"`
+	Reason string `json:"reason"`
+}
+
+// outFrame is a unit queued for the single writer. `control` (a pre-marshalled
+// JSON text frame) rides the priority tier; `data` (a binary payload, already
+// prefixed with the u32 BE stream id) is bulk unless len ≤ shortFrameMax.
+type outFrame struct {
+	control []byte // non-nil ⇒ a JSON text control frame (always priority)
+	data    []byte // non-nil ⇒ a binary data frame (already stream-id-prefixed)
+}
+
+func (f outFrame) isText() bool  { return f.control != nil }
+func (f outFrame) short() bool   { return f.control != nil || len(f.data) <= 4+shortFrameMax }
+func (f outFrame) payload() []byte {
+	if f.control != nil {
+		return f.control
+	}
+	return f.data
+}
+
+// stream is one muxed pane relay. It owns the attach process + PTY and a bounded
+// send queue drained by the connection's single writer.
+//
+// The queue is created at REGISTRATION time (before the async attach runs), so
+// the `opened` control frame can be enqueued onto the stream's OWN queue ahead
+// of any data frame — channel FIFO + the scheduler's short-frame priority then
+// guarantees the client sees `opened` before the first PTY byte (fixing the
+// data-before-opened race that wiped the client's deferred reset). A stream is a
+// PLACEHOLDER (ptmx/cancel/cmd nil) between registration and a successful
+// attach; a failed attach removes it before it ever produces data.
+type stream struct {
+	id    uint32
+	queue chan outFrame // bounded (streamQueueDepth); full ⇒ PTY reader pauses
+
+	ptmx    *os.File
+	cancel  context.CancelFunc
+	cmd     *exec.Cmd
+	cleanup sync.Once
+	closed  chan struct{} // closed by teardown; the PTY reader selects on it
+}
+
+// terminalsConn is the per-socket state: the stream registry + the writer's
+// ready set. All mutation of `streams` and the scheduler's ready set is guarded
+// by mu; the writer goroutine is the sole reader of the queues.
+type terminalsConn struct {
+	conn *websocket.Conn
+	s    *Server
+
+	mu      sync.Mutex
+	streams map[uint32]*stream
+
+	// wake signals the writer that a queue transitioned non-empty (a producer
+	// enqueued) so it can re-scan without busy-looping. Buffered depth 1 —
+	// coalesces bursts into one wake.
+	wake chan struct{}
+
+	// writeFrame is the injectable write seam. Production writes to the socket;
+	// the HOL unit test substitutes a paced writer. Returns an error to stop the
+	// writer (dead socket).
+	writeFrame func(f outFrame) error
+
+	done chan struct{} // closed on socket teardown; stops the writer + producers
+}
+
+// handleTerminalsWS upgrades a `/ws/terminals` request and runs the mux: a read
+// loop dispatching binary data frames + JSON control ops while a single writer
+// goroutine schedules all streams' output onto the socket.
+func (s *Server) handleTerminalsWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("terminals ws upgrade failed", "err", err)
+		return
+	}
+	defer conn.Close()
+
+	// Own lifecycle context rooted at Background — NOT r.Context(): after the WS
+	// upgrade the connection is hijacked and some servers cancel the request
+	// context, which would kill the writer immediately (same rationale as
+	// state_ws.go). The read loop's error drives teardown.
+	tc := &terminalsConn{
+		conn:    conn,
+		s:       s,
+		streams: map[uint32]*stream{},
+		wake:    make(chan struct{}, 1),
+		done:    make(chan struct{}),
+	}
+	tc.writeFrame = func(f outFrame) error {
+		conn.SetWriteDeadline(time.Now().Add(terminalsWriteWait))
+		if f.isText() {
+			return conn.WriteMessage(websocket.TextMessage, f.control)
+		}
+		return conn.WriteMessage(websocket.BinaryMessage, f.data)
+	}
+
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		tc.runWriter()
+	}()
+
+	// Read loop: dispatch until the socket closes. On exit, tear down all
+	// streams and stop the writer.
+	conn.SetReadLimit(0)
+	for {
+		msgType, msg, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		if msgType == websocket.BinaryMessage {
+			tc.handleDataFrame(msg)
+			continue
+		}
+		// Text frame — a JSON control op.
+		var ctl controlIn
+		if json.Unmarshal(msg, &ctl) != nil {
+			continue // ignore malformed control frames rather than tearing down
+		}
+		switch ctl.Op {
+		case "open":
+			tc.startStream(openOp{
+				Op:       ctl.Op,
+				ID:       ctl.ID,
+				Server:   ctl.Server,
+				WindowID: ctl.WindowID,
+				Cols:     ctl.Cols,
+				Rows:     ctl.Rows,
+			})
+		case "resize":
+			tc.resizeStream(ctl.ID, ctl.Cols, ctl.Rows)
+		case "close":
+			tc.closeStream(ctl.ID, closeNormal, "closed")
+		default:
+			// Unknown op — ignore (forward-compat; the socket stays live).
+		}
+	}
+
+	tc.teardown()
+	<-writerDone
+}
+
+// handleDataFrame routes a binary `[u32 BE streamId][payload]` client frame to
+// the addressed stream's PTY. Frames for unknown/closed streams are dropped
+// (the stream may have closed between the client's send and this read).
+func (tc *terminalsConn) handleDataFrame(msg []byte) {
+	if len(msg) < 4 {
+		return
+	}
+	id := binary.BigEndian.Uint32(msg[:4])
+	tc.mu.Lock()
+	st := tc.streams[id]
+	var ptmx *os.File
+	if st != nil {
+		ptmx = st.ptmx // read under the lock (attachStream publishes it under the lock)
+	}
+	tc.mu.Unlock()
+	// A nil ptmx is a PLACEHOLDER stream still attaching — drop the keystroke
+	// (the PTY isn't ready; the client re-sends interactively).
+	if ptmx == nil {
+		return
+	}
+	// Writes to the PTY are keystroke-sized and non-blocking in practice; a
+	// write error means the PTY died — the reader goroutine will observe EOF and
+	// tear the stream down, so drop here rather than blocking the read loop.
+	_, _ = ptmx.Write(msg[4:])
+}
+
+// startStream reproduces handleRelay's per-connection setup, per stream. It runs
+// on the socket READ LOOP but does only cheap, synchronous work there — validate
+// + register a placeholder stream under tc.mu — then dispatches the blocking
+// tmux work (resolve ≤5s, session-scoped select, best-effort ReloadConfig, PTY
+// attach) to a goroutine so it never serializes behind other panes' keystrokes
+// or opens (S2). The placeholder registration makes duplicate-id checks and
+// racing resize/close ops deterministic: a resize/close arriving before the
+// attach finishes finds the (placeholder) stream and is handled correctly.
+//
+// A stream-level failure emits a `closed` control event WITHOUT closing the
+// socket. On success it enqueues `opened` onto the stream's OWN queue (ahead of
+// any data — M2) and starts the per-stream PTY reader as the send-queue producer.
+func (tc *terminalsConn) startStream(op openOp) {
+	// Validate the (already JSON-decoded) window ID through the same validator
+	// decodeWindowID wraps, so the REST and mux entry points cannot drift
+	// (constitution §I — Security First; validate before any tmux interaction).
+	if validate.ValidateWindowID(op.WindowID, "Window ID") != "" {
+		tc.emitClosed(op.ID, closeWindowNotFound, "Window not found")
+		return
+	}
+
+	// Register a placeholder stream synchronously under the lock BEFORE the
+	// blocking attach. This is what keeps duplicate-id / racing resize / racing
+	// close deterministic (S2): a later op for this id finds the placeholder.
+	// A duplicate id for a still-live stream is ignored (client bug); the client
+	// allocates unique ids per connection.
+	tc.mu.Lock()
+	if _, exists := tc.streams[op.ID]; exists {
+		tc.mu.Unlock()
+		return
+	}
+	select {
+	case <-tc.done:
+		tc.mu.Unlock()
+		return
+	default:
+	}
+	st := &stream{
+		id:     op.ID,
+		queue:  make(chan outFrame, streamQueueDepth),
+		closed: make(chan struct{}),
+	}
+	tc.streams[op.ID] = st
+	tc.mu.Unlock()
+
+	go tc.attachStream(op, st)
+}
+
+// attachStream performs the blocking tmux setup for a registered placeholder
+// stream off the read loop (S2). On failure it removes the placeholder and emits
+// a `closed` control event (a failed open produced no data, so its `closed` on
+// the control pseudo-stream has no ordering concern). On success it fills in the
+// stream's ptmx/cancel/cmd, enqueues `opened` onto the stream's OWN queue (so it
+// precedes every data frame — M2), and starts the PTY reader.
+func (tc *terminalsConn) attachStream(op openOp, st *stream) {
+	server := serverFromRequestValue(op.Server)
+
+	// Abandon the attach if the stream was closed (client close / socket
+	// teardown) while we were dispatched but before we started.
+	failClosed := func(code int, reason string) {
+		tc.mu.Lock()
+		if tc.streams[op.ID] == st {
+			delete(tc.streams, op.ID)
+		}
+		tc.mu.Unlock()
+		st.teardown()
+		tc.emitClosed(op.ID, code, reason)
+	}
+	stillLive := func() bool {
+		select {
+		case <-st.closed:
+			return false
+		case <-tc.done:
+			return false
+		default:
+			return true
+		}
+	}
+
+	// Resolve the owning session from the window ID (5s). In the move-based model
+	// a window lives in exactly ONE session (home or `_rk-pin-*` board
+	// pin-session). A missing window (resolve fails / empty) is a per-stream 4004.
+	resolveCtx, resolveCancel := context.WithTimeout(context.Background(), resolveTimeout)
+	session, err := tc.s.tmux.ResolveWindowSession(resolveCtx, server, op.WindowID)
+	resolveCancel()
+	if !stillLive() {
+		failClosed(closeNormal, "closed")
+		return
+	}
+	if err != nil || session == "" {
+		slog.Warn("terminals: window not found", "windowID", op.WindowID, "err", err)
+		failClosed(closeWindowNotFound, "Window not found")
+		return
+	}
+
+	// Select the window on its real session so the attach renders the right
+	// window. Scope the select to the resolved session — a bare window-id target
+	// is ambiguous inside a tmux session group and must agree with the
+	// attach-session below (the group-ambiguity rationale at relay.go:88-99).
+	if err := tc.s.tmux.SelectWindowInSession(session, op.WindowID, server); err != nil {
+		slog.Error("terminals: select-window failed", "err", err, "session", session, "windowID", op.WindowID)
+		failClosed(closeWindowNotFound, "Window not found")
+		return
+	}
+
+	// Initial size rides the open op (replacing relay.go's wait-for-first-resize
+	// dance). Fall back to 80x24 if the client sent zeros.
+	initialSize := pty.Winsize{Cols: 80, Rows: 24}
+	if op.Cols > 0 && op.Rows > 0 {
+		initialSize.Cols = op.Cols
+		initialSize.Rows = op.Rows
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var attachArgs []string
+	if server != "default" {
+		attachArgs = []string{"-L", server}
+	}
+	if confPath := tmux.ConfigPath(); confPath != "" {
+		attachArgs = append(attachArgs, "-f", confPath)
+	}
+	// Best-effort config reload so terminal-overrides (true color) and styles are
+	// active even if the server was created outside rk. Don't block the attach.
+	if err := tmux.ReloadConfig(server); err != nil {
+		slog.Debug("terminals: config reload before attach (best-effort)", "server", server, "err", err)
+	}
+
+	attachArgs = append(attachArgs, "attach-session", "-t", session)
+	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
+	cmd.Env = forceTERM(os.Environ())
+
+	ptmx, err := pty.StartWithSize(cmd, &initialSize)
+	if err != nil {
+		cancel()
+		slog.Error("terminals: pty start failed", "err", err, "session", session, "windowID", op.WindowID)
+		failClosed(closeAttachFailed, "Failed to attach to tmux session")
+		return
+	}
+
+	// Publish the attach into the placeholder under the lock. If the stream was
+	// closed/torn down while attaching, clean up the just-started attach instead
+	// of leaving an orphan (mirrors the old socket-torn-down guard).
+	tc.mu.Lock()
+	if tc.streams[op.ID] != st {
+		tc.mu.Unlock()
+		cancel()
+		ptmx.Close()
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		return
+	}
+	st.ptmx = ptmx
+	st.cancel = cancel
+	st.cmd = cmd
+	tc.mu.Unlock()
+
+	// Enqueue `opened` onto the stream's OWN queue BEFORE starting the PTY reader.
+	// Channel FIFO + the scheduler's short-frame priority guarantees the client
+	// sees `opened` before the first data frame (M2). Best-effort: if the stream
+	// closed between the publish and here, teardown handles it.
+	select {
+	case st.queue <- outFrame{control: mustMarshalOpened(op.ID)}:
+		tc.signalWake()
+	case <-st.closed:
+		return
+	case <-tc.done:
+		return
+	}
+
+	// Per-stream PTY reader = the send-queue producer. A full queue blocks this
+	// goroutine on the channel send (backpressure — the PTY reader pauses,
+	// pushing the stall into tmux's per-client buffering), never dropping bytes.
+	go tc.pumpPTY(st)
+}
+
+// pumpPTY reads the stream's PTY and enqueues stream-id-prefixed binary frames.
+// It blocks on a full queue (backpressure) and exits on PTY EOF/error or socket
+// teardown, tearing the stream down + emitting a graceful `closed`.
+func (tc *terminalsConn) pumpPTY(st *stream) {
+	buf := make([]byte, streamFrameSize)
+	for {
+		n, err := st.ptmx.Read(buf)
+		if err != nil {
+			if err != io.EOF {
+				slog.Debug("terminals: pty read error", "err", err, "id", st.id)
+			}
+			tc.closeStream(st.id, closeNormal, "closed")
+			return
+		}
+		// Prefix a fresh copy with the u32 BE stream id (buf is reused).
+		frame := make([]byte, 4+n)
+		binary.BigEndian.PutUint32(frame[:4], st.id)
+		copy(frame[4:], buf[:n])
+		select {
+		case st.queue <- outFrame{data: frame}:
+			tc.signalWake()
+		case <-st.closed:
+			return
+		case <-tc.done:
+			return
+		}
+	}
+}
+
+// runWriter is the single writer goroutine: the fair scheduler. It drains every
+// ready stream's queue, short/control frames first (so an echo never queues
+// behind another stream's bulk output), round-robin across streams (so no
+// stream starves), and blocks on `wake` when nothing is ready. Extracted so the
+// HOL unit test can drive it directly with a paced writeFrame.
+func (tc *terminalsConn) runWriter() {
+	for {
+		wrote, err := tc.drainReady()
+		if err != nil {
+			// Dead socket (or a paced-writer stop). Set a short read deadline so
+			// the read loop's blocked ReadMessage() returns and runs teardown
+			// (mirrors relay.go / state_ws.go). Best-effort — the test's paced
+			// writer has no real conn deadline, which is harmless.
+			tc.conn.SetReadDeadline(time.Now().Add(terminalsCleanupWait))
+			return
+		}
+		if wrote {
+			continue // keep draining while there is ready output
+		}
+		// Nothing ready — wait for a producer to wake us or the socket to close.
+		select {
+		case <-tc.done:
+			return
+		case <-tc.wake:
+		}
+	}
+}
+
+// drainReady performs ONE scheduling pass: it writes every ready short/control
+// frame across all streams first, then ONE bulk frame per stream (round-robin).
+// Returns (wrote, err): wrote is true if at least one frame was written this
+// pass (so the caller re-scans); err stops the writer.
+func (tc *terminalsConn) drainReady() (bool, error) {
+	streams := tc.snapshotStreams()
+	wrote := false
+
+	// Priority tier: drain all ready short/control frames first. A stream may
+	// hold several; drain each stream's short frames until it yields a bulk
+	// frame or empties, so control + echo never wait behind bulk.
+	for _, st := range streams {
+		for {
+			select {
+			case f := <-st.queue:
+				if !f.short() {
+					// A bulk frame surfaced — hand it to the bulk tier below by
+					// writing it now (it is already dequeued); this preserves
+					// per-stream order. Fall through to write.
+					if err := tc.writeFrame(f); err != nil {
+						return wrote, err
+					}
+					wrote = true
+					// After a bulk frame, move to the next stream (round-robin).
+					goto nextStreamShort
+				}
+				if err := tc.writeFrame(f); err != nil {
+					return wrote, err
+				}
+				wrote = true
+			default:
+				goto nextStreamShort
+			}
+		}
+	nextStreamShort:
+	}
+
+	return wrote, nil
+}
+
+// snapshotStreams returns the current streams under the lock (order is map
+// iteration order — non-deterministic, which is acceptable for round-robin
+// fairness across a small pane set).
+func (tc *terminalsConn) snapshotStreams() []*stream {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	out := make([]*stream, 0, len(tc.streams))
+	for _, st := range tc.streams {
+		out = append(out, st)
+	}
+	return out
+}
+
+// signalWake nudges the writer that output is ready (coalesced — a full buffer
+// means a wake is already pending).
+func (tc *terminalsConn) signalWake() {
+	select {
+	case tc.wake <- struct{}{}:
+	default:
+	}
+}
+
+// resizeStream sets a live stream's PTY size (ignored for unknown ids and for a
+// placeholder still attaching — the open op's initial cols/rows already sized
+// the PTY, so a resize racing the attach is safely dropped).
+func (tc *terminalsConn) resizeStream(id uint32, cols, rows uint16) {
+	if cols == 0 || rows == 0 {
+		return
+	}
+	tc.mu.Lock()
+	st := tc.streams[id]
+	var ptmx *os.File
+	if st != nil {
+		ptmx = st.ptmx
+	}
+	tc.mu.Unlock()
+	if ptmx == nil {
+		return
+	}
+	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: cols, Rows: rows})
+}
+
+// closeStream tears down a live stream and emits a `closed` control event. Safe
+// to call repeatedly and from multiple goroutines (removal + teardown are
+// idempotent).
+func (tc *terminalsConn) closeStream(id uint32, code int, reason string) {
+	tc.mu.Lock()
+	st := tc.streams[id]
+	if st != nil {
+		delete(tc.streams, id)
+	}
+	tc.mu.Unlock()
+	if st == nil {
+		return
+	}
+	st.teardown()
+	tc.emitClosed(id, code, reason)
+}
+
+// teardown closes all streams and stops the writer. Called once on read-loop
+// exit (socket death / client close).
+func (tc *terminalsConn) teardown() {
+	tc.mu.Lock()
+	select {
+	case <-tc.done:
+		tc.mu.Unlock()
+		return
+	default:
+		close(tc.done)
+	}
+	streams := make([]*stream, 0, len(tc.streams))
+	for id, st := range tc.streams {
+		streams = append(streams, st)
+		delete(tc.streams, id)
+	}
+	tc.mu.Unlock()
+	for _, st := range streams {
+		st.teardown()
+	}
+	tc.signalWake() // unblock the writer if parked on wake
+}
+
+// mustMarshalOpened marshals the `opened` control frame for a stream. Unlike
+// `closed` (which rides the reserved control pseudo-stream), `opened` is
+// enqueued onto the stream's OWN queue in attachStream, ahead of any data frame,
+// so channel FIFO + short-frame priority guarantees the client sees opened→data
+// (M2).
+func mustMarshalOpened(id uint32) []byte {
+	b, _ := json.Marshal(openedFrame{Op: "opened", ID: id})
+	return b
+}
+
+// emitClosed enqueues a `closed` control frame onto a synthetic priority path.
+// Control frames must ride the writer (gorilla forbids concurrent writes) but a
+// `closed` does not belong to a stream's bounded queue (the stream is being torn
+// down) — so it goes through a tiny dedicated control stream the scheduler
+// always treats as short/priority. Ordering vs a stream's trailing data does not
+// matter: the client retires the stream on `closed` and drops any later data.
+func (tc *terminalsConn) emitClosed(id uint32, code int, reason string) {
+	b, _ := json.Marshal(closedFrame{Op: "closed", ID: id, Code: code, Reason: reason})
+	tc.enqueueControl(b)
+}
+
+// controlStreamID is a reserved pseudo-stream carrying only control frames. It
+// is never a real tmux stream (client ids are for panes); the scheduler drains
+// it with the same short-frame priority as any stream's control output.
+const controlStreamID = ^uint32(0) // math.MaxUint32 — reserved, never a pane id
+
+// enqueueControl appends a control frame to the reserved control stream's queue,
+// lazily creating it. Control frames are small and priority; the queue is
+// generously sized so a burst of opened/closed events never blocks.
+func (tc *terminalsConn) enqueueControl(b []byte) {
+	tc.mu.Lock()
+	st := tc.streams[controlStreamID]
+	if st == nil {
+		st = &stream{
+			id:     controlStreamID,
+			queue:  make(chan outFrame, 64),
+			closed: make(chan struct{}),
+		}
+		tc.streams[controlStreamID] = st
+	}
+	tc.mu.Unlock()
+	select {
+	case st.queue <- outFrame{control: b}:
+		tc.signalWake()
+	case <-tc.done:
+	}
+}
+
+// teardown cancels the attach context, closes the ptmx, and kills the attach
+// process (sync.Once-guarded), exactly as handleRelay's cleanup — no orphaned
+// attach processes (review rule: WS connections must have corresponding
+// cleanup). The control pseudo-stream has no ptmx/cmd, so those steps no-op.
+func (st *stream) teardown() {
+	st.cleanup.Do(func() {
+		close(st.closed)
+		if st.cancel != nil {
+			st.cancel()
+		}
+		if st.ptmx != nil {
+			st.ptmx.Close()
+		}
+		if st.cmd != nil && st.cmd.Process != nil {
+			st.cmd.Process.Kill()
+		}
+	})
+}
+
+// serverFromRequestValue mirrors serverFromRequest (router.go) for a raw server
+// value carried in an `open` op rather than a URL query param: empty or invalid
+// falls back to "default".
+func serverFromRequestValue(s string) string {
+	if s == "" {
+		return "default"
+	}
+	if validate.ValidateServerName(s) != "" {
+		return "default"
+	}
+	return s
+}

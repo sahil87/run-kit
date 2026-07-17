@@ -571,12 +571,14 @@ func (s *Server) buildRouter() chi.Router {
 	r.HandleFunc("/proxy/{port}/*", s.handleProxy)
 	r.HandleFunc("/proxy/{port}", s.handleProxy)
 
-	// WebSocket relay (terminal I/O)
-	r.Get("/relay/{windowId}", s.handleRelay)
-
 	// State socket — muxed session-state + host-metrics stream (replaces the
 	// retired GET /api/sessions/stream SSE edge; see api/state_ws.go).
 	r.Get("/ws/state", s.handleStateWS)
+
+	// Terminals socket — muxed terminal I/O: ONE WebSocket per tab carrying all
+	// pane relay streams (replaces the retired per-pane GET /relay/{windowId} +
+	// handleRelay; see api/terminals_ws.go).
+	r.Get("/ws/terminals", s.handleTerminalsWS)
 
 	// SPA static serving — catch-all, must be last
 	s.mountSPA(r)

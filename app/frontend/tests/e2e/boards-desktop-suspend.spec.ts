@@ -1,4 +1,4 @@
-import { test, expect, type WebSocket as PWWebSocket } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
@@ -13,10 +13,9 @@ const VIEWPORT = { width: 1280, height: 800 };
 
 const pinnedEntries: Array<{ server: string; windowId: string }> = [];
 
-/** Extract the window id from a `/relay/<windowId>?server=...` WS URL. */
-function relayWindowId(url: string): string | null {
-  const m = url.match(/\/relay\/([^/?]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+/** True for the terminals mux URL (`/ws/terminals`). */
+function isTerminalsSocket(url: string): boolean {
+  return /\/ws\/terminals(\?|$)/.test(url);
 }
 
 test.describe("Boards: desktop relay suspension", () => {
@@ -59,7 +58,7 @@ test.describe("Boards: desktop relay suspension", () => {
     }
   });
 
-  test("off-screen desktop pane suspends its relay WS and resumes on scroll-back", async ({
+  test("off-screen desktop pane suspends its muxed stream and resumes on scroll-back", async ({
     page,
   }) => {
     test.setTimeout(60_000);
@@ -87,17 +86,32 @@ test.describe("Boards: desktop relay suspension", () => {
       pinnedEntries.push({ server: TMUX_SERVER, windowId });
     }
 
-    // Track relay WS lifecycle per window id. A WS is "open" between the
-    // `websocket` event and its `close` event.
-    const openSockets = new Map<string, PWWebSocket>();
-    const everOpened = new Set<string>();
+    // Track muxed-STREAM lifecycle per window id over the single `/ws/terminals`
+    // socket. Under the terminals mux (change 260717-803u) a suspended pane is
+    // no longer a closed socket — it is a `close` control op for that pane's
+    // stream (its TerminalClient unmounts → the connect effect's cleanup sends
+    // `close`), and a resumed pane is a fresh `open` op. A stream is "live"
+    // between its `open` op and the matching `close` op. The `close` op carries
+    // only the stream `id`, so map id → windowId from the `open` op.
+    const liveWindowIds = new Set<string>();
+    const idToWindowId = new Map<number, string>();
     page.on("websocket", (ws) => {
-      const wid = relayWindowId(ws.url());
-      if (!wid) return; // ignore Vite HMR / SSE sockets
-      openSockets.set(wid, ws);
-      everOpened.add(wid);
-      ws.on("close", () => {
-        if (openSockets.get(wid) === ws) openSockets.delete(wid);
+      if (!isTerminalsSocket(ws.url())) return; // ignore Vite HMR / state / SSE
+      ws.on("framesent", (frame) => {
+        if (typeof frame.payload !== "string") return; // binary data frame
+        let msg: { op?: string; id?: number; windowId?: string };
+        try {
+          msg = JSON.parse(frame.payload);
+        } catch {
+          return;
+        }
+        if (msg.op === "open" && typeof msg.id === "number" && typeof msg.windowId === "string") {
+          idToWindowId.set(msg.id, msg.windowId);
+          liveWindowIds.add(msg.windowId);
+        } else if (msg.op === "close" && typeof msg.id === "number") {
+          const wid = idToWindowId.get(msg.id);
+          if (wid) liveWindowIds.delete(wid);
+        }
       });
     });
 
@@ -105,39 +119,39 @@ test.describe("Boards: desktop relay suspension", () => {
 
     // Precondition: the desktop relay-suspension feature is gated on a plaintext
     // (`http:`) origin. If the test webServer is ever fronted by HTTPS, the
-    // feature silently disables and the WS would never close — fail loudly here
-    // with a clear message rather than as a confusing suspension timeout below.
+    // feature silently disables and the stream would never suspend — fail loudly
+    // here rather than as a confusing suspension timeout below.
     const protocol = await page.evaluate(() => window.location.protocol);
     expect(protocol, "desktop relay suspension requires a plaintext http: origin").toBe("http:");
 
-    // The leftmost pane (win-0) is on-screen and focused on mount, so its relay
-    // WS must open. The focused pane is always live, so it stays open
-    // throughout the scroll cycle below.
+    // The leftmost pane (win-0) is on-screen and focused on mount, so its stream
+    // must open (an `open` op). The focused pane is always live, so it stays
+    // open throughout the scroll cycle below.
     await expect
-      .poll(() => openSockets.has(winIds[0]), { timeout: 20_000 })
+      .poll(() => liveWindowIds.has(winIds[0]), { timeout: 20_000 })
       .toBe(true);
 
     // The target pane (win-4) is off-screen at the initial scroll position
     // (only the leftmost panes fit in / near the viewport), so it must not hold
-    // a live relay WS. We target a mid-row pane rather than the very last pane:
+    // a live stream. We target a mid-row pane rather than the very last pane:
     // with the focused pane (win-0) permanently occupying one of the 4 live
     // slots, the single rightmost pane can be squeezed out by the cap even when
     // visible — win-4 is reliably within the cap once scrolled into view.
     const TARGET = 4;
     const targetWid = winIds[TARGET];
     await expect
-      .poll(() => openSockets.has(targetWid), { timeout: 10_000 })
+      .poll(() => liveWindowIds.has(targetWid), { timeout: 10_000 })
       .toBe(false);
 
-    // Scroll the row fully to the right so win-4 enters the viewport. Its relay
-    // WS should then open (pane resumes) and its content marker should render.
+    // Scroll the row fully to the right so win-4 enters the viewport. Its stream
+    // should then re-open (an `open` op — pane resumes) and its xterm re-mount.
     await page.evaluate(() => {
       const row = document.querySelector<HTMLElement>(".overflow-x-auto");
       if (row) row.scrollLeft = row.scrollWidth;
     });
 
     await expect
-      .poll(() => openSockets.has(targetWid), { timeout: 20_000 })
+      .poll(() => liveWindowIds.has(targetWid), { timeout: 20_000 })
       .toBe(true);
 
     // Terminal content is re-established: the resumed pane re-mounts its
@@ -146,22 +160,22 @@ test.describe("Boards: desktop relay suspension", () => {
     // xterm canvas text, which is brittle and — on this branch, before the
     // sibling static-xterm-import fix lands — can still be starved by the
     // plaintext chunk-fetch contention this change family addresses. The
-    // re-opened relay WS (asserted above) plus the live xterm instance together
-    // prove the pane resumed.
+    // re-opened stream (the `open` op asserted above) plus the live xterm
+    // instance together prove the pane resumed.
     const targetPane = page.locator(`[aria-label="board pane win-${TARGET}"]`);
     await expect(targetPane.locator(".xterm")).toBeVisible({ timeout: 20_000 });
 
     // Scroll back fully to the left. win-4 leaves the viewport (beyond the
-    // pre-warm margin) and its relay WS closes again — the connection slot
-    // frees. win-0 (on-screen and focused) stays open throughout.
+    // pre-warm margin) and its stream closes again (a `close` op) — the pane
+    // suspends. win-0 (on-screen and focused) stays open throughout.
     await page.evaluate(() => {
       const row = document.querySelector<HTMLElement>(".overflow-x-auto");
       if (row) row.scrollLeft = 0;
     });
 
     await expect
-      .poll(() => openSockets.has(targetWid), { timeout: 20_000 })
+      .poll(() => liveWindowIds.has(targetWid), { timeout: 20_000 })
       .toBe(false);
-    expect(openSockets.has(winIds[0])).toBe(true);
+    expect(liveWindowIds.has(winIds[0])).toBe(true);
   });
 });

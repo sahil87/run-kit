@@ -10,20 +10,21 @@ const BOARD_NAME = `mp${Date.now().toString().slice(-6)}`;
 // xterm renders glyphs to a WebGL canvas with NO DOM text layer (verified —
 // `.xterm-rows` is absent and `body.innerText()` never contains terminal
 // content), so the previous `innerText` assertion could never pass. Per-pane
-// isolation is instead proven at the relay layer: in the move-based model each
-// pinned window is MOVED into its own single-window pin-session (`_rk-pin-<id>`)
-// and a board pane attaches DIRECTLY to it, opening its OWN `/relay/<windowId>`
-// WebSocket and mounting its own live `.xterm`. Two windows from ONE source
-// session therefore become two independent pin-sessions, each with its own
-// relay socket — distinct sockets for the two window ids is the connection-level
-// proof that the panes are isolated (matching boards-desktop-suspend.spec.ts).
+// isolation is instead proven at the terminals-mux layer: in the move-based
+// model each pinned window is MOVED into its own single-window pin-session
+// (`_rk-pin-<id>`) and a board pane attaches DIRECTLY to it. Under the terminals
+// mux (change 260717-803u) all panes share ONE `/ws/terminals` socket, and each
+// pane issues its OWN `open` control op carrying its windowId (a distinct
+// client-allocated stream id) and mounts its own live `.xterm`. Two windows from
+// ONE source session therefore become two independent pin-sessions, each with
+// its own muxed stream — distinct `open` windowIds over the single socket is the
+// connection-level proof that the panes are isolated.
 const WIN_A_MARKER = "PANE_ALPHA_OK";
 const WIN_B_MARKER = "PANE_BRAVO_OK";
 
-/** Extract the percent-decoded window id from a `/relay/<id>?...` WS url. */
-function relayWindowId(url: string): string | null {
-  const m = url.match(/\/relay\/([^?]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+/** True for the terminals mux URL (`/ws/terminals`). */
+function isTerminalsSocket(url: string): boolean {
+  return /\/ws\/terminals(\?|$)/.test(url);
 }
 
 test.describe("Boards: same-session multi-pane", () => {
@@ -71,13 +72,25 @@ test.describe("Boards: same-session multi-pane", () => {
     expect(winA).toBeTruthy();
     expect(winB).toBeTruthy();
 
-    // Track which window ids opened a relay WebSocket. A distinct relay per
-    // window id is the isolation proof: two windows from ONE source session are
-    // each MOVED into their own pin-session and get their own direct relay.
-    const relayWindowIds = new Set<string>();
+    // Track which window ids issued an `open` op on the terminals mux socket. A
+    // distinct open per window id is the isolation proof: two windows from ONE
+    // source session are each MOVED into their own pin-session and each pane
+    // opens its own muxed stream over the single `/ws/terminals` socket.
+    const openedWindowIds = new Set<string>();
     page.on("websocket", (ws) => {
-      const wid = relayWindowId(ws.url());
-      if (wid) relayWindowIds.add(wid); // ignore Vite HMR / SSE sockets
+      if (!isTerminalsSocket(ws.url())) return; // ignore Vite HMR / state / SSE
+      ws.on("framesent", (frame) => {
+        // Control ops are JSON text frames; binary data frames are ignored.
+        if (typeof frame.payload !== "string") return;
+        try {
+          const msg = JSON.parse(frame.payload);
+          if (msg?.op === "open" && typeof msg.windowId === "string") {
+            openedWindowIds.add(msg.windowId);
+          }
+        } catch {
+          // non-JSON frame — ignore
+        }
+      });
     });
 
     // Pin both windows from the same session to a fresh board.
@@ -102,14 +115,15 @@ test.describe("Boards: same-session multi-pane", () => {
     // signal (vs. scraping canvas text, which has no DOM representation).
     await expect(page.locator(".xterm")).toHaveCount(2, { timeout: 15_000 });
 
-    // Isolation proof: each distinct window id opened its OWN relay WebSocket.
+    // Isolation proof: each distinct window id issued its OWN `open` op on the
+    // single terminals mux socket.
     await expect
-      .poll(() => relayWindowIds.has(winA!) && relayWindowIds.has(winB!), {
+      .poll(() => openedWindowIds.has(winA!) && openedWindowIds.has(winB!), {
         timeout: 15_000,
       })
       .toBe(true);
-    // Two windows → two distinct relay sockets (not one shared/aliased socket).
-    expect(relayWindowIds.size).toBeGreaterThanOrEqual(2);
+    // Two windows → two distinct muxed streams (not one shared/aliased stream).
+    expect(openedWindowIds.size).toBeGreaterThanOrEqual(2);
 
     // Cleanup: unpin both so the board disappears (empty boards are removed).
     for (const winId of [winA, winB]) {

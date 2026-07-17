@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-17T05:58:00Z"}
+{"args":"Implement the relay-mux change (Change 2 of fab/plans/sahil/socket-unification.md): a new /ws/terminals WebSocket handler consolidating all pane relay connections into one socket per tab, with per-stream bounded queues and a fair scheduler server-side (per spike 2's finding that a shared FIFO causes 1.66s typing latency under flood). Requirements/Decisions lifted from the plan (SChange 2, SProtocol specifications \u003e Terminal socket, D1-D6, Risk register). Evidence: docs/findings/socket-pool-accounting.md + docs/findings/relay-mux-hol.md. PR must target the sockets-v2 branch, not main.","cmd":"fab-new","event":"command","ts":"2026-07-17T05:58:00Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-17T06:00:40Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-17T06:11:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-17T06:11:50Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-17T06:12:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-17T06:47:28Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-17T06:48:19Z"}
+{"event":"review","result":"failed","ts":"2026-07-17T07:14:42Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-17T07:14:42Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-17T07:31:53Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-17T07:32:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-17T07:46:27Z"}
+{"event":"review","result":"passed","ts":"2026-07-17T07:46:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-17T07:58:56Z"}

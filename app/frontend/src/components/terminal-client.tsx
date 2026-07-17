@@ -15,6 +15,7 @@ import { deriveXtermTheme } from "@/themes";
 import { ComposeBuffer } from "@/components/compose-buffer";
 import { copyToClipboard } from "@/lib/clipboard";
 import { notifyFirstWrite } from "@/lib/window-transition";
+import { relayMux, type RelayStream } from "@/lib/relay-mux";
 
 /**
  * Custom ClipboardProvider for the xterm.js ClipboardAddon.
@@ -62,10 +63,6 @@ function unregisterTestTerminal(windowId: string) {
   if (!import.meta.env.DEV || typeof window === "undefined" || !window.__rkTerminals) return;
   delete window.__rkTerminals[windowId];
 }
-
-// Shared encoder for measuring UTF-8 byte length on the inbound flush path
-// (allocated once, not per message).
-const textEncoder = new TextEncoder();
 
 /** Record which renderer is live for `windowId` (read by the latency harness). */
 function setActiveRenderer(windowId: string, renderer: "webgl" | "canvas") {
@@ -509,13 +506,33 @@ export function TerminalClient({
     xtermRef.current.options.theme = deriveXtermTheme(activeTheme.palette);
   }, [activeTheme]);
 
-  // Keep a ref to windowId so the relay URL always reads the latest value
-  // without the WS effect needing to be torn down/rebuilt — this is what
-  // lets same-session window switches ride the existing socket, and what
-  // makes a transient-drop reconnect attach to the window the user is
-  // looking at NOW, not the one from connect time.
+  // Keep a ref to windowId so the stream open op always reads the latest value
+  // without the connect effect needing to be torn down/rebuilt — this is what
+  // lets same-session window switches ride the existing stream. A same-session
+  // ride also pushes the new windowId into the live stream via
+  // stream.setWindowId (the effect below), so a later socket-level reconnect
+  // re-issues `open` for the window the user is looking at NOW, not the one from
+  // connect time (without it, RelayMux would re-open the STALE open-time window
+  // and the server would SelectWindowInSession it, yanking the pane back).
   const windowIdRef = useRef(windowId);
   windowIdRef.current = windowId;
+
+  // The live RelayMux stream handle for the current connection. Held in a ref so
+  // the same-session-ride effect below can update its re-open target without
+  // being a dependency of (and thus re-running) the connect effect.
+  const streamRef = useRef<RelayStream | null>(null);
+
+  // Same-session windowId ride: keep the live stream's re-open target fresh.
+  // The connect effect deliberately does NOT depend on windowId (a same-session
+  // switch rides the existing stream — tmux moves the attached PTY's active
+  // window in place), so this effect is the seam that tells RelayMux the new
+  // windowId for reconnect purposes. A genuine identity change (cross-session /
+  // server / loss) instead bumps connectionEpoch and re-opens a fresh stream,
+  // which carries the current windowId at open time — so this call is redundant
+  // (harmless) there and load-bearing only for the ride.
+  useEffect(() => {
+    streamRef.current?.setWindowId(windowId);
+  }, [windowId]);
 
   // Connection identity — (server, owning session), NOT windowId.
   //
@@ -671,11 +688,6 @@ export function TerminalClient({
     const terminal = xtermRef.current;
 
     let cancelled = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let reconnectDelay = 1000;
-
-    const wsProto =
-      window.location.protocol === "https:" ? "wss:" : "ws:";
 
     // Adaptive write flushing.
     //
@@ -696,7 +708,9 @@ export function TerminalClient({
     // An immediate write therefore only happens when the buffer is empty AND no
     // flush is pending, so a synchronous write can never jump ahead of buffered
     // bytes.
-    let textBuffer = "";
+    // Under the mux, inbound PTY output is always BINARY (the relay's byte
+    // stream, tagged with the stream id and demuxed by RelayMux), so there is no
+    // string-buffer path — every chunk is a Uint8Array.
     let binaryBuffers: Uint8Array[] = [];
     let flushRafId: number | null = null;
     // At most ONE immediate (synchronous) write per animation frame. The flag is
@@ -748,12 +762,8 @@ export function TerminalClient({
       flushRafId = null;
       // An empty flush (e.g. a zero-message connection's close-time drain)
       // must not consume or execute the pending reset — see above.
-      if (!textBuffer && binaryBuffers.length === 0) return;
+      if (binaryBuffers.length === 0) return;
       consumePendingReset();
-      if (textBuffer) {
-        terminal.write(textBuffer);
-        textBuffer = "";
-      }
       for (const buf of binaryBuffers) {
         terminal.write(buf);
       }
@@ -762,26 +772,13 @@ export function TerminalClient({
 
     /** True while we are coalescing — a flush is pending or data is buffered. */
     function isBuffering(): boolean {
-      return flushRafId !== null || textBuffer !== "" || binaryBuffers.length > 0;
+      return flushRafId !== null || binaryBuffers.length > 0;
     }
 
     function scheduleFlush() {
       if (flushRafId === null) {
         flushRafId = requestAnimationFrame(flushToTerminal);
       }
-    }
-
-    /**
-     * UTF-8 byte length of a string, computed only when necessary. Bounds:
-     * UTF-8 bytes ≥ UTF-16 code units (every code unit is ≥1 byte), and ≤ 4×
-     * code units. So if `4 * length <= MAX` it is definitely within the
-     * threshold, and if `length > MAX` it is definitely over — neither needs an
-     * encode. Only the ambiguous middle band pays for `TextEncoder`.
-     */
-    function textByteLength(s: string): number {
-      if (s.length * 4 <= IMMEDIATE_WRITE_MAX_BYTES) return s.length; // ≤ threshold for sure
-      if (s.length > IMMEDIATE_WRITE_MAX_BYTES) return s.length; // ≥ threshold for sure (loose, but > MAX)
-      return textEncoder.encode(s).length;
     }
 
     /** Decide whether an inbound chunk of `len` bytes can be written now. */
@@ -804,76 +801,90 @@ export function TerminalClient({
       }
     }
 
-    function connect() {
+    // Open a muxed stream on the single per-tab terminals socket (RelayMux),
+    // replacing the former per-pane `new WebSocket('/relay/...')`. The stream
+    // handle is surfaced through wsRef as a WebSocket-shaped adapter so the
+    // shell consumers (BottomBar, ComposeBuffer, touch-scroll, fitAndSync) —
+    // which read wsRef.current.{readyState,send,close} — are untouched. The
+    // adapter routes a `{type:"resize"}` JSON send to the stream's resize op and
+    // every other send (keystrokes, SGR, paste) to a binary data frame.
+    //
+    // Socket-level reconnect is owned by RelayMux (one backoff loop for the
+    // whole tab); on reconnect it re-issues `open` for this stream — targeting
+    // the CURRENT windowId (kept fresh via stream.setWindowId on same-session
+    // rides — M1) — the server re-attaches, and stream.onOpened re-arms the
+    // deferred reset, so a transient socket drop repaints flicker-free on the
+    // incoming first data frame WITHOUT a per-pane reconnect timer.
+    // stream.onClosed fires for STREAM-level closes: 4004 → redirect; 4001/1000
+    // → probe ONE fresh re-open (S1 — a gone window then 4004s → redirect, a
+    // transient one re-attaches).
+
+    /** Consume one inbound data chunk through the adaptive write / deferred-reset
+     *  path. Inbound frames are always binary under the mux. */
+    function handleInbound(chunk: Uint8Array) {
       if (cancelled) return;
-      // Arm the deferred reset for this connection (consumed at first-write
-      // time by both write paths — see pendingReset above).
-      pendingReset = true;
-      const wsUrl = `${wsProto}//${window.location.host}/relay/${encodeURIComponent(windowIdRef.current)}?server=${server}`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-      ws.binaryType = "arraybuffer";
+      // First inbound bytes of the incoming window RECEIVED — release any
+      // in-flight window-switch view-transition awaiting the incoming first
+      // paint (260703-l4nf). Fired at receipt time and BEFORE the write/coalesce
+      // decision, because `startViewTransition` suppresses rendering while its
+      // update callback runs and rAF callbacks DO NOT fire during that
+      // suppression — so a write-time release would be structurally
+      // unreleasable and every animated switch would eat the full timeout. This
+      // callback is a macrotask that runs during suppression, and the pending
+      // flush still paints these bytes at the first rendering opportunity. The
+      // receipt source is now the stream's first DATA frame (seam 1 of the
+      // TerminalClient port), replacing the socket's `onmessage`. No-op when no
+      // transition is armed.
+      notifyFirstWrite();
 
-      ws.onopen = () => {
-        if (cancelled) return;
-        reconnectDelay = 1000;
+      if (canWriteImmediately(chunk.length)) {
+        consumePendingReset();
+        terminal.write(chunk);
+        markImmediateWrite();
+        return;
+      }
+      binaryBuffers.push(chunk);
+      scheduleFlush();
+    }
+
+    // The live stream. Held in a mutable local (not a const) because a
+    // stream-level `closed` for a non-4004 reason probes ONE fresh re-open (S1),
+    // which replaces this reference; the adapter + cleanup read `currentStream`.
+    let currentStream: RelayStream;
+    // At most one probe re-open per stream-level close, so a genuinely dead
+    // window (which 4004s the probe) redirects instead of looping.
+    let probedReopen = false;
+
+    /** Open a fresh stream for the CURRENT window and wire its callbacks. */
+    function openAndWire(): RelayStream {
+      const stream = relayMux.openStream({
+        server,
+        windowId: windowIdRef.current,
+        cols: terminal.cols,
+        rows: terminal.rows,
+      });
+      currentStream = stream;
+      streamRef.current = stream;
+
+      // open → opened (seam 2 anchor + seam 4 re-arm): arm the deferred reset for
+      // this (re)connection and re-fit + re-sync the grid. Fires on the initial
+      // open AND every transparent re-open after a socket-level reconnect.
+      stream.onOpened(() => {
+        if (cancelled || streamRef.current !== stream) return;
+        pendingReset = true;
         fitAddonRef.current?.fit();
-        const dims = { cols: terminal.cols, rows: terminal.rows };
-        ws.send(JSON.stringify({ type: "resize", ...dims }));
-      };
+        stream.resize(terminal.cols, terminal.rows);
+      });
 
-      ws.onmessage = (event) => {
-        if (cancelled) return;
+      stream.onData((chunk) => {
+        if (streamRef.current !== stream) return; // superseded by a probe re-open
+        handleInbound(chunk);
+      });
 
-        // First inbound bytes of the incoming window RECEIVED — release any
-        // in-flight window-switch view-transition awaiting the incoming first
-        // paint (260703-l4nf). Fired here, at message-receipt time and BEFORE
-        // the write/coalesce decision, because `startViewTransition` suppresses
-        // rendering while its update callback runs and rAF callbacks DO NOT fire
-        // during that suppression — so a write-time release (the coalesced flush
-        // is rAF-only, and a redraw's first chunk far exceeds the immediate-write
-        // byte threshold) would be structurally unreleasable and every animated
-        // switch would eat the full timeout. `ws.onmessage` is a macrotask that
-        // runs during suppression, and the pending flush still paints these
-        // bytes at the first rendering opportunity — the same rendering update
-        // in which the new state is captured. No-op when no transition is armed.
-        notifyFirstWrite();
+      stream.onClosed((code) => {
+        if (streamRef.current !== stream) return; // stale — a newer stream is live
 
-        if (typeof event.data === "string") {
-          // Idle + small + first-this-frame → write now so an echo paints this
-          // tick. Otherwise (buffering, large chunk, or already wrote this
-          // frame) coalesce into the next frame.
-          //
-          // Measure the threshold in UTF-8 BYTES, not String.length (UTF-16
-          // code units): a multibyte string can be ≤64 code units yet >64 bytes,
-          // which would wrongly take the immediate path and weaken the flood
-          // guard. textByteLength only encodes when the cheap code-unit upper
-          // bound (each UTF-16 unit is ≤3 UTF-8 bytes within the BMP, 4 across a
-          // surrogate pair) leaves the result ambiguous, so the hot path for a
-          // tiny ASCII echo stays allocation-free.
-          if (canWriteImmediately(textByteLength(event.data))) {
-            consumePendingReset();
-            terminal.write(event.data);
-            markImmediateWrite();
-            return;
-          }
-          textBuffer += event.data;
-          scheduleFlush();
-        } else {
-          const chunk = new Uint8Array(event.data);
-          if (canWriteImmediately(chunk.length)) {
-            consumePendingReset();
-            terminal.write(chunk);
-            markImmediateWrite();
-            return;
-          }
-          binaryBuffers.push(chunk);
-          scheduleFlush();
-        }
-      };
-
-      ws.onclose = (event) => {
-        // Flush any buffered data before handling close
+        // Flush any buffered data before handling close.
         if (flushRafId) {
           cancelAnimationFrame(flushRafId);
           flushRafId = null;
@@ -886,45 +897,82 @@ export function TerminalClient({
         try { flushToTerminal(); } catch { /* terminal may be disposed */ }
 
         if (cancelled) return;
-        // 4004 = session or window not found — redirect instead of reconnecting
-        if (event.code === 4004) {
+        // 4004 = session or window not found — redirect, no reconnect.
+        if (code === 4004) {
           terminal.write("\r\n\x1b[91m[session not found]\x1b[0m\r\n");
           onSessionNotFound?.();
           return;
         }
+        // Non-4004 (4001 attach-failed, 1000 graceful/PTY-EOF): the old per-pane
+        // relay printed "[reconnecting…]" and self-healed. RelayMux only re-opens
+        // on a SOCKET drop, not a stream-level close, so probe ONE fresh re-open
+        // here (S1). If the window is genuinely gone the probe 4004s and the
+        // branch above redirects; otherwise it re-attaches. Bounded to one probe
+        // so a hard-failing window can't loop.
+        if (probedReopen) {
+          terminal.write("\r\n\x1b[90m[disconnected]\x1b[0m\r\n");
+          return;
+        }
+        probedReopen = true;
         terminal.write("\r\n\x1b[90m[reconnecting...]\x1b[0m\r\n");
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = null;
-          if (!cancelled) connect();
-        }, reconnectDelay);
-        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-      };
+        openAndWire();
+      });
 
-      ws.onerror = () => {};
+      return stream;
     }
 
-    connect();
+    currentStream = openAndWire();
+
+    // WebSocket-shaped adapter over the current stream handle. Keeps the wsRef
+    // contract ({ readyState, send, close }) the shell consumers depend on. Reads
+    // `currentStream` live so a probe re-open (S1) transparently retargets it.
+    const adapter = {
+      get readyState() {
+        return relayMux.isOpen() ? WebSocket.OPEN : WebSocket.CONNECTING;
+      },
+      send(data: string | ArrayBufferView | ArrayBuffer) {
+        if (typeof data === "string") {
+          // fitAndSync / the font-size effect send a `{type:"resize"}` JSON
+          // string; route it to the stream's resize op. Everything else is
+          // terminal input (keystrokes, SGR scroll, pasted text).
+          if (data.includes('"type":"resize"')) {
+            try {
+              const msg = JSON.parse(data);
+              if (msg?.type === "resize" && msg.cols > 0 && msg.rows > 0) {
+                currentStream.resize(msg.cols, msg.rows);
+                return;
+              }
+            } catch {
+              // fall through — treat as raw input
+            }
+          }
+        }
+        currentStream.send(data);
+      },
+      close() {
+        currentStream.close();
+      },
+    };
+    wsRef.current = adapter as unknown as WebSocket;
 
     return () => {
       cancelled = true;
-      // Neutralize this effect's pending write state. The old socket's
-      // onclose can be delivered asynchronously AFTER this cleanup, and its
-      // drain runs BEFORE the `cancelled` check (deliberately — the
-      // same-effect transient-drop drain must keep working). Without this, a
-      // first chunk still buffered at teardown (rAF cancelled below, reset
-      // unconsumed) would make that orphaned drain reset the shared terminal
-      // and paint stale old-window content — possibly after the successor
-      // effect's connection has already painted. Clearing the flag and
-      // buffers turns the orphaned drain into a no-op via the empty-flush
-      // guard in flushToTerminal.
+      // Neutralize this effect's pending write state. A late inbound chunk or a
+      // close can be delivered asynchronously AFTER this cleanup, and its drain
+      // runs BEFORE the `cancelled` check in some paths. Clearing the flag and
+      // buffers turns any orphaned drain into a no-op via the empty-flush guard
+      // in flushToTerminal.
       pendingReset = false;
-      textBuffer = "";
       binaryBuffers = [];
       if (flushRafId) cancelAnimationFrame(flushRafId);
       if (frameResetRafId) cancelAnimationFrame(frameResetRafId);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (wsRef.current) {
-        wsRef.current.close();
+      // Close the muxed stream (a `close` control op). The tab's single
+      // terminals socket stays open for the other panes.
+      currentStream.close();
+      if (streamRef.current === currentStream) {
+        streamRef.current = null;
+      }
+      if (wsRef.current === (adapter as unknown as WebSocket)) {
         wsRef.current = null;
       }
     };

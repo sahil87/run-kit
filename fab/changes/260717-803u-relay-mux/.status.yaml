@@ -1,0 +1,55 @@
+id: 803u
+name: 260717-803u-relay-mux
+created: 2026-07-17T05:58:00Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 20
+    acceptance_completed: 20
+confidence:
+    certain: 9
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 85.4
+        reversibility: 82.9
+        competence: 88.8
+        disambiguation: 85.4
+stage_metrics:
+    intake: {started_at: "2026-07-17T05:58:00Z", driver: fab-new, iterations: 1, completed_at: "2026-07-17T06:11:50Z"}
+    apply: {started_at: "2026-07-17T07:14:42Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-17T07:31:53Z"}
+    review: {started_at: "2026-07-17T07:31:53Z", driver: fab-fff, iterations: 2, completed_at: "2026-07-17T07:46:27Z"}
+    hydrate: {started_at: "2026-07-17T07:46:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T07:58:56Z"}
+    ship: {started_at: "2026-07-17T07:58:56Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 3406
+    deleted: 1542
+    net: 1864
+    excluding:
+        added: 3020
+        deleted: 1492
+        net: 1528
+    tests:
+        added: 1022
+        deleted: 326
+        net: 696
+    computed_at: "2026-07-17T07:58:56Z"
+    computed_at_stage: hydrate
+summary: Retire /relay/{windowId}; mux all pane relay streams onto one /ws/terminals socket per tab with per-stream bounded queues + a fair HOL scheduler and a RelayMux frontend singleton
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-17T07:58:56Z

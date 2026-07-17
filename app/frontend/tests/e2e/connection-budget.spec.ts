@@ -1,50 +1,56 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
 
-// Connection-budget guard (change 260716-qf3j-state-socket, acceptance A-014).
+// Connection-budget guard (state socket 260716-qf3j + terminals mux 260717-803u).
 //
-// The state-socket migration collapsed the per-server + metrics-only SSE fan-out
-// onto ONE `/ws/state` WebSocket. This spec asserts the user-facing budget
-// invariant across the four route types: each route holds exactly ONE `/ws/state`
-// WebSocket and ZERO `text/event-stream` responses from rk endpoints (the Vite
-// HMR WS and any relay WSs are excluded from the state-socket count). Terminal
-// relay WSs (`/relay/`) are unchanged by this change and are counted separately
-// only to confirm they still open where expected.
+// The socket-unification effort collapsed BOTH stream families onto ONE muxed
+// WebSocket each: session-state + host-metrics ride `/ws/state` (change 1), and
+// ALL terminal pane relays ride `/ws/terminals` (change 2 — this change,
+// retiring the per-pane `/relay/{windowId}` sockets). This spec asserts the
+// user-facing budget invariant across the four route types: a tab holds AT MOST
+// two rk WebSockets total — exactly one `/ws/state` plus (only on routes with
+// live panes) exactly one `/ws/terminals` — and ZERO `text/event-stream`
+// responses from rk endpoints (the Vite HMR WS is excluded by URL). An
+// established WebSocket holds no HTTP/1.1 connection-pool slot, so this is what
+// clears the pool starvation that blocked terminal-relay handshakes on
+// Firefox/WebKit for plaintext origins.
 
 const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 const TEST_SESSION = `e2e-connbudget-${Date.now()}`;
 
-/** True for the state socket URL (`/ws/state`), excluding Vite HMR + relay WSs. */
+/** True for the state socket URL (`/ws/state`), excluding Vite HMR. */
 function isStateSocket(url: string): boolean {
   return /\/ws\/state(\?|$)/.test(url);
 }
 
-/** True for a terminal relay WS (`/relay/{windowId}`). */
-function isRelaySocket(url: string): boolean {
-  return /\/relay\//.test(url);
+/** True for the terminals mux URL (`/ws/terminals`) — one per tab carrying all
+ *  pane streams (replaces the retired per-pane `/relay/{windowId}`). */
+function isTerminalsSocket(url: string): boolean {
+  return /\/ws\/terminals(\?|$)/.test(url);
 }
 
 /** Install WS + response counters on a page. Returns live accessors.
  *
- *  Sockets are counted as (opened − closed), NOT via a URL-keyed Set: `/ws/state`
- *  carries no distinguishing query param, so a Set would dedupe two concurrent
- *  same-URL sockets to 1 and silently pass the budget guard — exactly the failure
- *  a StrictMode double-mount leak or a re-connect-without-close bug would produce.
- *  Counting live sockets makes a duplicate state socket detectable. */
+ *  Sockets are counted as (opened − closed), NOT via a URL-keyed Set: neither
+ *  `/ws/state` nor `/ws/terminals` carries a distinguishing query param, so a
+ *  Set would dedupe two concurrent same-URL sockets to 1 and silently pass the
+ *  budget guard — exactly the failure a StrictMode double-mount leak or a
+ *  reconnect-without-close bug would produce. Counting live sockets makes a
+ *  duplicate detectable. */
 function installCounters(page: Page) {
   let stateOpened = 0;
   let stateClosed = 0;
-  let relayOpened = 0;
-  let relayClosed = 0;
+  let terminalsOpened = 0;
+  let terminalsClosed = 0;
   const eventStreamResponses: string[] = [];
   page.on("websocket", (ws) => {
     const url = ws.url();
     if (isStateSocket(url)) {
       stateOpened++;
       ws.on("close", () => stateClosed++);
-    } else if (isRelaySocket(url)) {
-      relayOpened++;
-      ws.on("close", () => relayClosed++);
+    } else if (isTerminalsSocket(url)) {
+      terminalsOpened++;
+      ws.on("close", () => terminalsClosed++);
     }
   });
   page.on("response", (res) => {
@@ -52,14 +58,14 @@ function installCounters(page: Page) {
     if (ct.includes("text/event-stream")) eventStreamResponses.push(res.url());
   });
   return {
-    // Live (currently-open) state sockets: opened minus closed.
+    // Live (currently-open) sockets: opened minus closed.
     stateSocketCount: () => stateOpened - stateClosed,
-    relaySocketCount: () => relayOpened - relayClosed,
+    terminalsSocketCount: () => terminalsOpened - terminalsClosed,
     eventStreamUrls: () => eventStreamResponses,
   };
 }
 
-test.describe("Connection budget — one /ws/state WS, zero SSE", () => {
+test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", () => {
   test.beforeAll(() => {
     try {
       // A multi-window session so the board/terminal routes have real content.
@@ -80,7 +86,7 @@ test.describe("Connection budget — one /ws/state WS, zero SSE", () => {
     }
   });
 
-  test("the Host home (/) holds exactly one /ws/state WS and zero SSE", async ({ page }) => {
+  test("the Host home (/) holds one /ws/state WS, no terminals WS, and zero SSE", async ({ page }) => {
     test.setTimeout(30_000);
     const c = installCounters(page);
     await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -88,19 +94,24 @@ test.describe("Connection budget — one /ws/state WS, zero SSE", () => {
     await expect(page.getByRole("region", { name: "Host health" })).toBeVisible({ timeout: 15_000 });
     // Give any stray SSE / extra socket a chance to appear before asserting.
     await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
+    // The Host home has no live panes — no terminals socket.
+    expect(c.terminalsSocketCount(), "no terminals WS on the Host home").toBe(0);
     expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
   });
 
-  test("a tmux Server route (/$server) holds exactly one /ws/state WS and zero SSE", async ({ page }) => {
+  test("a tmux Server route (/$server) holds one /ws/state WS, no terminals WS, and zero SSE", async ({ page }) => {
     test.setTimeout(30_000);
     const c = installCounters(page);
     await page.goto(`/${TMUX_SERVER}`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
+    // The server overview renders session tiles (static capture-pane previews),
+    // not live terminals — no terminals socket.
+    expect(c.terminalsSocketCount(), "no terminals WS on the server overview").toBe(0);
     expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
   });
 
-  test("a Terminal route (/$server/$window) holds exactly one /ws/state WS and zero SSE", async ({ page }) => {
+  test("a Terminal route (/$server/$window) holds exactly 2 WS (state + terminals) and zero SSE", async ({ page }) => {
     test.setTimeout(30_000);
     const c = installCounters(page);
     // Resolve the first window id of the test session.
@@ -115,12 +126,14 @@ test.describe("Connection budget — one /ws/state WS, zero SSE", () => {
 
     await page.goto(`/${TMUX_SERVER}/${windowId}`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({ timeout: 15_000 });
-    // The terminal route opens a relay WS in addition to the one state socket.
+    // The terminal route opens the ONE terminals mux socket in addition to the
+    // one state socket — exactly two rk WebSockets total.
     await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
+    await expect.poll(() => c.terminalsSocketCount(), { timeout: 5_000 }).toBe(1);
     expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
   });
 
-  test("a Board route (/board/$name) holds exactly one /ws/state WS and zero SSE", async ({ page, request }) => {
+  test("a Board route (/board/$name) holds exactly 2 WS (state + terminals) and zero SSE", async ({ page, request }) => {
     test.setTimeout(40_000);
     const board = `cb-board-${Date.now().toString().slice(-6)}`;
     // Pin the session's first window to a board so the board route has content.
@@ -140,9 +153,12 @@ test.describe("Connection budget — one /ws/state WS, zero SSE", () => {
       const c = installCounters(page);
       await page.goto(`/board/${board}`, { waitUntil: "domcontentloaded" });
       await expect(page.locator("[aria-label='Connected']").first()).toBeVisible({ timeout: 15_000 });
-      // The board attaches every contributing server over the SINGLE state socket
-      // (this is the exact pool-starvation case the change fixes) — still one WS.
+      // The board attaches every contributing server's STATE over the SINGLE
+      // state socket AND every live pane's terminal I/O over the SINGLE
+      // terminals mux (this is the exact pool-starvation case the effort fixes)
+      // — still exactly two rk WebSockets total, regardless of pane count.
       await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
+      await expect.poll(() => c.terminalsSocketCount(), { timeout: 5_000 }).toBe(1);
       expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
     } finally {
       await request.post(`/api/boards/${board}/unpin`, {

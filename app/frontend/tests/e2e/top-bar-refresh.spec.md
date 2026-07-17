@@ -32,7 +32,7 @@ than by flat wrapper-sibling adjacency.
     `?server=default`; without it the POST would fall through to the real :3020
     backend and issue a live tmux `select-window`, breaking the "no real backend
     reads" guarantee.
-  - the `/relay/` WebSocket is stubbed (accepted and held open) so the terminal
+  - the `/ws/terminals` mux WebSocket is stubbed (accepted and held open) so the terminal
     route mounts without a backend.
 - `beforeEach` installs the routes, navigates to the percent-encoded terminal
   window route `/default/%401` (`@1`), and waits for the **Close pane** button to

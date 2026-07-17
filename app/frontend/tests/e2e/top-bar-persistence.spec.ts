@@ -58,7 +58,7 @@ const sessionsPayload = JSON.stringify([
 ]);
 
 async function mockBackend(page: Page): Promise<void> {
-  await page.routeWebSocket(/\/relay\//, () => {
+  await page.routeWebSocket(/\/ws\/terminals/, () => {
     /* accept, send nothing */
   });
   await page.route("**/api/windows/*/select*", (route) =>

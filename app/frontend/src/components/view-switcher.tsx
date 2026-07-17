@@ -125,18 +125,21 @@ export function ViewSwitcher({ views, active, onSelect }: ViewSwitcherProps) {
  * ViewSwitcherMenuRows — the overflow-menu representation of the ViewSwitcher
  * pill (260717-6anu). When the `view-switcher` registry entry collapses into the
  * top-bar "More controls" chevron menu, the segmented chip is represented as ONE
- * `role="menuitem"` row per available view (`View: Terminal` / `View: Web` /
+ * `role="menuitemradio"` row per available view (`View: Terminal` / `View: Web` /
  * `View: Chat`), following the multi-row `menuRender` precedent (NotificationMenuRows)
  * and the palette's `View:` naming vocabulary. Rows render in the pill's fixed
  * `DISPLAY_ORDER` (tty-first), reusing the same `VIEW_LABEL` map + ordering logic
  * as the pill so bar↔menu can never drift.
  *
  * The ACTIVE view's row is visually marked with the pill's active-segment
- * accent-green treatment and carries `aria-pressed` (matching the in-bar
- * segment's aria), so the menu row keeps the lens-indicator role while the pill
- * is collapsed. Clicking a row calls the same `onSelect(view)` callback the pill
- * uses (the menu's role-keyed click handler closes the panel on a `menuitem`
- * activation). Presentational — owns no view/URL/localStorage logic.
+ * accent-green treatment and carries `aria-checked` (the single-select radio
+ * state supported by `menuitemradio` — `aria-pressed` is NOT valid on a
+ * `menuitem`, so the in-bar pill's toggle-button aria does not carry over
+ * verbatim), so the menu row keeps the lens-indicator role while the pill is
+ * collapsed. Clicking a row calls the same `onSelect(view)` callback the pill
+ * uses (the menu's role-keyed click handler closes the panel on a
+ * `menuitemradio` activation). Presentational — owns no view/URL/localStorage
+ * logic.
  *
  * Styling composes the shared menu-row class variants hosted in
  * `top-bar-overflow-menu.tsx` (`MENU_ROW_BASE` + the resting `MENU_ROW_REST` /
@@ -164,9 +167,9 @@ export function ViewSwitcherMenuRows({
           <button
             key={view}
             type="button"
-            role="menuitem"
+            role="menuitemradio"
             tabIndex={-1}
-            aria-pressed={isActive}
+            aria-checked={isActive}
             onClick={() => onSelect(view)}
             className={`${MENU_ROW_BASE} ${isActive ? MENU_ROW_ACTIVE : MENU_ROW_REST}`}
           >

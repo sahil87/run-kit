@@ -117,29 +117,29 @@ describe("ViewSwitcher", () => {
 });
 
 describe("ViewSwitcherMenuRows (overflow-menu representation, 260717-6anu)", () => {
-  it("renders one `View: {label}` menuitem row per view, tty-first (DISPLAY_ORDER)", () => {
+  it("renders one `View: {label}` menuitemradio row per view, tty-first (DISPLAY_ORDER)", () => {
     // Caller passes HINT_ORDER (web/chat-first); rows render in DISPLAY_ORDER
     // (tty-first), reusing the pill's ordering.
     render(
       <ViewSwitcherMenuRows views={["chat", "web", "tty"]} active="tty" onSelect={() => {}} />,
     );
     const labels = screen
-      .getAllByRole("menuitem")
+      .getAllByRole("menuitemradio")
       .map((b) => b.textContent);
     expect(labels).toEqual(["View: Terminal", "View: Web", "View: Chat"]);
   });
 
-  it("marks the active view's row with the accent-green treatment and aria-pressed", () => {
+  it("marks the active view's row with the accent-green treatment and aria-checked", () => {
     render(
       <ViewSwitcherMenuRows views={["web", "tty"]} active="web" onSelect={() => {}} />,
     );
-    const web = screen.getByRole("menuitem", { name: "View: Web" });
-    const tty = screen.getByRole("menuitem", { name: "View: Terminal" });
-    // Active row: aria-pressed true + inverse-video accent-green class.
-    expect(web.getAttribute("aria-pressed")).toBe("true");
+    const web = screen.getByRole("menuitemradio", { name: "View: Web" });
+    const tty = screen.getByRole("menuitemradio", { name: "View: Terminal" });
+    // Active row: aria-checked true + inverse-video accent-green class.
+    expect(web.getAttribute("aria-checked")).toBe("true");
     expect(web.className).toContain("bg-accent-green");
-    // Inactive row: not pressed, no accent fill.
-    expect(tty.getAttribute("aria-pressed")).toBe("false");
+    // Inactive row: not checked, no accent fill.
+    expect(tty.getAttribute("aria-checked")).toBe("false");
     expect(tty.className).not.toContain("bg-accent-green");
   });
 
@@ -148,9 +148,9 @@ describe("ViewSwitcherMenuRows (overflow-menu representation, 260717-6anu)", () 
     render(
       <ViewSwitcherMenuRows views={["web", "tty"]} active="tty" onSelect={onSelect} />,
     );
-    fireEvent.click(screen.getByRole("menuitem", { name: "View: Web" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "View: Web" }));
     expect(onSelect).toHaveBeenCalledWith("web");
-    fireEvent.click(screen.getByRole("menuitem", { name: "View: Terminal" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "View: Terminal" }));
     expect(onSelect).toHaveBeenCalledWith("tty");
   });
 
@@ -158,7 +158,7 @@ describe("ViewSwitcherMenuRows (overflow-menu representation, 260717-6anu)", () 
     render(
       <ViewSwitcherMenuRows views={["web", "tty"]} active="tty" onSelect={() => {}} />,
     );
-    for (const row of screen.getAllByRole("menuitem")) {
+    for (const row of screen.getAllByRole("menuitemradio")) {
       expect(row.getAttribute("tabindex")).toBe("-1");
     }
   });
@@ -172,7 +172,7 @@ describe("ViewSwitcherMenuRows (overflow-menu representation, 260717-6anu)", () 
         onSelect={() => {}}
       />,
     );
-    const rows = screen.getAllByRole("menuitem");
+    const rows = screen.getAllByRole("menuitemradio");
     // Three rows render (unlisted lens appended, not dropped).
     expect(rows).toHaveLength(3);
     expect(rows[0].textContent).toBe("View: Terminal");
@@ -184,6 +184,6 @@ describe("ViewSwitcherMenuRows (overflow-menu representation, 260717-6anu)", () 
       <ViewSwitcherMenuRows views={["tty"]} active="tty" onSelect={() => {}} />,
     );
     expect(container.firstChild).toBeNull();
-    expect(screen.queryByRole("menuitem")).toBeNull();
+    expect(screen.queryByRole("menuitemradio")).toBeNull();
   });
 });

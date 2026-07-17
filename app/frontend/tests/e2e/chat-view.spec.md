@@ -144,7 +144,7 @@ budget still holds (no wrap, no horizontal page overflow).
 1. Mock the backend with a long `@1` window name (`riff-gallant-jackal-worktree-mobile`); set the viewport to 375×812; navigate to `/default/1?view=chat`.
 2. Assert the `chat-view` is visible (the lens resolved / window loaded).
 3. Assert the in-bar switcher group ("Window view", accessibility-tree query — excludes the aria-hidden measurement probe) has count 0 (the pill overflowed).
-4. Open the "More controls" chevron; assert the menu carries `View: Terminal` and `View: Chat` rows, and the active `View: Chat` row has `aria-pressed="true"`.
+4. Open the "More controls" chevron; assert the menu carries `View: Terminal` and `View: Chat` rows (each a `role="menuitemradio"`), and the active `View: Chat` row has `aria-checked="true"`.
 5. Assert `document.body.scrollWidth <= 375`.
 6. Assert the header's bounding-box height is < 56px (a wrap would ~double it).
 

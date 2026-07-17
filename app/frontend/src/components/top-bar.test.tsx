@@ -1234,13 +1234,13 @@ describe("TopBar", () => {
       // …and the switcher is represented as one `View: {label}` row per view.
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      const ttyRow = within(menu).getByRole("menuitem", { name: "View: Terminal" });
-      const webRow = within(menu).getByRole("menuitem", { name: "View: Web" });
+      const ttyRow = within(menu).getByRole("menuitemradio", { name: "View: Terminal" });
+      const webRow = within(menu).getByRole("menuitemradio", { name: "View: Web" });
       expect(ttyRow).toBeInTheDocument();
       expect(webRow).toBeInTheDocument();
       // The active (tty) row is marked; the inactive (web) row is not.
-      expect(ttyRow).toHaveAttribute("aria-pressed", "true");
-      expect(webRow).toHaveAttribute("aria-pressed", "false");
+      expect(ttyRow).toHaveAttribute("aria-checked", "true");
+      expect(webRow).toHaveAttribute("aria-checked", "false");
       // Clicking a non-active row switches the lens via the same onSelectView.
       act(() => fireEvent.click(webRow));
       expect(onSelectView).toHaveBeenCalledWith("web");
@@ -1251,7 +1251,7 @@ describe("TopBar", () => {
       expect(screen.queryByTestId("view-toggle")).not.toBeInTheDocument();
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      expect(within(menu).queryByRole("menuitem", { name: /^View:/ })).not.toBeInTheDocument();
+      expect(within(menu).queryByRole("menuitemradio", { name: /^View:/ })).not.toBeInTheDocument();
     });
   });
 

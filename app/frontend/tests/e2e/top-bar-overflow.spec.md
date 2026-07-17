@@ -136,10 +136,10 @@ menu rows (active row marked), and clicking a row switches the lens.
 **Steps:**
 1. Navigate to the web-capable window; set 375×800 (the pill is overflowed).
 2. Open the `More controls` chevron menu.
-3. Assert the `View: Terminal` and `View: Web` rows are visible; the default tty
-   lens marks `View: Terminal` `aria-pressed="true"` and `View: Web`
-   `aria-pressed="false"`.
+3. Assert the `View: Terminal` and `View: Web` rows (each a `role="menuitemradio"`)
+   are visible; the default tty lens marks `View: Terminal` `aria-checked="true"`
+   and `View: Web` `aria-checked="false"`.
 4. Click `View: Web`; assert the URL gains `?view=web` and the proxied iframe
    (`title="Proxied content"`) renders.
-5. Assert the chevron menu closed (the `View:` row is a `menuitem` activation, a
-   single-shot menu action).
+5. Assert the chevron menu closed (the `View:` row is a `menuitemradio` activation,
+   a single-shot menu action).

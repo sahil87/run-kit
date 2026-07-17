@@ -234,15 +234,20 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
       ref={containerRef}
       className="relative inline-flex items-center"
       // Close the menu when a TERMINAL menu action fires — i.e. a click that
-      // lands on a `role="menuitem"`/`menuitemcheckbox` control (mirrors
-      // BreadcrumbDropdown's setOpen(false) on select). Deliberately keyed on the
-      // ROLE, not the row wrapper (review S1): the TerminalFont stepper row is a
-      // `role="group"` whose `−`/`+` are plain buttons, so stepping the font does
-      // NOT match and the menu stays open across repeated steps. Checkbox toggles
-      // (fixed-width, autofit) DO close, matching a single-shot menu action.
+      // lands on a `role="menuitem"`/`menuitemcheckbox`/`menuitemradio` control
+      // (mirrors BreadcrumbDropdown's setOpen(false) on select). Deliberately
+      // keyed on the ROLE, not the row wrapper (review S1): the TerminalFont
+      // stepper row is a `role="group"` whose `−`/`+` are plain buttons, so
+      // stepping the font does NOT match and the menu stays open across repeated
+      // steps. Checkbox toggles (fixed-width, autofit) and view-switcher radio
+      // rows (ViewSwitcherMenuRows) DO close, matching a single-shot menu action.
       onClick={(e) => {
         const t = e.target as HTMLElement;
-        if (open && menuRef.current?.contains(t) && t.closest('[role="menuitem"], [role="menuitemcheckbox"]')) {
+        if (
+          open &&
+          menuRef.current?.contains(t) &&
+          t.closest('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]')
+        ) {
           close();
         }
       }}

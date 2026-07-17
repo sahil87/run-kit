@@ -117,8 +117,8 @@ Steps:
 3. Assert the in-bar switcher group ("Window view", accessibility-tree query —
    excludes the aria-hidden measurement probe) has count 0 (the pill overflowed).
 4. Open the "More controls" chevron; assert the menu carries `View: Terminal`
-   and `View: Web` rows, and the active `View: Web` row has `aria-pressed="true"`;
-   close the menu (Escape).
+   and `View: Web` rows (each a `role="menuitemradio"`), and the active
+   `View: Web` row has `aria-checked="true"`; close the menu (Escape).
 5. Assert no horizontal page overflow (`body.scrollWidth <= 375`).
 6. Resize to the desktop viewport (1440×800); assert BOTH inline chip segments
    (web + tty) are visible (space-driven return to the bar).

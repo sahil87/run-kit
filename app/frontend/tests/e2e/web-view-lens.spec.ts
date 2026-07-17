@@ -279,10 +279,10 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await page.getByRole("button", { name: "More controls" }).click();
     const menu = page.getByRole("menu", { name: "More controls" });
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: "View: Terminal" })).toBeVisible();
-    const webRow = menu.getByRole("menuitem", { name: "View: Web" });
+    await expect(menu.getByRole("menuitemradio", { name: "View: Terminal" })).toBeVisible();
+    const webRow = menu.getByRole("menuitemradio", { name: "View: Web" });
     await expect(webRow).toBeVisible();
-    await expect(webRow).toHaveAttribute("aria-pressed", "true");
+    await expect(webRow).toHaveAttribute("aria-checked", "true");
     // Close the menu before the resize assertion.
     await page.keyboard.press("Escape");
 

@@ -376,20 +376,20 @@ test.describe("Top-bar overflow: ViewSwitcher is the first-to-drop candidate (26
     await page.getByRole("button", { name: "More controls" }).click();
     const menu = page.getByRole("menu", { name: "More controls" });
     await expect(menu).toBeVisible();
-    const ttyRow = menu.getByRole("menuitem", { name: "View: Terminal" });
-    const webRow = menu.getByRole("menuitem", { name: "View: Web" });
+    const ttyRow = menu.getByRole("menuitemradio", { name: "View: Terminal" });
+    const webRow = menu.getByRole("menuitemradio", { name: "View: Web" });
     await expect(ttyRow).toBeVisible();
     await expect(webRow).toBeVisible();
     // Default lens is tty → the tty row is the active (marked) one.
-    await expect(ttyRow).toHaveAttribute("aria-pressed", "true");
-    await expect(webRow).toHaveAttribute("aria-pressed", "false");
+    await expect(ttyRow).toHaveAttribute("aria-checked", "true");
+    await expect(webRow).toHaveAttribute("aria-checked", "false");
 
     // Activating the Web row switches the lens: the URL gains `?view=web` and the
     // proxied iframe renders.
     await webRow.click();
     await expect(page).toHaveURL(/\?view=web/, { timeout: 10_000 });
     await expect(page.getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
-    // The `View:` row is a `role="menuitem"` activation, so the chevron menu
+    // The `View:` row is a `role="menuitemradio"` activation, so the chevron menu
     // closes (single-shot menu action) — the pill stays collapsed at 375px.
     await expect(menu).toBeHidden();
   });

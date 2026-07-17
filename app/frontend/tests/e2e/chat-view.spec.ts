@@ -289,10 +289,10 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await page.getByRole("button", { name: "More controls" }).click();
     const menu = page.getByRole("menu", { name: "More controls" });
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: "View: Terminal" })).toBeVisible();
-    const chatRow = menu.getByRole("menuitem", { name: "View: Chat" });
+    await expect(menu.getByRole("menuitemradio", { name: "View: Terminal" })).toBeVisible();
+    const chatRow = menu.getByRole("menuitemradio", { name: "View: Chat" });
     await expect(chatRow).toBeVisible();
-    await expect(chatRow).toHaveAttribute("aria-pressed", "true");
+    await expect(chatRow).toHaveAttribute("aria-checked", "true");
 
     // No horizontal page overflow at 375px even with the long name.
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);

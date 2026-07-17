@@ -57,10 +57,16 @@ func TestSkillEmbedMatchesCanonical(t *testing.T) {
 // A bundle over budget is trying to be a README and taxes every conversation
 // that loads it.
 func TestSkillBundleWithinLineBudget(t *testing.T) {
+	// Count content lines. bytes.Count reports newline characters, so a bundle
+	// without a trailing newline would undercount by one (its final line has no
+	// terminator) — and an undercount makes the check MORE permissive, letting an
+	// over-budget bundle (e.g. 151 lines, no trailing newline) falsely pass. Add
+	// the final non-newline-terminated line back explicitly so the budget holds
+	// regardless of trailing-newline convention.
 	lines := bytes.Count(skillBundle, []byte("\n"))
-	// A trailing newline is conventional; count content lines as newline count
-	// (a final line without a newline would undercount by one, which only makes
-	// the budget stricter — never falsely passes).
+	if len(skillBundle) > 0 && !bytes.HasSuffix(skillBundle, []byte("\n")) {
+		lines++
+	}
 	if lines > skillLineBudget {
 		t.Errorf("skill bundle is %d lines, over the %d-line budget", lines, skillLineBudget)
 	}

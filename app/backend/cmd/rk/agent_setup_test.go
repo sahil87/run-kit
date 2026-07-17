@@ -195,8 +195,8 @@ func TestApplyAgentConfigDeclineDoesNotWrite(t *testing.T) {
 	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
 
 	var out bytes.Buffer
-	// Decline the confirmation.
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("n\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
+	// Decline the confirmation (interactive TTY session simulated by feeding "n").
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("n\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -213,7 +213,7 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
 
 	var out bytes.Buffer
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("install error: %v", err)
 	}
 	written, err := os.ReadFile(path)
@@ -231,7 +231,7 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 
 	// Second install is a no-op: nothing to do, no prompt consumed.
 	out.Reset()
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("second install error: %v", err)
 	}
 	if !strings.Contains(out.String(), "nothing to do") {
@@ -240,12 +240,171 @@ func TestApplyAgentConfigConfirmWritesAndIsIdempotent(t *testing.T) {
 
 	// Uninstall with confirmation clears the rk entries.
 	out.Reset()
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "", true); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "", true, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("uninstall error: %v", err)
 	}
 	after, _ := os.ReadFile(path)
 	if strings.Contains(string(after), rkHookMarkerAgentHook) {
 		t.Errorf("uninstall should remove rk hooks, still present: %s", after)
+	}
+}
+
+// TestApplyAgentConfigYesWritesWithoutPrompt pins Principle 1: --yes lets an
+// agent consent non-interactively. The write happens with EOF stdin (no prompt
+// answer available), which under the interactive path would have declined.
+func TestApplyAgentConfigYesWritesWithoutPrompt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+	var out bytes.Buffer
+	// Empty (EOF) stdin — the interactive path declines on EOF; --yes overrides.
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{yes: true}); err != nil {
+		t.Fatalf("applyAgentConfig --yes error: %v", err)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("--yes must write the settings file without prompting: %v", err)
+	}
+	if !strings.Contains(string(written), rkHookMarkerAgentHook) {
+		t.Errorf("written settings missing rk hook marker: %s", written)
+	}
+	if strings.Contains(out.String(), "skipped") {
+		t.Errorf("--yes should not report a skip, got: %s", out.String())
+	}
+}
+
+// TestApplyAgentConfigDryRunNeverWrites pins Principle 5: --dry-run shows the
+// diff and writes nothing, needing no consent (EOF stdin) — and it wins even
+// when --yes is also set (a preview must never mutate).
+func TestApplyAgentConfigDryRunNeverWrites(t *testing.T) {
+	for _, cons := range []consent{{dryRun: true}, {dryRun: true, yes: true}} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+		var out bytes.Buffer
+		if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, cons); err != nil {
+			t.Fatalf("applyAgentConfig dry-run error (cons=%+v): %v", cons, err)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("dry-run (cons=%+v) must not create the settings file; stat err = %v", cons, err)
+		}
+		// The diff is still rendered (header present) so the operator/agent sees
+		// what WOULD change.
+		if !strings.Contains(out.String(), "will install run-kit agent-state hooks") {
+			t.Errorf("dry-run should still render the diff, got: %s", out.String())
+		}
+		if !strings.Contains(out.String(), "dry run") {
+			t.Errorf("dry-run should note the no-write, got: %s", out.String())
+		}
+	}
+}
+
+// TestApplyAgentConfigNonTTYNoFlagRefuses pins Principle 1's non-TTY clause: a
+// pending write with neither --yes nor --dry-run and a non-TTY stdin (the test
+// default) MUST refuse with an error naming --yes, exit non-zero (surfaced as a
+// returned error), and leave the settings file byte-unchanged — never a
+// success-looking silent no-op, and never a hang on a prompt no one answers.
+func TestApplyAgentConfigNonTTYNoFlagRefuses(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	ac := agentConfig{name: "Test", settingsPath: path, comm: "claude", hooks: claudeHooks()}
+
+	var out bytes.Buffer
+	// consent{} → no flags, stdinIsTTY false (the non-TTY default). A write is
+	// pending (fresh machine), so authorizeWrite must refuse.
+	err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("")), ac, "/opt/homebrew/bin/rk", false, consent{})
+	if err == nil {
+		t.Fatal("non-TTY no-flag run must refuse with an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "--yes") {
+		t.Errorf("refusal error must name --yes, got: %v", err)
+	}
+	// Nothing written — the settings file must not exist.
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Errorf("refusal must not create the settings file; stat err = %v", statErr)
+	}
+	// No "skipped"/"wrote" success line — the refusal is an error, not a no-op.
+	if strings.Contains(out.String(), "wrote") {
+		t.Errorf("refusal must not report a write, got: %s", out.String())
+	}
+}
+
+// TestRemoveLegacySkillConsentVariants pins the two missing removeLegacySkill
+// consent paths: --yes authorizes the os.RemoveAll of a marker-owned legacy
+// rk-display directory (no prompt), and --dry-run leaves it in place (needs no
+// consent, mutates nothing).
+func TestRemoveLegacySkillConsentVariants(t *testing.T) {
+	t.Run("--yes removes the marker-owned directory without prompting", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		skillDir, _ := seedLegacySkill(t, dir, legacyMarkerSkill)
+
+		var out bytes.Buffer
+		// EOF stdin — the interactive path would decline; --yes authorizes.
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac, consent{yes: true}); err != nil {
+			t.Fatalf("removeLegacySkill --yes error: %v", err)
+		}
+		if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
+			t.Errorf("--yes must remove the marker-owned directory, stat err = %v", err)
+		}
+		if !strings.Contains(out.String(), "removed") {
+			t.Errorf("output should note the removal, got: %s", out.String())
+		}
+	})
+
+	t.Run("--dry-run leaves the marker-owned directory in place", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		skillDir, skillPath := seedLegacySkill(t, dir, legacyMarkerSkill)
+
+		var out bytes.Buffer
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac, consent{dryRun: true}); err != nil {
+			t.Fatalf("removeLegacySkill --dry-run error: %v", err)
+		}
+		if _, err := os.Stat(skillDir); err != nil {
+			t.Errorf("--dry-run must leave the directory in place, stat err = %v", err)
+		}
+		if _, err := os.Stat(skillPath); err != nil {
+			t.Errorf("--dry-run must leave the SKILL.md in place, stat err = %v", err)
+		}
+		if !strings.Contains(out.String(), "dry run") {
+			t.Errorf("--dry-run should note the no-op, got: %s", out.String())
+		}
+	})
+}
+
+// TestIsTerminalRejectsNonTTYFiles pins the TTY-detection fix: a char-device
+// check alone (os.ModeCharDevice) treats /dev/null as a terminal, which would
+// make the Principle 1 non-TTY refusal silently not fire for `agent-setup
+// </dev/null` — the exact non-interactive shape an agent uses. term.IsTerminal
+// (a TCGETS ioctl) correctly classifies /dev/null and a pipe as NOT a terminal.
+func TestIsTerminalRejectsNonTTYFiles(t *testing.T) {
+	// /dev/null is a character device but not a terminal.
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open %s: %v", os.DevNull, err)
+	}
+	defer devNull.Close()
+	if isTerminal(devNull) {
+		t.Errorf("isTerminal(%s) = true, want false (a char device is not a terminal)", os.DevNull)
+	}
+
+	// A pipe (os.Pipe) is not a terminal.
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer pr.Close()
+	defer pw.Close()
+	if isTerminal(pr) {
+		t.Error("isTerminal(pipe reader) = true, want false")
+	}
+
+	// A non-*os.File reader (e.g. a test's strings.Reader) is not a terminal.
+	if isTerminal(strings.NewReader("")) {
+		t.Error("isTerminal(strings.Reader) = true, want false")
 	}
 }
 
@@ -512,7 +671,7 @@ func TestRemoveLegacySkill(t *testing.T) {
 		skillDir, skillPath := seedLegacySkill(t, dir, legacyMarkerSkill)
 
 		var out bytes.Buffer
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac); err != nil {
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("y\n")), ac, consent{stdinIsTTY: true}); err != nil {
 			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
@@ -532,7 +691,7 @@ func TestRemoveLegacySkill(t *testing.T) {
 		_, skillPath := seedLegacySkill(t, dir, legacyMarkerSkill)
 
 		var out bytes.Buffer
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("n\n")), ac); err != nil {
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("n\n")), ac, consent{stdinIsTTY: true}); err != nil {
 			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		if _, err := os.Stat(skillPath); err != nil {
@@ -551,7 +710,7 @@ func TestRemoveLegacySkill(t *testing.T) {
 
 		var out bytes.Buffer
 		// Empty reader: a marker-less file must be skipped WITHOUT prompting.
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac); err != nil {
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac, consent{}); err != nil {
 			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		got, _ := os.ReadFile(skillPath)
@@ -567,7 +726,7 @@ func TestRemoveLegacySkill(t *testing.T) {
 		dir := t.TempDir()
 		ac := agentConfig{name: "Test", skillsDir: dir}
 		var out bytes.Buffer
-		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac); err != nil {
+		if err := removeLegacySkill(&out, bufio.NewReader(strings.NewReader("")), ac, consent{}); err != nil {
 			t.Fatalf("removeLegacySkill error: %v", err)
 		}
 		// A fresh machine must produce ZERO rk-display output — not even a
@@ -590,7 +749,7 @@ func TestApplyAgentConfigCleansLegacySkillOnInstall(t *testing.T) {
 
 	var out bytes.Buffer
 	// First "y" confirms the hooks write; second "y" confirms the legacy removal.
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\ny\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\ny\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
@@ -609,7 +768,7 @@ func TestApplyAgentConfigFreshMachineWritesNoSkill(t *testing.T) {
 
 	var out bytes.Buffer
 	// Single "y" confirms the hooks write; no skill prompt should ever be reached.
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if strings.Contains(out.String(), "rk-display") {
@@ -630,7 +789,7 @@ func TestApplyAgentConfigSkipsSkillWhenSkillsDirEmpty(t *testing.T) {
 	// Only the hooks artifact prompts; a single "y" confirms it. If a skill prompt
 	// were reached, the empty tail of the reader would surface as a decline, not a
 	// hang — so we also assert no skill output appears.
-	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false); err != nil {
+	if err := applyAgentConfig(&out, bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if strings.Contains(out.String(), "rk-display") {

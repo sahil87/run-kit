@@ -1,0 +1,57 @@
+id: c424
+name: 260717-c424-toolkit-standards-conformance
+created: 2026-07-17T21:03:05Z
+created_by: sahil-noon
+change_type: chore
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 16
+    acceptance_completed: 16
+confidence:
+    certain: 5
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 87.5
+        competence: 86.3
+        disambiguation: 81.9
+stage_metrics:
+    intake: {started_at: "2026-07-17T21:03:05Z", driver: fab-new, iterations: 1, completed_at: "2026-07-17T21:07:45Z"}
+    apply: {started_at: "2026-07-17T22:06:15Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-17T22:08:34Z"}
+    review: {started_at: "2026-07-17T22:08:34Z", driver: fab-fff, iterations: 3, completed_at: "2026-07-17T22:18:26Z"}
+    hydrate: {started_at: "2026-07-17T22:18:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T22:27:41Z"}
+    ship: {started_at: "2026-07-17T22:27:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T22:31:11Z"}
+    review-pr: {started_at: "2026-07-17T22:31:11Z", driver: git-pr, iterations: 1, completed_at: "2026-07-17T22:45:40Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/383
+change_type_source: explicit
+true_impact:
+    added: 1310
+    deleted: 95
+    net: 1215
+    excluding:
+        added: 560
+        deleted: 82
+        net: 478
+    tests:
+        added: 316
+        deleted: 32
+        net: 284
+    computed_at: "2026-07-17T22:31:11Z"
+    computed_at_stage: ship
+summary: 'Toolkit-standards conformance @ shll v0.0.23: new run-kit/toolkit-standards memory; agent-state agent-setup consent flow (--yes/--dry-run + non-TTY refusal, term.IsTerminal); architecture CLI rows for help-dump captured_at removal + status/doctor --json'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-17T22:45:40Z

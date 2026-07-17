@@ -5,17 +5,23 @@
  * ResizeObserver + child-width reads) lives in the component; this module owns
  * ONLY the arithmetic of "how many leading items fit".
  *
- * The right cluster degrades as a priority+ overflow menu: exempt items
- * (ViewSwitcher, chevron, dot) always render, and the ordered non-exempt items
- * are consumed FROM THE FRONT as width shrinks (L1 drops before L2 before L3 —
- * the caller supplies the widths already in pyramid order). Surviving items
- * keep their positions, so the count returned is the number of LEADING items
- * that fit; the remainder overflow into the menu.
+ * The right cluster degrades as a priority+ overflow menu: the exempt trailing
+ * items (chevron, dot) always render, and the ordered non-exempt items — the
+ * ViewSwitcher is now the FIRST of these (260717-6anu), no longer exempt — are
+ * consumed FROM THE FRONT of the REGISTRY as width shrinks (L1 drops before L2
+ * before L3). This function itself is direction-agnostic: it greedily fits from
+ * index 0 of whatever `itemWidths` array the caller supplies, and returns how
+ * many of THOSE leading entries fit. Because the surviving in-bar set must be a
+ * SUFFIX of the registry order, the TopBar caller passes the widths REVERSED
+ * (L3-end first) and then slices the returned count off the tail — so the
+ * returned N maps to the LAST N registry items, not the leading ones. Keep that
+ * reversal in mind: "leading" here means leading in the array as given, which
+ * the caller has inverted relative to display order.
  */
 
 /**
  * How many of the ordered non-exempt items fit in `availableWidth` once
- * `reservedWidth` (exempt items + chevron + dot + their gaps) is set aside.
+ * `reservedWidth` (the trailing exempt chevron + dot + their gap) is set aside.
  *
  * Items are fit greedily from index 0. A gap of `gap` px is charged BETWEEN
  * rendered items only (n items ⇒ n−1 gaps), matching a flex row's `gap`

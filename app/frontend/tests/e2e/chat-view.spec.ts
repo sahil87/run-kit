@@ -15,8 +15,12 @@ const SERVER = "default";
 const MOBILE = { width: 375, height: 812 };
 
 // Two windows: @1 is a chat-capable claude window; @2 is a plain (no
-// chatProvider) window used to prove the toggle is gated.
-function sessionsPayload(): string {
+// chatProvider) window used to prove the toggle is gated. `winName` overrides
+// @1's window name — the overflow test passes a long worktree-style name so the
+// center heading deterministically claims enough width to push the ViewSwitcher
+// pill (the first overflow-registry candidate, 260717-6anu) into the menu at
+// 375px.
+function sessionsPayload(winName = "agent-win"): string {
   return JSON.stringify([
     {
       name: "dev",
@@ -24,7 +28,7 @@ function sessionsPayload(): string {
         {
           windowId: "@1",
           index: 0,
-          name: "agent-win",
+          name: winName,
           worktreePath: "/tmp/a",
           activity: "active",
           isActiveWindow: true,
@@ -82,7 +86,7 @@ function backfillCleared(): string {
   );
 }
 
-async function mockBackend(page: Page, chatBody: string) {
+async function mockBackend(page: Page, chatBody: string, winName?: string) {
   await page.routeWebSocket(/\/relay\//, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
@@ -98,7 +102,7 @@ async function mockBackend(page: Page, chatBody: string) {
     route.fulfill({
       status: 200,
       headers: { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" },
-      body: `event: sessions\ndata: ${sessionsPayload()}\n\n`,
+      body: `event: sessions\ndata: ${sessionsPayload(winName)}\n\n`,
     }),
   );
   // Dedicated per-view chat stream. The trailing `*` is REQUIRED — the client
@@ -147,14 +151,20 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
   test("the tty|chat switcher appears only on a chatProvider window", async ({ page }) => {
     await mockBackend(page, backfillCleared());
 
-    // @1 is chat-capable → the toggle renders.
+    // @1 is chat-capable → the toggle renders in-bar. Use the accessibility-tree
+    // group locator (name "Window view"), NOT getByTestId: since 260717-6anu the
+    // ViewSwitcher is an overflow-registry candidate, so the aria-hidden
+    // measurement probe ALSO carries a `view-toggle` copy — `getByTestId` would
+    // match two elements (strict-mode violation). `getByRole` excludes the
+    // aria-hidden probe, so it resolves to the single in-bar pill.
     await page.goto(`/${SERVER}/1`);
-    await expect(page.getByTestId("view-toggle")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("group", { name: "Window view" })).toBeVisible({ timeout: 10_000 });
 
-    // @2 has no chatProvider → no toggle.
+    // @2 has no chatProvider → no toggle (single-view → the registry entry is
+    // hidden everywhere, so no in-bar group AND no probe copy).
     await page.goto(`/${SERVER}/2`);
     await expect(page.getByText("plain-win").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("view-toggle")).toHaveCount(0);
+    await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
 
     // Chat-less deep-link degradation: `?view=chat` on @2 is inert — the
     // terminal renders (no chat view, no toggle). The heading is the static
@@ -162,14 +172,16 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await page.goto(`/${SERVER}/2?view=chat`);
     await expect(page.getByText("plain-win").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("chat-view")).toHaveCount(0);
-    await expect(page.getByTestId("view-toggle")).toHaveCount(0);
+    await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
     await expect(page.getByText("Window", { exact: true })).toBeVisible();
   });
 
   test("flipping to chat preserves the window and updates the URL (heading stays `Window:`)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
-    await expect(page.getByTestId("view-toggle")).toBeVisible({ timeout: 10_000 });
+    // Accessibility-tree group locator (excludes the aria-hidden overflow probe
+    // copy, 260717-6anu) — see the switcher-gating test for why not getByTestId.
+    await expect(page.getByRole("group", { name: "Window view" })).toBeVisible({ timeout: 10_000 });
 
     // The heading is a static `Window:` prefix (260714-uco1) — the lens is shown
     // by the ViewSwitcher chip, not the heading.
@@ -191,7 +203,9 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
   test("Ctrl+` toggles tty↔chat (the shipped keyboard binding)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
-    await expect(page.getByTestId("view-toggle")).toBeVisible({ timeout: 10_000 });
+    // Accessibility-tree group locator (excludes the aria-hidden overflow probe
+    // copy, 260717-6anu) — see the switcher-gating test for why not getByTestId.
+    await expect(page.getByRole("group", { name: "Window view" })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("Window", { exact: true })).toBeVisible();
 
     // Ctrl+` (plain Ctrl on both platforms — the VS-Code "toggle terminal"
@@ -254,15 +268,33 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByTestId("chat-pending")).toHaveCount(0, { timeout: 5_000 });
   });
 
-  test("375px top bar stays single-line with the chat toggle (no horizontal overflow)", async ({ page }) => {
-    await mockBackend(page, backfillCleared());
+  test("375px: the chat toggle overflows into the More-controls menu with a long window name (no horizontal overflow)", async ({ page }) => {
+    // 260717-6anu: the ViewSwitcher is the first overflow-registry candidate, so
+    // at phone width with a realistically long window name it yields into the
+    // "More controls" menu (as per-view `View:` rows) to give the heading room —
+    // it no longer stays pinned inline via a `hidden sm:*`-exempt slot.
+    await mockBackend(page, backfillCleared(), "riff-gallant-jackal-worktree-mobile");
     await page.setViewportSize(MOBILE);
     await page.goto(`/${SERVER}/1?view=chat`);
 
-    // The toggle is visible at 375px (unlike its hidden-sm siblings).
-    await expect(page.getByTestId("view-toggle")).toBeVisible({ timeout: 10_000 });
+    // The chat view itself renders (lens resolved), proving the window is loaded.
+    await expect(page.getByTestId("chat-view")).toBeVisible({ timeout: 10_000 });
 
-    // No horizontal page overflow.
+    // The in-bar pill overflowed → `getByRole` (accessibility tree, excludes the
+    // aria-hidden measurement probe) finds no in-bar switcher group.
+    await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
+
+    // The switcher is reachable in the chevron menu as per-view rows, and the
+    // active (chat) row is marked.
+    await page.getByRole("button", { name: "More controls" }).click();
+    const menu = page.getByRole("menu", { name: "More controls" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitemradio", { name: "View: Terminal" })).toBeVisible();
+    const chatRow = menu.getByRole("menuitemradio", { name: "View: Chat" });
+    await expect(chatRow).toBeVisible();
+    await expect(chatRow).toHaveAttribute("aria-checked", "true");
+
+    // No horizontal page overflow at 375px even with the long name.
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE.width);
 

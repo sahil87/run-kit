@@ -13,6 +13,11 @@ localStorage), the tty is always reachable, and switching lenses NEVER mutates
 - **`beforeAll`**: create one dedicated session `e2e-webview-<ts>` (80×24) so this
   file never collides with other specs (Playwright `fullyParallel` is off).
 - **`afterAll`**: kill the session (best-effort) to keep the shared server clean.
+- **`beforeEach`**: set a wide desktop viewport (1440×800). Since `260717-6anu`
+  the `ViewSwitcher` is the first overflow-registry candidate (the widest control,
+  first to yield), so its in-bar chip renders only when the whole terminal cluster
+  fits — the 1280px "Desktop Chrome" default sits at its drop threshold. The
+  in-bar-chip tests therefore run at 1440px; the mobile test overrides to 375px.
 - **`makeWindow(name, {url?, iframeType?})`**: create a window via
   `tmux new-window`, then stamp `@rk_url` and/or `@rk_type=iframe` directly with
   `tmux set-option -w` — the same window-option seam the backend tmux test uses.
@@ -94,17 +99,26 @@ Steps:
 4. Navigate back to A WITHOUT a `?view` param; assert the iframe renders and
    `Web view` is active — the persisted last-view resolved.
 
-### 375px mobile: the switcher chip is visible and the web lens renders
-What it proves: unlike its `hidden sm:*` L1 siblings, the unified `ViewSwitcher`
-is visible at ALL breakpoints (chat/web are primary mobile use cases), and the
-lens itself resolves and renders on mobile without horizontal overflow.
+### 375px mobile: the switcher overflows into the menu with a long name; inline on desktop
+What it proves: since `260717-6anu` the unified `ViewSwitcher` is the first
+overflow-registry candidate, so at 375px with a realistically long window name
+it yields into the "More controls" chevron menu (as per-view `View:` rows) to
+give the center heading room — superseding the former "visible at all
+breakpoints" `hidden sm:*`-exempt contract. It is space-driven, so the pill
+returns to the bar at desktop width; the lens itself still resolves and renders
+on mobile without horizontal overflow.
 Steps:
-1. Set the 375×812 viewport; create a window with `@rk_url`.
+1. Set the 375×812 viewport; create a window with `@rk_url` and a long
+   worktree-style name.
 2. Navigate to `…?view=web` and gate on the **iframe** (not the `Connected`
    dot — that dot is `hidden sm:inline`, so it is `display:none` at 375px and
    never becomes visible; window-heading.spec.ts's mobile test gates on the
-   heading for the same reason). Assert the iframe renders and BOTH chip
-   segments are visible at 375px.
-3. Assert no horizontal page overflow (`body.scrollWidth <= 375`) even with the
-   chip shown.
-4. Resize to desktop (1280×800); assert the chip is still visible.
+   heading for the same reason). Assert the iframe renders.
+3. Assert the in-bar switcher group ("Window view", accessibility-tree query —
+   excludes the aria-hidden measurement probe) has count 0 (the pill overflowed).
+4. Open the "More controls" chevron; assert the menu carries `View: Terminal`
+   and `View: Web` rows (each a `role="menuitemradio"`), and the active
+   `View: Web` row has `aria-checked="true"`; close the menu (Escape).
+5. Assert no horizontal page overflow (`body.scrollWidth <= 375`).
+6. Resize to the desktop viewport (1440×800); assert BOTH inline chip segments
+   (web + tty) are visible (space-driven return to the bar).

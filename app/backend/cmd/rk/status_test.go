@@ -1,8 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"testing"
+
+	"rk/internal/tmux"
+
+	"github.com/spf13/cobra"
 )
 
 // TestStatusJSONShape pins the --json document contract: a JSON array whose
@@ -40,17 +46,23 @@ func TestStatusJSONShape(t *testing.T) {
 	}
 }
 
-// TestStatusJSONEmptyIsArray confirms an empty session list marshals to a JSON
-// array (`[]`), not `null` — a consumer iterating the result must never get a
-// null it has to special-case.
+// TestStatusJSONEmptyIsArray confirms an empty session list makes
+// writeSessionStatusJSON emit a JSON array (`[]`), not `null` — a consumer
+// iterating the result must never get a null it has to special-case. This drives
+// the real emit path (the `make([]statusSession, 0, ...)` slice that guarantees
+// `[]`, and the trailing-newline Fprintln), not a parallel json.Marshal — an
+// empty session list means the window-listing loop never runs, so no tmux
+// subprocess is touched.
 func TestStatusJSONEmptyIsArray(t *testing.T) {
-	empty := make([]statusSession, 0)
-	data, err := json.Marshal(empty)
-	if err != nil {
-		t.Fatalf("marshal empty: %v", err)
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+
+	if err := writeSessionStatusJSON(context.Background(), cmd, "runkit", []tmux.SessionInfo{}); err != nil {
+		t.Fatalf("writeSessionStatusJSON error: %v", err)
 	}
-	if string(data) != "[]" {
-		t.Errorf("empty status JSON = %q, want %q", string(data), "[]")
+	if got := out.String(); got != "[]\n" {
+		t.Errorf("empty status JSON stdout = %q, want %q", got, "[]\n")
 	}
 }
 

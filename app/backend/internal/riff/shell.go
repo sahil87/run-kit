@@ -3,6 +3,8 @@ package riff
 import (
 	"fmt"
 	"strings"
+
+	"rk/internal/tmux"
 )
 
 // buildSkillShellString composes the shell string for a skill-type pane in
@@ -42,22 +44,32 @@ func paneShellString(launcher string, pane PaneSpec) string {
 	return buildCmdShellString(pane.Value)
 }
 
-// sessionTarget returns spec.Session (the `new-window -t` target — creates the
-// window IN that session) or "" when Session is empty (CLI path — unscoped, so
-// the ambient/attached session is used, byte-identical to pre-session behavior).
+// sessionTarget returns the `new-window -t` target that creates the window IN
+// spec.Session — the exact-match session form `=<session>:` (tmux.
+// ExactSessionTarget) — or "" when Session is empty (CLI path — unscoped, so
+// the ambient/attached session is used, byte-identical to pre-session
+// behavior). The exact form is required because new-window's -t is a *window*
+// target: a bare session name is matched against the attached session's window
+// names first, so a window named like the target session would hijack the
+// spawn into the wrong session (the same collision internal/tmux guards its
+// own CreateWindow against).
 func sessionTarget(spec EffectiveSpec) string {
-	return spec.Session
+	if spec.Session == "" {
+		return ""
+	}
+	return tmux.ExactSessionTarget(spec.Session)
 }
 
 // windowTarget returns the tmux target for a NAMED window inside spec.Session:
-// `<session>:<name>` on the daemon path (so split-window/select-layout operate
-// on the correct session's window) or just `<name>` on the CLI path (empty
-// Session → unscoped, byte-identical to pre-session behavior).
+// `=<session>:<name>` on the daemon path (exact-match session part, so
+// split-window/select-layout operate on the correct session's window) or just
+// `<name>` on the CLI path (empty Session → unscoped, byte-identical to
+// pre-session behavior).
 func windowTarget(spec EffectiveSpec, name string) string {
 	if spec.Session == "" {
 		return name
 	}
-	return spec.Session + ":" + name
+	return tmux.ExactSessionTarget(spec.Session) + name
 }
 
 // buildSpawnArgvs returns the ordered tmux argvs (server prefix NOT included —
@@ -67,10 +79,11 @@ func windowTarget(spec EffectiveSpec, name string) string {
 //	[1..N-1]: split-window (one per additional pane)
 //	[-1]: select-layout (skipped when spec.Layout == "")
 //
-// On the daemon path (spec.Session != "") new-window carries `-t <session>` so
-// the window lands in the requested session, and split-window/select-layout
-// target `<session>:<name>`; on the CLI path (empty Session) all targets are
-// unscoped (byte-identical to pre-session behavior).
+// On the daemon path (spec.Session != "") new-window carries `-t =<session>:`
+// (exact-match session form) so the window lands in the requested session, and
+// split-window/select-layout target `=<session>:<name>`; on the CLI path
+// (empty Session) all targets are unscoped (byte-identical to pre-session
+// behavior).
 //
 // The trailing select-pane step is NOT in this slice — the pane id is a runtime
 // value; the orchestrator constructs that argv from the captured pane id. Pure.
@@ -108,8 +121,9 @@ func buildSpawnArgvs(worktreePath, resolvedName string, spec EffectiveSpec) [][]
 // `tmux new-window -P -F '#{pane_id}' …` for the first pane. The `-P -F` capture
 // prints the new pane id (e.g. `%87`) so the orchestrator can target the final
 // select-pane by pane id rather than a hardcoded `.0` index. On the daemon path
-// it carries `-t <session>` so the window is created in the requested session;
-// on the CLI path (empty Session) the target is unscoped. Pure.
+// it carries `-t =<session>:` (exact-match session form) so the window is
+// created in the requested session; on the CLI path (empty Session) the target
+// is unscoped. Pure.
 func buildNewWindowCaptureArgs(worktreePath, resolvedName string, spec EffectiveSpec) []string {
 	argv := []string{
 		"new-window",

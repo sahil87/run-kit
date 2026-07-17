@@ -94,6 +94,21 @@ export function entryKey(server: string, windowId: string): string {
   return `${server}:${windowId}`;
 }
 
+/**
+ * How long an unclaimed ghost window survives before being dropped.
+ *
+ * A ghost is claimed only when a NEW windowId arrives for its (server,
+ * session) via SSE (setWindowsForSession). If the create request fails, the
+ * caller's rollback removes the ghost — but if the create *succeeds somewhere
+ * else* (e.g. a tmux target ambiguity routes the window into a different
+ * session, the 2026-07-17 "ext" misroute), no rollback fires and no claim ever
+ * arrives, and the row would pulse grey forever. The TTL bounds that failure
+ * mode: an ordinary create confirms within one SSE tick (~1-2s), so 15s is
+ * comfortably past any legitimate claim while still self-healing a stranded
+ * row. Removing an already-claimed/rolled-back ghost is a no-op.
+ */
+export const GHOST_WINDOW_TTL_MS = 15_000;
+
 let ghostIdCounter = 0;
 
 export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set, get) => ({
@@ -217,6 +232,12 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
 
       return { ghosts: [...state.ghosts, ghost] };
     });
+
+    // TTL backstop — see GHOST_WINDOW_TTL_MS. removeGhost is idempotent, so a
+    // timer firing after the ghost was claimed or rolled back is a no-op.
+    setTimeout(() => {
+      get().removeGhost(optimisticId);
+    }, GHOST_WINDOW_TTL_MS);
 
     return optimisticId;
   },

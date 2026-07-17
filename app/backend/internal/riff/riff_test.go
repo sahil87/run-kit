@@ -1050,7 +1050,7 @@ func TestBuildSpawnArgvs(t *testing.T) {
 		}
 	})
 
-	t.Run("daemon path (session → -t <session> on new-window, <session>:<name> on split/layout)", func(t *testing.T) {
+	t.Run("daemon path (session → -t =<session>: on new-window, =<session>:<name> on split/layout)", func(t *testing.T) {
 		spec := EffectiveSpec{
 			Panes: []PaneSpec{
 				{Kind: PaneKindSkill, Value: "/a"},
@@ -1064,10 +1064,10 @@ func TestBuildSpawnArgvs(t *testing.T) {
 		if len(got) != 3 {
 			t.Fatalf("got %d argvs, want 3 (new-window + split-window + select-layout)", len(got))
 		}
-		// new-window carries `-t work` so the window lands in the requested session.
+		// new-window carries `-t =work:` (exact-session form) so the window lands in the requested session.
 		wantNewWindow := []string{
 			"new-window",
-			"-t", "work",
+			"-t", "=work:",
 			"-n", name,
 			"-c", worktree,
 			paneShellString(launcher, spec.Panes[0]),
@@ -1075,18 +1075,18 @@ func TestBuildSpawnArgvs(t *testing.T) {
 		if !reflect.DeepEqual(got[0], wantNewWindow) {
 			t.Errorf("new-window argv =\n  %#v\nwant\n  %#v", got[0], wantNewWindow)
 		}
-		// split-window + select-layout target the session-scoped window `work:<name>`.
+		// split-window + select-layout target the session-scoped window `=work:<name>`.
 		wantSplit := []string{
 			"split-window",
 			"-h",
-			"-t", "work:" + name,
+			"-t", "=work:" + name,
 			"-c", worktree,
 			paneShellString(launcher, spec.Panes[1]),
 		}
 		if !reflect.DeepEqual(got[1], wantSplit) {
 			t.Errorf("split-window argv =\n  %#v\nwant\n  %#v", got[1], wantSplit)
 		}
-		wantLayout := []string{"select-layout", "-t", "work:" + name, "even-horizontal"}
+		wantLayout := []string{"select-layout", "-t", "=work:" + name, "even-horizontal"}
 		if !reflect.DeepEqual(got[2], wantLayout) {
 			t.Errorf("select-layout argv =\n  %#v\nwant\n  %#v", got[2], wantLayout)
 		}
@@ -1195,7 +1195,7 @@ func TestBuildNewWindowCaptureArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("daemon path (session → -t <session> creates window in it)", func(t *testing.T) {
+	t.Run("daemon path (session → -t =<session>: creates window in it)", func(t *testing.T) {
 		spec := EffectiveSpec{
 			Panes:    []PaneSpec{{Kind: PaneKindSkill, Value: "/fab-discuss"}},
 			Layout:   "",
@@ -1207,7 +1207,7 @@ func TestBuildNewWindowCaptureArgs(t *testing.T) {
 			"new-window",
 			"-P",
 			"-F", "#{pane_id}",
-			"-t", "work",
+			"-t", "=work:",
 			"-n", "riff-alpha",
 			"-c", "/tmp/wt/alpha",
 			shell,

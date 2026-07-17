@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { useWindowStore, entryKey } from "./window-store";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { useWindowStore, entryKey, GHOST_WINDOW_TTL_MS } from "./window-store";
 import type { WindowInfo } from "@/types";
 
 const SRV = "test";
@@ -208,6 +208,46 @@ describe("window-store", () => {
 
       const ghost = useWindowStore.getState().ghosts[0];
       expect(ghost.snapshotWindowIds.size).toBe(0);
+    });
+  });
+
+  describe("ghost TTL", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("drops an unclaimed ghost after GHOST_WINDOW_TTL_MS", () => {
+      const { addGhostWindow } = getStore();
+      addGhostWindow(SRV, "alpha", "new-win");
+      expect(useWindowStore.getState().ghosts).toHaveLength(1);
+
+      vi.advanceTimersByTime(GHOST_WINDOW_TTL_MS - 1);
+      expect(useWindowStore.getState().ghosts).toHaveLength(1);
+
+      vi.advanceTimersByTime(1);
+      expect(useWindowStore.getState().ghosts).toHaveLength(0);
+    });
+
+    it("expiry of an already-claimed ghost is a no-op for later ghosts", () => {
+      const { addGhostWindow, setWindowsForSession } = getStore();
+      addGhostWindow(SRV, "alpha", "first");
+      // A new windowId arrives → the ghost is claimed (removed) by reconciliation.
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@9", index: 0 })]);
+      expect(useWindowStore.getState().ghosts).toHaveLength(0);
+
+      // A second ghost added later must survive the FIRST ghost's timer firing.
+      vi.advanceTimersByTime(GHOST_WINDOW_TTL_MS - 1000);
+      getStore().addGhostWindow(SRV, "alpha", "second");
+      vi.advanceTimersByTime(1000); // first ghost's timer fires here
+      expect(useWindowStore.getState().ghosts).toHaveLength(1);
+      expect(useWindowStore.getState().ghosts[0].name).toBe("second");
+
+      // The second ghost still expires on its own schedule.
+      vi.advanceTimersByTime(GHOST_WINDOW_TTL_MS);
+      expect(useWindowStore.getState().ghosts).toHaveLength(0);
     });
   });
 

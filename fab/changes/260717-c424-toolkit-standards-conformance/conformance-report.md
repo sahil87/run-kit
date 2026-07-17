@@ -13,7 +13,7 @@ skill              binary+repo  Agent skill bundle standard: docs/site/skill.md 
 
 > Version drift note: shll moved `v0.0.23` → `v0.1.0` between the audit and this review. The cited rules (principles, help-dump, readme-extraction, skill) were spot-checked and are unchanged across that bump, so every claim in this report stays pinned at the audited **`shll v0.0.23`**.
 
-> Note: "fixed here" gaps are fixed in this change's working tree; the commit SHA is added by the ship stage when the branch is committed.
+> Note: all "fixed here" gaps in this report are committed in a single commit on this branch: `60e96d75` ("chore: Toolkit standards conformance @ shll v0.0.23").
 
 ---
 

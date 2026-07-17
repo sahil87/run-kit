@@ -25,7 +25,7 @@ segment flips into chat, and the shipped `Ctrl+\`` binding toggles tty↔chat.
   - `**/api/windows/*/chat/stream*` → a `text/event-stream` body carrying a
     `chat-backfill` (and, per test, a `chat-state`). The trailing `*` is required
     because the client appends `?server=`.
-  - The relay WebSocket is stubbed.
+  - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `backfillWithPending()` — a backfill with a user message, an assistant
   markdown message, a `tool_use`/`tool_result` pair, and a tail pending question.
 - `backfillCleared()` — a backfill with two plain messages and a `chat-state`

@@ -88,7 +88,7 @@ function backfillCleared(): string {
 }
 
 async function mockBackend(page: Page, chatBody: string, winName?: string) {
-  await page.routeWebSocket(/\/relay\//, () => {});
+  await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );

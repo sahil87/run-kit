@@ -27,7 +27,7 @@ renders its error in-dialog without navigating.
     presets GET, which also matches this glob, is not swallowed); captures the
     request body and fulfills with the mock's status/body. **Trailing `*`** for
     the same appended-`?server=` reason.
-  - The relay WebSocket is stubbed.
+  - The terminals mux WebSocket (`/ws/terminals`) is stubbed.
 - `BUILTIN_TIERS` mirrors the backend's `fabconfig.BuiltinTiers`
   (`default, doing, fast, operator, review`); the presets mock returns these as
   `tiers` unless a test overrides them.

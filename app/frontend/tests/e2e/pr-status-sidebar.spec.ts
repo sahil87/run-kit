@@ -58,10 +58,11 @@ const SCRATCH_WINDOW_URL = `/${SERVER}/2`; // @2 — scratch window, no PR
 
 /** Install routes that fully mock the server list and the SSE sessions stream. */
 async function mockBackend(page: Page) {
-  // Stub the relay WebSocket so the terminal route mounts without a backend —
+  // Stub the terminals mux WebSocket (/ws/terminals — the per-pane /relay/
+  // socket was retired in 260717-803u) so the terminal route mounts without a backend —
   // the Pane panel lives in the sidebar and renders regardless, but stubbing
-  // the WS keeps the page from churning on failed relay reconnects.
-  await page.routeWebSocket(/\/relay\//, () => {
+  // the WS keeps the page from churning on failed stream reconnects.
+  await page.routeWebSocket(/\/ws\/terminals/, () => {
     /* accept and hold the socket open; send nothing */
   });
 

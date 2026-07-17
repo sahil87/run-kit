@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-17T19:34:46Z"}
+{"args":"Task: Amend this repo's fab constitution to bind it to the sahil87 toolkit standards. Add a Toolkit Standards article under Additional Constraints in fab/project/constitution.md (standards enumerated by `shll standards`, canonical source sahil87/shll docs/site/standards/, rendered on https://shll.ai), bump Last Amended date and version. Do NOT copy standard names/counts/URLs into the constitution. Docs-type fab change -\u003e PR. No conformance fixes in scope.","cmd":"fab-new","event":"command","ts":"2026-07-17T19:34:46Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-17T19:36:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-17T19:39:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-17T19:39:32Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-17T19:40:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-17T19:41:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-17T19:46:45Z"}
+{"event":"review","result":"passed","ts":"2026-07-17T19:46:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-17T19:47:48Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-07-17T19:49:37Z"}
+{"event":"review","result":"passed","ts":"2026-07-17T19:57:10Z"}

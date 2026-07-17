@@ -1,0 +1,56 @@
+id: zn03
+name: 260717-zn03-constitution-toolkit-standards
+created: 2026-07-17T19:34:46Z
+created_by: sahil-noon
+change_type: docs
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 2
+    acceptance_count: 5
+    acceptance_completed: 5
+confidence:
+    certain: 6
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 83.6
+        reversibility: 89.3
+        competence: 90.7
+        disambiguation: 85.7
+stage_metrics:
+    intake: {started_at: "2026-07-17T19:34:46Z", driver: fab-new, iterations: 1, completed_at: "2026-07-17T19:39:32Z"}
+    apply: {started_at: "2026-07-17T19:39:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T19:41:38Z"}
+    review: {started_at: "2026-07-17T19:41:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T19:46:45Z"}
+    hydrate: {started_at: "2026-07-17T19:46:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T19:47:48Z"}
+    ship: {started_at: "2026-07-17T19:47:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T19:49:37Z"}
+    review-pr: {started_at: "2026-07-17T19:49:37Z", driver: git-pr, iterations: 1, completed_at: "2026-07-17T19:57:10Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/379
+change_type_source: explicit
+true_impact:
+    added: 241
+    deleted: 1
+    net: 240
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-17T19:49:37Z"
+    computed_at_stage: ship
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-17T19:57:10Z
